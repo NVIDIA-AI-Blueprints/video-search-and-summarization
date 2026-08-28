@@ -20,7 +20,7 @@ Gateway protocol notes (discovered empirically against OpenClaw 2026.6.10):
   - sessions.messages.subscribe takes {"key": ...}, chat.send takes
     {"sessionKey", "message", "idempotencyKey"}
 """
-import io, ipaddress, json, os, queue, re, shutil, socket, subprocess, tarfile, threading, time, urllib.request, uuid
+import io, ipaddress, json, os, queue, re, select, shutil, socket, subprocess, tarfile, threading, time, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import websocket
 
@@ -360,7 +360,80 @@ def sse(data: str) -> bytes:
 # transcribing them into chat text (2.5). The agent's own HTTP call carries no
 # conversation id, so this is a single most-recent slot rather than per-session:
 # fine for a single-user POC, and the staleness window keeps it honest.
-_LAST_SEARCH: dict = {"at": 0.0, "query": None, "payload": None}
+_LAST_SEARCH: dict = {"at": 0.0, "query": None, "payload": None,
+                      "conversation": None}
+# Which conversations have a turn in flight. A search arrives from the sandbox
+# on its own connection with no conversation of its own, so it is attributed to
+# the turn that must have caused it. With more than one in flight that is a
+# guess, and guessing here would hand one user another user's media -- so it is
+# left unattributed and simply not served.
+_ACTIVE_TURNS: dict = {}
+_ACTIVE_LOCK = threading.Lock()
+
+
+class Turn:
+    """Cancellation handle for one in-flight turn.
+
+    Checking a flag between stream iterations is not enough: when the agent is
+    silent the driver sits blocked in a socket read and never reaches the
+    check, so an abandoned turn would run until ADAPTER_TURN_TIMEOUT. Drivers
+    therefore register their upstream connection here, and cancelling closes it
+    -- which makes the blocked read raise at once.
+    """
+
+    def __init__(self):
+        self._event = threading.Event()
+        self._closables: list = []
+        self._lock = threading.Lock()
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+    def register(self, closable) -> None:
+        with self._lock:
+            if self._event.is_set():
+                self._close(closable)   # cancelled between open and register
+                return
+            self._closables.append(closable)
+
+    def set(self) -> None:
+        self._event.set()
+        with self._lock:
+            pending, self._closables = self._closables, []
+        for c in pending:
+            self._close(c)
+
+    @staticmethod
+    def _close(closable) -> None:
+        try:
+            closable.close()
+        except Exception:  # noqa: BLE001 - closing a dead socket is fine
+            pass
+
+
+def _begin_turn(session_key):
+    with _ACTIVE_LOCK:
+        _ACTIVE_TURNS[session_key] = _ACTIVE_TURNS.get(session_key, 0) + 1
+
+
+def _end_turn(session_key):
+    with _ACTIVE_LOCK:
+        n = _ACTIVE_TURNS.get(session_key, 0) - 1
+        if n > 0:
+            _ACTIVE_TURNS[session_key] = n
+        else:
+            _ACTIVE_TURNS.pop(session_key, None)
+
+
+def _sole_active_conversation():
+    """The conversation to attribute a search to, or None if ambiguous."""
+    with _ACTIVE_LOCK:
+        keys = list(_ACTIVE_TURNS)
+    if len(keys) != 1:
+        return None
+    key = keys[0]
+    prefix = SESSION_PREFIX + "-"
+    return key[len(prefix):] if key.startswith(prefix) else key
 _LAST_SEARCH_TTL = 180.0
 
 
@@ -488,7 +561,8 @@ def run_search(body):
     if isinstance(payload, dict) and not payload.get("data"):
         payload["diagnostics"] = _empty_result_diagnostics()
     elif isinstance(payload, dict):
-        _LAST_SEARCH.update(at=time.monotonic(), query=query, payload=payload)
+        _LAST_SEARCH.update(at=time.monotonic(), query=query, payload=payload,
+                            conversation=_sole_active_conversation())
     return 200, payload
 
 
@@ -528,6 +602,8 @@ def run_turn_responses(message, session_key, out, cancel=None, *,
     sentinels = SentinelFilter()
     try:
         with urllib.request.urlopen(req, timeout=TURN_TIMEOUT) as resp:
+            if cancel is not None:
+                cancel.register(resp)
             for raw in resp:
                 # The reader is the only thing holding the upstream turn open;
                 # if the browser is gone, stop rather than burning gateway and
@@ -552,8 +628,9 @@ def run_turn_responses(message, session_key, out, cancel=None, *,
         if tail:
             out.put(sse(json.dumps({"choices": [{"delta": {"content": tail}}]})))
     except Exception as exc:  # noqa: BLE001 - POC: surface everything to the UI
-        out.put(sse(json.dumps({"choices": [{"delta": {
-            "content": f"\n[adapter/{label}] {type(exc).__name__}: {exc}"}}]})))
+        if cancel is None or not cancel.is_set():
+            out.put(sse(json.dumps({"choices": [{"delta": {
+                "content": f"\n[adapter/{label}] {type(exc).__name__}: {exc}"}}]})))
     finally:
         out.put(sse("[DONE]"))
         out.put(None)
@@ -602,6 +679,8 @@ def run_turn_hermes(message, session_key, out, cancel=None):
     step = 0
     try:
         with urllib.request.urlopen(req, timeout=TURN_TIMEOUT) as resp:
+            if cancel is not None:
+                cancel.register(resp)
             for raw in resp:
                 # The reader is the only thing holding the upstream turn open;
                 # if the browser is gone, stop rather than burning gateway and
@@ -664,6 +743,8 @@ def run_turn(message: str, session_key: str, out: queue.Queue, cancel=None):
     ws = None
     try:
         ws = websocket.create_connection(GATEWAY_URL, timeout=15)
+        if cancel is not None:
+            cancel.register(ws)
         ws.settimeout(TURN_TIMEOUT)
         ws.recv()  # connect.challenge
 
@@ -793,6 +874,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _client_gone(self) -> bool:
+        """True once the peer has closed its end (readable with no data)."""
+        try:
+            ready, _, _ = select.select([self.connection], [], [], 0)
+            if not ready:
+                return False
+            return self.connection.recv(1, socket.MSG_PEEK) == b""
+        except OSError:
+            return True
+
     def _json(self, obj, code=200):
         body = json.dumps(obj, indent=1).encode()
         self.send_response(code)
@@ -832,8 +923,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/v1/search/last":
+            # Scoped to the asking conversation: this result is media from
+            # someone's video, and the store is process-wide.
+            asked = _query_param(self.path, "conversation")
+            owner = _LAST_SEARCH["conversation"]
             fresh = time.monotonic() - _LAST_SEARCH["at"] < _LAST_SEARCH_TTL
-            if fresh and _LAST_SEARCH["payload"]:
+            if fresh and _LAST_SEARCH["payload"] and asked and owner == asked:
                 self._json({"query": _LAST_SEARCH["query"],
                             **_LAST_SEARCH["payload"]})
             else:
@@ -974,28 +1069,41 @@ class Handler(BaseHTTPRequestHandler):
         # forever once the consumer is gone -- a wedged thread in place of a
         # short-lived queue.
         out: queue.Queue = queue.Queue()
-        cancel = threading.Event()
+        cancel = Turn()
+        _begin_turn(session_key)
         threading.Thread(target=driver, args=(user, session_key, out, cancel),
                          daemon=True).start()
-        while True:
-            try:
-                chunk = out.get(timeout=SSE_KEEPALIVE)
-            except queue.Empty:
-                # SSE comment: ignored by every client, keeps proxies from
-                # dropping a stream that is silent while a skill runs.
-                chunk = b": keepalive\n\n"
-            if chunk is None:
-                break
-            try:
-                self.wfile.write(chunk)
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                # Tell the driver to abandon the turn; otherwise it keeps the
-                # upstream turn alive and writing until TURN_TIMEOUT.
-                cancel.set()
-                print("[adapter] client disconnected; cancelling turn",
-                      flush=True)
-                break
+        try:
+            while True:
+                # Detect the client leaving directly rather than waiting for a
+                # write to fail. A browser closing sends FIN, and writing to a
+                # half-closed socket still succeeds -- so a write-error check
+                # can miss a departed client for a long time, or entirely.
+                if self._client_gone():
+                    cancel.set()
+                    print("[adapter] client disconnected; cancelling turn",
+                          flush=True)
+                    break
+                try:
+                    chunk = out.get(timeout=SSE_KEEPALIVE)
+                except queue.Empty:
+                    # SSE comment: ignored by every client, keeps proxies from
+                    # dropping a stream that is silent while a skill runs.
+                    chunk = b": keepalive\n\n"
+                if chunk is None:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    # Tell the driver to abandon the turn; otherwise it keeps
+                    # the upstream turn alive and writing until TURN_TIMEOUT.
+                    cancel.set()
+                    print("[adapter] client disconnected; cancelling turn",
+                          flush=True)
+                    break
+        finally:
+            _end_turn(session_key)
 
 
 if __name__ == "__main__":
