@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, List
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class ModelInfoEntry:
@@ -112,12 +114,21 @@ def generate_cam_info_files(
 
         sensor_id = sensor.get("id")
         camera_matrix = sensor.get("cameraMatrix")
+        K, Rt = sensor.get("intrinsicMatrix"), sensor.get("extrinsicMatrix")
         if not isinstance(sensor_id, str) or not sensor_id:
             raise ValueError("Encountered camera sensor with missing/invalid 'id'.")
-        if camera_matrix is None:
+        if camera_matrix is None and (K is None or Rt is None):
             raise ValueError(f"Sensor '{sensor_id}' is missing 'cameraMatrix'.")
 
-        flattened_projection = _flatten_camera_matrix(camera_matrix, sensor_id)
+        # Prefer K @ Rt: a precomputed cameraMatrix can be a degenerate fit, exact on
+        # its own correspondences yet badly wrong elsewhere. tolist() because numpy 2.x
+        # reprs a scalar as "np.float64(1.0)".
+        if K is not None and Rt is not None:
+            P = np.array(K, dtype=float) @ np.array(Rt, dtype=float)
+            P /= P[-1, -1]
+            flattened_projection = [_format_number(v) for v in P.ravel().tolist()]
+        else:
+            flattened_projection = _flatten_camera_matrix(camera_matrix, sensor_id)
         rendered_yaml = _render_cam_info_yaml(flattened_projection, model_entries)
 
         out_path = output_dir / f"{sensor_id}.yml"
