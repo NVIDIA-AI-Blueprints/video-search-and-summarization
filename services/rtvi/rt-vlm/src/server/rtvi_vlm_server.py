@@ -906,7 +906,7 @@ class RTVIServer:
             creation_time=None,
         )
 
-        self._asset_manager._asset_map[file_id] = asset
+        self._asset_manager._publish_asset(asset)
         return file_id, len(media_data), file_path
 
     async def _register_data_url_asset(
