@@ -52,8 +52,22 @@ class ModelArtifact:
 
 
 def resolve_config_path(path_value: str | Path) -> Path:
-    """Expand ``~`` / ``~user`` and resolve symlinks for MCP YAML paths."""
-    return Path(path_value).expanduser().resolve()
+    """Expand ``$VAR``, ``~`` / ``~user`` and resolve symlinks for MCP YAML paths.
+
+    Environment variables are expanded before ``~`` so the shipped config can
+    anchor on ``${VSS_REPO_DIR}`` instead of the home directory. ``~`` resolves
+    against ``$HOME`` of the ``nat mcp serve`` process, which is not necessarily
+    the parent of the intended checkout -- the notebook documents running with a
+    checkout elsewhere, and the skill-eval harness reassigns ``HOME`` outright.
+    An unset variable is an error rather than a path resolved against the cwd.
+    """
+    expanded = os.path.expandvars(str(path_value))
+    if "$" in expanded:
+        raise RuntimeError(
+            f"Unresolved environment variable in MCP config path: {path_value!r} "
+            f"-> {expanded!r}. Set it in the environment of the MCP server process."
+        )
+    return Path(expanded).expanduser().resolve()
 
 
 def resolve_required_absolute_file(
