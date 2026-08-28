@@ -23,6 +23,26 @@ def test_resolve_ipc_socket_path_uses_camera_id_template():
     ) == "/shared/ipc/nvds_ipc_uniqueSensorID1.sock"
 
 
+@pytest.mark.parametrize("template", ["nvds_ipc_{sensor_id}.sock", "nvds_ipc_{stream_id}.sock"])
+def test_resolve_ipc_socket_path_accepts_supported_identity_templates(template):
+    assert ipc_frame_source.resolve_ipc_socket_path(
+        "camera-1", socket_dir="/tmp", socket_template=template
+    ).startswith("/tmp/nvds_ipc_camera-1")
+
+
+@pytest.mark.parametrize(
+    ("template", "message"),
+    [
+        ("nvds_ipc.sock", "must include"),
+        ("nvds_ipc_{unknown}.sock", "unsupported placeholder"),
+        ("nvds_ipc_{{camera_id}}.sock", "must include"),
+    ],
+)
+def test_resolve_ipc_socket_path_rejects_identity_free_or_unknown_templates(template, message):
+    with pytest.raises(ValueError, match=message):
+        ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_dir="/tmp", socket_template=template)
+
+
 @pytest.mark.parametrize("identity", ["", "../bad/sensor id", "cam/1", "camera id"])
 def test_resolve_ipc_socket_path_rejects_unsafe_identity(identity):
     with pytest.raises(ValueError, match="IPC stream identity"):

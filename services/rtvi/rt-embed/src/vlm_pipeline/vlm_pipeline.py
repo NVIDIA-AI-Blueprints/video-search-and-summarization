@@ -2408,7 +2408,7 @@ class VlmPipeline:
             "--ipc-socket-template",
             type=str,
             default="nvds_ipc_{camera_id}.sock",
-            help="Socket filename template; supports {camera_id}, {sensor_id}, and {stream_id}",
+            help="Socket filename template; must include {camera_id}, {sensor_id}, or {stream_id}",
         )
 
 
