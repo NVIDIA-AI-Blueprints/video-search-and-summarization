@@ -76,10 +76,8 @@ export * from './utils/app/helper';
 export {
   copyToClipboard,
   formatTimestamp,
-  getUploadUrl,
   chunkedUpload,
   uploadFileChunked,
-  notifyGenericUploadComplete,
   CHUNK_SIZE_BYTES,
   MAX_CHUNK_RETRIES,
   type FileUploadResult,

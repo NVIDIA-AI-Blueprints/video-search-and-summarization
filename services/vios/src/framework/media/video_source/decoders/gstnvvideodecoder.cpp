@@ -2288,7 +2288,7 @@ void GstNvVideoDecoder::setQuality(const std::string& peerid, const std::string&
     LOG(info) << "Sink list size = " << m_videoSinkList.size() << " for " << m_uri << endl;
 }
 
-void GstNvVideoDecoder::removeConsumer(const std::string& peerid)
+void GstNvVideoDecoder::removeConsumer(const std::string& peerid, bool stopWhenUnused)
 {
     std::lock_guard<std::mutex> lock(m_videoSinkLock);
     std::map<std::string, std::shared_ptr<VideoSinkInfo>, std::less<>>::iterator it = m_videoSinkList.find(peerid);
@@ -2296,14 +2296,14 @@ void GstNvVideoDecoder::removeConsumer(const std::string& peerid)
     {
         m_videoSinkList.erase(it);
     }
-    if (isJetsonPlatform())
+    if (stopWhenUnused && isJetsonPlatform())
     {
         if (m_videoSinkList.size() == 0 && (m_recordedPlayback || GET_CONFIG().enable_ipc_path == false))
         {
             m_stop = true;
         }
     }
-    else
+    else if (stopWhenUnused)
     {
         if (m_videoSinkList.size() == 0)
         {
@@ -4395,5 +4395,4 @@ bool GstNvVideoDecoder::initUnifiedStorageReader()
     }
     return true;
 }
-
 
