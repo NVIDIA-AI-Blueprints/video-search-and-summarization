@@ -491,7 +491,15 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      DGX-SPARK|GB300|H100|RTXPRO6000BW) echo "0.4" ;;
+      # GB300 is ~250 GiB, so the 0.4 used on 80-96 GiB cards would hand RT-VLM
+      # ~100 GiB to serve Cosmos3 Nano. vLLM claims the whole fraction whether it
+      # needs it or not, and refuses to start unless free >= fraction x total
+      # (it does not subtract other processes), so on search -- where RT-CV and
+      # RT-Embed also live on that GPU -- the LLM was then left below its own
+      # fraction and never started. 0.25 still gives RT-VLM ~63 GiB, roughly
+      # double the 32 GiB it runs on today on an 80 GiB H100.
+      GB300) echo "0.25" ;;
+      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
