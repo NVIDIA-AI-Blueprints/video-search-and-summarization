@@ -110,6 +110,37 @@ The GPU-mem fraction knob is a fraction (0.0–1.0) of **total GPU VRAM** the NI
 >
 > The rest of this doc uses `NIM_KVCACHE_PERCENT` for brevity; write the value into the stack's effective knob per the table above.
 
+### Context length on Nemotron 3.5 Lightning
+
+The checkpoint declares `max_position_embeddings = 262144`. The five `-shared`
+files and `hw-DGX-SPARK.env` pin `NIM_MAX_MODEL_LEN=65536`; the six discrete-VRAM
+dedicated files pin nothing and serve the full 262144 at vLLM's default
+`gpu_memory_utilization`. (Spark caps both knobs even when dedicated — its memory
+is unified with the host.)
+
+Context is cheap here because only 6 of 52 layers are attention. One attention
+layer costs `2 kv heads × 128 dim × 2 (K,V) × 1 B fp8` = 512 B/token; the 23
+Mamba-2 layers hold a **constant** 2134016 B each, whatever the sequence length.
+vLLM keeps both in one pool, so it pads the attention block up to the Mamba page:
+
+```
+2134016 / 512 = 4168  →  aligned to 16  →  block_size = 4176 tokens = 12.234 MiB
+```
+
+**A sequence costs `ceil(len/4176) + 4` pages** — the `+4` is the Mamba state.
+`kv_cache_max_concurrency` in `/metrics` is just `num_gpu_blocks ÷ that`, so you
+can check any candidate against a running server without redeploying.
+
+At 64k that is 20 pages, so the shipped `--max-num-seqs 8` needs 160. The measured
+pool at the tightest shared budget (H100 at 0.3) leaves comfortable room for that;
+128k would need 288 and does not fit, which is why the pin is 64k and not higher.
+Measurements behind the choice: [[nemotron-lightning-kv-sizing]] in the vault.
+
+Two things that follow from the page size being 4176 rather than the usual 16:
+raising `NIM_MAX_MODEL_LEN` costs almost no memory by itself, and a 10-token
+request still costs 1 attention + 4 Mamba pages (61 MiB), so `--max-num-seqs`
+binds long before the cache does.
+
 | Fraction | H100 / A100-80 (80 GB) | H200 (141 GB) | RTX PRO 6000 (96 GB) | GB10 / Thor (128 GB) | L40S (48 GB) |
 |---|---|---|---|---|---|
 | 0.25 | 20 GB | 35.25 GB | 24 GB | 32 GB | 12 GB |

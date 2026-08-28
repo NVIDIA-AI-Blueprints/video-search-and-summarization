@@ -70,7 +70,7 @@ Representative model estimates:
 | Model | Precision | Estimated model budget |
 |---|---|---:|
 | Nemotron 3.5 Lightning 30B-A3B (default) | BF16 | about 78 GB; budget total parameters (30 B), not active parameters (3 B). The NIM's own BF16 profile asks for at least 66 GB per GPU |
-| Nemotron 3.5 Lightning 30B-A3B (default) | INT4 | about 45 GB observed; the profile pinned for L40S in `hw-L40S.env` |
+| Nemotron 3.5 Lightning 30B-A3B (default) | INT4 | about 45 GB observed; `vllm-int4-tp1-pp1-32.0` is pinned in every `hw-*.env` |
 | Nemotron Nano 9B v2 FP8 (edge) | FP8 | 11.7 GB |
 | Cosmos Reason 1 7B | FP16 | 18.2 GB |
 | Cosmos Reason 2 8B | FP16 | 20.8 GB |
