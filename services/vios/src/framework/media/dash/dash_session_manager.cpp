@@ -1,0 +1,1510 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <cmath>
+#include "dash_fragment_info.h"
+#include "dash_session_manager.h"
+
+#include "logger.h"
+#include "stream_monitor.h"
+#include "CommonVideoSource.h"
+#include "utils.h"
+
+#include <algorithm>
+#include <cctype>
+#include <limits>
+#include <sstream>
+#include <thread>
+#include <vector>
+
+namespace {
+
+std::string compactCodec(std::string codec)
+{
+    codec.erase(std::remove_if(codec.begin(), codec.end(), [](unsigned char value) {
+        return !std::isalnum(value);
+    }), codec.end());
+    std::transform(codec.begin(), codec.end(), codec.begin(), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    return codec;
+}
+
+std::string stateString(DashPackagerState state)
+{
+    switch (state)
+    {
+        case DashPackagerState::Stopped: return "stopped";
+        case DashPackagerState::Starting: return "starting";
+        case DashPackagerState::Running: return "running";
+        case DashPackagerState::Failed: return "failed";
+    }
+    return "unknown";
+}
+
+unsigned parsePositive(const std::string& value, unsigned fallback)
+{
+    try
+    {
+        const unsigned long parsed = std::stoul(value);
+        return parsed > 0 && parsed <= std::numeric_limits<unsigned>::max()
+            ? static_cast<unsigned>(parsed) : fallback;
+    }
+    catch (const std::exception&)
+    {
+        return fallback;
+    }
+}
+
+} // namespace
+
+namespace
+{
+constexpr uint64_t kDashRetainedSegments = 60;
+
+// A fresh session has no back catalogue, so a player that starts on the live
+// edge stalls once per segment.  Withhold the manifest until this many seconds
+// of media exist, expressed in seconds so it holds for any segment duration.
+//
+// This is charged in full to how long the viewer stares at a black screen, so
+// it buys only enough catalogue for the player to start behind the edge rather
+// than on it.  It must cover both the player live delay and the manifest's
+// availability shift, otherwise Chrome starts at the edge with no jitter
+// tolerance.  This adds startup time, but prevents recurring stalls.
+constexpr unsigned kDashPrerollSeconds = 8;
+
+/* How much media must exist before the manifest is published, as a count of
+ * segments.
+ *
+ * A live source produces one segment per keyframe interval, so a player cannot
+ * be given a cushion deeper than that however long it waits: what it needs is
+ * to start far enough behind the edge that the segment under the playhead is
+ * always one already written.  Two segments is that distance plus the room to
+ * absorb one arriving late, and expressing it in segments rather than seconds
+ * is what stops a long keyframe interval from holding the first frame for a
+ * minute and a short one from holding it for nine seconds. */
+constexpr unsigned kDashPrerollSegments = 2;
+/* The published timeline is built from the source's frame rate, so guessing it
+ * is not harmless: a rate that is too high makes the timeline advance faster
+ * than frames arrive, and every frame then reads as a gap in the timeline the
+ * packager is closing. */
+double parseFrameRate(const std::string& value, double fallback)
+{
+    try
+    {
+        const double parsed = std::stod(value);
+        return (parsed > 0.0 && parsed <= 1000.0) ? parsed : fallback;
+    }
+    catch (const std::exception&)
+    {
+        return fallback;
+    }
+}
+
+/* Segment duration for a source with this keyframe interval.
+ *
+ * A segment can only end on a keyframe, so its length is the keyframe interval
+ * whatever the muxer is asked for.  Asking for less does not shorten it; it
+ * only splits the segment into several movie fragments, and the fragments after
+ * the first carry a decode time relative to the segment rather than the
+ * presentation timeline.  A player places them by that time, so they land back
+ * near the start of the timeline and leave the live edge with a fraction of a
+ * segment to play: the playhead reaches the end of what it has, waits, and
+ * stutters once per segment.  Asking for the interval itself keeps one fragment
+ * per segment and the timeline continuous.
+ *
+ * Falls back to the configured duration when the interval is not known yet,
+ * which is the behaviour every session had before it was measured. */
+/* A session that re-encodes does not inherit the source's keyframe interval:
+ * the encoder is told its own, so the segments it can actually produce are that
+ * long and no longer.  Sizing them from the camera instead advertises segments
+ * the media does not contain - a 250 picture source re-encoded at one second
+ * was published as nine second segments, and a player that must hold a whole
+ * segment before it can show any of it froze for ten seconds at a time with ten
+ * seconds already buffered. */
+unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured)
+{
+    const int interval = GET_CONFIG().webrtc_out_set_idr_interval > 0
+                             ? GET_CONFIG().webrtc_out_set_idr_interval
+                             : GET_CONFIG().webrtc_out_set_iframe_interval;
+    const double rate = parseFrameRate(frameRate, 0.0);
+    if (interval <= 0 || rate <= 0.0)
+    {
+        return configured;
+    }
+    const double seconds = static_cast<double>(interval) / rate;
+    if (seconds <= 0.0 || seconds > 60.0)
+    {
+        return configured;
+    }
+    // Never below one second: a sub-second grid multiplies requests per stream
+    // for no benefit a viewer can see.
+    return static_cast<unsigned>(std::max(1.0, std::ceil(seconds)));
+}
+
+unsigned segmentDurationFor(const std::string& govLength, const std::string& frameRate,
+                            unsigned configured, bool reEncodes)
+{
+    if (reEncodes)
+    {
+        return encoderSegmentSeconds(frameRate, configured);
+    }
+    const unsigned pictures = parsePositive(govLength, 0);
+    const double rate = parseFrameRate(frameRate, 0.0);
+    if (pictures == 0 || rate <= 0.0)
+    {
+        return configured;
+    }
+    const double seconds = static_cast<double>(pictures) / rate;
+    /* Asking for more than the keyframe interval does not lengthen the segment
+     * reliably; the muxer still ends one at whichever keyframe it chooses, so a
+     * one second interval asked to produce two second segments yields a mix of
+     * the two.  A player handles the mix, but its buffer is sized from the
+     * longest segment while the short ones arrive at twice the rate, and that
+     * measured as a stall every few seconds.  Ask for what the source gives.
+     *
+     * An implausible interval is not worth trusting over the configured value. */
+    if (seconds <= 1.0 || seconds > 60.0)
+    {
+        return configured;
+    }
+    return static_cast<unsigned>(std::ceil(seconds));
+}
+
+} // namespace
+
+DashSessionManager& DashSessionManager::instance()
+{
+    static DashSessionManager manager;
+    return manager;
+}
+
+DashSessionManager::DashSessionManager()
+    : m_reaperThread(&DashSessionManager::reaperLoop, this)
+{
+}
+
+DashSessionManager::~DashSessionManager()
+{
+    shutdown();
+}
+
+void DashSessionManager::setDeviceManager(std::shared_ptr<nv_vms::DeviceManager> deviceManager)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_deviceManager = std::move(deviceManager);
+}
+
+void DashSessionManager::configure(std::chrono::seconds idleTimeout, unsigned targetDuration,
+                                   unsigned playlistLength, size_t maxSessions,
+                                   std::filesystem::path outputRoot)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_idleTimeout = std::max(idleTimeout, std::chrono::seconds(5));
+    m_targetDuration = std::max(targetDuration, 1U);
+    m_playlistLength = std::max(playlistLength, 3U);
+    m_maxSessions = std::max(maxSessions, size_t{1});
+    m_outputRoot = std::move(outputRoot);
+    /* The settings that decide how a session behaves, recorded once where they
+     * take effect.  A report of segments arriving too slowly or sessions being
+     * refused is otherwise impossible to read without knowing which numbers
+     * were in force, and these are clamped here rather than taken verbatim. */
+    LOG(info) << "DASH configured: max sessions=" << m_maxSessions
+              << ", segment duration=" << m_targetDuration << "s"
+              << ", playlist length=" << m_playlistLength
+              << ", idle timeout=" << m_idleTimeout.count() << "s"
+              << ", output root=" << m_outputRoot << endl;
+}
+
+std::shared_ptr<nv_vms::StreamInfo> DashSessionManager::findStream(const std::string& streamId) const
+{
+    std::shared_ptr<nv_vms::DeviceManager> deviceManager;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        deviceManager = m_deviceManager.lock();
+    }
+    if (!deviceManager)
+    {
+        return nullptr;
+    }
+    for (const auto& stream : deviceManager->getStreamList(false))
+    {
+        if (stream && stream->id == streamId)
+        {
+            return stream;
+        }
+    }
+    return nullptr;
+}
+
+std::string DashSessionManager::createStreamToken(const std::string& streamId)
+{
+    std::string prefix;
+    prefix.reserve(std::min(streamId.size(), size_t{128}));
+    for (const unsigned char value : streamId)
+    {
+        if (std::isalnum(value) || value == '-' || value == '_')
+        {
+            prefix.push_back(static_cast<char>(value));
+        }
+        if (prefix.size() == 128)
+        {
+            break;
+        }
+    }
+    if (prefix.empty())
+    {
+        prefix = "stream";
+    }
+    return prefix + "-" + generate_uuid();
+}
+
+bool dashOverlayRequested(const Json::Value& overlay)
+{
+    if (!overlay.isObject())
+    {
+        return false;
+    }
+    std::map<std::string, std::string, std::less<>> probe;
+    setOverlayOptsBasedOnJson(probe, overlay);
+    const auto enabled = probe.find("overlay");
+    const auto bbox = probe.find("overlayBbox");
+    return (enabled != probe.end() && enabled->second == "true")
+           || (bbox != probe.end() && bbox->second == "true");
+}
+
+bool dashCompositeRequested(const Json::Value& composite)
+{
+    return composite.isObject() && composite.get("doComposite", false).asBool();
+}
+
+DashStartResult DashSessionManager::start(const std::string& streamId, const Json::Value& overlay,
+                                          const Json::Value& composite, const std::string& frameRate)
+{
+    DashStartResult result;
+    result.streamId = streamId;
+    if (streamId.empty())
+    {
+        result.error = "streamId is required";
+        return result;
+    }
+    // A no-overlay live request can share the pass-through packager for this
+    // camera.  An overlay request cannot: it must own a decode/draw/encode
+    // pipeline.  Determine that before looking up the shared session; doing
+    // it afterwards incorrectly returned an existing no-overlay MPD for an
+    // overlay request.
+    const bool overlayRequested = dashOverlayRequested(overlay);
+    // A video wall is composed for the viewer that asked for it: its picture
+    // depends on which cameras were named and how they are laid out, so it can
+    // never be answered with the shared single-camera session.
+    const bool compositeRequested = dashCompositeRequested(composite);
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto existing = m_sessionsByStream.find(streamId);
+        if (!overlayRequested && !compositeRequested && existing != m_sessionsByStream.end())
+        {
+            const std::shared_ptr<Session>& session = existing->second;
+            result.viewerId = generate_uuid();
+            session->viewerIds.insert(result.viewerId);
+            session->lastActivity = std::chrono::steady_clock::now();
+            m_sessionsByViewer[result.viewerId] = session;
+            result.success = true;
+            result.streamToken = session->streamToken;
+            result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                         + session->streamToken + ".mpd";
+            result.state = session->packager->state();
+            result.audioAvailable = session->packager->audioEnabled();
+            LOG(info) << "Reusing live DASH pass-through session streamId=" << streamId
+                      << " token=" << session->streamToken
+                      << " viewers=" << session->viewerIds.size() << endl;
+            return result;
+        }
+        if (activeSessionCount() >= m_maxSessions)
+        {
+            result.error = "Maximum number of live DASH sessions reached";
+            return result;
+        }
+        ++m_pendingSessions;
+    }
+    /* Armed from here on: every way out of this function below releases it,
+     * and only admission converts it into a session. */
+    PendingSlot slot(*this);
+
+    const std::shared_ptr<nv_vms::StreamInfo> stream = findStream(streamId);
+    if (!stream)
+    {
+        result.error = "Stream not found";
+        return result;
+    }
+    /* A browser cannot play HEVC through Media Source Extensions on most
+     * platforms, so passing an H.265 camera through untouched produces a
+     * manifest nothing can decode.  Decode it and encode H.264 instead, which
+     * is the same private pipeline an overlay already uses - the difference is
+     * only that the source asks for it rather than the viewer. */
+    const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
+    const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
+    const std::string mediaUrl = stream->live_proxy_url.empty() ? stream->live_url : stream->live_proxy_url;
+    if (mediaUrl.rfind("rtsp://", 0) != 0 && mediaUrl.rfind("rtsps://", 0) != 0)
+    {
+        result.error = "Live DASH requires an RTSP or RTSPS source";
+        return result;
+    }
+
+    // A video wall needs every camera it names, and the request only carries
+    // one of them as the stream this session is filed under.  Resolve the rest
+    // now so a wall naming a camera that does not exist fails here rather than
+    // producing a picture with a hole in it.
+    std::string compositeUrls;
+    if (compositeRequested)
+    {
+        std::map<std::string, std::string, std::less<>> probe;
+        setCompositeOptsBasedOnJson(probe, composite, std::string());
+        const auto named = probe.find("streamIds");
+        std::vector<std::string> wallStreamIds;
+        if (named != probe.end() && !named->second.empty())
+        {
+            std::stringstream ids(named->second);
+            std::string one;
+            while (std::getline(ids, one, ','))
+            {
+                if (!one.empty())
+                {
+                    wallStreamIds.push_back(one);
+                }
+            }
+        }
+        if (wallStreamIds.empty())
+        {
+            result.error = "A composite request must name the streams to compose";
+            return result;
+        }
+        for (const std::string& wallStreamId : wallStreamIds)
+        {
+            const std::shared_ptr<nv_vms::StreamInfo> member = findStream(wallStreamId);
+            if (!member)
+            {
+                result.error = "Composite stream not found: " + wallStreamId;
+                return result;
+            }
+            const std::string memberUrl = member->live_proxy_url.empty() ? member->live_url
+                                                                        : member->live_proxy_url;
+            if (memberUrl.rfind("rtsp://", 0) != 0 && memberUrl.rfind("rtsps://", 0) != 0)
+            {
+                result.error = "Composite requires an RTSP source: " + wallStreamId;
+                return result;
+            }
+            // The tile label is carried on the URL fragment, which is how the
+            // compositor learns which name belongs to which picture.
+            compositeUrls += memberUrl + "#" + wallStreamId + ",";
+        }
+        LOG(info) << "Composite live DASH session over " << wallStreamIds.size()
+                  << " streams" << endl;
+    }
+
+    const std::string audioCodec = compactCodec(stream->settings.audioEncoderValues.encoding);
+    const bool enableAac = stream->settings.audioEncoderValues.enable
+                           && (audioCodec == "aac" || audioCodec == "mpeg4generic");
+    DashPackagerConfig packagerConfig;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        packagerConfig.streamToken = createStreamToken(streamId);
+        packagerConfig.outputRoot = m_outputRoot;
+        /* An overlay draws, a composite arranges and a transcode converts:
+         * each of them ends at an encoder, so each publishes the encoder's
+         * keyframe interval rather than the camera's. */
+        packagerConfig.targetDurationSeconds = segmentDurationFor(
+            stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
+            m_targetDuration, overlayRequested || compositeRequested || transcodeRequired);
+        packagerConfig.playlistLength = m_playlistLength;
+        packagerConfig.enableAac = enableAac;
+        packagerConfig.audioSampleRate = parsePositive(stream->settings.audioEncoderValues.sample_rate, 48000);
+        packagerConfig.audioChannels = parsePositive(stream->settings.audioEncoderValues.channels, 2);
+        // What the camera actually runs at, rather than the thirty frames a
+        // second the packager would otherwise assume.
+        packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
+        /* A re-encoded source hands over frames stamped zero, so the timeline
+         * has to be built from the frame index. Saying so up front matters:
+         * discovering it on the second frame means the first was already
+         * published at zero with no duration, and the muxer cannot place what
+         * follows. The camera's rate is known and constant, which is exactly
+         * what this needs. Stamping by arrival would also work, and was tried,
+         * but it writes every hitch in the decode-draw-encode chain into the
+         * media timeline as a real gap - visible as a stutter with an overlay
+         * on. */
+        if (transcodeRequired)
+        {
+            packagerConfig.synthesizeTimestamps = true;
+        }
+
+        if (compositeRequested)
+        {
+            // A wall is composed at a rate we choose rather than one a camera
+            // dictates, and the composed frames reach the packager without a
+            // usable source timestamp - the muxer rejects the first buffer it
+            // cannot place and the session dies after its initialisation
+            // segment.  The rate is known, so build the timeline from the frame
+            // index the way a recording does.
+            // Stamp when each composed frame arrives rather than counting them.
+            // A wall is composed live, and counting made any frame lost between
+            // the compositor and the packager show up as a timeline running
+            // slow - measured at half real time, which leaves the live edge
+            // falling permanently behind and the viewer looking at nothing.
+            packagerConfig.useArrivalTimestamps = true;
+            // The wall is composed at the rate the request asked for, which is
+            // not the rate any one camera runs at.  The arrival clock does not
+            // consult it, but nothing downstream should read the camera's rate
+            // and believe it describes the composed stream.
+            if (!frameRate.empty())
+            {
+                packagerConfig.sourceFrameRate = parseFrameRate(frameRate, packagerConfig.sourceFrameRate);
+            }
+        }
+    }
+
+    auto session = std::make_shared<Session>();
+    session->streamId = streamId;
+    session->sensorId = stream->sensorId;
+    session->streamToken = packagerConfig.streamToken;
+    session->mediaUrl = mediaUrl;
+    session->packager = std::make_shared<DashPackagerConsumer>(std::move(packagerConfig));
+    session->lastActivity = std::chrono::steady_clock::now();
+
+    if (!session->packager->start())
+    {
+        result.error = session->packager->lastError();
+        return result;
+    }
+
+    if (overlayRequested || compositeRequested || transcodeRequired)
+    {
+        LOG(info) << "Creating private live DASH session streamId=" << streamId
+                  << (overlayRequested ? " with overlay" : "")
+                  << (compositeRequested ? " with composite" : "")
+                  << (transcodeRequired ? " transcoding " + videoCodec + " to h264" : "") << endl;
+        // Drawing on a live stream needs its pixels, so this session owns a
+        // pipeline of its own rather than tapping the shared bitstream.
+        std::map<std::string, std::string, std::less<>> opts;
+        opts["streamId"] = streamId;
+        opts["sensorId"] = stream->sensorId;
+        opts["peerid"] = session->streamToken;
+        /* This names what arrives, not what leaves: it is what the decoder is
+         * built to parse.  Naming the output codec here would hand an H.265
+         * bitstream to an H.264 decoder.  The encoder downstream produces H.264
+         * regardless, which is what makes the transcode work. */
+        opts["codec"] = stream->settings.encoderValues.encoding;
+        opts["framerate"] = stream->settings.encoderValues.frameRate;
+        opts["dash"] = "dash";
+        if (transcodeRequired)
+        {
+            opts["dash_transcode"] = "true";
+        }
+        // Decode for this session alone rather than sharing the camera's pooled
+        // decoder.  An overlay session already needs its own draw and encode
+        // stages, so sharing only ever bought the decode itself, and it bought it
+        // at the price of tying this session's supply of frames to pool churn it
+        // does not control: a viewer leaving releases the pooled decoder, the
+        // next arrival builds a replacement, and a session still holding the old
+        // one stops receiving frames.  Replay overlay has always worked this way.
+        opts["new_dec"] = "true";
+        setOverlayOptsBasedOnJson(opts, overlay);
+        // The frame rate travels beside the composite object in the request and
+        // governs the rate the wall is composed and encoded at.
+        // Composing several cameras costs more than passing one through, so a
+        // caller may ask for a lower rate than the cameras run at.  Absent that,
+        // the wall is composed at the rate this stream already reports.
+        setCompositeOptsBasedOnJson(opts, composite, frameRate);
+        if (compositeRequested)
+        {
+            // The request schema and the pipeline speak different names for the
+            // same things.  WebRTC translates between them on its way in; do the
+            // same here so the compositor, the decoders and the sensor-name
+            // overlay all recognise this as a video wall.  Without it the
+            // pipeline is built as a single stream and the composed URL list is
+            // handed to the monitor as if it were one camera.
+            opts["do_composition"] = "true";
+            if (opts.find("showSensorName") != opts.end())
+            {
+                opts["overlayShowSensorName"] = "true";
+                const auto position = opts.find("showSensorNamePosition");
+                if (position != opts.end() && !position->second.empty())
+                {
+                    const std::vector<std::string> xy = splitString(position->second, ",");
+                    if (xy.size() == 2)
+                    {
+                        opts["overlaySensorPosX"] = xy[0];
+                        opts["overlaySensorPosY"] = xy[1];
+                    }
+                }
+            }
+        }
+
+        // This is a live MPD, even though drawing the overlay needs a private
+        // decode/draw/encode pipeline.  Marking it as replay makes the HTTP
+        // layer publish a finite SegmentTimeline and dash.js stops after the
+        // initial fragments.
+        session->ownsSource = true;
+        session->overlay = overlay;
+        /* As on the replay path: a source that cannot be built must fail this
+         * session, not the process. */
+        try
+        {
+            session->source = std::make_shared<CommonVideoSource>(
+                compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
+            session->source->createConsumerPipeline();
+            session->source->setConsumerReady();
+            session->source->startStream();
+        }
+        catch (const std::exception& error)
+        {
+            LOG(error) << "Could not build the live DASH source for " << streamId
+                       << ": " << error.what() << endl;
+            session->source.reset();
+            session->packager->stop();
+            result.error = std::string("Live DASH could not be started for this stream: ") + error.what();
+            return result;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_replaySessionsByToken[session->streamToken] = session;
+            m_sessionsByToken[session->streamToken] = session;
+            result.viewerId = generate_uuid();
+            session->viewerIds.insert(result.viewerId);
+            m_sessionsByViewer[result.viewerId] = session;
+            // The session is counted by the maps now, so the slot must stop
+            // counting or the two would count it twice.
+            slot.commit();
+        }
+        result.success = true;
+        result.streamId = streamId;
+        result.streamToken = session->streamToken;
+        result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                     + session->streamToken + ".mpd";
+        result.state = session->packager->state();
+        LOG(info) << "Live DASH viewer started"
+                  << (overlayRequested ? " with overlay" : "")
+                  << (compositeRequested ? " with composite" : "")
+                  << " streamId=" << streamId
+                  << " state=" << stateString(result.state) << endl;
+        return result;
+    }
+
+    std::string registrationUrl = mediaUrl;
+    StreamMonitor::getInstance()->registerDataCallback(registrationUrl, session->packager);
+
+    std::shared_ptr<Session> redundantSession;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // A concurrent starter may have created the stream while this pipeline was initialized.
+        const auto concurrent = m_sessionsByStream.find(streamId);
+        if (concurrent != m_sessionsByStream.end())
+        {
+            // Joining one that already exists adds no pipeline, so the slot is
+            // not needed: this viewer costs nothing beyond an entry in a map.
+            // Leaving it to the destructor hands the capacity straight back.
+            redundantSession = session;
+            session = concurrent->second;
+        }
+        else
+        {
+            m_sessionsByStream[streamId] = session;
+            m_sessionsByToken[session->streamToken] = session;
+            slot.commit();
+        }
+        result.viewerId = generate_uuid();
+        session->viewerIds.insert(result.viewerId);
+        m_sessionsByViewer[result.viewerId] = session;
+    }
+    if (redundantSession)
+    {
+        destroySession(redundantSession);
+    }
+
+    result.success = true;
+    result.streamToken = session->streamToken;
+    result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                 + session->streamToken + ".mpd";
+    result.state = session->packager->state();
+    result.audioAvailable = session->packager->audioEnabled();
+    LOG(info) << "Live DASH viewer started streamId=" << streamId
+              << " state=" << stateString(result.state)
+              << " audio=" << (result.audioAvailable ? "aac" : "none") << endl;
+    return result;
+}
+
+DashStartResult DashSessionManager::startReplay(const std::string& streamId,
+                                               const std::string& startTime,
+                                               const std::string& endTime,
+                                               const Json::Value& overlay)
+{
+    DashStartResult result;
+    if (streamId.empty())
+    {
+        result.error = "streamId is required";
+        return result;
+    }
+    if (startTime.empty())
+    {
+        result.error = "startTime is required";
+        return result;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (activeSessionCount() >= m_maxSessions)
+        {
+            result.error = "Maximum number of DASH sessions reached";
+            return result;
+        }
+        ++m_pendingSessions;
+    }
+    PendingSlot slot(*this);
+
+    const std::shared_ptr<nv_vms::StreamInfo> stream = findStream(streamId);
+    if (!stream)
+    {
+        result.error = "Stream not found";
+        return result;
+    }
+    /* A browser cannot play HEVC through Media Source Extensions on most
+     * platforms, so republishing an H.265 recording's own bitstream produces a
+     * manifest nothing can decode.  Decode it and encode H.264 instead - the
+     * same private pipeline an overlay already uses.  The difference is only
+     * that here the recording's codec asks for it rather than the viewer. */
+    const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
+    const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
+    if (stream->replay_url.empty())
+    {
+        result.error = "Stream has no recording to replay";
+        return result;
+    }
+
+    // The recorded pipeline addresses its source as a file URI carrying the
+    // window; that is what marks the playback as recorded rather than live.
+    std::string uri = stream->replay_url;
+    const std::string rtspPrefix = "rtsp://";
+    if (uri.rfind(rtspPrefix, 0) == 0)
+    {
+        uri = "file://" + uri.substr(rtspPrefix.size());
+    }
+    else if (!uri.empty() && uri.front() == '/')
+    {
+        /* An uploaded file's recording is already a path on disk rather than an
+         * rtsp url, so it never went through the branch above and was handed to
+         * the pipeline with no scheme at all. The pipeline rejects that, and
+         * the rejection arrives as an exception from the source constructor. */
+        uri = "file://" + uri;
+    }
+    uri += "?startTime=" + startTime;
+    if (!endTime.empty())
+    {
+        uri += "&endTime=" + endTime;
+    }
+
+    DashPackagerConfig packagerConfig;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        // A replay token must be unique per viewer, not per stream: two viewers
+        // of one recording must not share an output directory.
+        packagerConfig.streamToken = createStreamToken(streamId) + "-" + generate_uuid();
+        packagerConfig.outputRoot = m_outputRoot;
+        /* Republishing keeps the recording's own keyframes, so the recording
+         * decides.  Drawing or converting ends at an encoder, so the encoder
+         * decides. */
+        packagerConfig.targetDurationSeconds = segmentDurationFor(
+            stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
+            m_targetDuration, dashOverlayRequested(overlay) || transcodeRequired);
+        packagerConfig.playlistLength = m_playlistLength;
+        // Recordings are selected by whole file, so the first one usually starts
+        // before the requested window; the packager drops what precedes it.
+        packagerConfig.startEpochMs = static_cast<int64_t>(getEpocTimeInMS(startTime));
+        // A replay timeline is synthesised from the frame index, so the rate is
+        // not a refinement here: it decides the speed the recording plays at.
+        packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
+        /* Republished frames carry the recording's own timestamps, but
+         * re-encoded ones are stamped zero: the encoder is the source of the
+         * frames now, not the recording.  The muxer cannot place a frame it
+         * cannot time, so it writes nothing at all - the session plays, frames
+         * are pushed, and not one segment is ever cut.  Build the timeline from
+         * the frame index instead, which is what the live path does for the
+         * same reason. */
+        if (transcodeRequired)
+        {
+            packagerConfig.synthesizeTimestamps = true;
+        }
+    }
+
+    auto session = std::make_shared<Session>();
+    session->streamId = streamId;
+    session->sensorId = stream->sensorId;
+    session->streamToken = packagerConfig.streamToken;
+    session->replay = true;
+    session->ownsSource = true;
+    session->startTime = startTime;
+    session->endTime = endTime;
+    session->overlay = overlay;
+    session->packager = std::make_shared<DashPackagerConsumer>(std::move(packagerConfig));
+    session->lastActivity = std::chrono::steady_clock::now();
+
+    if (!session->packager->start())
+    {
+        result.error = session->packager->lastError();
+        return result;
+    }
+
+    std::map<std::string, std::string, std::less<>> opts;
+    opts["streamId"] = streamId;
+    opts["sensorId"] = stream->sensorId;
+    opts["peerid"] = session->streamToken;
+    opts["startTime"] = startTime;
+    if (!endTime.empty())
+    {
+        opts["endTime"] = endTime;
+    }
+    opts["codec"] = stream->settings.encoderValues.encoding;
+    opts["framerate"] = stream->settings.encoderValues.frameRate;
+    // Terminates the pipeline in this session's packager.  With neither an
+    // overlay nor a transcode the decoder republishes the recording's own
+    // bitstream and nothing is decoded or encoded; an overlay has to burn boxes
+    // into pixels and an H.265 recording has to become H.264, so either of
+    // those still runs the full decode, overlay and encode chain.
+    opts["dash"] = "dash";
+    if (transcodeRequired)
+    {
+        opts["dash_transcode"] = "true";
+    }
+    // Overlay flags are read from the same schema the WebRTC APIs use, so a
+    // caller describes an overlay once and every protocol understands it.
+    setOverlayOptsBasedOnJson(opts, overlay);
+
+    // The packager must be handed to the constructor: CommonVideoSource builds
+    // its pipeline there, and the terminal consumer is chosen while it does.
+    /* Building the source can throw: a url the pipeline cannot parse, or a
+     * pipeline it cannot construct. Letting that escape ends the process - one
+     * bad request takes every other viewer down with it - so it is turned into
+     * a failed start for this session alone. */
+    try
+    {
+        session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
+        session->source->createConsumerPipeline();
+        session->source->setConsumerReady();
+        session->source->startStream();
+    }
+    catch (const std::exception& error)
+    {
+        LOG(error) << "Could not build the replay DASH source for " << streamId
+                   << ": " << error.what() << endl;
+        session->source.reset();
+        session->packager->stop();
+        result.error = std::string("Replay DASH could not be started for this stream: ") + error.what();
+        return result;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_replaySessionsByToken[session->streamToken] = session;
+        m_sessionsByToken[session->streamToken] = session;
+        result.viewerId = generate_uuid();
+        session->viewerIds.insert(result.viewerId);
+        m_sessionsByViewer[result.viewerId] = session;
+        slot.commit();
+    }
+
+    result.success = true;
+    result.streamId = streamId;
+    result.streamToken = session->streamToken;
+    result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                 + session->streamToken + ".mpd";
+    result.state = session->packager->state();
+    // Say whether the overlay chain is in play.  A replay session with an
+    // overlay decodes, draws and re-encodes, while one without republishes the
+    // recording's own bitstream; they behave differently enough that a report
+    // of a stall is not much use unless the log says which one was running.
+    LOG(info) << "Replay DASH viewer started" << (dashOverlayRequested(overlay) ? " with overlay" : "")
+              << (transcodeRequired ? " transcoding " + videoCodec + " to h264" : "")
+              << " streamId=" << streamId
+              << " startTime=" << startTime << " endTime=" << (endTime.empty() ? "none" : endTime)
+              << " state=" << stateString(result.state) << endl;
+    return result;
+}
+
+DashStartResult DashSessionManager::seekReplay(const std::string& viewerId, const std::string& startTime)
+{
+    DashStartResult result;
+    if (viewerId.empty() || startTime.empty())
+    {
+        result.error = "viewerId and startTime are required";
+        return result;
+    }
+
+    std::shared_ptr<Session> oldSession;
+    std::string streamId;
+    std::string endTime;
+    Json::Value overlay;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto viewer = m_sessionsByViewer.find(viewerId);
+        if (viewer == m_sessionsByViewer.end())
+        {
+            result.error = "Replay DASH viewer not found";
+            return result;
+        }
+        oldSession = viewer->second.lock();
+        if (!oldSession || !oldSession->replay || oldSession->viewerIds.size() != 1U)
+        {
+            result.error = "Replay DASH viewer is not seekable";
+            return result;
+        }
+
+        // A replay session is private to its viewer.  Remove every reference
+        // before stopping the old source, so stale MPD/fragment requests cannot
+        // observe a mixture of the old and replacement catalogues.
+        streamId = oldSession->streamId;
+        endTime = oldSession->endTime;
+        overlay = oldSession->overlay;
+        oldSession->viewerIds.erase(viewerId);
+        m_sessionsByViewer.erase(viewer);
+        m_sessionsByToken.erase(oldSession->streamToken);
+        m_replaySessionsByToken.erase(oldSession->streamToken);
+        m_wakeup.notify_all();
+    }
+
+    // This stops the decoder and the packager, and removes the old fMP4/MPD
+    // output before a new session is exposed to the browser.
+    destroySession(oldSession);
+    return startReplay(streamId, startTime, endTime, overlay);
+}
+
+bool DashSessionManager::controlReplay(const std::string& viewerId, const std::string& action,
+                                       const std::string& value)
+{
+    std::shared_ptr<Session> session;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto viewer = m_sessionsByViewer.find(viewerId);
+        if (viewer == m_sessionsByViewer.end())
+        {
+            return false;
+        }
+        session = viewer->second.lock();
+        if (!session || !session->replay || !session->source)
+        {
+            return false;
+        }
+        // Control counts as activity: a paused viewer stops fetching segments,
+        // and without this the reaper would collect the session it just paused.
+        session->lastActivity = std::chrono::steady_clock::now();
+        if (action == "pause")
+        {
+            session->paused = true;
+        }
+        else if (action == "resume")
+        {
+            session->paused = false;
+        }
+    }
+    if (session->source->controlStreamFileVideoSource(action, value) != VmsErrorCode::NoError)
+    {
+        LOG(error) << "Replay DASH control failed action=" << action << " viewer=" << viewerId << endl;
+        return false;
+    }
+    LOG(info) << "Replay DASH control action=" << action << " value=" << (value.empty() ? "none" : value)
+              << " token=" << session->streamToken << endl;
+    return true;
+}
+
+bool DashSessionManager::stopViewer(const std::string& viewerId)
+{
+    std::shared_ptr<Session> sessionToDestroy;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto viewer = m_sessionsByViewer.find(viewerId);
+        if (viewer == m_sessionsByViewer.end())
+        {
+            return false;
+        }
+        if (const std::shared_ptr<Session> session = viewer->second.lock())
+        {
+            session->viewerIds.erase(viewerId);
+            session->lastActivity = std::chrono::steady_clock::now();
+            LOG(info) << "Stopping DASH viewer=" << viewerId
+                      << " token=" << session->streamToken
+                      << " remainingViewers=" << session->viewerIds.size() << endl;
+            if (session->viewerIds.empty())
+            {
+                m_sessionsByToken.erase(session->streamToken);
+                if (session->ownsSource)
+                {
+                    // Private replay/overlay sessions are keyed by token;
+                    // erasing by streamId here would evict the shared live
+                    // session for the same camera.
+                    m_replaySessionsByToken.erase(session->streamToken);
+                }
+                else
+                {
+                    m_sessionsByStream.erase(session->streamId);
+                }
+                sessionToDestroy = session;
+            }
+        }
+        m_sessionsByViewer.erase(viewer);
+        m_wakeup.notify_all();
+    }
+    if (sessionToDestroy)
+    {
+        destroySession(sessionToDestroy);
+    }
+    return true;
+}
+
+std::optional<DashStartResult> DashSessionManager::status(const std::string& viewerId)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto viewer = m_sessionsByViewer.find(viewerId);
+    if (viewer == m_sessionsByViewer.end())
+    {
+        return std::nullopt;
+    }
+    const std::shared_ptr<Session> session = viewer->second.lock();
+    if (!session)
+    {
+        return std::nullopt;
+    }
+    DashStartResult result;
+    result.success = !session->packager->hasError();
+    result.error = session->packager->lastError();
+    result.viewerId = viewerId;
+    result.streamId = session->streamId;
+    result.streamToken = session->streamToken;
+    result.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                 + session->streamToken + ".mpd";
+    result.state = session->packager->state();
+    result.audioAvailable = session->packager->audioEnabled();
+    return result;
+}
+
+Json::Value dashSessionInfoToJson(const DashSessionInfo& info)
+{
+    Json::Value entry;
+    entry["viewerId"] = info.viewerId;
+    entry["streamId"] = info.streamId;
+    entry["sensorId"] = info.sensorId;
+    entry["streamToken"] = info.streamToken;
+    entry["manifestUrl"] = info.manifestRelativeUrl;
+    entry["state"] = stateString(info.state);
+    entry["audioAvailable"] = info.audioAvailable;
+    entry["replay"] = info.replay;
+    entry["viewerCount"] = info.viewerCount;
+    entry["framesPublished"] = static_cast<Json::UInt64>(info.framesPublished);
+    /* Absent rather than negative when the session has not published anything:
+     * a caller reading a number expects a position, and -1 is not one. */
+    if (info.positionMs >= 0)
+    {
+        entry["positionMs"] = static_cast<Json::Int64>(info.positionMs);
+    }
+    /* Named `ts` to match the WebRTC query, so a caller that already turns a
+     * ts into an ISO time for the picture API does not need a second path. */
+    if (info.frameEpochMs > 0)
+    {
+        entry["ts"] = static_cast<Json::Int64>(info.frameEpochMs);
+    }
+    /* Only a replay has a window or a pause state; reporting them for a live
+     * camera would invite a caller to act on them. */
+    if (info.replay)
+    {
+        entry["paused"] = info.paused;
+        entry["startTime"] = info.startTime;
+        if (!info.endTime.empty())
+        {
+            entry["endTime"] = info.endTime;
+        }
+    }
+    return entry;
+}
+
+size_t DashSessionManager::activeSessionCount() const
+{
+    return m_sessionsByStream.size() + m_replaySessionsByToken.size() + m_pendingSessions;
+}
+
+DashSessionManager::PendingSlot::~PendingSlot()
+{
+    if (m_owner == nullptr)
+    {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(m_owner->m_mutex);
+    if (m_owner->m_pendingSessions > 0)
+    {
+        --m_owner->m_pendingSessions;
+    }
+    m_owner = nullptr;
+}
+
+void DashSessionManager::PendingSlot::commit()
+{
+    if (m_owner == nullptr)
+    {
+        return;
+    }
+    if (m_owner->m_pendingSessions > 0)
+    {
+        --m_owner->m_pendingSessions;
+    }
+    m_owner = nullptr;
+}
+
+std::vector<DashSessionInfo> DashSessionManager::query(const std::string& viewerId,
+                                                       bool replayOnly) const
+{
+    std::vector<DashSessionInfo> found;
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    /* Walk the viewer map rather than the session maps: a live session is
+     * shared, so the same stream can be watched by several viewers, and a
+     * caller asking what is running wants to see each of them. */
+    for (const auto& [id, weakSession] : m_sessionsByViewer)
+    {
+        if (!viewerId.empty() && id != viewerId)
+        {
+            continue;
+        }
+        const std::shared_ptr<Session> session = weakSession.lock();
+        /* An entry whose session has already gone is not an error: teardown
+         * clears the maps in its own order, and a query is a snapshot. */
+        if (!session || session->replay != replayOnly || !session->packager)
+        {
+            continue;
+        }
+
+        DashSessionInfo info;
+        info.viewerId = id;
+        info.streamId = session->streamId;
+        info.sensorId = session->sensorId;
+        info.streamToken = session->streamToken;
+        info.manifestRelativeUrl = "/vst/dash/" + session->streamToken + "/"
+                                   + session->streamToken + ".mpd";
+        info.state = session->packager->state();
+        info.audioAvailable = session->packager->audioEnabled();
+        info.replay = session->replay;
+        info.paused = session->paused;
+        info.startTime = session->startTime;
+        info.endTime = session->endTime;
+        info.positionMs = session->packager->publishedPositionMs();
+        info.framesPublished = session->packager->framesPublished();
+        /* What the frame depicts, not when it was handled.  A recording is
+         * replayed now but shows a moment in the past, so its media time comes
+         * from the window it was asked for plus how far into it the session has
+         * reached.  A live frame depicts the instant it was published. */
+        if (session->replay)
+        {
+            /* Ask the source what it is playing rather than deriving it from
+             * what was requested.  A caller may legitimately ask for the epoch
+             * and mean "from the beginning", and the player does exactly that
+             * before it knows the recording's extent - deriving from the
+             * request then reports 1970 and the caller has nothing usable. */
+            info.frameEpochMs = session->packager->lastSourceEpochMs();
+            if (info.frameEpochMs <= 0 && !session->startTime.empty() && info.positionMs >= 0)
+            {
+                /* A re-encoded recording is stamped by the encoder, so its
+                 * frames no longer carry the moment they depict.  The window
+                 * plus the distance travelled is the best available answer,
+                 * and it is only meaningful if a real window was asked for. */
+                const int64_t windowStart =
+                    static_cast<int64_t>(getEpocTimeInMS(session->startTime));
+                if (windowStart > 0)
+                {
+                    info.frameEpochMs = windowStart + info.positionMs;
+                }
+            }
+        }
+        else
+        {
+            info.frameEpochMs = session->packager->lastFrameEpochMs();
+        }
+        info.viewerCount = static_cast<unsigned>(session->viewerIds.size());
+        found.push_back(std::move(info));
+    }
+
+    /* An unordered map hands them over in whatever order it stores them, which
+     * changes as sessions come and go.  Sort so repeated calls read the same
+     * way and a caller can diff two answers. */
+    std::sort(found.begin(), found.end(),
+              [](const DashSessionInfo& left, const DashSessionInfo& right)
+              {
+                  if (left.streamId != right.streamId)
+                  {
+                      return left.streamId < right.streamId;
+                  }
+                  return left.viewerId < right.viewerId;
+              });
+    return found;
+}
+
+DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken, const std::string& fileName)
+{
+    DashAssetResult result;
+    if (streamToken.empty() || fileName.empty() || fileName.find("..") != std::string::npos
+        || fileName.find('/') != std::string::npos || fileName.find('\\') != std::string::npos)
+    {
+        return result;
+    }
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto token = m_sessionsByToken.find(streamToken);
+    if (token == m_sessionsByToken.end())
+    {
+        return result;
+    }
+    const std::shared_ptr<Session> session = token->second.lock();
+    if (!session)
+    {
+        return result;
+    }
+    session->lastActivity = std::chrono::steady_clock::now();
+    result.valid = true;
+    result.replay = session->replay;
+    result.path = session->packager->manifestPath().parent_path() / fileName;
+    if (result.path.extension() == ".mpd")
+    {
+        result.mimeType = "application/dash+xml";
+        result.starting = !std::filesystem::exists(result.path)
+                          && session->packager->state() != DashPackagerState::Failed;
+        if (!result.starting && !session->prerollComplete)
+        {
+            /* Measure the catalogue, do not count it.
+             *
+             * A fragment is only as long as the gap between the keyframes it
+             * was cut on, so its length follows the encoder's keyframe interval
+             * rather than the target duration.  Counting fragments and calling
+             * each one a target duration long therefore holds the manifest for
+             * the wrong amount of time by exactly that ratio: at an interval of
+             * 250 on a 30 fps source each fragment carries over eight seconds,
+             * and waiting for eight of them keeps the viewer on a black screen
+             * for more than a minute.
+             *
+             * Two fragments are required whatever they measure.  A player given
+             * a single fragment has nothing to fetch next and stalls at the
+             * first boundary, and on a long keyframe interval one fragment can
+             * satisfy the seconds requirement on its own.
+             */
+            const vst::dash::PublishedMedia published =
+                vst::dash::publishedMedia(result.path.parent_path());
+            /* Enough to cover the delay the player is asked to keep, which is
+             * itself a count of segments, and never fewer than two fragments: a
+             * player handed a single fragment has nothing to fetch next and
+             * stalls at the first boundary. */
+            /* The catalogue has to reach back to where the player will sit,
+             * which is the same 2.5 segments the client asks for and the
+             * manifest advertises as suggestedPresentationDelay.  Publishing
+             * sooner does not start playback sooner: the player is asked for
+             * media from before the session existed, waits for it, and starts
+             * with a cushion thinner than it was tuned for, which shows up as
+             * an occasional stall rather than a faster first frame. */
+            /* Enough to reach where the player will sit, which is the live
+             * delay it is asked to keep - 2.5 segments, floored at the tuned
+             * five seconds - and no longer the availability shift on top of
+             * it, because live no longer applies one.  Every second beyond
+             * this is a second of black screen that buys nothing. */
+            /* Enough to reach where the player will sit and then some.
+             *
+             * A catalogue equal to the live delay is not enough: the player
+             * starts at the newest media rather than the oldest and spends the
+             * first several seconds drifting back to the delay it was asked
+             * for, playing from a cushion that starts near zero. Measured at
+             * 200 ms of latency it began with 0.9 seconds buffered and dipped
+             * to 0.4 before recovering, which is a stutter for the first few
+             * seconds and smooth after. Publishing a window wider than the
+             * delay gives it somewhere to start that is already behind. */
+            const double required = published.longestSeconds > 0.0
+                ? std::max(static_cast<double>(kDashPrerollSeconds),
+                           published.longestSeconds * 2.5)
+                : static_cast<double>(kDashPrerollSeconds);
+            /* A recording can be shorter than the preroll asks for - a twelve
+             * second clip seeked six seconds in has six seconds left, and
+             * waiting for eight of them waits forever, which the viewer sees as
+             * a seek that failed. There is no end-of-stream signal to consult,
+             * but there is a simpler one: a live source keeps writing and a
+             * recording played to its end stops, so media that has not grown
+             * for a few seconds is all there is ever going to be. */
+            constexpr double kSourceIdleSeconds = 3.0;
+            const bool enoughMedia = published.seconds >= required;
+            const bool sourceFinished = published.fragments >= 1
+                                        && published.secondsSinceNewestWrite >= kSourceIdleSeconds;
+            session->prerollComplete =
+                (enoughMedia && published.fragments >= kDashPrerollSegments) || sourceFinished;
+            if (sourceFinished && !enoughMedia)
+            {
+                LOG(info) << "DASH publishing a short recording for " << session->streamToken
+                          << ": " << published.seconds << " s in " << published.fragments
+                          << " fragments, and the source stopped writing "
+                          << published.secondsSinceNewestWrite << " s ago" << endl;
+            }
+            result.starting = !session->prerollComplete;
+            if (session->prerollComplete)
+            {
+                LOG(info) << "DASH preroll complete for " << session->streamToken << ": "
+                          << published.fragments << " fragments carrying "
+                          << published.seconds << " s of media" << endl;
+            }
+        }
+    }
+    else if (result.path.extension() == ".m4s")
+    {
+        result.mimeType = "video/iso.segment";
+    }
+    else if (result.path.extension() == ".mp4")
+    {
+        result.mimeType = "video/mp4";
+    }
+    else
+    {
+        result.valid = false;
+    }
+    return result;
+}
+
+void DashSessionManager::touch(const std::string& streamToken)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto token = m_sessionsByToken.find(streamToken);
+    if (token != m_sessionsByToken.end())
+    {
+        if (const std::shared_ptr<Session> session = token->second.lock())
+        {
+            session->lastActivity = std::chrono::steady_clock::now();
+        }
+    }
+}
+
+void DashSessionManager::destroySession(std::shared_ptr<Session> session)
+{
+    if (!session)
+    {
+        return;
+    }
+    if (session->ownsSource)
+    {
+        // A replay or live-overlay session owns its pipeline outright; there
+        // is no StreamMonitor registration to undo.
+        if (session->source)
+        {
+            session->source->stopAndRemoveConsumers();
+            session->source->resetConsumerAndDestroyDecoderIfRequired();
+        }
+    }
+    else
+    {
+        std::string registrationUrl = session->mediaUrl;
+        StreamMonitor::getInstance()->deregisterDataCallback(session->packager, registrationUrl, false);
+    }
+    session->packager->stop();
+}
+
+namespace
+{
+// dashsink never removes the segments it writes, so a long lived session grows
+// its directory without bound.  Keep a window large enough for the manifest
+// preroll and the player's live delay.  Segment 1 is always kept: the
+// initialization segment served to players is derived from it.
+
+// Diagnostic escape hatch.  A freeze that leaves segments arriving but nothing
+// playing is a question about the bytes, and by the time it is noticed the
+// evidence has been pruned.  Setting dash_keep_segments in the config keeps
+// every segment of every session on disk so the failing ones can be examined.
+// It is off by default and will fill the disk if left on.
+bool keepSegmentsForDiagnosis()
+{
+    // Read from the environment rather than the config struct: that struct is
+    // shared with prebuilt libraries compiled against its current layout, so
+    // adding a field to it shifts every field after and corrupts what those
+    // libraries read.
+    const char* value = std::getenv("VST_DASH_KEEP_SEGMENTS");
+    return value != nullptr && value[0] == '1';
+}
+
+void pruneSegments(const std::filesystem::path& directory)
+{
+    if (keepSegmentsForDiagnosis())
+    {
+        return;
+    }
+    std::error_code ec;
+    std::vector<std::pair<uint64_t, std::filesystem::path>> segments;
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+    {
+        if (ec)
+        {
+            return;
+        }
+        const std::string name = entry.path().filename().string();
+        if (entry.path().extension() != ".mp4" || name.rfind("video_", 0) != 0)
+        {
+            continue;
+        }
+        const size_t underscore = name.rfind('_');
+        const size_t dot = name.rfind(".mp4");
+        if (underscore == std::string::npos || dot == std::string::npos || dot <= underscore + 1)
+        {
+            continue;
+        }
+        try
+        {
+            segments.emplace_back(std::stoull(name.substr(underscore + 1, dot - underscore - 1)), entry.path());
+        }
+        catch (const std::exception&)
+        {
+            continue;
+        }
+    }
+    if (segments.size() <= kDashRetainedSegments)
+    {
+        return;
+    }
+    uint64_t newest = 0;
+    for (const auto& segment : segments)
+    {
+        newest = std::max(newest, segment.first);
+    }
+    if (newest <= kDashRetainedSegments)
+    {
+        return;
+    }
+    const uint64_t oldestKept = newest - kDashRetainedSegments;
+    for (const auto& [number, path] : segments)
+    {
+        if (number > 1 && number < oldestKept)
+        {
+            std::filesystem::remove(path, ec);
+        }
+    }
+}
+} // namespace
+
+void DashSessionManager::reaperLoop()
+{
+    std::unique_lock<std::mutex> lock(m_mutex);
+    while (!m_shutdown)
+    {
+        m_wakeup.wait_for(lock, std::chrono::seconds(1), [this] { return m_shutdown; });
+        if (m_shutdown)
+        {
+            break;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        std::vector<std::shared_ptr<Session>> expired;
+        for (auto iterator = m_sessionsByStream.begin(); iterator != m_sessionsByStream.end();)
+        {
+            const std::shared_ptr<Session>& session = iterator->second;
+            // Reap on inactivity alone.  A viewer only leaves viewerIds when it
+            // calls /dash/stop, which a closed tab, a lost network or a crashed
+            // client never does, so requiring an empty viewer set kept the
+            // pipeline and its output directory alive forever.  Every manifest
+            // and segment request refreshes lastActivity, so a session nobody is
+            // fetching from is dead regardless of who is still registered.
+            if (now - session->lastActivity >= m_idleTimeout)
+            {
+                for (const std::string& staleViewer : session->viewerIds)
+                {
+                    m_sessionsByViewer.erase(staleViewer);
+                }
+                session->viewerIds.clear();
+                m_sessionsByToken.erase(session->streamToken);
+                expired.push_back(session);
+                iterator = m_sessionsByStream.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        for (auto iterator = m_replaySessionsByToken.begin(); iterator != m_replaySessionsByToken.end();)
+        {
+            const std::shared_ptr<Session>& session = iterator->second;
+            if (now - session->lastActivity >= m_idleTimeout)
+            {
+                for (const std::string& staleViewer : session->viewerIds)
+                {
+                    m_sessionsByViewer.erase(staleViewer);
+                }
+                session->viewerIds.clear();
+                m_sessionsByToken.erase(session->streamToken);
+                expired.push_back(session);
+                iterator = m_replaySessionsByToken.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        std::vector<std::filesystem::path> liveDirectories;
+        for (const auto& [streamId, session] : m_sessionsByStream)
+        {
+            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+        }
+        // Replay is pruned on the same terms as live.  Publishing is paced at
+        // the recording's own rate, so the viewer stays within the retained
+        // window instead of trailing a session that has already run to the end.
+        for (const auto& [token, session] : m_replaySessionsByToken)
+        {
+            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+        }
+        lock.unlock();
+        for (const auto& session : expired)
+        {
+            destroySession(session);
+        }
+        for (const auto& directory : liveDirectories)
+        {
+            pruneSegments(directory);
+        }
+        lock.lock();
+    }
+}
+
+void DashSessionManager::shutdown()
+{
+    std::vector<std::shared_ptr<Session>> sessions;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_shutdown)
+        {
+            return;
+        }
+        m_shutdown = true;
+        for (const auto& entry : m_sessionsByStream)
+        {
+            sessions.push_back(entry.second);
+        }
+        for (const auto& entry : m_replaySessionsByToken)
+        {
+            sessions.push_back(entry.second);
+        }
+        m_sessionsByStream.clear();
+        m_replaySessionsByToken.clear();
+        m_sessionsByToken.clear();
+        m_sessionsByViewer.clear();
+    }
+    m_wakeup.notify_all();
+    if (m_reaperThread.joinable())
+    {
+        m_reaperThread.join();
+    }
+    for (const auto& session : sessions)
+    {
+        destroySession(session);
+    }
+}
