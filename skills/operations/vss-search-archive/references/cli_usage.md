@@ -111,15 +111,21 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 Search automatically attempts bounded visual verification through
 `vss_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
 When those services are available, the critic attempts every returned hit.
-Every hit contains `verification.result`: `confirmed`, `rejected`, or
-`unverified`. Verification is fail-open: a missing VLM, inaccessible clip, or
-critic failure does not fail retrieval and leaves the affected hit
-`unverified`. There are no critic or VLM flags; deployment discovery remains
-the single source of endpoints and model ids.
+Every hit carries a nullable `critic_result` field; when present,
+`critic_result.result` is `confirmed`, `rejected`, or `unverified`. A `null`
+`critic_result` means no critic ran (e.g. no RT-VLM was discovered, or the
+critic call raised). Verification is fail-open: a missing VLM, inaccessible
+clip, or critic failure never fails retrieval — the affected hit is left
+`null` (no critic ran) or `unverified` (the critic ran but produced no
+verdict). There are no critic or VLM flags; deployment discovery remains the
+single source of endpoints and model ids. Non-fatal pipeline diagnostics
+(e.g. the fail-open note above) print to **stderr**, not in the JSON, so
+stdout stays the `{data}` envelope.
 
-Only when every displayed hit is `unverified` may the host ask whether the user
-wants them checked through the separate `vss-ask-video` workflow. If even one
-hit is `confirmed` or `rejected`, do not offer or invoke that fallback.
+Only when every displayed hit has `critic_result` that is `null` or `unverified`
+may the host ask whether the user wants them checked through the separate
+`vss-ask-video` workflow. If even one hit is `confirmed` or `rejected`, do not
+offer or invoke that fallback.
 
 Model ids come from `vss configure show`; the CLI never accepts an index. Bases
 and family wildcards are pinned, and host-side ES checks use the family

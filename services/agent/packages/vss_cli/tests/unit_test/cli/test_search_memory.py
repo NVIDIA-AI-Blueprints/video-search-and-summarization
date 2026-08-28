@@ -94,10 +94,17 @@ def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
         lambda *_args, **_kwargs: MagicMock(),
     )
 
-    async def _critic(_deployment: Any) -> tuple[None, None]:
-        return None, None
+    async def _critic(_deployment: Any) -> tuple[None, None, bool]:
+        return None, None, False
 
     monkeypatch.setattr("vss_cli.search.group._critic_from", _critic)
+
+    async def _add_offsets(output: Any, _runtime: Any) -> Any:
+        # Offsets are a VST-timeline concern; the in-process unit tests don't
+        # stand up a VST, so skip the round-trip and leave them at the model default.
+        return output
+
+    monkeypatch.setattr("vss_cli.search.group._add_offsets", _add_offsets)
 
     class _VSS:
         async def __aenter__(self) -> Any:

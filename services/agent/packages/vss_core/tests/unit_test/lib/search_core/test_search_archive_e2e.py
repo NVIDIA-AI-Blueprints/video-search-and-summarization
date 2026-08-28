@@ -300,6 +300,8 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             "description": "red forklift near loading bay",
             "start_time": _START_TIME,
             "end_time": _END_TIME,
+            "start_offset": 0.0,
+            "end_offset": 6.0,
             "sensor_id": _STREAM_ID,
             # startTime is percent-encoded (quote(..., safe="")): the timestamp
             # is untrusted data, so ':'/'+'/etc. are escaped to prevent query
@@ -310,7 +312,7 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             ),
             "similarity": 0.86,
             "object_ids": [],
-            "verification": {
+            "critic_result": {
                 "result": "confirmed",
                 "criteria_met": {
                     "subject:forklift": True,
@@ -319,7 +321,7 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             },
         }
     ]
-    assert payload["search_messages"] == []
+    assert "search_messages" not in payload
 
     embed_request = _single(mock_services.requests_for("/v1/generate_text_embeddings"))
     assert embed_request.body["text_input"] == ["red forklift"]
@@ -388,8 +390,8 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     payload, marker = _result_and_marker(result.stdout)
     _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["object_ids"] == ["42"]
-    assert "critic_result" not in payload["data"][0]
-    assert payload["data"][0]["verification"]["result"] == "confirmed"
+    assert "verification" not in payload["data"][0]
+    assert payload["data"][0]["critic_result"]["result"] == "confirmed"
     assert mock_services.requests_for("/v1/generate_text_embeddings") == []
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body == {
         "text_input": "white jacket",
@@ -398,7 +400,7 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     assert mock_services.requests_ending_with("/_search")[-1].path == "/mdx-behavior-2025-01-01/_search"
 
 
-def test_search_archive_cli_without_vlm_returns_unverified_hits(
+def test_search_archive_cli_without_vlm_leaves_critic_result_null(
     agent_root: Path,
     mock_services: _MockSearchServices,
 ) -> None:
@@ -415,10 +417,7 @@ def test_search_archive_cli_without_vlm_returns_unverified_hits(
     assert result.returncode == 0, result.stderr
     payload, marker = _result_and_marker(result.stdout)
     _assert_search_marker(marker, persisted=False)
-    assert payload["data"][0]["verification"] == {
-        "result": "unverified",
-        "criteria_met": None,
-    }
+    assert payload["data"][0]["critic_result"] is None
     assert mock_services.requests_for("/v1/chat/completions") == []
 
 
@@ -440,7 +439,7 @@ def test_search_archive_cli_unreachable_vlm_probes_once_and_returns_unverified_h
     assert result.returncode == 0, result.stderr
     payload, marker = _result_and_marker(result.stdout)
     _assert_search_marker(marker, persisted=False)
-    assert payload["data"][0]["verification"]["result"] == "unverified"
+    assert payload["data"][0]["critic_result"] == {"result": "unverified", "criteria_met": {}}
     assert len(mock_services.requests_for("/v1/models")) == 1
     assert mock_services.requests_for("/v1/chat/completions") == []
 

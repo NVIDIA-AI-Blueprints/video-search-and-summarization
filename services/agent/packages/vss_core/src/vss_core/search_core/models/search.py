@@ -94,17 +94,19 @@ class SearchInput(BaseModel):
             raise InvalidInputError("object_ids require search_mode='object'")
 
 
-class SearchVerification(BaseModel):
-    """Visual verification attached to one retrieval hit.
+class CriticResult(BaseModel):
+    """Structured verdict from the critic for one retrieval hit.
 
-    Retrieval is useful even when no VLM is deployed or verification fails.
-    Consequently every hit starts as ``unverified`` and is upgraded only after
-    the critic successfully evaluates that exact interval.
+    Mirrors ``vss_agents``' ``CriticResult`` so the CLI's serialized search
+    output is structurally identical to the agent's. A hit carries ``None``
+    when no critic ran (or the critic call raised); an object — including
+    ``result="unverified"`` with ``criteria_met={}`` — when the critic ran
+    and returned a verdict.
     """
 
     model_config = ConfigDict(extra="forbid")
-    result: Literal["confirmed", "rejected", "unverified"] = "unverified"
-    criteria_met: dict[str, bool] | None = None
+    result: Literal["confirmed", "rejected", "unverified"]
+    criteria_met: dict[str, bool] = Field(default_factory=dict)
 
 
 class SearchResult(BaseModel):
@@ -115,11 +117,13 @@ class SearchResult(BaseModel):
     description: str
     start_time: str
     end_time: str
+    start_offset: float | None = None
+    end_offset: float | None = None
     sensor_id: str
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
-    verification: SearchVerification = Field(default_factory=SearchVerification)
+    critic_result: CriticResult | None = None
 
 
 class SearchOutput(BaseModel):

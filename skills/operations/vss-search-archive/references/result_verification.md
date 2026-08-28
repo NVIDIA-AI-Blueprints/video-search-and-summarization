@@ -1,10 +1,11 @@
 # Search-result verification
 
 Read this only after the CLI returned a nonempty result set in which **every**
-displayed hit is `unverified`, those hits were displayed, and the user
-explicitly answered yes to the verification question. Recheck the complete
-displayed set before handoff. If any hit is `confirmed` or `rejected`, do not
-delegate any hit. Do not reconfirm or rerun search.
+displayed hit has `critic_result` that is `null` or `result: "unverified"`,
+those hits were displayed, and the user explicitly answered yes to the
+verification question. Recheck the complete displayed set before handoff. If
+any hit is `confirmed` or `rejected`, do not delegate any hit. Do not reconfirm
+or rerun search.
 
 Invoke the existing `vss-ask-video` skill once per displayed hit, with at most
 three invocations in flight. Do not require or add a search-specific mode to
@@ -91,7 +92,7 @@ Require `result` to be `confirmed`, `rejected`, or `unverified`, every
 JSON from hidden reasoning or surrounding prose. A valid semantic `unverified`
 is a completed visual check and must not trigger fallback.
 
-Replace only that hit's prior `unverified` state with the validated result.
+Replace only that hit's prior `null` or `unverified` state with the validated result.
 Use representative-screenshot inspection only after a technical ask-video
 failure. Reuse the hit's already origin-validated `screenshot_url`; never infer
 missing criteria or broaden the interval. State that fallback evidence is one

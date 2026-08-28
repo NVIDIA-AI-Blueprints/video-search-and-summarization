@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 from typing import Literal
 
 import click
@@ -462,7 +463,7 @@ def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
         },
     )
 
-    assert asyncio.run(_critic_from(deployment)) == (None, None)
+    assert asyncio.run(_critic_from(deployment)) == (None, None, False)
 
 
 def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -483,7 +484,8 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
         return True
 
     monkeypatch.setattr(search_group, "_rt_vlm_available", available)
-    critic, vlm = asyncio.run(search_group._critic_from(deployment))
+    critic, vlm, synthesize_unverified = asyncio.run(search_group._critic_from(deployment))
+    assert synthesize_unverified is False
 
     assert critic is not None and vlm is not None
     assert critic._time_format == "offset"
@@ -513,5 +515,154 @@ def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatc
 
     monkeypatch.setattr(search_group, "_rt_vlm_available", unavailable)
 
-    assert asyncio.run(search_group._critic_from(deployment)) == (None, None)
+    assert asyncio.run(search_group._critic_from(deployment)) == (None, None, True)
     assert probes == [("https://vss.example/rtvi-vlm", "cosmos-reason3")]
+
+
+class TestAddOffsets:
+    """Mirror ``vss_agents``' ``TestAddOffsets`` for the CLI's ``_add_offsets`` port.
+
+    The CLI computes ``start_offset``/``end_offset`` in its own layer (after core
+    search returns), exactly as the agent does in its layer. These tests pin
+    that contract: same stream-relative seconds for uploaded files and RTSP,
+    one timeline lookup per unique sensor, and non-fatal None when VST is
+    absent or the timeline lookup raises.
+    """
+
+    @staticmethod
+    def _runtime(
+        *,
+        vst_internal: str | None = "http://vst:30888",
+        vst_external: str | None = "http://vst:7777",
+    ) -> Any:
+        from vss_core.search_core.runtime import SearchRuntime
+
+        return SearchRuntime.from_kwargs(
+            vst_internal_url=vst_internal,
+            vst_external_url=vst_external,
+        )
+
+    @staticmethod
+    def _hit(sensor_id: str, start: str, end: str) -> Any:
+        from vss_core.search_core.models.search import SearchResult
+
+        return SearchResult(
+            video_name=sensor_id,
+            description="",
+            start_time=start,
+            end_time=end,
+            sensor_id=sensor_id,
+            screenshot_url="",
+            similarity=0.9,
+        )
+
+    def test_file_offsets_are_seconds_since_stream_start(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from vss_cli.search import group as search_group
+        from vss_core.search_core.models.search import SearchOutput
+
+        class _VST:
+            def __init__(self, **_kw: object) -> None:
+                pass
+
+            async def get_timeline(self, _sensor_id: str) -> tuple[str, str]:
+                return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr("vss_core.vios.VSTClient", _VST)
+        output = SearchOutput(data=[self._hit("file1", "2025-01-01T00:02:00.000Z", "2025-01-01T00:02:30.000Z")])
+        result = asyncio.run(search_group._add_offsets(output, self._runtime()))
+
+        assert result.data[0].start_offset == pytest.approx(120.0)
+        assert result.data[0].end_offset == pytest.approx(150.0)
+
+    def test_rtsp_offsets_are_seconds_since_stream_start(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from vss_cli.search import group as search_group
+        from vss_core.search_core.models.search import SearchOutput
+
+        class _VST:
+            def __init__(self, **_kw: object) -> None:
+                pass
+
+            async def get_timeline(self, _sensor_id: str) -> tuple[str, str]:
+                return "2026-07-09T08:56:44.024Z", "2026-07-09T09:00:34.972Z"
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr("vss_core.vios.VSTClient", _VST)
+        output = SearchOutput(data=[self._hit("cam1", "2026-07-09T08:57:01.024Z", "2026-07-09T08:57:05.024Z")])
+        result = asyncio.run(search_group._add_offsets(output, self._runtime()))
+
+        assert result.data[0].start_offset == pytest.approx(17.0)
+        assert result.data[0].end_offset == pytest.approx(21.0)
+
+    def test_repeated_sensor_dedups_timeline_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from vss_cli.search import group as search_group
+        from vss_core.search_core.models.search import SearchOutput
+
+        calls: list[str] = []
+
+        class _VST:
+            def __init__(self, **_kw: object) -> None:
+                pass
+
+            async def get_timeline(self, sensor_id: str) -> tuple[str, str]:
+                calls.append(sensor_id)
+                return "2025-01-01T00:00:00.000Z", "2025-01-01T01:00:00.000Z"
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr("vss_core.vios.VSTClient", _VST)
+        output = SearchOutput(
+            data=[
+                self._hit("cam1", "2025-01-01T00:00:30.000Z", "2025-01-01T00:01:00.000Z"),
+                self._hit("cam1", "2025-01-01T00:02:00.000Z", "2025-01-01T00:03:00.000Z"),
+            ]
+        )
+        result = asyncio.run(search_group._add_offsets(output, self._runtime()))
+
+        assert calls == ["cam1"]  # one timeline lookup despite two clips
+        assert result.data[0].start_offset == pytest.approx(30.0)
+        assert result.data[1].start_offset == pytest.approx(120.0)
+
+    def test_no_vst_configured_leaves_offsets_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from vss_cli.search import group as search_group
+        from vss_core.search_core.models.search import SearchOutput
+
+        class _NoVST:
+            def __init__(self, **_kw: object) -> None:
+                raise AssertionError("VSTClient must not be built when no VST is configured")
+
+        monkeypatch.setattr("vss_core.vios.VSTClient", _NoVST)
+        output = SearchOutput(data=[self._hit("cam1", "2025-01-01T00:00:30.000Z", "2025-01-01T00:01:00.000Z")])
+        result = asyncio.run(search_group._add_offsets(output, self._runtime(vst_internal=None, vst_external=None)))
+
+        assert result.data[0].start_offset is None
+        assert result.data[0].end_offset is None
+
+    def test_timeline_failure_leaves_offsets_none_and_is_nonfatal(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from vss_cli.search import group as search_group
+        from vss_core.search_core.models.search import SearchOutput
+
+        class _VST:
+            def __init__(self, **_kw: object) -> None:
+                pass
+
+            async def get_timeline(self, _sensor_id: str) -> tuple[str, str]:
+                raise RuntimeError("VST down")
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr("vss_core.vios.VSTClient", _VST)
+        output = SearchOutput(data=[self._hit("cam1", "2025-01-01T00:00:30.000Z", "2025-01-01T00:01:00.000Z")])
+        result = asyncio.run(search_group._add_offsets(output, self._runtime()))
+
+        assert result.data[0].start_offset is None
+        assert result.data[0].end_offset is None
+        assert "could not compute offsets" in capsys.readouterr().err

@@ -58,7 +58,7 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert 'VSS_ORIGIN=$("${VSS[@]}" configure show' in main
     assert "Do not repeat public-origin selection" in main
     assert "Would you like me to verify the unverified search results?" in main
-    assert "only when every displayed result is" in normalized_main
+    assert "only when every displayed hit has" in normalized_main
     assert "Never hand off a partially verified result set" in normalized_main
     assert "Verification is fail-open" in cli_usage
     assert "If any hit is `confirmed` or `rejected`, do not delegate any hit" in normalized_verification
@@ -226,13 +226,13 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
     assert "vss-ask-video" in spec["skills"]
     assert "--extra cli vss search run" in serialized
-    assert "verification.result" in serialized
+    assert "critic_result" in serialized
     assert "confirmed" in serialized
     assert "rejected" in serialized
     assert "unverified" in serialized
     assert "VERIFY_PIXELS" not in serialized
     assert "visually inspect screenshot pixels" in adapter
-    assert "when every hit in the nonempty displayed result set remains unverified" in adapter
+    assert "when every hit in the nonempty displayed result set has `critic_result` null or `unverified`" in adapter
     assert "or prose layout is not required" in adapter
     assert "always use the exact heading `## Video Search Results`" not in adapter
     assert "timeout_sec = 600.0" in adapter

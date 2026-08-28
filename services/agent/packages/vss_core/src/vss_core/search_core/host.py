@@ -127,7 +127,8 @@ class VSSSearch:
 
         Search never depends on verification succeeding. Missing dependencies,
         invalid media bounds, or a critic/VLM failure leave the affected hits at
-        their model default of ``unverified``.
+        their model default of ``None``; a critic that ran but produced no
+        verdict leaves ``unverified``.
         """
         if self._critic is None or not output.data:
             return output
@@ -150,7 +151,7 @@ class VSSSearch:
         from vss_core.critic import CriticAgentResult
         from vss_core.critic import VideoInfo
 
-        from .models.search import SearchVerification
+        from .models.search import CriticResult
 
         candidate_indices: list[int] = []
         videos: list[VideoInfo] = []
@@ -169,7 +170,9 @@ class VSSSearch:
                     }
                 )
             except ValidationError:
-                logger.warning("Search result %d has invalid verification bounds; leaving it unverified", index)
+                logger.warning(
+                    "Search result %d has invalid verification bounds; leaving it without a critic verdict", index
+                )
                 continue
             candidate_indices.append(index)
             videos.append(video)
@@ -182,12 +185,14 @@ class VSSSearch:
         try:
             critic_output = await self._critic.run(CriticAgentInput(query=query, videos=videos))
         except Exception:
-            logger.warning("Search-result verification failed; returning retrieval hits as unverified", exc_info=True)
+            logger.warning(
+                "Search-result verification failed; returning retrieval hits without a critic verdict", exc_info=True
+            )
             return output.model_copy(
                 update={
                     "search_messages": [
                         *output.search_messages,
-                        "Visual verification failed; retrieval results remain unverified.",
+                        "Visual verification failed; retrieval results carry no critic verdict (critic_result is null).",
                     ]
                 }
             )
@@ -196,17 +201,18 @@ class VSSSearch:
         for index, verdict in zip(candidate_indices, critic_output.video_results, strict=False):
             verified_results[index] = verified_results[index].model_copy(
                 update={
-                    "verification": SearchVerification(
+                    "critic_result": CriticResult(
                         result=verdict.result.value,
-                        criteria_met=verdict.criteria_met,
+                        criteria_met=verdict.criteria_met or {},
                     )
                 }
             )
 
         # The critic degrades a failed candidate to `unverified` instead of
-        # raising, so a deployment whose VLM answers /v1/models but fails every
-        # completion returns output identical to one with no VLM at all. Say
-        # which it was: silence here means no critic ran.
+        # raising, so a deployment whose VLM answers /v1/models but fails
+        # every completion still emits a per-hit `unverified` verdict --
+        # distinguishable from the silent `None` left when no critic ran
+        # at all. Say which it was: the message below marks the former.
         if critic_output.video_results and all(
             verdict.result == CriticAgentResult.UNVERIFIED for verdict in critic_output.video_results
         ):
