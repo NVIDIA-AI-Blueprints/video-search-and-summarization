@@ -52,6 +52,13 @@ private:
     void setupStandardPipeline(const PipelineConfiguration& config);
 
     std::shared_ptr<GstNvVideoDecoder> m_decoder = nullptr;
+    /* True only when m_decoder came from DecoderPool and may therefore be
+     * shared with other viewers. Private decoders (recorded playback, image
+     * capture, gods eye view, new_dec) are owned outright by this pipeline
+     * and are torn down here. Recorded per decoder rather than re-derived
+     * from the config at teardown, which is how gods eye view ended up on
+     * the pooled teardown path. */
+    bool m_pooledDecoder = false;
     std::shared_ptr<VideoWebRTCSender> m_videoSender = nullptr;
     std::shared_ptr<NativeStreamProducer> m_nativeStreamProducer = nullptr;
 #ifdef AARCH64_PLATFORM

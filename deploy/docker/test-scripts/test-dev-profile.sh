@@ -1387,9 +1387,19 @@ for _spec in "${_shared_service_env_specs[@]}"; do
     fi
   done
 done
+_nvstreamer_base_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/base.yml"
 _nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
-if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_shared_compose}"; then
-  echo "FAIL: shared NVStreamer Compose should define nvstreamer-base"
+if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_base_compose}"; then
+  echo "FAIL: shared NVStreamer base Compose should define nvstreamer-base"
+  ((_split_failed++)) || true
+fi
+if ! awk '
+  /^  nvstreamer:$/ { found = 1; next }
+  found && /^  [[:alnum:]_-]+:$/ { exit }
+  found && /profiles: !override \["nvstreamer"\]/ { valid = 1 }
+  END { exit !(found && valid) }
+' "${_nvstreamer_shared_compose}"; then
+  echo "FAIL: shared NVStreamer Compose should define the profile-neutral nvstreamer service"
   ((_split_failed++)) || true
 fi
 if grep -Eq '(developer-profiles|industry-profiles)/' "${_nvstreamer_shared_compose}"; then
@@ -1530,6 +1540,12 @@ run_dry_run_up_and_check_generated_env "generated.env LVS defaults to Nemotron 3
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
+run_dry_run_up_and_check_generated_env "generated.env Search defaults to Nemotron 3.5 Lightning on H100" "search" \
+ -i 127.0.0.1 -H H100 -d -- \
+  "HARDWARE_PROFILE" "H100" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
+
 run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects ARM64 LLM and SBSA RT-VLM" "base" \
  -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
   "HARDWARE_PROFILE" "GB300" \
@@ -1554,6 +1570,18 @@ for _nemotron_3_5_env in \
     ((TESTS_FAILED++)) || true
   fi
 done
+
+# H100 shared-GPU: the LLM gets NIM_GPU_MEM_FRACTION=0.5 while co-located with RT-Embed
+# (search) or RT-VLM (base/LVS), so the INT4 tp1 profile must stay pinned — bf16-tp1
+# needs 66 GB and nvfp4 is Blackwell-only.
+_nemotron_3_5_h100_shared="${REPO_ROOT}/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env"
+if grep -Fq "NIM_MODEL_PROFILE=2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4" "${_nemotron_3_5_h100_shared}"; then
+  echo "PASS: hw-H100-shared.env pins the Nemotron 3.5 INT4 tp1 profile"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: hw-H100-shared.env does not pin the Nemotron 3.5 INT4 tp1 profile"
+  ((TESTS_FAILED++)) || true
+fi
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts

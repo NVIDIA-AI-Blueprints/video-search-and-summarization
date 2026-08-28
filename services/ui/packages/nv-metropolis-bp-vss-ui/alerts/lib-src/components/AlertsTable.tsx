@@ -25,7 +25,7 @@
  * - Handles video playback requests through integrated modal system
  */
 
-import React, { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
 import {
   IconChevronDown,
@@ -500,9 +500,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
 });
 
 type AlertsTableContentProps = Readonly<{
-  toolbarRef: React.RefObject<HTMLDivElement>;
   isDark: boolean;
-  stickyToolbarHeightPx: number;
   sortedAlerts: AlertData[];
   paginate: boolean;
   pageCount: number;
@@ -543,9 +541,7 @@ type AlertsTableContentProps = Readonly<{
 }>;
 
 function AlertsTableContent({
-  toolbarRef,
   isDark,
-  stickyToolbarHeightPx,
   sortedAlerts,
   paginate,
   pageCount,
@@ -605,10 +601,10 @@ function AlertsTableContent({
   }, [customPageValue, onPageSizeChange]);
 
   return (
-    <div className="w-full">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
       <div
-        ref={toolbarRef as React.RefObject<HTMLDivElement>}
-        className={`sticky top-0 z-30 px-4 py-2 border-b flex flex-wrap items-center justify-between gap-3 shadow-sm ${
+        data-testid="alerts-table-toolbar"
+        className={`relative z-20 shrink-0 px-4 py-2 border-b flex flex-wrap items-center justify-between gap-3 shadow-sm ${
           isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-300'
         }`}
       >
@@ -751,80 +747,82 @@ function AlertsTableContent({
           />
         )}
       </div>
-      <table data-testid="alerts-table" className="w-full border-collapse">
-        <thead className={`sticky z-20 border-b ${theadClass}`} style={{ top: stickyToolbarHeightPx }}>
-          <tr>
-            <th className={`${thClass} w-8`}></th>
-            <th className={`${thClass} w-8`}></th>
-            <th
-              aria-sort={getAriaSort('timestamp', sortConfig)}
-              className={`${thClass} cursor-pointer select-none hover:bg-opacity-10 ${sortableThExtras}`}
-              onClick={() => handleSort('timestamp')}
+      <div data-testid="alerts-table-scroll-container" className="isolate min-h-0 flex-1 overflow-auto">
+        <table data-testid="alerts-table" className="w-full min-w-[1200px] border-collapse">
+          <thead className={`border-b ${theadClass}`}>
+            <tr>
+              <th className={`${thClass} w-8`}></th>
+              <th className={`${thClass} w-8`}></th>
+              <th
+                aria-sort={getAriaSort('timestamp', sortConfig)}
+                className={`${thClass} cursor-pointer select-none hover:bg-opacity-10 ${sortableThExtras}`}
+                onClick={() => handleSort('timestamp')}
+              >
+                <div className="flex items-center gap-2">
+                  <span>Timestamp</span>
+                  <SortColumnIcons columnKey="timestamp" sortKey={sortConfig.key} direction={sortConfig.direction} />
+                </div>
+              </th>
+              <th
+                aria-sort={getAriaSort('end', sortConfig)}
+                className={`${thClass} cursor-pointer select-none hover:bg-opacity-10 ${sortableThExtras}`}
+                onClick={() => handleSort('end')}
+              >
+                <div className="flex items-center gap-2">
+                  <span>End</span>
+                  <SortColumnIcons columnKey="end" sortKey={sortConfig.key} direction={sortConfig.direction} />
+                </div>
+              </th>
+              <th className={thClass}>Sensor</th>
+              <th className={thClass}>Alert Type</th>
+              <th className={thClass}>VLM Verdict</th>
+              <th className={thClass}>Alert Description</th>
+              <th className={`${thClass} w-8`}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedAlerts.map((alert, index) => {
+              const stripeIndex = paginate ? (currentPage - 1) * pageSizeActive + index : index;
+              return (
+                <AlertTableBodyRow
+                  key={alert.id}
+                  alert={alert}
+                  stripeIndex={stripeIndex}
+                  isDark={isDark}
+                  isExpanded={expandedRows.has(alert.id)}
+                  timeFormatUtc={timeFormatUtc}
+                  activeFilters={activeFilters}
+                  loadingAlertId={loadingAlertId}
+                  vstApiUrl={vstApiUrl}
+                  sensorMap={sensorMap}
+                  showObjectsBbox={showObjectsBbox}
+                  alertReportPromptTemplate={alertReportPromptTemplate}
+                  vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
+                  vlmVerified={vlmVerified}
+                  submitChatMessage={submitChatMessage}
+                  tdTextClass={tdTextClass}
+                  toggleRow={toggleRow}
+                  onAddFilter={onAddFilter}
+                  onPlayVideo={onPlayVideo}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+        {showLoadMore && (
+          <div className={`flex justify-center border-t px-4 py-3 ${loadMoreFooterClass}`}>
+            <Button
+              kind="tertiary"
+              disabled={loadingMore || autoRefreshEnabled}
+              onClick={handleLoadMoreClick}
+              data-testid="alerts-load-more"
+              title={autoRefreshEnabled ? 'Disable auto-refresh to load older alerts' : 'Load more alerts from server'}
             >
-              <div className="flex items-center gap-2">
-                <span>Timestamp</span>
-                <SortColumnIcons columnKey="timestamp" sortKey={sortConfig.key} direction={sortConfig.direction} />
-              </div>
-            </th>
-            <th
-              aria-sort={getAriaSort('end', sortConfig)}
-              className={`${thClass} cursor-pointer select-none hover:bg-opacity-10 ${sortableThExtras}`}
-              onClick={() => handleSort('end')}
-            >
-              <div className="flex items-center gap-2">
-                <span>End</span>
-                <SortColumnIcons columnKey="end" sortKey={sortConfig.key} direction={sortConfig.direction} />
-              </div>
-            </th>
-            <th className={thClass}>Sensor</th>
-            <th className={thClass}>Alert Type</th>
-            <th className={thClass}>VLM Verdict</th>
-            <th className={thClass}>Alert Description</th>
-            <th className={`${thClass} w-8`}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {displayedAlerts.map((alert, index) => {
-            const stripeIndex = paginate ? (currentPage - 1) * pageSizeActive + index : index;
-            return (
-              <AlertTableBodyRow
-                key={alert.id}
-                alert={alert}
-                stripeIndex={stripeIndex}
-                isDark={isDark}
-                isExpanded={expandedRows.has(alert.id)}
-                timeFormatUtc={timeFormatUtc}
-                activeFilters={activeFilters}
-                loadingAlertId={loadingAlertId}
-                vstApiUrl={vstApiUrl}
-                sensorMap={sensorMap}
-                showObjectsBbox={showObjectsBbox}
-                alertReportPromptTemplate={alertReportPromptTemplate}
-                vlmVerifiedAlertReportPromptTemplate={vlmVerifiedAlertReportPromptTemplate}
-                vlmVerified={vlmVerified}
-                submitChatMessage={submitChatMessage}
-                tdTextClass={tdTextClass}
-                toggleRow={toggleRow}
-                onAddFilter={onAddFilter}
-                onPlayVideo={onPlayVideo}
-              />
-            );
-          })}
-        </tbody>
-      </table>
-      {showLoadMore && (
-        <div className={`flex justify-center border-t px-4 py-3 ${loadMoreFooterClass}`}>
-          <Button
-            kind="tertiary"
-            disabled={loadingMore || autoRefreshEnabled}
-            onClick={handleLoadMoreClick}
-            data-testid="alerts-load-more"
-            title={autoRefreshEnabled ? 'Disable auto-refresh to load older alerts' : 'Load more alerts from server'}
-          >
-            {loadingMore ? 'Loading…' : `Load more alerts (up to ${loadMoreBatchSize ?? 0})`}
-          </Button>
-        </div>
-      )}
+              {loadingMore ? 'Loading…' : `Load more alerts (up to ${loadMoreBatchSize ?? 0})`}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -858,10 +856,6 @@ export function AlertsTable({
   autoRefreshEnabled = false,
   submitChatMessage,
 }: Readonly<AlertsTableProps>) {
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  /** Pixels; used as thead sticky offset so column headers sit below the sticky controls bar. */
-  const [stickyToolbarHeightPx, setStickyToolbarHeightPx] = useState(56);
-
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: null });
 
@@ -942,18 +936,8 @@ export function AlertsTable({
     setExpandedRows(new Set());
   }, [loadMoreCompletionCount]);
 
-  useLayoutEffect(() => {
-    const el = toolbarRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setStickyToolbarHeightPx(Math.ceil(el.getBoundingClientRect().height));
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [sortedAlerts.length, paginate, pageCount, currentPage, canLoadMore, isDark, loadingMore]);
-
-  const thClass = `text-left py-3 px-4 text-xs uppercase tracking-wider ${
-    isDark ? 'text-neutral-300 font-normal' : 'text-gray-600 font-semibold'
+  const thClass = `sticky top-0 z-10 text-left py-3 px-4 text-xs uppercase tracking-wider ${
+    isDark ? 'bg-black text-neutral-300 font-normal' : 'bg-gray-100 text-gray-600 font-semibold'
   }`;
   const tdTextClass = `py-3 px-4 text-sm ${isDark ? 'text-neutral-300' : 'text-gray-600'}`;
   const sortableThExtras = isDark ? 'hover:bg-neutral-800' : 'hover:bg-gray-200';
@@ -989,9 +973,7 @@ export function AlertsTable({
 
   return (
     <AlertsTableContent
-      toolbarRef={toolbarRef}
       isDark={isDark}
-      stickyToolbarHeightPx={stickyToolbarHeightPx}
       sortedAlerts={sortedAlerts}
       paginate={paginate}
       pageCount={pageCount}

@@ -8,6 +8,14 @@ on:
     branches:
       - "pull-request/[0-9]+"
 
+# Same shape as ci.yml: one OSRB Scan per PR mirror. A newer revision
+# cancels the stale run so the workflow_run follower is not launched
+# from an obsolete CSV. (Ported from license-diff.yml on develop; the
+# group key follows the workflow rename.)
+concurrency:
+  group: osrb-scan-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write

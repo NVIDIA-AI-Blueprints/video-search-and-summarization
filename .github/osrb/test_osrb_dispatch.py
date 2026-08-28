@@ -280,5 +280,29 @@ class DispatchTests(unittest.TestCase):
         self.assertIn("--output license-diff.csv", workflow)
 
 
+    def test_scan_cancels_stale_pr_runs(self) -> None:
+        scan = SCAN_WORKFLOW.read_text()
+        self.assertIn("group: osrb-scan-${{ github.ref }}", scan)
+        self.assertIn("cancel-in-progress: true", scan)
+
+    def test_cancelled_scan_does_not_start_osrb_review(self) -> None:
+        """A superseded CSV must not launch the private reviewer.
+
+        The scan is still allowed to *fail* (non-empty diffs fail on develop)
+        and OSRB Review must still run in that case -- so the guard is
+        `!= cancelled`, never `== success`. Ported from develop's
+        license-diff variant of the same tests.
+        """
+        workflow = WORKFLOW.read_text()
+        self.assertIn(
+            "github.event.workflow_run.conclusion != 'cancelled'",
+            workflow,
+        )
+        self.assertNotIn(
+            "github.event.workflow_run.conclusion == 'success'",
+            workflow,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

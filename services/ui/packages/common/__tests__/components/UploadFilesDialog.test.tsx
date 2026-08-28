@@ -259,6 +259,70 @@ describe('UploadFilesDialog', () => {
     expect(screen.getByTestId('upload-confirm-button')).toBeDisabled();
   });
 
+  // Every shipped profile (base, lvs, search, alerts) deploys an empty config template with
+  // metadata disabled. The rename row used to be gated behind those, so QA saw no way to rename.
+  describe.each([
+    ['null config template', null],
+    ['config template with no fields', { fields: [] } as UploadFileConfigTemplate],
+  ])('with %s and metadata disabled', (_label, configTemplate) => {
+    it('still lets the user rename the file', () => {
+      const onConfirm = jest.fn();
+      const file = createMockFile('recording.mp4');
+      render(
+        <UploadFilesDialog
+          {...defaultProps}
+          onConfirm={onConfirm}
+          configTemplate={configTemplate}
+          open={true}
+          initialFiles={[file]}
+        />
+      );
+      fireEvent.click(screen.getByText('recording.mp4'));
+      const filenameInput = screen.getByPlaceholderText('e.g. my-video');
+      fireEvent.change(filenameInput, { target: { value: 'renamed.mp4' } });
+      fireEvent.click(screen.getByTestId('upload-confirm-button'));
+      expect(onConfirm).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ file, uploadFilename: 'renamed.mp4' }),
+        ])
+      );
+    });
+
+    it('does not render config fields or metadata in the expanded row', () => {
+      render(
+        <UploadFilesDialog
+          {...defaultProps}
+          configTemplate={configTemplate}
+          open={true}
+          initialFiles={[createMockFile()]}
+        />
+      );
+      fireEvent.click(screen.getByText('test.mp4'));
+      expect(screen.getByPlaceholderText('e.g. my-video')).toBeInTheDocument();
+      expect(screen.queryByText('Metadata (JSON)')).not.toBeInTheDocument();
+      expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows the renamed filename in the collapsed row', () => {
+    render(
+      <UploadFilesDialog
+        {...defaultProps}
+        configTemplate={null}
+        open={true}
+        initialFiles={[createMockFile('original.mp4')]}
+      />
+    );
+    const row = screen.getByText('original.mp4');
+    fireEvent.click(row);
+    fireEvent.change(screen.getByPlaceholderText('e.g. my-video'), {
+      target: { value: 'renamed.mp4' },
+    });
+    fireEvent.click(row);
+    expect(screen.getByText('renamed.mp4')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('e.g. my-video')).not.toBeInTheDocument();
+  });
+
   it('expands file row and shows config fields when config has fields', () => {
     render(
       <UploadFilesDialog
