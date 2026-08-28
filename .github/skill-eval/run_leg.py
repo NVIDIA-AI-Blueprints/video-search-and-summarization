@@ -737,6 +737,15 @@ def pool_candidates(
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
+        # Skip RUNNING-but-not-shell-ready boxes. brev reports status=RUNNING
+        # while shell_status stays "NOT READY" for half-dead instances (VM up,
+        # no shell); locking one yields an unusable box (brev exec has no shell
+        # -> deadline_exceeded / openshell not found). Absent field (registered
+        # nodes from `brev ls nodes`) is treated as acceptable, so only an
+        # explicit non-READY value disqualifies.
+        shell_status = (inst.get("shell_status") or "").upper()
+        if shell_status and shell_status != "READY":
+            continue
         if required_count > 0:
             # Applies to managed instances too, not just registered nodes.
             # Skipping them here is what let a `*-1g-*` box be locked for a
