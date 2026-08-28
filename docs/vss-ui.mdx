@@ -876,13 +876,15 @@ The upload dialog allows you to select video files and optionally configure them
 
 **File Configuration:**
 
-Each file in the upload list can be expanded (click the chevron icon) to configure optional fields if system-level configuration is enabled.
+Each file in the upload list can be expanded (click the chevron icon) to rename the file and to configure optional fields if system-level configuration is enabled.
 
-**Note:** Configuration fields are optional and only appear if `NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON` is configured. Common field types include boolean toggles, text inputs, number inputs, and select dropdowns. The available fields depend entirely on your system's deployment configuration.
+**Renaming:** The expanded row always shows a required **Filename** field, pre-filled with the selected file's name. Edit it to upload the video under a different name without going back and re-selecting the file. Filenames cannot be empty or contain spaces; spaces in the original name are removed automatically. The collapsed row shows the name the file will be uploaded under, so you can confirm a rename at a glance (hover it to see the original name).
+
+**Note:** Configuration fields are optional and only appear if `NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON` is configured. Common field types include boolean toggles, text inputs, number inputs, and select dropdowns. The available fields depend entirely on your system's deployment configuration. Renaming does not depend on this setting.
 
 **File Management:**
 
-Each file in the list shows the video icon, filename, file size in MB, expand/collapse button (chevron icon) to show/hide configuration fields, and remove button (X icon) to remove file from upload queue.
+Each file in the list shows the video icon, upload filename, file size in MB, expand/collapse button (chevron icon) to show/hide the filename field and configuration fields, and remove button (X icon) to remove file from upload queue.
 
 Click "Upload (N)" button to start uploading all files, or "Cancel" to close the dialog without uploading.
 

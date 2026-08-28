@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Search-group mapper from archive-search payloads into ``nv.vss.memory/1.0``.
 
-Lives with search_core (not ``vss_core.memory``) so memory stays a contract/
-protocol package and command groups own domain translation.
+Lives with the ``vss search`` command group (not ``vss_core.memory``): memory
+stays a contract/protocol package and each command group owns domain
+translation.
 """
 
 from __future__ import annotations

@@ -30,6 +30,26 @@ round-trip so a template can contain literal JSON braces.
 
 Store reads happen on every call rather than being cached, which is what lets
 a hot-reloaded prompt take effect immediately; the "fresh read" tests pin that.
+
+The system prompt is the other half of the resolved pair, and it is optional
+everywhere it is authored — the create API, the seed file. A config without one
+used to reach the VLM as user prompt plus media and no system message at all,
+so ``get_prompts_for_message`` substitutes a service default; the tests below
+pin both that and the two boundaries it must not cross — a stored prompt always
+wins, and an unconfigured alert type still resolves to ``(None, None)``.
+
+``_resolve_system_prompt`` is the only place that decision is made. The
+entity-based retrieval path that used to sit beside it — ``get_system_prompt_
+for_entity`` / ``get_fresh_system_prompt_for_alert_type`` for the system prompt,
+``get_prompts_for_entity`` for the user prompt — is deleted rather than kept in
+sync: none of it had a caller, none of it applied the default or the whitespace
+rules, and ``get_prompts_for_entity`` had rotted into an ``AttributeError``
+(a strict-xfail here pinned that defect for as long as the method lived). Gone
+with it is ``get_prompt_for_alert_type``, a keyword-matching lookup over
+``alert_type_prompts`` — a dict that nothing had written to since prompts moved
+into the store, so it could only ever warn and return ``None``.
+
+Route anything that needs a prompt through ``get_prompts_for_message``.
 """
 
 from unittest.mock import MagicMock, mock_open, patch
@@ -37,7 +57,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from handlers.exception_handler.vss_exceptions import VSSException
-from handlers.prompt_handler.prompt_manager import PromptManager
+from handlers.prompt_handler.prompt_manager import DEFAULT_SYSTEM_PROMPT, PromptManager
 
 CONFIG_YAML = "prompt:\n  prefer_payload_prompt: false\n"
 
@@ -118,6 +138,55 @@ class TestConstruction:
         manager = make_manager("{}\n")
         assert manager.prefer_payload_prompt is False
         assert manager.override_prompts_on_start is False
+
+    def test_the_system_prompt_default_is_applied_without_config(self):
+        assert make_manager("{}\n").default_system_prompt == DEFAULT_SYSTEM_PROMPT
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            # Quoted, or YAML strips the padding before the code ever sees it.
+            ('"  padded  "', "padded"),
+            ('"   "', ""),
+            ('""', ""),
+        ],
+    )
+    def test_the_configured_default_is_normalized(self, value, expected):
+        manager = make_manager(f"prompt:\n  default_system_prompt: {value}\n")
+        assert manager.default_system_prompt == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "17", "true", "[a, b]", "{k: v}",
+            # Falsy ones are the reason this is an error rather than a coercion:
+            # they would sail through the resolver's truthiness check and turn
+            # the fallback off, which looks identical to not having the feature.
+            "false", "0", "[]", "{}",
+            # Both spellings of null, including the valueless key someone leaves
+            # behind mid-edit or a Helm value that rendered to nothing. "" is
+            # the way to ask for no system message; this is not it.
+            "~", "null", "",
+        ],
+    )
+    def test_a_non_string_default_fails_startup(self, value):
+        """Silently accepting one either breaks the VLM call or, when it is
+        falsy, disables the fallback the default exists to provide."""
+        with pytest.raises(RuntimeError, match="default_system_prompt must be a string"):
+            make_manager(f"prompt:\n  default_system_prompt: {value}\n")
+
+    def test_omitting_the_key_is_not_the_same_as_nulling_it(self):
+        """An absent key is the normal case and keeps the service default; only
+        a key that is present and empty is the ambiguous one worth rejecting."""
+        assert make_manager("prompt:\n  override_prompts_on_start: false\n").default_system_prompt == (
+            DEFAULT_SYSTEM_PROMPT
+        )
+
+    def test_disabling_the_default_is_logged(self, caplog):
+        with caplog.at_level("WARNING"):
+            make_manager('prompt:\n  default_system_prompt: ""\n')
+
+        assert "will be sent none" in caplog.text
 
     def test_empty_config_file_is_tolerated(self):
         assert make_manager("") is not None
@@ -263,6 +332,108 @@ class TestGetPromptsForMessage:
             manager.get_prompts_for_message(MESSAGE)
 
 
+class TestDefaultSystemPrompt:
+    """Every verification the service runs carries a system prompt.
+
+    ``system_prompt`` is optional on ``POST /api/v1/verification/config``, and
+    the VLM client omits the system role when it is empty — so a config created
+    without one would otherwise be verified against user prompt plus media
+    alone, weaker than the same alert type seeded from the config file.
+    """
+
+    def test_a_config_without_one_gets_the_service_default(self, manager, store):
+        store.get.return_value = {"prompt": "Is anyone on the ladder?"}
+
+        user, system = manager.get_prompts_for_message(MESSAGE)
+
+        assert user == "Is anyone on the ladder?"
+        assert system == DEFAULT_SYSTEM_PROMPT
+
+    @pytest.mark.parametrize("stored", [None, "", "   "])
+    def test_an_unset_or_blank_stored_prompt_is_replaced(self, manager, store, stored):
+        store.get.return_value = {"prompt": "Ask something.", "system_prompt": stored}
+        assert manager.get_prompts_for_message(MESSAGE)[1] == DEFAULT_SYSTEM_PROMPT
+
+    def test_a_stored_prompt_still_wins(self, manager):
+        assert manager.get_prompts_for_message(MESSAGE)[1] == "You are a safety analyst."
+
+    def test_the_default_is_configurable(self, store):
+        manager = make_manager(
+            "prompt:\n  default_system_prompt: You are a warehouse safety auditor.\n",
+            store=store,
+        )
+        store.get.return_value = {"prompt": "Ask something."}
+
+        assert manager.get_prompts_for_message(MESSAGE)[1] == (
+            "You are a warehouse safety auditor."
+        )
+
+    @pytest.mark.parametrize(
+        "config_yaml",
+        [
+            'prompt:\n  default_system_prompt: ""\n',
+            'prompt:\n  default_system_prompt: "   "\n',
+        ],
+    )
+    def test_an_empty_configured_default_sends_no_system_prompt(self, store, config_yaml):
+        """The escape hatch for deployments that want the role left unset.
+
+        An empty string only — a valueless key fails startup instead, so the
+        hatch cannot be opened by accident."""
+        manager = make_manager(config_yaml, store=store)
+        store.get.return_value = {"prompt": "Ask something."}
+
+        assert manager.get_prompts_for_message(MESSAGE)[1] is None
+
+    def test_a_blank_stored_prompt_is_not_passed_through(self, store):
+        """An empty system message on the wire is worse than an omitted role.
+
+        With the fallback switched off there is nothing to replace a
+        whitespace-only stored prompt with, so it must resolve to ``None`` —
+        the VLM client drops the system role for ``None`` but would send a
+        blank system message for ``"   "``.
+        """
+        manager = make_manager('prompt:\n  default_system_prompt: ""\n', store=store)
+        store.get.return_value = {"prompt": "Ask something.", "system_prompt": "   "}
+
+        assert manager.get_prompts_for_message(MESSAGE)[1] is None
+
+    def test_a_blank_stored_prompt_without_a_user_prompt_resolves_to_nones(self, manager, store):
+        store.get.return_value = {"system_prompt": "   "}
+        assert manager.get_prompts_for_message(MESSAGE) == (None, None)
+
+    def test_padding_is_trimmed_off_a_stored_prompt(self, manager, store):
+        """Not every stored value came through the API validator — the seed
+        file is written to the store verbatim — so trimming happens here too."""
+        store.get.return_value = {
+            "prompt": "Ask something.",
+            "system_prompt": "  You are a safety analyst.\n",
+        }
+
+        assert manager.get_prompts_for_message(MESSAGE)[1] == "You are a safety analyst."
+
+    def test_an_unconfigured_alert_type_still_resolves_to_nones(self, manager, store):
+        """The pipeline reads ``(None, None)`` as its ``no_prompt`` outcome.
+
+        Handing back a default here would let an event with no prompt at all
+        through to the VLM instead of being recorded as unconfigured.
+        """
+        store.get.return_value = None
+        assert manager.get_prompts_for_message(MESSAGE) == (None, None)
+
+    def test_a_record_without_a_user_prompt_is_left_alone(self, manager, store):
+        store.get.return_value = {"enrichment_prompt": "Count vehicles."}
+        assert manager.get_prompts_for_message(MESSAGE) == (None, None)
+
+    def test_the_store_read_is_unaffected(self, manager, store):
+        """Only the resolved pair gets a default — the store read stays honest."""
+        store.get.return_value = {"prompt": "Ask something."}
+        assert manager.get_fresh_prompts_for_alert_type("collision") == (
+            None,
+            "Ask something.",
+        )
+
+
 class TestGetEnrichmentPromptForMessage:
     def test_substitutes_placeholders(self, manager):
         assert manager.get_enrichment_prompt_for_message(MESSAGE) == "Count vehicles at cam-1."
@@ -366,23 +537,3 @@ class TestDeprecatedEntryPoints:
 
     def test_set_default_prompts_is_a_noop(self, manager):
         assert manager._set_default_prompts() is None
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Open defect: get_prompts_for_entity calls _extract_alert_type and "
-            "get_fresh_prompt_for_alert_type, neither of which exists on the "
-            "class or any base, so it always raises AttributeError. It has no "
-            "callers. Fix: wire it to _extract_alert_type / "
-            "get_fresh_prompts_for_alert_type, or delete the method. When "
-            "either lands this test XPASSes — drop the marker then."
-        ),
-    )
-    def test_get_prompts_for_entity_returns_the_stored_prompt(self, manager, store):
-        store.get.return_value = {"prompt": "Is there a {category}?"}
-
-        result = manager.get_prompts_for_entity(
-            {"alert": {"type": "collision"}, "category": "collision"}
-        )
-
-        assert result == [{"question": "Is there a collision?", "expectedAnswer": "yes"}]

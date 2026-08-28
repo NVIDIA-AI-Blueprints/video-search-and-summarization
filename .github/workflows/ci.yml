@@ -1478,6 +1478,7 @@ jobs:
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
+          python3 .github/scripts/test_cancel_stale_pr_ci.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py

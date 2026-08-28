@@ -1608,7 +1608,7 @@
                             }
                         ],
                         "title": "System Prompt",
-                        "description": "System prompt text"
+                        "description": "System prompt text. Omit to use the service default (prompt.default_system_prompt)"
                     },
                     "enrichment_prompt": {
                         "anyOf": [
@@ -1691,7 +1691,7 @@
                             }
                         ],
                         "title": "System Prompt",
-                        "description": "System prompt text"
+                        "description": "System prompt text as stored; null means the service default is used at inference time"
                     },
                     "enrichment_prompt": {
                         "anyOf": [
@@ -1817,7 +1817,7 @@
                             }
                         ],
                         "title": "System Prompt",
-                        "description": "System prompt text"
+                        "description": "System prompt text. Clear it to fall back to the service default (prompt.default_system_prompt)"
                     },
                     "enrichment_prompt": {
                         "anyOf": [

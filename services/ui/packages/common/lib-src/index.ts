@@ -50,7 +50,7 @@ export type {
 // Utils
 export { copyToClipboard } from './utils/clipboard';
 export { formatTimestamp } from './utils/formatters';
-export { getUploadUrl, uploadFileChunked, notifyGenericUploadComplete } from './utils/videoUpload';
+export { uploadFileChunked } from './utils/videoUpload';
 export type { FileUploadResult } from './utils/videoUpload';
 export { chunkedUpload, CHUNK_SIZE_BYTES, MAX_CHUNK_RETRIES } from './utils/chunkedUpload';
 export type { ChunkedUploadOptions, ChunkedUploadResponse } from './utils/chunkedUpload';

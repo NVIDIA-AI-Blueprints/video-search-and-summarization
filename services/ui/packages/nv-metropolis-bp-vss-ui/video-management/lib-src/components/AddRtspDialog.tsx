@@ -12,7 +12,7 @@ const POPUP_OVERLAY_CONTAINED =
 
 interface AddRtspDialogProps {
   isOpen: boolean;
-  agentApiUrl?: string | null;
+  vstApiUrl?: string | null;
   onClose: () => void;
   onSuccess?: () => void;
   /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
@@ -21,7 +21,7 @@ interface AddRtspDialogProps {
 
 export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   isOpen,
-  agentApiUrl,
+  vstApiUrl,
   onClose,
   onSuccess,
   overlay = 'viewport',
@@ -69,8 +69,8 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
           ? 'RTSP URL must start with "rtsp://".'
           : !trimmedName
             ? 'Sensor Name is required.'
-            : !agentApiUrl
-              ? 'Agent API URL not configured.'
+            : !vstApiUrl
+              ? 'VST API URL not configured.'
               : null;
     if (validationError) {
       setError(validationError);
@@ -80,12 +80,12 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     setError(null);
     setIsSubmitting(true);
     try {
-      await addRtspStream(agentApiUrl!, { sensorUrl: trimmed, name: trimmedName });
+      await addRtspStream(vstApiUrl!, { sensorUrl: trimmed, name: trimmedName });
       handleClose();
       onSuccess?.();
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Error adding RTSP sensor via agent API:', err);
+      console.error('Error adding RTSP sensor via VST API:', err);
       setError(
         parseApiError(
           err instanceof Error ? err.message : '',
