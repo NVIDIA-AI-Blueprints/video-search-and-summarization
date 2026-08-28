@@ -355,7 +355,11 @@ def search_matching_pipeline_ids(
     open_func: Any = urlopen,
     sleep: Any = time.sleep,
 ) -> list[int]:
-    """Retry discovery on transient GitLab errors; fail if they never clear."""
+    """Retry discovery on transient GitLab errors; fail if they never clear.
+
+    An empty later attempt does not erase an earlier transient: GitLab may
+    have only been temporarily unable to show this run's pipeline.
+    """
     last_transient: GitLabTransientError | None = None
     ids: list[int] = []
     total = max(1, attempts)
@@ -370,7 +374,6 @@ def search_matching_pipeline_ids(
                 started_at=started_at,
                 open_func=open_func,
             )
-            last_transient = None
         except GitLabTransientError as exc:
             last_transient = exc
             ids = []

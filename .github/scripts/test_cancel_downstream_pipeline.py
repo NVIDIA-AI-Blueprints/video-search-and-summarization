@@ -503,6 +503,87 @@ class SearchFallbackTest(unittest.TestCase):
                 open_func=open_func,
             ),
             [11],
+            )
+
+
+    def test_empty_retry_after_transient_still_fails_cleanup(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        waves = {"n": 0}
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                if "status=created" in url:
+                    waves["n"] += 1
+                    if waves["n"] == 1:
+                        raise HTTPError(
+                            url,
+                            503,
+                            "Service Unavailable",
+                            hdrs=None,  # type: ignore[arg-type]
+                            fp=io.BytesIO(b"{}"),
+                        )
+                return JsonResponse([])
+            raise AssertionError(url)
+
+        with self.assertRaises(SystemExit):
+            module.search_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                attempts=2,
+                delay=0,
+                open_func=open_func,
+            )
+
+    def test_empty_discovery_without_transient_is_a_real_miss(self):
+        class JsonResponse:
+            def __init__(self, payload: object) -> None:
+                self._body = json.dumps(payload).encode("utf-8")
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def open_func(req):
+            url = req.full_url
+            if "/pipelines?" in url:
+                return JsonResponse([])
+            raise AssertionError(url)
+
+        self.assertEqual(
+            module.search_matching_pipeline_ids(
+                "https://gitlab.example/api/v4",
+                "token",
+                project="1",
+                ref="main",
+                correlation_id="gh-1-1-mine",
+                started_at="2026-08-28T08:12:00Z",
+                attempts=2,
+                delay=0,
+                open_func=open_func,
+            ),
+            [],
         )
 
 
