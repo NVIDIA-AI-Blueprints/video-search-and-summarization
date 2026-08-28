@@ -1,4 +1,7 @@
 dependencies:
+- name: common
+  repository: file://../../services/common
+  version: 3.3.0
 - name: infra
   repository: file://../../services/infra
   version: 3.3.0
@@ -23,5 +26,5 @@ dependencies:
 - name: nims
   repository: file://../../services/nims
   version: 3.3.0
-digest: sha256:73ae9554b090d44056f93615904505ab5b3ce395a0a727f244b7e2638d1b7dad
-generated: "2026-08-19T11:18:26.541645+05:30"
+digest: sha256:a176f9116636285d554842c10c577851a378a667cdb725ac5caf5b79d3ea7ee5
+generated: "2026-08-26T13:53:26.916975494Z"
