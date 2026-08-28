@@ -405,6 +405,23 @@ frontend fe_http
     # Emitting a guess would be worse than saying nothing, because clients
     # automate against this header, so it appears only once an operator supplies
     # a real date. Removal is no earlier than 3.4.0; support runs through 3.3.x.
-.if defined(VSS_GATEWAY_LEGACY_SUNSET)
-    http-response set-header Sunset "${VSS_GATEWAY_LEGACY_SUNSET}" if legacy_prefix
-.endif
+    #
+    # Read at runtime through env() rather than expanded into the config, and
+    # gated on length rather than on a `.if defined(...)` preprocessor test.
+    # Both halves of that matter:
+    #
+    #   - `.if defined(...)` is true for a variable that exists but is empty,
+    #     and an empty `${...}` inside a quoted argument does not yield a blank
+    #     header: HAProxy aborts the parse ("argument ... is empty and marks the
+    #     end of the argument list") and the gateway does not start at all. So
+    #     `VSS_GATEWAY_LEGACY_SUNSET=` -- the obvious way to write the knob down
+    #     without setting it -- would take every service-to-service HTTP call in
+    #     the deployment with it.
+    #   - A config-time string predicate cannot express this either, because an
+    #     HTTP-date contains commas and commas separate `.if` predicate
+    #     arguments.
+    #
+    # env() sidesteps both: the argument is a literal format string, so it is
+    # never empty, and the value is never seen by the config parser.
+    acl has_sunset env(VSS_GATEWAY_LEGACY_SUNSET),length gt 0
+    http-response set-header Sunset "%[env(VSS_GATEWAY_LEGACY_SUNSET)]" if legacy_prefix has_sunset
