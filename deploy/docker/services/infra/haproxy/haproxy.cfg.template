@@ -268,6 +268,10 @@ frontend fe_http
     # Must precede p_vst, which would otherwise send these to the VST ingress.
     acl p_vst_storage_api path_beg /vst/api/v1/storage/
     acl p_vst_storage_api path /vst/api/v1/storage
+    # Streamprocessing answers OPTIONS with Allow-Origin only. Browser DELETE
+    # (and chunked upload) from a distinct UI origin preflights first, so the
+    # edge must name DELETE and the nvstreamer headers Helm already allows.
+    http-request return status 204 hdr Access-Control-Allow-Origin "%[req.hdr(Origin)]" hdr Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH" hdr Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Origin,streamid,nvstreamer-identifier,nvstreamer-file-name,nvstreamer-chunk-number,nvstreamer-total-chunks,nvstreamer-is-last-chunk,nvstreamer-enable-transcode,nvstreamer-transcode-framerate,nvstreamer-transcode-bitrate" hdr Access-Control-Max-Age "3600" if h_main m_options p_vst_storage_api
     use_backend bk_vst_storage_api_direct if h_main p_vst_storage_api
 
     acl p_vst path /vst
