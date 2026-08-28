@@ -236,6 +236,10 @@ frontend fe_http
     acl p_api_chat path_beg /api/chat/
     use_backend bk_vss_ui if h_main p_api_chat
 
+    acl p_api_vss_chat path /api/vss-chat
+    acl p_api_vss_chat path_beg /api/vss-chat/
+    use_backend bk_vss_ui if h_main p_api_vss_chat
+
     acl p_api path /api
     acl p_api path_beg /api/
     use_backend bk_vss_agent if h_main p_api
