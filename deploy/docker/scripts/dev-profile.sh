@@ -1707,6 +1707,7 @@ function state_up() {
   local compose_files=(-f compose.yml)
   if [[ "${prebake_vios_packages}" == "true" ]]; then
     compose_files+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
+    compose_files+=(-f services/nvstreamer/docker-compose.prebaked.yaml)
     echo "[INFO] Prebaking VIOS runtime-media packages into a local image."
   fi
 

@@ -60,6 +60,15 @@ deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/compose.yml nvcr.io/nim/nv
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml nvcr.io/nvidia/vllm:25.12.post1-py3
 deploy/docker/services/nvstreamer/base.yml ghcr.io/nvidia-ai-blueprints/vss/vss-vios-nvstreamer:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
+deploy/docker/services/nvstreamer/docker-compose.prebaked.yaml vss-vios-nvstreamer-prebaked:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion:develop-latest
 deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init:develop-latest

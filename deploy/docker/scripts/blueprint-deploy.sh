@@ -1000,6 +1000,14 @@ function state_up() {
   chmod -R 777 "${data_directory}/data_log" 2>/dev/null || true
 
   local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
+  # Same opt-in dev-profile.sh honors. Read from the environment only: this
+  # script has no flag surface, and CI reaches it through two containers where
+  # only environment survives.
+  if [[ "${VSS_VIOS_PREBAKE_PACKAGES:-false}" == "true" ]]; then
+    _compose_file_args+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
+    _compose_file_args+=(-f services/nvstreamer/docker-compose.prebaked.yaml)
+    echo "[INFO] Prebaking VIOS runtime-media packages into a local image."
+  fi
   local _compose_file_args_text=" ${_compose_file_args[*]}"
   echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
 
