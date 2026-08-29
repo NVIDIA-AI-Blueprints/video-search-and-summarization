@@ -27,6 +27,8 @@
   Kafka and stores in Elasticsearch must include `logstash`; omitting it leaves
   the requested ES storage permanently empty.
 - `logstash` requires the broker and the profile's selected `STREAM_TYPE`.
+- `mdx-vlm-captions` is already in `kafka-topic-init-container`'s default
+  `KAFKA_TOPICS`; do not override the topic list merely to add it again.
 - When the selected Foundation ships `kibana` and a `kibana-init-container-*`
   key, retain both in any delta that stores data in Elasticsearch — they are the
   browse surface for that data and are not pruned by forward closure. They are
