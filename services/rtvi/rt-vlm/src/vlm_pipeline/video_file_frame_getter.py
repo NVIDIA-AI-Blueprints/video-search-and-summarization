@@ -2520,6 +2520,20 @@ class VideoFileFrameGetter:
 
             if (is_codec_changed or is_resolution_changed) and self._pipeline:
                 backup_decodebin()
+                # Release the old pipeline's bus signal watch (and pad
+                # probes / signal handlers) before detaching it: this
+                # replacement path bypasses destroy_pipeline(), so
+                # nothing else removes the watch, and _create_pipeline()
+                # is about to overwrite self._bus with the new bus.
+                # _disconnect_gst_callbacks() also resets the cached
+                # reusable decoders' handler state, so their handlers are
+                # reconnected exactly once when a decoder re-enters the
+                # new pipeline.
+                self._disconnect_gst_callbacks()
+                # ORDER MATTERS: the watch is only removed while
+                # self._bus is still set — nulling the ref first would
+                # silently skip the removal and leak the old bus.
+                self._bus = None
                 old_pipeline = self._pipeline
                 self._pipeline = None
                 self._vdecodebin = None
