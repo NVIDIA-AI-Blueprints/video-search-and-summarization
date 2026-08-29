@@ -20,7 +20,7 @@ ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 # Build stage
 FROM python:${PYTHON_VERSION}-trixie AS builder
 
-RUN pip install --no-cache-dir "paho-mqtt>=2.1.0" "confluent-kafka>=2.6.1"
+RUN pip install --no-cache-dir "paho-mqtt==2.1.0" "confluent-kafka==2.14.0"
 
 # Deploy stage
 FROM ${DISTROLESS_IMG}:${DISTROLESS_TAG}
