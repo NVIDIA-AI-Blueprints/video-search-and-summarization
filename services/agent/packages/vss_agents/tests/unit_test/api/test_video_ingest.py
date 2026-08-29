@@ -37,6 +37,7 @@ from vss_agents.api.video_ingest import _parse_timeout_seconds
 from vss_agents.api.video_ingest import _resolve_timeout_seconds
 from vss_agents.api.video_ingest import _resolve_video_upload_config
 from vss_agents.api.video_ingest import _run_post_upload_processing
+from vss_agents.api.video_ingest import _run_rtvi_embedding
 from vss_agents.api.video_ingest import create_video_upload_complete_router
 from vss_agents.api.video_ingest import create_video_upload_router
 from vss_agents.api.video_ingest import register_video_upload
@@ -246,6 +247,45 @@ class TestVideoUploadCompleteInput:
     def test_custom_params_forwarded(self):
         model = VideoUploadCompleteInput(custom_params={"my_field": 42})
         assert model.custom_params == {"my_field": 42}
+
+
+class TestRunRtviEmbedding:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "vst_url",
+        [
+            "http://vss.local:7777",
+            "http://vss.local:7777/",
+            "http://vss.local:7777/vst",
+        ],
+    )
+    async def test_rewrites_direct_vst_media_url_to_gateway_origin(self, vst_url: str) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"usage": {"total_chunks_processed": 3}}
+        response.text = "OK"
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.post = AsyncMock(return_value=response)
+
+        with patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+            chunks = await _run_rtvi_embedding(
+                rtvi_embed_base_url="http://vss.local:7777/rtvi-embed",
+                sensor_id="sensor-abc",
+                vst_url=vst_url,
+                vst_file_path=("http://vst-ingress:30888/vst/storage/temp_files/warehouse_sample_video.mp4?token=abc"),
+                rtvi_embed_model="cosmos-embed1-448p",
+                rtvi_embed_chunk_duration=5,
+                start_timestamp="2025-01-01T00:00:00.000Z",
+            )
+
+        assert chunks == 3
+        request = client.post.call_args.kwargs["json"]
+        assert request["url"] == ("http://vss.local:7777/vst/storage/temp_files/warehouse_sample_video.mp4?token=abc")
+        assert "vss.local:30888" not in request["url"]
+        assert "/vst/vst/" not in request["url"]
 
 
 class TestRunPostUploadProcessing:

@@ -2142,6 +2142,33 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# Render the shared agent service and pin the VST media origin contract used by
+# upload post-processing. A host-only rewrite must never combine the gateway's
+# vss.local alias with VST's direct 30888 port, and the preserved media path
+# must contain exactly one /vst prefix.
+_rendered_vst_internal_url="$(
+  VSS_GATEWAY_HOST=vss.local \
+  VSS_GATEWAY_PORT=7777 \
+  VSS_GATEWAY_ORIGIN=http://vss.local:7777 \
+  VSS_APPS_DIR=/tmp \
+  VSS_DATA_DIR=/tmp \
+  RTVI_EMBED_PORT=8017 \
+    docker compose \
+      --profile vss-agent \
+      -f "${REPO_ROOT}/deploy/docker/services/agent/compose.yml" \
+      config --no-consistency --format json 2>/dev/null \
+    | jq -r '.services["vss-agent"].environment.VST_INTERNAL_URL'
+)"
+if [[ "${_rendered_vst_internal_url}" == "http://vss.local:7777" ]] \
+  && [[ "${_rendered_vst_internal_url}" != *"vss.local:30888"* ]] \
+  && [[ "${_rendered_vst_internal_url}" != *"/vst/vst/"* ]]; then
+  echo "PASS: rendered agent VST media origin uses the gateway without a duplicate prefix"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: rendered agent VST media origin should be http://vss.local:7777 (got ${_rendered_vst_internal_url})"
+  ((TESTS_FAILED++)) || true
+fi
+
 # Alerts stream registration: VIOS webhooks (not Agent rtvi_cv_base_url).
 _alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
 _alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
