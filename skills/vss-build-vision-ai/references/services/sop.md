@@ -56,9 +56,10 @@ Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
   `vss-generate-video-report` skill — no report LLM / agent / UI).
 - **keep** `vss-va-mcp`, ELK (`elasticsearch`(+init), `logstash`, `kibana`,
   `kafka`(+init), `redis`, `broker-health-check`), the VIOS set (`vst-ingress`,
-  `sensor-ms`, `streamprocessing-ms`, `sdr-controller` + its `init-dirs` /
-  `render-config` / `wdm-env-from-config` / `wait-for-redis` helpers,
-  `centralizedb`), `nvstreamer-alerts`
+  `sensor-ms`, `streamprocessing-ms`, `centralizedb` — the alerts Foundation
+  no longer ships SDRC: stream onboarding is direct VIOS webhooks, so there is
+  no `sdr-controller` and none of its `init-dirs` / `render-config` /
+  `wdm-env-from-config` / `wait-for-redis` helpers), `nvstreamer-alerts`
   (validation-harness source), `vss-haproxy-ingress`, `phoenix`.
 - **change** the `vss-va-mcp` definition to mount the SOP `video_analytics` patch
   (`patches/vss-va-mcp.yml` — an added bind mount env interpolation cannot express,
@@ -78,7 +79,7 @@ FOUNDATION=alerts
 # Effective service set = alerts 2d_vlm − rtvi-vlm/agent/ui/alert-bridge/report-LLM/
 # alerts-extras + ds-sop + sop-kibana-init. Confirm each key against the resolved
 # root graph (composition.md § Validate).
-COMPOSE_PROFILES=ds-sop,sop-kibana-init,vss-va-mcp,nvstreamer-alerts,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,phoenix
+COMPOSE_PROFILES=ds-sop,sop-kibana-init,vss-va-mcp,nvstreamer-alerts,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,phoenix
 
 # --- DS-SOP knobs (see deploy-ds-sop.md) ---
 DS_SOP_IMAGE=ds-sop:1.0.0
