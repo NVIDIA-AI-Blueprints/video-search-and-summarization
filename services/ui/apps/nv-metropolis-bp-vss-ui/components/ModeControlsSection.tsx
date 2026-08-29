@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
 import { ChatSidebarContent, type ChatSidebarControlHandlers } from '@nemo-agent-toolkit/ui';
+import {
+  ConversationList,
+  type ChatSidebarControlHandlers as VssChatSidebarControlHandlers,
+} from '@nv-metropolis-bp-vss-ui/chat';
 import type { 
   AlertsSidebarControlHandlers,
   SearchSidebarControlHandlers,
@@ -13,6 +17,14 @@ import { hasComponentContentArray } from '../utils';
 
 interface ModeControlsSectionProps {
   chatHandlers: ChatSidebarControlHandlers | null;
+  /**
+   * Conversation controls from the replacement chat panel.
+   *
+   * Kept as its own prop rather than folded into `chatHandlers`: only one is
+   * ever non-null, and keeping the toolkit's path untouched is what makes
+   * NEXT_PUBLIC_USE_VSS_CHAT a true no-op when unset.
+   */
+  vssChatHandlers: VssChatSidebarControlHandlers | null;
   alertsHandlers: AlertsSidebarControlHandlers | null;
   searchHandlers: SearchSidebarControlHandlers | null;
   dashboardHandlers: DashboardSidebarControlHandlers | null;
@@ -31,6 +43,7 @@ interface ModeControlsSectionProps {
  */
 export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({ 
   chatHandlers, 
+  vssChatHandlers,
   alertsHandlers,
   searchHandlers,
   dashboardHandlers,
@@ -43,6 +56,7 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
   // Determine if we have actual controls content to render
   const hasActualControlsContent = (
     chatHandlers ||
+    vssChatHandlers ||
     (alertsHandlers && hasAlertsModeControls) ||
     (searchHandlers && hasSearchModeControls) ||
     (dashboardHandlers && hasDashboardModeControls) ||
@@ -65,6 +79,7 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
       {hasActualControlsContent ? (
         <div className="flex-1 overflow-y-auto overflow-x-auto flex flex-col bg-white dark:bg-neutral-900">
           {chatHandlers && <ChatSidebarContent {...chatHandlers} />}
+          {vssChatHandlers && <ConversationList {...vssChatHandlers} />}
           {alertsHandlers && alertsHandlers.controlsComponent}
           {searchHandlers && searchHandlers.controlsComponent}
           {dashboardHandlers && dashboardHandlers.controlsComponent}
