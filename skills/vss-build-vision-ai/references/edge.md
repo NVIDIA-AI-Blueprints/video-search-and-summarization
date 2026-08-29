@@ -314,7 +314,7 @@ Then follow `SKILL.md` Steps 7–9.
   crash-loops on missing `libnvbufsurface.so.1.0.0` / `libnvrm_mem.so`. When
   writing the build override for `HARDWARE_PROFILE=DGX-SPARK`, set each image
   tag to its `-sbsa` variant (the commented
-  `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
+  `# …-sbsa` line in the profile's `.env`): `VSS_RT_VLM_TAG` (RT-VLM),
   `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
 - **DGX Spark NIM is local but configured as remote in VSS.** This is only
   because the image is not wired into compose yet. `LLM_MODE=remote` skips the
