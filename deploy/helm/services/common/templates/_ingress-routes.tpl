@@ -54,6 +54,13 @@
   path: /api
   pathType: Prefix
   rewrite: none
+# The published VSS origin is also used for Agent readiness checks. Exact
+# pathType so the UI retains ownership of any /health/* routes. Mirrors the
+# Docker edge (haproxy.cfg.template: p_agent_health).
+- key: agent
+  path: /health
+  pathType: Exact
+  rewrite: none
 - key: agent
   path: /chat
   pathType: Prefix
