@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "L40S": {
         "gpu_count": 1
       }
     }

@@ -5,7 +5,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "L40S": {
         "modes": [
           "remote-all"
         ]
