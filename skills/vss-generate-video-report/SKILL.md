@@ -90,8 +90,8 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-  # Base: Prefix /v1 → RT-VLM. LVS: Exact /v1/models + /v1/chat/completions → RT-VLM.
-  : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/v1}"
+  # RT-VLM is at /rtvi-vlm on every profile; nothing is mounted at the origin /v1.
+  : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/rtvi-vlm/v1}"
   # Alerts / Mode B — force public VA-MCP; ignore leftover Docker :9901.
   VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 else
@@ -148,7 +148,8 @@ If VLM/deployment choice is unclear and no default selection has been made, ask 
 
 1. **Provide an endpoint** — user supplies `VLM_ENDPOINT` and model id.
 2. **Use the public Ingress VLM** — when `VSS_PUBLIC_URL` is set, probe
-   `${VSS_PUBLIC_URL%/}/v1/models` (base Helm RT-VLM route). Do **not** use `/vlm/v1`.
+   `${VSS_PUBLIC_URL%/}/rtvi-vlm/v1/models` (the RT-VLM mount, same on every
+   profile). Do **not** use `/vlm/v1` or the bare origin `/v1`.
 3. **Suggest options based on auto-discover** — on Docker, probe the standard
    local VLM ports. For shared VLM-selection guidance, follow `/vss-ask-video`.
 4. **Deploy a local VLM** — hand off to `/vss-deploy-profile` (with user confirmation) and then continue.
@@ -158,7 +159,7 @@ Auto-discover hints:
 ```bash
 # Kubernetes / public Ingress (preferred when VSS_PUBLIC_URL is set)
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/v1/models" | jq -r '.data[].id'
+  curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1/models" | jq -r '.data[].id'
 fi
 
 # Docker only — probe common local endpoints without inspecting any container.
@@ -265,7 +266,7 @@ block the local VLM analysis path. Apply the rewrite to **every clip URL
 surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
 per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
 Step 3 on the original internal URL when the VLM is local / in-cluster. When the
-VLM is reached through `${VSS_PUBLIC_URL}/v1` and cannot fetch private VIOS
+VLM is reached through `${VSS_PUBLIC_URL}/rtvi-vlm/v1` and cannot fetch private VIOS
 hosts, download the clip and send inline bytes (same remote-VLM rule as
 `/vss-ask-video`).
 
@@ -278,7 +279,7 @@ hosts, download the clip and send inline bytes (same remote-VLM rule as
 ```bash
 # Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  _lvs_ready="${VSS_PUBLIC_URL%/}/v1/ready"
+  _lvs_ready="${VSS_PUBLIC_URL%/}/lvs/v1/ready"
 else
   _lvs_ready="http://${HOST_IP}:38111/v1/ready"
 fi
@@ -363,7 +364,7 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 
 | Backend | Discovery input | Typical host endpoint | Picked when |
 |---|---|---|---|
-| **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` | Kubernetes / Helm base when `VSS_PUBLIC_URL` is set (preferred) |
+| **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` | Kubernetes / Helm, any profile, when `VSS_PUBLIC_URL` is set (preferred) |
 | **NIM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:30082/v1` | Docker: port 30082 responds with at least one model |
 | **RT-VLM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:8018/v1` | Docker: port 8018 responds with at least one model |
 
@@ -374,7 +375,7 @@ Ingress RT-VLM route (do **not** probe `/vlm/v1`):
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/v1"
+  VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/rtvi-vlm/v1"
   VLM_BACKEND="rtvlm"
 fi
 ```

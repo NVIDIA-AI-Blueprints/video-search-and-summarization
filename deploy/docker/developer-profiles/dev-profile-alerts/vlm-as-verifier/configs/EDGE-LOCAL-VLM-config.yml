@@ -98,6 +98,7 @@ event_bridge:
 prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
+  default_system_prompt: "You are a helpful assistant."
 
 # Alert Type Configuration
 alert_type_config_file: "alert_type_config.json"
@@ -185,8 +186,9 @@ alert_agent:
   enrichment:
     enabled: false                               # Master switch for enrichment processing
 
-  # Always-on VLM alert rules
-  always_on: false
+  # Always-on VLM alert rules — set via ALERT_AGENT_ALWAYS_ON
+  # (false for verification/2d_cv, true for real-time/2d_vlm).
+  always_on: ${ALERT_AGENT_ALWAYS_ON}
 
 # RTVI VLM Configuration - Real-time VLM alert management
 rtvi_vlm:

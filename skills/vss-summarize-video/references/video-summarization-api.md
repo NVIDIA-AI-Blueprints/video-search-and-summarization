@@ -20,8 +20,8 @@ deployment-specific:
 ```bash
 # Docker Compose (default)
 export BASE_URL="${LVS_BACKEND_URL:-http://localhost:38111}"
-# Kubernetes operate — origin only (skill appends /v1/ready and /v1/summarize)
-# export BASE_URL="${VSS_PUBLIC_URL%/}"
+# Kubernetes operate — the /lvs mount (skill appends /v1/ready and /v1/summarize)
+# export BASE_URL="${VSS_PUBLIC_URL%/}/lvs"
 ```
 
 ## Runtime OpenAPI Discovery
@@ -37,12 +37,12 @@ curl -fsS --connect-timeout 3 --max-time 15 \
 jq -e '.openapi and (.paths | type == "object")' "$LVS_OPENAPI" >/dev/null
 ```
 
-**Kubernetes:** stock LVS Ingress does **not** publish LVS `/openapi.json` or
-LVS `/models`. Public `/openapi.json` is the **Agent** document — do not treat
-it as the LVS schema. On Kubernetes, confirm `POST /v1/summarize` against the
-checked-in contract in this reference, resolve `model` from Exact
-`${VSS_PUBLIC_URL}/v1/models` (RT-VLM) or `VLM_NAME`, and call Exact
-`${BASE_URL}/v1/ready` / `${BASE_URL}/v1/summarize` only.
+**Kubernetes:** LVS is published as a Prefix mount at `${VSS_PUBLIC_URL}/lvs`,
+so `/lvs/openapi.json` and `/lvs/models` are reachable alongside
+`/lvs/v1/ready` and `/lvs/v1/summarize`. Public `/openapi.json` — no prefix — is
+the **Agent** document; do not treat it as the LVS schema. Resolve `model` from
+`${BASE_URL}/models` (LVS), `${VSS_PUBLIC_URL}/rtvi-vlm/v1/models` (RT-VLM) or
+`VLM_NAME`, with `BASE_URL=${VSS_PUBLIC_URL}/lvs`.
 
 Use the runtime document (Docker) to confirm the operation exists and inspect
 its request body before building a payload. For example:

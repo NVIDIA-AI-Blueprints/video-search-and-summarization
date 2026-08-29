@@ -29,6 +29,18 @@ class PersistenceConfigError(PersistenceError):
     pass
 
 
+class PersistenceUnavailableError(PersistenceError):
+    """Raised when the backend is configured correctly but not reachable.
+
+    Distinct from PersistenceConfigError, which means the configuration
+    itself cannot work and retrying will never help. This one says the
+    configuration is fine and the backend simply is not answering yet --
+    an Elasticsearch that has not finished starting, a network blip -- so
+    a caller that can wait should wait rather than give up.
+    """
+    pass
+
+
 class DocumentNotFoundError(PersistenceError):
     """Raised when a requested document does not exist."""
 

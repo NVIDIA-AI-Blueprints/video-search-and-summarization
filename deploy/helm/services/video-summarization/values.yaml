@@ -25,6 +25,10 @@ service:
   backendPort: 38111
   mcpPort: 38112
   type: ClusterIP
+# A summarization run outlasts any sane ingress default, and a 504 mid-job
+# reads as a backend failure. The CLI bounds the wait itself. Matches the
+# per-backend `timeout server` the Docker edge sets on bk_lvs_strip.
+ingressTimeoutServer: "3600s"
 # GPU required
 resources:
   requests:

@@ -42,6 +42,10 @@ global:
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 infra:
+  # SDRC stays enabled in real-time mode as well; only the workload config
+  # differs. Compose dropped SDRC for VIOS webhooks — do not mirror that here,
+  # SDRC is what scales stream placement in Kubernetes. Full rationale is in
+  # values.yaml under infra.sdrc.
   sdrc:
     configFilePath: configs/sdrc/config-realtime.yml
 
@@ -58,6 +62,8 @@ agent:
 
 vss-agent-ui:
   appSubtitle: "Vision (Alerts - VLM)"
+  alertsRealtimeEnabled: true
+  alertsCvVerificationEnabled: false
 
 analytics:
   enabled: true
@@ -95,8 +101,11 @@ vssIngress:
   vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
   vaMcpPort: 9901
+  elasticsearchPort: 9200
+  rtviCvPort: 9010
   kibanaPort: 5601
   phoenixPort: 6006
   streamerPort: 31000

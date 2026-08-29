@@ -181,7 +181,7 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
   --set controller.daemonset.hostPorts.https=443
 ```
 
-> **In-cluster RTVI affinity (optional).** Only needed when you deploy the Search profile with `global.rtviInternalIngress.enabled=true` (default `false`). That path routes vss-agent → rtvi-cv / rtvi-embed through the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`. To enable it, append `--set controller.service.type=ClusterIP` to the install command above. If you only need external traffic, leave it off.
+> **In-cluster RTVI affinity (optional).** Only needed when you deploy the Search profile with `global.rtviInternalIngress.enabled=true` (default `false`). That path routes vss-agent → rtvi-cv / rtvi-embed through the controller's **ClusterIP Service** at `haproxy-kubernetes-ingress.haproxy-controller:80`, matching the host-less rule the main Ingress renders for `/rtvi-cv` and `/rtvi-embed`; the stick-table affinity annotations sit on those two Services (`rtvi.vss-rtvi-cv.streamAffinity`). Stick tables are per controller replica (no peers sync), so keep the RTVI path on a single controller replica for global affinity. To enable it, append `--set controller.service.type=ClusterIP` to the install command above. If you only need external traffic, leave it off.
 
 Verify the controller is running:
 
@@ -353,13 +353,17 @@ kubectl logs -f deployment/vss-rtvi-embed # <RELEASE_NAME>-vss-rtvi-embed if glo
 
 ### Access via Ingress (Recommended)
 
-When deployed with `ingress.enabled=true` (the default), services are accessible via host-based routing through the Ingress controller.
+When deployed with `vssIngress.enabled=true` (the default), services are accessible via host-based routing through the Ingress controller.
 
 | Service           | URL                                                    |
 |-------------------|--------------------------------------------------------|
 | VSS UI (Search)   | `http://vss-search.<NODE_IP>.nip.io`                       |
 | VSS Agent API     | `http://vss-search.<NODE_IP>.nip.io/api`                   |
 | VST API           | `http://vss-search.<NODE_IP>.nip.io/vst/api`               |
+| RT-VLM (OpenAI)   | `http://vss-search.<NODE_IP>.nip.io/rtvi-vlm/v1`           |
+| RT-Embed          | `http://vss-search.<NODE_IP>.nip.io/rtvi-embed/v1`         |
+| RT-CV             | `http://vss-search.<NODE_IP>.nip.io/rtvi-cv/api/v1`        |
+| Elasticsearch     | `http://vss-search.<NODE_IP>.nip.io/elasticsearch`         |
 | NVStreamer HTTP    | `http://streamer.<NODE_IP>.nip.io`                     |
 | Kibana Dashboards | `http://kibana.<NODE_IP>.nip.io`                       |
 | Phoenix Tracing   | `http://phoenix.<NODE_IP>.nip.io`                      |
@@ -437,20 +441,25 @@ Upload video files through the VSS UI **Video Management** tab:
 
 ## Ingress Configuration
 
-The chart creates a Kubernetes Ingress resource when `ingress.enabled=true`. All HTTP services use ClusterIP and are routed through the Ingress controller. RTSP (NVStreamer) is not routed through HTTP Ingress; by default it is not exposed as a separate NodePort service.
+The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. All HTTP services use ClusterIP and are routed through the Ingress controller. Its mounts come from the [canonical route table](../../services/common/README.md), shared with the other developer profiles and with the Docker edge, so `/rtvi-vlm`, `/elasticsearch` and the rest resolve the same way on any VSS deployment. RTSP (NVStreamer) is not routed through HTTP Ingress; by default it is not exposed as a separate NodePort service.
+
+`ingress:` is the former name of the `vssIngress:` block. Keys still read from it: `enabled`, `className`, `hosts.*`, `annotations`, `tls`. Its removed `cliRoutes.*` keys are ignored — Elasticsearch and the RTVI mounts are no longer toggled. Set one block or the other, not both.
 
 ### Ingress Values
 
 | Parameter                    | Default                          | Description                        |
 |------------------------------|----------------------------------|------------------------------------|
-| `ingress.enabled`            | `true`                           | Enable Ingress resource creation   |
-| `ingress.className`          | `haproxy`                        | Ingress controller class name      |
-| `ingress.annotations`        | `{}`                             | Additional Ingress annotations     |
-| `ingress.hosts.main`         | `""` (auto: `vss-search.<IP>.nip.io`) | VSS UI + Agent + VST API host |
-| `ingress.hosts.streamer`     | `""` (auto: `streamer.<IP>.nip.io`)   | NVStreamer HTTP API host      |
-| `ingress.hosts.kibana`       | `""` (auto: `kibana.<IP>.nip.io`)     | Kibana dashboards host        |
-| `ingress.hosts.phoenix`      | `""` (auto: `phoenix.<IP>.nip.io`)    | Phoenix tracing UI host       |
-| `ingress.tls`                | `[]`                             | TLS configuration (secretName + hosts) |
+| `vssIngress.enabled`         | `true`                           | Enable Ingress resource creation   |
+| `vssIngress.ingressClassName`| `haproxy`                        | Ingress controller class name (legacy `className` still read) |
+| `vssIngress.annotations`     | `{}`                             | Additional Ingress annotations     |
+| `vssIngress.hosts.main`      | `""` (auto: `vss-search.<IP>.nip.io`) | VSS UI + Agent + VST API host |
+| `vssIngress.hosts.streamer`  | `""` (auto: `streamer.<IP>.nip.io`)   | NVStreamer HTTP API host      |
+| `vssIngress.hosts.kibana`    | `""` (auto: `kibana.<IP>.nip.io`)     | Kibana dashboards host        |
+| `vssIngress.hosts.phoenix`   | `""` (auto: `phoenix.<IP>.nip.io`)    | Phoenix tracing UI host       |
+| `vssIngress.tls`             | `[]`                             | TLS configuration (secretName + hosts) |
+| `vssIngress.elasticsearchPort` | `9200`                         | Backend port for `/elasticsearch`. The edge guard is on the `elasticsearch` Service (`infra.elasticsearch.ingressGuard`): denies PUT/DELETE, cluster-admin and two-segment mutating paths, but POST still reaches Elasticsearch |
+| `vssIngress.rtviVlmPort` / `rtviCvPort` / `rtviEmbedPort` | `8000` / `9000` / `8000` | Backend ports for `/rtvi-vlm`, `/rtvi-cv`, `/rtvi-embed` |
+| `vssIngress.timeoutClient` / `timeoutTunnel` | `3600s`          | Rendered for continuity, but **inert**: this controller reads both only from its own ConfigMap, never from an Ingress annotation. Server-side timeouts do work per backend and are set on the rtvi and agent Services |
 
 When host values are left empty (default), they are auto-constructed from `global.externalHost` using `nip.io` wildcard DNS.
 
@@ -464,10 +473,10 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set global.externalHost=$NODE_EXTERNAL_IP \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
   --set global.storageClass=$STORAGE_CLASS \
-  --set ingress.hosts.main=vss-search.example.com \
-  --set ingress.hosts.streamer=streamer.example.com \
-  --set ingress.hosts.kibana=kibana.example.com \
-  --set ingress.hosts.phoenix=phoenix.example.com \
+  --set vssIngress.hosts.main=vss-search.example.com \
+  --set vssIngress.hosts.streamer=streamer.example.com \
+  --set vssIngress.hosts.kibana=kibana.example.com \
+  --set vssIngress.hosts.phoenix=phoenix.example.com \
   --wait=false
 ```
 
@@ -485,9 +494,9 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set global.externalHost=$NODE_EXTERNAL_IP \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
   --set global.storageClass=$STORAGE_CLASS \
-  --set ingress.hosts.main=vss-search.example.com \
-  --set ingress.tls[0].secretName=vss-search-tls \
-  --set ingress.tls[0].hosts[0]=vss-search.example.com \
+  --set vssIngress.hosts.main=vss-search.example.com \
+  --set vssIngress.tls[0].secretName=vss-search-tls \
+  --set vssIngress.tls[0].hosts[0]=vss-search.example.com \
   --wait=false
 ```
 

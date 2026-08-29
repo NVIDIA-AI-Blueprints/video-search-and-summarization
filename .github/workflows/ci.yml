@@ -479,6 +479,7 @@ jobs:
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
@@ -865,6 +866,10 @@ jobs:
   behavior-analytics-integration-test:
     name: Integration (behavior analytics)
     needs: prepare-source
+    # Same path gate as Test (sdr-mw-l) / configurator jobs: skip the ~150 min
+    # compose suite when this PR did not touch BA sources or ci.yml (license-diff
+    # and similar). Diff-resolution failure still runs it via unit-test-workflow-changed.
+    if: needs.prepare-source.outputs.build-behavior-analytics == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     env:
@@ -1478,6 +1483,7 @@ jobs:
           python3 .github/scripts/test_trigger_downstream_pipeline.py
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
+          python3 .github/scripts/test_cancel_stale_pr_ci.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
