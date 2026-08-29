@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import uuid
@@ -301,6 +302,33 @@ def _run_openclaw(
     return envelope, normalized
 
 
+def _collect_orchestrator_log(agent_log_dir: Path) -> None:
+    """Copy the VSS Orchestrator MCP log into this trial's agent logs.
+
+    The server opens this file with mode "w" on every start, and each step of a
+    multi-step spec re-runs the setup notebooks -- so a step's trace is gone the
+    moment the next step begins, and a failing step-1 leaves no orchestrator
+    evidence at all by the time the run ends. It is the only host-side record of
+    each `[mcp:<tool>] -> args` / `<- result` call and the raw `docker compose`
+    output behind a deploy, so collect it here, where it still exists.
+
+    Diagnostics must never fail a trial: a missing or unreadable log is
+    reported and ignored.
+    """
+    repo_root = Path(
+        os.environ.get("VSS_REPO_DIR") or Path(__file__).resolve().parents[3]
+    )
+    source = repo_root / ".orchestrator-artifacts" / "vss_orchestrator_mcp.log"
+    try:
+        if not source.is_file():
+            print(f"No orchestrator log at {source}", file=sys.stderr)
+            return
+        shutil.copyfile(source, agent_log_dir / "orchestrator_mcp.log")
+        print(f"Collected orchestrator log from {source}", file=sys.stderr)
+    except OSError as exc:
+        print(f"Could not collect {source}: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prompt-file", required=True)
@@ -341,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    finally:
+        # Runs on the failure path too -- that is the case the log is for.
+        _collect_orchestrator_log(agent_log_dir)
 
 
 if __name__ == "__main__":
