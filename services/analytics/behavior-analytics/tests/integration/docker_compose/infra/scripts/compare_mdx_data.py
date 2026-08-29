@@ -27,7 +27,6 @@ from pathlib import Path
 
 # Because the trajectory to detect events is not always the same, we ignore some keys
 EVENT_IGNORE_KEYS = ["distance", "speed", "analyticsModule", "speedOverTime", "object", "bearing", "direction", "timeInterval"]
-# Because sampling, some attributes are not always same for behavior data
 # Budget for how many behaviour records may differ before the comparison fails.
 # A flat percentage is uneven across profiles: warehouse_2d has 40 behaviour
 # records, so 1% rounds below a single record and any one difference fails it,
@@ -36,7 +35,10 @@ EVENT_IGNORE_KEYS = ["distance", "speed", "analyticsModule", "speedOverTime", "o
 BEHAVIOR_DIFFERENCE_RATIO = 0.01
 MIN_BEHAVIOR_DIFFERENCE_BUDGET = 3
 
-BEHAVIOR_IGNORE_KEYS = ["length", "locations", "edges", "smoothLocations", "speedOverTime", "direction", "info", "bearing", "speed", "distance"]
+# Relative bound for float comparison, applied alongside the absolute one.
+# Observed cross-architecture drift on trig-derived fields peaks near 1.3e-6.
+FLOAT_RELATIVE_TOLERANCE = 1e-5
+
 
 def parse_json_lines(file_path: str) -> list[dict[str, Any]]:
     """
@@ -467,10 +469,13 @@ def compare_source_objects(source1: dict[str, Any],
     if source1.get("type") == "mdx-events":
         ignore_keys(differences, EVENT_IGNORE_KEYS)
     elif source1.get("type") == "mdx-behavior":
-        # Todo: check if it's expected
+        # `edges` is the OSM map-matching result, and it is genuinely
+        # non-deterministic: two smart_city runs on one machine disagree on ~6
+        # of 400 records, either reversing an edge's direction
+        # (12106265263-4255587735 vs 4255587735-12106265263) or selecting a
+        # different edge at an ambiguous junction. The warehouse profiles do no
+        # map matching and never differ here, so this is smart_city-specific.
         ignore_keys(differences, ["edges"])
-        if source1["timeInterval"] > 10 and "timeInterval" not in differences:
-            ignore_keys(differences, BEHAVIOR_IGNORE_KEYS)
 
     return differences
 
@@ -494,9 +499,15 @@ def values_equal(value1: Any, value2: Any, key: str, float_tolerance: float = 1e
     if value1 is None or value2 is None:
         return False
 
-    # Handle float comparisons
+    # Handle float comparisons.
+    # An absolute-only tolerance is uneven across fields: 1e-4 is generous for a
+    # coordinate near zero but amounts to ~1e-6 relative on smart_city speeds of
+    # 100+ km/h, which is tighter than float64 trig (atan2 for bearing, geodesic
+    # math for speed) reproduces across libm implementations. Pair it with a
+    # relative bound so large-magnitude fields get comparable treatment.
     if isinstance(value1, float) and isinstance(value2, float):
-        return abs(float(value1) - float(value2)) <= float_tolerance
+        return math.isclose(float(value1), float(value2),
+                            rel_tol=FLOAT_RELATIVE_TOLERANCE, abs_tol=float_tolerance)
 
     if key.endswith("Objects") and isinstance(value1, str) and isinstance(value2, str):
         value1_list = value1.split("|")
