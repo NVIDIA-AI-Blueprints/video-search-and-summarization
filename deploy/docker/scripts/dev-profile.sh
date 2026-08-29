@@ -1654,10 +1654,10 @@ function state_up() {
       echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
-  # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
-  # override into generated.env where it wins during Compose interpolation.
+  # Write the ARM64 RT-VLM image selector into generated.env where it wins
+  # during Compose interpolation.
   if [[ "${hardware_profile}" == "GB300" ]]; then
-    set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
+    set_env_var "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
     echo "[INFO] Selected SBSA RT-VLM image for GB300"
   fi
 
