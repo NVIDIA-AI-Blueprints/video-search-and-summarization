@@ -288,38 +288,25 @@ jobs:
       # the gate is red on every pull request forever. It cannot mask real
       # drift: carry-forward is the last resort, after the parser and after
       # every attribution file.
-      - name: Regenerate the dependency inventory
+      # Regenerate IN PLACE: the PR tree is the source of truth for the
+      # inventory, and the comparison below reads this refreshed file. The
+      # triage job re-runs the identical regeneration (deterministic, same
+      # tree, same --previous) and commits the result, so nothing here has to
+      # be committed and this job needs no write token.
+      - name: Refresh the dependency inventory from the PR tree
         run: |
           set -euo pipefail
           python .github/osrb/osrb_inventory.py \
             --ref HEAD \
             --previous .github/osrb/inventory.csv \
-            --output "${RUNNER_TEMP}/inventory.csv"
-          echo "--- regenerated inventory ($(($(wc -l < "${RUNNER_TEMP}/inventory.csv") - 1)) rows) ---"
-          head -n 10 "${RUNNER_TEMP}/inventory.csv"
-
-      # The drift gate. Everything downstream compares the COMMITTED inventory
-      # against the approved baseline, so a stale committed inventory would let
-      # a dependency change through by simply not appearing in the file the
-      # comparison reads. Fail here, before that can happen.
-      - name: Fail when the committed inventory is stale
-        run: |
-          set -euo pipefail
-          if diff -u .github/osrb/inventory.csv "${RUNNER_TEMP}/inventory.csv" > "${RUNNER_TEMP}/inventory.diff"; then
-            echo "Committed inventory matches the tree."
-            exit 0
+            --output .github/osrb/inventory.csv
+          echo "--- refreshed inventory ($(($(wc -l < .github/osrb/inventory.csv) - 1)) rows) ---"
+          head -n 10 .github/osrb/inventory.csv
+          if git diff --quiet -- .github/osrb/inventory.csv; then
+            echo "Committed inventory already matched the tree."
+          else
+            echo "::notice title=OSRB inventory refreshed::the committed inventory did not match the PR tree; the triage job will commit the refresh."
           fi
-          echo "--- diff: committed (-) vs regenerated (+) ---"
-          cat "${RUNNER_TEMP}/inventory.diff"
-          {
-            printf '::error title=OSRB inventory is stale::'
-            printf 'This branch changes the dependency tree but .github/osrb/inventory.csv '
-            printf 'was not refreshed, so the approved-state comparison below is reading a '
-            printf 'file that no longer describes this repository. Refresh it and commit the '
-            printf 'result: python .github/osrb/osrb_inventory.py --ref HEAD --previous '
-            printf '.github/osrb/inventory.csv --output .github/osrb/inventory.csv\n'
-          }
-          exit 1
 
       - name: Compare the inventory against the OSRB-approved baseline
         id: compare
@@ -508,6 +495,25 @@ jobs:
           name: osrb-compliance
           path: ${{ runner.temp }}/osrb-compliance
 
+      # The PR tree is the source of truth. Regenerate the inventory here, the
+      # same deterministic call the comparison job ran, so the file the agent
+      # annotates and this job commits describes THIS tree — not whatever was
+      # last committed. The agent step below snapshots this refreshed file as
+      # its baseline, so the commit guard sees the agent's licence changes on
+      # top of a legitimate regeneration, and the regeneration itself is a pure
+      # function of the already-reviewed tree.
+      - name: Refresh the inventory from the PR tree
+        id: refresh
+        run: |
+          set -euo pipefail
+          python3 .github/osrb/osrb_inventory.py \
+            --ref HEAD \
+            --previous .github/osrb/inventory.csv \
+            --output .github/osrb/inventory.csv
+          # The structural baseline for the commit guard: the agent may only add
+          # license/risk on top of this.
+          cp .github/osrb/inventory.csv "${RUNNER_TEMP}/inventory-regen.csv"
+
       - name: Run the triage agent
         id: agent
         # Agent/model failure must never red the workflow. Exit 2 (validator
@@ -542,7 +548,8 @@ jobs:
           echo "skipped=false" >> "$GITHUB_OUTPUT"
           # Snapshot the committed inventory so the commit guard below diffs
           # exactly what the agent changed, not what the PR changed.
-          cp .github/osrb/inventory.csv "${RUNNER_TEMP}/inventory-before.csv"
+          # baseline for the guard is the regenerated file from the refresh step
+          cp "${RUNNER_TEMP}/inventory-regen.csv" "${RUNNER_TEMP}/inventory-before.csv"
           extra=()
           if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
             # Missing key (e.g. not configured yet) must never fail the job:
@@ -560,58 +567,6 @@ jobs:
             --comment-out triage-comment.md \
             --verdicts-out triage-verdicts.json \
             "${extra[@]}"
-
-      # Auto-commit, guarded. The scan runs on the vetted copy-pr-bot mirror
-      # (see the job comment above for the full trust model) and
-      # validate_inventory_diff limits the writable surface to the license and
-      # risk columns of rows that already existed in .github/osrb/inventory.csv.
-      # Commit only on a clean agent exit (0): exit 2/3 mean the validator
-      # rejected something or the loop was cut off, and a partially-validated
-      # inventory must not be pushed.
-      - name: Commit agent-triaged licences to the mirror branch
-        id: commit
-        if: always() && steps.agent.outcome == 'success' && steps.agent.outputs.skipped == 'false'
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- .github/osrb/inventory.csv; then
-            echo "Inventory unchanged; nothing to commit."
-            exit 0
-          fi
-          # Deterministic guard, script-side and BEFORE any git write. It is
-          # the agent module's own validate_inventory_diff, re-run in a fresh
-          # process (--check-inventory-diff, exit 2 on violation) so the
-          # workflow does not trust the agent process that produced the diff.
-          # Fail-closed: a guard crash aborts the commit exactly like a
-          # violation.
-          if ! python3 .github/osrb/osrb_agent.py \
-            --check-inventory-diff "${RUNNER_TEMP}/inventory-before.csv" .github/osrb/inventory.csv
-          then
-            {
-              echo "### OSRB triage auto-commit aborted"
-              echo
-              echo "validate_inventory_diff rejected the agent's inventory diff;"
-              echo "nothing was committed. See the 'Commit agent-triaged licences' step log."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning title=OSRB triage commit aborted::validate_inventory_diff rejected the inventory diff; inventory.csv was not committed."
-            exit 1
-          fi
-          n=$(diff "${RUNNER_TEMP}/inventory-before.csv" .github/osrb/inventory.csv | grep -c '^>' || true)
-          git config user.name "github-actions[bot]"
-          git config user.email "41898024+github-actions[bot]@users.noreply.github.com"
-          git add .github/osrb/inventory.csv
-          # `-s` is mandatory (org DCO), same as skill-eval's adapter commit.
-          git commit -s -m "chore(osrb): agent-triaged licences for ${n} new dependencies"
-          # The agent's checkout had persist-credentials:false, so set the push
-          # credential HERE, in the trusted commit step, scoped to this push.
-          # GITHUB_TOKEN is the job's own contents:write token, never exposed to
-          # the agent step.
-          auth=$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
-            push origin "HEAD:${GITHUB_REF_NAME}"
-          echo "Pushed inventory update (${n} rows) to ${GITHUB_REF_NAME}."
 
       # The comment posts on EVERY path through this job — agent success,
       # validator rejection (exit 2/3, comment already written), agent crash,
@@ -690,3 +645,60 @@ jobs:
           path: ${{ runner.temp }}/osrb-compliance
           overwrite: true
           if-no-files-found: warn
+
+      # Sync the inventory to the PR tree — LAST step on purpose.
+      #
+      # This pushes to the mirror branch, which re-triggers this workflow. That
+      # is fine and self-healing: the new run regenerates the same inventory
+      # (no change), the agent finds no new unknowns, and its commit step makes
+      # no commit — one quiet extra run, then stable. Because it is last, the
+      # concurrency cancel that the push causes lands after the comment above
+      # has already posted, so nothing is lost.
+      #
+      # What is committed: the deterministic regeneration (structural — new deps
+      # from the PR tree) plus the agent's validated licence seeds. The guard
+      # proves the agent part is licence/risk-only on top of the regeneration;
+      # the regeneration itself is a pure function of the already-reviewed tree,
+      # so it introduces nothing a reviewer has not seen in the PR diff.
+      - name: Sync inventory.csv to the PR tree
+        id: commit
+        if: always() && steps.refresh.outcome == 'success' && steps.agent.outcome != 'cancelled'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/osrb/inventory.csv; then
+            echo "Inventory already matches the PR tree; nothing to commit."
+            exit 0
+          fi
+          # Guard, in a fresh process so the workflow does not trust the agent
+          # process that produced the diff: the change from the regenerated
+          # baseline to the final file must be license/risk-only. The structural
+          # delta (committed -> regenerated) is not re-checked here because it is
+          # a deterministic osrb_inventory output of the reviewed tree. Fail
+          # closed: a guard crash aborts the commit exactly like a violation.
+          if ! python3 .github/osrb/osrb_agent.py \
+            --check-inventory-diff "${RUNNER_TEMP}/inventory-regen.csv" .github/osrb/inventory.csv
+          then
+            {
+              echo "### OSRB inventory sync aborted"
+              echo
+              echo "The agent's licence changes did not pass validate_inventory_diff"
+              echo "against the regenerated baseline; nothing was committed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=OSRB inventory sync aborted::validate_inventory_diff rejected the agent diff; inventory.csv was not committed."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898024+github-actions[bot]@users.noreply.github.com"
+          git add .github/osrb/inventory.csv
+          # `-s` is mandatory (org DCO), same as skill-eval's adapter commit.
+          git commit -s -m "chore(osrb): sync inventory.csv with the PR tree"
+          # The checkout had persist-credentials:false to keep a token off disk
+          # during the injection-reachable agent step; set the push credential
+          # HERE, scoped to this push, from the job's own contents:write token.
+          auth=$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "Pushed inventory sync to ${GITHUB_REF_NAME}."

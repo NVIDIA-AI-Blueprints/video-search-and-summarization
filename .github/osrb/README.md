@@ -66,20 +66,28 @@ if a row here disagrees with the OSRB record, the OSRB record wins and this file
 needs fixing. Do not paste private approval evidence into a public pull request to argue
 otherwise; take it to the OSRB owner.
 
-## Refreshing `inventory.csv`
+## `inventory.csv` is refreshed automatically — the PR tree is the source of truth
 
-`inventory.csv` is committed, and CI fails when it does not match what the tree produces.
-That is deliberate: the comparison reads the committed file, so a stale one would let a
-dependency change through by simply not appearing in it.
+You do not refresh `inventory.csv` by hand. On every PR, CI regenerates it from the PR
+tree and commits the result to the mirror branch: the **approved-state comparison** job
+regenerates it in place so the comparison reads the current tree, and the **agent triage**
+job regenerates it again (identical, deterministic), lets the agent seed any new licences,
+and commits the synced file. There is no drift gate to satisfy.
 
-If the **OSRB Scan (approved-state comparison)** job says the inventory is stale:
+Why this is safe to auto-commit: the regeneration is a pure function of the already-reviewed
+tree, so the new rows correspond to dependency files the PR already changed — nothing lands
+that is not in the PR diff. The agent's licence seeding on top is guarded to the
+`license`/`risk` columns of existing rows (`--check-inventory-diff` against the regenerated
+baseline, in a fresh process), and the commit is the last step of the last job so the push
+that re-triggers the mirror cannot cancel the comment.
+
+To reproduce the regeneration locally (e.g. to see the diff before pushing):
 
 ```bash
 python3 .github/osrb/osrb_inventory.py \
   --ref HEAD \
   --previous .github/osrb/inventory.csv \
   --output .github/osrb/inventory.csv
-git add .github/osrb/inventory.csv
 ```
 
 `--previous` points at the file you are about to overwrite, and it is not

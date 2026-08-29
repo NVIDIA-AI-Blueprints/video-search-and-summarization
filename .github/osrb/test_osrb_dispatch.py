@@ -257,17 +257,22 @@ class DispatchTests(unittest.TestCase):
         )
         self.assertNotIn("steps.ctx.outputs", live)
 
-    def test_inventory_drift_gate_prints_the_refresh_command(self) -> None:
-        """The error has to carry the fix; a diff alone leaves the reader guessing."""
+    def test_inventory_is_auto_refreshed_not_drift_gated(self) -> None:
+        """The PR tree is the source of truth: CI refreshes, it does not fail.
+
+        The old hard drift gate made every dependency-changing PR red until the
+        author re-ran osrb_inventory by hand. Both the comparison job and the
+        triage job now regenerate IN PLACE (--output points at the committed
+        file), and the triage job commits the result. A leftover 'Fail when the
+        committed inventory is stale' step would resurrect the friction this
+        removed.
+        """
         workflow = SCAN_WORKFLOW.read_text()
-        gate = workflow.split("- name: Fail when the committed inventory is stale", 1)[1]
-        gate = gate.split("- name:", 1)[0]
-        self.assertIn("osrb_inventory.py", gate)
-        # --previous is what makes the refresh reproduce the committed file.
-        # An instruction that omits it sends the contributor round the loop
-        # again with a diff that never converges.
-        self.assertIn("--previous ", gate)
-        self.assertIn("--output .github/osrb/inventory.csv", gate)
+        self.assertNotIn("Fail when the committed inventory is stale", workflow)
+        refresh = workflow.split("- name: Refresh the dependency inventory from the PR tree", 1)[1]
+        refresh = refresh.split("- name:", 1)[0]
+        self.assertIn("--previous ", refresh)
+        self.assertIn("--output .github/osrb/inventory.csv", refresh)
 
     def test_scan_keeps_the_artifact_and_csv_names_the_private_pipeline_reads(self) -> None:
         """The GitLab OSRB job fetches these by name; a rename fails open.
@@ -347,7 +352,7 @@ class TriageWiringTests(unittest.TestCase):
         for name in (
             "Install claude-agent-sdk",
             "Run the triage agent",
-            "Commit agent-triaged licences to the mirror branch",
+            "Sync inventory.csv to the PR tree",
         ):
             self.assertIn("continue-on-error: true", self._step(job, name), name)
 
@@ -372,21 +377,40 @@ class TriageWiringTests(unittest.TestCase):
         )
         self.assertNotIn("hinton-osrb-review", live)
 
-    def test_auto_commit_is_guarded_and_touches_only_the_inventory(self) -> None:
+    def test_inventory_sync_is_guarded_and_touches_only_the_inventory(self) -> None:
         """The writable surface is two columns of one file, checked before git."""
-        commit = self._step(self._job(), "Commit agent-triaged licences to the mirror branch")
+        commit = self._step(self._job(), "Sync inventory.csv to the PR tree")
         self.assertEqual(
             re.findall(r"^\s*git add (.+)$", commit, re.M),
             [".github/osrb/inventory.csv"],
         )
-        # The guard runs before anything is staged; a guard failure aborts.
+        # The guard runs before anything is staged; a guard failure aborts. It
+        # compares against the regenerated baseline, so it proves the agent's
+        # change is license/risk-only on top of a legitimate regeneration.
         self.assertLess(commit.index("--check-inventory-diff"), commit.index("git add"))
-        # DCO + bot identity, same handling as skill-eval's adapter commit.
+        self.assertIn("inventory-regen.csv", commit)
         self.assertIn("git commit -s", commit)
         self.assertIn('git config user.name "github-actions[bot]"', commit)
-        self.assertIn("chore(osrb): agent-triaged licences for", commit)
-        # Only on a clean agent exit: 2/3 mean rejected/truncated output.
-        self.assertIn("steps.agent.outcome == 'success'", commit)
+        # Runs whenever the refresh succeeded, so the structural sync lands even
+        # when the agent is skipped (no key) — NOT gated on agent success.
+        self.assertIn("steps.refresh.outcome == 'success'", commit)
+
+    def test_the_inventory_commit_is_the_last_step(self) -> None:
+        """Its push re-triggers the mirror and cancels this run; nothing may follow.
+
+        The comment must already be posted when the cancel lands, so the commit
+        is the final step of the final job. A step added after it would be at
+        risk of being cancelled before completing.
+        """
+        job = self._job()
+        names = re.findall(r"^      - name: (.+)$", job, re.M)
+        self.assertEqual(names[-1], "Sync inventory.csv to the PR tree", names)
+        # and the comment is posted before it
+        self.assertIn("Post or update the triage PR comment", names)
+        self.assertLess(
+            names.index("Post or update the triage PR comment"),
+            names.index("Sync inventory.csv to the PR tree"),
+        )
 
     def test_triage_uploads_join_compliance_never_the_license_diff_artifact(self) -> None:
         """The private GitLab pipeline fetches `license-diff` by name; its
