@@ -402,7 +402,6 @@ async def _run_rtvi_embedding(
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
-
     embed_request = {
         "url": vst_file_path,
         "id": sensor_id,
