@@ -58,7 +58,7 @@ from pydantic import Field
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.utils.time_measure import TimeMeasure
-from vss_agents.utils.url_translation import rewrite_url_host
+from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 logger = logging.getLogger(__name__)
 
@@ -406,7 +406,7 @@ async def _run_rtvi_embedding(
     parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
     if not parsed_vst.hostname:
         raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
-    translated_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
+    translated_video_url = rewrite_to_internal_vst_url(vst_file_path, vst_url)
     logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
 
     embed_request = {
