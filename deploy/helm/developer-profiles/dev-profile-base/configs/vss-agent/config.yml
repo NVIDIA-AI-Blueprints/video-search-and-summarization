@@ -168,16 +168,19 @@ llms:
     max_tokens: 4096
     temperature: 0.0
 
+  # openai_llm is the remote path, so the model on the other end is whatever the
+  # operator points --use-remote-llm at. A Nemotron-specific body parameter here
+  # is sent to every one of them, and an endpoint that validates its request body
+  # rejects the unknown key rather than ignoring it. Keep this client generic:
+  # vllm_llm below still carries the flag for a local Nemotron served over the
+  # OpenAI API, and nim_llm gets it from reasoning_utils, which binds it from the
+  # model name. The other developer profiles already omit it here.
   openai_llm:
     _type: openai
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
     temperature: 0.0
-    model_kwargs:
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: ${LLM_ENABLE_THINKING:-false}
 
   vllm_llm:
     _type: openai
