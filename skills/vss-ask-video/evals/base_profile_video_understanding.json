@@ -30,10 +30,10 @@
       ]
     },
     {
-      "query": "Verify the VSS stack is ready for the **vss-ask-video** skill. Confirm VST is reachable and lists at least one stream, and that a VLM endpoint resolves.",
+      "query": "Verify the VSS stack is ready for the **vss-ask-video** skill. Confirm VIOS is reachable and lists at least one sensor, and that a VLM endpoint resolves.",
       "checks": [
-        "curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:30888/vst/api/v1/sensor/version returns 200",
-        "curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams returns HTTP 200 and a non-empty JSON body",
+        "`vss configure check` exits 0 and its output contains both the word `vios` and the word `available` on the same line (e.g. `vios           available    vst`), indicating the VIOS command group is reachable",
+        "`vss vios list --type video` exits 0 and returns a JSON object whose `sensors` array is non-empty",
         "Either VLM_BASE_URL + VLM_NAME (NIM Cosmos) or RTVI_VLM_BASE_URL + VLM_NAME (RT-VLM Cosmos) are resolvable from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`; the image is distroless so `docker exec vss-agent env` will not work), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
       ]
     },

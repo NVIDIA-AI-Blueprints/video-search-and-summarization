@@ -3,7 +3,7 @@ name: vss-ask-video
 description: Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions), including a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL. Not for retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -121,44 +121,20 @@ else
 fi
 ```
 
-No VIOS URL is built here. `vss configure` records the deployment once and every
-`vss vios` call reads it, so the sensor path never needs a host, a port or
-`/vst/api/v1`. Run it now — a `vss vios` call without it exits 4:
+Probe what's actually available — only the VLM endpoint is mandatory for Path A:
 
 ```bash
-# The CLI lives in the VSS checkout; --extra cli is what installs it.
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-[ -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" ] || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
-# An array, not a string: an unquoted string does not word-split in every shell.
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-
-# Once per deployment. On Docker the origin is the single ingress on :7777.
-VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"
-```
-
-Bootstrap detail, exit codes and the rules that go with them are in
-[AGENTS.md](../../AGENTS.md).
-
-On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
-`docker inspect` / `docker ps` to find the VLM. When `VSS_PUBLIC_URL` is set,
-Step 2 probes the public `/v1` route before adopting it. On Docker, keep the
-host-port discovery below when `VLM_ENDPOINT` is still unset.
-
-Probe what's actually available — only the VLM endpoint is mandatory:
-
-```bash
-# Each block is its own shell; define what it uses.
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
-# REQUIRED: VLM endpoint reachable? (caller-provided, public /v1, or auto-discovered — see Step 2)
+# Required for both Path A and Path B: confirm the VLM endpoint is reachable.
+# Caller-provided, public /v1, or auto-discovered — see Step 2.
 curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null && echo "VLM OK"
-
-# OPTIONAL: VIOS reachable? (only if you intend to source the clip from a sensor — Path B)
-# Reports which command groups the deployment can serve; `vios available` is the
-# line that matters here.
-"${VSS[@]}" configure check
 ```
+
+Path A needs only a reachable VLM endpoint and the user-supplied video — no VSS
+checkout, no `vss configure`, and no VIOS. Skip to Step 2 for Path A.
+
+For Path B, the CLI bootstrap (`vss configure`) and VIOS availability check
+(`vss configure check`) run in the **Sensor check** section below, which is already
+scoped to Path B only.
 
 **If no VLM endpoint is reachable**, ask the user to provide one (host:port + model id), or — only
 if they'd rather have VSS serve the model — offer to deploy a VLM-bearing profile (e.g. `base`) via
@@ -184,6 +160,22 @@ uploaded, and even when a previous turn appeared to use the same video. Do not s
 > rules live in [AGENTS.md](../../AGENTS.md) at the repo root — read it once rather than per skill. In short:
 > run `vss` from the VSS checkout, `vss configure --base-url "${VSS_PUBLIC_URL}"` once per
 > deployment, and no command afterwards takes a host or port.
+
+Bootstrap the CLI and register the deployment endpoint (once per session):
+
+```bash
+# Path B only — not needed for Path A (direct file/URL).
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+[ -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" ] || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT" >&2; exit 1; }
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"
+# Confirm VIOS is reachable (vios available line must appear):
+"${VSS[@]}" configure check
+```
+
+Bootstrap detail and exit codes are in [AGENTS.md](../../AGENTS.md).
 
 1. List sensors (capture first — a bare pipe into `jq` would hide a failed
    `vss` behind `jq`'s exit code and read as "no sensors"):
@@ -272,15 +264,36 @@ bare `/url` returns an **empty body**, and a window that is not in the recording
 path, or a `localhost` host the VLM's container cannot reach) and warms the lazy render, all of
 which this skill used to do by hand.
 
+**Full recording (no time context):** omit `--start-time`/`--end-time` and `vss vios clip`
+defaults to the covering recorded segment.
+
+**User gives a time context** ("at 00:12", "between 00:05 and 00:30"): pass
+`--start-time`/`--end-time` directly. When the window boundary is uncertain, run
+`vss vios timeline --sensor <name>` first to see the recorded ranges, then pick a window
+that falls inside one segment (a window that spans a gap or lies outside the recording exits non-zero with a `VIOSInvalidInputError` message).
+
 ```bash
 # Each block is its own shell; define what it uses.
 VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 SENSOR_NAME='<the sensor name / filename stem the question named>'
 
-# One call: name → sensorId → main streamId → recorded range → normalised, warmed clip URL.
-# Endpoints come from the deployment `vss configure` recorded; this command takes none.
+# No time context — full recording:
 CLIP=$("${VSS[@]}" vios clip --sensor "${SENSOR_NAME}") || {
   echo "vss vios clip failed for '${SENSOR_NAME}' — do NOT answer from a local copy" >&2; exit 1; }
+
+# With a time context (e.g. user said "at 12s" or "between 00:05 and 00:30"):
+#   1. List all recorded segments — never invent timestamps:
+#      "${VSS[@]}" vios timeline --sensor "${SENSOR_NAME}"
+#      # Returns: {"segments":[{"start_time":"2025-01-01T02:30:00.000Z","end_time":"..."},...], ...}
+#   2. Use segments[0].start_time as the recording origin; apply the user's offset to it:
+#      e.g. segments[0].start_time = "2025-01-01T02:30:00Z", user says "at 12s" →
+#        --start-time "2025-01-01T02:30:12Z"  --end-time "2025-01-01T02:30:27Z"
+#      If the window falls in a gap between segments, vss vios clip exits non-zero with
+#      VIOSInvalidInputError — inspect the segments array to find which segment covers the target.
+#      CLIP=$("${VSS[@]}" vios clip --sensor "${SENSOR_NAME}" \
+#               --start-time "<segments[0].start_time + offset>" \
+#               --end-time "<segments[0].start_time + offset + window>") || { ... }
+
 
 VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url')
 CLIP_START=$(printf '%s' "${CLIP}" | jq -r '.start_time')
@@ -710,7 +723,7 @@ Return only the VLM's answer text to the user.
 - "Is the worker in `warehouse_safety_0001` wearing PPE?" → sensor name → VST/VIOS (Path B):
   resolve clip URL, call the VLM, return the answer.
 - "At what timestamp did the worker climb the ladder?" → same VST path; the answer includes a timestamp.
-- "What color is the truck at 00:12 in `dock_cam`?" → VST path; resolve the segment around 00:12, call the VLM.
+- "What color is the truck at 00:12 in `dock_cam`?" → Path B with `--start-time`/`--end-time` around 00:12; if the recorded range is unknown run `vss vios timeline --sensor dock_cam` first, then `vss vios clip --sensor dock_cam --start-time ... --end-time ...`, call the VLM.
 
 ---
 
