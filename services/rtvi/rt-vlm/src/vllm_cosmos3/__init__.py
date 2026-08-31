@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 def register():
     from transformers import AutoConfig, AutoProcessor
     from vllm import ModelRegistry
+    from vllm.v1.attention.backends.registry import (
+        AttentionBackendEnum,
+        register_backend,
+    )
 
     from vllm_cosmos3.edge_config import Cosmos3EdgeConfig
     from vllm_cosmos3.edge_processor import Cosmos3EdgeProcessor
@@ -35,6 +39,10 @@ def register():
         Cosmos3EdgeConfig,
         Cosmos3EdgeProcessor,
         exist_ok=True,
+    )
+    register_backend(
+        AttentionBackendEnum.CUSTOM,
+        "vllm_cosmos3.edge_attention_backend.EdgeFlashAttentionBackend",
     )
 
     registrations = {

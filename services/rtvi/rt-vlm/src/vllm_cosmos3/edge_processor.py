@@ -10,6 +10,7 @@ from typing import ClassVar
 
 import torch
 from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as tvF
 from transformers import AutoTokenizer
 from transformers.feature_extraction_utils import BatchFeature
 from transformers.image_utils import (
@@ -30,7 +31,6 @@ from transformers.models.siglip2.image_processing_siglip2 import (
 )
 from transformers.processing_utils import Unpack
 from transformers.utils import TensorType
-from transformers.video_processing_utils import BaseVideoProcessor
 from transformers.video_utils import group_videos_by_shape, reorder_videos
 from typing_extensions import TypedDict
 
@@ -223,13 +223,11 @@ class Cosmos3EdgeVideoProcessor(Qwen3VLVideoProcessor):
                     max_pixels=size.longest_edge,
                 )
                 stacked_videos = stacked_videos.view(B * T, C, H, W)
-                # The target size is already computed, so bypass Qwen3-VL's
-                # dynamic resize, which expects an unflattened video tensor.
-                stacked_videos = BaseVideoProcessor.resize(
-                    self,
-                    image=stacked_videos,
-                    size=SizeDict(height=resized_height, width=resized_width),
-                    resample=resample,
+                stacked_videos = tvF.resize(
+                    stacked_videos,
+                    [resized_height, resized_width],
+                    interpolation=resample,
+                    antialias=True,
                 )
                 stacked_videos = stacked_videos.view(B, T, C, resized_height, resized_width)
             resized_videos_grouped[shape] = stacked_videos
@@ -244,6 +242,13 @@ class Cosmos3EdgeVideoProcessor(Qwen3VLVideoProcessor):
             resized_height, resized_width = get_image_size(
                 stacked_videos[0], channel_dim=ChannelDimension.FIRST
             )
+            factor = patch_size * merge_size
+            if not do_resize and (resized_height % factor != 0 or resized_width % factor != 0):
+                raise ValueError(
+                    "Video dimensions must be divisible by patch_size * merge_size "
+                    f"({factor}) when do_resize=False; got "
+                    f"{resized_height}x{resized_width}."
+                )
             # Fused rescale and normalize
             stacked_videos = self.rescale_and_normalize(
                 stacked_videos,
@@ -253,26 +258,20 @@ class Cosmos3EdgeVideoProcessor(Qwen3VLVideoProcessor):
                 image_mean,
                 image_std,
             )
-            patches = stacked_videos
-
-            batch_size, grid_t, channel = patches.shape[:3]
+            batch_size, grid_t, channel = stacked_videos.shape[:3]
             grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-
-            # [1, 16, 3, 320, 608] -> [1, 16, 3, 20, 16, 38, 16]
-            patches = patches.view(
-                batch_size,  # 0
-                grid_t,  # 1
-                channel,  # 2
-                grid_h,  # 3
-                patch_size,  # 4
-                grid_w,  # 5
-                patch_size,  # 6
+            patches = stacked_videos.view(
+                batch_size,
+                grid_t,
+                channel,
+                grid_h // merge_size,
+                merge_size,
+                patch_size,
+                grid_w // merge_size,
+                merge_size,
+                patch_size,
             )
-            # [1, 16, 3, 20, 16, 38, 16] -> [1, 16, 20, 38, 16, 16, 3]
-            # Result: [batch, grid_t, grid_h, grid_w, patch_h, patch_w, channel]
-            patches = patches.permute(0, 1, 3, 5, 4, 6, 2)
-
-            # [1, 16, 20, 38, 16, 16, 3] -> [1, 5120, 768]
+            patches = patches.permute(0, 1, 3, 6, 4, 7, 5, 8, 2)
             flatten_patches = patches.reshape(
                 batch_size,
                 grid_t * grid_h * grid_w,

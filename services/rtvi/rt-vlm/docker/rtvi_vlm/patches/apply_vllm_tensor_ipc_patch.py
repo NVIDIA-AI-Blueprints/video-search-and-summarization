@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """
 Patch installed vLLM 0.17.1 to add the multimodal tensor IPC path from
 vLLM PR #32104.
