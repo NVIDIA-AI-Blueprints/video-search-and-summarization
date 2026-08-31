@@ -9,6 +9,7 @@ from agents.openclaw_unified_memory import (
     GROUP_PREFIX,
     GROUP_SUFFIX,
     _group_envelope,
+    _openclaw_setup_commands,
     _prediction_extractor_command,
 )
 
@@ -24,6 +25,15 @@ def test_group_envelope_requires_four_turns() -> None:
     }
     instruction = f"preamble\n{GROUP_PREFIX}{json.dumps(payload)}{GROUP_SUFFIX}\n"
     assert _group_envelope(instruction) == payload
+
+
+def test_openclaw_setup_removes_stale_runtime_first() -> None:
+    reset, setup = _openclaw_setup_commands("openclaw setup --baseline")
+
+    assert reset == (
+        "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
+    )
+    assert setup.endswith("openclaw setup --baseline")
 
 
 def _run_prediction_pipeline(

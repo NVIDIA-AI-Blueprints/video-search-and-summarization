@@ -302,10 +302,12 @@ class BrevEnvironment(BaseEnvironment):
         self._task_tmpdir = f"{scratch_root}/tasks/{task_id}"
         self._leg_state_dir = f"{scratch_root}/state"
         reset_state = "sudo rm -rf {state}; " if task_id == "step-1" else ""
-        # Step 1 must discover and record this leg's deployment instead of
-        # inheriting a warm worker's config. Steps 2+ consume the fresh file.
-        reset_vss_config = (
+        # Step 1 starts a new leg: do not inherit deployment discovery or
+        # OpenClaw workspace memory from a prior run. Steps 2+ consume the
+        # configuration and workspace created by this leg.
+        reset_leg_runtime = (
             'sudo rm -f "$HOME/.vss/config.json"; '
+            'sudo rm -rf "$HOME/.openclaw/workspace"; '
             if task_id == "step-1"
             else ""
         )
@@ -314,7 +316,7 @@ class BrevEnvironment(BaseEnvironment):
             (
                 f"sudo rm -rf {shlex.quote(self._task_tmpdir)}; "
                 + reset_state.format(state=shlex.quote(self._leg_state_dir))
-                + reset_vss_config
+                + reset_leg_runtime
                 + f"mkdir -p {shlex.quote(self._task_tmpdir)} "
                 + f"{shlex.quote(self._leg_state_dir)}; "
                 + f"chmod 700 {shlex.quote(self._task_tmpdir)} "

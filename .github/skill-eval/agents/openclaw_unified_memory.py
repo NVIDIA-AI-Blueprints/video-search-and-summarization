@@ -15,6 +15,9 @@ from harbor.models.agent.context import AgentContext
 
 GROUP_PREFIX = "<!-- unified-memory-group\n"
 GROUP_SUFFIX = "\n-->"
+RESET_OPENCLAW_RUNTIME_CLI = (
+    "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
+)
 PREDICTION_JQ_FILTER = r"""
 {
   case_id: $case_id,
@@ -47,6 +50,11 @@ def _prediction_extractor_command(case_id: str) -> str:
         f"--arg case_id {shlex.quote(case_id)} "
         f"{shlex.quote(PREDICTION_JQ_FILTER)}"
     )
+
+
+def _openclaw_setup_commands(setup_cli: str) -> tuple[str, str]:
+    """Return a clean, version-compatible setup sequence for a warm worker."""
+    return RESET_OPENCLAW_RUNTIME_CLI, _nvm22(setup_cli)
 
 
 class UnifiedMemoryOpenClaw(OpenClaw):
@@ -91,7 +99,8 @@ class UnifiedMemoryOpenClaw(OpenClaw):
             upload_path,
             f"{self._CONTAINER_LOGS_AGENT}/{self._UPLOAD_CONFIG_FILENAME}",
         )
-        await self.exec_as_agent(environment, command=_nvm22(self._SETUP_CLI), env=env)
+        for command in _openclaw_setup_commands(self._SETUP_CLI):
+            await self.exec_as_agent(environment, command=command, env=env)
         await self.exec_as_agent(
             environment,
             command=(
