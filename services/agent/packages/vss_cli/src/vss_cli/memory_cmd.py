@@ -55,7 +55,11 @@ def set_test_introspect(
 def _memory(deployment: config_mod.Deployment | None = None) -> Memory:
     if _TEST_MEMORY is not None:
         return _TEST_MEMORY
-    return memory_mod.build(deployment or config_mod.load())
+    memory = memory_mod.build(deployment or config_mod.load())
+    context = click.get_current_context(silent=True)
+    if context is not None:
+        context.call_on_close(memory.close)
+    return memory
 
 
 def _emit(value: Any, *, pretty: bool) -> None:
@@ -148,7 +152,6 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
                 f"introspection judge credential environment variable {judge_config.api_key_env!r} is missing or empty"
             )
     memory = _memory(deployment)
-    owns_memory = _TEST_MEMORY is None
     client: OpenAIIntrospectionClient | None = None
     try:
         settings = IntrospectionSettings()
@@ -176,10 +179,6 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
     finally:
         if client is not None:
             await client.aclose()
-        if owns_memory:
-            close_memory = getattr(memory.service.store, "close", None)
-            if close_memory is not None:
-                close_memory()
 
     if result.failure_kind == "timeout" or runner.timed_out:
         return result, Exit.TIMEOUT

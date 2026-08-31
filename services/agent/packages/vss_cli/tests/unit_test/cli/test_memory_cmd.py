@@ -170,6 +170,115 @@ def test_explicit_semantic_mode_warns_and_preserves_json_when_embeddings_disable
     assert "embeddings are disabled" in result.stderr
 
 
+def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss_cli.memory as memory_mod
+    import vss_core.memory as core_memory
+    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
+
+    set_test_memory(None)
+    closed: list[str] = []
+    observed: dict[str, Any] = {}
+
+    class FakeAuthoritativeStore(InMemoryStore):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__()
+            observed["authoritative"] = self
+            observed["authoritative_kwargs"] = kwargs
+
+        def close(self) -> None:
+            closed.append("authoritative")
+
+    class FakeProvider:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["provider"] = self
+            observed["provider_kwargs"] = kwargs
+
+        @property
+        def model(self) -> str:
+            return "embed-model"
+
+        @property
+        def dimensions(self) -> int:
+            return 4
+
+        def embed_query(self, _text: str) -> list[float]:
+            return [1.0] * 4
+
+        def close(self) -> None:
+            closed.append("provider")
+
+    class FakeCompanion:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["companion"] = self
+            observed["companion_kwargs"] = kwargs
+
+        def semantic_search(self, *_args: Any) -> list[str]:
+            return []
+
+        def sync_record(self, _record: Any) -> None:
+            return None
+
+        def close(self) -> None:
+            closed.append("companion")
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://es.test")},
+        memory=config_mod.MemoryConfig(
+            embeddings=config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://embed.test/v1",
+                model="embed-model",
+                dimensions=4,
+                index="memory-vectors-v1",
+                timeout_seconds=12,
+                batch_size=3,
+                api_key_env="EMBED_TOKEN",
+            ),
+            retrieval=config_mod.RetrievalConfig(mode="hybrid", candidate_count=17, rrf_rank_constant=41),
+        ),
+    )
+    built: list[Memory] = []
+    original_build = memory_mod.build
+
+    def capture_build(value: Any) -> Memory:
+        facade = original_build(value)
+        built.append(facade)
+        return facade
+
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(memory_mod, "build", capture_build)
+    monkeypatch.setattr(elasticsearch_mod, "ElasticsearchMemoryStore", FakeAuthoritativeStore)
+    monkeypatch.setattr(core_memory, "OpenAICompatibleEmbeddingProvider", FakeProvider)
+    monkeypatch.setattr(core_memory, "ElasticsearchEmbeddingStore", FakeCompanion)
+
+    result = _invoke("query", "--job-id", "missing")
+
+    assert result.exit_code == 0, result.output
+    assert len(built) == 1
+    assert observed["companion_kwargs"]["authoritative_store"] is observed["authoritative"]
+    assert observed["companion_kwargs"]["provider"] is observed["provider"]
+    assert built[0].service.store is observed["authoritative"]
+    assert built[0].service.semantic_retrieval_available is True
+    assert built[0].service._retrieval_mode == "hybrid"
+    assert built[0].service._semantic_candidate_count == 17
+    assert built[0].service._rrf_rank_constant == 41
+    assert observed["provider_kwargs"] == {
+        "endpoint": "http://embed.test/v1",
+        "model": "embed-model",
+        "dimensions": 4,
+        "timeout_seconds": 12,
+        "batch_size": 3,
+        "api_key_env": "EMBED_TOKEN",
+    }
+    assert closed == ["companion", "provider", "authoritative"]
+
+    built[0].close()
+    assert closed == ["companion", "provider", "authoritative"]
+
+
 def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -> None:
     injected_memory.service.upsert(UnifiedMemoryRecord.model_validate(_parent()))
     result = _invoke("events", "--asset-id", "camera-1", "--match", "not present")

@@ -28,6 +28,7 @@ from vss_core.memory.models import TimestampPoint
 from vss_core.memory.models import TimeWindow
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryService
+from vss_core.memory.store import storage_id_for
 
 START = "2026-08-26T12:00:00Z"
 END = "2026-08-26T12:01:00Z"
@@ -294,6 +295,109 @@ async def test_exact_identity_uses_paraphrased_question_only_as_judge_prompt(ide
     assert result.status == "completed"
     assert judge.calls == 1
     assert [record.job.record_id for record in judge.records] == ["event-1"]
+
+
+@pytest.mark.asyncio
+async def test_exact_identity_never_embeds_the_question_when_semantic_retrieval_is_enabled() -> None:
+    child = _record()
+    store = InMemoryStore()
+    store.upsert(child)
+
+    class _Provider:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def embed_query(self, text: str) -> list[float]:
+            self.calls.append(text)
+            return [1.0]
+
+    class _Semantic:
+        def semantic_search(self, *_args: Any) -> list[str]:
+            raise AssertionError("identity lookup must not use semantic search")
+
+    provider = _Provider()
+    memory = MemoryService(
+        store,
+        semantic_memory=_Semantic(),  # type: ignore[arg-type]
+        embedding_provider=provider,
+        retrieval_mode="hybrid",
+    )
+    judge = _Judge(_decision(sufficient=True), expected_query="Was the worker wearing PPE?")
+
+    result = await introspect(
+        IntrospectionRequest(query="Was the worker wearing PPE?", job_id="search-1"),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert provider.calls == []
+    assert [record.job.record_id for record in judge.records] == ["event-1"]
+
+
+@pytest.mark.asyncio
+async def test_hybrid_sensor_time_recall_resolves_semantic_child_and_hydrates_parent_for_judge() -> None:
+    parent = _record(record_id=None, query="shift overview", answer="Loading bay shift summary.")
+    child = _record(query="worker activity", answer="A worker crossed the loading bay.")
+    store = InMemoryStore()
+    store.upsert(parent)
+    store.upsert(child)
+
+    class _Provider:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def embed_query(self, text: str) -> list[float]:
+            self.calls.append(text)
+            return [1.0]
+
+    class _Semantic:
+        def __init__(self) -> None:
+            self.queries: list[Any] = []
+
+        def semantic_search(self, query: Any, _vector: list[float], candidate_count: int) -> list[str]:
+            self.queries.append(query)
+            assert candidate_count == 7
+            return [storage_id_for(child)]
+
+    provider = _Provider()
+    semantic = _Semantic()
+    memory = MemoryService(
+        store,
+        semantic_memory=semantic,  # type: ignore[arg-type]
+        embedding_provider=provider,
+        retrieval_mode="hybrid",
+        semantic_candidate_count=7,
+    )
+    judge = _Judge(_decision(sufficient=True), expected_query="Were safety procedures followed?")
+
+    result = await introspect(
+        IntrospectionRequest(
+            query="Were safety procedures followed?",
+            sensor="camera-east",
+            start_time=START,
+            end_time=END,
+        ),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert provider.calls == ["Were safety procedures followed?"]
+    semantic_query = semantic.queries[0]
+    assert semantic_query.sensor_id == "camera-east"
+    assert semantic_query.time_field == "window"
+    assert semantic_query.since is not None
+    assert semantic_query.until is not None
+    assert [record.job.is_child for record in judge.records] == [True, False]
+    assert judge.records[0] is child
+    assert judge.records[1] is parent
 
 
 @pytest.mark.asyncio
