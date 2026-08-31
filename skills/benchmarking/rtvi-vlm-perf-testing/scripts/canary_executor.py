@@ -195,7 +195,8 @@ def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 def status_wait_timeout(manifest: dict[str, Any]) -> int:
     """Bound the watcher across readiness, semantic work, benchmark, and cleanup."""
     total = (
-        manifest["timeouts"]["ready"]
+        startup_timeout_budget(manifest["stream_count"])
+        + manifest["timeouts"]["ready"]
         + manifest["timeouts"]["benchmark"]
         + WATCHER_BASE_GRACE
         + cleanup_timeout_budget(manifest["stream_count"])
@@ -211,6 +212,11 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
             + HTTP_TIMEOUT
         )
     return total
+
+
+def startup_timeout_budget(stream_count: int) -> int:
+    """Cover preflight, per-stream launch, and publisher readiness commands."""
+    return (stream_count + 19) * RUNTIME_COMMAND_TIMEOUT + 2
 
 
 def cleanup_timeout_budget(stream_count: int) -> int:

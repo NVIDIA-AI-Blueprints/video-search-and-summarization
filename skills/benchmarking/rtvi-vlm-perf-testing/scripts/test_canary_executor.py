@@ -398,7 +398,8 @@ class CanaryExecutorTests(unittest.TestCase):
 
         self.assertEqual(
             canary_executor.status_wait_timeout(plain),
-            plain["timeouts"]["ready"]
+            canary_executor.startup_timeout_budget(plain["stream_count"])
+            + plain["timeouts"]["ready"]
             + plain["timeouts"]["benchmark"]
             + canary_executor.WATCHER_BASE_GRACE
             + canary_executor.cleanup_timeout_budget(plain["stream_count"]),
@@ -415,6 +416,8 @@ class CanaryExecutorTests(unittest.TestCase):
             + min(120, semantic["timeouts"]["benchmark"])
             + 2 * canary_executor.SEMANTIC_DELETE_TIMEOUT
             + canary_executor.SEMANTIC_DRAIN_TIMEOUT
+            + canary_executor.startup_timeout_budget(semantic["stream_count"])
+            - canary_executor.startup_timeout_budget(plain["stream_count"])
             + canary_executor.cleanup_timeout_budget(semantic["stream_count"])
             - canary_executor.cleanup_timeout_budget(plain["stream_count"]),
         )
