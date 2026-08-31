@@ -1,0 +1,75 @@
+####################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+####################################################################################################
+
+name: "mgdino_postprocess"
+backend: "python"
+max_batch_size: 32
+input [
+{
+    name: "pred_logits"
+    data_type: TYPE_FP32
+    dims: [ 900, 256]
+},
+{
+    name: "pred_boxes"
+    data_type: TYPE_FP32
+    dims: [ 900, 4]
+}
+,
+{
+    name: "pos_map"
+    data_type: TYPE_FP32
+    dims: [ -1,256]
+}
+,
+{
+    name: "target_sizes"
+    data_type: TYPE_INT32
+    dims: [4]
+},
+{
+    name: "pred_masks"
+    data_type: TYPE_FP32
+    dims: [ 900, 1, 136, 240]
+}
+]
+
+output [
+{
+    name: "labels"
+    data_type: TYPE_INT32
+    dims: [ -1,300]
+},
+{
+    name: "boxes"
+    data_type: TYPE_FP32
+    dims: [ -1,300, 4]
+}
+,
+{
+    name: "scores"
+    data_type: TYPE_FP32
+    dims: [ -1,300]
+},
+{
+    name: "masks"
+    data_type: TYPE_FP32
+    dims: [ -1,300, 1, 136, 240]
+}
+]
+
+instance_group [{ kind: KIND_GPU }]
+
+
+#dynamic_batching {
+    # max_queue_delay_microseconds: 20000
+#}

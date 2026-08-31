@@ -114,6 +114,7 @@ function get_llm_slug() {
     nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
     nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
     nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
+    nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
     nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
     openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
     *) echo "" ;;
@@ -1244,4 +1245,3 @@ if [[ "${desired_state}" == "up" ]]; then
 elif [[ "${desired_state}" == "down" ]]; then
   state_down
 fi
-

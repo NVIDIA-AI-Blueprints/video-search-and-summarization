@@ -1,0 +1,40 @@
+---
+title: "API Reference"
+description: ""
+position: 1
+---
+
+This page provides API reference for the Real-Time VLM Microservice.
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `http://<host>:8000`
+
+All endpoints are prefixed with `/v1`.
+
+## Authentication
+
+The API supports Bearer token authentication. Include your token in the `Authorization` header:
+
+```bash
+Authorization: Bearer <your-token>
+```
+
+## API Categories
+
+The RTVI-VLM API is organized into the following categories:
+
+* **Captions**: Generate VLM captions and alerts for videos and live streams
+* **Files**: Upload and manage video/image files
+* **Live Stream**: Add, list, and manage RTSP live streams
+* **Stream**: CV-compatible stream add, remove, and list APIs
+* **Config**: Update generated-message and error-message output routing
+* **Models**: List available VLM models
+* **Health Check**: Service health and readiness probes
+* **Metrics**: Prometheus metrics endpoint
+* **Metadata**: Service metadata and version information
+* **NIM Compatible**: OpenAI-compatible endpoints for interoperability
+
+## Reference

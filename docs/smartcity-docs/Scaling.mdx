@@ -1,0 +1,265 @@
+---
+title: "Scaling"
+description: ""
+---
+This section provides guidance on scaling the Smartcity Blueprint to support larger deployments with more streams and higher throughput.
+
+## Overview
+
+The Smartcity Blueprint can be deployed using either Kubernetes or Docker Compose. This guide is organized into two main sections to help you scale your deployment based on your chosen platform:
+
+* **Kubernetes Scaling**: For production-grade deployments with advanced orchestration
+* **Docker Compose Scaling**: For single-node deployments and development environments
+
+Each section covers the same components ([RTVI CV ](/object-detection-tracking), VST/NVStreamer, Alert-Bridge, ELK, Kafka) but with platform-specific configurations.
+
+# Kubernetes Scaling
+
+This section covers scaling configurations for Kubernetes deployments.
+
+## RTVI CV Scaling
+
+By default, the configs for Kubernetes are tuned for 10fps 1080p streams on the default SmartCity Blueprint Kubernetes [Hardware Profiles](/smartcity-docs/Quickstart-Guide-K8s#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
+
+### Scaling Across Additional GPUs
+
+Default configs expect a single node with the default [Hardware Profiles](/smartcity-docs/Quickstart-Guide-K8s#hardware-profiles). A single node equipped with 8 GPUs can support up to **150 streams** based on the number of GPUs allocated for RTVI CV (30 streams per RTVI CV pod). One of the GPUs will be used for VST, one for LLM, one for VLLM, and the rest for RTVI CV.
+
+To do so, update the `/perception-app/override-values-for-1-nodes.yml` file and set `wl_units` to the number of GPUs you want RTVI CV to use. SDR will automatically scale RTVI CV up as needed up to this limit.
+
+## VLM Scaling
+
+By default, Kubernetes runs **a single replica** for the VLM service. Depending on the number of GPUs available and the number of streams you deploy, you can increase the VLM replica count to improve throughput and avoid overloading the VLM when stream counts increase.
+
+To change the number of VLM replicas, update `/other-manifests/cosmos-nim-service.yml` and change `replicas` from  **1** to **2**.
+
+## VST/NVStreamer Configuration
+
+Before deployment, update VST/NVStreamer configs as required under `/vst-app/override-values.yaml` and `/nvstreamer-app/override-values.yaml`:
+
+* `maxStreamsSupported` - total number of streams supported by VST, default is 500
+* `recorderReplicaCount` - number of recorder replicas, default is 5
+* `maxStreamsPerRecorderPod` - max number of streams per recorder replica, default is 100
+* `rtspServerReplicaCount` - number of RTSP server replicas, default is 5
+* `maxStreamsPerRtspServerPod` - max number of streams per RTSP server replica, default is 100
+* `nvstreamerReplicaCount` - number of NVStreamer replica count, default is 5
+
+For NVStreamer, the storage path should be separated onto a dedicated drive (HDD) to avoid I/O bottlenecks with other components such as ELK and video analytics:
+
+* `storagePath` - The video storage folder path for NVStreamer, default is `/opt/storage/streamstore/mdx-local-path`
+
+For VST, to prevent the disk from filling up due to video recording, you may consider increasing `total_video_storage_size_MB` in the `/helm/vst-app/override-values.yaml` file. Default in Kubernetes is 3000000 (~3TB).
+
+## ELK Configuration
+
+Consider increasing the number of ELK replicas in the `/eck-app/eck-stack/override-values-for-1-nodes.yaml` file to improve ELK's processing capacity. By default, the ELK count is 1. In `/eck-app/eck-stack/override-values-for-1-nodes.yaml`, the number of replicas is 5 for Elasticsearch, 1 for Kibana, and 10 for Logstash.
+
+## Kubernetes Environment Recommendations
+
+Consider the following environment recommendations for optimal performance:
+
+* Elasticsearch and NVStreamer workloads both heavily use the same disk. It is necessary to separate the storage for Elasticsearch, NVStreamer, Kafka, and the rest into individual SSD/HDD disks.
+
+* If you want to change the calibration in Kubernetes, you can replace the `calibrationJsonDownloadURL` with a link from NGC, Google Drive, or similar sources which can download.
+
+## Kubernetes Stream Upload
+
+For sample scaling exercise with more than 30 streams, we will replicate a set of 30 streams by giving them distinct names. This will create a representative system load for the larger stream count. Follow the steps below to duplicate streams.
+
+<Note>
+Skip this step if the video names have already been renamed
+Rename remaining streams to remove the time from the filename. VST sometimes has issues with longer stream names, so we will remove it. Run the following to rename all files:
+
+```bash
+for file in *.mp4; do mv "$file" "$(echo "$file" | sed -E 's/(.*)__.*\.mp4$/\1.mp4/')"; done
+```
+
+</Note>
+
+1. **Duplicate streams** as many times as necessary, with 30 videos per duplication. Run the following to duplicate streams, replacing the value of N with number of duplications and `/path/to/dir` with the directory where you extracted videos:
+
+```bash
+for file in "$folder_path"/*.mp4; do
+    filename=$(basename "$file")
+    for ((i=1; i<=N; i++)); do
+        dup_dir="$folder_path/dup${i}"
+        mkdir -p "$dup_dir"
+        cp "$file" "$dup_dir/dup${i}_$filename"
+    done
+done
+```
+
+2. **Distribute videos** evenly across X folders where X is the number of NVStreamer instances you will have (5 by default).
+
+<Note>
+HOST_IP is the IP address of the host machine. You can find it by running `hostname -I` in the terminal.
+For Kubernetes, nvstreamer port is `30889`.
+</Note>
+
+Run the provided `nvstreamer_upload.py` script to help **upload** streams to NVStreamer:
+
+```bash
+python3 nvstreamer_upload.py http://<HOST_IP>:30889/nvstreamer/ 100 /path/to/videos-1/
+```
+
+3. **Add the sensors from NVStreamer to VST**: Modify the command to change the URL to the current NVStreamer instance (nvstreamer, nvstreamer-1, nvstreamer-2, etc.), 100 to be the number of streams in the given folder, and `/path/to/videos-1/` to the current directory you are trying to upload. Make sure not to repeat the same directory for two NVStreamer instances, otherwise you may see issues later on in the pipeline with stream name conflicts.
+
+   When possible, add sensors in batches of approximately 30 sensors at a time, which is roughly what one RTVI CV pod can process.
+
+Run the provided `add-nvstreamer-to-vst.py` script to help **add** sensors from NVStreamer to VST:
+
+```bash
+python3 add-nvstreamer-to-vst.py --nvstreamer_endpoint=http://<HOST_IP>:30889/nvstreamer --vst_endpoint=http://<HOST_IP>:30888/vst/ --max_streams_to_add=<NUMBER_OF_STREAMS>
+```
+
+4. **Monitor metrics and iterate**: Observe metrics in Kibana, RTVI CV logs, and Grafana. Approximately every 30 minutes, repeat adding another batch of sensors until you reach 150 streams.
+
+5. **Delete sensors from VST**: To **delete** sensors from VST, run the following command:
+
+```bash
+python3 add-nvstreamer-to-vst.py --vst_endpoint=http://<HOST_IP>:30888/vst/ --delete_all=1
+```
+
+# Docker Compose Scaling
+
+This section covers scaling configurations for Docker Compose deployments, supporting single-node setups for development and smaller production environments.
+
+## RTVI CV Scaling
+
+By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Hardware Profiles](/smartcity-docs/Quickstart-Guide#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
+
+### Scaling Across Additional GPUs
+
+With Docker Compose, scaling here refers to scaling the total streams you can run on a single node based on the number and type of GPU installed.
+1. Create copies of the RTVI CV `run_config-api-rtdetr-protobuf.txt` config file - make one fewer copy than the number of GPUs on your system. Append `-<number>` to the name of each file. For instance `run_config-api-rtdetr-protobuf.txt`, `run_config-api-rtdetr-protobuf-1.txt`, `run_config-api-rtdetr-protobuf-2.txt`, etc.
+
+2. Within each copy of this config you must modify a few port values so that there are no port conflicts once deployed. Open each config file and update the `http-port` value under `[source-list]` to be a unique value across configs and other services running - it is recommended to increment this by 1 for each config.
+
+3. If you want to have RTSP output enabled, you must also modify the ports under the RTSP sink. Set `rtsp-port` and `udp-port` to unique values under `[sink3]`.
+
+4. Update the `/deployments/smartcities/smc-app/sdr/docker_cluster_config.json` file to reflect the number of instances you will have. Make a copy of the existing value within this file and duplicate it for each GPU instance you will have. Make sure to use commas properly and that the formatting used is valid JSON. The key for each instance must be unique and the `provisioning_address` must be set to `localhost:<PORT>` where `<PORT>` is a single one of the `http-port` values you set previously.
+
+5. Increase the number of RTVI CV instances in the docker compose YAML file. Modify the `/deployments/smartcities/smc-app/compose.yml` config and create additional copies of the `perception-smc` section. Make sure to keep indentation consistent. For each copy, create a unique name to replace the `perception-smc` header (can append an index for instance), and do the same with the `container_name` value. Modify the `command` line under each container to point to the new corresponding txt config you created. Also update the `device_ids` value to be the ID of a GPU not currently being used by another RTVI CV instance.
+
+## VST/NVStreamer Configuration
+
+Run the following to increase buffer sizes:
+
+```bash
+sudo sysctl -w net.core.rmem_max=4000000 && sudo sysctl -w net.core.wmem_max=4000000
+```
+
+Modify `/etc/docker/daemon.json` and add default ulimits as shown below:
+
+```json
+{
+    "runtimes": {
+        "nvidia": {
+            "args": [],
+            "path": "nvidia-container-runtime"
+        }
+    },
+    "default-ulimits": {
+        "nofile": {
+            "Name": "nofile",
+            "Hard": 4096,
+            "Soft": 4096
+        }
+    }
+}
+```
+
+Afterwards restart Docker:
+
+```bash
+sudo systemctl restart docker
+```
+
+It is recommended to also increase the max storage allocation for VST as the default 100GB will not last very long at high stream counts (10-20 minutes total recording at 120 streams). To do so, you can modify the `deployments/vst/smc/vst/configs/vst_storage.json` config and update `total_video_storage_size_MB` to be `1000000` or higher. Default in Docker Compose is 10000 (~1TB).
+
+## ELK Configuration
+
+In Docker Compose, the Logstash configuration needs to be updated. If the number of streams is greater than 30, you should increase the number of workers as shown below so Logstash can handle the data volume consumed from Kafka and write it to Elasticsearch:
+
+```yaml
+api.http.host: "0.0.0.0"
+pipeline.workers: 12
+pipeline.ordered: false
+pipeline.ecs_compatibility: disabled
+xpack.monitoring.elasticsearch.hosts: ["http://localhost:9200"]
+queue.type: "memory"
+queue.checkpoint.writes: 1023
+config.reload.automatic: "false"
+log.level: "info"
+config.debug: true
+monitoring.enabled: false
+```
+
+## Docker Compose Environment Recommendations
+
+Consider the following environment recommendations for optimal performance:
+
+* Elasticsearch and NVStreamer workloads both heavily use the same disk. It is necessary to separate the storage for Elasticsearch, NVStreamer, Kafka, and the rest into individual SSD/HDD disks.
+
+## Docker Compose Stream Upload
+
+For sample scaling exercise with more than 30 streams, we will replicate a set of 30 streams by giving them distinct names. This will create a representative system load for the larger stream count. Follow the steps below to duplicate streams.
+
+<Note>
+Skip this step if the video names have already been renamed
+Rename remaining streams to remove the time from the filename. VST sometimes has issues with longer stream names, so we will remove it. Run the following to rename all files:
+
+```bash
+for file in *.mp4; do mv "$file" "$(echo "$file" | sed -E 's/(.*)__.*\.mp4$/\1.mp4/')"; done
+```
+
+</Note>
+
+**Duplicate streams** as many times as necessary, with 30 videos per duplication. Run the following to duplicate streams, replacing the value of N with number of duplications and `/path/to/dir` with the directory where you extracted videos:
+
+```bash
+for file in "$folder_path"/*.mp4; do
+    filename=$(basename "$file")
+    for ((i=1; i<=N; i++)); do
+        dup_dir="$folder_path/dup${i}"
+        mkdir -p "$dup_dir"
+        cp "$file" "$dup_dir/dup${i}_$filename"
+    done
+done
+```
+
+**Distribute videos** evenly across X folders where X is the number of NVStreamer instances you will have (default configuration).
+
+<Note>
+For Docker Compose, the HOST_IP is `localhost` and nvstreamer port is `31000`.
+</Note>
+
+Run the provided `/helper-scripts/nvstreamer_upload.py` script to help **upload** streams to NVStreamer:
+
+```bash
+python3 /helper-scripts/nvstreamer_upload.py http://localhost:31000/nvstreamer/ 100 /path/to/videos-1/
+```
+
+Modify the command to change 100 to be the number of streams in the given folder, and `/path/to/videos-1/` to the current directory you are trying to upload.
+
+Run the provided `/helper-scripts/add-nvstreamer-to-vst.py` script to help **add** sensors from NVStreamer to VST:
+
+```bash
+python3 /helper-scripts/add-nvstreamer-to-vst.py --nvstreamer_endpoint=http://localhost:31000/nvstreamer --vst_endpoint=http://localhost:30888/vst/ --max_streams_to_add=<NUMBER_OF_STREAMS>
+```
+
+To **delete** sensors from VST, run the following command:
+
+```bash
+python3 /helper-scripts/add-nvstreamer-to-vst.py --vst_endpoint=http://localhost:30888/vst/ --delete_all=1
+```
+
+# Common Scaling Configurations
+
+The following configurations apply to both Kubernetes and Docker Compose deployments.
+
+## Alert-Bridge Scaling
+
+* The Alert Verifier supports concurrent processing through configurable worker threads controlled by the `num_workers` parameter. For deployments with approximately 30 streams, setting `num_workers` to 10 provides adequate throughput. For larger deployments handling 200+ streams simultaneously, increase `num_workers` to approximately 40.
+
+* Additionally, since VIOS storage currently has limited scaling support for high-concurrency scenarios, consider disabling the `add_overlay` option to reduce processing overhead during video retrieval from VIOS. Refer to the [Alerts Microservice ](/alert-verification-service) for detailed tuning guidance.

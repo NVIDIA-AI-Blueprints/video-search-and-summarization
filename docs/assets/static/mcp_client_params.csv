@@ -1,0 +1,6 @@
+Parameter,Type,Description
+_type,string,Must be ``mcp_client``
+server.transport,string,Transport type: ``streamable-http``/ ``sse``/ ``stdio``
+server.url,string,MCP server endpoint URL
+include,list,List of tool names to expose from this MCP server
+

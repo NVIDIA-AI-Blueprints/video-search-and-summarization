@@ -103,8 +103,28 @@ class TestGetConsumer:
         with patch("mdx.kafka_message_broker.Consumer") as consumer_cls:
             consumer = broker.get_consumer("alerts", "group-1")
 
-        consumer.subscribe.assert_called_once_with(["alerts"])
+        topics, hooks = consumer.subscribe.call_args
+        assert topics == (["alerts"],)
         assert consumer is consumer_cls.return_value
+
+    def test_the_rebalance_hooks_are_registered(self, broker):
+        # Readiness and the revoke drain both hang off these; subscribing
+        # without them leaves the assignment unobservable.
+        with patch("mdx.kafka_message_broker.Consumer") as consumer_cls:
+            consumer = broker.get_consumer("alerts", "group-1")
+
+        hooks = consumer.subscribe.call_args.kwargs
+        assert set(hooks) == {"on_assign", "on_revoke", "on_lost"}
+        assert all(callable(hook) for hook in hooks.values())
+
+    def test_a_lost_assignment_is_treated_as_a_revoke(self, broker):
+        # Partitions may already be owned elsewhere, so the same stop-and-
+        # drain path has to run.
+        with patch("mdx.kafka_message_broker.Consumer") as consumer_cls:
+            consumer = broker.get_consumer("alerts", "group-1")
+
+        hooks = consumer.subscribe.call_args.kwargs
+        assert hooks["on_lost"] is hooks["on_revoke"]
 
 
 class TestGetProducer:

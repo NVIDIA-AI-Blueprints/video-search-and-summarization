@@ -181,6 +181,9 @@ services:
       nemotron-3-nano:
         condition: service_healthy
         required: false
+      nemotron-3.5-lightning-30b-a3b:
+        condition: service_healthy
+        required: false
       llama-3.3-nemotron-super-49b-v1.5:
         condition: service_healthy
         required: false
@@ -194,6 +197,9 @@ services:
         condition: service_healthy
         required: false
       nemotron-3-nano-shared-gpu:
+        condition: service_healthy
+        required: false
+      nemotron-3.5-lightning-30b-a3b-shared-gpu:
         condition: service_healthy
         required: false
       llama-3.3-nemotron-super-49b-v1.5-shared-gpu:

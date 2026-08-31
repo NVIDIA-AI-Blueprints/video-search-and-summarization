@@ -45,7 +45,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
 The selected warehouse variant boots the service set identified by `BP_PROFILE`, `MODE`, and deployment size. Only `BP_PROFILE=bp_wh` adds the agent, UI, and RTVI VLM to the warehouse CV pipeline. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
-**MV3DT naming — the `-mv3dt` suffix is not universal.** It comes from each service's own `container_name:`, not from which file defines the service. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-video-analytics-api-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`. Everything else in an MV3DT deployment keeps its unsuffixed name — including `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`, which extends `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, and referenced by `warehouse-mv3dt-app.yml` only via `depends_on`) — both are MV3DT-only in practice, since their profiles appear solely in the MV3DT Kafka/Redis lists. The VST stack, `vss-turnserver`, `kafka`/`redis`, and `vss-broker-health-check` are unsuffixed too.
+**MV3DT naming — the `-mv3dt` suffix is not universal.** It comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt`. The shared `vss-video-analytics-api` stays unsuffixed in every mode. Everything else in an MV3DT deployment keeps its unsuffixed name — including `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`, which extends `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, and referenced by `warehouse-mv3dt-app.yml` only via `depends_on`) — both are MV3DT-only in practice, since their profiles appear solely in the MV3DT Kafka/Redis lists. The VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check` are also unsuffixed.
 
 ### Warehouse CV core (2D and 3D variants)
 
@@ -116,7 +116,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | Container | Port | Deployed when |
 |---|---|---|
 | `elasticsearch` | `ELASTICSEARCH_HOST_PORT` (default `9200`) | `BP_PROFILE=bp_wh` (always — vss-agent storage), **or** kafka/redis extended (any mode — for `mdx-bev`, ELK, overlays, analytics API) |
-| `kibana` / `logstash` / `vss-video-analytics-api` | `KIBANA_HOST_PORT` `5601` / — / `VIDEO_ANALYTICS_API_HOST_PORT` `8081` | Same condition as `elasticsearch` (MV3DT uses `vss-video-analytics-api-mv3dt`) |
+| `kibana` / `logstash` / `vss-video-analytics-api` | `KIBANA_HOST_PORT` `5601` / — / `VIDEO_ANALYTICS_API_HOST_PORT` `8081` | Same condition as `elasticsearch` |
 | `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` | `9400` / `9090` / `GRAFANA_HOST_PORT` `35000` / `19100` / `18080` | `BP_PROFILE=bp_wh`, or **2D/3D** kafka/redis extended. The MV3DT service lists do not include monitoring. `node-exporter` and `cadvisor` set no `container_name` — in `docker ps` they appear as `<COMPOSE_PROJECT_NAME>-node-exporter-1` / `-cadvisor-1` |
 
 > **`ELASTICSEARCH_MODE` is not read by the compose stack** — the same dead-knob trap as `MINIMAL_PROFILE`. `services/infra/compose.yml` always builds `Dockerfiles/elasticsearch.Dockerfile` (CPU); `elasticsearch-gpu.Dockerfile` exists but is referenced by nothing. Only `blueprint-deploy.sh` and the launchable validate the value and write it back. Leave it at `cpu`; setting `gpu` changes nothing on this skill's path.
@@ -409,7 +409,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 - MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker, `vss-turnserver`, plus the same VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis): `vss-haproxy-ingress`; monitoring in 2D/3D only
-- `elasticsearch`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`): `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode)
+- `elasticsearch`, `logstash`, `kibana`, `vss-video-analytics-api`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode)
 - `BP_PROFILE=bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration (+ UI), `vss-haproxy-ingress`, `vss-turnserver`, `redis` and a VST subset — no broker health check, no perception, no analytics
 - **Expected `Exited (0)`, not `Up`:** `vss-broker-health-check` (the broker gate — it polls, exits, and releases its dependents via `service_completed_successfully`), plus `sdrc-*`, `*-init`, `vss-kafka-topics`, `sensor-bp-wait-bp-configurator` and `vss-import-calibration-output`. A non-zero exit on any of these *is* a finding; `Exited (0)` is not
 
@@ -561,7 +561,7 @@ the profile-specific stream cap and per-profile tuning are skipped.
 | Platform: NVIDIA IGX Thor (kit / board) | `IGX-THOR` |
 | Platform: NVIDIA DGX Spark | `DGX-SPARK` |
 
-`HARDWARE_PROFILE=DGX-SPARK` also *requires* an SBSA-tagged `PERCEPTION_TAG` — the configurator
+`HARDWARE_PROFILE=DGX-SPARK` also *requires* an SBSA-tagged `VSS_RT_CV_TAG` — the configurator
 rejects the deployment otherwise (see the DGX-SPARK note in Phase 5).
 
 > **Do NOT use a higher profile on lower-profile hardware** (e.g. `H100` on an `L4`) — the env file warns against this directly.
@@ -592,7 +592,7 @@ So `OTHER` is a safe fallback for the **NIM sizing** half only — it still matc
 Three ways `HARDWARE_PROFILE` hard-fails a deploy:
 
 1. `BP_PROFILE=bp_wh` with `IGX-THOR` or `DGX-SPARK` — explicitly disallowed by the configurator.
-2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `PERCEPTION_TAG` — enforced in all three modes.
+2. `HARDWARE_PROFILE=DGX-SPARK` without an `sbsa`-tagged `VSS_RT_CV_TAG` — enforced in all three modes.
 3. `LLM_MODE=local` when the selected model has no `hw-<HARDWARE_PROFILE>.env` — compose dies with an unhelpful "no such file". **This bites listed, tuned profiles too:** the default `nvidia-nemotron-nano-9b-v2` ships only `hw-H100`, `hw-L40S`, `hw-RTXPRO6000BW` and `hw-OTHER`, so `HARDWARE_PROFILE=L4` (or `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`) fails with that model. Check `ls services/nim/<slug>/hw-*.env` before choosing `LLM_MODE=local`.
 
 **Required driver versions:** see the canonical per-platform pins in [`prerequisites.md` § 1 GPU Detection](prerequisites.md#1-gpu-detection) and [§ Canonical version matrix](prerequisites.md#canonical-version-matrix) — that table also covers Ubuntu 22.04 and AGX-THOR, which the warehouse profile does not restrict. On x86 Ubuntu 24.04 the pin is **`580.105.08`**.
@@ -1182,7 +1182,7 @@ echo "$COMPOSE_PROFILES"
 
 > **`COMPOSE_PROFILES` must be exported** before running any `docker compose` command with the warehouse env files. It resolves to an explicit **service-profile list** (defined by the `COMPOSE_PROFILES_WH_*` variables copied from `overrides.env`) and is not expanded by `--env-file` in all Docker Compose versions. Use the [resolve-env prelude](#resolve-env); it exports the resolved value before `docker compose up`.
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant. Comment the default `PERCEPTION_TAG="3.3.0-26.07.2"` and uncomment `PERCEPTION_TAG="3.3.0-sbsa-26.07.2"`. `PERCEPTION_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variant, which lives in the same GHCR repository. Comment the default `VSS_RT_CV_TAG` line and uncomment `VSS_RT_CV_TAG="develop-latest-sbsa"`. `VSS_RT_CV_TAG` is the only key with a commented `-sbsa` line in the warehouse `overrides.env` — there is nothing to uncomment for `RTVI_VLM_IMAGE_TAG`, and no warehouse variant deployable on DGX-SPARK includes `rtvi-vlm`.
 
 ---
 

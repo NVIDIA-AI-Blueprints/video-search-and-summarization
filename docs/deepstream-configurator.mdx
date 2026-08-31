@@ -1,0 +1,126 @@
+---
+title: "Deepstream Configurator"
+description: ""
+position: 3
+---
+## Overview
+
+The **DeepStream Configurator** (ds-configurator) is a lightweight Flask-based init-style service that runs *before* the DeepStream perception pipeline starts. It starts, waits for a configuration event (e.g. from SDR), updates the necessary DeepStream configuration files, then shuts down so that DeepStream can start with the updated settings.
+
+**Key Features:**
+
+- Receives configuration events via HTTP POST
+- Extracts region, group, and topic-prefix metadata
+- Updates DeepStream configuration files with calibration and BEV group settings
+- Writes configuration data for downstream consumption by DeepStream pipelines
+
+## Architecture
+
+The DeepStream Configurator operates as an init-style service that:
+
+1. Starts and listens for a configuration event
+2. Processes the event and updates configuration files
+3. Gracefully shuts down after completing the configuration
+
+<Frame caption="DS Configurator Architecture">
+  <img src="/assets/images/ds-configurator-architecture.png" alt="DS Configurator Architecture" />
+</Frame>
+
+## Configuration
+
+### Environment Variables
+
+The following environment variables control the DS Configurator's behavior:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORT` | `9002` | HTTP port the service listens on |
+| `DS_CONFIG_PATH` | `/tmp/data/ds-configurator/config.csv` | Path where the CSV configuration file is written (contains region, group, topic-prefix) |
+| `DS_CONFIG_YAML_SOURCE_PATH` | `/ds-config/config.yaml` | Source YAML configuration file to read and update |
+| `DS_CONFIG_YAML_TARGET_PATH` | `/tmp/data/ds-configurator/config.yaml` | Target path where the updated YAML configuration is written |
+| `CALIB_FILE_PATH` | `/tmp/data/ds-configurator/calibration_grouped.json` | Path to the calibration file (set in the output config.yaml) |
+| `EVENT_OBJECT_FIELD` | `event` | JSON field name containing the event data in the incoming payload |
+| `METADATA_OBJECT_FIELD` | `metadata` | JSON field name containing metadata within the event object |
+
+## API Reference
+
+### POST /config
+
+Receives a configuration event and updates DeepStream configuration files.
+
+**Request:**
+
+- **Content-Type:** `application/json`
+- **Method:** `POST`
+
+**Request Body Schema:**
+
+```json
+{
+  "event": {
+    "metadata": {
+      "region": "string",
+      "group": "string",
+      "topic-prefix": "string"
+    }
+  }
+}
+```
+
+**Example Request:**
+
+```bash
+curl -X POST http://localhost:9002/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": {
+      "metadata": {
+        "region": "warehouse-zone-1",
+        "group": "bev-sensor-group-1",
+        "topic-prefix": "mdx"
+      }
+    }
+  }'
+```
+
+**Response:**
+
+Returns the original JSON payload on success.
+
+**Behavior:**
+
+1. Extracts `region`, `group`, and `topic-prefix` from the event metadata
+2. Writes a CSV file with format: `region,group,topic-prefix`
+3. Updates the target YAML config with:
+   - `calib_file_path`: Set to the configured calibration file path
+   - `bev_group_name`: Set to the group from the event metadata
+4. Gracefully shuts down after sending the response
+
+## Output Files
+
+### config.csv
+
+A comma-separated file containing the sensor assignment information:
+
+```text
+warehouse-zone-1,bev-sensor-group-1,mdx
+```
+
+This file can be consumed by DeepStream pipelines or other services that need to know the current sensor group assignment.
+
+### config.yaml
+
+The updated YAML configuration file includes calibration and BEV settings. Key fields updated:
+
+```yaml
+# Calibration file path (set by DS Configurator)
+calib_file_path: /tmp/data/ds-configurator/calibration_grouped.json
+
+# BEV group name (set from event metadata)
+bev_group_name: bev-sensor-group-1
+
+# Other DeepStream pipeline settings (preserved from source)
+onnx_model_path: /root/sparse4d/sparse4d_model.onnx
+batch_size: 1
+# ... additional settings
+```

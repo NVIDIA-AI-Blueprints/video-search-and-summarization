@@ -42,6 +42,50 @@ Set stable service defaults such as container ports in [`deploy/docker/industry-
 
 Standard compose-centric workflow: initialize `generated.env` from `overrides.env` → apply env overrides → `docker compose --env-file .env --env-file generated.env config` dry-run → review → `docker compose up` with the same env-file pair.
 
+### Step 0 — Platform Preflight
+
+Run this before NGC login, image pulls, VIOS checks, capture, upload, or calibration. AMC calibration uses DeepStream detection and requires an `x86_64` calibration host with NVIDIA GPU access and NVENC hardware encoder support. DGX Spark is an `aarch64` system, so it is not a supported AMC calibration host for this flow even though it has NVENC; use an existing `calibration.json`, run calibration on a supported host, or transfer generated calibration artifacts.
+
+Recommended calibration hosts include RTX PRO 6000 Blackwell Server/Workstation, RTX A6000, L40S/L40/L4, and A40. Hosts such as A100, H100/H200, GB200/HGX B200, and DGX Station Blackwell do not provide NVENC in NVIDIA's Video Encode and Decode Support Matrix; DGX Spark does not meet the `x86_64` host requirement for this flow.
+
+If this preflight fails, stop the AMC calibration workflow immediately. Tell the user which requirement was not met, then ask them to choose one of these paths: provide an existing `calibration.json`, run AMC calibration on a supported `x86_64` dGPU host and return with the generated artifacts, or transfer pre-generated AMC/MV3DT calibration artifacts. Do not deploy AMC, probe VIOS, capture RTSP clips, upload videos, or continue calibration automatically after a failed platform preflight.
+
+```bash
+set -euo pipefail
+
+ARCH="$(uname -m)"
+echo "Host architecture: ${ARCH}"
+if [ "${ARCH}" != "x86_64" ]; then
+  echo "ERROR: AMC calibration requires an x86_64 calibration host for this flow." >&2
+  echo "This host does not meet the AMC calibration host requirements." >&2
+  echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
+  exit 1
+fi
+
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+  echo "ERROR: nvidia-smi was not found; NVIDIA GPU access is required before deploying or running AMC calibration." >&2
+  echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
+  exit 1
+fi
+
+nvidia-smi >/dev/null 2>&1 || {
+  echo "ERROR: NVIDIA GPU access is required before deploying or running AMC calibration." >&2
+  echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
+  exit 1
+}
+
+# AMC MS compose assigns GPU device 0, so check GPU 0 here.
+echo "AMC GPU device: 0"
+ENCODER_QUERY="$(nvidia-smi -i 0 --query-gpu=encoder.stats.sessionCount --format=csv,noheader,nounits 2>/dev/null || true)"
+if ! printf '%s\n' "${ENCODER_QUERY}" | awk 'BEGIN { ok=0 } /^[[:space:]]*[0-9]+[[:space:]]*$/ { ok=1 } END { exit ok ? 0 : 1 }'; then
+  echo "ERROR: AMC calibration requires NVENC hardware encoder support on AMC GPU 0." >&2
+  echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
+  exit 1
+fi
+
+echo "AMC platform preflight passed"
+```
+
 ### Step 1 — NGC login
 
 AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
@@ -60,7 +104,7 @@ echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --passwo
 
 ### Step 2 — (Optional) Stage the VGGT model
 
-Skip this step unless the user explicitly asks for VGGT-refined output.
+Skip this step unless the user explicitly asks for VGGT-refined output. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
 
 **2a. Accept the model license** (one-time, manual): visit https://huggingface.co/facebook/VGGT-1B-Commercial and click "Agree and access repository".
 
@@ -306,4 +350,4 @@ Once the AMC stack is up and healthy, the parent skill picks one of three calibr
 - `videos.md` — pre-recorded MP4s.
 - `rtsp.md` — live RTSP streams (requires VIOS).
 
-**Agent behavior**: if the user's original prompt asked to both deploy AND calibrate (e.g. *"launch AMC and test the sample dataset"*, *"set up auto-magic-calib and calibrate my videos at /data/videos/"*), proceed immediately to one of the calibration-mode references once the readiness probe passes — don't stop at "deploy succeeded" and wait for re-prompt. If the user only asked to deploy, surface the URLs (MS + UI) and the three calibration options above so they can pick.
+**Agent behavior**: if the user's original prompt asked to both deploy AND calibrate (e.g. *"launch AMC and test the sample dataset"*, *"set up auto-magic-calib and calibrate my videos at /data/videos/"*) and the platform preflight plus readiness probe pass, proceed immediately to one of the calibration-mode references — don't stop at "deploy succeeded" and wait for re-prompt. If the platform preflight fails, stop and ask the user to provide existing calibration artifacts or use a supported calibration host. If the user only asked to deploy, surface the URLs (MS + UI) and the three calibration options above so they can pick.

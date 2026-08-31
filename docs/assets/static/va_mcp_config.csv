@@ -1,0 +1,8 @@
+Parameter,Type,Required,Default,Description
+_type,string,Yes,-,"Must be ``video_analytics``"
+es_url,string,Yes,http://localhost:9200,Elasticsearch connection URL
+index_prefix,string,No,"",Prefix for all Elasticsearch indices (e.g. ``mdx-`` → ``mdx-incidents-*``)
+vlm_verified,boolean,No,false,"When true, queries VLM-verified incidents index"
+embedding_model_name,string,No,sentence-transformers/all-MiniLM-L6-v2,Model for semantic place search. Set to null to disable
+vst_sensor_list_tool,string,No,null,Reference to VST sensor list function for active sensor filtering
+include,list,No,All tools,List of tools to expose

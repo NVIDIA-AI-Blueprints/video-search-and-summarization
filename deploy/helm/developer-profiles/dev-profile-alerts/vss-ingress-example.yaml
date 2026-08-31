@@ -13,107 +13,110 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Manual equivalent of what this chart's templates/vss-ingress.yaml renders, for a
+# cluster where you apply the Ingress yourself. Regenerate after changing routes:
+#
+#   helm template <RELEASE_NAME> ./dev-profile-alerts --set global.externalHost=<HOST> \
+#     --set global.useReleaseNamePrefix=true --show-only templates/vss-ingress.yaml
+#
+# Mounts come from the canonical route table in deploy/helm/services/common; keep
+# them in step with it and with the Docker edge (haproxy.cfg.template).
+#
+# Routes forwarded as-is. The prefix-stripping ones are in
+# vss-ingress-example-rewrites.yaml — apply both.
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  annotations:
-    haproxy.org/path-rewrite: |
-      /va-mcp/(.*) /\1
-  name: <RELEASE_NAME>    # e.g. vss-alerts
-  namespace: <NAMESPACE>    # e.g. vss-alerts
+  name: <RELEASE_NAME>-vss-ingress
+  namespace: <NAMESPACE>
 spec:
   ingressClassName: haproxy
   rules:
-  - host: vss.<EXTERNAL_HOST>.nip.io    # e.g. vss.10.57.209.221.nip.io Value of global.externalHost in values-realtime.yaml
+  - host: vss.<EXTERNAL_HOST>.nip.io
     http:
       paths:
-      - backend:
+      - path: /api/chat
+        pathType: Prefix
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-agent-ui    # e.g. vss-alerts-vss-agent-ui
+            name: <RELEASE_NAME>-vss-agent-ui
             port:
               number: 3000
-        path: /api/chat
+      - path: /api
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-agent    # e.g. vss-alerts-vss-agent
+            name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /api
+      - path: /chat
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-agent    # e.g. vss-alerts-vss-agent
+            name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /chat
+      - path: /websocket
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-agent    # e.g. vss-alerts-vss-agent
+            name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /websocket
+      - path: /static
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-agent    # e.g. vss-alerts-vss-agent
+            name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
-        path: /static
+      - path: /docs
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-vios-ingress    # e.g. vss-alerts-vss-vios-ingress
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /redoc
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /generate
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
+      - path: /vst
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-vios-ingress
             port:
               number: 30888
-        path: /vst
+      - path: /behavior-analytics
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-agent-ui    # e.g. vss-alerts-vss-agent-ui
-            port:
-              number: 3000
-        path: /
-        pathType: Prefix
-      - backend:
-          service:
-            name: <RELEASE_NAME>-vss-behavior-analytics    # e.g. vss-alerts-vss-behavior-analytics
+            name: <RELEASE_NAME>-vss-behavior-analytics
             port:
               number: 8080
-        path: /behavior-analytics
+      - path: /
         pathType: Prefix
-      - backend:
+        backend:
           service:
-            name: <RELEASE_NAME>-vss-rtvi-cv-sdr    # e.g. vss-alerts-vss-rtvi-cv-sdr
+            name: <RELEASE_NAME>-vss-agent-ui
             port:
-              number: 4001
-        path: /perception-sdr
-        pathType: Prefix
-      - backend:
-          service:
-            name: <RELEASE_NAME>-vss-va-mcp    # e.g. vss-alerts-vss-va-mcp
-            port:
-              number: 9901
-        path: /va-mcp
-        pathType: Prefix
-  - host: streamer.<EXTERNAL_HOST>.nip.io    # e.g. streamer.10.57.209.221.nip.io
-    http:
-      paths:
-      - backend:
-          service:
-            name: <RELEASE_NAME>-vss-vios-nvstreamer    # e.g. vss-alerts-vss-vios-nvstreamer
-            port:
-              number: 31000
-        path: /
-        pathType: Prefix
-  - host: kibana.<EXTERNAL_HOST>.nip.io    # e.g. kibana.10.57.209.221.nip.io
-    http:
-      paths:
-      - backend:
-          service:
-            name: <RELEASE_NAME>-kibana    # e.g. vss-alerts-kibana
-            port:
-              number: 5601
-        path: /
-        pathType: Prefix
+              number: 3000

@@ -1,0 +1,444 @@
+---
+title: "2D Vision AI Profile"
+description: ""
+position: 1
+---
+## Overview
+
+### Introduction
+
+The **VSS Warehouse 2D Blueprint** is a comprehensive guide to building a 2D intelligent video analytics system. It provides a detailed overview of the system architecture, data flow, and key components.
+
+## Deployment Architecture
+
+![VSS Warehouse Blueprint's 2D Vision AI Profile](/assets/images/analytics-blueprints/2D-analytics-blueprint.png)
+
+### Components and Interactions
+
+The diagram depicts **VSS Warehouse 2D Blueprint**, emphasizing 2D single-camera detection, tracking, and behavior analytics for safety events and metrics. Below is a breakdown of the components and their interactions.
+
+1. **Input Source**
+
+   - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
+   - **NvStreamer** ([link ](/vios-nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+
+2. **Video IO & Storage (VIOS)** ([link ](/vios-microservices))
+
+   - VIOS ingests video streams from NvStreamer via RTSP.
+   - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
+
+3. **DeepStream** ([link ](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR))
+
+   - DeepStream processes RTSP streams for 2D single-camera detection and tracking, utilizing the RT-DETR (Real-Time Detection Transformer) model ([link ](/models/rt-detr)) to generate precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment.
+   - RT-DETR features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments.
+   - It sends frame data, including detected and tracked object IDs, in Protobuf format to the message broker via the `mdx-raw` topic.
+
+4. **Message Broker (Kafka or Redis)**
+
+   - The message broker serves as the central hub for data distribution, using Protobuf for all data exchanges.
+   - **Kafka** ([../kafka](/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
+   - **Redis Streams**: Lightweight message broker ideal for edge deployments with minimal memory footprint and low-latency requirements.
+   - It also functions as a control bus, managing notifications (in JSON, via `mdx-notification`) for calibration updates, such as new ROI or tripwire definitions.
+
+5. **Behavior Analytics** ([../behavior-analytics](/behavior-analytics))
+
+   - This microservice consumes `mdx-raw` data (Protobuf) from the message broker.
+   - It processes the data to generate behavior analytics, safety insights, and metrics.
+   - The resulting data, in Protobuf format, is sent back to the message broker for indexing into Elasticsearch.
+
+6. **Storage**
+
+   - **ELK (Elasticsearch, Logstash, Kibana)** ([../elk](/elk)): Logstash retrieves mdx-raw outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
+
+7. **Visualization**
+
+   - **Kibana UI** ([Kibana UI](/warehouse-docs/2D-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
+   - **VIOS UI** ([VIOS UI](/warehouse-docs/2D-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
+
+8. **External Interfaces**
+
+   - **API Gateway and MCP** ([../api-gateway-mcp](/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
+
+### Key Technologies
+
+- **Microservices**: Components like NvStreamer, VIOS, DeepStream, and Behavior Analytics are modular microservices.
+- **RTSP**: Facilitates real-time video streaming.
+- **Protobuf**: Ensures efficient, compact data exchange.
+- **Message Broker**: Manages data distribution and control messaging.
+- **ELK Stack**: Supports storage, logging, and visualization.
+- **JSON**: Used for notifications and calibration data.
+
+## Setup and Configuration
+
+[see Quickstart Guide](/warehouse-docs/Quickstart-Guide#deploy-the-blueprint)
+
+## Testing and Validation
+
+### Kibana UI
+
+<Note>
+In the new Kibana UI (versions 8.0 and later), "Index Patterns" have been renamed to "Data Views".
+</Note>
+
+Check for Events, Frames and Behavior Data Views in Kibana
+
+  1. Launch Chrome browser
+  2. In the address bar enter `http://<IP_address>:7777/kibana`
+
+In the user interface, navigate to the **Management -> Stack Management** section and select **Data Views** under **Kibana**. If the data views are not visible, create new data view (via "Create data view" button on the top right corner) for `mdx-raw`, `mdx-frames` and `mdx-behavior`.
+
+![Kibana UI](/assets/images/analytics-blueprints/2D-analytics-blueprint-kibana-index.png)
+
+Browse the Kibana UI, discover the data views and visualize the data.
+
+![Kibana UI](/assets/images/analytics-blueprints/2D-analytics-blueprint-kibana.png)
+
+### VIOS UI
+
+Please note: At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VIOS docs ](/vios-microservices).
+
+  1. Launch Chrome browser
+  2. In the address bar enter `http://<IP_address>:30888/vst/`
+
+**Configure and View**
+
+![VIOS UI](/assets/images/analytics-blueprints/2D-analytics-blueprint-vios.png)
+
+## Events and Incidents
+
+### Events
+
+The VSS Warehouse 2D Blueprint processes live camera feeds, detects and tracks objects of interest, and generates events based on configurable logic.
+
+Two types of events are supported:
+
+- ROI Events: Triggered when objects enter or exit a predefined region of interest (ROI).
+- Tripwire Events: Triggered when objects cross a predefined tripwire.
+
+Each event type is associated with a specific logic and configuration. For more details, see [Event Detection](/behavior-analytics#event-detection).
+
+All event data is stored in Elasticsearch, and can be queried and visualized in Kibana and the VIOS UI.
+
+### Incidents
+
+In addition to instantaneous events, the 2D Blueprint detects violations in each enhanced frame and tracks them over time. When a violation persists beyond its configured threshold, it is promoted to a confirmed incident. The 2D Blueprint generates the following incident types:
+
+- Proximity Violation: Objects come too close to each other (for example, a person near moving equipment).
+- Restricted Area Violation: Objects enter a prohibited zone (ROI).
+- Confined Area Violation: Objects leave a designated safe zone.
+
+Incident timing (threshold and expiration window) is configurable per type. For the violation-to-incident framework, configuration parameters, and enhanced-frame data, see [Incident Generation](/behavior-analytics#incidents).
+
+### Use Cases
+
+ROI events, tripwire events, and the proximity, restricted-area, and confined-area incidents together provide a powerful foundation for safety monitoring and operational intelligence in warehouse environments, enabling real-time situational awareness and proactive safety management across multiple critical use cases.
+
+* ROI events continuously monitor whether designated safety zones remain human-free or equipment-free, ensuring that hazardous areas such as automated vehicle pathways, robotic work cells, or restricted maintenance zones are clear before operations commence.
+  By tracking cumulative enter and exit counts for defined ROIs, the system maintains accurate occupancy counts and can alert when unauthorized access occurs or when occupancy thresholds are exceeded.
+
+* Tripwire events enable precise directional counting at strategic locations such as doorways, loading dock entrances, and zone boundaries.
+  This is particularly valuable for monitoring areas not directly visible to cameras: if a person crosses a tripwire entering a blind corridor but no corresponding exit event is detected within an expected timeframe, the system can infer continued presence and raise safety alerts or delay automated equipment operations in that zone.
+
+* Incidents capture sustained unsafe conditions: proximity violations flag dangerous closeness between humans and moving equipment such as forklifts, autonomous mobile robots (AMRs), or industrial manipulators for collision avoidance; restricted-area violations enforce access control on prohibited zones; and confined-area violations detect when objects leave their designated safe zones.
+
+Together, these events and incidents form a comprehensive safety net that supports critical warehouse operations including dynamic safe-zone enforcement, pedestrian-vehicle collision prevention, restricted-area access control, and loading-dock safety management—all while providing the rich data necessary for compliance reporting, incident investigation, and continuous safety process improvement.
+
+## Latency Measurements
+
+| Platform | Profile | #Streams | FPS | Interval | (NvStreamer + VIOS + DeepStream) latency | Behavior-analytics latency | E2E latency |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RTX 6000 PRO SE | Kafka | 3 | 30 | 1 | 42 ms | 32 ms | 74 ms |
+| RTX 6000 PRO SE | Redis | 3 | 30 | 1 | 43 ms | 13 ms | 56 ms |
+| IGX THOR | Kafka | 3 | 30 | 1 | 83 ms | 27 ms | 110 ms |
+| IGX THOR | Redis | 3 | 30 | 1 | 82 ms | 8 ms | 90 ms |
+| DGX SPARK | Kafka | 3 | 30 | 1 | 41 ms | 31 ms | 72 ms |
+| DGX SPARK | Redis | 3 | 30 | 1 | 45 ms | 10 ms | 55 ms |
+
+<Note>
+The latency may vary based on the hardware, the number of objects in a scene, the number of ROIs and tripwires, and the machine's load.
+</Note>
+
+## Customization
+
+The Blueprint supports several levels of customization:
+
+* **Data Level**: Add, remove, or replace cameras while maintaining the existing workflow.
+* **Model Level**: Fine-tune perception models to better suit your use cases.
+* **Application Level**: Build new microservices or applications using the provided APIs and components.
+* **Microservice Level**: Modify existing microservices from source code to extend functionality.
+
+### Adding New Cameras or Custom Datasets
+
+<Info>
+Recorded videos and live RTSP streams must be encoded without B-frames and have a resolution of `1920 x 1080`.
+
+To check for and remove B-frames, see [the FAQ guidance](/warehouse-docs/FAQ#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
+
+For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
+
+AMC relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+</Info>
+
+#### Step 1: Prepare video sources
+
+Choose one of the following options to provide video sources for the 2D profile:
+
+1. **Using recorded videos**
+
+   Use this option to run the VSS with local video files instead of live camera feeds. Place your videos in the `videos` directory under the path configured by `VSS_DATA_DIR` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env`.
+
+2. **Using live RTSP streams**
+
+    Use this option when you want to use live RTSP endpoints. Define each camera in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json` so the VSS Configurator can read the camera list and generate the required configuration. The following steps apply when using live RTSP streams.
+
+    (i) **Create a Sensor Info File** (`camera_info.json`):
+
+      ```json
+      {
+        "sensors": [
+          {
+            "camera_name": "camera-01",
+            "rtsp_url": "rtsp://<IP_address:port>/stream1",
+          },
+          {
+            "camera_name": "camera-02",
+            "rtsp_url": "rtsp://<IP_address:port>/stream1"
+          }
+        ]
+      }
+      ```
+
+      The `camera_name` value should be unique for each camera, and `rtsp_url` should point to the camera stream.
+
+      **Required fields:** `camera_name`, `rtsp_url`
+
+<Note>
+Each `rtsp_url` in `camera_info.json` must be reachable from the machine where you deploy VSS. VIOS connects to those URLs directly. Before you deploy, test every URL from the deployment machine (for example, with VLC or `ffplay`).
+</Note>
+
+    (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env`:
+
+      ```bash
+      SENSOR_INFO_SOURCE=file
+      SENSOR_FILE_PATH=<path_to_camera_info.json>
+      ```
+
+#### Step 2: Configure number of streams
+
+**Configuring Number of Streams**
+
+Number of streams to be processed can be configured in two ways:
+
+1. **Static Configuration**: Set the `NUM_STREAMS` environment variable in warehouse `.env` file to specify the desired number of streams for video dataset or RTSP streams.
+
+   ```bash
+   NUM_STREAMS=4
+   ```
+
+   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss-configurator) section in [VSS Configurator Documentation ](/vss-configurator).
+
+2. **Dynamic Configuration**: Use the VSS Configurator's prerequisite operations to automatically count the number of video files in the recorded videos directory and use that count for configuration updates.
+
+<Note>
+Dynamic Configuration cannot be used for live RTSP streams.
+</Note>
+
+   **Example:** Automatically determine stream count from video files in the dataset directory:
+
+   ```yaml
+   # In blueprint_config.yml
+   commons:
+     # Step 1: Count video files BEFORE variable processing
+     prerequisites:
+       2d:
+         - operation_type: "file_management"
+           target_directories:
+             - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+           file_management:
+             action: "file_count"
+             parameters:
+               pattern: "*.mp4"
+             output_variable: "available_video_count"  # Stores count (e.g., 6)
+   
+     # Step 2: Use the count to compute final stream count
+     variables:
+       2d:
+         # Cap to minimum of: available videos, GPU limit
+         - final_stream_count: "min(${available_video_count}, ${max_streams_supported})"
+   
+     # Step 3: Use computed variable in config file updates
+     file_operations:
+       2d:
+         - operation_type: "text_config_update"
+           target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+           updates:
+             max-batch-size: ${final_stream_count}
+             batch-size: ${final_stream_count}
+   ```
+
+   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss-configurator) section in [VSS Configurator Documentation ](/vss-configurator).
+
+When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number of video files available in that dataset. Make sure `NUM_STREAMS` is less than or equal to the number of videos you want to process.
+
+To use a custom dataset:
+
+* Set `SAMPLE_VIDEO_DATASET` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env` to the name of your dataset.
+
+* Place the video files in `$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET/`.
+
+* Add the image metadata, calibration, and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
+
+<Note>
+Refer to [RT-DETR Real-Time Performance](/models/rt-detr) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
+</Note>
+
+#### Step 3: Deploy and generate new calibration
+
+Before deploying the stack and generating a calibration, create the projects directory:
+
+```bash
+mkdir -p ${VSS_APPS_DIR}/services/auto-calibration/projects
+```
+
+<Note>
+Projects will be saved in `${VSS_APPS_DIR}/services/auto-calibration/projects`.
+</Note>
+
+Change the ownership of the Auto Calibration data and projects directories to UID `1000` and GID `1000`:
+
+```bash
+sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
+sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
+```
+
+Deploy the auto-calibration profile (`bp_wh_auto_calib_2d`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/autocalib-getting-started#quick-start-guide). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+
+<Note>
+- Maintain a single `calibration.json` file per deployment.
+- Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
+- For 2D profile use cases, ROIs and Tripwires are drawn for each camera view.
+- The calibration file exported from the AMC UI may include `group` and `region` blocks under each entry in `sensors[]`. These are used only by the 3D and MV3DT profiles and are not needed by the 2D profile. Remove the `group` and `region` blocks from each sensor entry before importing the file.
+- Add new camera information following the schema defined in [Calibration Schema ](/calibration-schema).
+- The `imageMetadata` file needs to be generated manually.
+- Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
+- Auto Calibration requires time-synchronized videos as input. For RTSP cameras, record videos from the RTSP source (e.g. using ffmpeg or similar tools), manually trim the videos to time-synchronize them if needed, then provide them to Auto Calibration.
+</Note>
+
+#### Step 4: Redeploy the stack to apply the new calibration
+
+To redeploy the stack to apply the new calibration, follow the [Quickstart](/warehouse-docs/Quickstart-Guide#deploy-the-blueprint).
+
+<Note>
+Before updating the warehouse `.env` file or running `docker compose up`, check whether containers from a previous Docker Compose deployment are still present:
+
+```bash
+docker ps -a
+```
+
+No containers belonging to the previous deployment should be present before starting a new deployment. Stale containers from a previous deployment can cause silent errors. For example, already-running containers can create the false impression that a new deployment has started successfully.
+</Note>
+
+### Model Customization
+
+#### Perception Model Fine-tuning
+
+The Blueprint uses RT-DETR (Real-Time Detection Transformer) as its primary perception model. RT-DETR features a ResNet-50 backbone and is pretrained on warehouse scene datasets for precise 2D object detection in industrial environments. For details, see:
+[2D Single Camera Detection and Tracking ](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR).
+
+For fine-tuning the RT-DETR model via TAO Toolkit on custom datasets, refer to:
+[RT-DETR (TAO fine-tuning) ](/models/rt-detr).
+
+### Application Customization
+
+The Blueprint uses a modular microservices architecture with the following communication channels:
+
+* Message Broker (Kafka or Redis)
+* Elasticsearch database
+* REST APIs
+
+Users can build their own microservices by consuming data from the above channels.
+
+For complete API documentation, see [API Reference Page ](/API-Reference).
+
+#### Available Service Ports
+
+The following ports are used during deployment, and users can leverage them for any potential integration:
+
+| Service | Port |
+| --- | --- |
+| Kafka | 9092 |
+| Elasticsearch | 9200 |
+| Kibana | 7777/kibana |
+| NvStreamer | 31000 |
+| VIOS | 30888/vst |
+| VSS Video Analytics API | 8081 |
+
+### Analytics Microservices Customization (Advanced)
+
+For detailed information about customizing specific analytics microservices, refer to:
+
+* [Behavior Analytics ](/warehouse-docs/Behavior-Analytics)
+* [VSS Video Analytics API ](/video-analytics-api-server)
+
+### Hardware Config Customization
+
+The 2D Warehouse Blueprint requires several configuration files to be properly tuned based on your GPU hardware and deployment requirements. When changing hardware (e.g., switching from H100 to L4 GPU) or adjusting the number of video streams, multiple configuration files must be updated to ensure optimal performance and prevent GPU overload.
+
+#### Configuration Files Requiring Hardware-Based Updates
+
+The following table lists the configuration files that typically require updates when hardware changes:
+
+| Configuration File | Parameters to Update | Why Update is Needed |
+| --- | --- | --- |
+| `ds-main-config.txt` | `num-source-bins`, `max-batch-size`, `batch-size`, `msg-broker-config`, `msg-broker-conn-str`, `msg-broker-proto-lib` | Batch sizes must match stream count for optimal GPU utilization; message broker entries select between Kafka and Redis |
+| `ds-kafka-config.txt` / `ds-redis-config.txt` | Broker connection settings | DeepStream message broker config selected based on deployment mode (Kafka or Redis) |
+| `vst-config.json` (NvStreamer) | `nv_streamer_sync_file_count` | Sync file count must align with stream count |
+| `vst_config.json` (VIOS) | `onvif.max_devices_supported`, `data.always_recording`, `notifications.use_message_broker_consumer` | Device limits must match GPU capacity; message broker consumer must match deployment mode |
+
+There are two approaches to customize these configuration files:
+
+#### Approach 1: Manual Configuration
+
+Manually update all required configuration files before deploying the blueprint. This is time consuming, error prone and often not suitable for production deployments.
+
+```bash
+# Update DeepStream main config
+vi <PATH_TO_DS_CONFIG_DIR>/ds-main-config.txt
+# Set: num-source-bins=0, max-batch-size=<stream_count>, batch-size=<stream_count>
+# Set msg-broker-config to ds-kafka-config.txt or ds-redis-config.txt depending on deployment mode
+
+# Update NvStreamer config
+vi <PATH_TO_NVSTREAMER_CONFIG_DIR>/vst-config.json
+# Set: "nv_streamer_sync_file_count": <stream_count>
+
+# Update VIOS (VST) config
+vi <PATH_TO_VST_CONFIG_DIR>/vst_config.json
+# Set: "onvif.max_devices_supported": <max_streams>, "data.always_recording": true,
+#      "notifications.use_message_broker_consumer": "<deployment_mode>"
+```
+
+#### Approach 2: Automatic Config Management using VSS Configurator
+
+The VSS Configurator provides a **declarative approach** to automatically update all required configuration files based on your hardware profile and deployment mode. This is the recommended approach for production deployments and simplifies the configuration management process.
+
+To enable the VSS Configurator, in VSS Configurator's environment variables you **must** set:
+
+```bash
+ENABLE_PROFILE_CONFIGURATOR=true
+```
+
+By default, the VSS Configurator is disabled (`ENABLE_PROFILE_CONFIGURATOR=false`).
+When enabled, it runs before the Blueprint Deployment starts and adjusts configuration files based on the hardware profile and deployment mode as defined in the HARDWARE_PROFILE and MODE environment variables.
+
+The VSS Configurator provides a comprehensive set of features for automated profile configuration management:
+
+| Feature | Description |
+| --- | --- |
+| **Configuration File Updates** | Automatically update configuration files in multiple formats:  * `yaml_update` - Updates `.yaml`/`.yml` files while preserving structure. Supports nested keys via dot notation (e.g., `nested.config.value`) * `json_update` - Updates `.json` files with nested object support via dot notation (e.g., `data.stream_count`) * `text_config_update` - Updates `.txt`/`.conf`/`.cfg` files. Supports `key=value`, `key: value`, and `key value` formats * `file_management` - Manage files in directories (keep N files, remove extras) |
+| **Environment Variable Validation** | Validate environment variables before deployment to catch configuration errors early:  * `allowed_values` - Restrict to specific values (e.g., `["none", "local", "remote"]`) * `allowed_patterns` - Wildcard matching (e.g., `bp_wh_kafka*`) * `disallowed_values` - Block specific values * `regex` - Regular expression validation * Conditional validation based on other variables |
+| **Prerequisite Operations** | Run operations before variable processing to dynamically determine values:  * `file_count` - Count files in a directory matching a pattern (e.g., count `*.mp4` files to determine available streams) * Results stored as variables for use in subsequent calculations * Useful for adapting configuration to actual data availability |
+| **Variable Computations** | Create computed variables for intermediate calculations and condition checking. **Use case:** Automatically cap stream count to GPU limits using `final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"`, then reuse this value across all config files.  * Mathematical expressions: `min()`, `max()`, `+`, `-`, `*`, `/` * Conditional expressions: `"4 if ${count} > 10 else 2"` * Environment variable substitution: `${VAR_NAME}` * **Value:** Define once, use everywhere - ensures consistency across multiple config files |
+
+**Execution Order:** Prerequisite Operations → Environment Variable Validation → Variable Computations → Configuration File Updates
+
+For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation ](/vss-configurator).

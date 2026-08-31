@@ -13,13 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-imagePullSecrets:
-  - name: ngc-docker-reg-secret
+imagePullSecrets: []
 
 replicas: 1
+# Shared managed-image channel. QA can select a promoted image through
+# global.container_prefix and global.container_tag.
+# SBSA/DGX-Spark is a separate arm64 build because it uses a different
+# DeepStream base than Jetson, but it shares this repository. Override only
+# the tag to select it: image.tag=develop-latest-sbsa (or set the same value
+# through global.container_tag when every managed image uses that channel).
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.3.0-26.08.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
+  tag: develop-latest
   pullPolicy: IfNotPresent
 port: 8000
 service:
@@ -30,12 +35,19 @@ service:
 # pod's resource request exposed (runtime default).
 gpuDeviceId: ""
 
-# Stream-affinity routing via HAProxy consistent-hash on an HTTP header.
+# Stream-affinity routing via a HAProxy stick table keyed on an HTTP header.
 # When enabled, the rendered Service carries `haproxy.org/*` annotations
-# that ask a HAProxy Ingress controller to consistent-hash every request
-# with the same hashHeader value to the same vss-rtvi-embed replica
-# (Karger's consistent hash). Required for replica count > 1 so the
-# Cosmos-Embed1 model session stays coherent for the stream.
+# that ask a HAProxy Ingress controller to record, on the first request for
+# each hashHeader value, which vss-rtvi-embed replica served it, and to route
+# every later request with the same value to that replica (stick-table,
+# `stick on`). Required for replica count > 1 so the Cosmos-Embed1 model
+# session stays coherent for the stream.
+#
+# The table is per HAProxy process: controller replicas do NOT share entries
+# (the OSS controller has no peers sync), so affinity holds only for traffic
+# entering through one controller replica. Entries idle out after tableExpire
+# of inactivity; each match refreshes the timer, so a live stream never
+# expires. tableSize bounds the number of concurrently tracked streams.
 #
 # IMPORTANT — these annotations are only honored when traffic actually
 # flows through HAProxy Ingress. In the default chart deployment the
@@ -49,6 +61,13 @@ gpuDeviceId: ""
 streamAffinity:
   enabled: true
   hashHeader: x-stream-id
+  # Stick-table sizing: max concurrently tracked streams, and per-entry idle
+  # expiry (refreshed on every match).
+  tableSize: 10k
+  tableExpire: 30m
+# Long-running embedding requests take minutes; keep this backend well above the
+# controller default when it is published through an ingress.
+ingressTimeoutServer: "3600s"
 dshm:
   enabled: true
   sizeLimit: "16Gi"

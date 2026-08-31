@@ -21,6 +21,14 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-summarization
     app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- /* Server-side timeout for this backend when it is published through an
+         ingress. Set here rather than on the Ingress so a long call to this
+         service does not raise the ceiling for every other route sharing the
+         origin. Empty leaves the controller default. */}}
+  {{- with .Values.ingressTimeoutServer }}
+  annotations:
+    haproxy.org/timeout-server: {{ . | quote }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:

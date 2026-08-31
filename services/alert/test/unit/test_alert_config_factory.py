@@ -21,6 +21,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from persistence.exceptions import PersistenceUnavailableError
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from handlers.alert_config import (
@@ -94,7 +96,10 @@ def test_raises_when_persistence_unhealthy(mock_factory):
     persistence.health.return_value = False
     mock_factory.return_value = persistence
 
-    with pytest.raises(RuntimeError, match="Elasticsearch is unreachable"):
+    # Typed rather than a bare RuntimeError: a caller that retries transient
+    # failures has to be able to tell "not reachable yet" from "configured
+    # wrongly", and the second must never be retried.
+    with pytest.raises(PersistenceUnavailableError, match="Elasticsearch is unreachable"):
         build_alert_config_store({"persistence": {"enabled": True}})
 
 

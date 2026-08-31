@@ -6,6 +6,8 @@ description: >
   GPU and storage prerequisites, the `/v1` REST API (file uploads,
   text and video embeddings, live RTSP streams, health and metrics),
   Redis/Kafka/OTel integration, common failure modes, and teardown.
+  Do not use for RT-CV, RT-VLM, VSS Agent, or general VSS deployment work
+  that does not include RT-Embed.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -25,14 +27,18 @@ Use this skill when you need to:
 
 **Trigger phrases:** `vss-deploy-video-embedding`, `RT-Embed`, `rtvi-embed`, `video embedding service`, `Cosmos-Embed1`, `embed live stream`, `embed video file`, `generate video embeddings`, `text embedding for video search`.
 
+**Do not use this skill** for RT-CV, RT-VLM, VSS Agent, or general VSS
+deployment work unless the request deploys, operates, or integrates RT-Embed.
+
 ## Service Snapshot
 
 - **VSS 3.3.0 GA skill:** `vss-deploy-video-embedding`.
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
-- **Image:** `nvcr.io/nvstaging/vss-core/vss-rt-embed` (override with `RTVI_EMBED_IMAGE`).
-- **Default tag:** `3.3.0-26.08.1` (override with `RTVI_EMBED_TAG`).
+- **Image:** `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` (override with `VSS_RT_EMBED_IMAGE`).
+- **Default tag:** `develop-latest` (override with `VSS_RT_EMBED_TAG`; use
+  `develop-latest-sbsa` for an SBSA/DGX Spark host).
 - **Profile:** `rtvi-embed`.
 - **Container port:** `8000` (host-side `${RTVI_EMBED_PORT}`).
 - **Default model:** `cosmos-embed1-448p` from `nvidia/Cosmos-Embed1-448p`.
@@ -45,9 +51,8 @@ Before bringing the service up:
 
 1. NVIDIA driver + NVIDIA Container Toolkit installed; default runtime set to `nvidia`.
 2. Docker Engine and Docker Compose plugin recent enough to support `${VAR:+value}` conditional volume substitution.
-3. `docker login nvcr.io` completed with `$oauthtoken` and a valid NGC API key.
-4. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
-5. Free disk space for persistent caches: `rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo` (multi-GB).
+3. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
+4. Free disk space for persistent caches: `rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo` (multi-GB).
 
 See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite list and `references/environment.md` for the variable matrix.
 
@@ -250,7 +255,7 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ## Upgrade And Rollback
 
-Pin `RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`, pull, recreate with `--profile rtvi-embed`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
+Pin `VSS_RT_EMBED_IMAGE` / `VSS_RT_EMBED_TAG`, pull, recreate with `--profile rtvi-embed`, and wait for `/v1/ready` before cutover. Named volumes persist across image swaps.
 
 Full steps: [Upgrade & Rollback](references/deploy-vss-deploy-video-embedding.md#upgrade--rollback).
 
@@ -270,4 +275,3 @@ Full steps and cache warnings: [Tear Down](references/deploy-vss-deploy-video-em
 | [references/rest-api.md](references/rest-api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
 | [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
 | [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |
-

@@ -75,6 +75,7 @@ sdrc:
     KUBERNETES_HOST: kubernetes.default.svc
     KUBERNETES_PORT: "443"
     WDM_CONTROLLER_HOST: "127.0.0.1"
+    WDM_XDS_GRPC_ADS_ENABLED: "true"  # enables gRPC ADS server for Envoy xDS; required for multi-workload mode
 ```
 
 The `sdrc` container discovers workloads from `/config.yml`, which is the

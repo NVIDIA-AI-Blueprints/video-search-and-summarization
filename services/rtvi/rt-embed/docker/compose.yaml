@@ -15,7 +15,7 @@
 
 services:
   rtvi-server:
-    image: ${RTVI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1}
+    image: ${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest}
     shm_size: '16gb'
     runtime: nvidia
     user: "1001:1001"

@@ -65,8 +65,10 @@ class TestPollReadiness:
     @patch("vlm.warmup.time.sleep")
     @patch("vlm.warmup.requests.get")
     def test_timeout_raises(self, mock_get, mock_sleep, mock_mono):
-        # Simulate clock: start=0, first check at 0, then past deadline
-        mock_mono.side_effect = [0, 0, 301]
+        # Two readings per pass now: one to size the request, one to size the
+        # sleep after it -- the request can spend everything that was left.
+        # start=0, pass 1 at 0 and 0, pass 2 past the deadline.
+        mock_mono.side_effect = [0, 0, 0, 301]
         mock_get.return_value = MagicMock(status_code=503)
         with pytest.raises(RuntimeError, match="NIM not ready"):
             _poll_readiness("http://nim:8000/v1")
@@ -86,9 +88,10 @@ class TestPollReadiness:
     @patch("vlm.warmup.requests.get")
     def test_fixed_interval_polling(self, mock_get, mock_sleep, mock_mono):
         # Keep deadline far in the future so we never time out.
-        # monotonic() is called: once for deadline (start), then once per loop iteration.
-        # We need 7 iterations (6 failures + 1 success) -> 1 + 7 = 8 calls.
-        mock_mono.side_effect = [0] + [0] * 7
+        # monotonic() is called once for the deadline, then twice per loop
+        # iteration: to size the request, and again to size the sleep after
+        # it. 7 iterations (6 failures + 1 success) -> 1 + 14 calls.
+        mock_mono.side_effect = [0] + [0] * 14
 
         not_ready = MagicMock(status_code=503)
         ready = MagicMock(status_code=200)
@@ -244,7 +247,7 @@ class TestWarmupVlm:
         warmup_vlm(_SAMPLE_CONFIG, "/app/warmup/test.mp4")
         mock_poll.assert_called_once_with("http://nim:8000/v1", 300, 10)
         mock_rounds.assert_called_once_with(
-            _SAMPLE_CONFIG, "/app/warmup/test.mp4", 3, 120,
+            _SAMPLE_CONFIG, "/app/warmup/test.mp4", 3, 120, deadline=None,
         )
 
     @patch("vlm.warmup._run_warmup_rounds")
@@ -270,7 +273,7 @@ class TestWarmupVlm:
         warmup_vlm(config_with_warmup, "/app/warmup/test.mp4")
         mock_poll.assert_called_once_with("http://nim:8000/v1", 60, 5)
         mock_rounds.assert_called_once_with(
-            config_with_warmup, "/app/warmup/test.mp4", 2, 30,
+            config_with_warmup, "/app/warmup/test.mp4", 2, 30, deadline=None,
         )
 
 
@@ -312,3 +315,178 @@ class TestEntryPointIntegration:
         mock_isfile.return_value = False
         video_path = WARMUP_VIDEO if os.path.isfile(WARMUP_VIDEO) else "warmup/test.mp4"
         assert video_path == "warmup/test.mp4"
+
+
+class TestWarmupReadsTheNestedBudget:
+    """The startup budget caps warmup through the key warmup_vlm reads.
+
+    Written at the top level of the vlm config the cap was silently ignored,
+    so a cold backend could still spend five minutes of a sixty-second budget.
+    """
+
+    @staticmethod
+    def _timeouts_for(config, deadline=None):
+        from unittest.mock import patch
+        import vlm.warmup as warmup
+
+        with patch.object(warmup, "_poll_readiness") as poll, \
+             patch.object(warmup, "_run_warmup_rounds") as rounds, \
+             patch.object(warmup.os.path, "isfile", return_value=True):
+            warmup.warmup_vlm(config, video_path="any.mp4", deadline=deadline)
+        return poll.call_args.args[1], (
+            rounds.call_args.args[3] if rounds.call_args else None
+        )
+
+    def test_the_cap_is_read_from_the_warmup_section(self):
+        poll, _ = self._timeouts_for(
+            {"base_url": "http://nim:8000/v1", "warmup": {"poll_timeout": 7}}
+        )
+        assert poll == 7
+
+    def test_a_top_level_key_is_not_where_it_looks(self):
+        # Pins the mistake itself: written here the cap was silently ignored.
+        import vlm.warmup as warmup
+        poll, _ = self._timeouts_for(
+            {"base_url": "http://nim:8000/v1", "poll_timeout": 7}
+        )
+        assert poll == warmup._POLL_TIMEOUT
+
+    def test_a_cold_inference_keeps_a_usable_timeout(self):
+        # The whole point. Dividing the budget across the worst-case attempt
+        # count left about two seconds against a documented hundred and
+        # twenty, so warmup could never succeed and warmed nothing.
+        import time
+        _, inference = self._timeouts_for(
+            {"base_url": "http://nim:8000/v1"},
+            deadline=time.monotonic() + 40,
+        )
+        assert inference is not None and inference > 20, inference
+
+    def test_a_spent_budget_skips_the_inference_entirely(self):
+        import time
+        poll, inference = self._timeouts_for(
+            {"base_url": "http://nim:8000/v1"},
+            deadline=time.monotonic() - 1,
+        )
+        assert inference is None, "ran an inference with no budget left"
+
+
+class TestWarmupCannotOutlastItsWindow:
+    """The deadline has to reach the inner loops, not just the outer one.
+
+    Bounding only between rounds left three retries at the full timeout and a
+    poll whose last request and sleep ran past the window -- so an optional
+    warmup could still eat the share reserved for the consumer-group join.
+    """
+
+    def test_the_sdk_does_not_retry_underneath_our_retries(self):
+        # The SDK default is two retries, so one call is three HTTP attempts
+        # each up to request_timeout, plus Retry-After honoured for up to two
+        # minutes outside it. A bound written per call was a bound per attempt.
+        from unittest.mock import patch
+        import vlm.warmup as warmup
+
+        with patch.object(warmup, "VLMClient") as client, \
+             patch.object(warmup, "_send_warmup_inference", return_value=True), \
+             patch.object(warmup.os.path, "isfile", return_value=True):
+            warmup._run_warmup_rounds({"base_url": "x"}, "any.mp4", 1, 30)
+
+        assert client.call_args.args[0]["max_retries"] == 0
+
+    def test_the_client_honours_a_configured_retry_count(self):
+        from unittest.mock import patch
+        from vlm.vlm_client import VLMClient
+
+        with patch("vlm.vlm_client.OpenAI") as openai:
+            VLMClient({"base_url": "x", "api_key": "k", "max_retries": 0})
+        assert openai.call_args.kwargs["max_retries"] == 0
+
+    def test_the_client_leaves_retries_to_the_sdk_by_default(self):
+        # Production behaviour is unchanged; only warmup opts out.
+        from unittest.mock import patch
+        from vlm.vlm_client import VLMClient
+
+        with patch("vlm.vlm_client.OpenAI") as openai:
+            VLMClient({"base_url": "x", "api_key": "k"})
+        assert "max_retries" not in openai.call_args.kwargs
+
+    def test_an_attempt_is_not_started_once_the_budget_is_gone(self):
+        import time
+        from unittest.mock import MagicMock, patch
+        import vlm.warmup as warmup
+
+        client = MagicMock()
+        client.analyze_local_video.side_effect = RuntimeError("cold")
+        with patch.object(warmup.time, "sleep"):
+            ok = warmup._send_warmup_inference(
+                client, "any.mp4", deadline=time.monotonic() - 1
+            )
+
+        assert ok is False
+        client.analyze_local_video.assert_not_called()
+
+    def test_retries_stop_when_the_budget_runs_out_midway(self):
+        import time
+        from unittest.mock import MagicMock, patch
+        import vlm.warmup as warmup
+
+        client = MagicMock()
+        client.analyze_local_video.side_effect = RuntimeError("cold")
+        # One reading per attempt: the first is inside the window, the next
+        # is past it.
+        clock = iter([0.0, 10.0, 10.0])
+        with patch.object(warmup.time, "monotonic", side_effect=lambda: next(clock)):
+            warmup._send_warmup_inference(client, "any.mp4", deadline=5.0)
+
+        assert client.analyze_local_video.call_count == 1, "kept retrying past the deadline"
+
+    def test_the_sleep_is_sized_after_the_request_not_before(self):
+        # The request can spend everything that was left; sleeping on the
+        # reading from before it carried the poll past its window on exactly
+        # the attempt that had none to spare.
+        from unittest.mock import patch
+        import vlm.warmup as warmup
+
+        # deadline=10; pass 1 sizes the request at t=0, the request runs to
+        # t=10, so the sleep must be zero rather than the full interval.
+        clock = iter([0, 0, 10, 10])
+        with patch.object(warmup.time, "monotonic", side_effect=lambda: next(clock)), \
+             patch.object(warmup.time, "sleep") as sleep, \
+             patch.object(warmup.requests, "get") as get:
+            get.return_value.status_code = 503
+            try:
+                warmup._poll_readiness("http://nim:8000/v1", timeout=10, interval=10)
+            except RuntimeError:
+                pass
+
+        assert sleep.call_args.args[0] == 0, sleep.call_args
+
+    def test_a_request_never_outlasts_the_window(self):
+        # Flooring the request at a second let it outlast the whole window
+        # when under a second remained.
+        from unittest.mock import patch
+        import vlm.warmup as warmup
+
+        clock = iter([0, 0.4, 0.4, 9])
+        with patch.object(warmup.time, "monotonic", side_effect=lambda: next(clock)), \
+             patch.object(warmup.time, "sleep"), \
+             patch.object(warmup.requests, "get") as get:
+            get.return_value.status_code = 503
+            try:
+                warmup._poll_readiness("http://nim:8000/v1", timeout=0.5, interval=1)
+            except RuntimeError:
+                pass
+
+        assert get.call_args.kwargs["timeout"] <= 0.5, get.call_args
+
+    def test_the_poll_request_is_capped_by_what_is_left(self):
+        from unittest.mock import patch
+        import vlm.warmup as warmup
+
+        with patch.object(warmup.time, "monotonic", side_effect=[0.0, 0.0]), \
+             patch.object(warmup.time, "sleep"), \
+             patch.object(warmup.requests, "get") as get:
+            get.return_value.status_code = 200
+            warmup._poll_readiness("http://nim:8000/v1", timeout=2, interval=10)
+
+        assert get.call_args.kwargs["timeout"] <= 2

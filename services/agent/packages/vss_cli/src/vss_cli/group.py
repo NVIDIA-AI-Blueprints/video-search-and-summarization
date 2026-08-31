@@ -123,6 +123,18 @@ class InvalidInput(click.ClickException):
         return f"[vss] invalid input: {self.message}"
 
 
+def requires_note(requires: frozenset[str]) -> str:
+    """The services a command calls, as a line for its help text.
+
+    Static, so it costs no probe and is true on any machine. Without it the
+    only way to learn a command needs Elasticsearch is to run it and read the
+    exit-4 -- fine as a diagnosis, poor as documentation.
+    """
+    if not requires:
+        return ""
+    return f"\n\nRequires: {', '.join(sorted(requires))} (see `vss configure show`)."
+
+
 def _exit_for(exc: Exception) -> Exit | None:
     """Map a library error to an exit code, or None to let it propagate.
 
@@ -133,9 +145,17 @@ def _exit_for(exc: Exception) -> Exit | None:
     """
     by_name = {
         "InvalidInputError": Exit.INVALID_INPUT,
+        "VIOSInvalidInputError": Exit.INVALID_INPUT,
+        "VIOSNotFoundError": Exit.NOT_FOUND,
+        "VIOSTimeoutError": Exit.TIMEOUT,
+        "NestedCollectionError": Exit.INVALID_INPUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
         "MemoryNotFoundError": Exit.NOT_FOUND,
         "BackendUnreachableError": Exit.BACKEND_UNREACHABLE,
+        # A stored document that will not decode is a real failure with nothing
+        # for the caller to correct, so it keeps exit 1 -- but as a sentence
+        # naming the document, not the pydantic traceback it would be unmapped.
+        "MemoryDecodeError": Exit.ERROR,
         "ConfigurationError": Exit.CONFIGURATION,
         "NoFinalResultError": Exit.PARTIAL,
         # The store translates connection and transport trouble, but a status
@@ -160,33 +180,38 @@ def _format_validation(exc: ValidationError) -> str:
     return "; ".join(parts)
 
 
-def _require_services(action: Action, ctx: Context) -> None:
-    """Fail before dispatch when the deployment lacks a service the action calls.
+def require_services(name: str, requires: frozenset[str], ctx: Context) -> None:
+    """Fail before dispatch when the deployment lacks a service the command calls.
 
     Checked here rather than inside each group so the diagnostic is uniform,
-    and checked per action so a deployment missing one optional service still
+    and checked per command so a deployment missing one optional service still
     serves the paths that never touch it.
+
+    Takes ``name``/``requires`` rather than an :class:`Action` so a surface
+    without the job grammar -- ``vss vios``, which is a click.Group of plain
+    commands -- reports a missing backend with the same wording as a group
+    that does.
     """
-    if not action.requires:
+    if not requires:
         return
     if ctx.deployment is None:
         if ctx.config_error:
-            raise config_mod.ConfigError(f"`{action.name}` needs a deployment: {ctx.config_error}")
+            raise config_mod.ConfigError(f"`{name}` needs a deployment: {ctx.config_error}")
         raise config_mod.ConfigError(
-            f"no deployment configured, and `{action.name}` needs "
-            f"{', '.join(sorted(action.requires))}. Run `vss configure --base-url <origin>` first."
+            f"no deployment configured, and `{name}` needs "
+            f"{', '.join(sorted(requires))}. Run `vss configure --base-url <origin>` first."
         )
-    missing = sorted(name for name in action.requires if not ctx.deployment.has(name))
+    missing = sorted(service for service in requires if not ctx.deployment.has(service))
     if missing:
         known = ", ".join(sorted(ctx.deployment.services)) or "(none)"
         raise config_mod.ConfigError(
-            f"`{action.name}` needs {', '.join(missing)}, which the deployment at "
+            f"`{name}` needs {', '.join(missing)}, which the deployment at "
             f"{ctx.deployment.base_url} does not expose; it has: {known}. "
             f"Re-run `vss configure --base-url {ctx.deployment.base_url}` if the deployment changed."
         )
 
 
-def _guarded(call: Callable[[], Result]) -> Result:
+def guarded(call: Callable[[], Result]) -> Result:
     """Run a verb, turning a typed library failure into its exit code.
 
     A typed failure is a diagnosis, not a crash. Without this a missing index
@@ -265,14 +290,14 @@ class CommandGroup(ABC):
     def memory(self, ctx: Context) -> Any:
         """The memory tier these verbs read, opened on first use.
 
-        Resolved here rather than in :func:`_context_from` so a command that
+        Resolved here rather than in :func:`context_from` so a command that
         never touches memory -- ``run --no-persist``, ``configure`` -- does not
         pay for the Elasticsearch import. An injected :attr:`Context.memory`
         wins, which is what lets tests run the read verbs against a store in
         the same process.
         """
         if ctx.memory is None:
-            ctx.memory = memory_mod.build(ctx.deployment, index=ctx.extra.get("memory_index"))
+            ctx.memory = memory_mod.build(ctx.deployment)
         return ctx.memory
 
     def status(self, job_id: str, ctx: Context) -> Result:
@@ -317,7 +342,7 @@ class CommandGroup(ABC):
         extra_names = {p.name for p in owner.extra_params if p.name}
 
         def callback(**values: Any) -> None:
-            ctx = _context_from(values)
+            ctx = context_from(values)
             ctx.extra = {k: v for k, v in values.items() if k in extra_names and v is not None and v != ()}
             payload = params_mod.collect(model, values)
             try:
@@ -327,7 +352,7 @@ class CommandGroup(ABC):
                 # report it as exit 2 with the offending fields named, rather
                 # than letting a pydantic traceback out as a generic exit 1.
                 raise InvalidInput(_format_validation(exc)) from exc
-            _require_services(action, ctx)
+            require_services(action.name, action.requires, ctx)
 
             def dispatch() -> Result:
                 try:
@@ -339,7 +364,7 @@ class CommandGroup(ABC):
                     # say). That is equally the caller's error, same exit 2.
                     raise InvalidInput(_format_validation(exc)) from exc
 
-            _emit(_guarded(dispatch), ctx)
+            emit(guarded(dispatch), ctx, marker_group=owner.name)
 
         return click.Command(
             name=action.name,
@@ -353,21 +378,20 @@ class CommandGroup(ABC):
             # The input model's docstring is the long help. Keeping the two
             # together means the description of what a path does lives beside
             # the fields it accepts, rather than drifting from them.
-            help=inspect.cleandoc(model.__doc__ or action.summary),
+            help=inspect.cleandoc(model.__doc__ or action.summary) + requires_note(action.requires),
         )
 
     def _handle_command(self, verb: str, fn: Any) -> click.Command:
         owner = self
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
-            _emit(_guarded(lambda: fn(values["job_id"], ctx)), ctx)
+            ctx = context_from(values)
+            emit(guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
             name=verb,
             params=[
                 click.Option(["--job-id"], required=True),
-                memory_mod.index_option(),
                 *params_mod.shared_options(),
             ],
             callback=callback,
@@ -404,13 +428,13 @@ class CommandGroup(ABC):
         )
 
         def callback(**values: Any) -> None:
-            ctx = _memory_context(values)
+            ctx = context_from(values)
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
-            _emit(_guarded(lambda: owner.list(selected, ctx)), ctx)
+            emit(guarded(lambda: owner.list(selected, ctx)), ctx)
 
         return click.Command(
             name="list",
-            params=[*filters, memory_mod.index_option(), *params_mod.shared_options()],
+            params=[*filters, *params_mod.shared_options()],
             callback=callback,
             short_help=f"List recent {owner.name} jobs, including in-flight.",
         )
@@ -419,11 +443,11 @@ class CommandGroup(ABC):
 # -- helpers ------------------------------------------------------------
 
 
-def _context_from(values: dict[str, Any]) -> Context:
+def context_from(values: dict[str, Any]) -> Context:
     """Assemble a Context from the shared flags, resolving the deployment.
 
     The recorded deployment is the only source of endpoints. When none is
-    recorded ``deployment`` is None, and :func:`_require_services` turns that
+    recorded ``deployment`` is None, and :func:`require_services` turns that
     into exit 4 naming the command that fixes it.
     """
     deployment: config_mod.Deployment | None
@@ -444,21 +468,44 @@ def _context_from(values: dict[str, Any]) -> Context:
     )
 
 
-def _memory_context(values: dict[str, Any]) -> Context:
-    """A Context for the read verbs, carrying the index they read from."""
-    ctx = _context_from(values)
-    if values.get("memory_index"):
-        ctx.extra["memory_index"] = values["memory_index"]
-    return ctx
+def _completion_marker(result: Result, group: str) -> dict[str, Any]:
+    """Build the compact, group-agnostic completion callback from one result."""
+    marker_data = result.extra.get("marker")
+    data = marker_data if isinstance(marker_data, dict) else {}
+    status = str(data.get("status") or "completed")
+    if status == "timeout":
+        event = "vss_job_timeout"
+    elif status == "failed":
+        event = "vss_job_failed"
+    else:
+        event = "vss_job_completed"
+    return {
+        "event": event,
+        "group": memory_mod.group_token(group),
+        "job_id": result.job_id,
+        "asset_id": data.get("asset_id"),
+        "status": status,
+        "persisted": bool(data.get("persisted", False)),
+        "exit_hint": int(result.exit),
+    }
 
 
-def _emit(result: Result, ctx: Context) -> None:
-    """Render a Result and carry its exit code out through Click."""
+def emit(result: Result, ctx: Context, *, marker_group: str | None = None) -> None:
+    """Render a Result, append the §7.2 marker, and carry its exit code."""
     import json
 
     if result.body is not None:
         pretty = bool(ctx.pretty)
         text = json.dumps(result.body, indent=2 if pretty else None, default=str)
+        click.echo(text)
+    if marker_group is not None and result.job_id:
+        marker = _completion_marker(result, marker_group)
+        text = json.dumps(marker, separators=(",", ":"), default=str)
+        if len(text.encode("utf-8")) > 1024:
+            marker["asset_id"] = None
+            text = json.dumps(marker, separators=(",", ":"), default=str)
+        if len(text.encode("utf-8")) > 1024:  # pragma: no cover - fixed fields are bounded
+            raise ValueError("completion marker exceeds 1 KB")
         click.echo(text)
     if result.exit != Exit.SUCCESS:
         raise SystemExit(int(result.exit))

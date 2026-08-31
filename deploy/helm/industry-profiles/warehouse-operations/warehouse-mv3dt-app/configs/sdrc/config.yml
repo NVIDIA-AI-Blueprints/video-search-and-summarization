@@ -1,3 +1,6 @@
+defaults:
+  WDM_XDS_GRPC_ADS_ENABLED: "true"
+
 k8s-workload-streamprocessing:
   wl_obj_name: vss-vios-streamprocessing
   port: 4005
@@ -62,6 +65,7 @@ k8s-workload-rtvi-cv:
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
   WDM_KFK_ENABLE: true
+  WDM_KFK_BOOTSTRAP_URL: kafka-kafka:9092
   WDM_PRELOAD_DELAY_FOR_DS_API: false
   WDM_MS_LISTENER_PORT: 10001
   WDM_TARGET_PORT_MAPPING: '{"default": 9000}'

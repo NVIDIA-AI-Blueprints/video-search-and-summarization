@@ -252,6 +252,11 @@ class NvLLOverlayInternal
             } translationToGlobalCoordinates;    // Translation to global coordinates
         } CalibrationData;
 
+        // A 3D cuboid can only be projected onto a camera image when every
+        // corner is in front of that camera's near plane.
+        static bool areAllPointsInFrontOfCamera(const vector<Point3D>& points,
+                                                 const CalibrationData& calibrationData);
+
         // Map of object id to object type, corners, and confidence
         std::map<string, std::tuple<string, vector<Point2D>, double>, std::less<>> activeObjectCorners;
         std::map<std::string, ProximityState, std::less<>> proximityStates;

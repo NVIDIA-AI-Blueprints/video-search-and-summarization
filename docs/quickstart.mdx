@@ -1,0 +1,692 @@
+---
+title: "Quickstart"
+description: ""
+position: 2
+---
+## Overview
+
+**Deploy a vision agent in 10 minutes**
+
+This guide will walk you through the steps to deploy a vision agent using the VSS Blueprint. You'll
+create a simple vision agent that you can upload videos to, ask questions about the videos, and generate reports.
+Afterwards, you can explore adding agent workflows such as video summarization, search, and alerting.
+
+<Note>
+**Before you start:** Use `28.3.3 <= Docker Engine < 29.5.0`.
+Unsupported Docker Engine versions can fail when pulling some NGC-hosted image tags.
+See [prerequisites](/prerequisites) for Docker setup and the supported version band.
+</Note>
+
+The following diagram illustrates a conceptual architecture of the base vision agent that you'll deploy:
+
+![Base Vision Agent Architecture](/assets/images/agent-workflows/profile-base-arch.png)
+
+**Key Features of the Base Vision Agent:**
+
+- Upload videos to a video management system and connect the agent to it through the MCP service.
+- Report generation tool which utilizes a LLM and VLM to generate reports from the videos.
+- Video understanding tool which utilizes a VLM to perform video understanding tasks, such as Q&A.
+
+## What's being deployed
+
+- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`), which handles query routing, reasoning, and report generation.
+- **VSS Agent UI:** Web UI with chat, video upload, and different views
+- **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
+- **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
+- **Cosmos3 Nano Reasoner (NIM):** Vision-language model with physical reasoning capabilities
+- **Phoenix:** Observability and telemetry service for agent workflow monitoring
+
+## Agent Harness Options
+
+The default VSS Agent is built on the **NVIDIA NeMo Agent Toolkit (NAT)** and is the recommended way to interact with VSS. However, the underlying VSS microservices (Video Analytics MCP, VSS Orchestrator MCP, VST/VIOS, Video Analytics API) are framework-agnostic, so you can also drive them from other agent harnesses. The table below compares the supported options.
+
+| Harness | What it is | Pros | Cons |
+| --- | --- | --- | --- |
+| **NeMo Agent Toolkit (NAT)** — VSS Agent (default) | The shipped reference agent (`services/agent`). YAML-driven workflow with built-in MCP client, function groups, FastAPI front-end, and Phoenix telemetry. Powers the Reference Agentic UI via `/chat/stream` and `/generate/stream` endpoints. See [VSS Agents ](/VSS-Agents). | Native NIM and MCP integration out of the box; declarative `config.yml` for tools, sub-agents, and prompts; first-class sub-agent hierarchy (`report_agent`, `multi_report_agent`); built-in Phoenix tracing; UI compatibility guaranteed. | YAML can become verbose for highly custom flows; tied to NAT's runtime model. |
+| **NemoClaw (OpenClaw sandbox)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server ](/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw ](/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP ](/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP ](/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
+| **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API ](/video-analytics-api) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
+
+<Note>
+These harnesses are **not mutually exclusive**. A common pattern is to run the default NAT-based VSS Agent for end-user chat, while a separate service (NemoClaw, a custom MCP client, or a REST integration) handles deployment automation or back-office workflows against the same VSS microservices.
+</Note>
+
+## Prerequisites
+
+Before you begin, ensure all of the prerequisites are met. See [prerequisites](/prerequisites) for more details.
+
+## Download Sample Data and Deployment Package
+
+### Configure NGC Access
+
+<Note>
+Before proceeding, ensure that NGC CLI is installed on your system. For installation instructions, see [Install NGC CLI](/prerequisites#install-ngc-cli) in the Prerequisites.
+</Note>
+
+### Download Sample Data From NGC
+
+Perform this on the machine from which you may use the web-browser.
+
+This can be done using NGC CLI as documented below, or downloaded from the NGC UI directly.
+
+The `nvidia/vss-developer/dev-profile-sample-data` resource requires authenticated
+NGC CLI access with an org selected. If you see `Artifact is not Guest accessible`
+or `Missing org`, configure NGC with an API key and org before retrying.
+See [Prerequisites ](/prerequisites) for NGC setup.
+
+```bash
+# Download sample data
+ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0
+
+EXTRACT_DIR=./sample-data
+mkdir -p "${EXTRACT_DIR}"
+tar -xf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz -C "${EXTRACT_DIR}"
+
+rm -rf dev-profile-sample-data_v3.2.0
+```
+
+### Download the Deployment Package
+
+Perform this on the machine where you intend to deploy the agent.
+
+<Note>
+**Git LFS required:** The repository uses Git LFS for large files. Install it before cloning or pulling. For example, on Ubuntu/Debian: `sudo apt-get install git-lfs`. On other systems, see [Git LFS installation](https://git-lfs.com/).
+</Note>
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git checkout tags/v3.2.1
+git lfs install
+git lfs pull
+```
+
+## Deploy
+
+### Step 1: Deploy the Agent
+
+<Note>
+- Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/prerequisites#ngc-hugging-face-api-keys).
+- Refer to [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) and [VSS-Agent-Customization-configure-vlm ](/vss-agent/configure-vlm) for all LLM and VLM (local and remote) configuration options.
+- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss-agent/configure-vlm).
+- For advanced settings and Agent Customization, see the deploy command help.
+</Note>
+
+```bash
+# Set NGC CLI API key and Hugging Face access token (HF_TOKEN)
+export NGC_CLI_API_KEY='<your-ngc-api-key>'
+export HF_TOKEN='<hf-token>'
+
+# View all available options
+deploy/docker/scripts/dev-profile.sh --help
+```
+
+Select a hardware tab, then a deployment mode. **Shared GPU** runs the LLM and VLM NIMs on the same GPU; **Dedicated GPU** assigns each model its own GPU (via `--llm-device-id` and `--vlm-device-id`).
+
+<Tabs>
+<Tab title="H100">
+</Tab>
+<Tab title="Shared GPU">
+
+``bash
+
+</Tab>
+<Tab title="Dedicated GPU">
+
+``bash
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H H100 --llm-device-id 0 --vlm-device-id 1
+
+</Tab>
+<Tab title="Remote LLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H H100 --use-remote-llm
+
+</Tab>
+<Tab title="Remote VLM">
+
+``bash
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H H100 --use-remote-vlm
+
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H H100 --use-remote-llm --use-remote-vlm
+
+</Tab>
+<Tab title="RTXPRO6000BW">
+</Tab>
+<Tab title="Shared GPU">
+
+``bash
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H RTXPRO6000BW
+
+</Tab>
+<Tab title="Dedicated GPU">
+
+``bash
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H RTXPRO6000BW --llm-device-id 0 --vlm-device-id 1
+
+</Tab>
+<Tab title="Remote LLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H RTXPRO6000BW --use-remote-llm
+
+</Tab>
+<Tab title="Remote VLM">
+
+``bash
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H RTXPRO6000BW --use-remote-vlm
+
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H RTXPRO6000BW --use-remote-llm --use-remote-vlm
+
+</Tab>
+<Tab title="L40S">
+</Tab>
+<Tab title="Dedicated GPU">
+
+``bash
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H L40S --llm-device-id 0 --vlm-device-id 1
+
+</Tab>
+<Tab title="Remote LLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H L40S --use-remote-llm
+
+</Tab>
+<Tab title="Remote VLM">
+
+``bash
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H L40S --use-remote-vlm
+
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H L40S --use-remote-llm --use-remote-vlm
+
+</Tab>
+<Tab title="SPARK">
+</Tab>
+<Tab title="Remote LLM">
+See [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) for remote LLM endpoint options,
+and [edge-deployment](/edge-deployment) for this particular setup.
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H DGX-SPARK --use-remote-llm
+
+</Tab>
+<Tab title="IGX-THOR">
+</Tab>
+<Tab title="Remote LLM">
+See [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) for remote LLM endpoint options,
+and [edge-deployment](/edge-deployment) for this particular setup.
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H IGX-THOR --use-remote-llm
+
+</Tab>
+<Tab title="AGX-THOR">
+</Tab>
+<Tab title="Remote LLM">
+See [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) for remote LLM endpoint options,
+and [edge-deployment](/edge-deployment) for this particular setup.
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H AGX-THOR --use-remote-llm
+
+</Tab>
+<Tab title="OTHER">
+See [Local LLM and VLM deployments on OTHER hardware](/faq) for known limitations and constraints.
+
+</Tab>
+<Tab title="Shared GPU">
+
+``bash
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H OTHER [ --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env ]
+
+</Tab>
+<Tab title="Dedicated GPU">
+
+``bash
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H OTHER --llm-device-id 0 --vlm-device-id 1 [ --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env ]
+
+</Tab>
+<Tab title="Remote LLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H OTHER --use-remote-llm [ --vlm-env-file /path/to/vlm.env ]
+
+</Tab>
+<Tab title="Remote VLM">
+
+``bash
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H OTHER --use-remote-vlm [ --llm-env-file /path/to/llm.env ]
+
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+``bash
+export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
+export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
+
+# deploy/docker/scripts/dev-profile.sh up -p base -H OTHER --use-remote-llm --use-remote-vlm
+
+</Tab>
+</Tabs>
+
+This command will download the necessary containers from the NGC Docker registry and start the agent. Depending on
+your network speed, this may take a few minutes.
+
+**This deployment uses the following defaults:**
+
+- Host IP: src IP from `ip route get 1.1.1.1`, which is the default IP address for the agent.
+
+**Override IP than the one derived:**
+
+- `-i`: Manually specify the host IP address.
+- `-e` / `--external-ip`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host. For VSS on a **cloud** machine, this flag is **required** — pass the instance's external IP (for example, its public address).
+
+<Note>
+When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+</Note>
+
+<Note>
+**Switch Agent Workflows:** You can deploy different agent workflows by changing the `-p` (profile) argument. For alerts, also specify `-m` (mode):
+
+- `base`: Base vision agent (this quickstart)
+- `lvs`: [Video Summarization Workflow](/agent-workflow-lvs#step-1-deploy-the-agent)
+- `search`: [Search Workflow](/agent-workflow-search#step-1-deploy-the-search-agent)
+- `alerts`: Alert workflows (requires `-m verification` or `-m real-time`)
+
+  - [Alert Verification Workflow](/agent-workflow-alert-verification#step-1-deploy-the-agent) — use `-m verification`
+  - [Real-Time Alert Workflow](/agent-workflow-rt-alert#step-1-deploy-the-agent) — use `-m real-time`
+</Note>
+
+Once the deployment is complete, check that all the containers are running and healthy:
+
+```bash
+docker ps
+```
+
+Once all the containers are running, you can access the agent UI at `http://<HOST_IP>:7777/`.
+
+#### If the UI Doesn't Load
+
+If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
+
+1. Check the VSS Agent health endpoint:
+
+   ```bash
+   HOST_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
+   curl -fsS "http://${HOST_IP}:8000/health"
+   ```
+
+2. Confirm the expected base-profile containers are running and healthy:
+
+   ```bash
+   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+   ```
+
+   Look for the VSS Agent, VSS Agent UI, VIOS/VST, Nemotron LLM, Cosmos3 Reasoner
+   NIM, and Phoenix containers.
+
+3. If containers are unhealthy or certain services are unresponsive, check the corresponding
+   container logs for startup, or configuration errors.
+
+4. If containers are healthy but the UI or workflow is still unavailable, check
+   whether the host firewall is blocking container-to-host traffic. See
+   [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
+
+5. If the `cosmos3-reasoner` container stopped or crashed **in shared GPU
+   mode**, redeploy the full blueprint instead of restarting only that container.
+   With dedicated GPUs, restarting the container is sufficient. See
+   [Agent Known Issues](/vss-agent/VSS-Agent-Known-Issues).
+
+#### Deploy with Agent Skills
+
+As an alternative to running the deployment command manually, you can use VSS
+Agent Skills from a coding agent such as Claude Code, Codex, or NemoClaw.
+For the complete prompt flow (deploy, upload, ask, report, teardown), see
+[Agent Skills walkthrough](/quickstart#agent-skills-walkthrough) below.
+
+### Step 2: Upload a video
+
+In the chat interface, drag and drop the video `warehouse_safety_0001.mp4` into the chat window.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_upload_video_1.png" alt="New chat window" />
+</Frame>
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_upload_video_2.png" alt="Upload success popup" />
+</Frame>
+
+Once the video is uploaded, the agent will respond with the playback clip.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_upload_video_3.png" alt="Video uploaded" />
+</Frame>
+
+### Step 3: Ask the Agent questions
+
+You can now ask the agent questions about the video. Here is an example:
+
+```bash
+Is the worker wearing PPE?
+```
+
+The agent will show the intermediate steps of the agent's reasoning while the response is being generated and then output the final answer.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_ppe.png" alt="Query: Is the worker wearing PPE?" />
+</Frame>
+
+Follow up questions can be asked, for example:
+
+```bash
+When did the worker climb up the ladder?
+```
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_climb_ladder.png" alt="Query: When did the worker climb up the ladder?" />
+</Frame>
+
+Other examples of general supported queries include:
+
+- List all available sensors
+- Fetch the video for `<sensor-id>` or `<video-file-name>`
+- Take a snapshot of `<sensor-id>` or `<video-file-name>` at `<timestamp>`
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_sensor_list.png" alt="Query: List all available sensors" />
+</Frame>
+
+### Step 4: Generate a report
+
+You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
+
+```bash
+Can you generate a report for this video?
+```
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_report.png" alt="Query: Can you generate a report for this video?" />
+</Frame>
+
+#### Human in the loop (HITL) prompt editing:
+
+When generating a report, the agent will prompt the user to review the vlm prompt for report generation.
+This allows the user to edit the vlm prompt for report generation to improve the specificity and accuracy of the report.
+
+![Human in the loop prompt-editing flow diagram](/assets/images/agent-workflows/base_hitl_diagram.png)
+
+The HITL options for prompt-editing include:
+
+1. Press Submit (empty) → Approve and generate report
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_popup.png" alt="HITL: Approve and generate report" />
+</Frame>
+
+2. Type a new prompt directly or paste current prompt and edit it manually
+3. Type `/generate <description>`: LLM creates a prompt based on the description
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_generate.png" alt="HITL: Generate new prompt based on description" />
+</Frame>
+
+4. Type `/refine <instructions>`: LLM modifies the current prompt based on the description
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_refine.png" alt="HITL: Refine the existing prompt based on description" />
+</Frame>
+
+5. Type `/cancel` → Cancel report generation
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_cancelled.png" alt="HITL: LLM-refined prompt result" />
+</Frame>
+
+After the prompt is edited using LLM, the user can review the prompt once more and make more edits or approve.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_refine_result.png" alt="HITL: LLM-refined prompt result" />
+</Frame>
+
+For any video clip, a report can be generated and then follow-up questions can be asked about the report or video content. Here is what this may look like:
+
+1. Can you generate a report for `<sensor-id>` or `<video-file-name>`
+2. Follow up questions (Example: If the report mentions a truck at 0:05, you may ask: "What color was the truck at 0:05?")
+3. Give me a snapshot of the video at `<timestamp>`.
+
+<Note>
+The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated reports are accessible at
+`http://<HOST_IP>:8000/static/agent_report_<DATE>.md` and `http://<HOST_IP>:8000/static/agent_report_<DATE>.pdf`. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
+`vss-agent` container restarts. To persist reports, enable `save_local_copy` in the agent configuration and
+mount a host directory as a Docker volume. For details, refer to [Report Generation ](/vss-agent/vss-agent-report-generation).
+</Note>
+
+### Step 5: Teardown the Agent
+
+To teardown the agent, run the following command:
+
+```bash
+deploy/docker/scripts/dev-profile.sh down
+```
+
+This command will stop and remove the agent containers.
+
+## Service Endpoints
+
+Once deployed, the following services are available:
+
+| Service | URL |
+| --- | --- |
+| VSS UI | `http://<HOST_IP>:7777` |
+| VST UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
+| Phoenix UI | `http://<HOST_IP>:7777/phoenix/projects` |
+
+## Agent Skills walkthrough
+
+The steps above drive the base vision agent through the UI and the
+`dev-profile.sh` command. This section re-walks the same journey — deploy,
+upload, ask, report, tear down — using a coding agent (Claude Code, Codex, or
+NemoClaw) and the VSS [Agent Skills](/agent-skills) instead. For each skill
+it documents the **example prompt** you give the agent and **what the agent
+does** in response.
+
+This walkthrough is written for developers and users who want to operate VSS
+from natural language.
+
+<Note>
+Install the skills into your coding agent first (see [Agent Skills](/agent-skills) for the install flow) and confirm your host meets the
+[Prerequisites ](/prerequisites). For how each harness loads skills, see
+[Agent Harnesses ](/agent-harnesses).
+</Note>
+
+The base profile journey exercises four skills:
+
+| Quickstart step | Skill | What it does |
+| --- | --- | --- |
+| Deploy the agent (Step 1) | `vss-deploy-profile` | Configures and brings up the base Docker Compose stack. |
+| Upload a video (Step 2) | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
+| Ask questions (Step 3) | `vss-ask-video` | Asks the VLM a text question directly through `chat/completions`, on a VIOS clip or a video you supply. |
+| Generate a report (Step 4) | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
+| Tear down (Step 5) | `vss-deploy-profile` | Stops and removes the stack. |
+
+### Deploy the base profile
+
+**Example prompts**
+
+```text title="Example prompts"
+Deploy the VSS base profile on this machine.
+Deploy VSS base with a remote LLM at https://integrate.api.nvidia.com.
+```
+
+<Note>
+On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
+supported, but a remote LLM is recommended for better response time — add
+"with a remote LLM" to the prompt (for example, *"Deploy the VSS base profile
+on this DGX-SPARK machine with a remote LLM."*). See
+[Configure LLM ](/vss-agent/configure-llm) for endpoint options.
+</Note>
+
+The deploy skill chooses the `<platform>` and `<mode>` to match your host,
+as documented in [Development Profile GPU Requirements](/prerequisites#development-profile-gpu-requirements).
+
+**What the agent does:**
+
+1. Loads the `vss-deploy-profile` skill for the `base` profile.
+2. Collects the required deployment context (repo path, GPU hardware,
+   local/remote LLM-VLM mode, credentials, and host/ingress settings) and asks
+   for anything missing.
+3. Runs pre-flight checks and credential validation before deployment.
+4. Creates a working `generated.env` from the checked-in `.env` defaults.
+5. Generates and validates a dry-run compose plan (`resolved.yml`), then
+   shows a review summary (services, model placement, and key endpoints).
+6. Waits for your confirmation before starting containers.
+7. Deploys with `up -d` and waits for readiness gates (container state and
+   core health checks).
+8. Returns a browser-reachable ingress URL (for example
+   `http://<HOST_IP>:7777/`) for opening the UI.
+
+The base defaults are the `nvidia/nvidia-nemotron-nano-9b-v2` LLM NIM (port
+`30081`) and the `nvidia/cosmos3-nano-reasoner` VLM NIM (port `30082`). To use
+a different model or a remote endpoint, name it in the prompt and the agent
+sets `LLM_MODE` / `VLM_MODE` accordingly.
+
+### Upload a video and manage storage
+
+**Example prompts**
+
+```text title="Example prompts"
+Upload the sample video warehouse_safety_0001.mp4 from the sample-data directory to VSS.
+List all available sensors.
+Take a snapshot of warehouse_safety_0001 at 0:05.
+```
+
+**What the agent does:**
+
+1. Loads the `vss-manage-video-io-storage` skill, which drives the Video IO &
+   Storage (VIOS / VST) microservices.
+2. For an upload, it uploads the file via HTTP PUT to VST and confirms a sensor
+   is registered for it.
+3. For "list sensors," it queries the VIOS sensor list and returns the
+   registered sensors and file names.
+4. For snapshots, clips, or recording timelines, it calls the matching VIOS
+   endpoint at the requested timestamp/range and returns the artifact.
+
+### Ask questions about the video
+
+**Example prompts**
+
+```text title="Example prompts"
+Is the worker in warehouse_safety_0001 wearing PPE?
+```
+
+**What the agent does:**
+
+1. Loads the `vss-ask-video` skill.
+2. Resolves the video — the clip URL for a named sensor from VIOS, or a file or
+   link you supply — and the VLM endpoint and model, which it reads from the
+   running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
+3. Sends the question and the video to the VLM in a single
+   `POST <vlm-endpoint>/v1/chat/completions` call — the Cosmos VLM NIM on port
+   `30082` for the base profile, RT-VLM for the `lvs` and `alerts`
+   profiles. (Does **not** go through the VSS agent — neither its
+   `video_understanding` tool nor its `/generate` endpoint.)
+4. Returns a grounded natural-language answer. Follow-up questions are
+   supported in the same thread.
+
+<Note>
+Because the skill talks to the VLM itself, a run leaves no trace in the VSS
+agent's logs — look at the VLM service when you want to inspect one. The
+agent's own `video_understanding` tool does frame-level VLM analysis and is
+what the VSS UI and the NAT agent workflows call; for that tool and its
+parameters, see [Agent Configuration ](/vss-agent/VSS-Agent-Configuration).
+</Note>
+
+### Generate a report
+
+**Example prompt**
+
+```text title="Example prompt"
+Generate a report for warehouse_safety_0001.
+```
+
+**What the agent does:**
+
+1. Loads the `vss-generate-video-report` skill.
+2. Resolves the clip URL through `vss-manage-video-io-storage`, calls the selected VLM, and renders the markdown report from that output. (Does **not** use the VSS agent `/generate` endpoint.)
+3. Returns the rendered markdown report to the user.
+
+### Tear down the deployment
+
+**Example prompt**
+
+```text title="Example prompt"
+Tear down the VSS deployment.
+```
+
+**What the agent does:**
+
+1. Loads the `vss-deploy-profile` skill and runs its teardown flow
+   (`docker compose -f resolved.yml down`).
+2. When switching profiles, it also clears stale data volumes before any
+   redeploy.
+
+## Next steps
+
+Once you've familiarized yourself with the base vision agent, you can test other videos and explore adding agent workflows,
+such as video summarization, search, and alerting.
+
+Additionally, you can dive deeper into the agent tools for [report generation ](/vss-agent/vss-agent-report-generation), video understanding, and video management.
+
+### Known Issues
+
+For current agent limitations, see [Agent Known Issues](/vss-agent/VSS-Agent-Known-Issues).

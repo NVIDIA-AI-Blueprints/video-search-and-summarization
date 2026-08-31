@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps.nvidia.com/v1alpha1
+kind: NIMCache
+metadata:
+  name: {{ include "nemotron35.fullname" . }}
+  labels:
+    {{- include "nemotron35.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/resource-policy": keep
+spec:
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  source:
+    ngc:
+      modelPuller: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+      pullSecret: {{ .Values.global.pullSecretName | quote }}
+      authSecret: {{ .Values.global.authSecretName | quote }}
+      model:
+        engine: "vllm"
+        tensorParallelism: {{ index .Values.resources.limits "nvidia.com/gpu" | default "1" | quote }}
+  storage:
+    pvc:
+      storageClass: {{ include "nemotron35.storageClass" . | quote }}
+      create: true
+      size: {{ .Values.storage.pvc.size | quote }}
+      volumeAccessMode: ReadWriteOnce
+  resources: {}

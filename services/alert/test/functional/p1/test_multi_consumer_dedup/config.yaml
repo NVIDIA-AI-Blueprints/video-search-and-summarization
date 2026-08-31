@@ -88,7 +88,6 @@ alert_agent:
   max_allowed_stream_size: 2
   default_stream_interval: 1
   vst_pass_through_mode: false
-  chunk_size: 1
   event_filters:
     dedup_ttl_seconds: 60
     end_time_in_dedup_key_categories: []

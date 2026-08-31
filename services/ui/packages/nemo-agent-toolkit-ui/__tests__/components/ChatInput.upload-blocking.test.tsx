@@ -50,6 +50,7 @@ function createContextValue(stateOverrides: Record<string, unknown> = {}) {
       chatUploadFileEnabled: true,
       chatInputMicEnabled: false,
       agentApiUrlBase: 'https://agent.example.com/api/v1',
+      vstApiUrl: 'https://vst.example.com/vst/api',
       chatUploadFileConfigTemplateJson: null,
       chatUploadFileMetadataEnabled: false,
       chatUploadFileHiddenMessageTemplate: '',

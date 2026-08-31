@@ -24,7 +24,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls and model inference |
 | VSS Agent UI | `vss-agent-ui` | 3000 | Web UI — chat, video upload, views |
 | VST Ingress | `vss-vios-ingress` | 30888 | Video storage + ingest |
-| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
+| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Nemotron 3.5 Lightning is the LVS default. Container name = `${LLM_NAME_SLUG}`. |
 | **RT-VLM** | **`vss-rtvi-vlm`** | **8018** | **VLM runner — loads `MODEL_PATH` or proxies remote** |
 | LVS service | `vss-lvs` | 38111, 38112 | Long-video segmentation + summarization |
 | Shared Logstash | `logstash` | 9600 | Loads the `mdx-lvs` RTVI → Kafka → ES pipeline |
@@ -54,12 +54,12 @@ This prevents a deploy from passing when the local LLM NIM is down.
 
 | Role | `*_NAME` (env) | `*_NAME_SLUG` | Served by |
 |---|---|---|---|
-| LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
+| LLM | `nvidia/nemotron-3.5-lightning-30b-a3b` | `nemotron-3.5-lightning-30b-a3b` | NIM (port 30081) |
 | VLM | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | `none` | RT-VLM (port 8018), `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 
 > **`VLM_NAME` must be the basename of `RTVI_VLM_MODEL_PATH` — NOT the friendly NIM name.** RT-VLM advertises this exact string in `/v1/models`, and the LVS service / agent calls the model by that id. Setting `VLM_NAME=nvidia/cosmos3-nano-reasoner` (the friendly NIM name) reproduces the same class of `400 BadParameters: No such model` failure. **Always set `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default integrated path.** Same caveat as `alerts.md`.
 
-LLM alternates: same as base — `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` (DGX Spark only; see `edge.md`), `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
+Local LVS deployments default to `nvidia/nemotron-3.5-lightning-30b-a3b`. LLM alternates are the same as base — `nvidia/nvidia-nemotron-nano-9b-v2`, `NVIDIA-Nemotron-Nano-9B-v2-FP8`, `nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark` (DGX Spark only; see `edge.md`), `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`.
 
 VLM alternates: see [VLM serving paths](#vlm-serving-paths) below.
 

@@ -97,9 +97,11 @@ test -d "${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet" || { echo "ERROR: missing B
 test -f "${APP_DATA_DIR}/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx" || { echo "ERROR: missing release-compatible RT-DETR model: ${APP_DATA_DIR}/models/mtmc/rtdetr_warehouse_v1.0.2.fp16.onnx" >&2; exit 1; }
 test -f "${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet/bodypose3dnet_accuracy.onnx" || { echo "ERROR: missing BodyPose3DNet ONNX model: ${APP_DATA_DIR}/models/mv3dt/BodyPose3DNet/bodypose3dnet_accuracy.onnx" >&2; exit 1; }
 test -d "${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic" || { echo "ERROR: missing sample videos under ${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic" >&2; exit 1; }
+echo "Validated sample model files and video directory under ${APP_DATA_DIR}"
 
 export MODELS_DIR="${APP_DATA_DIR}/models"
 export VIDEO_DIR="${APP_DATA_DIR}/videos/warehouse-4cams-20mx20m-synthetic"
+echo "Sample VIDEO_DIR=${VIDEO_DIR}"
 ```
 
 For registry-image access, also log in to `nvcr.io` if needed before Compose pulls the RT-CV-3D images:
@@ -157,11 +159,11 @@ After the bundled preflight has exported/persisted the selected broker values, c
 
 For a generic sample request such as "deploy MV3DT on the sample dataset", do not force saved output before probing display availability. Use the display probe in `references/configure-cameras.md` first:
 
-- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both the `DeepStreamTest5App` camera grid and `Bird-Eye View of Multi-View 3D Tracking` BEV windows can render.
+- If a working display is found and the user did not ask to save, stage `INPUT_MODE=file OSD=1 SAVE_VIDEO=0`, set `BEV_SAVE_VIDEO=0 BEV_SOURCE=fused`, and start live fused BEV before perception so both the `DeepStreamTest5App` camera grid and `Bird-Eye View of Multi-View 3D Tracking` BEV windows can render. After file EOS, finalize live BEV by asking the user to press `q` in the BEV window, or safely stop only the tracked current-run BEV PID through the teardown identity checks for unattended closeout.
 - If no working display is found, state the probe result and use the saved fallback: stage `INPUT_MODE=file OSD=0 SAVE_VIDEO=1`, set `BEV_SAVE_VIDEO=1 BEV_SOURCE=fused`, and verify saved grid plus fused BEV artifacts.
 - If the user explicitly asked to save, stage with `SAVE_VIDEO=1` even when display is available; use `OSD=1 SAVE_VIDEO=1` only when the user asked for both live and saved output.
 
-For any sample file-input run that uses live or saved BEV, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV visualizer/recorder in the same long-lived shell/session, wait for its Kafka consumer group assignment, verify the PID is still alive, then start `perception` and keep that session alive through EOS/finalization.
+Before any sample run with saved output or BEV, run `references/deploy-rtvi-cv-3d-stack.md` `Selected Output Tool Preflight`; that is the explicit `ffprobe` check plus BEV visualizer Python import check for OpenCV, Kafka, NumPy, and YAML. For any sample file-input run that uses live or saved BEV, use the two-phase BEV launch from `references/deploy-rtvi-cv-3d-stack.md`: start bundled brokers and `bev-fusion`, capture Kafka baselines, start the fused BEV visualizer/recorder in the same long-lived shell/session, wait for its Kafka consumer group assignment, verify the PID is still alive, then start `perception` and keep that session alive through EOS/finalization.
 
 ## Verify Sample Run
 

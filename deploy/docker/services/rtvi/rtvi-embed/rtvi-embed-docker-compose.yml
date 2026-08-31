@@ -17,8 +17,9 @@
 
 services:
   rtvi-embed:
-    # for release, change this to the versioned image from the registry
-    image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.3.0-26.08.1}
+    # SBSA/DGX-Spark uses the same GHCR repository with
+    # VSS_RT_EMBED_TAG=develop-latest-sbsa.
+    image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-develop-latest}
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]

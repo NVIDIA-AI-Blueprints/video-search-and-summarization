@@ -16,7 +16,6 @@ from vss_core.memory.adapters import get_adapter
 from vss_core.memory.adapters import register_adapter
 from vss_core.memory.adapters import utc_now_iso
 from vss_core.memory.backends.in_memory import InMemoryStore
-from vss_core.memory.models import FORBIDDEN_EXT_COLLECTIONS
 from vss_core.memory.models import SCHEMA_ID
 from vss_core.memory.models import MemoryGroup
 from vss_core.memory.models import MemoryInput
@@ -25,12 +24,13 @@ from vss_core.memory.models import SensorInfo
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryNotFoundError
 from vss_core.memory.service import MemoryService
+from vss_core.memory.service import NestedCollectionError
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
 from vss_core.memory.store import make_storage_id
 from vss_core.memory.store import storage_id_for
-from vss_core.search_core.memory_adapter import SearchAdapter
 
+from .group_adapters import SearchAdapter
 from .group_adapters import SummaryAdapter
 from .group_adapters import alert_incident_bundle
 
@@ -231,21 +231,21 @@ def test_inline_vectors_rejected() -> None:
         MemoryOutput.model_validate({"embedding": [{"vector": [0.1, 0.2]}]})
 
 
-def test_media_group_accepted() -> None:
-    record = UnifiedMemoryRecord.model_validate(
-        {
-            "schema": SCHEMA_ID,
-            "job": {
-                "job_id": "media-1",
-                "group": "media",
-                "operation": "run",
-                "status": "completed",
-                "created_at": "2026-07-22T12:00:00Z",
-            },
-            "output": {"handles": {"media_urls": ["https://x/clip.mp4"]}, "ext": {"kind": "clip"}},
-        }
-    )
-    assert record.job.group == "media"
+def test_media_group_rejected() -> None:
+    with pytest.raises(ValidationError):
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": SCHEMA_ID,
+                "job": {
+                    "job_id": "media-1",
+                    "group": "media",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+                "output": {"handles": {"media_urls": ["https://x/clip.mp4"]}, "ext": {"kind": "clip"}},
+            }
+        )
 
 
 def test_unknown_group_rejected() -> None:
@@ -264,19 +264,24 @@ def test_unknown_group_rejected() -> None:
         )
 
 
-def test_nested_ext_collections_rejected() -> None:
-    """Parent/child writers must not nest complete collections in ``output.ext``.
+@pytest.mark.parametrize("collection", ["events", "results", "incidents"])
+def test_nested_ext_collections_rejected_on_write(collection: str) -> None:
+    record = _parent(output={"answer": "a", "ext": {collection: [{"id": "x1"}]}})
+    with pytest.raises(NestedCollectionError):
+        MemoryService(InMemoryStore()).upsert(record)
 
-    Hard schema rejection is deferred until the command-group PR migrates
-    develop's summarize CLI off nested ``events`` and restores the validator.
-    Until then, adapters under test still prove the parent/child shape by
-    omitting those keys (see ``test_summary_bundle_three_events_no_nested_ext``).
+
+@pytest.mark.parametrize("collection", ["events", "results", "incidents"])
+def test_nested_ext_collections_readable(collection: str) -> None:
+    """Records written before children existed must still load.
+
+    The invariant belongs to the write path. Enforcing it during validation
+    made a document written by an earlier version unreadable, which took out
+    every read verb that happened to page over one.
     """
-    # Soft check: constructing with nested keys is still accepted during the
-    # transitional window, but the documented forbid set names the contract.
-    assert frozenset({"events", "results", "incidents"}) == FORBIDDEN_EXT_COLLECTIONS
-    nested = MemoryOutput.model_validate({"ext": {"events": [{"id": "e1"}]}})
-    assert "events" in (nested.ext or {})
+    record = _parent(output={"answer": "a", "ext": {collection: [{"id": "x1"}]}})
+    assert record.output is not None
+    assert record.output.ext == {collection: [{"id": "x1"}]}
 
 
 def test_record_id_rejects_hash_delimiter() -> None:
@@ -598,8 +603,8 @@ def test_parent_lifecycle_preserves_created_at() -> None:
 def test_events_from_child_documents_not_nested_ext() -> None:
     store = InMemoryStore()
     service = MemoryService(store)
-    # Poison parent with nested ext — model forbids it, so inject via store bypass
-    # by using a parent without nested collections and a separate child.
+    # Events come from child documents, so the parent carries none: recall must
+    # not depend on a nested ext copy that the write path refuses to store.
     store.upsert(_parent())
     store.upsert(_child(record_id="evt-001", timestamp="2026-07-22T10:00:00Z", answer="early"))
     store.upsert(_child(record_id="evt-002", timestamp="2026-07-22T11:00:00Z", answer="late"))
@@ -763,19 +768,20 @@ def test_upsert_bundle_counts_distinct_storage_ids_on_child_collision() -> None:
 
     result = service.upsert_bundle(bundle)
     # Distinct storage ids: parent + one child document.
+    assert result.requested == 3
     assert result.expected == 2
     assert result.written == 2
-    assert result.ok
+    assert result.collapsed == 1
+    assert not result.ok
     assert result.failed == []
+    assert result.to_dict()["collapsed"] == 1
 
     parent = service.get("summarize-collision", reconcile=False)
     assert parent.job.status == "partial"
     assert parent.output is not None
     assert parent.output.ext is not None
     assert parent.output.ext["event_count"] == 1
-    assert service.get_record(
-        "summarize-collision", "event", "evt-72d73704a0ef2ce7"
-    ).output is not None
+    assert service.get_record("summarize-collision", "event", "evt-72d73704a0ef2ce7").output is not None
 
 
 def test_upsert_bundle_skips_children_when_parent_fails() -> None:

@@ -36,6 +36,21 @@ if TYPE_CHECKING:
 #: writes is a ``summary``. Identity for every other group.
 _GROUP_TOKENS = {"summarize": "summary"}
 
+#: Child collections owned by each job group. ``get`` hydrates these into a
+#: presentation-only envelope; they are never nested back into the stored
+#: ``nv.vss.memory/1.0`` parent.
+_CHILD_RECORD_TYPES = {
+    "summary": "event",
+    "search": "search_hit",
+    "alert": "incident",
+}
+_CHILD_COUNT_KEYS = {
+    "event": "event_count",
+    "search_hit": "result_count",
+    "incident": "incident_count",
+}
+_DEFAULT_CHILD_LIMIT = 100
+
 
 class MemoryUnavailable(click.ClickException):
     """Memory was asked for and cannot be reached (exit 4).
@@ -79,7 +94,10 @@ class Memory:
         return self._scoped(group, job_id).model_dump_memory()
 
     def get(self, group: str, job_id: str) -> dict[str, Any]:
-        return self._scoped(group, job_id).model_dump_memory()
+        parent = self._scoped(group, job_id)
+        payload = parent.model_dump_memory()
+        payload["children"] = self._children(parent)
+        return payload
 
     def query(self, group: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
         from vss_core.memory import JobFilters
@@ -94,6 +112,41 @@ class Memory:
         )
         return [record.model_dump_memory() for record in records]
 
+    def _children(self, parent: UnifiedMemoryRecord) -> list[dict[str, Any]]:
+        """Return this parent's independently retrievable results in domain order."""
+        from vss_core.memory import MemoryQuery
+
+        record_type = _CHILD_RECORD_TYPES.get(parent.job.group)
+        if record_type is None:
+            return []
+        advertised = 0
+        if parent.output is not None and parent.output.ext:
+            value = parent.output.ext.get(_CHILD_COUNT_KEYS[record_type])
+            if isinstance(value, int) and value > 0:
+                advertised = value
+        records = self._service.query(
+            MemoryQuery(
+                job_id=parent.job.job_id,
+                record_type=record_type,  # type: ignore[arg-type]
+                limit=max(_DEFAULT_CHILD_LIMIT, advertised),
+            )
+        )
+        children = [
+            record
+            for record in records
+            if record.job.is_child and record.job.group == parent.job.group and record.job.job_id == parent.job.job_id
+        ]
+
+        def sort_key(record: UnifiedMemoryRecord) -> tuple[int, str]:
+            if record_type == "search_hit":
+                rank = record.output.ext.get("rank") if record.output is not None and record.output.ext else None
+                return (int(rank) if isinstance(rank, int | float) else 2**31 - 1, record.job.record_id or "")
+            if record.input is not None and record.input.window is not None:
+                return (0, record.input.window.start.timestamp.isoformat())
+            return (1, record.job.record_id or "")
+
+        return [record.model_dump_memory() for record in sorted(children, key=sort_key)]
+
     def _scoped(self, group: str, job_id: str) -> UnifiedMemoryRecord:
         """One record, refusing another group's job under this group's verb."""
         from vss_core.memory import MemoryNotFoundError
@@ -107,16 +160,26 @@ class Memory:
         return record
 
 
-def build(deployment: config_mod.Deployment | None, *, index: str | None = None) -> Memory:
-    """Open the memory index the deployment records, or raise naming the fix.
-
-    The endpoint is never a flag: it is what Elasticsearch reported to ``vss
-    configure``. Only the index name stays caller-supplied, because no backend
-    advertises which of its indices holds unified memory.
-    """
+def build(deployment: config_mod.Deployment | None) -> Memory:
+    """Open the statically configured authoritative memory store."""
     if deployment is None:
         raise MemoryUnavailable(
             "cannot reach unified memory: no deployment is configured. Run `vss configure --base-url <origin>` first."
+        )
+    memory_config = deployment.memory
+    if memory_config is None:
+        raise MemoryUnavailable(
+            "cannot reach unified memory: memory is not configured. "
+            "Run `vss configure memory --enable --backend elasticsearch --index vss-memory` first."
+        )
+    if not memory_config.enabled:
+        raise MemoryUnavailable(
+            "cannot reach unified memory: memory is disabled. Run `vss configure memory --enable` first."
+        )
+    if memory_config.backend != "elasticsearch":
+        raise MemoryUnavailable(
+            f"cannot reach unified memory: backend {memory_config.backend!r} is unsupported. "
+            "Run `vss configure memory --backend elasticsearch`."
         )
     endpoint = deployment.endpoint_or_none("elasticsearch")
     if not endpoint:
@@ -126,10 +189,11 @@ def build(deployment: config_mod.Deployment | None, *, index: str | None = None)
         )
 
     from vss_core.memory import build_memory_service
-    from vss_core.memory.backends.elasticsearch import DEFAULT_MEMORY_INDEX
 
-    resolved = index or DEFAULT_MEMORY_INDEX
-    return Memory(build_memory_service(es_endpoint=endpoint, memory_index=resolved), index=resolved)
+    return Memory(
+        build_memory_service(es_endpoint=endpoint, memory_index=memory_config.index),
+        index=memory_config.index,
+    )
 
 
 def write_failures() -> tuple[type[BaseException], ...]:
@@ -153,12 +217,4 @@ def write_failures() -> tuple[type[BaseException], ...]:
     return tuple(failures)
 
 
-def index_option() -> click.Option:
-    """``--memory-index``, shared by every verb that reads or writes memory."""
-    return click.Option(
-        ["--memory-index"],
-        help="Elasticsearch index holding unified memory. Defaults to the module's own.",
-    )
-
-
-__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "index_option", "write_failures"]
+__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "write_failures"]

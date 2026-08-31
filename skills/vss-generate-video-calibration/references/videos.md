@@ -39,6 +39,10 @@ Root `README.md` "Custom Dataset" section documents input-video guidelines and g
 
 ## API Call Sequence (videos mode)
 
+### Step 0 — Platform Preflight
+
+Run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight) before project creation, upload, or calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; ask the user to provide existing calibration artifacts or run calibration on a supported host.
+
 ### Step 1 — Initialize Videos Run
 
 Create the project with the shared request in [`common-steps.md`](common-steps.md#create-project), then keep `project_id` for the upload calls.

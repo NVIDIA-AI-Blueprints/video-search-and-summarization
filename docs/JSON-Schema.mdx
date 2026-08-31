@@ -1,0 +1,839 @@
+---
+title: "JSON Schema"
+description: ""
+position: 1
+---
+## Implementation Examples
+
+This section will now illustrate the use of this knowledge model with a
+JSON schema implementation for a concrete use case that describes the
+movement of vehicles and people in a parking garage.
+
+### Sensor
+
+Sensor object to be nested in every message:
+
+```
+"sensor": {
+ "id": "string",
+ "type": "Camera/Puck",
+ "location": {
+     "lat": 45.99,
+     "lon": 35.54,
+     "alt": 79.03
+ },
+  "coordinate": {
+     "x": 5.2,
+     "y": 10.1,
+     "z": 11.2
+ },
+ "description": "Entrance of Endeavor Garage Right Lane"
+}
+```
+
+### Video Path
+
+Data Source to be included with every metadata for playback:
+
+```
+"videoPath": "URL of the playback Video"
+```
+
+### Analytics Module
+
+Analytics Module to be nested in every message:
+
+```
+"analyticsModule": {
+   "id": "string",
+   "description": "Vehicle Detection and License Plate Recognition",
+   "source": "OpenALR",
+   "version": "string"
+}
+```
+
+### Place
+
+Describing a scene needs describing where the scene is happening –
+place, what is happening in terms of events, and who are the objects
+participating in the event.
+
+To describe a place:
+
+```
+"place": {
+   "id": "string",
+   "name": "endeavor",
+   "type": "building/garage/entrance",
+   "location": {
+      "lat": 30.333,
+      "lon": -40.555,
+      "alt": 100.00
+   },
+   "coordinate": {
+      "x": 1.0,
+      "y": 2.0,
+      "z": 3.0
+   }
+   "info": {
+      "name": "walsh",
+      "lane": "lane1",
+      "level": "P2",
+   }
+}
+```
+
+### Object
+
+To describe an object – for example a vehicle:
+
+```
+"object": {
+   "id": "string",
+   "type": "Vehicle",
+   "confidence": 0.9,
+   "info": {
+      "type": "sedan",
+      "make": "Bugatti",
+      "model": "M",
+      "color": "blue",
+      "license": "CGP93S",
+      "licenseState": "CA"
+   },
+   "bbox": {
+      "leftX": 0.0,
+      "topY": 0.0,
+      "rightX": 100.0,
+      "bottomY": 200.0
+   },
+   "location": {
+      "lat": 30.333,
+      "lon": -40.555,
+      "alt": 100.00,
+   },
+
+   "coordinate": {
+      "x": 5.2,
+      "y": 10.1,
+      "z": 11.2
+   },
+   "embedding": {
+      "vector": [
+         9.3953978E+8,
+
+         -263123344,
+         -12817122
+    ]
+   },
+   "orientation": 45.0,
+   "direction": 225.0,
+   "speed": 7.5
+}
+```
+
+Person will be described as below:
+
+```
+"object": {
+     "id": "123",
+     "type": "Person",
+     "confidence": 0.9,
+     "info": {
+         "gender": "male",
+         "age": 45,
+         "hair": "black",
+         "cap": "none",
+         "apparel": "formal"
+
+     },
+     "bbox": {
+             "leftX": 0.0,
+             "topY": 0.0,
+             "rightX": 100.0,
+             "bottomY": 200.0
+         },
+     "location": {
+         "lat": 30.333,
+         "lon": -40.555,
+         "alt": 100.00
+      },
+     "coordinate": {
+         "x": 5.2,
+         "y": 10.1,
+         "z": 11.2
+     },
+    "embedding": {
+     "vector": [
+       9.3953978E+8,
+
+       -263123344,
+       -12817122
+     ]
+   },
+     "orientation": 45.0,
+      "direction": 225.0,
+      "speed": 7.5
+ }
+```
+
+Face will be described as below:
+
+```
+"object": {
+    "id": "string",
+    "type": "Face",
+    "confidence": 0.9,
+    "info": {
+        "gender": "male",
+        "age": 45,
+        "hair": "black",
+        "cap": "none",
+        "glasses": "yes",
+        "facialhair": "yes",
+        "name": "John Smith",
+        "eyecolor": "brown"
+    },
+    "bbox": {
+            "leftX": 0.0,
+            "topY": 0.0,
+            "rightX": 100.0,
+            "bottomY": 200.0
+    },
+    "location": {
+        "lat": 30.333,
+        "lon": -40.555,
+        "alt": 100.00
+     },
+    "coordinate": {
+        "x": 5.2,
+        "y": 10.1,
+        "z": 11.2
+    },
+  "embedding": {
+    "vector": [
+      9.3953978E+8,
+
+      -263123344,
+      -12817122
+    ]
+  }
+    "orientation": 45.0,
+    "direction": 225.0,
+    "speed": 7.5
+}
+```
+
+### Generic object-type
+
+To support any other object-type like Cat, Dog, Painting etc.,
+
+Use the field generic inside object as shown below:
+
+```
+"Object": {
+  "type": "Cat or Dog or Painting",
+
+  "info":
+
+      {
+         "name-1": "value-1",
+         "name-2": "value-2":
+
+      }
+
+},
+```
+
+The secondary attributes for object-type i.e., Cat, Dog or Painting in
+the above example will vary in number, type and ordering, the downstream
+application consuming the message need to interpret the information
+regarding each object-type and its attributes. The Metropolis microservices analytics stack
+by default persist all message for search and retrieval.
+
+Example below of Cat object:
+
+```
+"object": {
+     "id": "string",
+     "type": "Cat",
+     "info": {
+            "color": "grey",
+            "species": "X":
+
+     },
+     "bbox": {
+             "leftX": 0.0,
+             "topY": 0.0,
+             "rightX": 100.0,
+             "bottomY": 200.0
+         },
+     "location": {
+         "lat": 30.333,
+         "lon": -40.555,
+         "alt": 100.00
+     },
+     "coordinate": {
+         "x": 5.2,
+         "y": 10.1,
+         "z": 11.2
+     },
+    "embedding": {
+     "vector": [
+       9.3953978E+8,
+
+       -263123344,
+       -12817122
+     ]
+   }
+     "orientation": 45.0,
+     "direction": 225.0,
+     "speed": 7.5
+ }
+```
+
+### Event
+
+To describe an event:
+
+```
+"event": {
+   "id": "event-id",
+   "type": "entry"
+}
+```
+
+The following set of events can be implemented using similar approach:
+
+- entry
+
+- exit
+
+- moving
+
+- stopped
+
+- parked
+
+- empty
+
+- reset
+
+### Units
+
+- Distance: meters
+
+- Speed: miles per hour
+
+- Time: UTC
+
+- Geo-location: Latitude, Longitude, Altitude
+
+## Putting it all together to construct messages
+
+### Frame Object
+
+This JSON is compatible with protobuf object, the best practice is to send protobuf messages over network, and the generated JSON in database for search query. See section 4 represents a variation of the JSON schema. If the message payload is less an application can send JSON based on section 4:
+
+```
+ {
+    "version": "4.0",
+    "id": "252",
+    "timestamp": "2022-02-09T10:45:10.170Z",
+    "sensorId": "xyz",
+    "objects": [
+       {
+          "id": "3",
+          "bbox": {
+          "leftX": 285.0,
+          "topY": 238.0,
+          "rightX": 622.0,
+          "bottomY": 687.0
+          },
+          "type": "Person",
+          "confidence": 0.9779,
+          "info": {
+          "gender": "male",
+          "age": 45,
+          "hair": "black",
+          "cap": "none",
+          "apparel": "formal"
+          },
+          "embedding": {
+          "vector": [
+             9.3953978E+8,
+
+             -263123344,
+             -12817122
+          ]
+          }
+          ]
+       }
+}
+```
+
+## Frame Structure and schema
+
+The second (minimal) variation of the schema is described here in this
+document. The objective is to have a low footprint for the payload to be
+transmitted from the Sensor Perception layer (for example DeepStream) to
+any Message Broker. This schema is an alternative to protobuf.
+
+Each Message/payload should have a one to one correspondence with Frame
+(Video Frame). A frame comprises of one or more objects detected.
+
+The key elements are described below.
+
+### Frame
+
+This represent a Video Frame and contain a list of objects detected by
+the DeepStream perception layer.
+
+The Key attributes of the frame are:
+
+-  "version": represents version of the schema
+
+-  "id": represents the video frame-id
+
+-  "@timestamp": represents the camera timestamp
+
+-  "sensorId": Unique sensor-id
+
+-  "objects": List of objects, Object element is defined in the next
+   section
+
+The JSON structure of the frame is:
+
+```
+{
+   "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+         ".......object-1 attributes...........",
+         ".......object-2 attributes...........",
+         ".......object-3 attributes..........."
+      ]
+}
+```
+
+### Object
+
+The Object is defined using a string. There may be number of GPU
+Inference Engine (GIE) present in the perception pipeline or a model may
+have multiple outputs, The outputs can be related to object detection +
+tracking or object appearance or pose or gaze. The outputs are logically
+separated by **\|#\|** example shown below.
+
+The object string is represented as below:
+
+```
+"primary attributes \|#\| secondary attributes \|#|......Additional attributes N ...|confidence|"
+```
+
+Attributes within a single section is pipe (|) separated, and the
+**ordering** of attributes are strict.
+
+### Primary Attributes
+
+The primary **attributes** are fixed, they are:
+
+-  "object-Id": represents the unique object id, while using the single
+   camera tracker, the id needs to be maintained across frames over time.
+
+-  The bounding box image coordinates:
+
+   -  bbox.leftX
+
+   -  bbox.topY
+
+   -  bbox.rightX
+
+   -  bbox.bottomY
+
+-  "object-type": represents the type object, which can be
+
+   -  Vehicle
+
+   -  Person
+
+   -  Face
+
+   -  RoadSign
+
+   -  Bicycle
+
+   -  Bag
+
+   -  others
+
+Example frame with only Primary attributes:
+
+```
+{
+   "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+         "object-Id | bbox.leftX | bbox.topY | bbox.rightX | bbox.bottomY |object-type",
+         ".......object-2 primary attributes...........",
+         ".......object-3 primary attributes..........."
+      ]
+   }
+```
+
+### Secondary Attributes
+
+Secondary attributes are based on the appearance of the "object-type":
+
+-  Vehicle Attributes
+
+   -  type
+
+   -  make
+
+   -  model
+
+   -  color
+
+   -  license
+
+   -  licenseState
+
+An example object with Vehicle object-type:
+
+```
+{
+   "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+         "957|1834|150|1918|215|Vehicle|#|sedan|Bugatti|M|blue|CA 444|California|0.8",
+         "..........."
+      ]
+   }
+```
+
+Vehicle attributes and possible classes/values each attribute may have:
+
+-  type
+
+   -  coupe, largevehicle, sedan, suv, truck, van
+
+-  make
+
+   -  acura, audi, bmw, chevrolet, chrysler, dodge, ford, gmc, honda,
+         hyundai, infiniti, jeep, kia, lexus, mazda, mercedes, nissan,
+         subaru, toyota, volkswagen
+
+-  color
+
+   -  black, blue, brown, gold, green, grey, maroon, orange, red,
+         silver, white, yellow
+
+-  Person Attributes
+
+   -  gender
+
+   -  age
+
+   -  hair
+
+   -  cap
+
+   -  apparel
+
+   -  height
+
+
+   Person example, Frame with Vehicle and Person Object
+
+```
+{
+   "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+         "957|1834|150|1918|215|Vehicle|#|sedan|Bugatti|M|blue|CA 444|California|0.8",
+         "323|1800|140|1800|190|Person|#|female|30|black|none|formal|5.5|0.8"
+
+      ]
+   }
+```
+
+-  Face Attributes
+
+   -  gender
+
+   -  age
+
+   -  hair
+
+   -  cap
+
+   -  glasses
+
+   -  facialhair
+
+   -  name
+
+   -  eyecolor
+
+### Generic object-type
+
+The schema is flexible to define any other class of object, the
+approach is same as taken for Vehicle, Person or Face, one would use
+"primary attributes \|#\| secondary attributes" to describe a
+detected object.
+
+Example of Cat, Dog, Painting will be as below:
+
+```
+{
+   "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+         "object-Id & bbox values | Cat |#| Cat attributes",
+         "object-Id & bbox values | Dog |#| Dog attributes",
+         "object-Id & bbox values | Painting |#| Painting attributes"
+      ]
+}
+```
+
+The secondary attributes for object-type i.e., Cat, Dog or Painting
+in the above example will vary in number, type and ordering, the
+downstream application consuming the message need to interpret the
+information regarding each object-type and its attributes. The metropolis microservices
+analytics stack by default persist all message for search and
+retrieval.
+
+### Pose Attributes
+
+The pose attributes are added as a new section in the object string
+representation and *treated as Additional attributes*.
+
+```
+" primary attributes \|#\| secondary attributes \|#|......pose2D or pose3D attributes......"
+```
+
+Further breaking it down:
+
+```
+" ID + bbox attributes \|#\| appearance attributes \|#|pose3D|bodypart-1|bodypart-2|…"
+```
+
+Including multiple pose dimensions:
+
+```
+" ID + bbox attributes \|#\| appearance attributes \|#|pose3D|bodypart-1|bodypart-2|…\|#|pose2D|bodypart-1|bodypart-2|…"
+```
+
+Example Frame JSON will be:
+
+```
+{
+    "version": "4.0",
+    "id": "frame-id",
+    "@timestamp": "2018-04-11T04:59:59.828Z",
+    "sensorId": "sensor-id",
+    "objects": [
+           "323|1800|140|1800|190|Person|#|female|30|black|none|formal|5.5|0.8|#|pose3D|nose,x,y,z,0.8|left-eye,x,y,z,1.0|..."
+    ]
+}
+```
+
+The first attribute value says the nature of the pose, i.e., pose2D,
+pose25D or pose3D, which is followed by several bodyparts. Each
+bodypart comprises of name, location (x,y,z) and confidence, e.g.,
+\|left-eye,x,y,z,0.75|. For pose3D, the coordinates (x,y,z) are in
+the world coordinate system with respect to the camera (unit: mm).
+For pose2.5D, it shares the same format as pose3D, however, the
+coordinates (x,y) are in the image plane (unit: pixel) and the z
+coordinate stands for the metric depth relative to the root keypoint,
+i.e., pelvis (unit: mm). For pose2D, (x,y) are the image pixel
+coordinates and the z coordinate is ignored, e.g.,
+\|right-ear,x,y,0.80|.
+
+The bodyparts are pipe separated. There is an implicit ordering of
+bodyparts. For example, the ordering for the 18 joints of COCO format
+is given as follows: (0) nose; (1) neck; (2) right-shoulder; (3)
+right-elbow; (4) right-wrist; (5) left-shoulder; (6) left -elbow; (7)
+left -wrist; (8) right-hip; (9) right-knee; (10) right-ankle; (11)
+left-hip; (12) left -knee; (13) left -ankle; (14) right-eye; (15)
+left-eye; (16) right-ear; (17) left-ear.
+
+As for the NVIDIA MAXINE format with 34 joints, the implicit ordering
+of the keypoints is as follows: (0) pelvis; (1) left-hip; (2)
+right-hip; (3) torso; (4) left-knee; (5) right-knee; (6) neck; (7)
+left-ankle; (8) right-ankle; (9) left-big-toe; (10) right-big-toe;
+(11) left-small-toe; (12) right-small-toe; (13) left-heel; (14)
+right-heel; (15) nose; (16) left-eye; (17) right-eye; (18) left-ear;
+(19) right-ear; (20) left-shoulder; (21) right-shoulder; (22)
+left-elbow; (23) right-elbow; (24) left-wrist; (25) right-wrist; (26)
+left-pinky-knuckle; (27) right-pinky-knuckle; (28) left-middle-tip;
+(29) right-middle-tip; (30) left-index-knuckle; (31)
+right-index-knuckle; (32) left-thumb-tip; (33) right-thumb-tip.
+
+### Embedding Attributes
+
+Like the pose attributes, the embedding attributes are also added as
+a new section in the object string representation and *treated as
+Additional attributes*. There can be more than one section of
+additional attributes, which should be separated by "\|#\|".
+
+```
+" primary attributes \|#\| secondary attributes \| confidence \|#\|......embedding attributes......"
+```
+
+Further breaking it down:
+
+```text
+" ID + bbox attributes \|#\| appearance attributes \| confidence \|#\|embedding|dimension-1,dimension-2,…,dimension-N\| "
+```
+
+Example Frame JSON will be:
+
+```text
+{
+      "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+            "323|1800|140|1800|190|Person|#|female|30|black|none|formal|5.5|0.8|#|embedding|0.9881,0.677869,0.779454,0.375686,0.396891,0.747902,0.91728,0.481577,0.706675,0.181111|"
+      ]
+}
+```
+
+The first attribute value indicates that the following attributes
+represent an embedding. Each embedding consists of a sequence of
+values of a pre-defined dimension N, separated by comma.
+
+### Single-View 3D Tracking Attributes
+
+Like the pose and embedding attributes, the single-view 3D tracking
+(SV3DT) attributes are also added as a new section in the object string
+representation and *treated as Additional attributes*, which should be
+separated by “\|#|".
+
+```
+" primary attributes \|#\| secondary attributes \|#|......SV3DT attributes......"
+```
+
+Further breaking it down:
+
+```text
+" ID + bbox attributes \|#\| appearance attributes
+\|#|SV3DT|visibility|foot-location-2D|foot-location-3D|convex-hull-2D\| "
+```
+
+Example Frame JSON will be:
+
+```text
+{
+      "version": "4.0",
+      "id": "frame-id",
+      "@timestamp": "2018-04-11T04:59:59.828Z",
+      "sensorId": "sensor-id",
+      "objects": [
+            "323|1800|140|1800|190|Person|#|female|30|black|none|formal|5.5|0.8|#|SV3DT|0.991698|297.655,179.069|17.56687,20.29478|-19,-33,-18,-32,3,35|"
+      ]
+}
+```
+
+The first attribute value indicates that the following attributes
+represent SV3DT.
+
+The second attribute value is the visibility which is a floating
+number between 0 and 1 indicating the ratio of visible bodyparts
+under occlusion.
+
+The third attribute is the x and y coordinates (in pixel) of foot
+location in 2D separated by comma, whereas the fourth attribute
+gives the foot location in 3D and the unit is meter.
+
+The last attribute indicates the 2D convex hull coordinates
+relative to the bounding box center. In the above example, if the
+bounding box center is (286, 144), the convex hull is formed by
+the following three points.
+
+(-19,-33)+(286,144)=(267,111)
+
+(-18,-32)+(286,144)=(268,112)
+
+(3,35)+(286,144)=(289,179)
+
+### Lip Activity Classification Attributes
+
+The lip activity classification attributes are added as a new section
+in the object string representation and *treated as Additional
+attributes*.
+
+They will be optionally present when the object type is **Face**.
+Each **Face** object will have its own lip activity classification
+attributes.
+
+```
+" primary attributes \|#\| secondary attributes \|#|......lip activity classification attributes......"
+```
+
+Further breaking it down:
+
+```text
+" ID + bbox attributes \|#\| appearance attributes|#|lip_activity|class-label"
+```
+
+Where class-label is an enum with possible values of speaking, silent, undefined.
+
+Example Frame JSON will be:
+
+```text
+{
+ "version":"4.0",
+ "id":"frame-id",
+ "@timestamp":"2018-04-11T04:59:59.828Z",
+ "sensorId":"sensor-id",
+ "objects": [
+     "323|1200|140|1600|190|Face|#|lip_activity|speaking",
+     "324|1600|160|1800|210|Face|#|lip_activity|silent"
+ ]
+}
+```
+
+### Gaze Estimation Attributes
+
+The gaze attributes are added as a new section in the object string
+representation and *treated as Additional attributes*.
+
+They will be optionally present when the object type is **Face**.
+Each **Face** object will have its own gaze attributes.
+
+`" primary attributes \|#\| secondary attributes \|#|......gaze attributes......"`
+
+Further breaking it down:
+
+`" ID + bbox attributes \|#\| appearance-attributes|#|gaze|x|y|z|theta|phi"`
+
+Example Frame JSON will be:
+
+```json
+ {
+    "version":"4.0",
+    "id":"frame-id",
+    "@timestamp":"2018-04-11T04:59:59.828Z",
+    "sensorId":"sensor-id",
+    "objects": [
+       "323|1200|140|1600|190|Face|#|gaze|100|120|130|0.042603|0.026154",
+       "324|1600|160|1800|210|Face|#|gaze|100|120|130|0.005659|0.281006"
+    ]
+
+ }
+```
+
+Gaze point of reference *x,y,z* are in the camera coordinate system.
+*theta*, *phi* are angles.

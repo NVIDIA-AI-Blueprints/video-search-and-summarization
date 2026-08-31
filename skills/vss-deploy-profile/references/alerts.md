@@ -6,12 +6,14 @@ Real-time alert generation and verification on RTSP / live video. VLM is **alway
 
 ## Two modes
 
-| Mode | CLI | `MODE` env | `NEXT_PUBLIC_APP_SUBTITLE` | How it works | VLM load |
-|---|---|---|---|---|---|
-| **verification** | `--mode verification` | `2d_cv` | `Vision (Alerts - CV)` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
-| **real-time** | `--mode real-time` | `2d_vlm` | `Vision (Alerts - VLM)` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. | Higher — VLM runs continuously |
+| Mode | CLI | `MODE` env | `ALERT_AGENT_ALWAYS_ON` | `NEXT_PUBLIC_APP_SUBTITLE` | How it works | VLM load |
+|---|---|---|---|---|---|---|
+| **verification** | `--mode verification` | `2d_cv` | `false` | `Vision (Alerts - CV)` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. Streams reach RT-CV via VIOS webhooks (`notification_config_${MODE}.json`). | Lower — VLM runs per alert |
+| **real-time** | `--mode real-time` | `2d_vlm` | `true` | `Vision (Alerts - VLM)` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. Always-on rules start on `camera_streaming` via VIOS webhooks → Alert Bridge. | Higher — VLM runs continuously |
 
-Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. Update `NEXT_PUBLIC_APP_SUBTITLE` in the same file so the UI label matches the deployed mode.
+Switch modes with `dev-profile.sh --mode verification|real-time` (or edit `MODE` in `dev-profile-alerts/generated.env` and re-resolve). `dev-profile.sh` also sets `ALERT_AGENT_ALWAYS_ON` and updates `NEXT_PUBLIC_APP_SUBTITLE` from `MODE`. Both modes use the same agent config (`vss-agent/configs/config.yml`). Webhooks use `VST_NOTIFICATION_CONFIG_PATH=…/notification_config_${MODE}.json` from overrides.
+
+When deploying or switching without `dev-profile.sh`, also set `ALERT_AGENT_ALWAYS_ON` / `MODE` (`true` / `2d_vlm` for real-time; `false` / `2d_cv` for verification). Keep `VSS_AGENT_CONFIG_FILE` at `/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`.
 
 > **Also flip `RTVI_VLM_KAFKA_ENABLED` when switching modes by hand.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false`, which is correct for verification (`2d_cv`) only: nothing consumes RT-VLM's Kafka output there, and leaving it on makes RT-VLM publish duplicate incidents whose file-relative timestamps land in `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) drives alerts from those Kafka events, so comment the line out for `2d_vlm` and let the compose default (`true`) apply. `dev-profile.sh` does this automatically for `--mode real-time`; only manual `generated.env` edits need it.
 
@@ -19,6 +21,7 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 
 - **VLM is RT-VLM with the integrated Cosmos Reason3 Nano BF16 checkpoint.** Default `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3`. No standalone `cosmos-reason2-8b` NIM service is started.
 - **`VLM_NAME` must match RT-VLM's `/v1/models` basename.** Set `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default Cosmos3 Nano BF16 path; alert-bridge / agent get HTTP 400 "No such model" otherwise (see `vllm_compatible_model.py::get_model_info` for the lookup logic).
+- **Always-on rules follow `VLM_NAME`.** Alert Bridge renders both its main config and `realtime-config.yml` through `env-substitute.py`; the developer alerts rule uses `model: "${VLM_NAME}"`. Do not remove `model` (the always-on schema requires it) or replace it with a hardcoded model id.
 - **`VLM_NAME_SLUG=none`** for alerts — `COMPOSE_PROFILES` does not include a `vlm_local_*_<slug>` segment. The only LLM/VLM compose profile that matters for alerts is `llm_${LLM_MODE}_${LLM_NAME_SLUG}`.
 - **`VLM_PORT=8018`** by default (RT-VLM). Set to `30082` when `VLM_MODE=remote` (RT-VLM not started; agent points at the remote endpoint).
 - **Alert-bridge** (port 9080) is the bridge between RT-VLM events / behavior analytics and the agent's realtime alerting API. Verification mode reads from RT-CV → behavior analytics → alert-bridge → VLM verification. Real-time mode reads from RT-VLM → alert-bridge directly.
@@ -240,10 +243,10 @@ curl -sf http://${HOST_IP}:3000/                  && echo "ui ok"         # Agen
 ```bash
 docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv            && echo "rt-cv up"
 docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics && echo "behavior-analytics up"
-curl -sf http://${HOST_IP}:9000/v1/health                        && echo "rt-cv health ok"
+curl -sf http://${HOST_IP}:9010/v1/health                        && echo "rt-cv health ok"
 ```
 
-RT-CV builds TensorRT engines on first start (3–5 min) — `:9000/v1/health` won't answer until that finishes. See [Perception model download](#perception-model-download-automatic); if `NGC_CLI_API_KEY` is missing or `${VSS_DATA_DIR}/models` is not writable, ds-start phase 0 cannot download the ONNX files and RT-CV never becomes healthy.
+RT-CV builds TensorRT engines on first start (3–5 min) — `:9010/v1/health` won't answer until that finishes. See [Perception model download](#perception-model-download-automatic); if `NGC_CLI_API_KEY` is missing or `${VSS_DATA_DIR}/models` is not writable, ds-start phase 0 cannot download the ONNX files and RT-CV never becomes healthy.
 
 **`MODE=2d_vlm` (real-time) — RT-CV / behavior-analytics are intentionally absent:**
 
@@ -295,7 +298,7 @@ RT-VLM downloads `cosmos3-nano-reasoner:bf16-final` from NGC on first start (~10
 
 - **`docker logs vss-rtvi-vlm`** — confirms model load and `Maximum concurrency for X tokens per GPU: Y x` line. OOM → lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION` by 0.05 or drop `RTVI_VLM_MAX_MODEL_LEN` / `RTVI_VLLM_MAX_NUM_SEQS`.
 - **`docker logs vss-alert-bridge`** — if it logs HTTP 400 "No such model: …", check `VLM_NAME` matches RT-VLM's `/v1/models` basename. `curl http://${HOST_IP}:8018/v1/models | jq` confirms what's actually advertised.
-- **2d_cv: alerts never fire** — check `vss-behavior-analytics` is consuming RT-CV metadata: `docker logs vss-behavior-analytics`. RT-CV side: `curl http://${HOST_IP}:9000/v1/health`.
+- **2d_cv: alerts never fire** — check `vss-behavior-analytics` is consuming RT-CV metadata: `docker logs vss-behavior-analytics`. RT-CV side: `curl http://${HOST_IP}:9010/v1/health`. Confirm VIOS webhooks target RT-CV (`notification_config_2d_cv.json` / `VST_NOTIFICATION_CONFIG_PATH`).
 - **2d_vlm: VLM not running over live streams** — confirm `MODE=2d_vlm` (not `2d_cv`) in `resolved.yml` and that nvstreamer-alerts is publishing streams.
 - **OOM on shared GPU 1** — drop `NIM_KVCACHE_PERCENT` for the LLM by 0.05; if RT-VLM is the OOM, raise its `RTVI_VLLM_GPU_MEMORY_UTILIZATION` ceiling and re-tune the LLM down (the per-hardware RT-VLM/LLM split — e.g. 0.4/0.4 on H100 — assumes Nano 9B FP16; larger LLMs need different ratios).
 - **Edge: `vlm-as-verifier` config not loaded** — verify `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` is set in `generated.env` and the matching `EDGE-LOCAL-VLM-config.yml` exists under `dev-profile-alerts/vlm-as-verifier/configs/`.

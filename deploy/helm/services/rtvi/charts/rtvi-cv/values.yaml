@@ -25,11 +25,23 @@ scripts:
   existingConfigMap: ""
   data: {}
 
+# Managed GHCR channel, shared with the Docker compose coordinate
+# (VSS_RT_CV_IMAGE / VSS_RT_CV_TAG in deploy/docker/containers.env). Override
+# both together via global.container_prefix / global.container_tag.
+#
+# SBSA cannot ride this multiarch manifest (different base image, same
+# linux/arm64 platform) so it is a separate build -- but it shares this GHCR
+# repository under an -sbsa tag suffix. DGX-SPARK deploys therefore override
+# only the tag, leaving `repository` on the managed channel:
+#   tag: "develop-latest-sbsa"
+#
+# Keep `repository:` on the line directly after `image:`. The release-channel
+# policy check (.github/scripts/test_helm_release_channel_policy.py) matches
+# that pair with a regex, and a comment between them makes it silently read the
+# next image block in this file instead.
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-  # For multi-arch: 3.3.0-26.07.2
-  # For DGX-SPARK (SBSA): 3.3.0-sbsa-26.07.2
-  tag: "3.3.0-26.07.2"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -42,12 +54,19 @@ service:
   type: ClusterIP
 httpPort: 9000
 
-# Stream-affinity routing via HAProxy consistent-hash on an HTTP header.
+# Stream-affinity routing via a HAProxy stick table keyed on an HTTP header.
 # When enabled, the rendered Service carries `haproxy.org/*` annotations
-# that ask a HAProxy Ingress controller to consistent-hash every request
-# with the same hashHeader value to the same vss-rtvi-cv pod (Karger's
-# consistent hash). Required for replica count > 1 so the DeepStream
-# pipeline state stays coherent for the lifetime of a stream.
+# that ask a HAProxy Ingress controller to record, on the first request for
+# each hashHeader value, which vss-rtvi-cv pod served it, and to route every
+# later request with the same value to that pod (stick-table, `stick on`).
+# Required for replica count > 1 so the DeepStream pipeline state stays
+# coherent for the lifetime of a stream.
+#
+# The table is per HAProxy process: controller replicas do NOT share entries
+# (the OSS controller has no peers sync), so affinity holds only for traffic
+# entering through one controller replica. Entries idle out after tableExpire
+# of inactivity; each match refreshes the timer, so a live stream never
+# expires. tableSize bounds the number of concurrently tracked streams.
 #
 # IMPORTANT — these annotations are only honored when traffic actually
 # flows through HAProxy Ingress. In the default chart deployment the
@@ -61,6 +80,13 @@ httpPort: 9000
 streamAffinity:
   enabled: true
   hashHeader: x-stream-id
+  # Stick-table sizing: max concurrently tracked streams, and per-entry idle
+  # expiry (refreshed on every match).
+  tableSize: 10k
+  tableExpire: 30m
+# Long-running detection requests take minutes; keep this backend well above the
+# controller default when it is published through an ingress.
+ingressTimeoutServer: "3600s"
 
 streamType: "kafka"
 otelSdkDisabled: "true"

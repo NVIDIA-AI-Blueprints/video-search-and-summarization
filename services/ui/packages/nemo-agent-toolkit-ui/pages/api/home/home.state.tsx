@@ -31,6 +31,7 @@ export interface HomeInitialState {
   intermediateStepOverride?: boolean;
   autoScroll?: boolean;
   agentApiUrlBase?: string;
+  vstApiUrl?: string;
   additionalConfig: any;
   customAgentParamsJson?: string;
   chatUploadFileEnabled?: boolean;
@@ -150,6 +151,10 @@ export const initialState: HomeInitialState = {
   agentApiUrlBase:
     env('NEXT_PUBLIC_AGENT_API_URL_BASE') ||
     process?.env?.NEXT_PUBLIC_AGENT_API_URL_BASE ||
+    '',
+  vstApiUrl:
+    env('NEXT_PUBLIC_VST_API_URL') ||
+    process?.env?.NEXT_PUBLIC_VST_API_URL ||
     '',
   additionalConfig: {},
   customAgentParamsJson:

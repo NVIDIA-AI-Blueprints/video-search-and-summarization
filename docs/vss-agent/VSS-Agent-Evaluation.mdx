@@ -1,0 +1,863 @@
+---
+title: "Agent Evaluation"
+description: ""
+position: 5
+---
+The VSS Agent includes a comprehensive evaluation with three specialized evaluators,
+each targeting a different aspect of agent behavior. The evaluators support customizable prompts,
+configurable metrics, and multi-turn conversation evaluation.
+
+The evaluation is based on the [NVIDIA NeMo Agent Toolkit (NAT)](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html),
+specifically the [Evaluate Workflows](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html) module.
+
+## Evaluators
+
+The evaluation includes three customized evaluators, each targeting a specific aspect of agent behavior.
+
+- **Report Evaluator**: Assesses the quality of agent-generated reports with fine-grained scoring at the field, section, and overall report level.
+
+- **Question-Answering (QA) Evaluator**: Assesses the semantic accuracy of agent answers against ground truth, focusing on factual correctness.
+
+- **Trajectory Evaluator**: Assesses the agent's execution path, including tool selection, parameter accuracy, and workflow efficiency.
+
+| Evaluator | Example Query |
+| --- | --- |
+| Report | *"Generate a report for the video \{video_name\}"* |
+| QA | *"Did a worker drop any boxes in the video \{video_name\}?"* |
+| Trajectory | Applicable to any query. |
+
+### Report Evaluator
+
+The Report Evaluator extracts the report from the agent's response and assesses its quality by comparing each field
+against ground truth references using a hierarchical, bottom-up evaluation approach.
+
+#### Purpose
+
+- **Bottom-Up Evaluation**: The evaluation follows a hierarchical structure. Fields are evaluated
+  first and given a score, then sections, and so on until reaching the overall report score.
+  Each field or section supports its own customizable evaluation metric.
+  See [Evaluation Method](/vss-agent/VSS-Agent-Evaluation#evaluation-method) for details.
+
+- **Dynamic Field Auto-Discovery**: The evaluator automatically handles fields not explicitly defined in config,
+  allowing flexible report formats and field naming while preserving semantic matching.
+  See [Dynamic Field Discovery](/vss-agent/VSS-Agent-Evaluation#dynamic-field-discovery) for details.
+
+- **Configuration-Driven**: Schema changes require only config updates, no code changes. Each Blueprint or Developer Profile
+  defines its own metrics YAML file and evaluation data.
+  See [Metrics Configuration](/vss-agent/VSS-Agent-Evaluation#metrics-configuration) for details.
+
+#### Evaluation Method
+
+#### Field-Level Scoring
+
+For each section, the evaluator processes all fields:
+
+1. **Fields with explicit metrics**: Uses the specified metric (`exact_match`, `llm_judge`,
+   `regex`, `f1`, `non_empty`) to compare ground truth with generated value.
+
+*Supported Field-Level Metrics:*
+
+| Metric | Description |
+| --- | --- |
+| `exact_match` | Exact string comparison with normalized whitespace |
+| `f1` | Token-based F1 score between predicted and reference values |
+| `regex` | Pattern matching against a regular expression |
+| `non_empty` | Validates that the field contains non-empty content |
+| `llm_judge` | LLM-based semantic similarity evaluation |
+
+2. **Fields without explicit metrics** (discovered at runtime using [dynamic field discovery](/vss-agent/VSS-Agent-Evaluation#dynamic-field-discovery)):
+
+   - Extracts all fields from the generated section that do not have explicit metrics defined in the config
+   - Makes a batch LLM call to score all discovered fields against the ground truth section
+   - LLM returns structured output:
+
+     ```text
+     {
+       "<field-name>": {"score": <score>, "reference": "<matched-ground-truth-field>"},
+       ...
+     }
+     ```
+
+#### Section-Level Scoring
+
+Each section can be scored in two ways:
+
+- **As a single field**: Use any field-level metric (e.g., `llm_judge`) to evaluate the entire section
+  holistically by comparing the complete ground truth and generated sections
+- **As an aggregate**: Use `method: average` to compute the mean score from all child fields
+
+#### Dynamic Field Discovery
+
+When `allow_dynamic_field_discovery: true` is set for a section, the evaluator automatically
+discovers and evaluates fields not explicitly defined in the configuration. This handles cases
+where field names may vary between generated reports and ground truth.
+
+**Example:** The "Vehicles Involved" section might contain:
+
+- **Ground Truth**: `Vehicle 1234` (White Truck), `Vehicle 4321` (Dark Blue Truck)
+- **Generated**: `Vehicle (1234)` (Blue Truck), `Vehicle (5678)` (Dark Blue Car)
+
+The field-level LLM judge semantically matches generated fields to ground truth and returns:
+
+```json
+{
+  "Vehicle (1234)": {"score": 0.5, "reference": "Vehicle 1234"},
+  "Vehicle (5678)": {"score": 0.0, "reference": null}
+}
+```
+
+- `Vehicle (1234)`: 0.5 — matched to `Vehicle 1234`, but wrong color
+- `Vehicle (5678)`: 0.0 — no matching vehicle in ground truth
+
+#### Evaluator Configuration
+
+```yaml
+evaluators:
+  report_evaluator:
+    _type: report_evaluator
+    eval_metrics_config_path: <path-to-eval-metrics-config>
+    evaluation_method_id: report
+    object_store: report_object_store
+    report_url_pattern: '<report-url-regex-pattern>'
+    include_vlm_output: true
+    vlm_related_fields:
+      - "<section-name-1>"
+      - "<section-name-2>"
+    metric_configs:
+      llm_judge:
+        llm_name: eval_llm_judge
+        max_retries: 2
+        llm_judge_reasoning: true
+        single_field_comparison_prompt: |
+          # Custom prompt for single field comparison
+        multi_field_discovery_prompt: |
+          # Custom prompt for multi-field discovery
+```
+
+Configuration parameters:
+
+- `eval_metrics_config_path`: Path to the metrics YAML file that defines report structure and
+  evaluation methods. See [Metrics Configuration](/vss-agent/VSS-Agent-Evaluation#metrics-configuration) for details.
+- `object_store`: Name of the object store for retrieving generated reports.
+- `evaluation_method_id`: Identifier used to match against the `evaluation_method` field in the dataset. See [dataset configuration](/vss-agent/VSS-Agent-Evaluation#configuring-evaluation-dataset) for details.
+- `report_url_pattern`: Regex pattern to extract report URLs from agent responses.
+- `include_vlm_output`: When `true`, outputs a separate average score for VLM-related fields, used with `vlm_related_fields`.
+- `vlm_related_fields`: List of section names to include in the VLM accuracy score, used with `include_vlm_output: true`.
+- `metric_configs`: Configuration for field-level evaluation metrics.
+
+  - `llm_judge`: LLM judge settings:
+
+    - `llm_name`: Reference to the LLM configuration (see [LLM Configuration](/vss-agent/VSS-Agent-Evaluation#llm-configuration) for details)
+    - `max_retries`: Number of retry attempts on LLM failures
+    - `llm_judge_reasoning`: Enable reasoning in the LLM judge
+    - `single_field_comparison_prompt`: Custom prompt for the LLM judge used for single field evaluation
+    - `multi_field_discovery_prompt`: Custom prompt for the LLM judge used for dynamic field discovery
+
+#### LLM Configuration
+
+Configure the LLM judge in the `llms` section of your config file:
+
+```yaml
+llms:
+  eval_llm_judge:
+    _type: nim
+    model_name: <model-name>
+    base_url: <base-url-for-the-llm>
+    max_tokens: 2048
+    temperature: 0.0
+```
+
+<Note>
+To enable reasoning output, set `llm_judge_reasoning: true` in the evaluator config (not `thinking: true` in the LLM config)
+for wider reasoning model support.
+</Note>
+
+<Note>
+When `llm_judge_reasoning` is enabled, the evaluators currently require reasoning models that support
+outputting reasoning separately in their responses.
+</Note>
+
+#### Metrics Configuration
+
+The metrics configuration should mirror the structure of your report template, defining sections
+and fields that match the expected report output. Each field or section can have its own evaluation metric defined. Each section can use `method: average` to aggregate
+child scores. Set `allow_dynamic_field_discovery: true` for sections with variable field names.
+
+```yaml
+Overall Report:
+  method: average
+  fields:
+    title:
+      method: exact_match
+
+    Basic Information:
+      method: average
+      fields:
+        Report Identifier:
+          method: non_empty
+        Date of Incident:
+          method: llm_judge
+
+    Vehicles Involved:
+      method: llm_judge
+      allow_dynamic_field_discovery: true  # Handles dynamic vehicle field names
+
+    # Additional sections...
+```
+
+### Customized Question-Answering (QA) Evaluator
+
+The Customized Question-Answering (QA) Evaluator assesses the semantic accuracy of agent responses against ground truth answers,
+focusing on factual correctness rather than exact text matching.
+
+#### Purpose
+
+- Evaluate answer accuracy for question-answering tasks.
+- Support semantic equivalence over exact matching.
+- Handle various question types (Yes/No, counting, temporal, descriptive).
+
+#### Evaluator Configuration
+
+```yaml
+evaluators:
+  qa_evaluator:
+    _type: customized_qa_evaluator
+    llm_name: eval_llm_judge
+    evaluation_method_id: qa
+    llm_judge_reasoning: true
+    custom_prompt_template: |
+      You are an expert evaluator assessing an AI Agent's response accuracy.
+
+      Question Asked: {question}
+
+      Agent's Answer: {answer}
+
+      Ground Truth Answer: {reference}
+
+      # Add evaluation criteria and scoring guidelines...
+```
+
+##### Custom Prompt Variables
+
+- `{question}`: The original user query
+- `{answer}`: The agent's response
+- `{reference}`: Ground truth answer
+
+##### Example Evaluation Criteria
+
+The default prompt includes the following evaluation criteria:
+
+- **Factual Correctness**: Does the answer convey the same factual information?
+- **Completeness**: Does the answer include all key information from the ground truth?
+- **Semantic Equivalence**: Is the answer semantically equivalent to the ground truth?
+
+You can customize the prompt by modifying the `custom_prompt_template` field in the evaluator configuration.
+
+### Customized Trajectory Evaluator
+
+The Customized Trajectory Evaluator assesses the agent's execution path, focusing on tool selection,
+parameter accuracy, and overall workflow efficiency. It extends NAT's built-in [Trajectory Evaluator](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html#trajectory-evaluator) with features such
+as customizable LLM Judge prompts, agent-selected tools filtering, and multi-turn conversation support.
+
+#### Purpose
+
+- Evaluate tool selection accuracy and parameter correctness
+- Assess workflow efficiency
+- Support agent-selected tools filtering to exclude internal tool calls
+- Support dual prompt modes for both reference-based and no-reference evaluation
+- Provide multi-turn conversation history to the LLM judge for context-aware evaluation when there is no reference
+
+#### Dual Prompt Mode
+
+The trajectory evaluator supports two evaluation modes, selected automatically per item based on whether the
+dataset entry includes the `trajectory_ground_truth` field:
+
+- **With reference** (`custom_prompt_template_with_reference`): When the dataset item includes
+  `trajectory_ground_truth`, the evaluator compares the agent's structured tool calls against the
+  expected tool calls.
+
+- **Without reference** (`custom_prompt_template_without_reference`): When no `trajectory_ground_truth`
+  is provided, the evaluator assesses the trajectory using tool schemas and conversation history.
+
+#### Structured Tool Calls
+
+The evaluator extracts structured tool calls from the agent's trajectory. Each tool call includes:
+
+- `step`: Step number indicating sequential order. Tools with the same step number are parallel calls.
+- `name`: The tool name.
+- `params`: The tool parameters.
+
+For example:
+
+```json
+[
+  {"step": 1, "name": "vst_video_list", "params": {}},
+  {"step": 2, "name": "video_understanding", "params": {"sensor_id": "example-video", "user_prompt": "What happened?"}}
+]
+```
+
+In reference mode, these structured tool calls are compared directly against the `trajectory_ground_truth`
+from the dataset, which follows the same format.
+
+#### Agent-Selected Tools Filtering
+
+When `track_agent_selected_tools_only: true`, the evaluator filters the trajectory to include
+only tools explicitly selected by the agent, excluding internal tools and LLMs called within tools. This focuses on assessing the agent's planning and tool-calling capabilities.
+
+#### Evaluator Configuration
+
+```yaml
+evaluators:
+  trajectory_evaluator:
+    _type: customized_trajectory_evaluator
+    llm_name: eval_llm_judge
+    evaluation_method_id: trajectory
+    track_agent_selected_tools_only: true
+    llm_judge_reasoning: true
+    custom_prompt_template_with_reference: |
+      You are an expert evaluator comparing an AI agent's actual tool calls
+      against the expected ground truth.
+
+      Question: {question}
+
+      Expected Tool Calls:
+      {reference}
+
+      Actual Tool Calls:
+      {agent_trajectory}
+
+      Agent's Final Answer:
+      {answer}
+
+      # Add evaluation criteria and scoring guidelines...
+    custom_prompt_template_without_reference: |
+      You are an expert evaluator assessing an AI agent's performance on tool calling.
+
+      Conversation History (previous turns):
+      {conversation_history}
+
+      Current Question: {question}
+
+      Available Tools and Their Schemas:
+      {tool_schemas}
+
+      Agent's Actions and Tool Calls:
+      {agent_trajectory}
+
+      Agent's Final Answer:
+      {answer}
+
+      # Add evaluation criteria and scoring guidelines...
+```
+
+#### Custom Prompt Variables
+
+**With reference** (`custom_prompt_template_with_reference`):
+
+Prompt template for reference-based evaluation. Required if any dataset items include `trajectory_ground_truth`.
+
+- `{question}`: The original user query
+- `{reference}`: Expected tool calls from `trajectory_ground_truth` (JSON format with step, name, and params)
+- `{agent_trajectory}`: Structured tool calls extracted from the agent's execution (JSON format with step, name, and params)
+- `{answer}`: The agent's final response
+
+**Without reference** (`custom_prompt_template_without_reference`):
+
+Prompt template for no-reference evaluation. Required if any dataset items have no `trajectory_ground_truth`.
+
+- `{question}`: The original user query
+- `{agent_trajectory}`: Sequence of tool calls and observations
+- `{answer}`: The agent's final response
+- `{tool_schemas}`: Available tools with their parameter schemas
+- `{conversation_history}`: Previous turns in the conversation (for multi-turn evaluation)
+
+In addition to the customized evaluators above, you can use NAT's
+built-in evaluators or create your own custom evaluators. For more
+details, please refer to the [NAT Evaluation Documentation](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html).
+
+## Configuring Evaluation Dataset
+
+### Dataset Configuration
+
+```yaml
+eval:
+  general:
+    output_dir: <evaluation-output-directory>
+    dataset:
+      _type: json
+      file_path: <evaluation-dataset-file-path>
+      structure:
+        question_key: "query"
+        answer_key: "ground_truth"
+```
+
+### Dataset File Format
+
+The evaluation dataset defines test cases and specifies which evaluators to use via the
+`evaluation_method` field, which matches against each evaluator's `evaluation_method_id`. A single dataset can include cases for multiple evaluators.
+
+#### Single-Turn Dataset
+
+```json
+[
+  {
+    "id": "1",
+    "query": "Generate a report for the video example-video",
+    "ground_truth": "<path-to-ground-truth-file>",
+    "evaluation_method": ["report"]
+  },
+  {
+    "id": "2",
+    "query": "What do you see in the video example-video?",
+    "ground_truth": "<expected-answer>",
+    "evaluation_method": ["qa", "trajectory"],
+    "trajectory_ground_truth": [
+      {"name": "video_understanding", "params": {"sensor_id": "example-video", "user_prompt": "..."}, "step": 1}
+    ]
+  },
+  {
+    "id": "3",
+    "query": "What videos are available?",
+    "evaluation_method": ["trajectory"]
+  }
+]
+```
+
+#### Multi-Turn Dataset
+
+Multi-turn evaluation items use a `conversation` field containing an ordered list of turns.
+The agent maintains context across turns within the same conversation. For details on multi-turn evaluation, please refer to [Multi-Turn Evaluation](/vss-agent/VSS-Agent-Evaluation#multi-turn-evaluation).
+
+```json
+[
+  {
+    "id": "mt_001",
+    "query": "[multi-turn]",
+    "conversation": [
+      {
+        "turn_id": "turn_1",
+        "query": "Show the video example-video",
+        "evaluation_method": ["trajectory"],
+        "trajectory_ground_truth": [
+          {"name": "vst_video_clip", "params": {"sensor_id": "example-video"}, "step": 1}
+        ]
+      },
+      {
+        "turn_id": "turn_2",
+        "query": "What do you see in the video?",
+        "ground_truth": "<expected-answer>",
+        "evaluation_method": ["qa", "trajectory"],
+        "trajectory_ground_truth": [
+          {"name": "video_understanding", "params": {"sensor_id": "example-video", "user_prompt": "..."}, "step": 1}
+        ]
+      }
+    ],
+    "evaluation_method": ["multi_turn"]
+  }
+]
+```
+
+The outer `query` and `evaluation_method` fields are set to `"[multi-turn]"` and `["multi_turn"]` respectively
+as placeholders. The actual queries and evaluation methods are defined per turn within the `conversation` array.
+
+### Dataset Fields
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `id` | Yes | Unique identifier for the test case |
+| `query` | Yes | The question to send to the agent. For multi-turn items, set to `"[multi-turn]"` as a placeholder |
+| `ground_truth` | Required for QA and report evaluation | Expected answer (QA evaluation) or path to ground truth JSON file (report evaluation) |
+| `evaluation_method` | Yes | List of evaluator IDs specifying which evaluators to run: `["report"]`, `["qa"]`, `["trajectory"]`, or combinations like `["qa", "trajectory"]`. For multi-turn items, set to `["multi_turn"]` at the top level (conversation level) as a placeholder. Each turn inside `conversation` defines its own `evaluation_method` |
+| `trajectory_ground_truth` | No | Expected tool calls for reference-based trajectory evaluation. When present, the trajectory evaluator uses `custom_prompt_template_with_reference` to evaluate the actual trajectory against the ground truth trajectory. Each entry includes `name`, `params`, and `step` fields |
+| `conversation` | No | List of turns for multi-turn evaluation. Each turn requires `turn_id`, `query`, and `evaluation_method`. `ground_truth` is required for QA and report turns. `trajectory_ground_truth` is optional |
+
+### Report Ground Truth Format
+
+For QA evaluation, `ground_truth` is a string answer. For report evaluation, `ground_truth` should be a path to a JSON file whose structure mirrors your [metrics configuration](/vss-agent/VSS-Agent-Evaluation#metrics-configuration).
+
+```json
+{
+  "title": "<report-title>",
+  "Basic Information": {
+    "Report Identifier": "<report-id>",
+    "Date of Incident": "<date>"
+  },
+  "Vehicles Involved": {
+    "Vehicle 1": {
+      "Vehicle ID": "<vehicle-id>",
+      "Vehicle Type": "<vehicle-type>",
+      "Vehicle Color": "<vehicle-color>"
+    }
+  }
+}
+```
+
+## Running Evaluation
+
+### Evaluation Configuration
+
+Add the evaluation configuration to the agent's config file. Multiple evaluators can run against the same dataset.
+
+```yaml
+eval:
+  general:
+    output_dir: <evaluation-output-directory>
+    max_concurrency: 10
+    dataset:
+      _type: json
+      file_path: <evaluation-dataset-file-path>
+      structure:
+        question_key: "query"
+        answer_key: "ground_truth"
+
+  evaluators:
+    trajectory_evaluator:
+      _type: customized_trajectory_evaluator
+      llm_name: eval_llm_judge
+      evaluation_method_id: trajectory
+      track_agent_selected_tools_only: true
+      custom_prompt_template_with_reference: |
+        # Prompt for evaluating items with trajectory_ground_truth...
+      custom_prompt_template_without_reference: |
+        # Prompt for evaluating items without trajectory_ground_truth...
+
+    qa_evaluator:
+      _type: customized_qa_evaluator
+      llm_name: eval_llm_judge
+      evaluation_method_id: qa
+
+    # Add other evaluators here ...
+```
+
+### Execution
+
+The evaluation can be run using the `nat eval` command:
+
+```bash
+nat eval --config_file <agent-config-file>
+```
+
+<Note>
+If the evaluation dataset includes queries referencing videos, ensure the videos are uploaded to the deployment before starting the evaluation.
+</Note>
+
+### Dataset Filtering
+
+You can use the `DATASET_FILTER` environment variable to run evaluation only for specific evaluator types.
+This filters dataset items by their `evaluation_method` field before evaluation begins.
+
+```bash
+DATASET_FILTER=qa nat eval --config_file <agent-config-file>
+```
+
+Supported values:
+
+- `all` (default): Run all evaluators on all items
+- `qa`: Run only QA evaluation
+- `trajectory`: Run only trajectory evaluation
+- `report`: Run only report evaluation
+
+Multiple values can be combined with commas:
+
+```bash
+DATASET_FILTER=qa,trajectory nat eval --config_file <agent-config-file>
+```
+
+<Note>
+1. `all` cannot be combined with other values.
+
+2. For multi-turn datasets, if any turn in a conversation matches the filter, all turns in that conversation are executed since each turn may depend on prior conversation context, but only turns matching the filter will be evaluated.
+</Note>
+
+### Multi-Turn Evaluation
+
+The evaluation supports multi-turn conversations, where the agent maintains context across
+sequential queries within the same conversation. Multi-turn items are automatically detected
+by the presence of a `conversation` field in the dataset entry.
+
+Please refer to [Multi-Turn Dataset](/vss-agent/VSS-Agent-Evaluation#multi-turn-dataset) for the dataset format.
+
+#### Execution Model
+
+Multi-turn evaluation follows this execution model:
+
+1. Multi-turn dataset entries are expanded into individual turn items before evaluation.
+2. Turns within the same conversation run sequentially, preserving the conversation context.
+   The agent reuses the same conversation thread across turns, maintaining memory of previous interactions.
+3. Different conversations and single-turn items run in parallel.
+4. After each turn, the query and agent response are recorded as conversation history.
+   Evaluators (such as the trajectory evaluator) receive this history via the `{conversation_history}`
+   prompt variable.
+
+The multi-turn IDs in evaluation output follow the format `{dataset-item-id}_{turn-id}`
+(for example, `mt_001_turn_1`, `mt_001_turn_2`).
+
+### Experiment Tracking (Optional)
+
+The evaluation supports Weights and Biases (W&B) Weave dashboard for experiment tracking and visualization. Please refer to the [NAT documentation on visualizing results](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html#visualizing-evaluation-result) for more details.
+
+To enable experiment tracking, follow these steps:
+
+1. Install Weave Dependencies.
+
+   ```bash
+   uv sync --group eval
+   ```
+
+2. Log in to wandb:
+
+   ```bash
+   wandb login --host <wandb-host>
+   export WANDB_BASE_URL="<wandb-base-url>"
+   ```
+
+3. Enable in Config:
+
+   ```yaml
+   general:
+     telemetry:
+       tracing:
+         weave:
+           _type: weave
+           project: "<your-weave-project>"
+   ```
+
+## Understanding Evaluation Output
+
+Evaluation results are saved to the configured `output_dir` and include:
+
+- `workflow_output.json`: Raw agent responses for each query
+- `report_evaluator_output.json`: Report evaluation scores and details
+- `qa_evaluator_output.json`: QA evaluation scores and details
+- `trajectory_evaluator_output.json`: Trajectory evaluation scores and details
+- `latency_summary.json`: Per-item and average latency measurements
+
+If more evaluators are included, the evaluation results for each of the evaluators will be saved to `{evaluator_name}_evaluator_output.json`.
+
+### Report Evaluator Output
+
+```json
+{
+  "average_score": 0.9,
+  "average_vlm_field_score": 0.9,
+  "eval_output_items": [
+    {
+      "id": "report_001",
+      "score": 0.9,
+      "vlm_field_score": 0.8,
+      "reasoning": {
+        "sections": {
+         "title": {
+           "section_score": 1.0,
+           "method": "exact_match",
+           "actual_value": "<generated-title>",
+           "reference_value": "<expected-title>",
+           "error": null,
+           "field_scores": {}
+         },
+          "Basic Information": {
+           "section_score": 1.0,
+           "method": "average",
+           "actual_value": {
+             "Report Identifier": "<generated-report-id>",
+             "Date of Incident": "<generated-date>"
+           },
+           "reference_value": {
+             "Report Identifier": "<expected-report-id>",
+             "Date of Incident": "<expected-date>"
+           },
+           "error": null,
+            "field_scores": {
+             "Report Identifier": {
+               "section_score": 1.0,
+               "method": "non_empty",
+               "actual_value": "<generated-report-id>",
+               "reference_value": "<expected-report-id>",
+               "error": null,
+               "field_scores": {}
+             },
+             "Date of Incident": {
+               "section_score": 1.0,
+               "method": "llm_judge",
+               "actual_value": "<generated-date>",
+               "reference_value": "<expected-date>",
+               "error": null,
+               "field_scores": {}
+             }
+           }
+         }
+       },
+       "metadata": {
+         "reference_file": "<path-to-ground-truth-file>",
+         "actual_file": "<path-to-generated-report>"
+       }
+     }
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+
+- `average_score`: Mean score across all evaluated reports
+- `average_vlm_field_score`: Mean score for `vlm_field_score` across all evaluated reports
+- `eval_output_items`: Array of evaluation results for each test case
+
+  - `id`: Unique identifier matching the dataset entry
+  - `score`: Overall report score (0.0 to 1.0)
+  - `vlm_field_score`: Mean score across all evaluated VLM-related fields
+  - `reasoning`: Evaluation details
+
+    - `sections`: Section-level evaluation results, each containing:
+
+      - `section_score`: Score for the section or field (0.0 to 1.0)
+      - `method`: Evaluation method used (e.g., `exact_match`, `llm_judge`, `average`, `non_empty`). Fields evaluated with dynamic field discovery enabled has `llm_judge_with_field_discovery` as the method.
+      - `actual_value`: The value from the generated report
+      - `reference_value`: The expected value from ground truth
+      - `error`: Error message if evaluation failed for the section or field, otherwise `null`
+      - `field_scores`: Nested field evaluations within a section (recursive structure)
+
+    - `metadata`: File paths for reference and generated reports
+
+      - `reference_file`: Path to the ground truth file
+      - `actual_file`: Path to the generated report
+
+### QA Evaluator Output
+
+```json
+{
+  "average_score": 0.8,
+  "eval_output_items": [
+    {
+      "id": "vqa_001",
+      "score": 1.0,
+      "reasoning": {
+        "reasoning": "The agent correctly identified that a worker dropped one box. The answer matches the ground truth semantically.",
+        "question": "Did a worker drop any boxes in <video-name>?",
+        "generated_answer": "<agent-answer>",
+        "ground_truth": "<expected-answer>"
+      }
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+
+- `average_score`: Mean score across all evaluated QA pairs
+- `eval_output_items`: Array of evaluation results for each test case
+
+  - `id`: Unique identifier matching the dataset entry
+  - `score`: QA accuracy score (0.0 to 1.0)
+  - `reasoning`: Evaluation details
+
+    - `reasoning`: LLM judge's reasoning for the score
+    - `question`: The original query sent to the agent
+    - `generated_answer`: The agent's response
+    - `ground_truth`: The expected answer from the dataset
+
+### Trajectory Evaluator Output
+
+```json
+{
+  "average_score": 0.89,
+  "eval_output_items": [
+    {
+      "id": "traj_001",
+      "score": 1.0,
+      "reasoning": {
+        "reasoning": "The agent used the vst_video_list tool, which is the correct tool for retrieving the list of videos. Tool selection is correct, parameters are accurate...",
+        "query": "What videos are available?",
+        "actual_tool_calls": [
+          {"step": 1, "name": "vst_video_list", "params": {}}
+        ],
+        "expected_tool_calls": [
+          {"step": 1, "name": "vst_video_list", "params": {}}
+        ],
+        "final_answer": "<agent-answer>",
+        "trajectory": [
+          [
+            {
+              "tool": "<llm-model-name>",
+              "tool_input": "What videos are available?",
+              "log": ""
+            },
+            "\n\nTool calls: [{'id': '...', 'function': {'name': 'vst_video_list', 'arguments': '{}'}}]"
+          ],
+          [
+            {
+              "tool": "vst_video_list",
+              "tool_input": "{}",
+              "log": "\n\nTool calls: [{'id': '...', 'function': {'name': 'vst_video_list', 'arguments': '{}'}}]"
+            },
+            {"video_list": [{"name": "<video-name>", "duration": "<video-duration>"}]}
+          ]
+        ],
+        "conversation_history": [],
+        "track_agent_selected_tools_only": true
+      }
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+
+- `average_score`: Mean score across all evaluated trajectories
+- `eval_output_items`: Array of evaluation results for each test case
+
+  - `id`: Unique identifier matching the dataset entry
+  - `score`: Trajectory quality score (0.0 to 1.0)
+  - `reasoning`: Evaluation details
+
+    - `reasoning`: LLM judge's reasoning for the score
+    - `query`: The original query sent to the agent
+    - `actual_tool_calls`: Structured tool calls extracted from the agent's trajectory
+    - `expected_tool_calls`: Expected tool calls from `trajectory_ground_truth`
+    - `final_answer`: The agent's response
+    - `trajectory`: The agent's execution path, including inputs and outputs of the LLM calls and tool calls
+    - `conversation_history`: Previous turns in the conversation
+    - `track_agent_selected_tools_only`: Whether filtering was applied to show only agent-selected tools in the trajectory
+
+### Latency Summary Output
+
+The `latency_summary.json` file contains per-item and average latency measurements.
+
+```json
+{
+  "average_latency_seconds": 10.000,
+  "items": [
+    {
+      "id": "qa_001",
+      "query": "<query-1>",
+      "latency_seconds": 10.000
+    },
+    {
+      "id": "qa_002",
+      "query": "<query-2>",
+      "latency_seconds": 10.000
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+
+- `average_latency_seconds`: Mean latency across all evaluated items
+- `items`: Array of per-item latency measurements
+
+  - `id`: Unique identifier matching the dataset entry
+  - `query`: The query sent to the agent
+  - `latency_seconds`: Wall-clock time between first and last trajectory event
+
+### Skipped Test Cases
+
+When a test case's `evaluation_method` does not include a specific evaluator, that evaluator outputs a skipped result:
+
+```json
+{
+  "id": "test_001",
+  "score": null,
+  "reasoning": "Skipped: not marked for <evaluator-name> evaluation"
+}
+```

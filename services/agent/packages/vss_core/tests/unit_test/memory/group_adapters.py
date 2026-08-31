@@ -176,6 +176,101 @@ class SummaryAdapter(LifecycleAdapter):
         return RecordBundle(parent=parent, children=children)
 
 
+class SearchAdapter(LifecycleAdapter):
+    """Example search mapper: parent job plus one ``search_hit`` child per hit."""
+
+    group: MemoryGroup = "search"
+
+    @staticmethod
+    def build_input(
+        *,
+        query: str | None,
+        sensors: list[dict[str, Any]] | list[SensorInfo] | None,
+        window: TimeWindow | dict[str, Any] | None,
+        params: dict[str, Any] | None,
+        intent: str | None = None,
+    ) -> MemoryInput:
+        sensor_models: list[SensorInfo] = []
+        for item in sensors or []:
+            if isinstance(item, SensorInfo):
+                sensor_models.append(item)
+            else:
+                sensor_id = str(item.get("id") or item.get("sensor_id") or "").strip()
+                if not sensor_id:
+                    raise ValueError("search sensors require a non-empty id")
+                sensor_models.append(SensorInfo(id=sensor_id, type=str(item.get("type") or "video") or None))
+        return MemoryInput(
+            query=query,
+            intent=intent,
+            sensors=sensor_models or None,
+            window=window if isinstance(window, TimeWindow) else None,
+            params=dict(params) if params else None,
+        )
+
+    @staticmethod
+    def build_output(
+        *,
+        answer: str | None,
+        ext: dict[str, Any] | None = None,
+        result_count: int | None = None,
+    ) -> MemoryOutput:
+        payload_ext = dict(ext or {})
+        if result_count is not None:
+            payload_ext.setdefault("result_count", result_count)
+        return MemoryOutput(answer=answer, ext=payload_ext or None)
+
+    def terminal_bundle(
+        self,
+        *,
+        job_id: str,
+        created_at: str,
+        status: JobStatus,
+        input_data: MemoryInput,
+        answer: str | None,
+        results: list[dict[str, Any]] | None = None,
+        ext: dict[str, Any] | None = None,
+        error: MemoryError | None = None,
+        backend_ref: str | None = None,
+        updated_at: str | None = None,
+        default_sensor_id: str | None = None,
+    ) -> RecordBundle:
+        rows = [dict(row) for row in (results or [])]
+        parent_ext = dict(ext or {})
+        if input_data.params and "search_mode" in input_data.params:
+            parent_ext.setdefault("search_mode", input_data.params["search_mode"])
+        parent_output = None
+        if status in {"completed", "partial"} or answer or parent_ext:
+            parent_output = self.build_output(answer=answer, ext=parent_ext, result_count=len(rows))
+        parent = self.terminal_record(
+            job_id=job_id,
+            created_at=created_at,
+            status=status,
+            input_data=input_data,
+            output=parent_output,
+            error=error,
+            backend_ref=backend_ref,
+            updated_at=updated_at,
+        )
+        fallback = default_sensor_id or (input_data.sensors[0].id if input_data.sensors else None)
+        children = tuple(
+            _child_for(
+                job_id=job_id,
+                group=self.group,
+                record_type="search_hit",
+                created_at=created_at,
+                row={**row, "rank": index, **({"score": row["score"]} if row.get("score") is not None else {})},
+                prefix="hit",
+                preferred_keys=("hit_id", "result_id", "event_id", "id", "uuid", "_id"),
+                default_sensor_id=fallback,
+                ext_keys=("rank", "score", "object_ids", "frame_ids"),
+            )
+            for index, row in enumerate(rows, start=1)
+        )
+        # Attach rank onto each child ext via a dedicated pass — _child_for only
+        # copies keys present on the row; rank was injected above.
+        return RecordBundle(parent=parent, children=children)
+
+
 def alert_incident_bundle(
     *,
     job_id: str,

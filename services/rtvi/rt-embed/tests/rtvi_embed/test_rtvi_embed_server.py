@@ -33,6 +33,7 @@ import logging
 import os
 import tempfile
 import uuid
+from urllib.parse import urlencode
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -393,6 +394,42 @@ class TestFileEndpoints:
         response = test_client.post(f"{API_PREFIX}/files", files=files)
         print(f" response is {response.json()}")
         assert response.status_code == 200
+
+    def test_add_file_from_urlencoded_form(self, test_client):
+        """Test adding a file by path from an urlencoded form request."""
+        response = test_client.post(
+            f"{API_PREFIX}/files",
+            data={
+                "filename": self.VIDEO_FILE_PATH,
+                "purpose": "vision",
+                "media_type": "video",
+            },
+        )
+
+        assert response.status_code == 200
+
+    def test_add_file_rejects_urlencoded_form_with_too_many_fields(self, test_client):
+        """Test urlencoded forms use Starlette's max_fields protection."""
+        fields = [("purpose", "vision"), ("media_type", "video")]
+        fields.extend((f"unused_{index}", "x") for index in range(1000))
+
+        response = test_client.post(
+            f"{API_PREFIX}/files",
+            content=urlencode(fields),
+            headers={"content-type": "application/x-www-form-urlencoded"},
+        )
+
+        assert response.status_code == 400
+
+    def test_add_file_rejects_semicolon_only_urlencoded_form(self, test_client):
+        """Test semicolons are not treated as urlencoded field separators."""
+        response = test_client.post(
+            f"{API_PREFIX}/files",
+            content="a;" * 5000,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+        )
+
+        assert response.status_code == 422
 
     def test_add_file_missing_params(self, test_client):
         """Test adding file with missing parameters"""

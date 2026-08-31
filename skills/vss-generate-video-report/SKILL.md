@@ -27,7 +27,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths.
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
-2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-agent` for the SOP tools).
+2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-ai` for the SOP tools).
 3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B and Mode C have no prompt-approval step.)
 4. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
 5. **Rewrite every user-facing clip URL** before embedding it in the report: prefer
@@ -76,13 +76,13 @@ Never route reports through VSS-agent `POST /generate`.
 ## Runtime prerequisites
 
 This skill is profile-agnostic for Mode A. A specific profile does **not** have to be pre-deployed as long as the chosen Mode A input path and VLM path are available.
-**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-agent`; see `skills/vss-build-vision-agent/references/services/sop.md` § Patch specifics).
+**Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-ai`; see `skills/vss-build-vision-ai/references/services/sop.md` § Patch specifics).
 
 ### Endpoint resolution (Kubernetes vs Docker)
 
 When operating against a deployed VSS stack (**base**, **lvs**, or **alerts** on
 Helm), resolve public endpoints once. Follow
-[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
+[`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md):
 
 ```bash
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
@@ -90,8 +90,8 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-  # Base: Prefix /v1 → RT-VLM. LVS: Exact /v1/models + /v1/chat/completions → RT-VLM.
-  : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/v1}"
+  # RT-VLM is at /rtvi-vlm on every profile; nothing is mounted at the origin /v1.
+  : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/rtvi-vlm/v1}"
   # Alerts / Mode B — force public VA-MCP; ignore leftover Docker :9901.
   VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 else
@@ -135,10 +135,10 @@ curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 # Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
 # tools/list on ${VA_MCP_URL}/mcp (two-step JSON-RPC, see Mode C Step 1) must include
 # video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
-# hand off to /vss-build-vision-agent and do NOT proceed with Mode C.
+# hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
 ```
 
-If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-agent` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
+If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
 
 ---
 
@@ -148,7 +148,8 @@ If VLM/deployment choice is unclear and no default selection has been made, ask 
 
 1. **Provide an endpoint** — user supplies `VLM_ENDPOINT` and model id.
 2. **Use the public Ingress VLM** — when `VSS_PUBLIC_URL` is set, probe
-   `${VSS_PUBLIC_URL%/}/v1/models` (base Helm RT-VLM route). Do **not** use `/vlm/v1`.
+   `${VSS_PUBLIC_URL%/}/rtvi-vlm/v1/models` (the RT-VLM mount, same on every
+   profile). Do **not** use `/vlm/v1` or the bare origin `/v1`.
 3. **Suggest options based on auto-discover** — on Docker, probe the standard
    local VLM ports. For shared VLM-selection guidance, follow `/vss-ask-video`.
 4. **Deploy a local VLM** — hand off to `/vss-deploy-profile` (with user confirmation) and then continue.
@@ -158,7 +159,7 @@ Auto-discover hints:
 ```bash
 # Kubernetes / public Ingress (preferred when VSS_PUBLIC_URL is set)
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/v1/models" | jq -r '.data[].id'
+  curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1/models" | jq -r '.data[].id'
 fi
 
 # Docker only — probe common local endpoints without inspecting any container.
@@ -265,7 +266,7 @@ block the local VLM analysis path. Apply the rewrite to **every clip URL
 surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
 per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
 Step 3 on the original internal URL when the VLM is local / in-cluster. When the
-VLM is reached through `${VSS_PUBLIC_URL}/v1` and cannot fetch private VIOS
+VLM is reached through `${VSS_PUBLIC_URL}/rtvi-vlm/v1` and cannot fetch private VIOS
 hosts, download the clip and send inline bytes (same remote-VLM rule as
 `/vss-ask-video`).
 
@@ -278,7 +279,7 @@ hosts, download the clip and send inline bytes (same remote-VLM rule as
 ```bash
 # Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  _lvs_ready="${VSS_PUBLIC_URL%/}/v1/ready"
+  _lvs_ready="${VSS_PUBLIC_URL%/}/lvs/v1/ready"
 else
   _lvs_ready="http://${HOST_IP}:38111/v1/ready"
 fi
@@ -302,10 +303,22 @@ Hand off to `/vss-manage-video-io-storage` to:
 3. Request a clip URL:
 
    ```bash
-   curl -s "${VST_API_BASE}/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true" | jq -r .videoUrl
+   # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
+   # Omit the window to take the whole recorded segment; the response echoes what it resolved.
+   # CLI bootstrap and exit codes: AGENTS.md at the repo root
+   VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+   VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+   VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
+   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
+
+   # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
+   # so a failed command with empty stdout reads as an empty answer.
+   CLIP=$("${VSS[@]}" vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
+     echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
+   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
    ```
 
-Bind it to `VIDEO_URL` (used by the VLM in Step 3) and set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block sets `VIDEO_URL` (used by the VLM in Step 3). Also set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).
@@ -351,7 +364,7 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 
 | Backend | Discovery input | Typical host endpoint | Picked when |
 |---|---|---|---|
-| **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/v1` | Kubernetes / Helm base when `VSS_PUBLIC_URL` is set (preferred) |
+| **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` | Kubernetes / Helm, any profile, when `VSS_PUBLIC_URL` is set (preferred) |
 | **NIM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:30082/v1` | Docker: port 30082 responds with at least one model |
 | **RT-VLM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:8018/v1` | Docker: port 8018 responds with at least one model |
 
@@ -362,7 +375,7 @@ Ingress RT-VLM route (do **not** probe `/vlm/v1`):
 
 ```bash
 if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/v1"
+  VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/rtvi-vlm/v1"
   VLM_BACKEND="rtvlm"
 fi
 ```
@@ -643,7 +656,7 @@ SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
 curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
   | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
-  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-agent to compose the SOP profile" >&2; exit 1; }
+  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-ai to compose the SOP profile" >&2; exit 1; }
 ```
 
 (No bash arrays — POSIX-`sh` safe; the session id is guarded, and the tool check exits non-zero when `get_sop_report` is missing.)
@@ -698,7 +711,7 @@ If `get_sop_report` returns an error or zero messages for the range/scope, STOP 
 
 - **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
 - **`/vss-query-analytics`** — incident retrieval for Mode B Step 2. (Mode C does **not** use it — it calls VA-MCP's `get_sop_report` directly; see Mode C Step 2.)
-- **`/vss-build-vision-agent`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-agent/references/services/sop/`).
+- **`/vss-build-vision-ai`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-ai/references/services/sop/`).
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
 - **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
 - **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Step 3 loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.

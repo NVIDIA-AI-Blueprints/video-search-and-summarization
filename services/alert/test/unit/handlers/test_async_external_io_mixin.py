@@ -54,9 +54,7 @@ class Handler(AsyncExternalIOMixin):
     """Minimal host object providing the attributes the mixin reads."""
 
     def __init__(self, **overrides):
-        self.async_redis_enabled = False
-        self.async_elastic_enabled = False
-        self.async_vst_enabled = False
+        self.async_io_enabled = False
         self.async_vlm_runtime = None
         self.redis_handler = MagicMock()
         self._vlm_sink_type = "elastic"
@@ -91,25 +89,25 @@ def make_runtime(future=None):
 class TestModeGates:
     def test_redis_mode_requires_all_three_conditions(self):
         assert Handler()._is_async_redis_mode_enabled() is False
-        assert Handler(async_redis_enabled=True)._is_async_redis_mode_enabled() is False
+        assert Handler(async_io_enabled=True)._is_async_redis_mode_enabled() is False
         assert Handler(
-            async_redis_enabled=True, async_vlm_runtime=MagicMock()
+            async_io_enabled=True, async_vlm_runtime=MagicMock()
         )._is_async_redis_mode_enabled() is True
 
     def test_redis_mode_is_off_without_a_handler(self):
         handler = Handler(
-            async_redis_enabled=True, async_vlm_runtime=MagicMock(), redis_handler=None
+            async_io_enabled=True, async_vlm_runtime=MagicMock(), redis_handler=None
         )
         assert handler._is_async_redis_mode_enabled() is False
 
     def test_elastic_sink_mode_requires_the_elastic_sink(self):
         handler = Handler(
-            async_elastic_enabled=True, async_vlm_runtime=MagicMock(), _vlm_sink_type="kafka"
+            async_io_enabled=True, async_vlm_runtime=MagicMock(), _vlm_sink_type="kafka"
         )
         assert handler._is_async_elastic_sink_mode_enabled() is False
 
     def test_elastic_sink_mode_enabled(self):
-        handler = Handler(async_elastic_enabled=True, async_vlm_runtime=MagicMock())
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=MagicMock())
         assert handler._is_async_elastic_sink_mode_enabled() is True
 
 
@@ -130,7 +128,7 @@ class TestRunRedisOperationWithMode:
 
     def test_async_mode_offloads_to_the_runtime(self):
         runtime = make_runtime(completed_future("async-result"))
-        handler = Handler(async_redis_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock()
 
         result = handler._run_redis_operation_with_mode("dedup", operation, 1, k=2)
@@ -143,7 +141,7 @@ class TestRunRedisOperationWithMode:
         future = MagicMock()
         future.result.side_effect = FutureTimeoutError()
         runtime = make_runtime(future)
-        handler = Handler(async_redis_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock(return_value="fallback")
 
         assert handler._run_redis_operation_with_mode("dedup", operation) == "fallback"
@@ -152,7 +150,7 @@ class TestRunRedisOperationWithMode:
 
     def test_async_error_falls_back_to_a_sync_call(self):
         runtime = make_runtime(completed_future(exception=RuntimeError("worker died")))
-        handler = Handler(async_redis_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock(return_value="fallback")
 
         assert handler._run_redis_operation_with_mode("dedup", operation) == "fallback"
@@ -160,14 +158,14 @@ class TestRunRedisOperationWithMode:
     def test_submit_failure_falls_back_to_a_sync_call(self):
         runtime = MagicMock()
         runtime.submit_to_thread.side_effect = RuntimeError("runtime stopping")
-        handler = Handler(async_redis_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock(return_value="fallback")
 
         assert handler._run_redis_operation_with_mode("dedup", operation) == "fallback"
 
     def test_a_failing_fallback_propagates(self):
         runtime = make_runtime(completed_future(exception=RuntimeError("worker died")))
-        handler = Handler(async_redis_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock(side_effect=RuntimeError("state error"))
 
         with pytest.raises(RuntimeError, match="state error"):
@@ -178,7 +176,7 @@ class TestRunRedisOperationWithMode:
         future.result.return_value = "ok"
         runtime = make_runtime(future)
         handler = Handler(
-            async_redis_enabled=True, async_vlm_runtime=runtime, async_external_timeout_seconds=2
+            async_io_enabled=True, async_vlm_runtime=runtime, async_external_timeout_seconds=2
         )
 
         handler._run_redis_operation_with_mode("dedup", MagicMock())
@@ -226,7 +224,7 @@ class TestSubmitSinkOperationWithMode:
     def test_async_mode_returns_the_future_and_tracks_it(self):
         future = Future()
         runtime = make_runtime(future)
-        handler = Handler(async_elastic_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         result = handler._submit_sink_operation_with_mode("publish", MagicMock(), MESSAGE)
 
@@ -236,7 +234,7 @@ class TestSubmitSinkOperationWithMode:
     def test_the_future_is_untracked_once_it_completes(self):
         future = Future()
         runtime = make_runtime(future)
-        handler = Handler(async_elastic_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         handler._submit_sink_operation_with_mode("publish", MagicMock(), MESSAGE)
         future.set_running_or_notify_cancel()
@@ -246,7 +244,7 @@ class TestSubmitSinkOperationWithMode:
 
     def test_extra_arguments_are_forwarded(self):
         runtime = make_runtime(Future())
-        handler = Handler(async_elastic_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock()
 
         handler._submit_sink_operation_with_mode("publish", operation, MESSAGE, "prompt", None)
@@ -258,7 +256,7 @@ class TestSubmitSinkOperationWithMode:
     def test_submit_failure_falls_back_to_a_sync_call(self):
         runtime = MagicMock()
         runtime.submit_to_thread.side_effect = RuntimeError("runtime stopping")
-        handler = Handler(async_elastic_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock()
 
         assert handler._submit_sink_operation_with_mode("publish", operation, MESSAGE) is None
@@ -267,7 +265,7 @@ class TestSubmitSinkOperationWithMode:
     def test_a_failing_fallback_propagates(self):
         runtime = MagicMock()
         runtime.submit_to_thread.side_effect = RuntimeError("runtime stopping")
-        handler = Handler(async_elastic_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
         operation = MagicMock(side_effect=RuntimeError("sink down"))
 
         with pytest.raises(RuntimeError, match="sink down"):
@@ -276,7 +274,7 @@ class TestSubmitSinkOperationWithMode:
     def test_the_in_flight_threshold_warns(self, caplog):
         runtime = make_runtime(Future())
         handler = Handler(
-            async_elastic_enabled=True, async_vlm_runtime=runtime, async_sink_warn_in_flight=1
+            async_io_enabled=True, async_vlm_runtime=runtime, async_sink_warn_in_flight=1
         )
 
         with caplog.at_level("WARNING"):
@@ -287,7 +285,7 @@ class TestSubmitSinkOperationWithMode:
     def test_no_warning_below_the_threshold(self, caplog):
         runtime = make_runtime(Future())
         handler = Handler(
-            async_elastic_enabled=True, async_vlm_runtime=runtime, async_sink_warn_in_flight=99
+            async_io_enabled=True, async_vlm_runtime=runtime, async_sink_warn_in_flight=99
         )
 
         with caplog.at_level("WARNING"):
@@ -302,7 +300,7 @@ class TestSubmitSinkOperationWithMode:
 
 class TestOnAsyncSinkOperationDone:
     def _handler(self):
-        return Handler(async_elastic_enabled=True, async_vlm_runtime=make_runtime())
+        return Handler(async_io_enabled=True, async_vlm_runtime=make_runtime())
 
     def test_a_completed_future_is_discarded(self):
         handler = self._handler()
@@ -438,7 +436,7 @@ class TestGetVideoStreamUrlWithMode:
 
     def test_async_mode_offloads_to_the_runtime(self):
         runtime = make_runtime(completed_future("http://vst/clip.mp4"))
-        handler = Handler(async_vst_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         result = handler._get_video_stream_url_with_mode("cam-1", "t0", "t1")
 
@@ -449,7 +447,7 @@ class TestGetVideoStreamUrlWithMode:
         future = MagicMock()
         future.result.side_effect = FutureTimeoutError()
         runtime = make_runtime(future)
-        handler = Handler(async_vst_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         with pytest.raises(VSTTimeoutError):
             handler._get_video_stream_url_with_mode("cam-1", "t0", "t1")
@@ -461,7 +459,7 @@ class TestGetVideoStreamUrlWithMode:
         future = MagicMock()
         future.result.side_effect = FutureTimeoutError()
         runtime = make_runtime(future)
-        handler = Handler(async_vst_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         with pytest.raises(VSTTimeoutError):
             handler._get_video_stream_url_with_mode("cam-1", "t0", "t1")
@@ -470,13 +468,13 @@ class TestGetVideoStreamUrlWithMode:
 
     def test_other_async_errors_propagate_unchanged(self):
         runtime = make_runtime(completed_future(exception=RuntimeError("vst 500")))
-        handler = Handler(async_vst_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         with pytest.raises(RuntimeError, match="vst 500"):
             handler._get_video_stream_url_with_mode("cam-1", "t0", "t1")
 
     def test_async_mode_needs_a_runtime(self):
-        handler = Handler(async_vst_enabled=True, async_vlm_runtime=None)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=None)
         handler._vst_handler.get_video_stream_url.return_value = "http://vst/clip.mp4"
 
         assert handler._get_video_stream_url_with_mode("cam-1", "t0", "t1") == (
@@ -485,7 +483,7 @@ class TestGetVideoStreamUrlWithMode:
 
     def test_kwargs_reach_the_runtime_submission(self):
         runtime = make_runtime(completed_future("url"))
-        handler = Handler(async_vst_enabled=True, async_vlm_runtime=runtime)
+        handler = Handler(async_io_enabled=True, async_vlm_runtime=runtime)
 
         handler._get_video_stream_url_with_mode("cam-1", "t0", "t1", quality="low")
 

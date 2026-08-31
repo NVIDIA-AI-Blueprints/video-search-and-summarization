@@ -36,6 +36,8 @@ from typing import Any
 from typing import ClassVar
 import urllib.parse
 
+from elastic_transport import HttpxAsyncHttpNode
+from elastic_transport import NodeConfig
 from elasticsearch import ApiError as ESApiError
 from elasticsearch import AsyncElasticsearch
 from elasticsearch import ConnectionError as ESConnectionError
@@ -53,6 +55,22 @@ if TYPE_CHECKING:
     from ..runtime import SearchRuntime
 
 logger = logging.getLogger(__name__)
+
+
+class _PrefixedHttpxAsyncNode(HttpxAsyncHttpNode):
+    """httpx transport node that preserves the endpoint's path prefix.
+
+    httpx rather than the default aiohttp node, whose ClientSession ignores
+    ``HTTP(S)_PROXY`` and fails wherever egress is proxy-only. Upstream's
+    httpx node derives ``base_url`` from scheme/host/port alone and drops
+    ``NodeConfig.path_prefix``, so a path-mounted endpoint would be queried
+    at the wrong path; restore the prefix.
+    """
+
+    def __init__(self, config: NodeConfig) -> None:
+        super().__init__(config)
+        if self.path_prefix:
+            self.client.base_url = self.base_url
 
 
 def _redact_endpoint(endpoint: str) -> str:
@@ -189,6 +207,7 @@ class ElasticClient:
             )
         new = AsyncElasticsearch(
             hosts=[endpoint],
+            node_class=_PrefixedHttpxAsyncNode,
             request_timeout=request_timeout,
             max_retries=max_retries,
         )

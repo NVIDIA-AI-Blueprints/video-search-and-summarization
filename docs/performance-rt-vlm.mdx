@@ -1,0 +1,232 @@
+---
+title: "RT-VLM Performance"
+description: ""
+position: 5
+---
+
+## Overview
+
+The Real-Time VLM (RTVI-VLM) microservice provides real-time video understanding capabilities
+using Vision Language Models (VLM) for live RTSP streams and pre-recorded video files,
+generating captions and detecting incidents. It uses the Cosmos3 Nano Reasoner model
+served via vLLM.
+
+Video is processed in 10-second chunks: the microservice accumulates 80 frames per chunk at
+448×448 resolution, producing 7,840 vision tokens per inference call. Benchmarks cover two
+operating modes and two output sequence lengths (OSL):
+
+- **Streaming mode** — the microservice reads live RTSP streams continuously. Latency is
+  measured from when a chunk is ready until the VLM response is received.
+- **File processing mode** — pre-recorded video files are processed as fast as possible
+  since all frames are immediately available.
+
+Output sequence length (OSL) determines the use case:
+
+- **OSL = 1 (Alerting)** — the VLM outputs a single Yes/No token in response to a binary
+  alert prompt. Lower latency and higher throughput.
+- **OSL = 100 (Captioning)** — the VLM generates a descriptive caption of the video chunk.
+  Higher output token count leads to longer latency and lower throughput.
+
+<Frame caption="Max concurrent live RTSP streams per GPU. Alerting (OSL=1) consistently supports more concurrent streams than captioning (OSL=100) due to its single-token output. H100 and RTX Pro 6000 SE are the recommended platforms for multi-stream deployments.">
+  <img src="/assets/images/performance/vlm_max_streams_alerting_vs_captioning.png" alt="RTVI-VLM max concurrent streams per GPU for alerting and captioning use cases" />
+</Frame>
+
+## Test Configuration
+
+| Parameter | Value |
+| --- | --- |
+| VSS Release | 3.2 |
+| Model | Cosmos3 Nano Reasoner |
+| Model precision | FP8 |
+| Inference engine | vLLM |
+| Chunk duration | 10 seconds |
+| Frames per chunk | 80 |
+| Image resolution | 448×448 |
+| Vision tokens per chunk | 7,840 |
+| Input sequence length (ISL) | 56 text tokens |
+| GPUs tested | H100, RTX Pro 6000 SE, DGX Spark, AGX Thor |
+
+## Performance by GPU
+
+<Tabs>
+<Tab title="H100">
+**Streaming Mode**
+
+| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) | GPU Mem (%) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Alerting (OSL=1) | 51 | 3.6 | 4.86 | 4.95 | 94.8 | 86.8 |
+| Captioning (OSL=100) | 33 | 4.78 | 6.31 | 6.44 | 83.8 | 83.9 |
+
+| Use Case | Concurrent Streams | Chunk E2E Avg (s) | GPU Core Avg (%) |
+| --- | --- | --- | --- |
+| Alerting (OSL=1) | 1 | 0.58 | 0.4 |
+| Alerting (OSL=1) | 10 | 1.10 | 21.0 |
+| Alerting (OSL=1) | 20 | 1.33 | 30.8 |
+| Captioning (OSL=100) | 1 | 1.23 | 8.2 |
+| Captioning (OSL=100) | 10 | 2.21 | 31.2 |
+| Captioning (OSL=100) | 20 | 3.72 | 52.2 |
+
+**File Processing Mode**
+
+| Use Case | Video Length | E2E Latency (s) |
+| --- | --- | --- |
+| Alerting (OSL=1) | 10 s | 0.67 |
+| Alerting (OSL=1) | 10 min | 18.1 |
+| Alerting (OSL=1) | 60 min | 108.0 |
+| Captioning (OSL=100) | 10 s | 1.31 |
+| Captioning (OSL=100) | 10 min | 22.0 |
+| Captioning (OSL=100) | 60 min | 131.1 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
+| --- | --- | --- | --- | --- |
+| 1 | 0.61 | 1.64 | 0.74 | 0.74 |
+| 2 | 0.60 | 3.33 | 0.75 | 0.75 |
+| 4 | 0.67 | 5.97 | 0.80 | 0.81 |
+| 8 | 0.72 | 11.11 | 1.07 | 1.14 |
+| 16 | 1.12 | 14.29 | 1.75 | 1.76 |
+| 32 | 1.58 | 20.25 | 2.38 | 2.44 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
+| --- | --- | --- | --- | --- |
+| 1 | 1.13 | 0.88 | 1.35 | 1.35 |
+| 2 | 1.19 | 1.68 | 1.43 | 1.43 |
+| 4 | 1.25 | 3.20 | 1.53 | 1.54 |
+| 8 | 1.69 | 4.73 | 1.67 | 1.68 |
+| 16 | 1.92 | 8.33 | 2.33 | 2.34 |
+| 32 | 2.65 | 12.08 | 3.69 | 3.71 |
+
+</Tab>
+<Tab title="RTX Pro 6000 SE">
+**Streaming Mode**
+
+| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) | GPU Mem (%) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Alerting (OSL=1) | 33 | 3.4 | 4.61 | 4.61 | 94.0 | 81.1 |
+| Captioning (OSL=100) | 18 | 6.4 | 8.02 | 8.46 | 93.6 | 78.8 |
+
+| Use Case | Concurrent Streams | Chunk E2E Avg (s) | GPU Core Avg (%) |
+| --- | --- | --- | --- |
+| Alerting (OSL=1) | 1 | 0.73 | 6.2 |
+| Alerting (OSL=1) | 10 | 1.48 | 32.1 |
+| Alerting (OSL=1) | 20 | 2.07 | 56.0 |
+| Captioning (OSL=100) | 1 | 2.23 | 17.5 |
+| Captioning (OSL=100) | 10 | 4.69 | 54.3 |
+| Captioning (OSL=100) | 20 | 9.42 | 74.2 |
+
+**File Processing Mode**
+
+| Use Case | Video Length | E2E Latency (s) |
+| --- | --- | --- |
+| Alerting (OSL=1) | 10 s | 0.44 |
+| Alerting (OSL=1) | 10 min | 27.6 |
+| Alerting (OSL=1) | 60 min | 164.5 |
+| Captioning (OSL=100) | 10 s | 1.93 |
+| Captioning (OSL=100) | 10 min | 35.8 |
+| Captioning (OSL=100) | 60 min | 219.0 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
+| --- | --- | --- | --- | --- |
+| 1 | 0.46 | 2.17 | 0.52 | 0.52 |
+| 2 | 0.37 | 5.41 | 0.54 | 0.54 |
+| 4 | 0.46 | 8.70 | 0.80 | 0.82 |
+| 8 | 0.41 | 19.51 | 0.52 | 0.53 |
+| 16 | 0.61 | 26.23 | 1.02 | 1.03 |
+| 32 | 1.10 | 29.09 | 1.50 | 1.53 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) | p90 (s) | p95 (s) |
+| --- | --- | --- | --- | --- |
+| 1 | 1.76 | 0.57 | 1.98 | 1.98 |
+| 2 | 1.88 | 1.06 | 2.09 | 2.09 |
+| 4 | 1.98 | 2.02 | 1.95 | 1.96 |
+| 8 | 2.22 | 3.60 | 2.43 | 2.43 |
+| 16 | 2.77 | 5.78 | 3.01 | 3.07 |
+| 32 | 3.92 | 8.16 | 4.32 | 4.34 |
+
+</Tab>
+<Tab title="DGX Spark">
+**Streaming Mode**
+
+| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) |
+| --- | --- | --- | --- | --- | --- |
+| Alerting (OSL=1) | 2 | 4.08 | 4.24 | 4.24 | 90.9 |
+| Captioning (OSL=100) | 1 | 8.61 | 8.64 | 8.65 | 89.2 |
+
+| Use Case | Concurrent Streams | Chunk E2E Avg (s) |
+| --- | --- | --- |
+| Alerting (OSL=1) | 1 | 4.03 |
+| Alerting (OSL=1) | 2 | 6.92 |
+| Captioning (OSL=100) | 1 | 8.62 |
+| Captioning (OSL=100) | 2 | 27.14 |
+
+**File Processing Mode**
+
+| Use Case | Video Length | E2E Latency (s) |
+| --- | --- | --- |
+| Alerting (OSL=1) | 10 s | 1.63 |
+| Alerting (OSL=1) | 10 min | 176.3 |
+| Captioning (OSL=100) | 10 s | 6.04 |
+| Captioning (OSL=100) | 10 min | 218.1 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
+| --- | --- | --- |
+| 1 | 1.63 | 0.61 |
+| 2 | 1.15 | 1.74 |
+| 4 | 1.31 | 3.05 |
+| 8 | 1.96 | 4.08 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
+| --- | --- | --- |
+| 1 | 6.04 | 0.17 |
+| 2 | 5.28 | 0.38 |
+| 4 | 7.37 | 0.54 |
+| 8 | 10.36 | 0.77 |
+
+</Tab>
+<Tab title="AGX Thor">
+**Streaming Mode**
+
+| Use Case | Max Streams | Chunk E2E Avg (s) | p90 (s) | p95 (s) | GPU Core (%) |
+| --- | --- | --- | --- | --- | --- |
+| Alerting (OSL=1) | 3 | 6.52 | 8.12 | 8.14 | 81.1 |
+| Captioning (OSL=100) | 1 | 7.62 | 7.65 | 7.65 | 76.6 |
+
+| Use Case | Concurrent Streams | Chunk E2E Avg (s) |
+| --- | --- | --- |
+| Alerting (OSL=1) | 1 | 3.22 |
+| Alerting (OSL=1) | 2 | 5.39 |
+| Captioning (OSL=100) | 1 | 7.19 |
+| Captioning (OSL=100) | 2 | 15.70 |
+
+**File Processing Mode**
+
+| Use Case | Video Length | E2E Latency (s) |
+| --- | --- | --- |
+| Alerting (OSL=1) | 10 s | 0.37 |
+| Alerting (OSL=1) | 10 min | 179.6 |
+| Captioning (OSL=100) | 10 s | 6.72 |
+| Captioning (OSL=100) | 10 min | 240.9 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
+| --- | --- | --- |
+| 1 | 0.37 | 2.70 |
+| 2 | 0.47 | 4.26 |
+| 4 | 0.72 | 5.56 |
+| 8 | 0.99 | 8.08 |
+
+| Concurrency | E2E Latency Avg (s) | Throughput (req/s) |
+| --- | --- | --- |
+| 1 | 6.72 | 0.15 |
+| 2 | 7.34 | 0.27 |
+| 4 | 9.40 | 0.43 |
+| 8 | 9.22 | 0.87 |
+
+</Tab>
+</Tabs>
+
+<Note>
+All benchmarks use CR2-8B, FP8, vLLM, 10-second chunks, 80 frames per chunk,
+448×448 resolution, 7,840 vision tokens, and ISL=56 text tokens. For streaming
+deployments, plan for 10–15% headroom below the maximum concurrent stream counts.
+GPU Memory Utilization is not available for DGX Spark and AGX Thor.
+p90/p95 latency is not available for DGX Spark and AGX Thor in file processing mode.
+</Note>

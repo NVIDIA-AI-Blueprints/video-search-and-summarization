@@ -78,16 +78,17 @@ cd /path/to/services/rtvi/rt-cv
 docker build --platform linux/arm64 -f docker/sbsa.Dockerfile -t rtvi-cv:3.3.0-custom-sbsa .
 ```
 
-**ARM** (aarch64 / Jetson-style; uses `docker/aarch64.Dockerfile`):
+**ARM** (aarch64 / Jetson-style) and **x86** share `docker/Dockerfile`; buildx
+selects the architecture-specific paths from `TARGETARCH`:
 
 ```bash
-docker build --platform linux/arm64 -f docker/aarch64.Dockerfile -t rtvi-cv:3.3.0-custom-aarch64 .
+docker build --platform linux/arm64 -f docker/Dockerfile -t rtvi-cv:3.3.0-custom-aarch64 .
 ```
 
 **x86**:
 
 ```bash
-docker build -f docker/x86.Dockerfile -t rtvi-cv:3.3.0-custom-x86 .
+docker build --platform linux/amd64 -f docker/Dockerfile -t rtvi-cv:3.3.0-custom-x86 .
 ```
 
 Adjust image tags (`rtvi-cv:3.3.0-custom-*`) if you need a different version label. For cross-architecture builds, ensure Docker Buildx and a suitable builder are available.
@@ -141,7 +142,7 @@ echo performance > /sys/class/devfreq/8188050000.vic/governor
 
 Use this **inside** a running RT-CV container to smoke-test the GPU pipeline with **30 file sources** and DeepStream sample assets. It does **not** use Docker Compose or the host-side `tests/test-scripts/` suite (that stack targets Kafka + REST instead).
 
-| Path (in repo) | Path (in container, after `docker/x86.Dockerfile` build) |
+| Path (in repo) | Path (in container, after `docker/Dockerfile` build) |
 | -------------- | -------------------------------------------------------- |
 | `tests/run-sanity.sh` | `.../metropolis_perception_app/tests/run-sanity.sh` |
 | `tests/configs/source-30-config.txt` | `.../metropolis_perception_app/tests/configs/source-30-config.txt` |
@@ -170,7 +171,7 @@ On the **first** run, TensorRT may build the primary detector engine; allow seve
 - For the script and config on disk, use an image built from this repo (copies `tests/` into the app tree), for example:
 
   ```bash
-  docker build -f docker/x86.Dockerfile -t rtvi-cv:3.3.0-custom-x86 .
+  docker build --platform linux/amd64 -f docker/Dockerfile -t rtvi-cv:3.3.0-custom-x86 .
   ```
 
   Stock NGC images may not include `tests/run-sanity.sh` unless they were built the same way.
@@ -227,7 +228,7 @@ Do not run `run-sanity.sh` in the same container process that Compose already us
 
 ### Troubleshooting
 
-- **Missing script or config** — rebuild with `docker/x86.Dockerfile` (or mount the repo `tests/` tree into `.../metropolis_perception_app/tests/`).
+- **Missing script or config** — rebuild with `docker/Dockerfile` (or mount the repo `tests/` tree into `.../metropolis_perception_app/tests/`).
 - **Engine build / CUDA errors** — confirm `--gpus` and a large enough GPU for `batch-size=30` in `source-30-config.txt`; reduce batch sizes in the config only if you intentionally want a lighter test.
 - **Cannot open sample URI** — verify the sample file exists in the image:  
   `ls /opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4`
@@ -271,7 +272,7 @@ tests/
 - **Docker Compose** (v2) and **NVIDIA Container Toolkit** so the `rt-cv` service can use `deploy.resources.reservations.devices` (GPU).
 - **Images**: Compose uses `pull_policy: if_not_present` so existing local images are reused. Pull when your registry allows (HTTP **429** rate limits are common on Docker Hub / NGC):
   - `docker pull apache/kafka:3.9.0` (or set `KAFKA_IMAGE` in `.env` to a tag you already have, e.g. `apache/kafka:4.1.1`).
-  - `ngc registry login` then `docker pull --platform linux/amd64 <RTVI_CV_IMAGE>` for the perception image, or build from this repo: `docker build -f docker/x86.Dockerfile -t rtvi-cv:3.3.0-custom-x86 .` and set `RTVI_CV_IMAGE` accordingly.
+  - `ngc registry login` then `docker pull --platform linux/amd64 <RTVI_CV_IMAGE>` for the perception image, or build from this repo: `docker build --platform linux/amd64 -f docker/Dockerfile -t rtvi-cv:3.3.0-custom-x86 .` and set `RTVI_CV_IMAGE` accordingly.
 - **x86 hosts**: Set `RTVI_CV_PLATFORM=linux/amd64` in `.env` so Docker does not select an `arm64` image manifest by mistake.
 
 ### Quick start

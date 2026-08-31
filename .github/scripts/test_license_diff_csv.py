@@ -316,23 +316,6 @@ category = "dev"
             set(inventory),
         )
 
-    def test_vios_bdd_lock_excludes_development_only_packages(self) -> None:
-        lock_path = (
-            Path(__file__).parents[2]
-            / "services"
-            / "vios"
-            / "test"
-            / "bdd_tests"
-            / "poetry.lock"
-        )
-
-        inventory = license_diff_csv.parse_poetry_lock(lock_path.read_bytes())
-        names = {name for name, _version in inventory}
-
-        self.assertTrue(lock_path.is_file())
-        self.assertIn("requests", names)
-        self.assertTrue(names.isdisjoint({"black", "flake8", "mypy"}))
-
 
 class DiffPyprojectTest(unittest.TestCase):
     @mock.patch.object(license_diff_csv, "pypi_metadata")
@@ -374,7 +357,7 @@ class UnscannedAddedManifestsTest(unittest.TestCase):
             [
                 "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml",
                 "services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock",
-                "services/vios/test/bdd_tests/poetry.lock",
+                "services/example/poetry.lock",
                 "services/agent/uv.lock",
                 "libs/analytics/spatialai-data-utils/Pipfile.lock",
                 "services/foo/requirements.txt",

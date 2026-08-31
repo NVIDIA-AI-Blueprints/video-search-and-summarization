@@ -1,0 +1,39 @@
+---
+title: "VST Proxy Stream Management API"
+description: ""
+position: 5
+---
+This page provides API reference for the VST Proxy Stream MS.
+
+## Overview
+
+The Proxy Stream service is used to manage proxy RTSP URLs for sensors. This service provides a proxy layer for RTSP streaming with enhanced control and monitoring capabilities.
+
+## Key Features
+
+The service provides the following capabilities:
+
+- **Proxy Stream Management**: Add and remove RTSP proxy streams
+- **Stream Listing**: Query available proxy streams
+- **Session Management**: Manage active proxy sessions
+- **Proxy Information**: Retrieve proxy configuration and active session details
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `https://localhost/api`
+
+All API endpoints are prefixed with `/v1/proxy`.
+
+## Authentication
+
+The VST Proxy Stream Management API uses optional bearer token authentication for endpoints that modify proxy configuration or perform operations. GET requests typically do not require authentication.
+
+<Note>
+Endpoints that require authentication are marked with a security requirement in the API specification.
+</Note>
+
+## Reference
+
+OpenAPI Specification can be found [here ](/vst-proxy-stream-management-api-reference).

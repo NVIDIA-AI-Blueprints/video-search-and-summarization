@@ -1593,7 +1593,7 @@ class TestNestedOverrides:
             _env_text(*_base_env("thor")),
             hardware_profile_env_overrides={
                 "thor": {
-                    "PERCEPTION_TAG": "tag-from-yml",
+                    "VSS_RT_CV_TAG": "tag-from-yml",
                     "RTVI_VLM_IMAGE_TAG": "img-from-yml",
                 },
             },
@@ -1602,7 +1602,7 @@ class TestNestedOverrides:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["PERCEPTION_TAG"] == "tag-from-yml"
+        assert resolved["VSS_RT_CV_TAG"] == "tag-from-yml"
         assert resolved["RTVI_VLM_IMAGE_TAG"] == "img-from-yml"
 
     def test_profile_scoped_block_applies_when_profile_matches(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -1758,7 +1758,7 @@ class TestNestedOverrides:
             hardware_profile_env_overrides={
                 "thor": {
                     # HW-root: always applies
-                    "PERCEPTION_TAG": "tag-from-hw-root",
+                    "VSS_RT_CV_TAG": "tag-from-hw-root",
                     "RTVI_VLM_IMAGE_TAG": "img-from-hw-root",
                     # profile-level: applies for any base run
                     "base": {"VLM_NIM_KVCACHE_PERCENT": "0.2"},
@@ -1771,7 +1771,7 @@ class TestNestedOverrides:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["PERCEPTION_TAG"] == "tag-from-hw-root"
+        assert resolved["VSS_RT_CV_TAG"] == "tag-from-hw-root"
         assert resolved["RTVI_VLM_IMAGE_TAG"] == "img-from-hw-root"
         assert resolved["VLM_NIM_KVCACHE_PERCENT"] == "0.2"
 

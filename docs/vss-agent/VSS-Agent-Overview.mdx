@@ -1,0 +1,141 @@
+---
+title: "Agent Overview"
+description: ""
+position: 1
+---
+The VSS Agent (Video Search Summarization Agent) is an AI-powered agent for video analytics.
+It generates incident reports, answers queries about video content, and provides video search capabilities.
+
+## Architecture
+
+![VSS Agent Architecture](/assets/images/agent-architecture.png)
+
+## Operational Modes
+
+The VSS Agent supports two operational modes based on deployment configuration:
+
+### Video Analytics MCP Mode
+
+Used by production blueprint deployments (Warehouse, Smart Cities).
+
+- Connects to Video Analytics MCP server for incident data
+- Queries Elasticsearch for incidents and sensor metadata
+- Generates reports based on detected incidents
+- Supports multi-incident queries and analytics
+
+**Requirements:** Video Analytics pipeline, Elasticsearch, VST
+
+### Direct Video Analysis Mode
+
+Used by developer profiles for standalone operation without a full blueprint deployment.
+
+- Analyzes uploaded videos directly without an incident database
+- Uses Cosmos VLM for video understanding
+- Generates reports based on video content analysis
+- Ideal for development, testing, and custom video analysis
+
+**Requirements:** VST, Cosmos VLM (NIM endpoint)
+
+Three developer profiles are available:
+
+- **dev-profile-base**: Basic video upload and analysis
+- **dev-profile-lvs**: Video summarization with interactive prompts
+- **dev-profile-search**: Semantic video search with embeddings
+
+See [VSS-Agent-Profiles](/vss-agent/VSS-Agent-Profiles) for detailed profile descriptions
+
+## Agents
+
+### Top Agent
+
+The top-level agent analyzes the user query and directs it to the appropriate sub-agent or directly executes tools (sensor list, snapshots, etc.).
+
+- **Report Agent**: Generates a report for a single incident.
+- **Multi-Report Agent**: Answers questions about multiple incidents.
+
+### Report Agent
+
+The report agent generates a detailed report for a single incident. It operates in two modes:
+
+**Video Analytics MCP Mode** (Blueprint deployments):
+
+1. Fetches incident data from the Video Analytics MCP server
+2. Retrieves video clips and snapshots from VST
+3. Analyzes video content using the Cosmos VLM
+4. Generates a structured report with findings
+
+**Direct Video Analysis Mode** (Developer profiles):
+
+1. Accepts uploaded videos directly via VST
+2. Analyzes video content using the Cosmos VLM
+3. Generates a video analysis report with timestamped observations
+4. Retrieves video clips and snapshots from VST to include in the report
+
+### Multi-Report Agent
+
+The multi-report agent handles queries about multiple incidents (Video Analytics MCP mode only):
+
+1. Fetches incidents matching the query criteria
+2. Formats incident summaries with video/image URLs
+3. Generates charts and visualizations
+4. Returns a formatted list of incidents
+
+## Default Models
+
+## Capabilities
+
+**Query Sensors**
+
+```text
+"What sensors are available?"
+```
+
+**Generate Incident Report**
+
+```text
+"Generate a detailed report for the last incident at Camera_01"
+```
+
+**List Incidents**
+
+```text
+"List all incidents from Camera_01 in the last hour"
+```
+
+**Metrics/Occupancy Counts**
+
+```text
+"How many people are in Camera_01?"
+```
+
+**Snapshots**
+
+```text
+"Take a snapshot from Camera_01"
+```
+
+<Note>
+`Camera_01` is an example sensor name. The actual sensor names depend on your deployment
+and can be discovered by asking the agent "What sensors are available?"
+</Note>
+
+## Related Documentation
+
+- [vss-agent-api](/vss-agent/vss-agent-api) - VSS Agent API endpoints
+- [Video-Analytics-MCP-Server](/vss-agent/Video-Analytics-MCP-Server) - Video Analytics tools reference
+- [VSS-Agent-Profiles](/vss-agent/VSS-Agent-Profiles) - Available profiles and blueprints
+- [VSS-Agent-Configuration](/vss-agent/VSS-Agent-Configuration) - Configuration reference
+- [VSS-Agent-Evaluation](/vss-agent/VSS-Agent-Evaluation) - Evaluation framework and metrics
+- [Agent Skills](/agent-skills) - Reusable agent skills for coding agents
+
+## Known Issues
+
+1. By default, the agent uses thinking off for faster response, switching to on for complicated queries.
+
+   ![Reasoning toggles](/assets/images/vss-ui/global-chat-sidebar/reasoning-toggles.png)
+
+3. When conversation is long, agent may generate incorrect URL links, causing videos, screenshots, or other media to fail to display or download properly. If you notice this issue, start a new chat from the left panel.
+
+4. Sometimes the agent may enter a loop and error out after reaching the recursion limit. If you encounter this issue, click **Regenerate response** to try again. If the issue persists, start a new chat from the left panel.
+
+5. Generating multiple reports in a single query is not supported in this release.

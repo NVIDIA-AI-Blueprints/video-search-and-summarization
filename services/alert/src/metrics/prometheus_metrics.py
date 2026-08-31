@@ -366,6 +366,54 @@ ASYNC_SINK_IN_FLIGHT = Gauge(
 
 # In-flight dispatched messages (thread_bridge executor tasks or event_loop
 # coroutines), i.e. the live occupancy of the backpressure semaphore.
+# ─── Multi-process fleet ────────────────────────────────────────────────────
+# Degraded capacity is invisible from throughput alone: an instance short of a
+# process, or holding no partitions, keeps serving whatever it still owns.
+# Bounded cardinality on purpose -- no per-partition or per-process labels, so
+# the series count does not grow with the fleet.
+PIPELINE_PROCESSES_CONFIGURED = Gauge(
+    'alert_bridge_pipeline_processes_configured',
+    'Pipeline processes this instance was configured to run',
+    multiprocess_mode='livemostrecent',
+)
+
+PIPELINE_PROCESSES_ALIVE = Gauge(
+    'alert_bridge_pipeline_processes_alive',
+    'Pipeline processes currently running',
+    multiprocess_mode='livemostrecent',
+)
+
+PIPELINE_PROCESSES_READY = Gauge(
+    'alert_bridge_pipeline_processes_ready',
+    'Pipeline processes that have been given a partition assignment',
+    multiprocess_mode='livemostrecent',
+)
+
+PIPELINE_PROCESS_EXITS = Counter(
+    'alert_bridge_pipeline_process_exits_total',
+    'Pipeline processes that exited, by whether a shutdown was asked for',
+    ['reason'],
+)
+
+ASSIGNED_PARTITIONS = Gauge(
+    'alert_bridge_assigned_partitions',
+    'Source partitions currently assigned to this instance',
+    multiprocess_mode='livesum',
+)
+
+REBALANCE_DRAINS = Counter(
+    'alert_bridge_rebalance_drains_total',
+    'Drains of revoked partitions, by whether they finished in time',
+    ['outcome'],
+)
+
+RECORDS_READ_AFTER_REVOKE = Counter(
+    'alert_bridge_records_read_after_revoke_total',
+    'Records read for a partition this member had already lost. Read with '
+    'alert_bridge_rebalance_drains_total: a drain reports only what it could '
+    'wait for, and these arrived too late for it to know about',
+)
+
 DISPATCH_IN_FLIGHT = Gauge(
     'alert_bridge_dispatch_in_flight',
     'Current number of in-flight dispatched messages',
@@ -632,6 +680,16 @@ VERIFICATION_FAILURES = Counter(
 # ---------------------------------------------------------------------------
 
 # (1) In-process cache occupancy + eviction accounting.
+# ``livemostrecent`` is deliberate and stays that way under
+# ``alert_agent.processes > 1``. The two labels aggregate differently and no
+# single mode is right for both: ``dedup``/``enddelta`` are partitioned
+# (each process holds a disjoint set of sensor cohorts, so the instance total
+# is the sum), while ``alert_config`` is replicated identically in every
+# process including the FastAPI child, so summing it would report N times the
+# real config count. This gauge therefore reads as a per-process sample:
+# still a valid memory-growth signal, since every process's cache grows
+# alike, but not an instance-wide total. Use ``sum(...) by (store)`` in the
+# query for that, on the partitioned stores only.
 DEDUP_CACHE_OCCUPANCY = Gauge(
     'alert_bridge_dedup_cache_occupancy',
     'Resident entry count of an in-process state cache (live entries plus any '
