@@ -90,6 +90,7 @@ vss memory get --job-id <job-id>
 vss memory query --job-id <job-id>
 vss memory events --asset-id <sensor-or-video-id>
 vss memory introspect --query "What happened?" --sensor <sensor-name>
+vss memory embeddings backfill --dry-run
 ```
 
 Use `get` for an exact parent or child identity, `query` for filtered or text
@@ -131,6 +132,102 @@ There is no `lookup` or `retrieve` command. The schema has no slug or
 `memory_id`. `events --window` is deferred until duration and boundary
 semantics are defined; use `--start-time` and `--end-time`.
 
+## Derived embeddings and hybrid recall
+
+The canonical `nv.vss.memory/1.0` documents in Elasticsearch stay
+authoritative. Vectors live in a separate versioned companion index. An
+authoritative record gains only `output.embedding` references — companion
+index, document id, model, dimensions, and content hash — never vector values.
+Markdown notes are untouched by this: they carry no vectors and no embedding
+references.
+
+Enable the capability once:
+
+```console
+vss configure memory \
+  --enable \
+  --backend elasticsearch \
+  --index vss-memory \
+  --embeddings \
+  --embedding-provider openai_compatible \
+  --embedding-endpoint http://embedding-service:8000/v1 \
+  --embedding-model nvidia/llama-nemotron-embed-300m-v2 \
+  --embedding-dimensions 768 \
+  --embedding-index vss-memory-embeddings-v1 \
+  --embedding-timeout 30 \
+  --embedding-batch-size 16 \
+  --retrieval-mode hybrid \
+  --semantic-candidate-count 50 \
+  --rrf-rank-constant 60
+```
+
+Only the endpoint has to be given: the model, dimensions, companion index, and
+retrieval mode shown above are the defaults. The endpoint is required whenever
+embeddings are enabled and must carry no credentials — name an environment
+variable holding a Bearer token with `--embedding-api-key-env`. The companion
+index must differ from the authoritative one. `--embedding-timeout` (30
+seconds), `--embedding-batch-size` (16), `--semantic-candidate-count` (50), and
+`--rrf-rank-constant` (60) complete the static policy.
+
+The CLI never loads an embedding model. It posts to an OpenAI-compatible
+`/embeddings` endpoint, so CPU or GPU execution is a property of that
+endpoint's deployment and not a CLI flag or a host requirement.
+
+Validate the wiring without writing records:
+
+```console
+vss configure memory check
+```
+
+With embeddings enabled this also embeds one probe string, reports the model
+and the dimensions actually returned, and inspects the companion mapping. A
+missing companion index is reported as missing — it is created lazily on the
+first embedding write or backfill. An incompatible one is a configuration
+error.
+
+Retrieval mode applies only to text queries:
+
+```console
+vss memory query --query "forklift near the loading dock" --mode hybrid
+```
+
+`hybrid` — the default whenever embeddings are enabled — runs the keyword BM25
+match over `input.query` and `output.answer` and a filtered kNN search over the
+companion index, then fuses the two rankings client-side with reciprocal rank
+fusion. `semantic` uses the vector ranking alone. `keyword` embeds nothing.
+
+Identity lookups stay deterministic. `get`, `events`, and any `query` without
+`--query` read Elasticsearch directly and embed nothing, as does a
+`memory introspect` scoped by `--job-id` or `--record-id`: identity selects the
+evidence, so the question is never embedded and never filters it. An
+introspection scoped by `--sensor` or a time window sends its question through
+the configured retrieval mode.
+
+Recall degrades rather than fails. `--mode semantic` or `--mode hybrid` with
+embeddings disabled warns on stderr and answers from keyword retrieval. A
+provider or companion-index failure during a query also falls back to keyword
+retrieval, logging the failure kind without backend detail.
+
+Records written before embeddings were enabled are indexed by a backfill:
+
+```console
+vss memory embeddings backfill --dry-run
+vss memory embeddings backfill --batch-size 16 --limit 500
+```
+
+It scans authoritative memory in bounded batches and emits one JSON object
+counting `scanned`, `eligible`, `embedded`, `reused`, `skipped`, and `failed`,
+with per-record `failures`. `--dry-run` reports eligibility without provider
+calls or writes. Any failure exits 6 with those counts still on stdout. Only
+`completed` and `partial` records with searchable content are eligible, and
+re-running is cheap: an unchanged record keeps its vector when the model and
+dimensions still match.
+
+Changing the model or the dimensions is not an in-place edit. Point
+`--embedding-index` at a new versioned index and backfill it; a write to an
+index whose mapping disagrees with the configured model or dimensions is
+rejected.
+
 ## Optional OpenClaw Markdown cache
 
 Enable the capability and choose its default once:
@@ -167,7 +264,9 @@ Elasticsearch persistence. Markdown status is reported separately as
 
 This surface preserves parent/child persistence and recall. Introspection adds
 bounded sufficiency analysis and VLM follow-ups without storing an
-introspection trace. Semantic/vector recall and graph memory are not included.
+introspection trace. Semantic and hybrid recall are derived from the companion
+vector index and never change what the authoritative store holds. Graph memory
+is not included.
 
 Trusted persistence callbacks are not supported. No active code or tests
 require them, and arbitrary callback execution is not exposed to agents.

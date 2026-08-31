@@ -103,6 +103,27 @@ Elasticsearch, the embedding NIM, or the agent API directly — a hand-built que
 that returns *something* is worse than a clean failure, because nothing
 downstream can tell it was improvised.
 
+## `vss memory` — recall
+
+```bash
+vss memory query --query "..." [--mode keyword|semantic|hybrid]
+vss memory introspect --query "..." --sensor NAME
+vss memory embeddings backfill [--dry-run]
+```
+
+Text queries use the configured retrieval mode — `hybrid` whenever embeddings
+are enabled, fusing the keyword and semantic rankings client-side. Asking for a
+semantic mode with embeddings disabled warns on stderr and answers from keyword
+retrieval rather than failing. Lookups by identity embed nothing and stay
+deterministic: `get`, a `query` with no `--query`, and an introspection scoped
+by `--job-id` or `--record-id`.
+
+Canonical Elasticsearch memory remains authoritative. Vectors live in a
+versioned companion index, and authoritative records carry only
+`output.embedding` references to it. The CLI runs no model — the embedding
+endpoint's deployment decides CPU or GPU. Policy, defaults, and the backfill
+contract are in [MEMORY.md](MEMORY.md).
+
 ## Rules
 
 The seven that govern every group — configure once, branch on the exit code, an

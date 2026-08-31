@@ -76,6 +76,20 @@ LLM for sufficiency judgment and answer synthesis. RT-VLM is reserved for
 grounded visual follow-ups. See [the memory policy and configuration
 guide](MEMORY.md).
 
+## Memory recall
+
+Static memory policy is set once with `vss configure memory`; reads and writes
+live under `vss memory`. With `--embeddings` enabled, VSS derives text vectors
+into a versioned companion Elasticsearch index and answers text queries with a
+hybrid ranking — keyword and semantic results fused client-side. Elasticsearch
+canonical memory stays authoritative; its records only gain
+`output.embedding` references to the companion documents.
+
+The CLI loads no model. It calls an OpenAI-compatible `/embeddings` endpoint,
+so CPU or GPU execution is decided by that endpoint's deployment, not here. The
+defaults (`nvidia/llama-nemotron-embed-300m-v2`, 768 dimensions), the exact
+flags, and the backfill are in [MEMORY.md](MEMORY.md).
+
 ## Extending it
 
 Groups are discovered from the `vss.commands` entry point, so a third party adds
