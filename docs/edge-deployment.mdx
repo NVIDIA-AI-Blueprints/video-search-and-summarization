@@ -33,6 +33,24 @@ For more details on VSS configurations and how to get API tokens, refer to:
 - [vss-agent/VSS-Agent-Customization](/vss/vision-agent/vss-agents/agent-customization)
 - [vss-agent/VSS-Agent-Configuration](/vss/vision-agent/vss-agents/agent-configuration) and [vss-agent/configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
 
+
+For each selected configuration, save the values in
+`deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then run:
+
+```bash
+cd deploy/docker
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-base/.env \
+  --env-file developer-profiles/dev-profile-base/overrides.env \
+  config --quiet
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file developer-profiles/dev-profile-base/.env \
+  --env-file developer-profiles/dev-profile-base/overrides.env \
+  up -d
+```
+
 ## DGX Spark
 
 1. Start the Nemotron 3 Nano 4B model. For example, using vLLM:
@@ -54,20 +72,21 @@ For more details on VSS configurations and how to get API tokens, refer to:
 
 2. Deploy the agent workflow:
 
-   ```bash
-   export NVIDIA_API_KEY=$NVIDIA_API_KEY
-   export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
-   export LLM_ENDPOINT_URL=http://localhost:30081
-   export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
-   
-   deploy/docker/scripts/dev-profile.sh up -p base \
-       --use-remote-llm \
-       --llm nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
-       --hardware-profile DGX-SPARK \
-       --vlm-env-file deploy/docker/services/nim/cosmos3-reasoner/hw-DGX-SPARK-shared.env
+   ```ini
+   # developer-profiles/dev-profile-base/overrides.env
+   HARDWARE_PROFILE=DGX-SPARK
+   NGC_CLI_API_KEY=<your-ngc-api-key>
+   NVIDIA_API_KEY=<your-nvidia-api-key>
+   LLM_MODE=remote
+   LLM_NAME_SLUG=none
+   LLM_BASE_URL=http://<HOST_IP>:30081
+   LLM_NAME=nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8
+   LLM_MODEL_TYPE=openai
+   VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
+   VLM_ENV_FILE=services/nim/cosmos3-reasoner/hw-DGX-SPARK-shared.env
    ```
 
-   The `--vlm-env-file` limits the VLM KV-cache (`NIM_KVCACHE_PERCENT=0.4`) so both
+   The configured `VLM_ENV_FILE` limits the VLM KV-cache (`NIM_KVCACHE_PERCENT=0.4`) so both
    models fit in GPU memory.
 
 <Note>
@@ -75,13 +94,14 @@ If you prefer the agent to handle ambiguous or incomplete user queries better wi
 This larger model should also be able to handle more complex user queries and situations.
 In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
 
-``bash
-# Free up GPU for a full blueprint deployment
+```ini
+# Free up GPU for a full blueprint deployment first:
 # docker stop nemotron-edge && docker rm nemotron-edge
-
-deploy/docker/scripts/dev-profile.sh up -p base \
---hardware-profile DGX-SPARK \
---llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 \
+HARDWARE_PROFILE=DGX-SPARK
+LLM_MODE=local
+LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+LLM_NAME_SLUG=nemotron-nano
+```
 
 This uses the standard `config.yml` (no `config_edge.yml` override needed) since
 the 9B model handles complex and ambiguous queries better.
@@ -114,17 +134,18 @@ must be tuned to coexist.
 
 2. Deploy the agent workflow:
 
-   ```bash
-   export NVIDIA_API_KEY=$NVIDIA_API_KEY
-   export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
-   export LLM_ENDPOINT_URL=http://localhost:30081
-   export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
-   
-   # Uses the default GPU memory utilization of 0.35 for rtvi-vlm
-   deploy/docker/scripts/dev-profile.sh up -p base \
-       --use-remote-llm \
-       --llm nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
-       --hardware-profile AGX-THOR
+   ```ini
+   # developer-profiles/dev-profile-base/overrides.env
+   HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
+   NGC_CLI_API_KEY=<your-ngc-api-key>
+   NVIDIA_API_KEY=<your-nvidia-api-key>
+   LLM_MODE=remote
+   LLM_NAME_SLUG=none
+   LLM_BASE_URL=http://<HOST_IP>:30081
+   LLM_NAME=nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8
+   LLM_MODEL_TYPE=openai
+   VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
+   # Uses the default GPU memory utilization of 0.35 for rtvi-vlm.
    ```
 
 <Note>
@@ -132,19 +153,17 @@ If you prefer the agent to handle ambiguous or incomplete user queries better wi
 This larger model should also be able to handle more complex user queries and situations.
 In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
 
-``bash
-# Free up GPU for a full blueprint deployment
+```ini
+# Free up GPU for a full blueprint deployment first:
 # docker stop nemotron-edge && docker rm nemotron-edge
-
-deploy/docker/scripts/dev-profile.sh up -p base \
---hardware-profile AGX-THOR \
-
-# --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
+# To choose a local model, set LLM_NAME and LLM_NAME_SLUG in this file.
+```
 
 This uses the standard `config.yml` (no `config_edge.yml` override needed) since
 the 9B model handles complex and ambiguous queries better.
 </Note>
 
 <Note>
-For IGX Thor, replace `AGX-THOR` with `IGX-THOR` in the commands above.
+For IGX Thor, set `HARDWARE_PROFILE=IGX-THOR` in the profile settings above.
 </Note>

@@ -157,8 +157,8 @@ Stream summary and Q&A are experimental and are not available through Agent Skil
 
 <Note>
 - Set the NGC CLI API key, then run the deploy commands for your GPU type.
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
-- For advanced settings and Agent Customization, see the deploy command help.
+- Refer to [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) and [VSS-Agent-Customization-configure-vlm ](/vss-agent/configure-vlm) for all LLM and VLM (local and remote) configuration options.
+- For advanced settings and Agent Customization, edit the profile `overrides.env`.
 </Note>
 
 ```bash
@@ -166,135 +166,219 @@ Stream summary and Q&A are experimental and are not available through Agent Skil
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
 # View all available options
-deploy/docker/scripts/dev-profile.sh --help
+# See developer-profiles/dev-profile-lvs/overrides.env for supported settings.
+```
+
+For each layout below, add the shown values to `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+
+```bash
+PROFILE=lvs
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  up -d
 ```
 
 <Tabs>
 <Tab title="H100">
-</Tab>
+<Tabs>
 <Tab title="Shared GPU">
 
-``bash
-
+```ini
+HARDWARE_PROFILE=H100
+```
 </Tab>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p lvs -H H100 \
-    --llm-device-id 0 --vlm-device-id 1
-``
-
+```ini
+HARDWARE_PROFILE=H100
+LLM_MODE=local
+LLM_DEVICE_ID=0
+VLM_MODE=local
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H H100 \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=H100
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
 </Tab>
 <Tab title="Remote VLM">
 
-``bash
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H H100 \
-    --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=H100
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
 </Tab>
 <Tab title="Remote LLM + VLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H H100 \
-    --use-remote-llm --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=H100
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="RTXPRO6000BW">
-</Tab>
+<Tabs>
 <Tab title="Shared GPU">
 
-``bash
-
-# deploy/docker/scripts/dev-profile.sh up -p lvs -H RTXPRO6000BW
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+```
 </Tab>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p lvs -H RTXPRO6000BW \
-    --llm-device-id 0 --vlm-device-id 1
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+LLM_MODE=local
+LLM_DEVICE_ID=0
+VLM_MODE=local
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H RTXPRO6000BW \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
 </Tab>
 <Tab title="Remote VLM">
 
-``bash
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H RTXPRO6000BW \
-    --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
 </Tab>
 <Tab title="Remote LLM + VLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H RTXPRO6000BW \
-    --use-remote-llm --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="L40S">
-</Tab>
+<Tabs>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p lvs -H L40S \
-    --llm-device-id 0 --vlm-device-id 1
-``
-
+```ini
+HARDWARE_PROFILE=L40S
+LLM_MODE=local
+LLM_DEVICE_ID=0
+VLM_MODE=local
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H L40S \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=L40S
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
 </Tab>
 <Tab title="Remote VLM">
 
-``bash
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H L40S \
-    --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=L40S
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
 </Tab>
 <Tab title="Remote LLM + VLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H L40S \
-    --use-remote-llm --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=L40S
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
 </Tab>
 <Tab title="OTHER">
 See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
@@ -302,52 +386,78 @@ See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for kno
 </Tab>
 <Tab title="Shared GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p lvs -H OTHER \
-    --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
+```
 </Tab>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p lvs -H OTHER \
-    --llm-device-id 0 --vlm-device-id 1 \
-    --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_MODE=local
+LLM_DEVICE_ID=0
+VLM_MODE=local
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H OTHER \
-    --use-remote-llm --vlm-env-file /path/to/vlm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_ENV_FILE=/path/to/vlm.env
+```
 </Tab>
 <Tab title="Remote VLM">
 
-``bash
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H OTHER \
-    --use-remote-vlm --llm-env-file /path/to/llm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+LLM_ENV_FILE=/path/to/llm.env
+```
 </Tab>
 <Tab title="Remote LLM + VLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-export VLM_ENDPOINT_URL=https://your-vlm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p lvs -H OTHER \
-    --use-remote-llm --use-remote-vlm
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
 </Tab>
 </Tabs>
 
-This command will download the necessary containers from the NGC Docker registry and start the agent. Depending on
+Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 **This deployment uses the following defaults:**
@@ -517,7 +627,8 @@ Set `default_*` in the `Data view` dropdown. Here you can see the events detecte
 To teardown the agent, run the following command:
 
 ```bash
-deploy/docker/scripts/dev-profile.sh down
+cd deploy/docker
+docker compose -p vss down -v --remove-orphans
 ```
 
 This command will stop and remove the agent containers.
@@ -565,11 +676,11 @@ VLM_NAME=Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
 
 The default `RTVI_VLLM_GPU_MEMORY_UTILIZATION` of `0.35` is tuned for
 Cosmos3 Nano Reasoner. Tune it for the Nemotron-3-Nano-Omni model and export it
-before running `dev-profile.sh`. For example:
+in `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`. For example:
 
 ```bash
 export RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.45
-bash deploy/docker/scripts/dev-profile.sh up -p lvs
+docker compose -p vss up -d
 ```
 
 After the deployment is complete, verify with:

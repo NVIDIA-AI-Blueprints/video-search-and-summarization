@@ -13,9 +13,9 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 - **Default model:** `nvidia/nvidia-nemotron-nano-9b-v2` (configured as a local NIM endpoint).
 
-- **Custom NIM env file:** At deploy time, pass `--llm-env-file` with the path (absolute or relative to the current directory) to an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
 
-- **Different local model:** Pass `--llm` with one of the supported model names:
+- **Different local model:** Set `LLM_NAME` and `LLM_NAME_SLUG` in the selected profile `overrides.env` to use one of the supported model names:
 
   - `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
   - `nvidia/nemotron-3-nano`
@@ -24,7 +24,7 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 - **Verified models:** Only the default `nvidia/nvidia-nemotron-nano-9b-v2` is verified for local deployment. For other models, ensure GPU memory meets requirements and refer to [LLM NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
 
-- **GPU assignment:** Use `--llm-device-id` to pin the local LLM to a specific GPU (e.g. when sharing with a local VLM). See the quickstart deploy tab-set for examples.
+- **GPU assignment:** Set `LLM_DEVICE_ID` to pin the local LLM to a specific GPU (e.g. when sharing with a local VLM). See the quickstart deploy tab-set for examples.
 
 ## Setup assumptions for remote LLMs
 
@@ -49,6 +49,11 @@ It is also recommended to review the different parameters described in the [quic
    export NGC_CLI_API_KEY=<PASTE_NGC_API_KEY_HERE>
    ```
 
+
+For every configuration below, save the shown values in
+`deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then validate and
+start the profile with the native Docker Compose command in [Quickstart](/quickstart).
+
 ## Managed remote LLMs
 
 ### Using NIM containers (hosted on build.nvidia.com)
@@ -57,36 +62,45 @@ It is also recommended to review the different parameters described in the [quic
 
 2. Deploy the agent workflow and point it to the cloud-managed remote NIM for the LLM:
 
-   ```bash
+   ```ini
+      # developer-profiles/dev-profile-base/overrides.env
+      LLM_MODE=remote
+      LLM_NAME_SLUG=none
+      LLM_BASE_URL=https://integrate.api.nvidia.com
+      LLM_NAME=nvidia/llama-3.3-nemotron-super-49b-v1.5
+      LLM_MODEL_TYPE=nim
+      NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+      VLM_MODE=local
+      VLM_DEVICE_ID=0
+      RT_VLM_DEVICE_ID=0
+      ```
+
+   Examples of hosted NIM containers:
+
+   - [nvidia/nemotron-3-nano-30b-a3b](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b)
+   - [openai/gpt-oss-120b](https://build.nvidia.com/openai/gpt-oss-120b)
+   - [z-ai/glm-5.1](https://build.nvidia.com/z-ai/glm-5.1)
+
+   For instance, to configure both the LLM and VLM in remote mode, you can use a combined command like the following:
+
+   ```ini
+   # developer-profiles/dev-profile-base/overrides.env
+   LLM_MODE=remote
+   LLM_NAME_SLUG=none
+   LLM_BASE_URL=https://integrate.api.nvidia.com
+   LLM_NAME=nvidia/llama-3.3-nemotron-super-49b-v1.5
+   LLM_MODEL_TYPE=nim
+   VLM_MODE=remote
+   VLM_NAME_SLUG=none
+   VLM_BASE_URL=https://integrate.api.nvidia.com
+   VLM_NAME=nvidia/cosmos3-nano-reasoner
+   VLM_MODEL_TYPE=nim
+   VLM_PORT=30082
+   RTVI_VLM_ENDPOINT=https://integrate.api.nvidia.com/v1
+   RTVI_VLM_MODEL_TO_USE=openai-compat
+   RTVI_VLM_MODEL_PATH=none
+   NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
    ```
-
-    export LLM_ENDPOINT_URL='https://integrate.api.nvidia.com'
-    export NVIDIA_API_KEY=`<PASTE_NIM_CATALOG_API_KEY_HERE>`
-
-    deploy/docker/scripts/dev-profile.sh up -p base \
-        --use-remote-llm \
-        --llm 'nvidia/llama-3.3-nemotron-super-49b-v1.5' \
-        --vlm-device-id 0
-
-Examples of hosted NIM containers:
-
-- [nvidia/nemotron-3-nano-30b-a3b](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b)
-- [openai/gpt-oss-120b](https://build.nvidia.com/openai/gpt-oss-120b)
-- [z-ai/glm5](https://build.nvidia.com/z-ai/glm5)
-
-For instance, to configure both the LLM and VLM in remote mode, you can use a combined command like the following:
-
-```bash
-export LLM_ENDPOINT_URL='https://integrate.api.nvidia.com'
-export VLM_ENDPOINT_URL='https://integrate.api.nvidia.com'
-export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
-
-deploy/docker/scripts/dev-profile.sh up -p base \
-    --use-remote-llm \
-    --llm 'nvidia/llama-3.3-nemotron-super-49b-v1.5' \
-    --use-remote-vlm \
-    --vlm 'nvidia/cosmos3-nano-reasoner'
-```
 
 You can adapt these instructions and combinations as shown in the following sections.
 
@@ -98,21 +112,23 @@ You can adapt these instructions and combinations as shown in the following sect
 
 3. Deploy the agent workflow and point it to the chosen model name:
 
-   ```bash
-   export LLM_ENDPOINT_URL=https://api.openai.com
-   export OPENAI_API_KEY=<PASTE_API_KEY_HERE>
-   export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
-   
-   deploy/docker/scripts/dev-profile.sh up -p base \
-       --use-remote-llm \
-       --llm-model-type openai \
-       --llm gpt-5.2 \
-       --vlm-device-id 0
+   ```ini
+   # developer-profiles/dev-profile-base/overrides.env
+   LLM_MODE=remote
+   LLM_NAME_SLUG=none
+   LLM_BASE_URL=https://api.openai.com
+   LLM_NAME=gpt-5.6
+   LLM_MODEL_TYPE=openai
+   OPENAI_API_KEY=<PASTE_API_KEY_HERE>
+   NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+   VLM_MODE=local
+   VLM_DEVICE_ID=0
+   RT_VLM_DEVICE_ID=0
    ```
 
 Examples of compatible openAI models:
 
-- [gpt-5.2](https://developers.openai.com/api/docs/models/gpt-5.2)
+- [gpt-5.6](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
 - [gpt-4.1](https://developers.openai.com/api/docs/models/gpt-4.1)
 
 ## Self-hosted remote LLMs
@@ -170,13 +186,17 @@ This error indicates that your GPU does not have sufficient VRAM to run the sele
 
 4. Start the VSS agent workflow and point it to the remote LLM NIM container:
 
-   ```bash
-   export LLM_ENDPOINT_URL=http://<remote-host>:30081
-   export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
-   
-   deploy/docker/scripts/dev-profile.sh up -p base \
-       --use-remote-llm \
-       --vlm-device-id 0
+   ```ini
+   # developer-profiles/dev-profile-base/overrides.env
+   LLM_MODE=remote
+   LLM_NAME_SLUG=none
+   LLM_BASE_URL=http://<remote-host>:30081
+   LLM_NAME=<llm-model-id-from-v1-models>
+   LLM_MODEL_TYPE=nim
+   NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+   VLM_MODE=local
+   VLM_DEVICE_ID=0
+   RT_VLM_DEVICE_ID=0
    ```
 
 Examples of downloadable NIM containers:
@@ -216,13 +236,17 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 
 3. Start the VSS agent workflow and point it to the remote vLLM model:
 
-   ```bash
-   export LLM_ENDPOINT_URL=http://<remote-host>:30081
-   export NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
-   
-   deploy/docker/scripts/dev-profile.sh up -p base \
-       --use-remote-llm \
-       --vlm-device-id 0
+   ```ini
+   # developer-profiles/dev-profile-base/overrides.env
+   LLM_MODE=remote
+   LLM_NAME_SLUG=none
+   LLM_BASE_URL=http://<remote-host>:30081
+   LLM_NAME=<llm-model-id-from-v1-models>
+   LLM_MODEL_TYPE=openai
+   NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
+   VLM_MODE=local
+   VLM_DEVICE_ID=0
+   RT_VLM_DEVICE_ID=0
    ```
 
 Examples of Hugging Face LLMs to use:

@@ -655,7 +655,7 @@ For each supported NIM and GPU, the deployment includes a corresponding env file
 
 #### Unsupported GPU hardware
 
-For GPU hardware that is not in the default set but is supported by the `OTHER` option in `dev-profile.sh`, the deployment uses a default empty env file. The NIM then falls back to its own defaults.
+For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in the selected profile `overrides.env`. The deployment uses a default empty env file and the NIM falls back to its own defaults.
 
 ```bash
 ./deploy/docker/services/nim/cosmos3-reasoner/hw-OTHER.env
@@ -663,8 +663,9 @@ For GPU hardware that is not in the default set but is supported by the `OTHER` 
 
 #### Custom env files at install time
 
-You can define your own env variants for a NIM and pass them when you run the installer. Use `--llm-env-file` and/or `--vlm-env-file` with `dev-profile.sh`. Paths can be absolute or relative to the current directory.
+You can define your own env variants for a NIM in the selected profile `overrides.env`. Set `LLM_ENV_FILE` and/or `VLM_ENV_FILE`; paths can be absolute or relative to `deploy/docker`.
 
-```bash
-deploy/docker/scripts/dev-profile.sh up -p base --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env
+```ini
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
 ```

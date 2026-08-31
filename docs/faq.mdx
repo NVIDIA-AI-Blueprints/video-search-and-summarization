@@ -265,7 +265,7 @@ will work in shared mode if the override environment variables include the follo
 
 #### Can I run local LLM and VLM on NVIDIA RTX PRO 4500 Blackwell GPUs?
 
-No. For NVIDIA RTX PRO 4500 Blackwell, only the Remote LLM deployment option should be considered. Use the Remote LLM tab with `--use-remote-llm` and do not use the Shared GPU or Dedicated GPU options that deploy a local LLM.
+No. For NVIDIA RTX PRO 4500 Blackwell, only the Remote LLM deployment option should be considered. Use the Remote LLM tab and set `LLM_MODE=remote` in the selected profile `overrides.env`; do not use the Shared GPU or Dedicated GPU options that deploy a local LLM.
 
 ## Local RTVI-VLM deployments on OTHER hardware
 
