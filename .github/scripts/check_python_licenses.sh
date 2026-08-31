@@ -38,7 +38,7 @@ trap 'rm -rf "$uv_env"' EXIT
 export UV_PROJECT_ENVIRONMENT="$uv_env"
 
 uv sync --frozen --no-default-groups --extra agent --quiet
-uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --quiet pip-licenses
+uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --quiet "pip-licenses==5.5.5"
 
 # Both halves of the pipe run inside the agent's uv venv: pip-licenses needs
 # the venv to enumerate installed packages, and check_python_licenses.py needs
