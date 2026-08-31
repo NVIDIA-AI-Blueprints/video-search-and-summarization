@@ -436,6 +436,22 @@ class CanaryExecutorTests(unittest.TestCase):
                 (run.logs / "cleanup-timeouts.log").read_text(),
             )
 
+    def test_checksum_deadline_leaves_no_partial_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "artifact.log"
+            output = root / "checksums.sha256"
+            artifact.write_text("evidence")
+            ticks = iter([0.0, 31.0])
+
+            with self.assertRaisesRegex(TimeoutError, "checksum deadline"):
+                canary_executor.write_checksums(
+                    root, [artifact], output, timeout=30, now=lambda: next(ticks)
+                )
+
+            self.assertFalse(output.exists())
+            self.assertFalse((root / "checksums.sha256.tmp").exists())
+
     def test_requires_fresh_measurements_from_each_independent_source(self):
         record = {
             "iteration": 1,

@@ -22,7 +22,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -219,6 +219,38 @@ def cleanup_timeout_budget(stream_count: int) -> int:
         + (stream_count + 7) * CLEANUP_SHORT_TIMEOUT
         + CLEANUP_FINALIZE_GRACE
     )
+
+
+def write_checksums(
+    root: Path,
+    paths: Iterable[Path],
+    output: Path,
+    timeout: int,
+    now: Callable[[], float] = time.monotonic,
+) -> None:
+    deadline = now() + timeout
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    try:
+        stable = []
+        for path in paths:
+            if now() >= deadline:
+                raise TimeoutError("artifact checksum deadline exceeded")
+            stable.append(path)
+        with temporary.open("w") as stream:
+            for path in sorted(stable):
+                if now() >= deadline:
+                    raise TimeoutError("artifact checksum deadline exceeded")
+                digest = hashlib.sha256()
+                with path.open("rb") as source:
+                    for block in iter(lambda: source.read(1024 * 1024), b""):
+                        if now() >= deadline:
+                            raise TimeoutError("artifact checksum deadline exceeded")
+                        digest.update(block)
+                stream.write(f"{digest.hexdigest()}  {path.relative_to(root)}\n")
+        os.replace(temporary, output)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def validate_source_coverage(
@@ -1263,18 +1295,24 @@ override = {"services": {"rtvi-server": {"volumes": [
             ),
         ).stdout
         (self.evidence / "post-cleanup-gpu.csv").write_text(gpu)
-        stable = [
+        stable = (
             path
             for path in self.root.rglob("*")
             if path.is_file()
             and path.name not in {"status.json", "events.jsonl", "checksums.sha256"}
             and path != self.logs / "runner.log"
-        ]
-        with (self.root / "checksums.sha256").open("w") as stream:
-            for path in sorted(stable):
-                stream.write(
-                    f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(self.root)}\n"
-                )
+        )
+        try:
+            write_checksums(
+                self.root,
+                stable,
+                self.root / "checksums.sha256",
+                CLEANUP_FINALIZE_GRACE,
+            )
+        except TimeoutError as error:
+            self.result = "FAIL"
+            with (self.logs / "cleanup-timeouts.log").open("a") as stream:
+                stream.write(f"checksums: {error}\n")
         state = "completed" if self.result == "PASS" and not post.strip() else "failed"
         if state == "failed":
             self.result = "FAIL"
