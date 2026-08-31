@@ -311,6 +311,50 @@ def query_records(
     _emit({"records": [record.model_dump_memory() for record in records]}, pretty=pretty)
 
 
+@memory.group("embeddings")
+def embeddings() -> None:
+    """Manage derived memory embeddings."""
+
+
+@embeddings.command("backfill")
+@click.option(
+    "--batch-size",
+    type=click.IntRange(1),
+    default=None,
+    help="Records per backfill batch (default: configured embedding batch size).",
+)
+@click.option("--limit", type=click.IntRange(1), default=None, help="Maximum records to scan (default: all).")
+@click.option("--dry-run", is_flag=True, help="Scan eligibility without provider calls or writes.")
+@_output_options
+def backfill_embeddings(
+    batch_size: int | None,
+    limit: int | None,
+    dry_run: bool,
+    pretty: bool,
+) -> None:
+    """Backfill derived embeddings for all eligible memory records."""
+    try:
+        facade = _memory()
+        backfill = facade.embedding_backfill
+        configured_batch_size = facade.embedding_batch_size
+        if backfill is None or configured_batch_size is None:
+            raise config_mod.ConfigError(
+                "memory embeddings are disabled or incomplete; run `vss configure memory "
+                "--embeddings --embedding-endpoint http[s]://host[/v1]`"
+            )
+        result = backfill.run(
+            batch_size=batch_size or configured_batch_size,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except Exception as error:
+        _fail("embedding backfill failed", error, _exception_exit(error))
+        raise AssertionError("unreachable") from error
+    _emit(result.to_dict(), pretty=pretty)
+    if result.failed:
+        raise SystemExit(int(Exit.PARTIAL))
+
+
 @memory.command("introspect")
 @click.option("--query", required=True, help="Question to answer from stored memory.")
 @click.option("--sensor", help="Limit recall to one VIOS sensor name.")

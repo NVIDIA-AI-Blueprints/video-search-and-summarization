@@ -19,6 +19,9 @@ from typing import Any
 __all__ = [
     "SCHEMA_ID",
     "ElasticsearchEmbeddingStore",
+    "EmbeddingBackfillFailure",
+    "EmbeddingBackfillResult",
+    "EmbeddingBackfillService",
     "EmbeddingProvider",
     "EmbeddingProviderError",
     "EmbeddingSyncResult",
@@ -61,6 +64,9 @@ _LAZY_EXPORTS = {
     "EmbeddingProviderError": ".embeddings",
     "EmbeddingSyncResult": ".backends.elasticsearch_embeddings",
     "ElasticsearchEmbeddingStore": ".backends.elasticsearch_embeddings",
+    "EmbeddingBackfillFailure": ".backfill",
+    "EmbeddingBackfillResult": ".backfill",
+    "EmbeddingBackfillService": ".backfill",
     "OpenAICompatibleEmbeddingProvider": ".embeddings",
     "canonical_searchable_text": ".embeddings",
     "content_hash": ".embeddings",
@@ -95,6 +101,9 @@ if TYPE_CHECKING:
     from .backends.elasticsearch_embeddings import ElasticsearchEmbeddingStore
     from .backends.elasticsearch_embeddings import EmbeddingSyncResult
     from .backends.in_memory import InMemoryStore
+    from .backfill import EmbeddingBackfillFailure
+    from .backfill import EmbeddingBackfillResult
+    from .backfill import EmbeddingBackfillService
     from .embeddings import EmbeddingProvider
     from .embeddings import EmbeddingProviderError
     from .embeddings import OpenAICompatibleEmbeddingProvider

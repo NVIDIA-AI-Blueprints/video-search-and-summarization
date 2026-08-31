@@ -14,6 +14,7 @@ own compound ``_id``. ``list_jobs`` returns parents only
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from collections.abc import Sequence
 from datetime import datetime
 import logging
@@ -131,6 +132,51 @@ class ElasticsearchMemoryStore:
             if isinstance(storage_id, str) and isinstance(source, dict):
                 by_id[storage_id] = _decode(source, storage_id)
         return [by_id[storage_id] for storage_id in requested if storage_id in by_id]
+
+    def scan(self, *, batch_size: int, limit: int | None = None) -> Iterator[UnifiedMemoryRecord]:
+        """Stream bounded ``search_after`` pages in storage-ID order."""
+        if batch_size <= 0:
+            raise ValueError("scan batch_size must be positive")
+        if limit is not None and limit < 0:
+            raise ValueError("scan limit must not be negative")
+        remaining = limit
+        search_after: list[Any] | None = None
+        while remaining is None or remaining > 0:
+            size = batch_size if remaining is None else min(batch_size, remaining)
+            body: dict[str, Any] = {
+                "size": size,
+                "query": {"match_all": {}},
+                "sort": [
+                    {"job.job_id.keyword": {"order": "asc"}},
+                    {"job.record_type.keyword": {"order": "asc", "missing": "_first"}},
+                    {"job.record_id.keyword": {"order": "asc", "missing": "_first"}},
+                ],
+            }
+            if search_after is not None:
+                body["search_after"] = search_after
+            try:
+                response = self._client.search(index=self._index, body=body)
+            except ESNotFoundError:
+                return
+            except (ESConnectionError, ESTransportError) as error:
+                raise BackendUnreachableError("elasticsearch", "scan failed", cause=error) from error
+            hits = response.get("hits", {}).get("hits", [])
+            if not isinstance(hits, list) or not hits:
+                return
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                source = hit.get("_source")
+                if isinstance(source, dict):
+                    yield _decode(source, str(hit.get("_id", "(unknown)")))
+                    if remaining is not None:
+                        remaining -= 1
+                        if remaining == 0:
+                            return
+            last_sort = hits[-1].get("sort") if isinstance(hits[-1], dict) else None
+            if not isinstance(last_sort, list) or len(hits) < size:
+                return
+            search_after = last_sort
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         body = self._build_search_body(

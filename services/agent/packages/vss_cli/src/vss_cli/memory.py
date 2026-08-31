@@ -28,6 +28,7 @@ from .exits import Exit
 if TYPE_CHECKING:
     from typing import Literal
 
+    from vss_core.memory import EmbeddingBackfillService
     from vss_core.memory import MemoryService
     from vss_core.memory import UnifiedMemoryRecord
     from vss_core.memory.models import MemoryGroup
@@ -102,10 +103,14 @@ class Memory:
         service: MemoryService,
         *,
         index: str,
+        embedding_backfill: EmbeddingBackfillService | None = None,
+        embedding_batch_size: int | None = None,
         closeables: tuple[Any, ...] = (),
     ) -> None:
         self._service = service
         self.index = index
+        self.embedding_backfill = embedding_backfill
+        self.embedding_batch_size = embedding_batch_size
         self._closeables = closeables
         self._closed = False
 
@@ -219,6 +224,7 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
         )
 
     from vss_core.memory import ElasticsearchEmbeddingStore
+    from vss_core.memory import EmbeddingBackfillService
     from vss_core.memory import MemoryService
     from vss_core.memory import OpenAICompatibleEmbeddingProvider
     from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
@@ -268,6 +274,8 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
     return Memory(
         service,
         index=memory_config.index,
+        embedding_backfill=EmbeddingBackfillService(authoritative, companion),
+        embedding_batch_size=embedding_config.batch_size,
         closeables=(companion, provider, authoritative),
     )
 

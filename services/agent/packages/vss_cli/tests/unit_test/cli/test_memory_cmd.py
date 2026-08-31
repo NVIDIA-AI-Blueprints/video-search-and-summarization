@@ -18,6 +18,7 @@ from vss_cli.memory_cmd import memory
 from vss_cli.memory_cmd import set_test_introspect
 from vss_cli.memory_cmd import set_test_memory
 from vss_core.introspection import IntrospectionResult
+from vss_core.memory import EmbeddingBackfillResult
 from vss_core.memory import MemoryService
 from vss_core.memory import UnifiedMemoryRecord
 from vss_core.memory.backends.in_memory import InMemoryStore
@@ -92,6 +93,54 @@ def test_memory_verbs_do_not_expose_static_index_selection() -> None:
         result = _invoke(verb, "--help")
         assert result.exit_code == 0, result.output
         assert "--memory-index" not in result.output
+
+
+def test_embeddings_backfill_help_has_only_global_backfill_controls() -> None:
+    result = _invoke("embeddings", "backfill", "--help")
+    assert result.exit_code == 0, result.output
+    for option in ("--batch-size", "--limit", "--dry-run", "--pretty"):
+        assert option in result.output
+    for excluded in ("--job-id", "--markdown", "--vlm", "--no-persist"):
+        assert excluded not in result.output
+
+
+def test_embeddings_backfill_uses_configured_batch_size_and_stable_json() -> None:
+    observed: dict[str, Any] = {}
+
+    class Backfill:
+        def run(self, **kwargs: Any) -> EmbeddingBackfillResult:
+            observed.update(kwargs)
+            return EmbeddingBackfillResult(scanned=3, eligible=2, embedded=1, reused=1, skipped=1)
+
+    facade = Memory(
+        MemoryService(InMemoryStore()),
+        index="vss-memory",
+        embedding_backfill=Backfill(),  # type: ignore[arg-type]
+        embedding_batch_size=7,
+    )
+    set_test_memory(facade)
+
+    result = _invoke("embeddings", "backfill", "--dry-run", "--pretty")
+
+    assert result.exit_code == 0, result.output
+    assert observed == {"batch_size": 7, "limit": None, "dry_run": True}
+    assert json.loads(result.output) == {
+        "scanned": 3,
+        "eligible": 2,
+        "embedded": 1,
+        "reused": 1,
+        "skipped": 1,
+        "failed": 0,
+        "failures": [],
+    }
+    assert '\n  "scanned"' in result.output
+
+
+def test_embeddings_backfill_requires_enabled_configuration() -> None:
+    result = _invoke("embeddings", "backfill")
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "embeddings are disabled or incomplete" in result.output
+    assert "configure memory --embeddings" in result.output
 
 
 def test_events_does_not_advertise_undefined_duration_window() -> None:

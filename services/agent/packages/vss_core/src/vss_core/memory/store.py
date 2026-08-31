@@ -22,6 +22,7 @@ Internal storage IDs (backend document keys) use a shared helper:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
@@ -189,6 +190,10 @@ class MemoryStore(Protocol):
 
     def get_many(self, storage_ids: Sequence[str]) -> list[UnifiedMemoryRecord]:
         """Return existing records in input storage-ID order."""
+        ...
+
+    def scan(self, *, batch_size: int, limit: int | None = None) -> Iterator[UnifiedMemoryRecord]:
+        """Stream records in deterministic ascending storage-ID order."""
         ...
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]: ...

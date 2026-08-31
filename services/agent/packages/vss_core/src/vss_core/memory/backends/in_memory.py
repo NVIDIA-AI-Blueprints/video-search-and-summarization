@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -145,6 +146,18 @@ class InMemoryStore:
     def get_many(self, storage_ids: Sequence[str]) -> list[UnifiedMemoryRecord]:
         """Return existing records in caller-supplied storage-ID order."""
         return [record for storage_id in storage_ids if (record := self._records.get(storage_id)) is not None]
+
+    def scan(self, *, batch_size: int, limit: int | None = None) -> Iterator[UnifiedMemoryRecord]:
+        """Yield a stable snapshot in ascending storage-ID order."""
+        if batch_size <= 0:
+            raise ValueError("scan batch_size must be positive")
+        if limit is not None and limit < 0:
+            raise ValueError("scan limit must not be negative")
+        storage_ids = sorted(self._records)
+        if limit is not None:
+            storage_ids = storage_ids[:limit]
+        for storage_id in storage_ids:
+            yield self._records[storage_id]
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         matched = [record for record in self._records.values() if _matches_query(record, query)]

@@ -162,6 +162,46 @@ def test_elasticsearch_get_many_uses_mget_and_preserves_input_order() -> None:
     assert client.last_mget_ids == ["second", "missing", "first", "second"]
 
 
+def test_elasticsearch_scan_uses_bounded_search_after_in_storage_id_order() -> None:
+    class PagedES(_FakeES):
+        def __init__(self) -> None:
+            super().__init__()
+            self.bodies: list[dict[str, Any]] = []
+
+        def search(self, *, index: str, body: dict[str, Any]) -> dict[str, Any]:
+            self.bodies.append(body)
+            ordered = sorted(self.docs.items())
+            offset = int(body.get("search_after", [-1])[0]) + 1
+            page = ordered[offset : offset + body["size"]]
+            return {
+                "hits": {
+                    "hits": [
+                        {"_id": storage_id, "_source": source, "sort": [offset + index]}
+                        for index, (storage_id, source) in enumerate(page)
+                    ]
+                }
+            }
+
+    client = PagedES()
+    store = ElasticsearchMemoryStore(endpoint="http://unused", client=client)
+    for record in (_parent("b", "completed"), _child("a"), _parent("a", "completed"), _parent("c", "completed")):
+        store.upsert(record)
+
+    assert [record.job.record_id or record.job.job_id for record in store.scan(batch_size=2, limit=3)] == [
+        "a",
+        "evt-001",
+        "b",
+    ]
+    assert [body["size"] for body in client.bodies] == [2, 1]
+    assert "search_after" not in client.bodies[0]
+    assert client.bodies[1]["search_after"] == [1]
+    assert client.bodies[0]["sort"] == [
+        {"job.job_id.keyword": {"order": "asc"}},
+        {"job.record_type.keyword": {"order": "asc", "missing": "_first"}},
+        {"job.record_id.keyword": {"order": "asc", "missing": "_first"}},
+    ]
+
+
 def test_elasticsearch_list_before_anything_is_ingested_is_empty() -> None:
     """A missing index means nothing has been written, not that reading broke.
 

@@ -15,6 +15,8 @@ from vss_core.memory.adapters import RecordBundle
 from vss_core.memory.backends.elasticsearch_embeddings import EMBEDDING_SCHEMA
 from vss_core.memory.backends.elasticsearch_embeddings import IMPLEMENTATION_VERSION
 from vss_core.memory.backends.elasticsearch_embeddings import ElasticsearchEmbeddingStore
+from vss_core.memory.backends.elasticsearch_embeddings import EmbeddingSyncFailure
+from vss_core.memory.backends.elasticsearch_embeddings import EmbeddingSyncResult
 from vss_core.memory.backends.in_memory import InMemoryStore
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryService
@@ -64,8 +66,10 @@ class _Provider:
 
     def __init__(self) -> None:
         self.passages: list[str] = []
+        self.batches: list[list[str]] = []
 
     def embed_passages(self, texts: Any) -> list[list[float]]:
+        self.batches.append(list(texts))
         self.passages.extend(texts)
         return [[0.1, 0.2, 0.3] for _ in texts]
 
@@ -255,6 +259,58 @@ def test_hash_reuse_updates_metadata_without_inline_vector_or_reembedding() -> N
     assert stored is not None and stored.output is not None
     assert [reference.es_ref for reference in stored.output.embedding or []] == ["other-index", f"{INDEX}/job-1"]
     assert all(reference.model_dump().get("vector") is None for reference in stored.output.embedding or [])
+
+
+def test_batch_sync_generates_passages_together_and_attaches_references_after_writes() -> None:
+    backend, client, provider, raw = _backend()
+    records = [_record(job_id="a"), _record(job_id="b", record_id="event-1")]
+    for record in records:
+        raw.upsert(record)
+
+    outcomes = backend.sync_records(records)
+
+    assert [outcome.action for outcome in outcomes if isinstance(outcome, EmbeddingSyncResult)] == [
+        "created",
+        "created",
+    ]
+    assert len(provider.batches) == 1
+    assert len(provider.batches[0]) == 2
+    assert client.index_calls == ["a", "b#event#event-1"]
+    for record in records:
+        stored = (
+            raw.get(record.job.job_id)
+            if not record.job.is_child
+            else raw.get_record(
+                record.job.job_id,
+                record.job.record_type or "",
+                record.job.record_id or "",
+            )
+        )
+        assert stored is not None and stored.job.status == record.job.status
+        assert stored.output is not None and stored.output.embedding is not None
+
+
+def test_batch_provider_failure_is_not_retried() -> None:
+    class SelectiveProvider(_Provider):
+        def embed_passages(self, texts: Any) -> list[list[float]]:
+            values = list(texts)
+            self.batches.append(values)
+            raise RuntimeError("cannot embed batch")
+
+    provider = SelectiveProvider()
+    backend, client, _, raw = _backend(provider=provider)
+    records = [_record(job_id="a", answer="bad"), _record(job_id="b", answer="good")]
+    for record in records:
+        raw.upsert(record)
+
+    outcomes = backend.sync_records(records)
+
+    assert isinstance(outcomes[0], EmbeddingSyncFailure)
+    assert outcomes[0].storage_id == "a"
+    assert isinstance(outcomes[1], EmbeddingSyncFailure)
+    assert outcomes[1].storage_id == "b"
+    assert client.index_calls == []
+    assert len(provider.batches) == 1
 
 
 def test_changed_content_reembeds_and_ineligible_deletes_only_owned_reference() -> None:

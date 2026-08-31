@@ -48,6 +48,14 @@ class EmbeddingSyncResult:
 
 
 @dataclass(frozen=True, slots=True)
+class EmbeddingSyncFailure:
+    """One record that could not be synchronized during a batch."""
+
+    storage_id: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
 class EmbeddingDeleteResult:
     """Outcome of deleting one derived vector and its owned reference."""
 
@@ -178,6 +186,92 @@ class ElasticsearchEmbeddingStore:
 
         referenced = self._write_reference(record)
         return EmbeddingSyncResult(storage_id=doc_id, index=self._index, action=action, record=referenced)
+
+    def sync_records(
+        self,
+        records: list[UnifiedMemoryRecord],
+    ) -> list[EmbeddingSyncResult | EmbeddingSyncFailure]:
+        """Synchronize eligible records while batching passage generation.
+
+        Metadata reads and writes remain record-isolated. Provider requests are
+        never retried here; a failed batch is reported once for each member and
+        the backfill proceeds with its next bounded batch.
+        """
+        if not records:
+            return []
+        try:
+            self._ensure_compatible_index()
+        except Exception as error:
+            return [EmbeddingSyncFailure(storage_id_for(record), str(error)) for record in records]
+
+        outcomes: dict[str, EmbeddingSyncResult | EmbeddingSyncFailure] = {}
+        pending: list[tuple[UnifiedMemoryRecord, str, dict[str, Any], bool]] = []
+        for record in records:
+            doc_id = storage_id_for(record)
+            try:
+                text = canonical_searchable_text(record)
+                digest = content_hash(text)
+                existing = self._get_metadata(doc_id)
+                reusable = (
+                    existing is not None
+                    and existing.get("content_hash") == digest
+                    and existing.get("model") == self._provider.model
+                    and existing.get("dimensions") == self._provider.dimensions
+                )
+                metadata = self._document(record, text=text, digest=digest)
+                if reusable:
+                    if existing != metadata:
+                        self._client.update(
+                            index=self._index,
+                            id=doc_id,
+                            doc=metadata,
+                            refresh="wait_for",
+                        )
+                    referenced = self._write_reference(record)
+                    outcomes[doc_id] = EmbeddingSyncResult(
+                        storage_id=doc_id,
+                        index=self._index,
+                        action="reused",
+                        record=referenced,
+                    )
+                else:
+                    pending.append((record, text, metadata, existing is not None))
+            except Exception as error:
+                outcomes[doc_id] = EmbeddingSyncFailure(doc_id, str(error))
+
+        texts = [text for _, text, _, _ in pending]
+        try:
+            vectors = self._provider.embed_passages(texts)
+            if len(vectors) != len(texts):
+                raise ConfigurationError(
+                    f"embedding provider returned {len(vectors)} vectors for {len(texts)} passages"
+                )
+        except Exception as error:
+            for record, _, _, _ in pending:
+                doc_id = storage_id_for(record)
+                outcomes[doc_id] = EmbeddingSyncFailure(doc_id, str(error))
+            return [outcomes[storage_id_for(record)] for record in records]
+
+        for (record, _text, metadata, existed), vector in zip(pending, vectors, strict=True):
+            doc_id = storage_id_for(record)
+            try:
+                if len(vector) != self._provider.dimensions:
+                    raise ConfigurationError(
+                        f"embedding provider returned {len(vector)} dimensions; configured dimensions are "
+                        f"{self._provider.dimensions}"
+                    )
+                metadata["vector"] = vector
+                self._client.index(index=self._index, id=doc_id, document=metadata, refresh="wait_for")
+                referenced = self._write_reference(record)
+                outcomes[doc_id] = EmbeddingSyncResult(
+                    storage_id=doc_id,
+                    index=self._index,
+                    action="reembedded" if existed else "created",
+                    record=referenced,
+                )
+            except Exception as error:
+                outcomes[doc_id] = EmbeddingSyncFailure(doc_id, str(error))
+        return [outcomes[storage_id_for(record)] for record in records]
 
     def delete_record(self, record: UnifiedMemoryRecord) -> EmbeddingDeleteResult:
         """Delete one derived document and remove only this index's reference."""
@@ -424,6 +518,7 @@ __all__ = [
     "IMPLEMENTATION_VERSION",
     "ElasticsearchEmbeddingStore",
     "EmbeddingDeleteResult",
+    "EmbeddingSyncFailure",
     "EmbeddingSyncResult",
     "SyncAction",
 ]
