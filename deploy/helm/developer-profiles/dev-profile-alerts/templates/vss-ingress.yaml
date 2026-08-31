@@ -18,27 +18,87 @@
 {{- $global := .Values.global | default dict }}
 {{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
 {{- if and $enabled (ne $mainHost "") }}
+{{- $vi := $vssIngress }}
 {{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (printf "kibana.%s" $mainHost) }}
 {{- $phoenixHost := (index $vssIngress "phoenixHost" | default "" | trim) }}
 {{- $streamerHost := coalesce (index $vssIngress "streamerHost") (printf "streamer.%s" $mainHost) }}
 {{- $infra := index .Values "infra" | default dict }}
 {{- $kibanaVals := index $infra "kibana" | default dict }}
 {{- $phoenixVals := index $infra "phoenix" | default dict }}
+{{- $esVals := index $infra "elasticsearch" | default dict }}
 {{- $vios := index .Values "vios" | default dict }}
+{{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
 {{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
 {{- $analytics := index .Values "analytics" | default dict }}
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
+{{- $behaviorVals := index $analytics "vss-behavior-analytics" | default dict }}
 {{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}
-{{- $agent := index .Values "agent" | default dict }}
-{{- $agentEnabled := default true (index $agent "enabled") }}
-{{- $vaMcpVals := index $agent "vss-va-mcp" | default dict }}
-{{- $kibanaEnabled := default false (index $kibanaVals "enabled") }}
-{{- $phoenixEnabled := default false (index $phoenixVals "enabled") }}
-{{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
-{{- $analyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
-{{- $alertBridgeEnabled := default false (index $alertBridgeVals "enabled") }}
-{{- $vaMcpEnabled := and $agentEnabled (default false (index $vaMcpVals "enabled")) }}
-{{- $hasRewrite := or $analyticsEnabled $alertBridgeEnabled $phoenixEnabled $vaMcpEnabled }}
+{{- $agentRoot := index .Values "agent" | default dict }}
+{{- $agent := index $agentRoot "vss-agent" | default dict }}
+{{- $vaMcpVals := index $agentRoot "vss-va-mcp" | default dict }}
+{{- $ui := index .Values "vss-agent-ui" | default dict }}
+{{- $rtvi := index .Values "rtvi" | default dict }}
+{{- $cvVals := index $rtvi "vss-rtvi-cv" | default dict }}
+{{- $embedVals := index $rtvi "vss-rtvi-embed" | default dict }}
+{{- $vlmVals := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- /* Enablement is read with vss.ingress.enabled, not `default true`: sprig
+       treats an explicit `false` as empty and would hand back the default,
+       mounting a route at a Service that was never created. */}}
+{{- $en := "vss.ingress.enabled" }}
+{{- $infraOn := include $en (dict "vals" $infra "default" true) }}
+{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
+{{- $analyticsOn := include $en (dict "vals" $analytics "default" true) }}
+{{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
+{{- $viosOn := include $en (dict "vals" $vios "default" true) }}
+{{- $kibanaEnabled := and $infraOn (include $en (dict "vals" $kibanaVals "default" false)) }}
+{{- $phoenixEnabled := and $infraOn (include $en (dict "vals" $phoenixVals "default" false)) }}
+{{- $streamerEnabled := and $viosOn (include $en (dict "vals" $nvstreamerVals "default" false)) }}
+{{- /*
+  Which of the canonical routes this profile serves. The mounts are the shared
+  table in services/common, so /va-mcp, /alert-bridge, /elasticsearch and
+  /rtvi-cv are at the same paths here as on every other profile and on the
+  Docker edge, and `vss configure` resolves them without knowing the profile.
+*/}}
+{{- $b := dict }}
+{{- if include $en (dict "vals" $ui "default" true) }}
+{{- $_ := set $b "ui" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui")) "port" (index $vi "vssUiPort" | default 3000)) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $agent "default" true)) }}
+{{- $_ := set $b "agent" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent")) "port" (index $vi "vssAgentPort" | default 8000)) }}
+{{- end }}
+{{- if and $viosOn (include $en (dict "vals" $viosIngress "default" true)) }}
+{{- $_ := set $b "vst" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress")) "port" (index $vi "vstIngressPort" | default 30888)) }}
+{{- end }}
+{{- if and $analyticsOn (include $en (dict "vals" $videoAnalyticsVals "default" false)) }}
+{{- $_ := set $b "video-analytics-api" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-video-analytics-api")) "port" (index $vi "videoAnalyticsApiPort" | default 8081)) }}
+{{- end }}
+{{- if and $analyticsOn (include $en (dict "vals" $behaviorVals "default" false)) }}
+{{- $_ := set $b "behavior-analytics" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-behavior-analytics")) "port" (index $vi "behaviorAnalyticsPort" | default 8080)) }}
+{{- end }}
+{{- if include $en (dict "vals" $alertBridgeVals "default" false) }}
+{{- $_ := set $b "alert-bridge" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge")) "port" (index $vi "alertBridgePort" | default 9080)) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcpVals "default" false)) }}
+{{- $_ := set $b "va-mcp" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp")) "port" (index $vi "vaMcpPort" | default 9901)) }}
+{{- end }}
+{{- if and $infraOn (include $en (dict "vals" $esVals "default" false)) }}
+{{- $_ := set $b "elasticsearch" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "elasticsearch")) "port" (index $vi "elasticsearchPort" | default 9200)) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $cvVals "default" false)) }}
+{{- $_ := set $b "rtvi-cv" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-cv")) "port" (index $vi "rtviCvPort" | default 9010)) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $embedVals "default" false)) }}
+{{- $_ := set $b "rtvi-embed" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-embed")) "port" (index $vi "rtviEmbedPort" | default 8000)) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $vlmVals "default" false)) }}
+{{- $_ := set $b "rtvi-vlm" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-vlm")) "port" (index $vi "rtviVlmPort" | default 8000)) }}
+{{- end }}
+{{- if $phoenixEnabled }}
+{{- $_ := set $b "phoenix" (dict "service" (include "vss.alerts.serviceShort" (dict "root" . "short" "phoenix")) "port" (index $vi "phoenixPort" | default 6006)) }}
+{{- end }}
+{{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
+{{- $rii := index ($global | default dict) "rtviInternalIngress" | default dict }}
+{{- $rtviRule := and (include $en (dict "vals" $rii "default" false)) (or (index $b "rtvi-cv") (index $b "rtvi-embed")) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -46,22 +106,10 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-ingress
     app.kubernetes.io/instance: {{ .Release.Name }}
-{{- if $hasRewrite }}
+{{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
   annotations:
     haproxy.org/path-rewrite: |
-{{- if $analyticsEnabled }}
-      /video-analytics-api/(.*) /\1
-{{- end }}
-{{- if $alertBridgeEnabled }}
-      /alert-bridge/(.*) /\1
-{{- end }}
-{{- if $vaMcpEnabled }}
-      /va-mcp/(.*) /\1
-{{- end }}
-{{- if $phoenixEnabled }}
-      /phoenix/(.*) /\1
-      /phoenix /
-{{- end }}
+      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
 {{- end }}
 spec:
   ingressClassName: {{ index $vssIngress "ingressClassName" | default "haproxy" }}
@@ -69,121 +117,19 @@ spec:
     - host: {{ $mainHost }}
       http:
         paths:
-          - path: /api/chat
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
-                port:
-                  number: {{ index $vssIngress "vssUiPort" | default 3000 }}
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /chat
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /websocket
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /static
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /docs
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /openapi.json
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /redoc
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /generate
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
-          - path: /vst
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
-                port:
-                  number: {{ index $vssIngress "vstIngressPort" | default 30888 }}
-{{- if $analyticsEnabled }}
-          - path: /video-analytics-api
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}
-                port:
-                  number: {{ index $vssIngress "videoAnalyticsApiPort" | default 8081 }}
+          {{- include "vss.ingress.paths" (dict "backends" $b) | nindent 10 }}
+{{- if $rtviRule }}
+    # East-west rule for global.rtviInternalIngress, off unless that is enabled.
+    # Host-less so it matches whatever Host an in-cluster caller sends: the
+    # agent reaches RT-CV / RT-Embed through the ingress controller Service to
+    # get stick-table stream affinity, and that request carries the
+    # controller Service name as its Host, not the public one above. Note a
+    # host-less rule answers on every Host that reaches the controller, its
+    # external listener included -- which is why it is not rendered by default.
+    - http:
+        paths:
+          {{- include "vss.ingress.paths" (dict "backends" $b "only" (list "rtvi-cv" "rtvi-embed")) | nindent 10 }}
 {{- end }}
-{{- if $alertBridgeEnabled }}
-          - path: /alert-bridge
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge") }}
-                port:
-                  number: {{ index $vssIngress "alertBridgePort" | default 9080 }}
-{{- end }}
-{{- if $vaMcpEnabled }}
-          # Public MCP endpoint for operate skills (vss-query-analytics).
-          # /va-mcp/mcp is rewritten to /mcp on the vss-va-mcp Service.
-          - path: /va-mcp
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp") }}
-                port:
-                  number: {{ index $vssIngress "vaMcpPort" | default 9901 }}
-{{- end }}
-{{- if $phoenixEnabled }}
-          - path: /phoenix
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "phoenix") }}
-                port:
-                  number: {{ index $vssIngress "phoenixPort" | default 6006 }}
-{{- end }}
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
-                port:
-                  number: {{ index $vssIngress "vssUiPort" | default 3000 }}
 {{- if $kibanaEnabled }}
     - host: {{ $kibanaHost }}
       http:

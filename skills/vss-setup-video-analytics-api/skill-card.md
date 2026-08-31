@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to deploy the vss-video-analytics-api REST service standalone (config-source, data-log bind, Elasticsearch, optional Kafka). Not for full warehouse deploy. <br>
+Use to deploy the vss-video-analytics-api REST service standalone with Elasticsearch ingest-pipeline and configured Kafka-topic readiness gates. Not for full warehouse deploy. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -69,7 +69,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 1 | 92% (+67%) | 67% (+25%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.3.0 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

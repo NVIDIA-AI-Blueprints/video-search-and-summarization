@@ -20,7 +20,11 @@ Environment variable substitution script for config files.
 Works with distroless Python images using tmpfs mount.
 
 Usage:
-    python env-substitute.py --source <path> --output <path> -- <command> [args...]
+    python env-substitute.py \
+        --source <path> --output <path> \
+        [--source <path> --output <path> ...] \
+        [--optional-source <path> --optional-output <path> ...] \
+        -- <command> [args...]
 """
 
 import os
@@ -53,7 +57,13 @@ def main():
         command_args = sys.argv[separator_idx + 1:]
     else:
         print("Error: Missing '--' separator between entrypoint args and command", file=sys.stderr)
-        print("Usage: env-substitute.py --source <path> --output <path> -- <command> [args...]", file=sys.stderr)
+        print(
+            "Usage: env-substitute.py --source <path> --output <path> "
+            "[--source <path> --output <path> ...] "
+            "[--optional-source <path> --optional-output <path> ...] "
+            "-- <command> [args...]",
+            file=sys.stderr,
+        )
         sys.exit(1)
     
     # Parse named arguments for the entrypoint
@@ -62,13 +72,27 @@ def main():
     )
     parser.add_argument(
         '--source',
+        action='append',
         required=True,
-        help='Source config file path (with ${VAR} placeholders)'
+        help='Source config file path (repeat with --output for multiple files)'
     )
     parser.add_argument(
         '--output',
+        action='append',
         required=True,
-        help='Output config file path (with substituted values)'
+        help='Output config file path (repeat with --source for multiple files)'
+    )
+    parser.add_argument(
+        '--optional-source',
+        action='append',
+        default=[],
+        help='Optional source config; skipped when it is not a regular file'
+    )
+    parser.add_argument(
+        '--optional-output',
+        action='append',
+        default=[],
+        help='Output path paired with --optional-source'
     )
     
     try:
@@ -79,34 +103,59 @@ def main():
     if not command_args:
         print("Error: No command provided after '--'", file=sys.stderr)
         sys.exit(1)
-    
-    print(f"Substituting environment variables in config...")
-    print(f"  Source: {args.source}")
-    print(f"  Output: {args.output}")
-    
-    # Read the source config
-    try:
-        with open(args.source, 'r') as f:
-            config_content = f.read()
-    except FileNotFoundError:
-        print(f"Error: Source config file not found: {args.source}", file=sys.stderr)
+
+    if len(args.source) != len(args.output):
+        print(
+            "Error: Each --source must have a matching --output",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    except Exception as e:
-        print(f"Error reading source config: {e}", file=sys.stderr)
+    if len(args.optional_source) != len(args.optional_output):
+        print(
+            "Error: Each --optional-source must have a matching "
+            "--optional-output",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    
-    # Substitute environment variables
-    processed_content = substitute_env_vars(config_content)
-    
-    # Write processed config
-    try:
-        os.makedirs(os.path.dirname(args.output), exist_ok=True)
-        with open(args.output, 'w') as f:
-            f.write(processed_content)
-        print(f"Processed config written successfully")
-    except Exception as e:
-        print(f"Error writing processed config: {e}", file=sys.stderr)
-        sys.exit(1)
+
+    config_pairs = [
+        (source, output, True)
+        for source, output in zip(args.source, args.output)
+    ]
+    config_pairs.extend(
+        (source, output, False)
+        for source, output in zip(args.optional_source, args.optional_output)
+    )
+
+    for source, output, required in config_pairs:
+        if not required and not os.path.isfile(source):
+            print(f"Optional config not found; skipping: {source}")
+            continue
+
+        print("Substituting environment variables in config...")
+        print(f"  Source: {source}")
+        print(f"  Output: {output}")
+
+        try:
+            with open(source, 'r') as f:
+                config_content = f.read()
+        except FileNotFoundError:
+            print(f"Error: Source config file not found: {source}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error reading source config: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        processed_content = substitute_env_vars(config_content)
+
+        try:
+            os.makedirs(os.path.dirname(output), exist_ok=True)
+            with open(output, 'w') as f:
+                f.write(processed_content)
+            print("Processed config written successfully")
+        except Exception as e:
+            print(f"Error writing processed config: {e}", file=sys.stderr)
+            sys.exit(1)
     
     # Execute the original command
     print(f"Executing: {' '.join(command_args)}")

@@ -94,6 +94,49 @@ class NotebookRunnerTests(unittest.TestCase):
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
 
+    def test_inherited_non_custom_provider_does_not_survive_injection(self) -> None:
+        """An endpoint is only consumed by `custom`, so the pair must stay coherent."""
+
+        environment = {
+            "NGC_CLI_API_KEY": "ngc-test",
+            "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com",
+            "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-sonnet-4-6",
+            "ANTHROPIC_API_KEY": "provider-test-key",
+            "NEMOCLAW_PROVIDER": "install-vllm",
+            "HOME": os.environ.get("HOME", str(Path.home())),
+            "PATH": os.environ.get("PATH", ""),
+        }
+        self.adapter.prepare_environment(environment, root=REPO_ROOT)
+        self.assertEqual(environment["NEMOCLAW_PROVIDER"], "custom")
+
+        path = REPO_ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        self.adapter._parameterize_notebook(notebook, path)
+        cells = {cell.get("id"): cell for cell in notebook["cells"]}
+        namespace: dict[str, object] = {}
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            for cell_id in (
+                "994c77c2",
+                "47d20bb1",
+                "23c61200",
+                "ce326252",
+                "e67f6da4",
+            ):
+                source = "".join(cells[cell_id]["source"])
+                exec(  # noqa: S102 - checked-in notebook settings cells only.
+                    compile(source, f"deploy_nemoclaw.ipynb:{cell_id}", "exec"),
+                    namespace,
+                )
+
+        self.assertEqual(namespace["NEMOCLAW_PROVIDER"], "custom")
+        self.assertEqual(
+            namespace["NEMOCLAW_ENDPOINT_URL"],
+            "https://inference-api.nvidia.com/v1",
+        )
+
     def test_relay_cell_commands_and_allowlist_decision(self) -> None:
         settings, relay = self._relay_cells()
         self.assertIn('RELAY_RELEASE = "0.7.3"', settings)
