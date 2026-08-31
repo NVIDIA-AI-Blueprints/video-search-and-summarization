@@ -91,6 +91,14 @@ docker compose -f compose.yml \
   up -d
 ```
 
+**Environment-variable overrides:** The following `ini` snippets are values to set in `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`.
+
+**Service-address overrides (all hardware profiles):**
+
+- `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+
+
 <Tabs>
 <Tab title="H100">
 <Tabs>
@@ -541,11 +549,6 @@ your network speed, this may take a few minutes.
 
 - LLM model: nvidia/nvidia-nemotron-nano-9b-v2
 - VLM model: cosmos-reason3 (served via RTVI VLM container)
-
-**Configure service addresses in `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`:**
-
-- `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
-- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
