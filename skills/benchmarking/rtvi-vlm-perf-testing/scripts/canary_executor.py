@@ -64,6 +64,10 @@ SSH_HOST = re.compile(r"^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*@)?[A-Za-z0-9][A-Za-z0-9.
 RUN_LABEL = "com.nvidia.rtvi.harness.run_id"
 FATAL = re.compile(r"EngineDeadError|CUDA out of memory|FMHA kernels are not found")
 SEMANTIC_COLORS = ("red", "blue", "green", "yellow", "orange", "pink", "white", "black")
+HTTP_TIMEOUT = 30
+SEMANTIC_DELETE_TIMEOUT = 90
+SEMANTIC_DRAIN_TIMEOUT = 60
+WATCHER_BASE_GRACE = 180
 
 
 def _nonempty(manifest: dict[str, Any], fields: set[str]) -> None:
@@ -181,6 +185,24 @@ def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     result["semantic_task"] = "object" if semantic_media else "pattern"
     result["qualification_only"] = qualification_only
     return result
+
+
+def status_wait_timeout(manifest: dict[str, Any]) -> int:
+    """Bound the watcher across readiness, semantic work, benchmark, and cleanup."""
+    total = (
+        manifest["timeouts"]["ready"]
+        + manifest["timeouts"]["benchmark"]
+        + WATCHER_BASE_GRACE
+    )
+    if manifest["semantic_isolation"]:
+        total += (
+            HTTP_TIMEOUT * (manifest["stream_count"] + 2)
+            + 10
+            + min(120, manifest["timeouts"]["benchmark"])
+            + 2 * SEMANTIC_DELETE_TIMEOUT
+            + SEMANTIC_DRAIN_TIMEOUT
+        )
+    return total
 
 
 def validate_source_coverage(
@@ -989,7 +1011,7 @@ override = {"services": {"rtvi-server": {"volumes": [
                             "blocking": True,
                             "drain_timeout_seconds": 60,
                         },
-                        timeout=90,
+                        timeout=SEMANTIC_DELETE_TIMEOUT,
                     )
                 except urllib.error.HTTPError as error:
                     if error.code != 422:
@@ -998,9 +1020,9 @@ override = {"services": {"rtvi-server": {"volumes": [
                         "DELETE",
                         f"{base_url}/streams/delete-batch",
                         {"stream_ids": list(stream_ids.values())},
-                        timeout=90,
+                        timeout=SEMANTIC_DELETE_TIMEOUT,
                     )
-                deadline = time.monotonic() + 60
+                deadline = time.monotonic() + SEMANTIC_DRAIN_TIMEOUT
                 while time.monotonic() < deadline:
                     active = _json_request("GET", f"{base_url}/streams/get-stream-info")
                     if not set(stream_ids.values()) & {
@@ -1092,30 +1114,50 @@ override = {"services": {"rtvi-server": {"volumes": [
             capture=self.logs / "cleanup.log",
             check=False,
         )
-        self.command(
-            "docker",
-            "logs",
-            self.media_name,
-            check=False,
-            capture=self.logs / "mediamtx.log",
-        )
-        for index, name in enumerate(self.publisher_names, start=1):
+        expected_aux = [*self.publisher_names, self.media_name]
+        try:
+            owned_aux = container_guard.find_owned_containers(
+                self.m["run_id"], self.project, expected_aux
+            )
+        except (
+            ValueError,
+            json.JSONDecodeError,
+            OSError,
+            subprocess.CalledProcessError,
+        ) as error:
+            owned_aux = []
+            self.result = "FAIL"
+            (self.logs / "aux-cleanup.log").write_text(
+                f"refused unsafe auxiliary cleanup: {error}\n"
+            )
+        owned_by_name = {
+            str(record.get("Name", "")).removeprefix("/"): str(record["Id"])
+            for record in owned_aux
+        }
+        for index, name in enumerate(expected_aux, start=1):
+            if container_id := owned_by_name.get(name):
+                log_name = (
+                    "mediamtx.log"
+                    if name == self.media_name
+                    else f"publisher-{index}.log"
+                )
+                self.command(
+                    "docker",
+                    "logs",
+                    container_id,
+                    check=False,
+                    capture=self.logs / log_name,
+                )
+        owned_ids = sorted(set(owned_by_name.values()))
+        if owned_ids:
             self.command(
                 "docker",
-                "logs",
-                name,
+                "rm",
+                "-f",
+                *owned_ids,
                 check=False,
-                capture=self.logs / f"publisher-{index}.log",
+                capture=self.logs / "aux-cleanup.log",
             )
-        self.command(
-            "docker",
-            "rm",
-            "-f",
-            *self.publisher_names,
-            self.media_name,
-            check=False,
-            capture=self.logs / "aux-cleanup.log",
-        )
         post_run = self.command(
             "docker",
             "ps",
@@ -1211,9 +1253,7 @@ def main() -> int:
             for argv in launch["stage_argv"]:
                 _run(argv)
             _run(launch["start_argv"], stdout=subprocess.PIPE)
-            wait_timeout = (
-                manifest["timeouts"]["ready"] + manifest["timeouts"]["benchmark"] + 180
-            )
+            wait_timeout = status_wait_timeout(manifest)
             status = wait_for_status(launch["wait_argv"], wait_timeout)
             print(json.dumps(status, indent=2, sort_keys=True))
             return 0 if status.get("result") == "PASS" else 1

@@ -384,6 +384,25 @@ class CanaryExecutorTests(unittest.TestCase):
 
         self.assertEqual(status["state"], "completed")
 
+    def test_status_wait_timeout_accounts_for_semantic_phases(self):
+        plain = canary_executor.resolve_manifest(valid_manifest())
+        semantic_manifest = valid_manifest()
+        semantic_manifest["plan"]["workload"]["source_identity_count"] = 2
+        semantic_manifest["plan"]["scenarios"][0]["concurrency_levels"] = [2]
+        semantic_manifest["semantic_isolation"] = True
+        semantic = canary_executor.resolve_manifest(semantic_manifest)
+
+        self.assertEqual(
+            canary_executor.status_wait_timeout(plain),
+            plain["timeouts"]["ready"]
+            + plain["timeouts"]["benchmark"]
+            + canary_executor.WATCHER_BASE_GRACE,
+        )
+        self.assertGreater(
+            canary_executor.status_wait_timeout(semantic),
+            canary_executor.status_wait_timeout(plain),
+        )
+
     def test_requires_fresh_measurements_from_each_independent_source(self):
         record = {
             "iteration": 1,
