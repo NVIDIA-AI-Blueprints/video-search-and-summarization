@@ -68,7 +68,7 @@ of these.
 | Behavior Analytics | `vss-behavior-analytics-<mode>` |
 | Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` |
 | ELK | `kafka`, `kafka-topic-init-container`, `redis`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`, `kibana-init-container-<mode>` |
-| VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sensor-bp-wait-bp-configurator` |
+| VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sensor-bp-wait-bp-configurator` |
 | Video Analytics API | `vss-video-analytics-api-<mode>`, `import-calibration-output-container-<mode>` |
 | Ingress | `vss-haproxy-ingress` |
 | Monitoring | `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` — observational, so nothing else requires them. `GRAFANA_HOST_PORT` defaults to `35000` → container `3000`, with no HAProxy route. `node-exporter` and `cadvisor` set no `container_name` and appear as `<project>-node-exporter-1` / `-cadvisor-1` |
@@ -244,7 +244,7 @@ Run from the repository root.
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
 FOUNDATION_DIR="$REPO/deploy/docker/industry-profiles/warehouse-operations"
-SCRIPTS="$REPO/skills/vss-build-vision-agent/scripts"
+SCRIPTS="$REPO/skills/vss-build-vision-ai/scripts"
 
 # Establish the helper-script runner FIRST: every script below goes through
 # "${VSS_SKILL_PY[@]}". Calling `uv run` directly would strand a host that

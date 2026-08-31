@@ -78,7 +78,6 @@ INFRA_FLOOR = [
     "render-config",
     "wdm-env-from-config",
     "wait-for-redis",
-    "wait-for-docker-workloads",
     "sdr-controller",
     "centralizedb",
     "vst-ingress",
