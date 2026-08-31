@@ -44,6 +44,9 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 RT-VLM is always selected with `VLM_MODEL_TYPE=rtvi` and `VLM_NAME_SLUG=none`; the `vss-rtvi-vlm` container is activated by the explicit `rtvi-vlm` compose profile (no `vlm_*` NIM profile), the same way `base`/`lvs` deploy RT-VLM. Choose whether RT-VLM loads the model locally or proxies a remote endpoint.
 
 ```
+DGX-SPARK / AGX-THOR?                                → Path B: local RT-VLM, LLM remote
+   │                                                   (the default there; see Hard rules)
+   ▼
 User supplied or approved a remote VLM endpoint?     → Path A: RT-VLM remote proxy
    │
    ▼
@@ -54,6 +57,8 @@ Only 1 GPU available?                                → Path A: remote VLM requ
 ```
 
 The default is **Path B**, with RT-CV + RT-VLM on GPU 0 and RT-Embed + LLM on GPU 1. On a single-GPU Brev host, use Path A; `dev-profile.sh` rejects local RT-VLM there rather than silently overcommitting the only GPU.
+
+The edge boards are the exception to that last rule: they are single-GPU but keep RT-VLM local and send the **LLM** remote instead, so ask for `LLM_ENDPOINT_URL` rather than `VLM_ENDPOINT_URL`. Do not pass `--use-remote-vlm` there unless the user specifically wants the LLM on the board.
 
 ### Path A — RT-VLM proxy to a remote VLM
 
@@ -239,7 +244,14 @@ RT-VLM shares GPU 0 with RT-CV in the default search layout, so its budget and t
 - **RT-VLM must always be reachable.** Disabling Critique does not remove this requirement because `video_understanding` still uses RT-VLM.
 - **Default local search requires two GPUs.** On a single-GPU host, use the remote-proxy path for the VLM.
 - **L40S search requires a remote LLM.** There is no `hw-L40S-shared.env` for a local-shared NIM, so the LLM cannot share GPU 1 with RT-Embed. Local RT-VLM may share GPU 0 with RT-CV. The LLM and VLM still cannot occupy the same GPU. The L40S row in the [worked example](#worked-example--llm--rt-embed-on-gpu-1) table applies only to layouts that give the LLM its own GPU.
-- **Edge platforms (DGX Spark / Thor) are not supported for `search` yet** — track upstream blueprint for support. Use SBSA image tags (`-sbsa-`) when they land.
+- **Edge platforms (DGX Spark / AGX Thor) run `search` with exactly one local model.** `IGX-THOR` is still rejected. The board's single GPU also carries RT-CV, RT-Embed and streamprocessing, so:
+  - **Default — local VLM, remote LLM.** No flags beyond `--hardware-profile`; set `LLM_ENDPOINT_URL`. RT-VLM runs on the board on the profile's own FP8 Cosmos3 Nano at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.25`. This keeps the standard search topology (Path B), so video never leaves the board and the only off-box traffic is the LLM's text.
+  - **Swap — local LLM, remote VLM.** `--llm <model> --use-remote-vlm` with `VLM_ENDPOINT_URL`. Note this drops `rtvi-vlm` from `COMPOSE_PROFILES` and switches the agent to inlining clips as base64, so the remote endpoint must be a real NIM and clips are size-capped.
+  - **Both remote.** `--use-remote-vlm --use-remote-llm` with both URLs.
+  - **Both local is rejected.** Measured on AGX Thor (122.82 GiB unified, 2026-08-31): the LLM's fixed 36.85 GiB, RT-VLM's KV cache and rt-embed's ~6 GiB TensorRT build spike do not fit together, and no value of `RTVI_VLLM_GPU_MEMORY_UTILIZATION` satisfies all three — it only selects which service fails.
+  - `--vlm <model>` is a *checkpoint choice only* here, not what enables local hosting. It replaces `RTVI_VLM_MODEL_PATH`, and naming the BF16 checkpoint costs ~8 GiB over the profile's FP8 default. Leave it unset unless a specific checkpoint is wanted.
+  - SBSA image tags (`-sbsa`) are swapped in automatically for `DGX-SPARK`; Thor uses the Jetson builds.
+  - DGX Spark is **unvalidated** — same code path as Thor, but untested (driver issues on the available board).
 - **`RESERVED_DEVICE_IDS` and `FIXED_SHARED_DEVICE_IDS` come from defaults** in `dev-profile-search/.env` (`''` and `'0,1'` respectively). Nothing is reserved because both GPUs are shared, and listing both devices as shared is what makes the LLM and RT-VLM derive `local_shared` memory fractions. The skill works at the env-file level, so leave them as-is unless changing the layout meaningfully (e.g. swapping which GPU hosts RT-CV vs RT-Embed).
 - **`/v1` quirk** — `LLM_BASE_URL` / `VLM_BASE_URL` have no `/v1` (the client appends it). In remote-proxy mode, `RTVI_VLM_ENDPOINT` does include `/v1`.
 
