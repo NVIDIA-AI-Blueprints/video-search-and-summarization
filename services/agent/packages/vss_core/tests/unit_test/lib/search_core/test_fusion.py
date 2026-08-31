@@ -199,9 +199,10 @@ def test_fuse_ranked_union_dispatches_weighted_and_equal_rrf() -> None:
     assert equal[0].similarity == pytest.approx(2.0 / 61)
 
 
-def test_fuse_ranked_union_rejects_unknown_method() -> None:
+@pytest.mark.parametrize("method", ["bogus", "weighted_linear"])
+def test_fuse_ranked_union_rejects_unknown_method(method: str) -> None:
     with pytest.raises(InvalidInputError, match="Unknown union fusion_method"):
-        _fusion.fuse_ranked_union({}, method="bogus", weights={}, rrf_k=60)
+        _fusion.fuse_ranked_union({}, method=method, weights={}, rrf_k=60)
 
 
 # ------------------------------------------------------------------- fusion math

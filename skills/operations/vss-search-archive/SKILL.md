@@ -110,10 +110,10 @@ independent of the index inventory.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 
-   Preserve both the matched source's `.sensorId` and `.name`. The required
-   `--video-source` value depends on the search path, not the source type:
-   `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
-   name. The CLI matches this value literally and does no name↔ID conversion.
+   Preserve both the matched source's `.sensorId` and `.name`. The
+   `--video-source` value depends on the search path, not the source type (optional for every path):
+   `embed` matches the sensor ID literally; `attribute` and `object` match the
+   name literally; `tag` and `fusion` resolve a source name to its VST sensor ID (passing an already-id through). For every path an unknown source yields an empty, narrowed result, not an error.
    Set `--source-type video_file` for uploads or `--source-type rtsp` for live
    streams. This selects the index partition for that media kind from a fixed
    uploads anchor (not a discovered index), independently of the identifier, so

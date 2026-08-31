@@ -50,8 +50,8 @@ vss configure check                         # re-probe; exit 3 if a route went a
 |---|---|---|
 | `run embed` | `--query` | Elasticsearch, RT-Embed |
 | `run attribute` | `--attribute` (repeatable) | Elasticsearch, RT-CV |
-| `run tag` | `--query` + `--video-source` (repeatable, required) | Elasticsearch, VST |
-| `run fusion` | `--query` + `--video-source` (repeatable, required) + optional `--attribute` / `--description` / `--min-cosine-similarity` | Elasticsearch, RT-Embed, VST (RT-CV optional) |
+| `run tag` | `--query` + `--video-source` (repeatable, optional) | Elasticsearch, VST |
+| `run fusion` | `--query` + `--video-source` (repeatable, optional) + optional `--attribute` / `--description` / `--min-cosine-similarity` | Elasticsearch, RT-Embed, VST (RT-CV optional) |
 | `run object` | `--object-id` (repeatable) | Elasticsearch, RT-CV |
 
 Each path accepts only its own fields. `run embed` has no `--attribute`;
@@ -84,8 +84,8 @@ run fusion --query "person in white jacket running" --attribute "white jacket" \
 `--video-source` is matched **literally** against the index for `embed`,
 `attribute`, and `object` — the CLI does no name↔id resolution or VST
 validation, so an unknown source silently returns nothing (not an error). For
-`tag` and `fusion`, the CLI resolves each source name to its VST sensor ID;
-an unresolved source is an input error (exit 2), never silently broadened.
+`tag` and `fusion`, the CLI resolves each source name to its VST sensor ID (passing an already-id through);
+an unresolved source is kept literal and yields an empty, narrowed result (exit 0), not an error.
 Validating a named source against `vss vios list` is the skill's job (SKILL.md
 step 2) either way.
 

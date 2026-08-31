@@ -27,6 +27,7 @@ class TestKnobValidation:
             ("rrf_k", 0),
             ("top_percent_filter", 1.0),
             ("fusion_method", "unknown"),
+            ("fusion_method", "weighted_linear"),
             ("embed_confidence_threshold", 2.0),
             ("w_tag", -0.1),
         ],

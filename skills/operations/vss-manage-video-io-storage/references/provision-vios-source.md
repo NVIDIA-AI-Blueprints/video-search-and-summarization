@@ -218,16 +218,20 @@ POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live
 TAG_PROMPT='Analyze only this video interval. Return JSON only with exactly two fields: "tags", an array of concise visible concepts, actions, objects, and events; and "description", one concise factual sentence. Do not infer facts that are not visible.'
 curl -s -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
   -H "Content-Type: application/json" \
-  -d "{\"id\":\"<sensorId>\",\"model\":\"<resolved-vlm-model>\",\"url\":\"<vios-storage-url>\",\"creation_time\":\"<upload-anchor>\",\"prompt\":\"$TAG_PROMPT\",\"response_format\":{\"type\":\"json_object\"},\"temperature\":0,\"chunk_duration\":5,\"stream\":false}"
+  --data-binary @- <<EOF
+{"id":"<sensorId>","model":"<resolved-vlm-model>","url":"<vios-storage-url>","creation_time":"<upload-anchor>","prompt":$(printf '%s' "$TAG_PROMPT" | jq -Rs .),"response_format":{"type":"json_object"},"temperature":0,"chunk_duration":5,"stream":false}
+EOF
 #   then release the temporary RT-VLM file asset:
 curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>"
 #   Live (RTSP): register, then fire-and-verify (open, confirm 200, CLOSE) —
 curl -s -X POST "http://localhost:<rt-vlm-port>/v1/streams/add" \
   -H "Content-Type: application/json" \
   -d "{\"streams\":[{\"liveStreamUrl\":\"<vios-url>\",\"id\":\"<sensorId>\",\"sensor_name\":\"<source-name>\"}]}"
-curl -N -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
+curl -N --max-time 30 --connect-timeout 10 -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
   -H "Content-Type: application/json" -H "Accept: text/event-stream" \
-  -d "{\"id\":\"<sensorId>\",\"model\":\"<resolved-vlm-model>\",\"prompt\":\"$TAG_PROMPT\",\"response_format\":{\"type\":\"json_object\"},\"temperature\":0,\"chunk_duration\":5,\"stream\":true}"
+  --data-binary @- <<EOF
+{"id":"<sensorId>","model":"<resolved-vlm-model>","prompt":$(printf '%s' "$TAG_PROMPT" | jq -Rs .),"response_format":{"type":"json_object"},"temperature":0,"chunk_duration":5,"stream":true}
+EOF
 #   stop with:  DELETE /v1/generate_captions/<sensorId>  then  DELETE /v1/streams/delete/<sensorId>
 ```
 
