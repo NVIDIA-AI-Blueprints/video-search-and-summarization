@@ -557,7 +557,7 @@ class TestLiveStreamEndpoints:
 
     def test_delete_live_streams_batch(self, test_client):
         """Test batch deleting live streams"""
-        fake_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        fake_ids = [str(uuid.uuid4()), "my-camera-batch-123"]
         response = test_client.request(
             "DELETE", f"{API_PREFIX}/streams/delete-batch", json={"stream_ids": fake_ids}
         )
