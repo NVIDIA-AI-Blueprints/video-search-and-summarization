@@ -103,7 +103,7 @@
                         "camera_type": ["rtsp", "file"],
                         "timeout_ms": 5000,
                         "retry": {"max_attempts": 3, "backoff_ms": [1000, 5000, 15000], "retry_on_status": [408, 429, 500, 502, 503, 504]},
-                        "user_defined_metadata": {"prompt": "Analyze only this video interval. Return  visible concepts, actions, objects, and events and description in one concise factual sentence. Do not infer facts that are not visible", "chunk_duration": 5}
+                        "user_defined_metadata": {"prompt": "Analyze only this video interval. Return JSON only with exactly two fields: \"tags\", an array of concise visible concepts, actions, objects, and events; and \"description\", one concise factual sentence. Do not infer facts that are not visible.", "response_format": {"type": "json_object"}, "temperature": 0, "chunk_duration": 5}
                       }
                 ]
             },
