@@ -401,6 +401,7 @@ class CanaryExecutorTests(unittest.TestCase):
             canary_executor.startup_timeout_budget(plain["stream_count"])
             + plain["timeouts"]["ready"]
             + plain["timeouts"]["benchmark"]
+            + 4 * canary_executor.RUNTIME_COMMAND_TIMEOUT
             + canary_executor.WATCHER_BASE_GRACE
             + canary_executor.cleanup_timeout_budget(plain["stream_count"]),
         )
