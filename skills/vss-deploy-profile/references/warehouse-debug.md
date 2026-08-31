@@ -415,7 +415,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
 | `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer`, `vss-configurator`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
 | `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
-| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api`; monitoring too |
+| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |
 | `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode). **A `…_MINIMAL` list does NOT deploy ES** |
 

@@ -398,4 +398,21 @@ describe('Elasticsearch', () => {
         });
     });
 
+    describe('waitForIngestPipeline', () => {
+        afterEach(() => {
+            sinon.restore();
+        });
+
+        it('should retry until the ingest pipeline exists', async () => {
+            const client = {};
+            const error = new InternalServerError('pipeline is not ready');
+            const checkStub = sinon.stub(Elasticsearch, 'checkIngestPipelineExists');
+            checkStub.onFirstCall().rejects(error);
+            checkStub.onSecondCall().resolves(true);
+            await Elasticsearch.waitForIngestPipeline(client, 'insertion-timestamp-pipeline', {retryIntervalMs: 1});
+
+            expect(checkStub.calledTwice).to.be.true;
+        });
+    });
+
 });

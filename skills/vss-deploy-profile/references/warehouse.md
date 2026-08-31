@@ -97,7 +97,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 |---|---|---|
 | `elasticsearch` | `ELASTICSEARCH_HOST_PORT` (default `9200`) | `BP_PROFILE=bp_wh` (always — vss-agent storage), **or** kafka/redis extended (any mode — for `mdx-bev`, ELK, overlays, analytics API) |
 | `kibana` / `logstash` / `vss-video-analytics-api` | `KIBANA_HOST_PORT` `5601` / — / `VIDEO_ANALYTICS_API_HOST_PORT` `8081` | Same condition as `elasticsearch` |
-| `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` | `9400` / `9090` / `GRAFANA_HOST_PORT` `35000` / `19100` / `18080` | `BP_PROFILE=bp_wh`, or kafka/redis extended. `node-exporter` and `cadvisor` set no `container_name` — in `docker ps` they appear as `<COMPOSE_PROJECT_NAME>-node-exporter-1` / `-cadvisor-1` |
+| `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` | `9400` / `9090` / `GRAFANA_HOST_PORT` `35000` / `19100` / `18080` | `BP_PROFILE=bp_wh`, or **2D/3D** kafka/redis extended. The `bp_wh_auto_calib` service lists, including the mode-agnostic AMC profile (`nvstreamer-amc`), do not include monitoring. `node-exporter` and `cadvisor` set no `container_name` — in `docker ps` they appear as `<COMPOSE_PROJECT_NAME>-node-exporter-1` / `-cadvisor-1` |
 
 > **`ELASTICSEARCH_MODE` is not read by the compose stack** — the same dead-knob trap as `MINIMAL_PROFILE`. `services/infra/compose.yml` always builds `Dockerfiles/elasticsearch.Dockerfile` (CPU); `elasticsearch-gpu.Dockerfile` exists but is referenced by nothing. Only `blueprint-deploy.sh` and the launchable validate the value and write it back. Leave it at `cpu`; setting `gpu` changes nothing on this skill's path.
 
@@ -384,7 +384,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 - 2D / 3D Kafka/Redis variants: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `kafka` and/or `redis`, `vss-turnserver`, plus the VST stack (`vss-vios-postgres`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-controller`)
 - 3D extra: `vss-rtvi-cv-config-adaptor`
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
-- Extended extra (kafka/redis): `vss-haproxy-ingress`; monitoring too
+- Extended extra (kafka/redis): `vss-haproxy-ingress`; monitoring in 2D/3D only
 - `elasticsearch`, `logstash`, `kibana`, `vss-video-analytics-api`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode)
 - `BP_PROFILE=bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration (+ UI), `vss-haproxy-ingress`, `vss-turnserver`, `redis` and a VST subset — no broker health check, no perception, no analytics
 - **Expected `Exited (0)`, not `Up`:** `vss-broker-health-check` (the broker gate — it polls, exits, and releases its dependents via `service_completed_successfully`), plus `sdrc-*`, `*-init`, `vss-kafka-topics`, `sensor-bp-wait-bp-configurator` and `vss-import-calibration-output`. A non-zero exit on any of these *is* a finding; `Exited (0)` is not
