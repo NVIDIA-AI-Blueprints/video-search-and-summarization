@@ -244,9 +244,13 @@ Run this section whenever live BEV is requested, saved BEV is requested, or save
 Resolve assets in this order:
 
 1. Use an explicit `BEV_DATASET_PATH` only if it already contains both files.
-2. If calibration came from the AMC handoff, use the `BEV_DATASET_PATH` returned by `calibration-workflow.md` only if both files are present.
+2. If calibration came from the delegated calibration skill, use the BEV asset
+   directory supplied through that skill's current downstream-output contract
+   only if both files are present.
 3. If the user supplied `MAP_PNG` and `TRANSFORMS_YML`, stage them into `generated/bev-dataset/` with stable names and use that directory.
-4. If the user supplied `MAP_PNG` but not `TRANSFORMS_YML`, look for `transforms.yml` near `calibration.json` and AMC output directories before generating it.
+4. If the user supplied `MAP_PNG` but not `TRANSFORMS_YML`, look for
+   `transforms.yml` near `calibration.json` and in the returned calibration
+   artifacts before generating it.
 5. If the correct calibration map image is available but no transform file exists, generate transforms with `scripts/generate-transforms.sh` and write the result under `generated/bev-dataset/`.
 6. If neither path works, request the map image used during calibration or a directory containing both files. Do not run BEV visualization, and do not claim saved BEV output, until both files exist.
 

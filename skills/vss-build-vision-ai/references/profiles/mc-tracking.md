@@ -70,8 +70,15 @@ topic initializer.
 ## Composition guardrails
 
 - Calibration and `camInfo` must match every selected camera. The stock sample
-  is already calibrated; for custom media with missing calibration, hand off to
-  `vss-generate-video-calibration` before deployment.
+  is already calibrated and is selected only by an explicit sample request.
+  For custom media with missing calibration, hand off by skill name to
+  `vss-generate-video-calibration` and follow its current workflow and output
+  contract; do not reproduce AMC instructions here.
+- For a generic MCT request, collect the source type, camera mappings/count,
+  dataset label, and calibration status before deployment. If the user
+  explicitly asks to deploy infrastructure before providing streams, do not
+  substitute the sample. Report source-dependent services and MCT readiness as
+  pending until matching calibrated camera IDs and streams are supplied.
 - Set `BP_CONFIGURATOR_ENV_FILE=${BUILD_DIR}/override.env` and materialize the
   Configurator's required host/path/broker values there. Otherwise the
   container reads the checked-in placeholder override layer even though

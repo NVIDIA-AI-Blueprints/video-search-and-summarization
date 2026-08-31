@@ -3,7 +3,7 @@ name: vss-build-vision-ai
 description: >-
   Primary front door for generic or capability-driven VSS application setup.
   Use this skill when the request is unqualified MCT or multi-camera tracking
-  such as "set up MCT for the calibrated four-camera sample", guided
+  such as "set up MCT", guided
   vision-agent setup, or a custom combination of captioning, detection,
   tracking, search, alerts, or summarization. Route and deploy a matching
   developer-profile Foundation or a minimal delta. An explicit request for the
@@ -40,7 +40,8 @@ metadata:
 
 | Request | Route |
 |---|---|
-| Generic or capability-driven MCT / multi-camera tracking, including the calibrated four-camera sample | Use `mc-tracking` as the Foundation; choose Stock mode for an exact capability match or Delta mode for customization. |
+| Generic or capability-driven MCT / multi-camera tracking | Use `mc-tracking` as the Foundation and run the MCT intake gate before choosing Stock or Delta mode. Do not infer the bundled sample when the request omits a dataset. |
+| MCT on the bundled/calibrated four-camera sample | Use `mc-tracking` as the Foundation with its checked-in sample assets. This sample path must be explicit. |
 | Explicitly deploy, verify, debug, or tear down the checked-in MCT (`mc-tracking`) developer profile as shipped | Hand off to `vss-deploy-profile`. |
 | Explicitly deploy or operate the standalone RTVI-CV-3D / MV3DT stack | Hand off to `vss-deploy-detection-tracking-3d`; do not approximate it by pruning the VIOS-backed developer profile. |
 | Deploy, start, run, verify, or stop a named `base`, `alerts`, `lvs`, or `search` profile | Stock mode for that profile. |
@@ -123,9 +124,45 @@ Rules for the multi-select:
 
 After Q2b, the selected capabilities **are** the required-capability set. Select the closest current developer profile as the **Foundation**, compute the **smallest delta** (add or remove only canonical service-profile keys, change only requested knobs), and continue at Step 2. This is **Delta mode** (per the Routing table); `_builds/<name>/` is created here.
 
+### MCT intake gate
+
+Apply this gate whenever MCT selects `mc-tracking` as the Foundation, before
+composition or deployment:
+
+1. Preserve any dataset details already supplied: local video paths or
+   `<camera-id>=<path>` mappings, RTSP URLs or mappings, camera count/IDs,
+   dataset label, calibration path/status, and requested transport or service
+   changes.
+2. Use the checked-in four-camera sample only when the user explicitly asks
+   for the sample/example dataset. A bare "set up MCT" or "deploy MCT" is a
+   custom-dataset request, not permission to substitute sample media.
+3. If an end-to-end deployment was requested but the input is unspecified,
+   ask one compact intake question with these choices: local videos, RTSP/live
+   streams, bundled sample, or infrastructure now with streams later. Collect
+   the selected source details and calibration status before generating or
+   starting the deployment.
+4. If the user explicitly chooses infrastructure-first/deferred streams,
+   proceed without registering cameras or substituting sample assets. Preserve
+   the MCT service architecture, start only what the resolved deployment can
+   safely start without sources, and report source-dependent services as
+   pending rather than ready. Do not claim MCT readiness until at least two
+   synchronized streams, matching calibrated camera IDs, `camInfo`, and BEV
+   assets are supplied. When the user provides them later, resume source
+   provisioning through `vss-manage-video-io-storage` and the same build.
+5. If calibration is missing for a supplied dataset and the user wants an
+   operational MCT deployment now, hand off by skill name to
+   `vss-generate-video-calibration`. Let that skill's current instructions own
+   AMC setup, input handling, detector choice, prerequisites, calibration, and
+   outputs. Do not copy or pin AMC commands, endpoints, platform checks, or
+   service wiring here. Preserve the MCT request across the handoff, consume
+   the calibration skill's current downstream-output contract, validate only
+   the MCT-specific camera/artifact compatibility, and then resume this flow.
+6. If the user will provide calibration later, treat the request as the
+   deferred-stream case. Do not invoke AMC or fabricate calibration.
+
 ## Steps
 
-1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
+1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, and observable success checks. When MCT is selected, complete the MCT intake gate above before composition or deployment. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
 2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all five current profiles and select exactly one Foundation; ask only when two are equally plausible. Read `references/edge.md` for DGX Spark or Thor.
 3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Read the environment and Brev references when applicable. Treat firewall inspection as read-only preflight: an active firewall alone never authorizes a rule change. Propose one least-privilege rule only after a concrete failed reachability probe, request approval once, and do not retry or broaden the request after rejection.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.

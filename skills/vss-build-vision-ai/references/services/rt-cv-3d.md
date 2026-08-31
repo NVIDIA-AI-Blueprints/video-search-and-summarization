@@ -23,9 +23,16 @@ features.
   dashboards, Video Analytics API, calibration import, ingress, and monitoring
   are removable only through the checked-in MCT minimal sets or an equivalent
   validated delta.
-- Calibration and `camInfo` are hard prerequisites. Use the checked-in sample
-  calibration for the sample dataset; otherwise hand off to
-  `vss-generate-video-calibration` before composing the deployment.
+- Calibration and `camInfo` are hard prerequisites for an operational tracker.
+  Use the checked-in calibration only for an explicitly requested sample
+  dataset. Otherwise collect the dataset and calibration status first. When
+  calibration is missing, hand off by skill name to
+  `vss-generate-video-calibration` and follow that skill's current instructions
+  and downstream-output contract; do not duplicate AMC behavior here.
+- An explicit infrastructure-first request may defer streams and calibration,
+  but it is not an operational MCT deployment yet. Do not substitute sample
+  streams, and report source-dependent services as pending until matching
+  calibrated camera IDs and at least two synchronized streams are provided.
 - Model download is handled by `ds-start-mc-tracking.sh` from the profile's
   `models-download.json`; do not stage RT-DETR or BodyPose3DNet in a build
   patch.

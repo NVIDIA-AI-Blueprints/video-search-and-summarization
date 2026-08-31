@@ -11,7 +11,7 @@ Load this reference when the user asks to stop, tear down, clean, reset, or tear
 - [Verify Stop](#verify-stop)
 - [Clean Generated Runtime State](#clean-generated-runtime-state)
 - [Reset Bundled Broker Data](#reset-bundled-broker-data)
-- [AMC And VIOS](#amc-and-vios)
+- [Calibration Services](#calibration-services)
 
 ## File-Input Post-Run Cleanup
 
@@ -133,8 +133,10 @@ Do not delete `MODELS_DIR`, user videos, user calibration files, `map.png`, or `
 
 The bundled Kafka service in this standalone compose uses container-local state. A normal `docker compose --profile "*" down` removes the broker container but not pulled images. Use image or volume pruning only when the user explicitly asks for broader Docker cleanup.
 
-## AMC And VIOS
+## Calibration Services
 
-This standalone RT-CV-3D deployment does not include AMC or VIOS. If calibration handoff started AMC, tear it down through `vss-generate-video-calibration`. If this workflow used `vss-manage-video-io-storage` to bring up VIOS as a missing RTSP-calibration prerequisite, tear that VIOS deployment down through the VIOS skill only when the user asks.
-
-Do not stop pre-existing or unrelated VIOS services just because RTSP calibration used them.
+This standalone RT-CV-3D deployment does not include AMC or VIOS. If the
+calibration handoff started supporting services, delegate their cleanup to
+`vss-generate-video-calibration` and its current ownership rules, and do so only
+when the user asks. Do not infer or reproduce calibration-service teardown in
+this skill, and do not stop pre-existing or unrelated services.

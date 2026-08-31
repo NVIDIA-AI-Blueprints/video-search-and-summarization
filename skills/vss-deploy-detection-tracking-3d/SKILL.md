@@ -91,7 +91,13 @@ warehouse configurator, agents, LLM, or VLM services.
 - When the user provides MP4 paths, preserve them as deployment inputs. Use their directory as `VIDEO_DIR` when basenames already match sensor ids; otherwise create generated symlinks named `<sensor_id>.mp4` only when the mapping is explicit or unambiguous by count/order. Do not mutate source videos.
 - For live RTSP, use `INPUT_MODE=stream`. Dynamic REST registration is the first path; stream keys must match the calibration sensor ids. Use the direct REST registration block in `references/configure-cameras.md` so readiness JSON is parsed independent of whitespace. Do not treat `STREAM_ADD_SUCCESS` or `stream-count` alone as success. A live RTSP deployment succeeds only when the expected sources become active, every camera has recent non-zero FPS, and `mdx-raw`/`mdx-bev` offsets grow.
 - When the user provides RTSP URLs, preserve them as deployment inputs and register them after the stream-mode compose service is running with the direct REST block in `references/configure-cameras.md`; the block waits on `/api/v1/ready` for `ds-ready` to become `YES`, so the `ds-ready: YES` log line is optional diagnostic evidence. Do not stop at telling the user to run registration manually. Ask for mapping only if bare URLs cannot be matched to calibration sensor ids by count/order. If dynamic registration accepts streams but active sources, FPS, or Kafka growth remain zero after bounded verification, treat dynamic add as failed and use the generic static RTSP `[source-list]` fallback in `references/configure-cameras.md` with the same user-provided `sensor_id=rtsp://...` mappings. Do not substitute sample calibration or sample camera mappings unless the user explicitly requested the sample dataset.
-- If calibration is missing, hand off to `vss-generate-video-calibration` and run its AMC platform preflight before VIOS, capture, upload, or calibration work. If the preflight fails, stop and ask the user to provide existing/generated calibration artifacts or choose a supported `x86_64` dGPU/NVENC calibration host. For RTSP calibration, use `vss-manage-video-io-storage` only to bring up or verify the VIOS prerequisite when VIOS is not already deployed/reachable; AMC owns calibration and `VIOS_BASE_URL` env wiring once VIOS is available.
+- If calibration is missing, hand off by skill name to
+  `vss-generate-video-calibration` and follow its current instructions and
+  downstream-output contract. That skill owns AMC setup, prerequisites, input
+  handling, detector choice, VIOS needs for RTSP calibration, calibration, and
+  result reporting. Do not copy those instructions or call AMC APIs from this
+  skill. Preserve the standalone deployment inputs, then resume only after the
+  calibration skill returns the artifacts required by this stack.
 - Do not use VST for visualization. Use the standalone OSD/save-video path and BEV visualizer scripts.
 - Always run the real display probe in `references/configure-cameras.md` before choosing `OSD=0` as the headless fallback; do not infer headless mode only from GPU presence, `xdpyinfo` installation, or a stale/missing `DISPLAY`. Treat display mode as two live windows by default: the DeepStream camera-grid OSD and the separate fused BEV visualizer. Treat `save video`, `save output`, and confirmed headless fallback as saved perception grid plus saved fused BEV by default. Before launch, preflight host tools needed for selected output: `ffprobe` for saved artifact verification, and the BEV visualizer Python/OpenCV/Kafka dependencies when BEV visualization/recording is enabled. Before promising BEV, resolve `BEV_DATASET_PATH` to a directory containing both `map.png` and `transforms.yml`; if either is missing, request the missing BEV asset or report perception-grid-only output explicitly.
 - BEV video is not emitted by the perception container. It is produced by the separate host-side `scripts/bev-visualizer.sh` Kafka consumer. For finite file input, keep the BEV process under the same long-lived shell/session that starts perception, waits for EOS, verifies offsets/artifacts, finalizes BEV, and performs cleanup; do not start BEV in a separate short tool call and assume `nohup ... &` will survive runner process-group cleanup. Wait for Kafka assignment and verify the PID is still alive immediately before file-mode perception or RTSP stream registration. For finite file-input live display runs, start live fused BEV before perception and, after EOS, tell the user to press `q` in the BEV window or stop only the tracked current-run BEV PID through the safe teardown flow.
@@ -126,7 +132,15 @@ Follow these stages for deployment work:
 1. Resolve `RTCV3D_APP` to `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
 2. Identify the input mode: `file` for local MP4s or `stream` for RTSP.
 3. If the user asked for the sample dataset or 4-cam example dataset, load `references/sample-dataset.md` first. Resolve/download app-data, set `MODELS_DIR`, `VIDEO_DIR=<APP_DATA_DIR>/videos/warehouse-4cams-20mx20m-synthetic`, `CALIBRATION_JSON`, `BEV_DATASET_PATH`, `NUM_CAMS=4`, and `INPUT_MODE=file`, then continue with camera validation and the normal display/save decision before setting `OSD`, `SAVE_VIDEO`, or `BEV_SAVE_VIDEO`.
-4. Validate or obtain `calibration.json`. If missing, hand off to `vss-generate-video-calibration` by name and do not duplicate the AMC workflow inline. Explicitly include the AMC platform preflight failure path: stop and request existing/generated calibration artifacts or a supported `x86_64` dGPU/NVENC calibration host. After AMC completes, fetch the AMC MV3DT export ZIP, export `calibration.json`, validate JSON by filtering sensors where `type == "camera"` and requiring at least two non-empty safe unique camera IDs, then stage BEV assets before continuing. For saved output or BEV viewing, resolve `BEV_DATASET_PATH` to a directory containing both `map.png` and `transforms.yml` before launch.
+4. Validate or obtain `calibration.json`. If missing, load
+   `references/calibration-workflow.md`, which preserves this deployment's
+   inputs and delegates calibration to `vss-generate-video-calibration` without
+   reproducing AMC operations. After the handoff returns, follow the
+   calibration skill's current downstream-output contract, validate JSON by
+   filtering sensors where `type == "camera"` and requiring at least two
+   non-empty safe unique camera IDs, then stage the returned BEV assets before
+   continuing. For saved output or BEV viewing, resolve `BEV_DATASET_PATH` to a
+   directory containing both `map.png` and `transforms.yml` before launch.
 5. Set required values in `docker/.env`: `MODELS_DIR`, `NUM_CAMS`, `INPUT_MODE`, `VIDEO_DIR` for file input, and optional image/GPU values. For supplied MP4 paths, point `VIDEO_DIR` at the matching source directory or at a generated symlink directory with one `<sensor_id>.mp4` per camera.
 6. Initialize broker mode before config generation or staging. For bundled mode, run the bundled resource preflight in `references/deploy-rtvi-cv-3d-stack.md` now so selected `MQTT_PORT`, `KAFKA_PORT`, and `KAFKA_BOOTSTRAP` are already in `docker/.env`. For external mode, validate broker endpoints and required topics before launch.
 7. Generate `generated/camInfo/` and `generated/pub_sub_info_config.yml` from `calibration.json` with the standalone `scripts/generate-configs.sh`, using the selected MQTT endpoint; do not mount developer-profile calibration directories.
@@ -157,7 +171,8 @@ Follow these stages for deployment work:
 
 ## Related Skills
 
-- `vss-generate-video-calibration` owns AMC deployment and calibration from local MP4s or RTSP streams.
-- `vss-manage-video-io-storage` is used only to bring up or verify VIOS when RTSP calibration needs VIOS and it is not already deployed.
+- `vss-generate-video-calibration` owns the complete AMC workflow, including
+  any VIOS dependency needed for RTSP calibration. Always follow that skill's
+  current instructions rather than reproducing them here.
 - `vss-build-vision-ai` owns unqualified MCT setup and capability-driven or customized MCT application requests.
 - `vss-deploy-profile` owns explicit lifecycle requests for the checked-in `mc-tracking` developer profile.

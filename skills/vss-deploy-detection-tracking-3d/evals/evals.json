@@ -75,10 +75,10 @@
     "id": "mv3dt-missing-calibration-handoff",
     "question": "Run rtvi-cv-3d on my synchronized cam_*.mp4 files, but I do not have calibration yet. Walk me through the order without running anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "The skill identifies missing calibration, hands off to vss-generate-video-calibration first, requires successful AMC export, validates camera-only calibration sensors, returns to standalone config generation, staging, bundled broker mode, file-mode support-service/baseline ordering, and verification.",
+    "ground_truth": "The skill identifies missing calibration, preserves the standalone inputs, delegates to the current vss-generate-video-calibration workflow, consumes its current downstream-output contract, validates camera-only calibration sensors, then returns to standalone config generation, staging, bundled broker mode, file-mode support-service/baseline ordering, and verification.",
     "expected_behavior": [
       "Chains to vss-generate-video-calibration because calibration is missing.",
-      "Does not ignore a failed AMC export_calibration POST or silently reuse an old calibration.json.",
+      "Does not reproduce AMC API calls, platform checks, detector selection, VIOS wiring, polling, or output paths; those remain owned by vss-generate-video-calibration.",
       "Validates exported calibration JSON using camera-only sensors with safe unique ids.",
       "Resolves BEV_DATASET_PATH only after map.png and transforms.yml are both present.",
       "Uses standalone compose and bundled brokers for the deployment plan.",
