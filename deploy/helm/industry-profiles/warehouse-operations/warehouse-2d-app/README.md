@@ -278,6 +278,21 @@ install creates a LoadBalancer Service, which stays `Pending` on bare metal. Che
 kubectl get ingressclass          # expect: haproxy
 ```
 
+### 2b. Set NUM_STREAMS for your GPU (optional)
+
+The chart ships a fixed `NUM_STREAMS=3` in `bp-configurator.env` with no GPU cap.
+To size it to your hardware the way Docker Compose does, generate a values-override first:
+
+```bash
+python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
+  --mode 2d --num-streams <N> -o values-stream-cap.generated.yaml
+```
+
+Layer `-f values-stream-cap.generated.yaml` into the `helm upgrade --install` below, and set
+`vios.vss-vios-nvstreamer.syncFileCount` to the effective count it prints. See
+[`skills/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/vss-deploy-warehouse-helm/references/streams.md)
+for the full command and GPU→cap table. No skill/agent required — the script runs standalone.
+
 ### 3. Install
 
 ```bash
