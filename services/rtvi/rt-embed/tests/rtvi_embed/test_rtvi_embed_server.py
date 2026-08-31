@@ -550,6 +550,11 @@ class TestLiveStreamEndpoints:
         response = test_client.delete(f"{API_PREFIX}/streams/delete/{fake_id}")
         assert response.status_code == 400
 
+    def test_delete_live_stream_accepts_non_uuid_stream_id(self, test_client):
+        """Delete-by-id accepts camera-id-derived stream IDs, not only UUIDs."""
+        response = test_client.delete(f"{API_PREFIX}/streams/delete/my-camera-123")
+        assert response.status_code == 400
+
     def test_delete_live_streams_batch(self, test_client):
         """Test batch deleting live streams"""
         fake_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
@@ -639,6 +644,11 @@ class TestVideoEmbeddingsGeneration:
         response = test_client.delete(f"{API_PREFIX}/generate_video_embeddings/{fake_id}")
         assert response.status_code == 400
 
+    def test_stop_live_stream_embeddings_accepts_non_uuid_stream_id(self, test_client):
+        """Stop-by-id accepts camera-id-derived stream IDs, not only UUIDs."""
+        response = test_client.delete(f"{API_PREFIX}/generate_video_embeddings/my-camera-123")
+        assert response.status_code == 400
+
 
 class TestStreamingConstraints:
     """Test streaming implementation constraints"""
@@ -714,7 +724,7 @@ class TestCVStreamEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["camera_id"] == camera_id
-        assert data["asset_id"]
+        assert data["asset_id"] == camera_id
         asset = rtvi_server._asset_manager.get_asset(data["asset_id"])
         assert asset.path == str(file_path)
         assert asset.is_live is False
@@ -743,7 +753,6 @@ class TestCVStreamEndpoints:
     def test_stream_add_downloads_vios_https_file_sensor(self, mock_args):
         """VIOS HTTPS camera URL is downloaded as a file asset with request headers."""
         camera_id = f"vios-http-file-{uuid.uuid4()}"
-        asset_id = str(uuid.uuid4())
         url_headers = {"Authorization": "Bearer test-token"}
         remote_url = (
             "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/"
@@ -758,7 +767,7 @@ class TestCVStreamEndpoints:
 
                 rtvi_server = RTVIServer(mock_args)
                 test_client = TestClient(rtvi_server._app)
-                download_file = AsyncMock(return_value=asset_id)
+                download_file = AsyncMock(return_value=camera_id)
                 add_live_stream = MagicMock()
                 rtvi_server._asset_manager.download_file = download_file
                 rtvi_server._asset_manager.add_live_stream = add_live_stream
@@ -785,7 +794,7 @@ class TestCVStreamEndpoints:
                         rtvi_server._stream_handler.stop()
 
         assert response.status_code == 200
-        assert response.json()["asset_id"] == asset_id
+        assert response.json()["asset_id"] == camera_id
         add_live_stream.assert_not_called()
         download_file.assert_awaited_once_with(
             url=remote_url,
@@ -793,10 +802,55 @@ class TestCVStreamEndpoints:
             purpose="vision",
             media_type="video",
             creation_time="2026-07-09T14:58:40.000Z",
-            file_id=None,
+            file_id=camera_id,
             url_headers=url_headers,
             sensor_name=camera_id,
             camera_id=camera_id,
+        )
+
+    def test_stream_add_rtsp_uses_camera_id_as_stream_id(self, mock_args):
+        """CV-compatible /v1/stream/add reuses camera_id as the internal stream/asset id."""
+        camera_id = f"cam-{uuid.uuid4()}"
+        rtsp_url = "rtsp://127.0.0.1:8554/live/video"
+
+        with TempEnv({"SKIP_PIPELINE_WARMUP": "1", "MESSAGE_BUS": ""}):
+            with patch("server.rtvi_stream_handler.VlmPipeline") as mock_vlm_pipeline_class:
+                mock_pipeline = MagicMock()
+                mock_pipeline.get_health_status.return_value = []
+                mock_vlm_pipeline_class.return_value = mock_pipeline
+
+                rtvi_server = RTVIServer(mock_args)
+                test_client = TestClient(rtvi_server._app)
+                add_live_stream = MagicMock(return_value=camera_id)
+                rtvi_server._asset_manager.add_live_stream = add_live_stream
+
+                try:
+                    response = test_client.post(
+                        f"{API_PREFIX}/stream/add",
+                        json={
+                            "key": "sensor",
+                            "value": {
+                                "camera_id": camera_id,
+                                "camera_name": "front_door",
+                                "camera_url": rtsp_url,
+                                "change": "camera_add",
+                            },
+                        },
+                    )
+                finally:
+                    if hasattr(rtvi_server, "_stream_handler") and rtvi_server._stream_handler:
+                        rtvi_server._stream_handler.stop()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["camera_id"] == camera_id
+        assert data["asset_id"] == camera_id
+        add_live_stream.assert_called_once_with(
+            url=rtsp_url,
+            description="front_door",
+            camera_id=camera_id,
+            sensor_name=camera_id,
+            stream_id=camera_id,
         )
 
     def test_stream_remove_accepts_vios_registration_without_asset(self, mock_args):
