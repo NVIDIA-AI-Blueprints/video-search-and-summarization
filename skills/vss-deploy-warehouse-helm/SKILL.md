@@ -39,7 +39,7 @@ locations: `deploy/helm/industry-profiles/warehouse-operations/warehouse-{2d,3d}
 
 | Script | Purpose | Arguments |
 |---|---|---|
-| [`../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`](../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py) | Detect GPU (or take an explicit `HARDWARE_PROFILE`), read `max_streams_supported` from `blueprint_config.yml`, cap the requested stream count, and write a `bp-configurator.env`-patched values-override YAML. | `--mode {2d,3d,mc-tracking} --num-streams N [--hardware-profile P] [--gpu-index I] [-o FILE]` |
+| [`../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`](../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py) | Detect GPU (or take an explicit `HARDWARE_PROFILE`), read `max_streams_supported` from `blueprint_config.yml`, cap the requested stream count, and write a `bp-configurator.env`-patched values-override YAML. Pass any values file(s) your install already uses via `-f` so custom `bp-configurator.env` entries in them aren't dropped. | `--mode {2d,3d,mc-tracking} --num-streams N [--hardware-profile P] [--gpu-index I] [-f VALUES]... [-o FILE]` |
 
 This script has no skill/agent dependency — a user who doesn't want to use this skill can run it
 directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass the generated file to
@@ -53,6 +53,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
      --mode <mode> --num-streams <N> -o values-stream-cap.generated.yaml
    ```
+   - If the install already passes its own `-f my-values.yaml` that customizes
+     `bp-configurator.env`, pass the same file here too via `-f` — otherwise the generated file
+     (built from chart defaults, layered last) silently drops those customizations. See
+     [`references/streams.md`](references/streams.md#if-your-install-customizes-bp-configuratorenv).
    - Without `--hardware-profile`, it runs `nvidia-smi` on GPU index 0 and maps the name to a
      `HARDWARE_PROFILE` using the same table as [`vss-deploy-profile`'s warehouse
      reference](../vss-deploy-profile/references/warehouse.md#supported-hardware). If detection

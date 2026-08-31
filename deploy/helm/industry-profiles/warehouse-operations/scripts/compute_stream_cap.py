@@ -8,6 +8,15 @@ write a bp-configurator.env values-override for helm upgrade/install -f.
     compute_stream_cap.py --mode 2d --num-streams 6
     compute_stream_cap.py --mode 3d --num-streams 30 --hardware-profile H100
     compute_stream_cap.py --mode mc-tracking --num-streams 4 --gpu-index 1 -o values-streams.yaml
+
+If your install already layers its own values file(s) that customize
+bp-configurator.env (e.g. -f my-values.yaml), pass the same file(s) here with
+-f/--values so the generated env list is patched on top of your customizations
+instead of just the chart defaults — otherwise this script's output, layered
+last, silently discards them (Helm replaces lists wholesale, it doesn't merge
+them entry-by-entry):
+
+    compute_stream_cap.py --mode 2d --num-streams 6 -f my-values.yaml
 """
 import argparse
 import subprocess
@@ -103,6 +112,18 @@ def max_streams_supported(hardware_profile: str, mode: str) -> int | None:
     return int(mode_cfg["max_streams_supported"])
 
 
+def deep_merge(base: dict, overlay: dict) -> dict:
+    """Merge overlay onto base the way Helm merges values files: dicts merge
+    recursively, everything else (including lists) is replaced wholesale."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def patch_env_list(env: list, num_streams: int, hardware_profile: str) -> list:
     patched = [dict(e) for e in env]
 
@@ -127,6 +148,15 @@ def main() -> None:
         help="Skip nvidia-smi auto-detection and use this HARDWARE_PROFILE directly",
     )
     parser.add_argument("--gpu-index", type=int, default=0, help="GPU index to detect (default: 0)")
+    parser.add_argument(
+        "-f",
+        "--values",
+        action="append",
+        default=[],
+        help="Values file(s) your install already passes to helm -f that customize "
+        "bp-configurator.env; merged in before patching so those customizations "
+        "aren't dropped (repeatable, applied in order)",
+    )
     parser.add_argument(
         "-o",
         "--output",
@@ -161,7 +191,15 @@ def main() -> None:
         sys.exit(f"error: chart values not found: {chart_values_path}")
 
     with open(chart_values_path) as f:
-        chart_values = yaml.safe_load(f)
+        chart_values = yaml.safe_load(f) or {}
+
+    for values_file in args.values:
+        path = Path(values_file)
+        if not path.exists():
+            sys.exit(f"error: values file not found: {path}")
+        with open(path) as f:
+            overlay = yaml.safe_load(f) or {}
+        chart_values = deep_merge(chart_values, overlay)
 
     bp_configurator = chart_values.get("bp-configurator", {})
     env = bp_configurator.get("env", [])

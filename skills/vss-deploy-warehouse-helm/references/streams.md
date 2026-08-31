@@ -37,6 +37,22 @@ Grafana/Kibana URLs) are the same host-specific values documented in
 `warehouse-2d-app/README.md` §3 Install — this skill doesn't change any of that, it only adds the
 stream-cap layer.
 
+## If your install customizes `bp-configurator.env`
+
+The script builds its output by reading the chart's `values.yaml` and patching `NUM_STREAMS` /
+`HARDWARE_PROFILE` into that env list. If your install also passes its own `-f my-values.yaml`
+that overrides `bp-configurator.env` (extra env vars, different defaults), pass that same file to
+the script with `-f`/`--values` so it merges your customizations in before patching:
+
+```bash
+python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
+  --mode 2d --num-streams 8 -f my-values.yaml -o values-stream-cap.generated.yaml
+```
+
+Skip this and the generated file — built from chart defaults only, then layered last — silently
+replaces your customized `bp-configurator.env` with the defaults, since Helm replaces list-typed
+values wholesale rather than merging them entry-by-entry.
+
 ## Without the skill
 
 The script has no agent dependency. Run it directly and hand the output file to `helm` yourself:
