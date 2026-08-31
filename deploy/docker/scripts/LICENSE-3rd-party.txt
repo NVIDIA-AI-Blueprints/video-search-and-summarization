@@ -1,0 +1,71 @@
+Third-Party Software Licenses
+================================================================================
+
+This file contains the licenses and attributions for third-party software
+packages installed into the NemoClaw sandbox at deploy time by
+scripts/deploy_nemoclaw.ipynb.
+
+These packages are fetched from the npm registry when section 3.7 runs, which
+happens only when the operator sets RELAY_OBSERVABILITY=true. The section is
+off by default, so a deployment that does not opt in installs none of them.
+Because the install happens inside the sandbox rather than through a checked-in
+manifest, no lockfile in this repository lists them; this file is the record.
+
+All packages below are published by NVIDIA from a single repository,
+https://github.com/NVIDIA/NeMo-Relay, under Apache-2.0, and pinned to 0.7.3 by
+the RELAY_RELEASE setting in section 1.3.
+
+================================================================================
+
+1. nemo-relay-openclaw
+   Version: 0.7.3
+   License: Apache License 2.0
+   Repository: https://github.com/NVIDIA/NeMo-Relay
+   Registry: https://www.npmjs.com/package/nemo-relay-openclaw
+   License URL: https://www.apache.org/licenses/LICENSE-2.0
+   Description: OpenClaw plugin that exports agent session trajectories in ATIF
+   format. Installed directly by section 3.7.
+   Full License Text:
+
+   See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+2. nemo-relay-node
+   Version: 0.7.3
+   License: Apache License 2.0
+   Repository: https://github.com/NVIDIA/NeMo-Relay
+   Registry: https://www.npmjs.com/package/nemo-relay-node
+   License URL: https://www.apache.org/licenses/LICENSE-2.0
+   Description: Node binding the plugin depends on. Pulled in as the sole
+   runtime dependency of nemo-relay-openclaw.
+   Full License Text:
+
+   See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+3. nemo-relay-node-linux-x64-gnu
+   Version: 0.7.3
+   License: Apache License 2.0
+   Repository: https://github.com/NVIDIA/NeMo-Relay
+   Registry: https://www.npmjs.com/package/nemo-relay-node-linux-x64-gnu
+   License URL: https://www.apache.org/licenses/LICENSE-2.0
+   Description: Platform-specific native binding for nemo-relay-node, selected
+   on x86_64 sandboxes. An optional dependency that `openclaw plugins install`
+   does not resolve, so section 3.7 installs it explicitly.
+   Full License Text:
+
+   See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+4. nemo-relay-node-linux-arm64-gnu
+   Version: 0.7.3
+   License: Apache License 2.0
+   Repository: https://github.com/NVIDIA/NeMo-Relay
+   Registry: https://www.npmjs.com/package/nemo-relay-node-linux-arm64-gnu
+   License URL: https://www.apache.org/licenses/LICENSE-2.0
+   Description: Platform-specific native binding for nemo-relay-node, selected
+   on aarch64 sandboxes. Exactly one of entries 3 and 4 is installed on a given
+   host, chosen at run time from the sandbox architecture.
+   Full License Text:
+
+   See: https://www.apache.org/licenses/LICENSE-2.0

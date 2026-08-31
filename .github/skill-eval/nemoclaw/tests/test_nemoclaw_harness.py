@@ -135,6 +135,8 @@ class NotebookRunnerTests(unittest.TestCase):
             for name in ("NVIDIA_API_KEY", "NEMOCLAW_ENDPOINT_URL", "NEMOCLAW_MODEL"):
                 namespace.setdefault(name, os.environ.get(name, ""))
             namespace.setdefault("COMPATIBLE_API_KEY", "")
+            # Section 1.1 binds this before 1.3 reads it; seed it the same way.
+            namespace.setdefault("NEMOCLAW_PROVIDER", "")
             exec(  # noqa: S102 - checked-in notebook settings cell only.
                 compile(settings, "deploy_nemoclaw.ipynb:e67f6da4", "exec"),
                 namespace,
