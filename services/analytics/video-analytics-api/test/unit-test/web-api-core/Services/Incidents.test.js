@@ -169,6 +169,7 @@ describe('Incident', () => {
                     hits: {
                         hits: [
                             { _source: { info: { alertCategory: 'Near Miss Violation' } } },
+                            { _source: { info: { alertCategory: 'Load Quality Violation' } } },
                             { _source: { info: { alertCategory: 'Pathway Obstruction Violation' } } },
                             { _source: { info: { alertCategory: 'PPE Violation' } } },
                             { _source: { info: { alertCategory: 'PPE Violation' } } }
@@ -181,12 +182,13 @@ describe('Incident', () => {
 
             const alertTypes = new Set(result.incidents.map(({ info }) => info.alertCategory));
             const expectedAlertTypes = new Set([
+                'Load Quality Violation',
                 'Near Miss Violation',
                 'Pathway Obstruction Violation',
                 'PPE Violation'
             ]);
 
-            expect(alertTypes.size).to.equal(3);
+            expect(alertTypes.size).to.equal(4);
             expect([...alertTypes].filter((alertType) => !expectedAlertTypes.has(alertType))).to.be.empty;
             expect([...expectedAlertTypes].filter((alertType) => !alertTypes.has(alertType))).to.be.empty;
             expect(searchStub.firstCall.args[1].index).to.equal('mdx-vlm-incidents-*');

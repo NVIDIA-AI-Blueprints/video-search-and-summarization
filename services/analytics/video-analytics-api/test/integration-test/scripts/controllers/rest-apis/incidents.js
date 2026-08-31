@@ -28,6 +28,7 @@ function getTests(c) {
     const F = c.FROM_TS;
     const T = c.TO_TS;
     const expectedVlmAlertTypes = new Set([
+        'Load Quality Violation',
         'Near Miss Violation',
         'Pathway Obstruction Violation',
         'PPE Violation'
@@ -47,7 +48,7 @@ function getTests(c) {
                 if (!Array.isArray(incidents)) return 'missing incidents array';
                 const alertTypes = new Set(incidents.map(({ info }) => info && info.alertCategory));
                 if (alertTypes.has(undefined)) return 'missing info.alertCategory';
-                if (alertTypes.size !== 3) return `expected 3 unique alert types, got ${alertTypes.size}`;
+                if (alertTypes.size !== 4) return `expected 4 unique alert types, got ${alertTypes.size}`;
                 const unexpectedAlertTypes = [...alertTypes].filter((alertType) => !expectedVlmAlertTypes.has(alertType));
                 if (unexpectedAlertTypes.length > 0) return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}`;
                 const missingAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => !alertTypes.has(alertType));
