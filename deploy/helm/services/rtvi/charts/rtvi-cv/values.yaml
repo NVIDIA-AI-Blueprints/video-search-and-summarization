@@ -54,12 +54,19 @@ service:
   type: ClusterIP
 httpPort: 9000
 
-# Stream-affinity routing via HAProxy consistent-hash on an HTTP header.
+# Stream-affinity routing via a HAProxy stick table keyed on an HTTP header.
 # When enabled, the rendered Service carries `haproxy.org/*` annotations
-# that ask a HAProxy Ingress controller to consistent-hash every request
-# with the same hashHeader value to the same vss-rtvi-cv pod (Karger's
-# consistent hash). Required for replica count > 1 so the DeepStream
-# pipeline state stays coherent for the lifetime of a stream.
+# that ask a HAProxy Ingress controller to record, on the first request for
+# each hashHeader value, which vss-rtvi-cv pod served it, and to route every
+# later request with the same value to that pod (stick-table, `stick on`).
+# Required for replica count > 1 so the DeepStream pipeline state stays
+# coherent for the lifetime of a stream.
+#
+# The table is per HAProxy process: controller replicas do NOT share entries
+# (the OSS controller has no peers sync), so affinity holds only for traffic
+# entering through one controller replica. Entries idle out after tableExpire
+# of inactivity; each match refreshes the timer, so a live stream never
+# expires. tableSize bounds the number of concurrently tracked streams.
 #
 # IMPORTANT — these annotations are only honored when traffic actually
 # flows through HAProxy Ingress. In the default chart deployment the
@@ -73,6 +80,13 @@ httpPort: 9000
 streamAffinity:
   enabled: true
   hashHeader: x-stream-id
+  # Stick-table sizing: max concurrently tracked streams, and per-entry idle
+  # expiry (refreshed on every match).
+  tableSize: 10k
+  tableExpire: 30m
+# Long-running detection requests take minutes; keep this backend well above the
+# controller default when it is published through an ingress.
+ingressTimeoutServer: "3600s"
 
 streamType: "kafka"
 otelSdkDisabled: "true"

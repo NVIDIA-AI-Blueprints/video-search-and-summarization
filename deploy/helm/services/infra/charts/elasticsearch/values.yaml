@@ -22,6 +22,19 @@ service:
   port: 9200
   type: ClusterIP
 
+# Edge guard for the public /elasticsearch ingress mount, rendered as a
+# backend-config-snippet on this Service. Mirrors the Docker edge exactly, which
+# means it is NOT a read-only endpoint: it denies PUT/DELETE, cluster-admin
+# paths and the two-segment mutating operations, and allows a PUT to a
+# unified-memory document path, but POST is allowed — so _bulk, _reindex and
+# /<index>/_doc still reach Elasticsearch. Disable only where an entirely
+# unguarded Elasticsearch on the public origin is acceptable.
+ingressGuard:
+  enabled: true
+  # Interpolated into an HAProxy path_reg; a value carrying regex metacharacters
+  # changes what the exception matches.
+  memoryIndex: vss-memory
+
 persistence:
   storageClass: ""
   data:

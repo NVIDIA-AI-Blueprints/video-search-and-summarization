@@ -59,6 +59,10 @@ dashboardKibanaBaseUrl: ""
 # Alerts tab: base URL for alerts API (vss-alert-bridge), including the API version prefix.
 # Set in alerts profile so NEXT_PUBLIC_ALERTS_API_URL is populated. Override here (or via envOverrides) when bumping the server-side API version (e.g. /api/v2) without rebuilding the UI.
 alertsApiUrl: ""
+# Manage Alerts kind visibility. Profiles should disable kinds unsupported by
+# their deployed alert pipeline; both remain enabled by default for compatibility.
+alertsRealtimeEnabled: true
+alertsCvVerificationEnabled: true
 # When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
 # When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).
 fillAlertBridgeUrlFromGlobal: true

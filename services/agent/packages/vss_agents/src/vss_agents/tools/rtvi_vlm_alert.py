@@ -106,10 +106,6 @@ class RTVIVLMAlertInput(BaseModel):
         10,
         description="Maximum number of incidents to return. Only for 'get_incidents' action.",
     )
-    incident_type: str | None = Field(
-        None,
-        description="Filter by incident type (e.g., 'collision'). Only for 'get_incidents' action.",
-    )
 
 
 class RTVIVLMAlertOutput(BaseModel):
@@ -198,10 +194,15 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
 
                 # Build input for VA tool - use sensor_name directly as source
                 # When sensor_name is provided to RTVI-VLM, it's used as sensor_id in Kafka messages
+                # VA projects only Id/timestamp/end/sensorId unless extra fields are
+                # requested via `includes`. RT-VLM incidents carry their kind in
+                # `category` and the verification result in `info` (verdict,
+                # triggerPhrase, vlm_response), so ask for both.
                 va_input = {
                     "source": sensor_name,
                     "source_type": "sensor",
                     "max_count": input_data.max_count,
+                    "includes": ["category", "info"],
                 }
 
                 # Add time range if provided (VA tool requires both start and end)
