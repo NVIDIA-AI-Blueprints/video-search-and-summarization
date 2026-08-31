@@ -1,11 +1,47 @@
 ---
 name: benchmark-unified-memory
-description: Run the dataset-backed unified-memory video benchmark setup: deploy LVS, download and ingest its videos, and initialize frozen authoritative memories plus OpenClaw Markdown projections. Use only from the skill-eval benchmark harness.
+description: "Run the dataset-backed unified-memory video benchmark setup: deploy LVS, download and ingest its videos, and initialize frozen authoritative memories plus OpenClaw Markdown projections. Use only from the skill-eval benchmark harness."
 ---
 
 # Unified-memory benchmark
 
 Follow the setup query exactly. This skill supplies deterministic setup scripts; it does not answer benchmark questions.
+
+## Deployment and CLI setup
+
+Use `vss-deploy-profile` to deploy the LVS profile with Elasticsearch, VIOS,
+and the VLM. Wait until every required service is healthy before configuring
+the CLI: `vss configure` probes the running ingress and records its discovered
+service routes for the later benchmark steps.
+
+After the deployment is healthy, prepare and configure the project-local CLI:
+
+```bash
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+AGENT_PROJECT="$VSS_REPO_ROOT/services/agent"
+
+# A cancelled warm-worker task can leave an incomplete environment.
+if [ -d "$AGENT_PROJECT/.venv" ] && \
+   [ ! -x "$AGENT_PROJECT/.venv/bin/python" ]; then
+  rm -rf "$AGENT_PROJECT/.venv"
+fi
+
+VSS=(
+  uv run
+  --project "$AGENT_PROJECT"
+  --no-dev
+  --extra cli
+  vss
+)
+
+"${VSS[@]}" --help
+"${VSS[@]}" configure --base-url http://localhost:7777
+"${VSS[@]}" configure check
+```
+
+Do not run `vss configure` before deployment. The resulting
+`~/.vss/config.json` is shared with the video-ingestion, memory-initialization,
+and benchmark-question tasks in the same evaluation leg.
 
 ## Video setup
 

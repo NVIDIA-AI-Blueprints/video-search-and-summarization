@@ -18,7 +18,7 @@
   "setup": [
     {
       "name": "Deploy and verify LVS",
-      "query": "Use the vss-deploy-profile skill to deploy the LVS profile with Elasticsearch, VIOS, the VLM. Configure the project-local vss CLI for this deployment and verify that the services are healthy.",
+      "query": "Use the benchmark-unified-memory skill to orchestrate setup and the vss-deploy-profile skill to deploy the LVS profile with Elasticsearch, VIOS, and the VLM. After all required services are healthy, follow the benchmark skill's project-local CLI setup instructions to configure the deployment against `http://localhost:7777` and verify it with `vss configure check`.",
       "checks": [
         "The LVS profile and its required Elasticsearch, VIOS, and VLM services are running and healthy.",
         "The project-local vss CLI is configured for the deployed profile."
