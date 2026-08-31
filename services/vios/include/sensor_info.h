@@ -176,7 +176,11 @@ struct SensorVideoEncoderSettingsValues
 
 struct SensorAudioEncoderSettingsValues
 {
-    bool   enable;
+    /* Sensors that never report audio settings leave this untouched, and an
+     * indeterminate bool does not merely read as true: it carries a value
+     * outside {0,1}, which turns a later 'enable ? a : b' into arithmetic on
+     * that value and yields an enumerator that is neither a nor b. */
+    bool   enable = false;
     string container;
     string encoding;
     string sample_rate;
