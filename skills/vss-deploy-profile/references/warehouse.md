@@ -6,6 +6,11 @@ The compose files ship **in-tree** in the `video-search-and-summarization` repo 
 
 Work through **one path** under [Choose your path](#choose-your-path). Reference tables (variants, services, GPU layout, endpoints, artifacts) are in the top half; operational phases are in the bottom half.
 
+> **Deploying on Kubernetes via Helm instead of Docker Compose?** This reference is Compose-only.
+> Use [`vss-deploy-warehouse-helm`](../../vss-deploy-warehouse-helm/SKILL.md) — it reuses the
+> `HARDWARE_PROFILE` table and `max_streams_supported` caps below but drives
+> `deploy/helm/industry-profiles/warehouse-operations/warehouse-{2d,3d,mv3dt}-app` instead.
+
 ---
 
 ## Deployment Variants
