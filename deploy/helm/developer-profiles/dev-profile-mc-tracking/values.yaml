@@ -123,9 +123,9 @@ calibration-import:
   enabled: true
   name: import-calibration-output-mv3dt
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
   requireCalibration: true
   requireImages: true
 
