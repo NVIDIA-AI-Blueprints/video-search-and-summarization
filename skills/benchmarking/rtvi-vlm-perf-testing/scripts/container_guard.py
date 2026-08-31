@@ -87,6 +87,16 @@ def _find_records(
     )
 
 
+def find_owned_containers(
+    run_id: str, project: str, expected_names: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Return inspected containers only after their ownership is verified."""
+    names = tuple(expected_names)
+    records = _find_records(run_id, project, names)
+    owned = set(owned_container_ids(records, run_id, project, names))
+    return [record for record in records if str(record.get("Id")) in owned]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
@@ -99,8 +109,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         project = args.project or project_for_run(args.run_id)
-        records = _find_records(args.run_id, project, args.names)
-        ids = owned_container_ids(records, args.run_id, project, args.names)
+        records = find_owned_containers(args.run_id, project, args.names)
+        ids = sorted(str(record["Id"]) for record in records)
         if args.execute and ids:
             _docker("rm", "-f", *ids)
         output = {
