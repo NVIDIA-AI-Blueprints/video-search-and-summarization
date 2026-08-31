@@ -95,7 +95,10 @@ if [ "$VALIDATION" != "OK" ]; then
     exit 1
 fi
 
-if grep -q "Async external I/O guardrail is enabled" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
+# Matched loosely: the line names the subsystems it covers and carries the
+# timeout, and both have been reworded before. The assertion is that async
+# external I/O came up enabled, not how the line is phrased.
+if grep -qE "Async external I/O.*is enabled" "$PID_DIR/alert_bridge.log" 2>/dev/null; then
     print_status "ok" "Async guardrail enabled log detected"
 else
     print_status "fail" "FAIL: Async guardrail enable log not found"
