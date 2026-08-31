@@ -1,7 +1,7 @@
 import { IconFileImport } from '@tabler/icons-react';
 import { FC } from 'react';
 
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'next-i18next/pages';
 
 import { SupportedExportFormats } from '@/types/export';
 
