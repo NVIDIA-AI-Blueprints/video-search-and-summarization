@@ -17,6 +17,7 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 NEMOCLAW_DIR = REPO_ROOT / ".github/skill-eval/nemoclaw"
+NOTEBOOK_RUNNER = REPO_ROOT / "deploy/docker/scripts/run_setup_notebook.py"
 
 
 def _load(name: str, path: Path):
@@ -216,13 +217,67 @@ class NotebookRunnerTests(unittest.TestCase):
         self.assertNotIn("must-not-be-written", content)
 
     def test_adapter_never_persists_notebooks_or_adds_a_secret_scrubber(self) -> None:
+        adapter = (NEMOCLAW_DIR / "notebook_setup_adapter.py").read_text(
+            encoding="utf-8"
+        )
+        # Execution lives in the shared runner beside the notebooks, so the
+        # no-persist guarantee has to hold there too.
+        runner = (NOTEBOOK_RUNNER).read_text(encoding="utf-8")
+        for source in (adapter, runner):
+            self.assertNotIn("SECRET" + "_TEXT_PATTERNS", source)
+            self.assertNotIn("def _" + "redact", source)
+            self.assertNotIn("nbformat.write", source)
+        self.assertIn("outputs were not persisted", runner)
+
+    def test_adapter_delegates_notebook_execution_to_the_shared_runner(self) -> None:
         source = (NEMOCLAW_DIR / "notebook_setup_adapter.py").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("SECRET" + "_TEXT_PATTERNS", source)
-        self.assertNotIn("def _" + "redact", source)
-        self.assertNotIn("nbformat.write", source)
-        self.assertIn("outputs were not persisted", source)
+        self.assertIn("run_setup_notebook.py", source)
+        # The CI copy of the parameter contract and the NotebookClient call are
+        # what drifted from the notebooks; neither may come back here.
+        self.assertNotIn("NotebookClient(", source)
+        self.assertNotIn('"deploy_nemoclaw.ipynb": (', source)
+
+    def test_shared_runner_covers_both_setup_notebooks(self) -> None:
+        runner = _load("vss_run_setup_notebook", NOTEBOOK_RUNNER)
+        self.assertEqual(
+            sorted(runner.NOTEBOOK_PARAMETERS),
+            ["deploy_nemoclaw.ipynb", "deploy_vss_orchestrator.ipynb"],
+        )
+        self.assertEqual(runner.repo_root(), REPO_ROOT)
+        with self.assertRaises(ValueError):
+            runner.parameters_for(Path("deploy_unknown.ipynb"))
+
+    def test_shared_runner_reads_parameters_after_the_settings_literals(self) -> None:
+        runner = _load("vss_run_setup_notebook", NOTEBOOK_RUNNER)
+        notebook = {
+            "cells": [
+                {
+                    "source": [
+                        'NEMOCLAW_MODEL = "literal-wins-without-injection"\n',
+                        f"{runner.DERIVED_SETTINGS_MARKER}\n",
+                    ]
+                }
+            ]
+        }
+        runner.parameterize_notebook(notebook, ("NEMOCLAW_MODEL",))
+        namespace: dict[str, object] = {}
+        with mock.patch.dict(os.environ, {"NEMOCLAW_MODEL": "from-env"}, clear=True):
+            exec(  # noqa: S102 - synthetic cell built in this test.
+                compile(notebook["cells"][0]["source"], "<cell>", "exec"),
+                namespace,
+            )
+        self.assertEqual(namespace["NEMOCLAW_MODEL"], "from-env")
+
+    def test_shared_runner_rejects_a_notebook_without_the_marker(self) -> None:
+        runner = _load("vss_run_setup_notebook", NOTEBOOK_RUNNER)
+        with self.assertRaises(RuntimeError):
+            runner.parameterize_notebook(
+                {"cells": [{"source": "NEMOCLAW_MODEL = ''\n"}]},
+                ("NEMOCLAW_MODEL",),
+                label="deploy_nemoclaw.ipynb",
+            )
 
 
 class HeadlessRunnerTests(unittest.TestCase):

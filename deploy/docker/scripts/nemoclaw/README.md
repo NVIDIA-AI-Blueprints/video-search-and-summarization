@@ -73,6 +73,27 @@ openshell forward start --background 18789 "$SB"
 nemoclaw "$SB" gateway-token
 ```
 
+## Non-interactive execution
+
+Automation runs the notebook itself rather than a copy of the steps above.
+[`run_setup_notebook.py`](../run_setup_notebook.py) executes it end to end with
+`nbclient`, so the notebook stays the single source of setup logic:
+
+```bash
+uv run --isolated --no-project --python 3.12 \
+  --with nbformat --with nbclient --with ipykernel -- \
+  python deploy/docker/scripts/run_setup_notebook.py \
+    --notebook deploy/docker/scripts/deploy_nemoclaw.ipynb
+```
+
+Settings come from the environment. Most are picked up unaided — the notebook
+reads them from its own `SHELL_ENV` snapshot — but the provider variables in
+section 1.2 are assigned as Python literals, so running every cell in order
+would let the last provider cell win. `run_setup_notebook.py` re-reads those at
+the derived-settings marker; `NOTEBOOK_PARAMETERS` lists which ones per
+notebook. Executed notebooks are never written back, so a run cannot persist
+credentials into the checkout.
+
 ## Why canonical
 
 Keeping the flow on first-class NemoClaw commands means VSS and NemoClaw stay

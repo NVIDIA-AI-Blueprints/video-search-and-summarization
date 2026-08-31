@@ -6,12 +6,19 @@
 Phase 1 deliberately keeps the existing skill-eval model/provider contract.
 The coordinator's Anthropic-compatible NVIDIA inference settings are mapped to
 the notebooks' native variables before both checked-in notebooks are executed
-in their documented order. Executed notebooks are never persisted.
+in their documented order.
+
+Notebook parameterization and execution belong to
+`deploy/docker/scripts/run_setup_notebook.py`, which ships beside the notebooks
+and is shared with every other caller. This adapter keeps only what is specific
+to CI: the provider mapping, the scoped MCP cleanup, the orchestrator venv
+repair, and the runtime env file the trial consumes.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shlex
 import shutil
@@ -19,7 +26,7 @@ import signal
 import socket
 import sys
 import time
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -29,37 +36,29 @@ NOTEBOOK_RELATIVE_PATHS = (
     Path("deploy/docker/scripts/deploy_nemoclaw.ipynb"),
     Path("deploy/docker/scripts/deploy_vss_orchestrator.ipynb"),
 )
-_DERIVED_SETTINGS_MARKER = (
-    "# ================== Derived (no need to touch) =================="
-)
-_NOTEBOOK_PARAMETERS = {
-    "deploy_nemoclaw.ipynb": (
-        "NEMOCLAW_PROVIDER",
-        "NEMOCLAW_ENDPOINT_URL",
-        "NEMOCLAW_MODEL",
-        "COMPATIBLE_API_KEY",
-    ),
-    "deploy_vss_orchestrator.ipynb": (
-        "NGC_CLI_API_KEY",
-        "NVIDIA_API_KEY",
-        "HARDWARE_PROFILE",
-        "EXTERNAL_IP",
-        "LLM_DEVICE_ID",
-        "VLM_DEVICE_ID",
-        "LLM_NAME",
-        "LLM_ENDPOINT_URL",
-        "LLM_MODEL_TYPE",
-        "LLM_ENABLE_THINKING",
-        "OPENAI_API_KEY",
-        "VLM_NAME",
-        "VLM_ENDPOINT_URL",
-        "VLM_MODEL_TYPE",
-    ),
-}
+_NOTEBOOK_RUNNER_RELATIVE_PATH = Path("deploy/docker/scripts/run_setup_notebook.py")
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _load_notebook_runner() -> Any:
+    """Import the shared runner by path: `.github` is not an importable package."""
+
+    path = _repo_root() / _NOTEBOOK_RUNNER_RELATIVE_PATH
+    spec = importlib.util.spec_from_file_location("vss_run_setup_notebook", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load the shared notebook runner from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_runner = _load_notebook_runner()
+# The parameter contract lives with the notebooks it describes.
+_NOTEBOOK_PARAMETERS = _runner.NOTEBOOK_PARAMETERS
+_DERIVED_SETTINGS_MARKER = _runner.DERIVED_SETTINGS_MARKER
 
 
 def notebook_paths(root: Path | None = None) -> tuple[Path, ...]:
@@ -244,78 +243,33 @@ def stop_owned_mcp_processes(*, root: Path, port: int) -> int:
     return len(owned)
 
 
-def _parameterize_notebook(notebook: Any, path: Path) -> None:
+def _parameterize_notebook(
+    notebook: Any, path: Path, parameters: Iterable[str] | None = None
+) -> None:
     """Apply CI inputs to the in-memory notebook without changing its source."""
 
-    parameters = _NOTEBOOK_PARAMETERS.get(path.name)
-    if parameters is None:
-        raise ValueError(f"No CI parameter contract for notebook {path.name}")
-    assignments = [
-        "# Injected by the skill-eval notebook adapter; never persisted.",
-        "import os as _skill_eval_os",
-        *(
-            f"{name} = _skill_eval_os.environ.get({name!r}, {name})"
-            for name in parameters
-        ),
-    ]
-    parameter_source = "\n".join(assignments)
-
-    for cell in notebook.get("cells", []):
-        source_value = cell.get("source", "")
-        source = (
-            source_value if isinstance(source_value, str) else "".join(source_value)
-        )
-        if _DERIVED_SETTINGS_MARKER not in source:
-            continue
-        source = source.replace(
-            _DERIVED_SETTINGS_MARKER,
-            f"{parameter_source}\n\n{_DERIVED_SETTINGS_MARKER}",
-            1,
-        )
-        cell["source"] = source
-        return
-    raise RuntimeError(f"Could not locate Derived settings in {path.name}")
+    _runner.parameterize_notebook(
+        notebook,
+        _runner.parameters_for(path) if parameters is None else parameters,
+        label=path.name,
+    )
 
 
 def execute_notebook(path: Path, *, cwd: Path, timeout: int) -> Any:
-    try:
-        import nbformat
-        from nbclient import NotebookClient
-    except ImportError as exc:
-        raise RuntimeError(
-            "Notebook execution requires nbformat, nbclient, and ipykernel"
-        ) from exc
-
-    notebook = nbformat.read(path, as_version=4)
-    _parameterize_notebook(notebook, path)
-    client = NotebookClient(
-        notebook,
+    return _runner.execute_notebook(
+        path,
+        cwd=cwd,
         timeout=timeout,
         kernel_name=os.environ.get("NEMOCLAW_CI_KERNEL", "python3"),
-        allow_errors=False,
-        resources={"metadata": {"path": str(cwd)}},
     )
-    executed = client.execute()
-    print(f"Executed {path.name} from beginning to end; outputs were not persisted.")
-    return executed
 
 
 def _output_text(notebook: Any) -> str:
-    chunks: list[str] = []
-    for cell in notebook.get("cells", []):
-        for output in cell.get("outputs", []):
-            if output.get("output_type") == "stream":
-                chunks.append(str(output.get("text", "")))
-            elif output.get("output_type") in {"display_data", "execute_result"}:
-                chunks.append(str(output.get("data", {}).get("text/plain", "")))
-    return "\n".join(chunks)
+    return _runner.output_text(notebook)
 
 
 def _require_output(notebook: Any, marker: str, *, notebook_name: str) -> None:
-    if marker not in _output_text(notebook):
-        raise RuntimeError(
-            f"{notebook_name} completed without readiness marker: {marker}"
-        )
+    _runner.require_output(notebook, marker, notebook_name=notebook_name)
 
 
 def write_runtime_environment(
