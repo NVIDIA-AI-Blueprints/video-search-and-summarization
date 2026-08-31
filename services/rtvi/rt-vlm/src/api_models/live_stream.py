@@ -189,7 +189,7 @@ class AddLiveStreamsResponse(CommonBaseModel):
 class DeleteLiveStreamsRequest(CommonBaseModel):
     """Request schema for batch delete live streams API."""
 
-    stream_ids: list[UUID] = Field(
+    stream_ids: list[str] = Field(
         description="List of stream identifiers to delete",
         min_length=1,
         max_length=256,
@@ -219,7 +219,7 @@ class DeleteLiveStreamsRequest(CommonBaseModel):
 class DeleteLiveStreamsResponse(CommonBaseModel):
     """Response schema for the batch delete live streams API."""
 
-    deleted: list[UUID] = Field(
+    deleted: list[str] = Field(
         description="List of successfully deleted stream identifiers",
         min_length=0,
         max_length=256,
