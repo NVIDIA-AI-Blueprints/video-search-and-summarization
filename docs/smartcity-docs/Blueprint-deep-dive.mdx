@@ -35,7 +35,7 @@ The various microservices used are now reviewed along with the salient configura
 
 ## Real Time Video Intelligence CV (RTVI CV)
 
-This RTVI CV microservice takes streaming video inputs, performs inference and tracking, and sends metadata to the Behavior Analytics microservice using the nvschema-defined schema. For more information about the RTVI CV microservice, refer to the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/object-detection-tracking) page.
+This RTVI CV microservice takes streaming video inputs, performs inference and tracking, and sends metadata to the Behavior Analytics microservice using the nvschema-defined schema. For more information about the RTVI CV microservice, refer to the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking) page.
 
 ### Model Used
 
@@ -46,13 +46,13 @@ The RTVI CV microservice supports two models out of the box for object detection
 * Mask Grounding DINO (mG-DINO) is an open world detection model available through NVIDIA TAO, that can be further fine tuned based on the recipe above.
 
 Note that RT-DETR has lower computational requirements than mG-DINO, and hence a larger stream count is supported.
-Refer to steps under [Install Smart City Blueprint](/smartcity-docs/Quickstart-Guide#install-smart-city-blueprint) for details on how to switch models, and configure various parameters such as precision, frequency of running detection and prompting.
+Refer to steps under [Install Smart City Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#install-smart-city-blueprint) for details on how to switch models, and configure various parameters such as precision, frequency of running detection and prompting.
 
 ### Tracking
 
-Tracking enables frame-to-frame association of detected objects. By default, the Smart City Blueprint uses the NvDCF Accuracy 2D multi-object tracker through RTVI CV. For detailed tracking configuration, refer to the [RTVI CV microservice documentation ](/object-detection-tracking).
+Tracking enables frame-to-frame association of detected objects. By default, the Smart City Blueprint uses the NvDCF Accuracy 2D multi-object tracker through RTVI CV. For detailed tracking configuration, refer to the [RTVI CV microservice documentation ](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
-Refer to the "Customization of Microservice" section in the [RTVI CV microservice ](/object-detection-tracking) documentation for detailed configuration information.
+Refer to the "Customization of Microservice" section in the [RTVI CV microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking) documentation for detailed configuration information.
 
 ## Behavior Analytics
 
@@ -78,7 +78,7 @@ Salient configuration parameters for behavior analytics include:
 
 ## Alert Verification
 
-Alerts generated through behavior analytics are verified through VLMs based on their ability to identify anomalies of interest by analyzing a collection of frames from the video based on an alert specific prompt. Refer to the [Alerts Microservice ](/alert-verification-service) documentation for more information.
+Alerts generated through behavior analytics are verified through VLMs based on their ability to identify anomalies of interest by analyzing a collection of frames from the video based on an alert specific prompt. Refer to the [Alerts Microservice ](/vss/system-components/analytics-microservices/alerts-microservice) documentation for more information.
 
 Configuration of the microservice for Smart City Blueprint are listed below:
 
@@ -92,11 +92,11 @@ Configuration of the microservice for Smart City Blueprint are listed below:
 
 Video IO & Storage (VIOS) microservice available as part of VSS 3.0 enables camera discovery, video ingestion, streaming, storage and replay. The Smart City Blueprint uses VIOS for interfacing with city/traffic cameras at scale, thereby providing a dependable, standardized mechanism by which downstream microservices can consume the camera streams.
 
-View the [Video IO & Storage (VIOS) microservice docs ](/vss-vios) page for more details. There are various configuration options available for the VIOS microservice, some of which have been tuned for the Smart City blueprint. Configurations you may want to modify are listed below:
+View the [Video IO & Storage (VIOS) microservice docs ](/vss/system-components/middleware/video-io-storage-vios) page for more details. There are various configuration options available for the VIOS microservice, some of which have been tuned for the Smart City blueprint. Configurations you may want to modify are listed below:
 
 * In `vst/smc/vst/configs/vst_config.json` you can modify the `always_recording` value under `data` to enable/disable default recording state for all streams added. By default, this is enabled and will record all streams added.
 
-* In `vst/smc/vst/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust maximum space video recordings will take up. By default, this is set to 1TB. To estimate how much storage you can check the [Storage Calculation ](/vios-microservices) section of the VIOS docs.
+* In `vst/smc/vst/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust maximum space video recordings will take up. By default, this is set to 1TB. To estimate how much storage you can check the [Storage Calculation ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices) section of the VIOS docs.
 
 * In `vst/smc/vst/configs/rtsp_streams.json` you can enable/disable automatically adding streams from NVStreamer. By default, this is enabled and will add the first 100 streams available in your NVStreamer instance.
 
@@ -151,7 +151,7 @@ The agent is configured through a YAML file that defines the general settings, f
 The configuration file can be found under `deployments/smartcities/vss-agent/configs/config.yml` once you download the resource from NGC.
 
 The configuration relies on several environment variables that must be set during deployment.
-For the complete explanation of the agent configuration YAML file and environment variables, please refer to: [VSS Agent Configuration ](/vss-agent/VSS-Agent-Configuration).
+For the complete explanation of the agent configuration YAML file and environment variables, please refer to: [VSS Agent Configuration ](/vss/vision-agent/vss-agents/agent-configuration).
 
 ### Customization and Extension
 
@@ -162,4 +162,4 @@ The agent configuration is designed to be flexible and extensible. Key customiza
 * **Model Selection**: Swap LLMs and VLMs via environment variables to use different base models or adjust model parameters
 * **Tool Addition**: Extend agent capabilities by adding new MCP clients, custom data processing functions, or external API integrations
 
-For comprehensive customization guidance, refer to: [VSS Agent Customization ](/vss-agent/VSS-Agent-Customization).
+For comprehensive customization guidance, refer to: [VSS Agent Customization ](/vss/vision-agent/vss-agents/agent-customization).
