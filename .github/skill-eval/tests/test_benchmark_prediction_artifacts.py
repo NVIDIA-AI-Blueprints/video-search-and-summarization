@@ -14,7 +14,12 @@ def _write_predictions(directory, case_ids=None) -> None:
     ids = case_ids or [f"video-{index}" for index in range(1, 5)]
     for index, case_id in enumerate(ids, 1):
         (directory / f"prediction-{index}.json").write_text(
-            json.dumps({"case_id": case_id, "response": "ABCD"[index - 1]}),
+            json.dumps(
+                {
+                    "case_id": case_id,
+                    "answer": {"label": "ABCD"[index - 1]},
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -26,7 +31,7 @@ def test_load_prediction_artifacts_preserves_question_order(tmp_path) -> None:
     observed = load_prediction_artifacts(tmp_path, expected)
 
     assert [item.case_id for item in observed] == list(expected)
-    assert [item.response for item in observed] == list("ABCD")
+    assert [item.answer.label for item in observed] == list("ABCD")
 
 
 @pytest.mark.parametrize("unexpected_name", [None, "prediction-5.json"])
@@ -57,8 +62,20 @@ def test_load_prediction_artifacts_rejects_misordered_case_id(tmp_path) -> None:
     "payload",
     (
         "not-json",
-        json.dumps({"case_id": "video-1", "response": 1}),
-        json.dumps({"case_id": "video-1", "response": "A", "extra": True}),
+        json.dumps({"case_id": "video-1", "answer": {"label": "Z"}}),
+        json.dumps(
+            {
+                "case_id": "video-1",
+                "answer": {"label": "A", "extra": True},
+            }
+        ),
+        json.dumps(
+            {
+                "case_id": "video-1",
+                "answer": {"label": "A"},
+                "extra": True,
+            }
+        ),
     ),
 )
 def test_load_prediction_artifacts_rejects_invalid_payload(tmp_path, payload) -> None:

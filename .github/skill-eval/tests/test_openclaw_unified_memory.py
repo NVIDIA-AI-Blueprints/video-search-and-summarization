@@ -61,7 +61,10 @@ def _run_prediction_pipeline(
 
 
 def test_prediction_pipeline_preserves_complete_log(tmp_path) -> None:
-    payload = {"payloads": [{"text": "B"}], "meta": {"status": "ok"}}
+    payload = {
+        "payloads": [{"text": json.dumps({"label": "B"})}],
+        "meta": {"status": "ok"},
+    }
     log_path = tmp_path / "openclaw-turn-1.txt"
     prediction_path = tmp_path / "prediction-1.json"
 
@@ -76,12 +79,12 @@ def test_prediction_pipeline_preserves_complete_log(tmp_path) -> None:
     assert json.loads(log_path.read_text(encoding="utf-8")) == payload
     assert json.loads(prediction_path.read_text(encoding="utf-8")) == {
         "case_id": "video-1",
-        "response": "B",
+        "answer": {"label": "B"},
     }
 
 
-def test_prediction_pipeline_preserves_quoted_multiline_response(tmp_path) -> None:
-    response = 'The answer is "B".\nSecond line.'
+def test_prediction_pipeline_marks_non_json_response_invalid(tmp_path) -> None:
+    response = 'The answer is "B".'
     prediction_path = tmp_path / "prediction-1.json"
     _run_prediction_pipeline(
         {"payloads": [{"text": response}]},
@@ -91,23 +94,23 @@ def test_prediction_pipeline_preserves_quoted_multiline_response(tmp_path) -> No
         str(prediction_path),
     )
 
-    assert (
-        json.loads(prediction_path.read_text(encoding="utf-8"))["response"] == response
-    )
+    assert json.loads(prediction_path.read_text(encoding="utf-8"))["answer"] is None
 
 
 def test_four_prediction_artifacts_are_numbered_in_order(tmp_path) -> None:
     expected = ["B", "A", "D", "C"]
-    for index, response in enumerate(expected, 1):
+    for index, label in enumerate(expected, 1):
         _run_prediction_pipeline(
-            {"payloads": [{"text": response}]},
+            {"payloads": [{"text": json.dumps({"label": label})}]},
             f"video-{index}",
             str(tmp_path / f"turn-{index}.txt"),
             str(tmp_path / f"prediction-{index}.json.tmp"),
             str(tmp_path / f"prediction-{index}.json"),
         )
     actual = [
-        json.loads((tmp_path / f"prediction-{index}.json").read_text())["response"]
+        json.loads((tmp_path / f"prediction-{index}.json").read_text())["answer"][
+            "label"
+        ]
         for index in range(1, 5)
     ]
 

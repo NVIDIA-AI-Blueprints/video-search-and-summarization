@@ -19,11 +19,12 @@ RESET_OPENCLAW_RUNTIME_CLI = (
     "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
 )
 PREDICTION_JQ_FILTER = r"""
+(.payloads[0].text | select(type == "string")) as $response
+|
 {
   case_id: $case_id,
-  response: .payloads[0].text
+  answer: (try ($response | fromjson) catch null)
 }
-| select(.response | type == "string")
 """
 
 

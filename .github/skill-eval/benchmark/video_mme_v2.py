@@ -16,7 +16,7 @@ from benchmark.domain import (
     BenchmarkDataset,
     BenchmarkGroup,
     Choice,
-    ChoiceGroundTruth,
+    ChoiceAnswer,
     GroupType,
     MultipleChoiceTask,
     VideoReference,
@@ -111,6 +111,8 @@ def load_video_mme_v2(path: Path) -> BenchmarkDataset:
                     "third_head": row["third_head"],
                 },
             )
-            cases.append(BenchmarkCase(task, ChoiceGroundTruth(row["answer"])))
+            cases.append(
+                BenchmarkCase(task, ChoiceAnswer(label=row["answer"]))
+            )
         groups.append(BenchmarkGroup(video_id, VideoReference(video_id, url), group_type, structure, tuple(cases)))
     return BenchmarkDataset(tuple(groups))

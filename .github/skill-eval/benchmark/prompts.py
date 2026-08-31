@@ -4,7 +4,15 @@
 
 from __future__ import annotations
 
-from benchmark.domain import BenchmarkGroup, BenchmarkCase
+import json
+
+from benchmark.domain import BenchmarkCase, BenchmarkGroup, ChoiceAnswer
+
+
+CHOICE_ANSWER_SCHEMA = json.dumps(
+    ChoiceAnswer.model_json_schema(),
+    separators=(",", ":"),
+)
 
 
 def render_question_prompt(group: BenchmarkGroup, case: BenchmarkCase, *, first: bool) -> str:
@@ -15,6 +23,7 @@ def render_question_prompt(group: BenchmarkGroup, case: BenchmarkCase, *, first:
     return (
         "Use the vss-ask-video skill to answer this question.\n\n"
         f"Question:\n{question}\n\nOptions:\n{options}\n\n"
-        "Return exactly one option letter and nothing else."
+        "Return only one JSON object matching this schema:\n"
+        f"{CHOICE_ANSWER_SCHEMA}\n\n"
+        "Do not include explanations, Markdown, or additional text."
     )
-

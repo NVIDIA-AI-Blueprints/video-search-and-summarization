@@ -14,6 +14,11 @@ import sys
 SKILL_EVAL_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SKILL_EVAL_ROOT))
 
+from benchmark.domain import (  # noqa: E402
+    BenchmarkGroup,
+    CaseAnswer,
+    GroupEvaluationSpec,
+)
 from benchmark.prompts import render_question_prompt  # noqa: E402
 from benchmark.spec import load_benchmark_spec  # noqa: E402
 from benchmark.video_mme_v2 import load_video_mme_v2  # noqa: E402
@@ -116,7 +121,7 @@ python3 "$TEST_DIR/generic_judge.py" --spec "$TEST_DIR/setup-spec.json" --step {
 '''
 
 
-def _group_instruction(group) -> str:  # noqa: ANN001
+def _group_instruction(group: BenchmarkGroup) -> str:
     envelope = {
         "kind": "unified-memory-group",
         "group_id": group.group_id,
@@ -206,21 +211,31 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
             encoding="utf-8",
         )
         tests = step_dir / "tests"
-        group_data = {
-            "group_id": group.group_id,
-            "group_type": group.group_type.value,
-            "group_structure": group.group_structure,
-            "answers": {case.task.case_id: case.ground_truth.label for case in group.cases},
-            "minimum": spec.scoring.minimum,
-            "final_group": offset == len(dataset.groups),
-            "expected_group_ids": [item.group_id for item in dataset.groups],
-        }
-        (tests / "group.json").write_text(json.dumps(group_data, indent=2) + "\n", encoding="utf-8")
+        group_spec = GroupEvaluationSpec(
+            group_id=group.group_id,
+            group_type=group.group_type,
+            group_structure=group.group_structure,
+            expected_answers=tuple(
+                CaseAnswer(
+                    case_id=case.task.case_id,
+                    answer=case.ground_truth,
+                )
+                for case in group.cases
+            ),
+            minimum=spec.scoring.minimum,
+            final_group=offset == len(dataset.groups),
+            expected_group_ids=tuple(item.group_id for item in dataset.groups),
+        )
+        (tests / "group.json").write_text(
+            group_spec.model_dump_json(indent=2) + "\n",
+            encoding="utf-8",
+        )
         shutil.copy(Path(__file__).with_name("verify_group.py"), tests)
         shutil.copytree(SKILL_EVAL_ROOT / "benchmark", tests / "benchmark")
         (tests / "test.sh").write_text(
             '#!/bin/bash\nset -uo pipefail\nTEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
-            'uv run --python 3.12 python "$TEST_DIR/verify_group.py" '
+            'uv run --python 3.12 --with "pydantic>=2,<3" '
+            'python "$TEST_DIR/verify_group.py" '
             '--group "$TEST_DIR/group.json"\n',
             encoding="utf-8",
         )
