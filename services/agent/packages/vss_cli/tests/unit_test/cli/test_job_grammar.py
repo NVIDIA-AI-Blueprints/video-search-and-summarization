@@ -295,7 +295,11 @@ def test_right_version_wrong_shape_is_refused(tmp_path, monkeypatch: pytest.Monk
     (none)" -- which reads like a broken backend, not an unreadable file.
     """
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
-    foreign = {"version": 1, "current": "default", "deployments": {"default": {"base_url": "http://x"}}}
+    foreign = {
+        "version": config_mod.CONFIG_VERSION,
+        "current": "default",
+        "deployments": {"default": {"base_url": "http://x"}},
+    }
     (tmp_path / "config.json").write_text(json.dumps(foreign), encoding="utf-8")
 
     with pytest.raises(config_mod.ConfigError) as excinfo:
@@ -309,7 +313,8 @@ def test_right_version_wrong_shape_is_refused(tmp_path, monkeypatch: pytest.Monk
 def test_config_without_services_is_refused(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
     (tmp_path / "config.json").write_text(
-        json.dumps({"version": 1, "base_url": "http://h:7777", "services": {}}), encoding="utf-8"
+        json.dumps({"version": config_mod.CONFIG_VERSION, "base_url": "http://h:7777", "services": {}}),
+        encoding="utf-8",
     )
     with pytest.raises(config_mod.ConfigError) as excinfo:
         config_mod.load()

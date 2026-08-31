@@ -87,6 +87,22 @@ def test_memory_show_prints_only_effective_memory_configuration(config_home: Pat
             "write_by_default": False,
         },
         "introspection": None,
+        "embeddings": {
+            "enabled": False,
+            "provider": "openai_compatible",
+            "endpoint": None,
+            "model": "nvidia/llama-nemotron-embed-300m-v2",
+            "dimensions": 768,
+            "index": "vss-memory-embeddings-v1",
+            "timeout_seconds": 30.0,
+            "batch_size": 16,
+            "api_key_env": None,
+        },
+        "retrieval": {
+            "mode": "hybrid",
+            "candidate_count": 50,
+            "rrf_rank_constant": 60,
+        },
     }
     assert "services" not in result.output
     assert "base_url" not in result.output
@@ -200,7 +216,7 @@ def test_memory_check_reports_backend_reachability_as_exit_three(
     assert "vss configure memory check" in result.output
 
 
-def test_older_config_without_memory_remains_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_version_one_config_has_actionable_migration_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
     tmp_path.joinpath("config.json").write_text(
         json.dumps(
@@ -213,7 +229,10 @@ def test_older_config_without_memory_remains_valid(tmp_path: Path, monkeypatch: 
         ),
         encoding="utf-8",
     )
-    assert config_mod.load().memory is None
+    with pytest.raises(config_mod.ConfigError) as error:
+        config_mod.load()
+    assert "vss configure --base-url <origin>" in str(error.value)
+    assert "then re-run `vss configure memory" in str(error.value)
 
 
 def test_main_configure_preserves_memory_policy(
@@ -311,7 +330,7 @@ def test_memory_config_without_markdown_section_uses_disabled_defaults(
     tmp_path.joinpath("config.json").write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": 2,
                 "base_url": "http://example",
                 "services": {"elasticsearch": {"url": "http://example/elasticsearch"}},
                 "memory": {
@@ -327,6 +346,7 @@ def test_memory_config_without_markdown_section_uses_disabled_defaults(
     memory_config = config_mod.load().memory
     assert memory_config is not None
     assert memory_config.markdown == config_mod.MarkdownMemoryConfig()
+
 
 
 def test_configure_introspection_judge_round_trip_and_show(config_home: Path) -> None:
@@ -543,3 +563,145 @@ def test_show_never_resolves_or_displays_judge_secret(
     assert shown.exit_code == 0
     assert "CUSTOM_LLM_API_KEY" in shown.output
     assert "super-secret-value" not in shown.output
+
+
+def test_embedding_and_retrieval_configuration_round_trip(config_home: Path) -> None:
+    result = _invoke(
+        "--embeddings",
+        "--embedding-endpoint",
+        "http://embedding.example/v1",
+        "--embedding-api-key-env",
+        "VSS_EMBED_KEY",
+        "--retrieval-mode",
+        "semantic",
+    )
+    assert result.exit_code == 0, result.output
+    memory_config = config_mod.load().memory
+    assert memory_config is not None
+    assert memory_config.embeddings == config_mod.EmbeddingConfig(
+        enabled=True,
+        endpoint="http://embedding.example/v1",
+        api_key_env="VSS_EMBED_KEY",
+    )
+    assert memory_config.retrieval == config_mod.RetrievalConfig(mode="semantic")
+    assert config_mod.MemoryConfig.from_json(memory_config.to_json()) == memory_config
+    assert config_mod.CONFIG_VERSION == 2
+
+
+def test_disabled_embeddings_force_effective_keyword_retrieval() -> None:
+    assert config_mod.MemoryConfig().retrieval.mode == "hybrid"
+    assert config_mod.MemoryConfig().effective_retrieval_mode == "keyword"
+    assert (
+        config_mod.MemoryConfig(
+            embeddings=config_mod.EmbeddingConfig(enabled=True, endpoint="http://embedding.example/v1")
+        ).effective_retrieval_mode
+        == "hybrid"
+    )
+
+
+@pytest.mark.parametrize(
+    ("embeddings", "retrieval", "message"),
+    [
+        (config_mod.EmbeddingConfig(enabled=True), config_mod.RetrievalConfig(), "require"),
+        (
+            config_mod.EmbeddingConfig(enabled=True, endpoint="ftp://example"),
+            config_mod.RetrievalConfig(),
+            "absolute HTTP",
+        ),
+        (
+            config_mod.EmbeddingConfig(enabled=True, endpoint="http://user:" + "password@example"),
+            config_mod.RetrievalConfig(),
+            "embedded credentials",
+        ),
+        (config_mod.EmbeddingConfig(dimensions=0), config_mod.RetrievalConfig(), "positive integer"),
+        (config_mod.EmbeddingConfig(timeout_seconds=0), config_mod.RetrievalConfig(), "timeout"),
+        (config_mod.EmbeddingConfig(batch_size=129), config_mod.RetrievalConfig(), "batch size"),
+        (config_mod.EmbeddingConfig(), config_mod.RetrievalConfig(mode="other"), "retrieval mode"),
+        (config_mod.EmbeddingConfig(), config_mod.RetrievalConfig(candidate_count=0), "candidate count"),
+        (config_mod.EmbeddingConfig(), config_mod.RetrievalConfig(rrf_rank_constant=0), "RRF"),
+    ],
+)
+def test_invalid_embedding_and_retrieval_configuration(
+    embeddings: config_mod.EmbeddingConfig,
+    retrieval: config_mod.RetrievalConfig,
+    message: str,
+) -> None:
+    with pytest.raises(config_mod.ConfigError, match=message):
+        config_mod.MemoryConfig(embeddings=embeddings, retrieval=retrieval).validate()
+
+
+def test_embedding_index_must_differ_from_authoritative_index() -> None:
+    with pytest.raises(config_mod.ConfigError, match="must differ"):
+        config_mod.MemoryConfig(
+            embeddings=config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://embedding.example/v1",
+                index="vss-memory",
+            )
+        ).validate()
+
+
+def test_show_names_api_key_environment_without_resolving_secret(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VSS_EMBED_KEY", "do-not-print-this")
+    assert _invoke("--embedding-api-key-env", "VSS_EMBED_KEY").exit_code == 0
+    result = _invoke("show")
+    assert "VSS_EMBED_KEY" in result.output
+    assert "do-not-print-this" not in result.output
+
+
+def test_embedding_check_probes_once_and_reports_lazy_missing_index(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _invoke("--embeddings", "--embedding-endpoint", "http://embedding.example/v1").exit_code == 0
+    probes: list[str] = []
+
+    class Provider:
+        def __init__(self, **_kwargs: object) -> None:
+            return None
+
+        def embed_query(self, text: str) -> list[float]:
+            probes.append(text)
+            return [0.0] * 768
+
+        def close(self) -> None:
+            return None
+
+    class Missing:
+        status_code = 404
+
+    monkeypatch.setattr("vss_core.memory.OpenAICompatibleEmbeddingProvider", Provider)
+    monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "elasticsearch reachable")
+    monkeypatch.setattr("httpx.get", lambda *_args, **_kwargs: Missing())
+    result = _invoke("check")
+    assert result.exit_code == 0, result.output
+    assert len(probes) == 1
+    assert "created lazily" in result.output
+
+
+def test_embedding_check_rejects_malformed_probe_as_backend_failure(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _invoke("--embeddings", "--embedding-endpoint", "http://embedding.example/v1").exit_code == 0
+
+    class Provider:
+        def __init__(self, **_kwargs: object) -> None:
+            return None
+
+        def embed_query(self, _text: str) -> list[float]:
+            from vss_core.memory import EmbeddingProviderError
+
+            raise EmbeddingProviderError("malformed response")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("vss_core.memory.OpenAICompatibleEmbeddingProvider", Provider)
+    monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "elasticsearch reachable")
+    result = _invoke("check")
+    assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
+    assert "malformed response" in result.output

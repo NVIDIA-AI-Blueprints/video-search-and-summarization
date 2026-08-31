@@ -18,6 +18,8 @@ from typing import Any
 
 __all__ = [
     "SCHEMA_ID",
+    "EmbeddingProvider",
+    "EmbeddingProviderError",
     "InMemoryStore",
     "JobFilters",
     "JobInfo",
@@ -32,12 +34,16 @@ __all__ = [
     "MemoryService",
     "MemoryStore",
     "NestedCollectionError",
+    "OpenAICompatibleEmbeddingProvider",
     "OpenClawDailyNoteStore",
     "PersistResult",
     "RecordBundle",
     "UnifiedMemoryRecord",
     "build_memory_service",
+    "canonical_searchable_text",
+    "content_hash",
     "get_adapter",
+    "is_embedding_eligible",
     "register_adapter",
     "render_memory_note",
 ]
@@ -48,6 +54,12 @@ _LAZY_EXPORTS = {
     "MemoryInput": ".models",
     "MemoryOutput": ".models",
     "JobInfo": ".models",
+    "EmbeddingProvider": ".embeddings",
+    "EmbeddingProviderError": ".embeddings",
+    "OpenAICompatibleEmbeddingProvider": ".embeddings",
+    "canonical_searchable_text": ".embeddings",
+    "content_hash": ".embeddings",
+    "is_embedding_eligible": ".embeddings",
     "MemoryStore": ".store",
     "MemoryQuery": ".store",
     "JobFilters": ".store",
@@ -75,6 +87,12 @@ if TYPE_CHECKING:
     from .adapters import get_adapter
     from .adapters import register_adapter
     from .backends.in_memory import InMemoryStore
+    from .embeddings import EmbeddingProvider
+    from .embeddings import EmbeddingProviderError
+    from .embeddings import OpenAICompatibleEmbeddingProvider
+    from .embeddings import canonical_searchable_text
+    from .embeddings import content_hash
+    from .embeddings import is_embedding_eligible
     from .models import SCHEMA_ID
     from .models import JobInfo
     from .models import MemoryInput

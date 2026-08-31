@@ -287,6 +287,159 @@ class IntrospectionMemoryConfig:
 
 
 @dataclass(frozen=True)
+class EmbeddingConfig:
+    """Static configuration for derived memory embeddings."""
+
+    enabled: bool = False
+    provider: str = "openai_compatible"
+    endpoint: str | None = None
+    model: str = "nvidia/llama-nemotron-embed-300m-v2"
+    dimensions: int = 768
+    index: str = "vss-memory-embeddings-v1"
+    timeout_seconds: float = 30.0
+    batch_size: int = 16
+    api_key_env: str | None = None
+
+    def validate(self) -> EmbeddingConfig:
+        if self.provider != "openai_compatible":
+            raise ConfigError(
+                f"unsupported embedding provider {self.provider!r}; configure `--embedding-provider openai_compatible`"
+            )
+        if isinstance(self.dimensions, bool) or not isinstance(self.dimensions, int) or self.dimensions <= 0:
+            raise ConfigError("embedding dimensions must be a positive integer")
+        if isinstance(self.batch_size, bool) or not isinstance(self.batch_size, int) or not 1 <= self.batch_size <= 128:
+            raise ConfigError("embedding batch size must be between 1 and 128")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, int | float)
+            or not 0 < self.timeout_seconds <= 300
+        ):
+            raise ConfigError("embedding timeout must be greater than zero and no greater than 300 seconds")
+        if not isinstance(self.model, str) or not self.model.strip():
+            raise ConfigError("embedding model must be a non-empty string")
+        validate_memory_index(self.index)
+        if self.api_key_env is not None and (
+            not self.api_key_env or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.api_key_env)
+        ):
+            raise ConfigError("embedding API-key environment variable must be a valid environment variable name")
+        if self.enabled:
+            if not self.endpoint:
+                raise ConfigError("enabled embeddings require `--embedding-endpoint http[s]://host[/v1]`")
+            parsed = urlsplit(self.endpoint)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ConfigError("embedding endpoint must be an absolute HTTP or HTTPS URL")
+            if parsed.username is not None or parsed.password is not None:
+                raise ConfigError(
+                    "embedding endpoint must not contain embedded credentials; use `--embedding-api-key-env`"
+                )
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "enabled": self.enabled,
+            "provider": self.provider,
+            "endpoint": self.endpoint,
+            "model": self.model,
+            "dimensions": self.dimensions,
+            "index": self.index,
+            "timeout_seconds": self.timeout_seconds,
+            "batch_size": self.batch_size,
+            "api_key_env": self.api_key_env,
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> EmbeddingConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'memory.embeddings' must be a JSON object")
+        expected = {
+            "api_key_env",
+            "batch_size",
+            "dimensions",
+            "enabled",
+            "endpoint",
+            "index",
+            "model",
+            "provider",
+            "timeout_seconds",
+        }
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'memory.embeddings' contains unknown fields: {', '.join(unknown)}")
+        defaults = cls()
+        values = {name: raw.get(name, getattr(defaults, name)) for name in expected}
+        if not isinstance(values["enabled"], bool):
+            raise ConfigError("config 'memory.embeddings.enabled' must be true or false")
+        for name in ("provider", "model", "index"):
+            if not isinstance(values[name], str):
+                raise ConfigError(f"config 'memory.embeddings.{name}' must be a string")
+        for name in ("endpoint", "api_key_env"):
+            if values[name] is not None and not isinstance(values[name], str):
+                raise ConfigError(f"config 'memory.embeddings.{name}' must be a string or null")
+        if isinstance(values["dimensions"], bool) or not isinstance(values["dimensions"], int):
+            raise ConfigError("config 'memory.embeddings.dimensions' must be an integer")
+        if isinstance(values["batch_size"], bool) or not isinstance(values["batch_size"], int):
+            raise ConfigError("config 'memory.embeddings.batch_size' must be an integer")
+        if isinstance(values["timeout_seconds"], bool) or not isinstance(values["timeout_seconds"], int | float):
+            raise ConfigError("config 'memory.embeddings.timeout_seconds' must be a number")
+        return cls(**values).validate()
+
+
+@dataclass(frozen=True)
+class RetrievalConfig:
+    """Static preference for memory retrieval and hybrid ranking."""
+
+    mode: str = "hybrid"
+    candidate_count: int = 50
+    rrf_rank_constant: int = 60
+
+    def validate(self) -> RetrievalConfig:
+        if self.mode not in {"keyword", "semantic", "hybrid"}:
+            raise ConfigError("retrieval mode must be one of: keyword, semantic, hybrid")
+        if (
+            isinstance(self.candidate_count, bool)
+            or not isinstance(self.candidate_count, int)
+            or self.candidate_count <= 0
+        ):
+            raise ConfigError("semantic candidate count must be a positive integer")
+        if (
+            isinstance(self.rrf_rank_constant, bool)
+            or not isinstance(self.rrf_rank_constant, int)
+            or self.rrf_rank_constant <= 0
+        ):
+            raise ConfigError("RRF rank constant must be a positive integer")
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "mode": self.mode,
+            "candidate_count": self.candidate_count,
+            "rrf_rank_constant": self.rrf_rank_constant,
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> RetrievalConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'memory.retrieval' must be a JSON object")
+        expected = {"mode", "candidate_count", "rrf_rank_constant"}
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'memory.retrieval' contains unknown fields: {', '.join(unknown)}")
+        defaults = cls()
+        mode = raw.get("mode", defaults.mode)
+        candidate_count = raw.get("candidate_count", defaults.candidate_count)
+        rank_constant = raw.get("rrf_rank_constant", defaults.rrf_rank_constant)
+        if not isinstance(mode, str):
+            raise ConfigError("config 'memory.retrieval.mode' must be a string")
+        if isinstance(candidate_count, bool) or not isinstance(candidate_count, int):
+            raise ConfigError("config 'memory.retrieval.candidate_count' must be an integer")
+        if isinstance(rank_constant, bool) or not isinstance(rank_constant, int):
+            raise ConfigError("config 'memory.retrieval.rrf_rank_constant' must be an integer")
+        return cls(mode=mode, candidate_count=candidate_count, rrf_rank_constant=rank_constant).validate()
+
+
+@dataclass(frozen=True)
 class MemoryConfig:
     """Static policy and infrastructure for authoritative VSS memory."""
 
@@ -296,6 +449,13 @@ class MemoryConfig:
     persist_by_default: bool = True
     markdown: MarkdownMemoryConfig = field(default_factory=MarkdownMemoryConfig)
     introspection: IntrospectionMemoryConfig | None = None
+    embeddings: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+
+    @property
+    def effective_retrieval_mode(self) -> str:
+        """Use keyword retrieval whenever semantic infrastructure is disabled."""
+        return self.retrieval.mode if self.embeddings.enabled else "keyword"
 
     def validate(self) -> MemoryConfig:
         if self.backend != "elasticsearch":
@@ -309,6 +469,10 @@ class MemoryConfig:
         self.markdown.validate()
         if self.introspection is not None:
             self.introspection.validate()
+        self.embeddings.validate()
+        self.retrieval.validate()
+        if self.embeddings.enabled and self.embeddings.index == self.index:
+            raise ConfigError("embedding index must differ from the authoritative memory index")
         if self.markdown.enabled and not self.enabled:
             raise ConfigError("Markdown memory cannot be enabled while authoritative memory is disabled")
         if self.markdown.write_by_default and not self.persist_by_default:
@@ -327,13 +491,24 @@ class MemoryConfig:
             "persist_by_default": self.persist_by_default,
             "markdown": self.markdown.to_json(),
             "introspection": self.introspection.to_json() if self.introspection is not None else None,
+            "embeddings": self.embeddings.to_json(),
+            "retrieval": self.retrieval.to_json(),
         }
 
     @classmethod
     def from_json(cls, raw: object) -> MemoryConfig:
         if not isinstance(raw, dict):
             raise ConfigError("config 'memory' must be a JSON object")
-        expected = {"enabled", "backend", "index", "persist_by_default", "markdown", "introspection"}
+        expected = {
+            "enabled",
+            "backend",
+            "index",
+            "persist_by_default",
+            "markdown",
+            "introspection",
+            "embeddings",
+            "retrieval",
+        }
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'memory' contains unknown fields: {', '.join(unknown)}")
@@ -360,6 +535,8 @@ class MemoryConfig:
                 if raw.get("introspection") is not None
                 else None
             ),
+            embeddings=EmbeddingConfig.from_json(raw["embeddings"]) if "embeddings" in raw else EmbeddingConfig(),
+            retrieval=RetrievalConfig.from_json(raw["retrieval"]) if "retrieval" in raw else RetrievalConfig(),
         ).validate()
 
 

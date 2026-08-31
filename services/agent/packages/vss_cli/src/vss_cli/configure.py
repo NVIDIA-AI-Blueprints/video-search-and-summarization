@@ -224,6 +224,76 @@ def _check_memory_backend(
     return f"Elasticsearch reachable at {endpoint}; authoritative index={memory_config.index}"
 
 
+def _check_embedding_backend(
+    deployment: config_mod.Deployment,
+    memory_config: config_mod.MemoryConfig,
+) -> tuple[str, str]:
+    """Probe one embedding and inspect the companion mapping without mutation."""
+    import httpx
+
+    from vss_core.memory import EmbeddingProviderError
+    from vss_core.memory import OpenAICompatibleEmbeddingProvider
+
+    embedding = memory_config.embeddings
+    provider = OpenAICompatibleEmbeddingProvider(
+        endpoint=embedding.endpoint or "",
+        model=embedding.model,
+        dimensions=embedding.dimensions,
+        timeout_seconds=embedding.timeout_seconds,
+        batch_size=embedding.batch_size,
+        api_key_env=embedding.api_key_env,
+    )
+    try:
+        vector = provider.embed_query("VSS memory embedding health check")
+    except EmbeddingProviderError as error:
+        _memory_backend_error(str(error))
+    finally:
+        provider.close()
+    if len(vector) != embedding.dimensions:
+        _memory_backend_error(
+            f"embedding probe returned {len(vector)} dimensions; configured dimensions are {embedding.dimensions}"
+        )
+    probe_detail = f"Embedding endpoint reachable; model={embedding.model}; dimensions={len(vector)}"
+
+    endpoint = deployment.endpoint_or_none("elasticsearch")
+    if not endpoint:
+        _memory_config_error("cannot inspect the embedding index because the deployment exposes no Elasticsearch route")
+    mapping_url = f"{endpoint.rstrip('/')}/{embedding.index}/_mapping"
+    try:
+        response = httpx.get(mapping_url, timeout=embedding.timeout_seconds)
+    except httpx.HTTPError as error:
+        _memory_backend_error(f"could not inspect companion embedding index mapping ({type(error).__name__})")
+    if response.status_code == 404:
+        return probe_detail, (
+            f"Companion embedding index {embedding.index} is missing; it will be created lazily "
+            "on the first embedding write or backfill"
+        )
+    try:
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        _memory_backend_error(f"could not inspect companion embedding index mapping ({type(error).__name__})")
+    index_mapping = payload.get(embedding.index) if isinstance(payload, dict) else None
+    mappings = index_mapping.get("mappings") if isinstance(index_mapping, dict) else None
+    properties = mappings.get("properties") if isinstance(mappings, dict) else None
+    vector_mapping = properties.get("vector") if isinstance(properties, dict) else None
+    metadata = mappings.get("_meta") if isinstance(mappings, dict) else None
+    if (
+        not isinstance(vector_mapping, dict)
+        or vector_mapping.get("type") != "dense_vector"
+        or vector_mapping.get("dims") != embedding.dimensions
+        or vector_mapping.get("similarity") != "cosine"
+        or not isinstance(metadata, dict)
+        or metadata.get("model") != embedding.model
+        or metadata.get("dimensions") != embedding.dimensions
+    ):
+        _memory_config_error(
+            f"companion embedding index {embedding.index!r} has an incompatible vector mapping; "
+            "configure a new versioned embedding index and backfill it"
+        )
+    return probe_detail, f"Companion embedding index mapping is compatible: {embedding.index}"
+
+
 @configure.group(name="memory", invoke_without_command=True)
 @click.option("--enable/--disable", "enabled", default=None, help="Enable or disable the memory subsystem.")
 @click.option("--backend", default=None, help="Authoritative structured-memory backend (elasticsearch only).")
@@ -241,6 +311,23 @@ def _check_memory_backend(
     default=None,
     help="Whether persisted jobs write compact Markdown notes by default.",
 )
+@click.option("--embeddings/--no-embeddings", "embeddings_enabled", default=None, help="Enable derived embeddings.")
+@click.option("--embedding-provider", default=None, help="Embedding provider (openai_compatible only).")
+@click.option("--embedding-endpoint", default=None, help="OpenAI-compatible embedding base URL.")
+@click.option("--embedding-model", default=None, help="Static embedding model identifier.")
+@click.option("--embedding-dimensions", type=int, default=None, help="Embedding vector dimensions.")
+@click.option("--embedding-index", default=None, help="Companion Elasticsearch vector index.")
+@click.option("--embedding-timeout", type=float, default=None, help="Embedding request timeout in seconds.")
+@click.option("--embedding-batch-size", type=int, default=None, help="Maximum passage embeddings per request.")
+@click.option("--embedding-api-key-env", default=None, help="Environment variable containing a Bearer token.")
+@click.option(
+    "--retrieval-mode",
+    type=click.Choice(["keyword", "semantic", "hybrid"]),
+    default=None,
+    help="Preferred static memory retrieval mode.",
+)
+@click.option("--semantic-candidate-count", type=int, default=None, help="Semantic candidates before ranking.")
+@click.option("--rrf-rank-constant", type=int, default=None, help="Reciprocal rank fusion constant.")
 @click.pass_context
 def configure_memory(
     ctx: click.Context,
@@ -252,6 +339,18 @@ def configure_memory(
     harness: str | None,
     workspace: str | None,
     write_notes_by_default: bool | None,
+    embeddings_enabled: bool | None,
+    embedding_provider: str | None,
+    embedding_endpoint: str | None,
+    embedding_model: str | None,
+    embedding_dimensions: int | None,
+    embedding_index: str | None,
+    embedding_timeout: float | None,
+    embedding_batch_size: int | None,
+    embedding_api_key_env: str | None,
+    retrieval_mode: str | None,
+    semantic_candidate_count: int | None,
+    rrf_rank_constant: int | None,
 ) -> None:
     """Configure static VSS memory infrastructure and persistence policy."""
     if ctx.invoked_subcommand is not None:
@@ -259,6 +358,8 @@ def configure_memory(
     deployment = _load_memory_deployment()
     current = deployment.memory or config_mod.MemoryConfig()
     current_markdown = current.markdown
+    current_embeddings = current.embeddings
+    current_retrieval = current.retrieval
     candidate = config_mod.MemoryConfig(
         enabled=current.enabled if enabled is None else enabled,
         backend=current.backend if backend is None else backend,
@@ -273,6 +374,24 @@ def configure_memory(
             else write_notes_by_default,
         ),
         introspection=current.introspection,
+        embeddings=config_mod.EmbeddingConfig(
+            enabled=current_embeddings.enabled if embeddings_enabled is None else embeddings_enabled,
+            provider=current_embeddings.provider if embedding_provider is None else embedding_provider,
+            endpoint=current_embeddings.endpoint if embedding_endpoint is None else embedding_endpoint,
+            model=current_embeddings.model if embedding_model is None else embedding_model,
+            dimensions=current_embeddings.dimensions if embedding_dimensions is None else embedding_dimensions,
+            index=current_embeddings.index if embedding_index is None else embedding_index,
+            timeout_seconds=current_embeddings.timeout_seconds if embedding_timeout is None else embedding_timeout,
+            batch_size=current_embeddings.batch_size if embedding_batch_size is None else embedding_batch_size,
+            api_key_env=current_embeddings.api_key_env if embedding_api_key_env is None else embedding_api_key_env,
+        ),
+        retrieval=config_mod.RetrievalConfig(
+            mode=current_retrieval.mode if retrieval_mode is None else retrieval_mode,
+            candidate_count=current_retrieval.candidate_count
+            if semantic_candidate_count is None
+            else semantic_candidate_count,
+            rrf_rank_constant=current_retrieval.rrf_rank_constant if rrf_rank_constant is None else rrf_rank_constant,
+        ),
     )
     try:
         candidate.validate()
@@ -412,6 +531,10 @@ def check_memory() -> None:
     if not memory_config.enabled:
         _memory_config_error("memory is disabled; run `vss configure memory --enable`")
     click.echo(_check_memory_backend(deployment, memory_config))
+    if memory_config.embeddings.enabled:
+        embedding_probe, mapping_probe = _check_embedding_backend(deployment, memory_config)
+        click.echo(embedding_probe)
+        click.echo(mapping_probe)
     if memory_config.markdown.enabled:
         try:
             from vss_core.memory import OpenClawDailyNoteStore
