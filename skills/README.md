@@ -102,6 +102,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
+| Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`benchmark-vlm-qa`](benchmarking/benchmark-vlm-qa/SKILL.md) |
 
 **Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence; the catalog below is grouped by layer so you can see what's adjacent.
 
@@ -146,6 +147,12 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
 | [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
 | [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+
+### Benchmarking
+| Skill | Description |
+|---|---|
+| [benchmark-vlm-qa](benchmarking/benchmark-vlm-qa/SKILL.md) | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
+| [benchmark-video-summarization](benchmarking/benchmark-video-summarization/SKILL.md) | LVS latency and burst-throughput on a deployed summarization instance. |
 
 ### Middleware
 | Skill | Description |

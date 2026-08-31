@@ -1,10 +1,30 @@
 # Developer Workflow - Dev Profile Base Evaluation Setup (E2E)
 
-This directory contains evaluation resources for the Developer Workflow - Dev Profile Base report agent.
+This directory contains evaluation resources for the Developer Workflow - Dev Profile Base.
+
+**Video Q&A (recommended).** After vss-agent / `nat eval` was removed, QA
+accuracy and latency are measured by calling **`vss vlm run`** against the
+deployed Cosmos Reason 3 RT-VLM. That path does **not** score tool-calling or
+trajectories.
+
+```bash
+# Prerequisites: vss configure already run; rt_vlm ok; NGC_API_KEY for DSS.
+export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"
+export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
+./run_vlm_qa_benchmark.sh
+```
+
+Outputs: `results/vlm_qa/summary.json` (mean accuracy + latency percentiles),
+`qa_evaluator_output.json`, `latency_summary.json`, `summary.csv`.
+See `benchmark_vlm_qa.py --help` and `skills/benchmarking/benchmark-vlm-qa/SKILL.md`.
+
+The `nat eval` / vss-agent steps below remain only as a historical reference
+for report + trajectory evaluation that still depended on the agent container.
 
 ### 0. Deploy Blueprint
 
-Deploy the developer workflow (dev-base) blueprint.
+Deploy the developer workflow (dev-base) blueprint so RT-VLM (Cosmos Reason 3)
+is reachable, then `vss configure --base-url <origin>`.
 
 
 ### 1. Download the `eval` Dataset
