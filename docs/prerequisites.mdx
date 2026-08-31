@@ -340,7 +340,7 @@ ngc registry model download-version <org>/<team>/<model>:<version>
 mv </downloaded/path/in/ngc/output> </path/to/custom/weights>
 ```
 
-The weights will be downloaded to a local directory. Note the path to this directory, as you'll need to specify it when deploying with the `--vlm-custom-weights` flag.
+The weights will be downloaded to a local directory. Note the path to this directory, then set `VLM_CUSTOM_WEIGHTS` to it in the selected profile's `overrides.env` before deploying.
 
 ### Download Custom Weights from Hugging Face
 

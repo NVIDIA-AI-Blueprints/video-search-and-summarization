@@ -448,15 +448,15 @@ You can now access the agent UI at `http://<HOST_IP>:7777/`.
 
 **This deployment uses the following defaults:**
 
-- Host IP: src IP from `ip route get 1.1.1.1`
+
 - LLM model: nvidia/nemotron-3.5-lightning-30b-a3b
 - VLM model: nvidia/cosmos3-nano-reasoner (critic agent), version `bf16-final` (`ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`)
 - Critic agent: enabled
 
-**To use a different IP than the one derived:**
+**Configure service addresses in `deploy/docker/developer-profiles/dev-profile-search/overrides.env`:**
 
-- `-i`: Manually specify the host IP address.
-- `-e`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host.
+- `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
