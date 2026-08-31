@@ -402,6 +402,15 @@ class CanaryExecutorTests(unittest.TestCase):
             canary_executor.status_wait_timeout(semantic),
             canary_executor.status_wait_timeout(plain),
         )
+        self.assertEqual(
+            canary_executor.status_wait_timeout(semantic)
+            - canary_executor.status_wait_timeout(plain),
+            canary_executor.HTTP_TIMEOUT * (semantic["stream_count"] + 3)
+            + 10
+            + min(120, semantic["timeouts"]["benchmark"])
+            + 2 * canary_executor.SEMANTIC_DELETE_TIMEOUT
+            + canary_executor.SEMANTIC_DRAIN_TIMEOUT,
+        )
 
     def test_requires_fresh_measurements_from_each_independent_source(self):
         record = {

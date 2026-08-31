@@ -196,11 +196,13 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
     )
     if manifest["semantic_isolation"]:
         total += (
-            HTTP_TIMEOUT * (manifest["stream_count"] + 2)
+            HTTP_TIMEOUT * (manifest["stream_count"] + 1)
             + 10
             + min(120, manifest["timeouts"]["benchmark"])
+            + HTTP_TIMEOUT
             + 2 * SEMANTIC_DELETE_TIMEOUT
             + SEMANTIC_DRAIN_TIMEOUT
+            + HTTP_TIMEOUT
         )
     return total
 
@@ -358,7 +360,10 @@ def score_semantic_isolation(
 
 
 def _json_request(
-    method: str, url: str, payload: dict[str, Any] | None = None, timeout: int = 30
+    method: str,
+    url: str,
+    payload: dict[str, Any] | None = None,
+    timeout: int = HTTP_TIMEOUT,
 ) -> Any:
     data = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(
@@ -434,7 +439,9 @@ def _caption_samples(
     captions = []
     start_gate.wait(timeout=10)
     deadline = time.monotonic() + timeout
-    with urllib.request.urlopen(request, timeout=min(timeout, 30)) as response:
+    with urllib.request.urlopen(
+        request, timeout=min(timeout, HTTP_TIMEOUT)
+    ) as response:
         for raw_line in response:
             if stop_event.is_set():
                 break
@@ -1117,7 +1124,7 @@ override = {"services": {"rtvi-server": {"volumes": [
         expected_aux = [*self.publisher_names, self.media_name]
         try:
             owned_aux = container_guard.find_owned_containers(
-                self.m["run_id"], self.project, expected_aux
+                self.m["run_id"], self.project, ()
             )
         except (
             ValueError,
