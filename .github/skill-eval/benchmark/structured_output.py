@@ -31,17 +31,34 @@ def extract_json_payload(response: str) -> str:
 
     # Otherwise, accept exactly one Markdown-fenced JSON payload.
     matches = list(_JSON_FENCE.finditer(text))
-    if len(matches) != 1:
+    if len(matches) == 1:
+        match = matches[0]
+
+        # Allow explanatory text before the fence, but nothing after it.
+        if text[match.end():].strip():
+            raise ValueError("unexpected content after JSON payload")
+
+        # Return only the JSON inside the fence for domain validation.
+        return match.group("payload").strip()
+    if matches:
         raise ValueError("response must contain exactly one JSON payload")
 
-    match = matches[0]
+    # Finally, accept one JSON object that consumes the response suffix.
+    decoder = json.JSONDecoder()
+    suffixes: list[str] = []
+    for start, character in enumerate(text):
+        if character not in "{[":
+            continue
+        try:
+            _, consumed = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if not text[start + consumed :].strip():
+            suffixes.append(text[start : start + consumed])
 
-    # Allow explanatory text before the fence, but nothing after it.
-    if text[match.end():].strip():
-        raise ValueError("unexpected content after JSON payload")
-
-    # Return only the JSON inside the fence for domain validation.
-    return match.group("payload").strip()
+    if len(suffixes) != 1:
+        raise ValueError("response must contain exactly one JSON payload")
+    return suffixes[0]
 
 
 def main() -> None:

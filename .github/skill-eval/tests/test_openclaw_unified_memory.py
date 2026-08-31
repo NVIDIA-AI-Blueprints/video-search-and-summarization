@@ -121,6 +121,24 @@ def test_prediction_pipeline_accepts_final_fenced_json(tmp_path) -> None:
     }
 
 
+def test_prediction_pipeline_accepts_final_unfenced_json(tmp_path) -> None:
+    response = 'Explanation before the answer.\n\n{"label":"C"}'
+    prediction_path = tmp_path / "prediction-1.json"
+
+    _run_prediction_pipeline(
+        {"payloads": [{"text": response}]},
+        "video-1",
+        str(tmp_path / "openclaw.txt"),
+        str(tmp_path / "prediction-1.json.tmp"),
+        str(prediction_path),
+    )
+
+    assert json.loads(prediction_path.read_text(encoding="utf-8")) == {
+        "case_id": "video-1",
+        "answer": {"label": "C"},
+    }
+
+
 def test_four_prediction_artifacts_are_numbered_in_order(tmp_path) -> None:
     expected = ["B", "A", "D", "C"]
     for index, label in enumerate(expected, 1):

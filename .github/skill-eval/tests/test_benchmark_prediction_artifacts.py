@@ -41,6 +41,7 @@ def test_load_prediction_artifacts_preserves_question_order(tmp_path) -> None:
         ('{"label":"A"}', "A"),
         ('```json\n{"label":"B"}\n```', "B"),
         ('Explanation before the answer.\n\n```json\n{"label":"C"}\n```', "C"),
+        ('Explanation before the answer.\n\n{"label":"D"}', "D"),
     ),
 )
 def test_parse_choice_answer_accepts_supported_json_forms(response, expected) -> None:
