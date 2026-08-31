@@ -20,6 +20,8 @@ from urllib.parse import quote
 
 import pytest
 
+from vss_cli.config import CONFIG_VERSION
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -647,7 +649,7 @@ def _write_deployment_config(
     (home / "config.json").write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": CONFIG_VERSION,
                 "base_url": services.base_url,
                 "written_at": "2025-01-01T00:00:00+00:00",
                 "services": configured_services,

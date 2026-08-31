@@ -209,15 +209,18 @@ def test_read_verbs_do_not_expose_static_memory_index() -> None:
 
 def test_memory_builder_uses_configured_authoritative_index(monkeypatch: pytest.MonkeyPatch) -> None:
     from vss_cli import memory as memory_mod
-    import vss_core.memory as core_memory
+    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
 
     built: list[tuple[str, str]] = []
 
-    def build_memory_service(*, es_endpoint: str, memory_index: str) -> object:
-        built.append((es_endpoint, memory_index))
-        return object()
+    class Store:
+        def __init__(self, *, endpoint: str, index: str) -> None:
+            built.append((endpoint, index))
 
-    monkeypatch.setattr(core_memory, "build_memory_service", build_memory_service)
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(elasticsearch_mod, "ElasticsearchMemoryStore", Store)
     deployment = config_mod.Deployment(
         base_url="http://h:7777",
         services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
