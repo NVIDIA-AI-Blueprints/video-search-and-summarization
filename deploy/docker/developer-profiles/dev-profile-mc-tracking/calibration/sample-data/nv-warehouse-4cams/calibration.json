@@ -92,7 +92,7 @@
           -1.1331422017869186
         ],
         [
-          -0.000005135284065124056,
+          -5.135284065124056e-06,
           0.00023804774258732835,
           0.017854258894132318
         ]
@@ -131,19 +131,21 @@
           "value": "1080"
         }
       ],
-      "place": [ {
-        "name": "building",
-        "value": "Warehouse"
-      },
-      {
-        "name": "room",
-        "value": "Room-1"
-      },
-      {
-        "name": "region",
-        "value": "Region-1"
-      } ],
-      "group": {  
+      "place": [
+        {
+          "name": "building",
+          "value": "Warehouse"
+        },
+        {
+          "name": "room",
+          "value": "Room-1"
+        },
+        {
+          "name": "region",
+          "value": "Region-1"
+        }
+      ],
+      "group": {
         "name": "bev-sensor-1",
         "alias": "area-1",
         "type": "bev",
@@ -161,15 +163,13 @@
       "region": {
         "placeLevel": "region",
         "origin": [
-          -0.42354845671749036,
-          -12.225397257749826
+          0,
+          -16.56453170547014
         ],
-        "dimensions": [
-          -10.561923325104532,
-          -20.561772508756967,
-          9.295595734008195,
-          -3.1258146629220054
-        ]
+        "dimensions": {
+          "length": 16.56453170547014,
+          "width": 44.2635651963924
+        }
       },
       "imageCoordinates": [],
       "globalCoordinates": [],
@@ -265,7 +265,7 @@
           1.6888773122575291
         ],
         [
-          0.000029388526589318134,
+          2.9388526589318134e-05,
           0.00028729127879200344,
           -0.04105804950574778
         ]
@@ -304,18 +304,20 @@
           "value": "1080"
         }
       ],
-      "place": [ {
-        "name": "building",
-        "value": "Warehouse"
-      },
-      {
-        "name": "room",
-        "value": "Room-1"
-      },
-      {
-        "name": "region",
-        "value": "Region-1"
-      } ],
+      "place": [
+        {
+          "name": "building",
+          "value": "Warehouse"
+        },
+        {
+          "name": "room",
+          "value": "Room-1"
+        },
+        {
+          "name": "region",
+          "value": "Region-1"
+        }
+      ],
       "group": {
         "name": "bev-sensor-1",
         "alias": "area-1",
@@ -334,15 +336,13 @@
       "region": {
         "placeLevel": "region",
         "origin": [
-          -0.42354845671749036,
-          -12.225397257749826
+          0,
+          -16.56453170547014
         ],
-        "dimensions": [
-          -10.561923325104532,
-          -20.561772508756967,
-          9.295595734008195,
-          -3.1258146629220054
-        ]
+        "dimensions": {
+          "length": 16.56453170547014,
+          "width": 44.2635651963924
+        }
       },
       "imageCoordinates": [],
       "globalCoordinates": [],
@@ -433,12 +433,12 @@
           0.7478075617123726
         ],
         [
-          0.000008303424796598769,
+          8.303424796598769e-06,
           0.0003293462018365931,
           -1.164765223248105
         ],
         [
-          0.000016087530780378278,
+          1.6087530780378278e-05,
           0.00024209842434043825,
           -0.01247750873192331
         ]
@@ -477,18 +477,20 @@
           "value": "1080"
         }
       ],
-      "place": [ {
-        "name": "building",
-        "value": "Warehouse"
-      },
-      {
-        "name": "room",
-        "value": "Room-1"
-      },
-      {
-        "name": "region",
-        "value": "Region-1"
-      } ],
+      "place": [
+        {
+          "name": "building",
+          "value": "Warehouse"
+        },
+        {
+          "name": "room",
+          "value": "Room-1"
+        },
+        {
+          "name": "region",
+          "value": "Region-1"
+        }
+      ],
       "group": {
         "name": "bev-sensor-1",
         "alias": "area-1",
@@ -507,15 +509,13 @@
       "region": {
         "placeLevel": "region",
         "origin": [
-          -0.42354845671749036,
-          -12.225397257749826
+          0,
+          -16.56453170547014
         ],
-        "dimensions": [
-          -10.561923325104532,
-          -20.561772508756967,
-          9.295595734008195,
-          -3.1258146629220054
-        ]
+        "dimensions": {
+          "length": 16.56453170547014,
+          "width": 44.2635651963924
+        }
       },
       "imageCoordinates": [],
       "globalCoordinates": [],
@@ -611,7 +611,7 @@
           2.9404012830598334
         ],
         [
-          0.00000919152612445814,
+          9.19152612445814e-06,
           0.0004581031555678863,
           -0.11127110992810478
         ]
@@ -650,18 +650,20 @@
           "value": "1080"
         }
       ],
-      "place": [ {
-        "name": "building",
-        "value": "Warehouse"
-      },
-      {
-        "name": "room",
-        "value": "Room-1"
-      },
-      {
-        "name": "region",
-        "value": "Region-1"
-      } ],
+      "place": [
+        {
+          "name": "building",
+          "value": "Warehouse"
+        },
+        {
+          "name": "room",
+          "value": "Room-1"
+        },
+        {
+          "name": "region",
+          "value": "Region-1"
+        }
+      ],
       "group": {
         "name": "bev-sensor-1",
         "alias": "area-1",
@@ -680,15 +682,13 @@
       "region": {
         "placeLevel": "region",
         "origin": [
-          -0.42354845671749036,
-          -12.225397257749826
+          0,
+          -16.56453170547014
         ],
-        "dimensions": [
-          -10.561923325104532,
-          -20.561772508756967,
-          9.295595734008195,
-          -3.1258146629220054
-        ]
+        "dimensions": {
+          "length": 16.56453170547014,
+          "width": 44.2635651963924
+        }
       },
       "imageCoordinates": [],
       "globalCoordinates": [],
@@ -733,7 +733,7 @@
       "type": "buffer_zone",
       "restrictedObjectTypes": [
         "Person"
-        ],
+      ],
       "confinedObjectTypes": [
         "Fourier_GR1_T2_Humanoid",
         "Person"
