@@ -272,21 +272,6 @@ install creates a LoadBalancer Service, which stays `Pending` on bare metal. Che
 kubectl get ingressclass          # expect: haproxy
 ```
 
-### 2b. Set NUM_STREAMS for your GPU (optional)
-
-The chart ships a fixed `NUM_STREAMS=4` in `bp-configurator.env` with no GPU cap.
-To size it to your hardware the way Docker Compose does, generate a values-override first:
-
-```bash
-python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
-  --mode mv3dt --num-streams <N> -o values-stream-cap.generated.yaml
-```
-
-Layer `-f values-stream-cap.generated.yaml` into the `helm upgrade --install` below, and set
-`vios.vss-vios-nvstreamer.syncFileCount` to the effective count it prints. See
-[`skills/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/vss-deploy-warehouse-helm/references/streams.md)
-for the full command and GPU→cap table. No skill/agent required — the script runs standalone.
-
 ### 3. Install
 
 ```bash
@@ -378,6 +363,22 @@ To reach a service directly:
 ```bash
 kubectl port-forward -n <namespace> svc/grafana 3000:3000
 ```
+
+## Scaling: NUM_STREAMS by GPU
+
+The chart ships a fixed `NUM_STREAMS=4` in `bp-configurator.env` with no GPU cap —
+unlike Docker Compose, which caps it automatically per `HARDWARE_PROFILE`. Before an initial
+install or an upgrade where you want streams sized to your hardware, generate a values-override:
+
+```bash
+python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
+  --mode mv3dt --num-streams <N> -o values-stream-cap.generated.yaml
+```
+
+Layer `-f values-stream-cap.generated.yaml` into `helm upgrade --install`, and set
+`vios.vss-vios-nvstreamer.syncFileCount` to the effective count it prints. See
+[`skills/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/vss-deploy-warehouse-helm/references/streams.md)
+for the full command and GPU→cap table. No skill/agent required — the script runs standalone.
 
 ## Upgrade and uninstall
 
