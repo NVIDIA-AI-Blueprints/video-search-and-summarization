@@ -135,6 +135,13 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert "General video question where past memory may exist -> `vss memory introspect`" in normalized
     assert "Exact sensor/time or explicit fresh visual verification -> `vss vlm run`" in normalized
     assert "`introspect` returns `no_memory` -> conditional `vss vlm run`" in normalized
+    assert "`introspect` requires grounded, useful scope" in normalized
+    assert '`"no_memory"` and exit code 5' in normalized
+    assert "expected not-found result, not a general command or backend failure" in normalized
+    assert (
+        "Do not automatically run a VLM afterward unless an exact sensor and exact ISO-8601 UTC start/end window"
+        in normalized
+    )
     assert "Do not call an OpenAI-compatible `/chat/completions` endpoint directly" in normalized
     assert "Never enter this fallback after `vss memory introspect`" in normalized
     assert "curl " not in ask_video

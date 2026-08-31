@@ -24,6 +24,7 @@ from vss_core.memory.backends.in_memory import InMemoryStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 
 _CREATED = "2026-08-19T20:00:00Z"
 
@@ -268,12 +269,31 @@ def test_introspect_emits_result_before_status_exit(
     assert "failure_kind" not in payload
 
 
+def test_introspect_no_memory_emits_json_and_exit_five() -> None:
+    async def fake(_request: Any) -> IntrospectionResult:
+        return _introspection_result("no_memory")
+
+    set_test_introspect(fake)
+    result = _invoke("introspect", "--query", "Was the worker wearing PPE?", "--sensor", "warehouse")
+
+    assert result.exit_code == 5 == int(Exit.NOT_FOUND)
+    assert json.loads(result.output) == {
+        "status": "no_memory",
+        "sufficient_from_memory": False,
+        "answer": None,
+        "memory_evidence": [],
+        "vlm_evidence": [],
+        "unresolved_gaps": [],
+    }
+
+
 @pytest.mark.parametrize(
     ("persist_by_default", "persistence_errors", "expected_exit"),
     ((True, [], Exit.SUCCESS), (False, [], Exit.SUCCESS), (True, ["memory offline"], Exit.PARTIAL)),
 )
 def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     injected_memory: Memory,
     persist_by_default: bool,
     persistence_errors: list[str],
@@ -291,6 +311,7 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
         memory=config_mod.MemoryConfig(enabled=True, persist_by_default=persist_by_default),
     )
     observed: dict[str, Any] = {}
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     class FakeClient:
         def __init__(self, **kwargs: Any) -> None:
@@ -325,3 +346,4 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     assert observed["memory_service"] is injected_memory.service
     assert (observed["runner_memory"] is injected_memory) is persist_by_default
     assert injected_memory.service.list_jobs() == []
+    assert list(tmp_path.rglob("*.md")) == []

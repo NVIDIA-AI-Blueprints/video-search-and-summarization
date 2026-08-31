@@ -98,15 +98,22 @@ def _decision(*, sufficient: bool = False, gaps: list[GroundedGap] | None = None
 
 
 class _Judge:
-    def __init__(self, decision: SufficiencyDecision | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        decision: SufficiencyDecision | None = None,
+        error: Exception | None = None,
+        *,
+        expected_query: str = "forklift",
+    ) -> None:
         self.decision = decision or _decision()
         self.error = error
+        self.expected_query = expected_query
         self.calls = 0
         self.records: list[UnifiedMemoryRecord] = []
 
     async def judge(self, **kwargs: Any) -> SufficiencyDecision:
         self.calls += 1
-        assert kwargs["query"] == "forklift"
+        assert kwargs["query"] == self.expected_query
         self.records = kwargs["records"]
         if self.error is not None:
             raise self.error
@@ -233,7 +240,7 @@ async def test_builds_internal_parent_child_query_with_all_request_selectors() -
 
     assert result.status == "completed"
     query = memory.queries[0]
-    assert query.text == "forklift"
+    assert query.text is None
     assert query.sensor_id == "camera-east"
     assert query.job_id == "search-1"
     assert query.record_id == "event-1"
@@ -254,6 +261,33 @@ async def test_builds_internal_parent_child_query_with_all_request_selectors() -
     assert parent_query.text is None
     assert parent_query.record_id is None
     assert [record.job.is_child for record in judge.records] == [True, False]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identity", ({"job_id": "search-1"}, {"record_id": "event-1"}))
+async def test_exact_identity_uses_paraphrased_question_only_as_judge_prompt(identity: dict[str, str]) -> None:
+    child = _record(
+        query="Describe the worker's clothing.",
+        answer="The worker wore a hard hat and yellow safety vest.",
+    )
+    memory, _ = _memory(child)
+    judge = _Judge(_decision(sufficient=True), expected_query="Was the worker wearing PPE?")
+
+    result = await introspect(
+        IntrospectionRequest(
+            query="Was the worker wearing PPE?",
+            **identity,
+        ),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert judge.calls == 1
+    assert [record.job.record_id for record in judge.records] == ["event-1"]
 
 
 @pytest.mark.asyncio

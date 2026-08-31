@@ -85,8 +85,11 @@ async def _run_workflow(
     settings: IntrospectionSettings,
     state: _WorkflowState,
 ) -> IntrospectionResult:
+    identity_scoped = request.job_id is not None or request.record_id is not None
     query = MemoryQuery(
-        text=request.query,
+        # Identity selectors choose the evidence; the natural-language question
+        # remains the judge/synthesis prompt and must not filter that evidence.
+        text=None if identity_scoped else request.query,
         sensor_id=request.sensor,
         job_id=request.job_id,
         record_id=request.record_id,

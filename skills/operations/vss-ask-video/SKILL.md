@@ -108,12 +108,15 @@ For bounded introspection, preserve the user's question verbatim:
 vss memory introspect --query '<user question>' --sensor '<sensor-name>'
 ```
 
-`introspect` requires useful scope: `--sensor`, `--job-id`, `--record-id`, or a
-complete UTC time range. Add only grounded selectors. A time range requires
+`introspect` requires grounded, useful scope: `--sensor`, `--job-id`,
+`--record-id`, or a complete UTC time range. Add only grounded selectors. A time range requires
 both `--start-time` and `--end-time`. `--record-type` and `--group` refine scope
 but do not establish it. The command may perform its own bounded VLM follow-ups;
-do not duplicate them manually. Treat `no_memory` as a structured not-found
-outcome, not a backend failure.
+do not duplicate them manually. `no_memory` returns JSON with status
+`"no_memory"` and exit code 5; this is an expected not-found result, not a
+general command or backend failure. Do not automatically run a VLM afterward
+unless an exact sensor and exact ISO-8601 UTC start/end window were already
+grounded before introspection returned.
 
 For one fresh inspection, use **`vss vlm run`** — never a hand-built VLM request.
 
