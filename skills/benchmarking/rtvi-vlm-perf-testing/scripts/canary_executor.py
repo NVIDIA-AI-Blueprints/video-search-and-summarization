@@ -66,6 +66,7 @@ RUN_LABEL = "com.nvidia.rtvi.harness.run_id"
 FATAL = re.compile(r"EngineDeadError|CUDA out of memory|FMHA kernels are not found")
 SEMANTIC_COLORS = ("red", "blue", "green", "yellow", "orange", "pink", "white", "black")
 HTTP_TIMEOUT = 30
+RUNTIME_COMMAND_TIMEOUT = 30
 SEMANTIC_DELETE_TIMEOUT = 90
 SEMANTIC_DRAIN_TIMEOUT = 60
 WATCHER_BASE_GRACE = 180
@@ -698,7 +699,7 @@ class RemoteRun:
         capture: Path | None = None,
         cwd: Path | None = None,
         check: bool = True,
-        timeout: int | None = None,
+        timeout: int | None = RUNTIME_COMMAND_TIMEOUT,
     ) -> subprocess.CompletedProcess[str]:
         with (self.logs / "commands.log").open("a", encoding="utf-8") as stream:
             stream.write(shlex.join(argv) + "\n")
@@ -720,7 +721,7 @@ class RemoteRun:
         *argv: str,
         capture: Path | None = None,
         check: bool = True,
-        timeout: int | None = None,
+        timeout: int | None = RUNTIME_COMMAND_TIMEOUT,
     ) -> subprocess.CompletedProcess[str]:
         return self.command(
             "docker",
@@ -1139,7 +1140,11 @@ override = {"services": {"rtvi-server": {"volumes": [
             "--concurrency-levels",
             str(self.m["stream_count"]),
         ]
-        result = self.command(*argv, check=False)
+        result = self.command(
+            *argv,
+            check=False,
+            timeout=self.m["timeouts"]["benchmark"] + RUNTIME_COMMAND_TIMEOUT,
+        )
         (self.logs / "benchmark.log").write_text(result.stdout)
         if result.returncode:
             raise RuntimeError(f"benchmark exited {result.returncode}")
