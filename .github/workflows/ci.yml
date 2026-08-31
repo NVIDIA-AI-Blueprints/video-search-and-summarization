@@ -919,6 +919,7 @@ jobs:
     name: Integration (video analytics API)
     needs: prepare-source
     runs-on: ubuntu-latest
+    if: needs.prepare-source.outputs.build-video-analytics-api == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "300"
