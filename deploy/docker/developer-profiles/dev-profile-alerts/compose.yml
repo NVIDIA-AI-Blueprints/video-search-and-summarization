@@ -31,7 +31,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-
   perception-alerts:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
