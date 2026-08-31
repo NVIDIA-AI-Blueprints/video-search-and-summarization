@@ -1,0 +1,4 @@
+interface:
+  display_name: "RTVI VLM Perf Testing"
+  short_description: "Run and diagnose RTVI VLM performance benchmarks."
+  default_prompt: "Use the RTVI VLM perf-testing workflow to set up VST, run benchmarks, compare reports, and summarize regressions."
