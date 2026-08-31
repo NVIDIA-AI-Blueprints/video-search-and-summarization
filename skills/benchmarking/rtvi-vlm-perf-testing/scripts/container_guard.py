@@ -60,39 +60,54 @@ def owned_container_ids(
     return sorted(set(owned))
 
 
-def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _docker(
+    *args: str, check: bool = True, timeout: int | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["docker", *args],
         check=check,
         text=True,
         capture_output=True,
+        timeout=timeout,
     )
 
 
 def _find_records(
-    run_id: str, project: str, expected_names: Iterable[str]
+    run_id: str,
+    project: str,
+    expected_names: Iterable[str],
+    timeout: int | None = None,
 ) -> list[dict[str, Any]]:
     ids = set()
     for label in (f"{RUN_ID_LABEL}={run_id}", f"{COMPOSE_PROJECT_LABEL}={project}"):
-        result = _docker("ps", "-aq", "--filter", f"label={label}")
+        result = _docker("ps", "-aq", "--filter", f"label={label}", timeout=timeout)
         ids.update(result.stdout.split())
     for name in expected_names:
-        result = _docker("inspect", "--type", "container", name, check=False)
+        result = _docker(
+            "inspect", "--type", "container", name, check=False, timeout=timeout
+        )
         if result.returncode == 0:
             ids.add(str(json.loads(result.stdout)[0]["Id"]))
     if not ids:
         return []
     return list(
-        json.loads(_docker("inspect", "--type", "container", *sorted(ids)).stdout)
+        json.loads(
+            _docker(
+                "inspect", "--type", "container", *sorted(ids), timeout=timeout
+            ).stdout
+        )
     )
 
 
 def find_owned_containers(
-    run_id: str, project: str, expected_names: Iterable[str]
+    run_id: str,
+    project: str,
+    expected_names: Iterable[str],
+    timeout: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return inspected containers only after their ownership is verified."""
     names = tuple(expected_names)
-    records = _find_records(run_id, project, names)
+    records = _find_records(run_id, project, names, timeout=timeout)
     owned = set(owned_container_ids(records, run_id, project, names))
     return [record for record in records if str(record.get("Id")) in owned]
 
