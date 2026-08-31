@@ -42,6 +42,7 @@ from models.base_vlm_model import (
 
 OPENAI_RECONNECT_ATTEMPTS = 3
 DEFAULT_MAX_PARALLEL_REQUESTS = 10
+OPENAI_TOKEN_PARAM_ENV = "VIA_VLM_OPENAI_TOKEN_PARAM"
 
 _nvenc_probe_lock = threading.Lock()
 _nvenc_encode_lock = threading.Lock()
@@ -51,6 +52,22 @@ _nvenc_probe_results = {}
 def _remote_video_input_enabled() -> bool:
     raw_value = os.environ.get("REMOTE_VIDEO_INPUT", "true").strip().lower()
     return raw_value not in {"0", "false", "no", "off"}
+
+
+def _openai_token_param_name() -> str:
+    """Return the chat/completions output-token parameter for the target endpoint."""
+    raw_value = os.environ.get(OPENAI_TOKEN_PARAM_ENV, "max_tokens").strip().lower()
+    if raw_value in {"max_tokens", "max_completion_tokens"}:
+        return raw_value
+
+    raise ValueError(
+        f"Invalid {OPENAI_TOKEN_PARAM_ENV}={raw_value!r}; "
+        "expected max_tokens or max_completion_tokens."
+    )
+
+
+def _openai_token_kwargs(max_new_tokens: int) -> dict[str, int]:
+    return {_openai_token_param_name(): max_new_tokens}
 
 
 def _pynvcodec_nvenc_available(gpu_id):
@@ -1170,11 +1187,12 @@ class CompOpenAIModel(BaseVlmModel):
                     if not extra_body:
                         extra_body = None
 
+                    token_kwargs = _openai_token_kwargs(config.max_new_tokens)
                     _nim_t0 = _time.time()
                     if self._model:
                         response_obj = self._model.invoke(
                             messages,
-                            max_tokens=config.max_new_tokens,
+                            **token_kwargs,
                             temperature=config.temperature,
                             seed=config.seed,
                             top_p=config.top_p,
@@ -1188,7 +1206,7 @@ class CompOpenAIModel(BaseVlmModel):
                         resp = self._client.chat.completions.create(
                             model=self._model_name,
                             messages=messages,
-                            max_tokens=config.max_new_tokens,
+                            **token_kwargs,
                             temperature=config.temperature,
                             seed=config.seed,
                             top_p=config.top_p,
@@ -1315,7 +1333,7 @@ class CompOpenAIModel(BaseVlmModel):
         output_tokens = 0
 
         kwargs = {
-            "max_tokens": config.max_new_tokens,
+            **_openai_token_kwargs(config.max_new_tokens),
             "temperature": config.temperature,
             "top_p": config.top_p,
         }
@@ -1370,7 +1388,7 @@ class CompOpenAIModel(BaseVlmModel):
         config = generation_config or VlmGenerationConfig()
 
         kwargs = {
-            "max_tokens": config.max_new_tokens,
+            **_openai_token_kwargs(config.max_new_tokens),
             "temperature": config.temperature,
             "top_p": config.top_p,
             "stream": True,

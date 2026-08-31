@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """
 Patch installed vLLM to register NemotronH_Nano_Omni_Reasoning_V3 (GA checkpoint).
 

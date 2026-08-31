@@ -9,12 +9,12 @@ from typing import ClassVar
 
 import torch
 from torch import nn
+from torch.nn import functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from transformers import ProcessorMixin
 from vllm.config import VllmConfig
-from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import ColumnParallelLinear, RowParallelLinear
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
-from vllm.model_executor.layers.rotary_embedding import get_rope
 from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
 from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 from vllm.model_executor.models import nemotron_h
@@ -24,7 +24,11 @@ from vllm.model_executor.models.interfaces import (
     SupportsMultiModal,
     SupportsPP,
 )
-from vllm.model_executor.models.lfm2_siglip2 import Siglip2VisionTransformer
+from vllm.model_executor.models.lfm2_siglip2 import (
+    Siglip2Attention,
+    Siglip2VisionEmbeddings,
+    Siglip2VisionTransformer,
+)
 from vllm.model_executor.models.module_mapping import MultiModelKeys
 from vllm.model_executor.models.nemotron_h import (
     NemotronHAttention,
@@ -60,8 +64,76 @@ from vllm.sequence import IntermediateTensors
 from vllm.transformers_utils.configs.nemotron_h import NemotronHConfig
 
 
+class Cosmos3EdgeVisionEmbeddings(Siglip2VisionEmbeddings):
+    """Preserve the checkpoint's block-major positional layout."""
+
+    def __init__(self, config) -> None:
+        super().__init__(config)
+        self.spatial_merge_size = config.spatial_merge_size
+
+    def resize_positional_embeddings_packed(
+        self,
+        positional_embeddings: torch.Tensor,
+        spatial_shapes: torch.LongTensor,
+        lengths_list: list[int],
+    ) -> torch.Tensor:
+        assert spatial_shapes.device.type == "cpu"
+        embed_dim = positional_embeddings.shape[-1]
+        source_dtype = positional_embeddings.dtype
+        merge_size = self.spatial_merge_size
+        pos_4d = positional_embeddings.permute(2, 0, 1).unsqueeze(0)
+        if pos_4d.device.type == "cpu":
+            pos_4d = pos_4d.float()
+
+        chunks = []
+        for (height, width), length in zip(spatial_shapes.tolist(), lengths_list, strict=True):
+            if height * width != length:
+                raise ValueError("spatial shape does not match packed token length")
+            resized = F.interpolate(
+                pos_4d,
+                size=(height, width),
+                mode="bilinear",
+                align_corners=False,
+                antialias=True,
+            )
+            resized = resized.squeeze(0).permute(1, 2, 0).to(source_dtype)
+            resized = resized.reshape(
+                height // merge_size,
+                merge_size,
+                width // merge_size,
+                merge_size,
+                embed_dim,
+            )
+            chunks.append(resized.transpose(1, 2).reshape(length, embed_dim))
+        return torch.cat(chunks, dim=0)
+
+
+class Cosmos3EdgeVisionAttention(Siglip2Attention):
+    """Use the checkpoint reference's cuDNN SDPA kernel."""
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        cu_seqlens: torch.Tensor,
+        max_seqlen: int | torch.Tensor,
+    ) -> torch.Tensor:
+        with sdpa_kernel(SDPBackend.CUDNN_ATTENTION):
+            return super().forward(hidden_states, cu_seqlens, max_seqlen)
+
+
 class Cosmos3EdgeVisionEncoder(Siglip2VisionTransformer):
     """Adapts Cosmos (T, H, W) metadata to vLLM packed SigLIP2."""
+
+    def __init__(self, config, **kwargs) -> None:
+        super().__init__(config, **kwargs)
+        self.embeddings = Cosmos3EdgeVisionEmbeddings(config)
+        prefix = kwargs.get("prefix", "")
+        for index, layer in enumerate(self.encoder.layers):
+            layer.self_attn = Cosmos3EdgeVisionAttention(
+                config,
+                quant_config=kwargs.get("quant_config"),
+                prefix=f"{prefix}.encoder.layers.{index}.self_attn",
+            )
 
     @property
     def dtype(self) -> torch.dtype:
@@ -101,52 +173,6 @@ class Cosmos3EdgeVisionEncoder(Siglip2VisionTransformer):
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
         )[0]
-
-
-def patch_merging_by_param(
-    image_embeds: torch.Tensor,
-    grid_thw: torch.Tensor,
-    merge_size: int = 2,
-) -> torch.Tensor:
-    """Merge each spatial ``merge_size`` block into the channel dimension."""
-    merged_embeds: list[torch.Tensor] = []
-    current_idx = 0
-    hidden_size = image_embeds.shape[-1]
-
-    for grid in grid_thw:
-        t, h, w = grid.tolist()
-        if h % merge_size != 0 or w % merge_size != 0:
-            raise ValueError(
-                "Grid height and width must be divisible by merge_size: "
-                f"got grid={(t, h, w)} and merge_size={merge_size}."
-            )
-
-        num_patches = t * h * w
-        media_embeds = image_embeds[current_idx : current_idx + num_patches]
-        if media_embeds.shape[0] != num_patches:
-            raise ValueError("image_embeds contains fewer patches than grid_thw describes.")
-        current_idx += num_patches
-
-        media_embeds = media_embeds.view(t, h, w, hidden_size)
-        media_embeds = media_embeds.view(
-            t,
-            h // merge_size,
-            merge_size,
-            w // merge_size,
-            merge_size,
-            hidden_size,
-        )
-        media_embeds = media_embeds.permute(0, 1, 3, 2, 4, 5).contiguous()
-        merged_embeds.append(media_embeds.view(-1, merge_size * merge_size * hidden_size))
-
-    if current_idx != image_embeds.shape[0]:
-        raise ValueError(
-            "image_embeds contains more patches than grid_thw describes: "
-            f"got {image_embeds.shape[0]}, expected {current_idx}."
-        )
-    if not merged_embeds:
-        return image_embeds.new_empty((0, merge_size * merge_size * hidden_size))
-    return torch.cat(merged_embeds, dim=0)
 
 
 class Cosmos3EdgePatchMerger(nn.Module):
@@ -249,11 +275,6 @@ class Cosmos3EdgeVisionModel(nn.Module):
     ) -> torch.Tensor:
         grid_thw = torch.as_tensor(grid_thw, dtype=torch.int64, device="cpu")
         image_embeds = self.encoder.encode(pixel_values.type(self.dtype), grid_thw)
-        image_embeds = patch_merging_by_param(
-            image_embeds,
-            grid_thw,
-            merge_size=self.spatial_merge_size,
-        )
         image_embeds = image_embeds.view(
             -1,
             self.spatial_merge_size**2,
@@ -289,6 +310,76 @@ class Cosmos3EdgeDummyInputsBuilder(Qwen3VLDummyInputsBuilder):
     pass
 
 
+@torch.library.custom_op("rtvi::edge_mrope", mutates_args=())
+def _edge_mrope(
+    positions: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    inv_freq: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    head_dim = inv_freq.shape[-1] * 2
+    freqs = sum(positions[axis].float().unsqueeze(-1) * inv_freq[axis].float() for axis in range(3))
+    angles = torch.cat((freqs, freqs), dim=-1)
+    cos = angles.cos().to(query.dtype).unsqueeze(1)
+    sin = angles.sin().to(query.dtype).unsqueeze(1)
+
+    def rotate(value: torch.Tensor) -> torch.Tensor:
+        shaped = value.view(-1, value.shape[-1] // head_dim, head_dim)
+        first, second = shaped.chunk(2, dim=-1)
+        rotated = torch.cat((-second, first), dim=-1)
+        return ((shaped * cos) + (rotated * sin)).reshape_as(value)
+
+    return rotate(query), rotate(key)
+
+
+@_edge_mrope.register_fake
+def _edge_mrope_fake(
+    positions: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    inv_freq: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    return torch.empty_like(query), torch.empty_like(key)
+
+
+@torch.library.custom_op("rtvi::edge_rms_norm", mutates_args=())
+def _edge_rms_norm(
+    hidden_states: torch.Tensor,
+    weight: torch.Tensor,
+    epsilon: float,
+) -> torch.Tensor:
+    input_dtype = hidden_states.dtype
+    normalized = hidden_states.float()
+    variance = normalized.pow(2).mean(-1, keepdim=True)
+    normalized = normalized * torch.rsqrt(variance + epsilon)
+    return weight * normalized.to(input_dtype)
+
+
+@_edge_rms_norm.register_fake
+def _edge_rms_norm_fake(
+    hidden_states: torch.Tensor,
+    weight: torch.Tensor,
+    epsilon: float,
+) -> torch.Tensor:
+    return torch.empty_like(hidden_states)
+
+
+@torch.library.custom_op("rtvi::edge_residual_add", mutates_args=())
+def _edge_residual_add(
+    hidden_states: torch.Tensor,
+    residual: torch.Tensor,
+) -> torch.Tensor:
+    return hidden_states + residual
+
+
+@_edge_residual_add.register_fake
+def _edge_residual_add_fake(
+    hidden_states: torch.Tensor,
+    residual: torch.Tensor,
+) -> torch.Tensor:
+    return torch.empty_like(hidden_states)
+
+
 class Cosmos3EdgeAttention(NemotronHAttention):
     """Nemotron-H attention with interleaved multimodal RoPE."""
 
@@ -309,10 +400,26 @@ class Cosmos3EdgeAttention(NemotronHAttention):
             quant_config,
             prefix,
         )
-        self.rotary_emb = get_rope(
-            self.head_dim,
-            max_position=config.max_position_embeddings,
-            rope_parameters=config.rope_parameters,
+        base = config.rope_parameters["rope_theta"]
+        inv_freq = 1.0 / (
+            base
+            ** (torch.arange(0, self.head_dim, 2, dtype=torch.float, device="cpu") / self.head_dim)
+        )
+        indices = torch.arange(inv_freq.shape[0], device="cpu")
+        sections = config.rope_parameters["mrope_section"]
+        height_mask = (indices % 3 == 1) & (indices < sections[1] * 3)
+        width_mask = (indices % 3 == 2) & (indices < sections[2] * 3)
+        temporal_mask = ~(height_mask | width_mask)
+        self.register_buffer(
+            "edge_inv_freq",
+            torch.stack(
+                (
+                    inv_freq * temporal_mask,
+                    inv_freq * height_mask,
+                    inv_freq * width_mask,
+                )
+            ).to(self.qkv_proj.weight.device),
+            persistent=False,
         )
 
     def forward_with_positions(
@@ -322,10 +429,36 @@ class Cosmos3EdgeAttention(NemotronHAttention):
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        q, k = self.rotary_emb(positions, q, k)
+        q, k = _edge_mrope(positions, q, k, self.edge_inv_freq)
         attn_output = self.attn(q, k, v)
         output, _ = self.o_proj(attn_output)
         return output
+
+
+class Cosmos3EdgeTextRMSNorm(nn.Module):
+    """Match the checkpoint's FP32 RMSNorm rounding order."""
+
+    def __init__(self, hidden_size: int, eps: float) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor | None = None,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        if residual is not None:
+            hidden_states = _edge_residual_add(hidden_states, residual)
+            residual = hidden_states
+        normalized = _edge_rms_norm(
+            hidden_states,
+            self.weight,
+            self.variance_epsilon,
+        )
+        if residual is None:
+            return normalized
+        return normalized, residual
 
 
 class Cosmos3EdgeAttentionDecoderLayer(nn.Module):
@@ -352,7 +485,7 @@ class Cosmos3EdgeAttentionDecoderLayer(nn.Module):
             quant_config,
             prefix=f"{prefix}.mixer",
         )
-        self.norm = RMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
+        self.norm = Cosmos3EdgeTextRMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
 
     def forward(
         self,
@@ -391,6 +524,16 @@ class Cosmos3EdgeTextModel(NemotronHModel):
             super().__init__(vllm_config=vllm_config, prefix=prefix)
         finally:
             nemotron_h.ALL_DECODER_LAYER_TYPES = original_types
+
+    def __call__(self, *args, **kwargs):
+        if not getattr(self, "compiled", False):
+            positions = kwargs.get("positions")
+            if positions is None and len(args) > 1:
+                positions = args[1]
+            if isinstance(positions, torch.Tensor):
+                # Nemotron-H marks token embeddings dynamic but not 3D MRoPE.
+                torch._dynamo.mark_dynamic(positions, positions.ndim - 1)
+        return super().__call__(*args, **kwargs)
 
     # The enclosing Cosmos model maps and packs checkpoint weights. Disabling
     # Nemotron-H's checkpoint-specific hook prevents those names from being
@@ -432,6 +575,15 @@ class Cosmos3EdgeForCausalLM(nn.Module):
                 "*": Cosmos3EdgeAttentionDecoderLayer,
                 "-": NemotronHMLPDecoderLayer,
             },
+        )
+        for layer in self.model.layers[1::2]:
+            layer.norm = Cosmos3EdgeTextRMSNorm(
+                text_config.hidden_size,
+                eps=text_config.layer_norm_epsilon,
+            )
+        self.model.norm_f = Cosmos3EdgeTextRMSNorm(
+            text_config.hidden_size,
+            eps=text_config.layer_norm_epsilon,
         )
         self.lm_head = ParallelLMHead(
             text_config.vocab_size,
