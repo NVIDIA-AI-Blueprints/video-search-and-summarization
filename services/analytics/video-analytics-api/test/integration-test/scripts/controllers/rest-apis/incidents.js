@@ -40,7 +40,7 @@ function getTests(c) {
         { name: 'GET /incidents (no sensorId/place) returns 200', path: `/incidents?${qs({ fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, validate: (b) => (Array.isArray(JSON.parse(b).incidents) ? null : 'missing incidents array') },
         {
             name: 'GET /incidents (VLM verified alert types)',
-            path: `/incidents?${qs({ vlmVerified: true, maxResultSize: 10000 })}`,
+            path: `/incidents?${qs({ place: P, fromTimestamp: F, toTimestamp: T, vlmVerified: true, maxResultSize: 10000 })}`,
             method: 'GET',
             expectedStatus: 200,
             validate: (b) => {
