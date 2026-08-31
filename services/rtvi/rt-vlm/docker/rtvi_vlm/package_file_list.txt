@@ -35,6 +35,7 @@ models/vllm_compatible/__init__.py
 models/vllm_compatible/adaptive_preprocess_limiter.py
 models/vllm_compatible/vllm_compatible_model.py
 vllm_cosmos3/__init__.py
+vllm_cosmos3/edge_attention_backend.py
 vllm_cosmos3/edge_config.py
 vllm_cosmos3/edge_native.py
 vllm_cosmos3/edge_processor.py

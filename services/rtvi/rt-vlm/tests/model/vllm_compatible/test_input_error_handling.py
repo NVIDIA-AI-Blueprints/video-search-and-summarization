@@ -582,6 +582,21 @@ def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
     assert engine_args["attention_backend"] == "TRITON_ATTN"
 
 
+def test_cosmos3_edge_defaults_to_custom_attention_backend(monkeypatch):
+    monkeypatch.delenv("VLLM_ATTENTION_BACKEND", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_ATTENTION_BACKEND", raising=False)
+    engine_args = {}
+
+    applied = vllm_compatible_model._apply_attention_backend_override(
+        engine_args,
+        {"attention_backend"},
+        "Cosmos3EdgeForConditionalGeneration",
+    )
+
+    assert applied is True
+    assert engine_args["attention_backend"] == "CUSTOM"
+
+
 def test_num_preprocess_workers_defaults_to_parallel_video_value(monkeypatch):
     monkeypatch.delenv("VLLM_NUM_PREPROCESS_WORKERS", raising=False)
     monkeypatch.delenv("RTVI_VLLM_NUM_PREPROCESS_WORKERS", raising=False)
@@ -628,15 +643,15 @@ def test_vllm_compilation_config_is_opt_in(monkeypatch, value):
     assert vllm_compatible_model._get_vllm_compilation_config("") is None
 
 
-def test_vllm_compilation_config_defaults_edge_to_cuda_graph_execution(monkeypatch):
+def test_vllm_compilation_config_defaults_edge_to_compiled_execution(monkeypatch):
     monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
     monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
 
     assert vllm_compatible_model._get_vllm_compilation_config(
         "Cosmos3EdgeForConditionalGeneration"
     ) == {
-        "mode": "NONE",
-        "cudagraph_mode": "FULL",
+        "mode": "VLLM_COMPILE",
+        "cudagraph_mode": "PIECEWISE",
     }
 
 

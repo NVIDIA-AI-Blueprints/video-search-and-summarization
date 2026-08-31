@@ -263,8 +263,8 @@ def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] |
     if not raw_mode:
         if _is_cosmos3_edge_arch(model_architecture):
             return {
-                "mode": "NONE",
-                "cudagraph_mode": "FULL",
+                "mode": "VLLM_COMPILE",
+                "cudagraph_mode": "PIECEWISE",
             }
         return None
     cudagraph_mode = raw_mode.upper()
@@ -371,10 +371,14 @@ def _apply_kv_cache_dtype_override(
 def _apply_attention_backend_override(
     engine_args_kwargs: dict[str, object],
     supported_params: set[str],
+    model_architecture: str = "",
 ) -> bool:
     attention_backend = (_get_rtvi_vllm_env("VLLM_ATTENTION_BACKEND", "") or "").strip()
     if not attention_backend:
-        return False
+        if not _is_cosmos3_edge_arch(model_architecture):
+            return False
+        attention_backend = "CUSTOM"
+        logger.info("Defaulting Cosmos3 Edge attention backend to %s", attention_backend)
     if "attention_backend" not in supported_params:
         logger.warning(
             "VLLM_ATTENTION_BACKEND=%s ignored; installed vLLM does not support "
@@ -1430,6 +1434,7 @@ class VllmCompatible(BaseVlmModel):
                 _apply_attention_backend_override(
                     engine_args_kwargs,
                     _engine_supported_params,
+                    self._model_architecture,
                 )
                 _configure_structured_outputs(engine_args_kwargs, _engine_supported_params)
 
