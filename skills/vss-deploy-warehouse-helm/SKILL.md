@@ -28,11 +28,12 @@ Docker Compose's warehouse deploy caps `NUM_STREAMS` per GPU automatically: the 
 `max_streams_supported` table for the detected `HARDWARE_PROFILE` and mode, and clamps
 `final_stream_count = min(NUM_STREAMS, max_streams_supported)`.
 
-The Helm charts (`deploy/helm/industry-profiles/warehouse-operations/warehouse-{2d,3d,mv3dt}-app`)
-do **not** do this — their `bp-configurator.env` ships a fixed `NUM_STREAMS` and never sets
+The Helm charts don't do this — `bp-configurator.env` ships a fixed `NUM_STREAMS` and never sets
 `HARDWARE_PROFILE` at all (`ENABLE_PROFILE_CONFIGURATOR=false`). A user who asks for more streams
 than the GPU can sustain gets no protection. This skill closes that gap by computing the same cap
-Compose would apply and writing it into a Helm values-override file before install.
+Compose would apply and writing it into a Helm values-override file before install. Chart
+locations: `deploy/helm/industry-profiles/warehouse-operations/warehouse-{2d,3d}-app`, or
+`deploy/helm/developer-profiles/dev-profile-mc-tracking` for `mv3dt`.
 
 ## Available Scripts
 
@@ -65,18 +66,20 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
 4. **Install/upgrade**, chaining the generated file after any other `-f`/`--set` overrides so it
    wins on `bp-configurator.env`:
    ```bash
-   helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app
-   helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app \
+   helm dependency update <chart-dir>
+   helm upgrade --install wh <chart-dir> \
      -n <namespace> --create-namespace \
      -f values-stream-cap.generated.yaml \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
      ...  # secrets/ingress overrides, see references/streams.md
    ```
+   `<chart-dir>` is `deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app` for
+   `2d`/`3d`, or `deploy/helm/developer-profiles/dev-profile-mc-tracking` for `mv3dt`.
 5. **Re-run the script whenever `NUM_STREAMS` or the target GPU changes** — the values-override
    file isn't tracked automatically; re-generate and re-`helm upgrade` after a hardware change.
 
 ## Prerequisites
 
 Same NGC secrets, storage class, and ingress prerequisites as any warehouse Helm deploy — see
-`deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app/README.md` §Prerequisites.
-This skill only adds the stream-cap step; it doesn't replace chart setup.
+`<chart-dir>/README.md` §Prerequisites (see step 4 above for `<chart-dir>` by mode). This skill
+only adds the stream-cap step; it doesn't replace chart setup.
