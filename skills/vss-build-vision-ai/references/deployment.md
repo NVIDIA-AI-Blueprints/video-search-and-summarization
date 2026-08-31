@@ -15,20 +15,41 @@ Never copy or edit the Foundation files. Generate the exact deployment model
 from the root Compose graph, optional changed-service patches, and four ordered
 env layers:
 
-**Run your Foundation's Resolve block verbatim; do not reconstruct it from
-memory here.** A developer profile resolves through
-[`composition.md`](composition.md#resolve); `warehouse` resolves through
-[`profiles/warehouse.md`](profiles/warehouse.md), which uses different env layers
-and adds a render and a validation step. Each is the single source of truth for
-its own path — this file previously carried a third copy, and it drifted.
+```bash
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
+FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 
-Both paths then rejoin the deploy lifecycle below unchanged. What either block
-does, and why each part matters:
+if command -v uv >/dev/null 2>&1; then
+  VSS_SKILL_PY=(uv run)
+elif python3 - <<'PY' >/dev/null 2>&1
+import yaml
+PY
+then
+  VSS_SKILL_PY=(python3)
+else
+  echo "Install uv or install PyYAML for python3 before normalizing resolved.yml." >&2
+  exit 1
+fi
 
-| Step | Consequence of skipping |
-|---|---|
-| Establish `VSS_SKILL_PY` (`uv run`, else `python3`) **before** any script call | a `uv`-less host that passed prerequisites dies on the first helper script |
-| `normalize_resolved_yml.py`, then `validate_resolved_yml.py` | dangling optional deps and stale sentinels reach deployment |
+env_args=(
+  --env-file "$REPO/deploy/docker/containers.env"
+  --env-file "$FOUNDATION_DIR/.env"
+  --env-file "$FOUNDATION_DIR/overrides.env"
+  --env-file "$BUILD_DIR/override.env"
+)
+
+docker compose "${env_args[@]}" \
+  -f "$BUILD_DIR/compose.yml" \
+  config --no-consistency > "$BUILD_DIR/resolved.yml"
+
+"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml"
+
+"${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/validate_resolved_yml.py" \
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+```
 
 Write `resolved.yml` with the `>` redirect exactly as shown — see `composition.md`
 for how to keep Compose's stderr out of the file. Act on that stderr rather than
@@ -134,5 +155,3 @@ leftover containers, stale volumes, and bind-mounted data cleanup.
 - `deploy/docker/containers.env`
 - `deploy/docker/developer-profiles/dev-profile-*/.env`
 - `deploy/docker/developer-profiles/dev-profile-*/overrides.env`
-- `deploy/docker/industry-profiles/warehouse-operations/.env`
-- `deploy/docker/industry-profiles/warehouse-operations/overrides.env`

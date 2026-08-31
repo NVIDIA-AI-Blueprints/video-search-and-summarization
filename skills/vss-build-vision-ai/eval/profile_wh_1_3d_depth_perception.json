@@ -26,7 +26,7 @@
         "`FOUNDATION_VARIANT` is one of the nine service lists this skill supports.",
         "`_builds/wh-1/compose.yml` includes both `../../deploy/docker/compose.yml` and `../../deploy/docker/services/infra/compose-no-turn-tcp-relay.yml` in one ordered `path` list.",
         "`override.env` sets `MODE=3d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka`, `SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic`, `NUM_STREAMS=4`, and both `VLM_MODE=none` and `VLM_NAME_SLUG=none`.",
-        "`override.env` materializes the full transitive dependent-value closure: `SDR_CONTROLLER_CONFIG_PATH` and `NVSTREAMER_3D_CONFIG_DIR` both resolve through `warehouse-3d-app`, and `TURN_PUBLIC_HOST` carries a concrete host value rather than inheriting the `<HOST_IP>` sentinel through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`.",
+        "`override.env` materializes the full transitive dependent-value closure: `SDR_CONTROLLER_CONFIG_PATH` resolves through `warehouse-3d-app`, and `NVSTREAMER_CONFIG_DIR` is concrete, and `TURN_PUBLIC_HOST` carries a concrete host value rather than inheriting the `<HOST_IP>` sentinel through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`.",
         "`_builds/wh-1/configurator.env` exists, contains no `<HOST_IP>` or `/path/to/` sentinel, and `override.env` sets `BP_CONFIGURATOR_ENV_FILE` to that path.",
         "No agent tier is present: `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix`, `alert-bridge` and `rtvi-vlm` are all absent, and no `llm_*` token appears in `COMPOSE_PROFILES`.",
         "`resolved.yml` was generated with the four ordered env layers rooted at `deploy/docker/industry-profiles/warehouse-operations/`, not at any `developer-profiles/dev-profile-*` directory.",

@@ -14,11 +14,12 @@
 
 - Use `elasticsearch-init-container` with `elasticsearch`.
 - **Probe these at the right paths — the wrong one reads as a dead service.**
-  `vss-video-analytics-api` serves `/livez`; `/health` and `/readyz` return 404
-  while it is up and serving. Kibana serves under the `/kibana` base path, so
-  bare `/` and `/api/status` 404 while the container reports healthy — use
-  `/kibana/api/status`. A single-node Elasticsearch reports `yellow`, never
-  `green`; `curl -sf` passes on yellow, so treat it as healthy.
+  - **Kibana** serves under the `/kibana` base path, so bare `/` and
+    `/api/status` return 404 while the container reports healthy. Use
+    `/kibana/api/status`.
+  - **Elasticsearch** on a single node reports `yellow`, never `green` —
+    replicas stay unassigned with one node. `curl -sf` passes on yellow, so
+    treat it as healthy.
 - Use `kafka-topic-init-container` and `broker-health-check` with Kafka-backed
   capability owners.
 - `logstash` is the **sole** bridge from Kafka topics to Elasticsearch. No other

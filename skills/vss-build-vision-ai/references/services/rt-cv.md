@@ -43,16 +43,13 @@ the mapping above is the composition surface, not a second source of truth.
   `DS_MODEL_FAMILY`. Those files carry `<TOKEN>` placeholders for deployment
   model paths: supply each as `RTVI_CV_REF_<TOKEN>` or startup stops and lists
   the ones still missing.
-- Warehouse keys are fixed by `MODE` and are not interchangeable: `2d` →
-  `perception-2d`, `3d` → `perception-3d` **plus** `ds-configurator-3d` (the
-  DeepStream config adaptor, 3D only). Every warehouse perception key
-  additionally requires the blueprint configurator
-  ([`configurator.md`](configurator.md)) and the VIOS infrastructure peers
-  ([`vios.md`](vios.md)).
-- **Output topic differs by warehouse mode.** `2d` publishes tracked detections
-  on `mdx-raw`. `3d` (Sparse4D) publishes BEV frames **directly** to `mdx-bev`
-  and leaves `mdx-raw` empty — do not use `mdx-raw` to test whether 3D
-  perception is alive.
+- Warehouse perception additionally requires the blueprint configurator
+  ([`configurator.md`](configurator.md)) and the VIOS peers
+  ([`vios.md`](vios.md)); `ds-configurator-3d` is the 3D-only DeepStream config
+  adaptor.
+- Output topic differs by warehouse mode: `2d` publishes tracked detections on
+  `mdx-raw`; `3d` (Sparse4D) publishes BEV frames directly to `mdx-bev` and
+  leaves `mdx-raw` empty.
 - Kafka-backed pipelines require `kafka`, `kafka-topic-init-container`, and
   `broker-health-check`.
 - Search RT-CV requires checked-in model/config mounts; model download is

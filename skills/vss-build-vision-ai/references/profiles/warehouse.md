@@ -1,13 +1,13 @@
 # Warehouse Industry Profile
 
-Warehouse is the only supported **industry** Foundation. Its runtime behavior,
-host setup, and deployment procedure are owned by
-`skills/vss-deploy-profile/references/warehouse.md`; this file carries only the
-**composition surface** — what the Foundation is made of and what constrains it
-— and is not a second source of truth for anything procedural.
+Warehouse is the only supported **industry** Foundation. This file owns warehouse
+end to end: what the Foundation is made of, what constrains it, how a build is
+resolved, and how the result is reached and verified. The rest of the skill's
+machinery applies unchanged by reference — see Build and resolve below.
 
 `overrides.env` defines further service lists; only the nine below are
-selectable here. Anything else routes to `vss-deploy-profile`.
+supported. The others are out of scope for this skill — do not compose or deploy
+them.
 
 **Warehouse is variant selection, not composition.** Pick the one
 `COMPOSE_PROFILES_WH_*` list that `MODE` + `BP_PROFILE` + size identify, expand
@@ -20,8 +20,14 @@ artifacts and resolve pipeline below, and shares the rest of the skill's
 machinery by reference: [`../prerequisites.md`](../prerequisites.md),
 [`../credentials.md`](../credentials.md), [`../ngc.md`](../ngc.md),
 [`../data-directory.md`](../data-directory.md),
-[`../readiness.md`](../readiness.md), [`../deployment.md`](../deployment.md) and
-[`../teardown.md`](../teardown.md) all apply unchanged.
+[`../readiness.md`](../readiness.md) and [`../teardown.md`](../teardown.md) all
+apply unchanged.
+
+[`../deployment.md`](../deployment.md) applies **from its Review-and-deploy
+section onward** — those steps operate on the standalone `resolved.yml` and are
+Foundation-agnostic. Skip its Resolve section: it resolves a developer profile
+against `dev-profile-<F>/`, which warehouse has no counterpart to. Use the
+Resolve block below instead.
 
 ## Capabilities and routing cues
 
@@ -95,7 +101,7 @@ its absence from the service list is not a defect.
 | `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path, and remote VLM is not wired end to end on the Docker path — see below. |
 | `VSS_RT_CV_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=DGX-SPARK`. |
 | `BP_CONFIGURATOR_ENV_FILE` | Point at the build's generated `configurator.env`. Without it the configurator reads the checked-in `overrides.env` and bakes the `<HOST_IP>` sentinel — see [`../services/configurator.md`](../services/configurator.md). |
-| `NVSTREAMER_<MODE>_CONFIG_DIR`, `TURN_PUBLIC_HOST` | Easily-missed closure members. `TURN_PUBLIC_HOST` derives from `HOST_IP` only transitively, through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`. |
+| `NVSTREAMER_CONFIG_DIR`, `TURN_PUBLIC_HOST` | Easily-missed closure members. `TURN_PUBLIC_HOST` derives from `HOST_IP` only transitively, through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`. |
 
 ## Hard constraints
 
@@ -229,8 +235,8 @@ reaches `TURN_PUBLIC_HOST` only through two hops, so a single-level scan for
 | Change | Also re-materialize |
 |---|---|
 | `HOST_IP` | `EXTERNAL_IP` → `VSS_PUBLIC_HOST` → `TURN_EXTERNAL_IP`, `TURN_PUBLIC_HOST` |
-| `MODE` | `SDR_CONTROLLER_CONFIG_PATH`, `NVSTREAMER_<MODE>_CONFIG_DIR` — both embed the mode |
-| `VSS_APPS_DIR` | `SDR_CONTROLLER_CONFIG_PATH`, `SENSOR_FILE_PATH`, `NVSTREAMER_2D_CONFIG_DIR`, `NVSTREAMER_3D_CONFIG_DIR`, `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` |
+| `MODE` | `SDR_CONTROLLER_CONFIG_PATH` — embeds the mode |
+| `VSS_APPS_DIR` | `SDR_CONTROLLER_CONFIG_PATH`, `SENSOR_FILE_PATH`, `NVSTREAMER_CONFIG_DIR`, `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` |
 
 `overrides.env` ships `VSS_APPS_DIR` and `VSS_DATA_DIR` as `/path/to/...`
 placeholders — always set both. A missed closure member surfaces as a
@@ -283,6 +289,53 @@ resolved file standalone: `config` bakes the env layers in, so pass no
 service `environment:` block. Its rules fail at bring-up or silently at runtime,
 never at `config` time.
 
+## Access points
+
+Prefer the HAProxy ingress when the selected list includes it — one
+browser-reachable origin that rewrites paths to internal services. The
+`…_MINIMAL` lists omit HAProxy, so use direct ports there. Routes are defined in
+`deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
+
+### Via the ingress — `http://<EXTERNAL_IP>:${HAPROXY_HOST_PORT:-7777}`
+
+| Path | Backend | Available when |
+|---|---|---|
+| `/` (catch-all) | `vss-ui` | `bp_wh` only; other ingress-enabled variants have no UI backend, so `/` returns 503 |
+| `/vst`, `/vst/...` | `vst-ingress` | any ingress-enabled variant — VST is proxied, so this is the browser path to its UI |
+| `/storage/...` | `vst-ingress` (rewritten to `/vst/storage/...`) | any ingress-enabled variant |
+| `/kibana/...` | `kibana` | `bp_wh`, or extended Kafka/Redis |
+| `/elasticsearch/...` | `elasticsearch`, path-stripped; `GET/HEAD/POST/OPTIONS` only, cluster-admin and bulk-mutating paths denied | same as `/kibana` |
+| `/video-analytics-api/...` | `vss-video-analytics-api`, path-stripped | same as `/kibana` |
+| `/rtvi-cv/...` | `vss-rtvi-cv`, path-stripped | `bp_wh`, or extended Kafka/Redis |
+| `/rtvi-vlm/...` | `rtvi-vlm`, path-stripped | `bp_wh` only |
+| `/alert-bridge/...`, `/phoenix/...`, `/va-mcp` | `alert-bridge`, `phoenix`, `vss-va-mcp` | `bp_wh` only |
+| `/api`, `/chat`, `/static`, `/websocket` | `vss-agent` (`/api/chat` matches `vss-ui` first) | `bp_wh` only |
+| `/behavior-analytics/...` | — | **never works.** The route exists and the container runs, but it publishes no HTTP listener, so the backend never passes its check and every request 503s. Read behaviors from `mdx-behavior` or the `mdx-behavior-*` indices |
+| `/perception-sdr/...`, `/rtvi-embed/...` | — | **never** — neither container is deployed by any warehouse list |
+
+### Direct ports
+
+| Service | URL | Available when |
+|---|---|---|
+| NvStreamer UI | `<HOST_IP>:31000` (`NVSTREAMER_HTTP_HOST_PORT`) | all variants; no ingress route |
+| VST UI | `<HOST_IP>:30888/vst/` (`VST_INGRESS_HOST_PORT`) | all variants; prefer `/vst/` via ingress |
+| SDR controller | `<HOST_IP>:10000` (`SDRC_PROXY_HOST_PORT`) | all variants |
+| Elasticsearch | `<HOST_IP>:9200` (`ELASTICSEARCH_HOST_PORT`) | `bp_wh`, or extended Kafka/Redis |
+| Kibana | `<HOST_IP>:5601/kibana` (`KIBANA_HOST_PORT`) | same — served under `/kibana` either way |
+| Video Analytics API | `<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | same |
+| Grafana | `<HOST_IP>:35000` (`GRAFANA_HOST_PORT`) | `bp_wh`, or extended Kafka/Redis; no ingress route |
+| VSS Agent, Phoenix | `<HOST_IP>:8000`, `<HOST_IP>:6006` | `bp_wh` only; prefer `/api` and `/phoenix` |
+
+Nothing listens on `8001` — there is no VST MCP container.
+
+> **A wrong `Host` header looks like "every path 404s".** HAProxy first denies
+> any request whose `Host` is not in its `known_host` ACL — `VSS_PUBLIC_HOST`,
+> `EXTERNAL_IP`, `HOST_IP`, `localhost`, `127.0.0.1`, each with and without
+> `:HAPROXY_PORT` — with a 404, then routes matching traffic through the
+> identical ACL. `EXTERNAL_IP` defaults to `${HOST_IP}`; set it to the
+> browser-reachable name. On Brev the ingress, agent and UI additionally need
+> `https`/`wss` on the secure-link domain ([`../brev.md`](../brev.md)).
+
 ## Stock readiness checks
 
 Container-state gating is the shared Gate 0 in [`../readiness.md`](../readiness.md);
@@ -311,10 +364,8 @@ curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 ```
 
 > Endpoint quirks that read as a dead service are in
-> [`../services/elk.md`](../services/elk.md). `/behavior-analytics` and
-> `/perception-sdr` always 503 — the first publishes no HTTP listener
-> ([`../services/behavior-analytics.md`](../services/behavior-analytics.md)),
-> the second names a container no warehouse list deploys.
+> [`../services/elk.md`](../services/elk.md); routes that never answer are in
+> Access points above.
 
 ## Sources
 
@@ -324,5 +375,4 @@ curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 - `deploy/docker/industry-profiles/warehouse-operations/warehouse-{2d,3d}-app/`
 - `deploy/docker/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`
 - `deploy/docker/services/infra/compose-no-turn-tcp-relay.yml`
-- `skills/vss-deploy-profile/references/warehouse.md` — authoritative for host
-  setup, deployment procedure, access points, and app data
+- `deploy/docker/services/infra/haproxy/haproxy.cfg.template`

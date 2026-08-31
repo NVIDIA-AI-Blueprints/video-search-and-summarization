@@ -237,9 +237,8 @@ From the repository root:
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
 FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
-# Establish the helper-script runner FIRST: every script below goes through
-# "${VSS_SKILL_PY[@]}". Invoking `uv run` directly anywhere in this block would
-# strand a host that passed the prerequisite check on the python3 fallback.
+FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
+
 if command -v uv >/dev/null 2>&1; then
   VSS_SKILL_PY=(uv run)
 elif python3 - <<'PY' >/dev/null 2>&1
@@ -251,8 +250,6 @@ else
   echo "Install uv or install PyYAML for python3 before normalizing resolved.yml." >&2
   exit 1
 fi
-
-FOUNDATION_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-$FOUNDATION"
 
 env_args=(
   --env-file "$REPO/deploy/docker/containers.env"
