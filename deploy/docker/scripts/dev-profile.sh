@@ -488,6 +488,24 @@ function mask_external_ip_args() {
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
+  local _profile="${3:-}"
+
+  # Search on a single-GPU edge board. RT-VLM shares the one GPU with the
+  # perception pipeline (RT-CV, RT-Embed, streamprocessing) and, when --llm keeps
+  # the LLM on the board, with a NIM at NIM_GPU_MEM_FRACTION=0.30 as well. Both
+  # boards carry 128 GB of *unified* memory -- roughly 108 GB usable on Thor,
+  # and shared with the host rather than dedicated VRAM. vLLM refuses to start
+  # unless free >= fraction x total and does not subtract memory held by other
+  # processes, so the two engine fractions have to sum well clear of 1.0.
+  # 0.25 gives RT-VLM ~32 GB for Cosmos3 Nano BF16 and holds LLM+VLM at 0.55,
+  # leaving ~0.45 for perception and the host. Deliberately below the 0.35 that
+  # base/alerts uses on Thor, where no LLM is resident on the same GPU.
+  # NOT MEASURED on hardware -- validate on the board before relying on it.
+  if [[ "${_profile}" == "search" ]] && [[ "${_vlm_mode}" == "local_shared" ]]; then
+    case "${_hardware_profile}" in
+      DGX-SPARK|AGX-THOR) echo "0.25"; return ;;
+    esac
+  fi
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
@@ -1049,17 +1067,20 @@ function process_args() {
       fi
 
       # Search on edge hardware has one GPU to work with, and streamprocessing,
-      # RT-CV and RT-Embed all need it, so the VLM always runs on a remote
-      # endpoint. The LLM defaults to remote as well, but passing --llm without
-      # --use-remote-llm keeps it on the board's GPU instead.
+      # RT-CV and RT-Embed all need it, so both models default to a remote
+      # endpoint. Either one can be pulled back onto the board by naming it:
+      # --llm <model> without --use-remote-llm keeps the LLM local, and --vlm
+      # <model> without --use-remote-vlm keeps RT-VLM local. Naming both is
+      # allowed and is the fully on-board configuration; it is also the tightest,
+      # because the two vLLM engines and the perception pipeline then share one
+      # 128 GB unified pool (see get_rtvi_vllm_gpu_memory_utilization).
       if contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}" && [[ "${profile}" == "search" ]]; then
-        local _edge_llm_local=0
+        local _edge_llm_local=0 _edge_vlm_local=0
         if contains_element "llm" "${options_provided[@]}" && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
           _edge_llm_local=1
         fi
         if contains_element "vlm" "${options_provided[@]}" && ! contains_element "use-remote-vlm" "${options_provided[@]}"; then
-          echo "[ERROR] Search on ${hardware_profile} cannot host a local VLM: the board's only GPU already carries the perception pipeline. Use --use-remote-vlm with VLM_ENDPOINT_URL."
-          ((_all_good++))
+          _edge_vlm_local=1
         fi
         # The endpoints are read here because llm_base_url/vlm_base_url are only
         # populated by the --use-remote-* option handlers.
@@ -1071,11 +1092,22 @@ function process_args() {
             ((_all_good++))
           fi
         fi
-        edge_force_remote_vlm=1
-        vlm_base_url="${vlm_base_url:-${VLM_ENDPOINT_URL:-}}"
-        if [[ -z "${vlm_base_url}" ]]; then
-          echo "[ERROR] Search on ${hardware_profile} uses a remote VLM: set VLM_ENDPOINT_URL."
-          ((_all_good++))
+        if [[ "${_edge_vlm_local}" -eq 0 ]]; then
+          edge_force_remote_vlm=1
+          vlm_base_url="${vlm_base_url:-${VLM_ENDPOINT_URL:-}}"
+          if [[ -z "${vlm_base_url}" ]]; then
+            echo "[ERROR] Search on ${hardware_profile} uses a remote VLM: set VLM_ENDPOINT_URL, or pass --vlm <model> to host it on the board's GPU."
+            ((_all_good++))
+          fi
+        else
+          # A local VLM here is RT-VLM, not a standalone NIM, so the model has to
+          # be one of the integrated checkpoints. Checking now keeps the failure
+          # next to the flag that caused it; the generic check further down runs
+          # after the stack has already started coming up.
+          if [[ -z "$(get_rtvi_vlm_model_path "${vlm}")" ]]; then
+            echo "[ERROR] VLM '${vlm}' is not an integrated RT-VLM checkpoint, so search on ${hardware_profile} cannot host it locally. Use --use-remote-vlm with VLM_ENDPOINT_URL, or pick a supported checkpoint."
+            ((_all_good++))
+          fi
         fi
         # A local LLM shares GPU 0 with perception, so it needs the -shared hw file
         # for this board. Check it here: compose would otherwise fail on a missing
@@ -1818,7 +1850,7 @@ function state_up() {
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")"
       if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
@@ -1851,6 +1883,13 @@ function state_up() {
       # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
       if [[ "${profile}" == "base" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
+      elif [[ "${profile}" == "search" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+        # Thor is excluded from the generic sizing block above, so search with a
+        # local RT-VLM would otherwise inherit the profile's empty value and let
+        # vLLM fall back to its own default -- far too large for a board that is
+        # also running perception and, optionally, the LLM. A host env override
+        # still wins, which is how the fraction gets tuned during bring-up.
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")}"
       else
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
       fi
@@ -1878,12 +1917,19 @@ function state_up() {
       fi
     fi
   fi
-  # Search on edge hardware: the VLM is always a remote endpoint, and the agent
-  # calls it directly instead of proxying through RT-VLM, which frees the GPU that
-  # the container would otherwise hold for media preprocessing. That means routing
+  # Search on edge hardware with a REMOTE VLM: the agent calls the endpoint
+  # directly instead of proxying through RT-VLM, which frees the GPU that the
+  # container would otherwise hold for media preprocessing. That means routing
   # the agent at a direct profile (nim/openai rather than rtvi), switching its
   # media framing to inline base64, and dropping rtvi-vlm from the deployment.
-  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}"; then
+  #
+  # None of that applies when --vlm keeps the VLM on the board: rtvi-vlm is then
+  # the thing serving the model, so it has to stay in COMPOSE_PROFILES and the
+  # agent has to keep talking to it over the rtvi profile. Leaving media mode
+  # alone matters too -- the agent hands RT-VLM a VST link rather than inlining
+  # the clip as base64, which is both cheaper on the board and avoids RT-VLM's
+  # ~7.5 MB cap on inlined video (VideoUrl.url max_length in nim_compat.py).
+  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}" && [[ "${vlm_mode}" == "remote" ]]; then
     # Only an explicit --vlm-model-type counts here: vlm_model_type is otherwise
     # pre-filled from the profile env files, where search sets it to rtvi.
     if contains_element "vlm-model-type" "${options_provided[@]}" && [[ -n "${vlm_model_type}" ]]; then
