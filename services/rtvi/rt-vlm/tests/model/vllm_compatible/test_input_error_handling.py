@@ -535,21 +535,25 @@ def test_evs_token_budget_honors_an_explicit_value(monkeypatch):
 def test_rtvi_vllm_env_sanitizer_unsets_blank_import_env(monkeypatch):
     monkeypatch.setenv("VLLM_CONFIGURE_LOGGING", "")
     monkeypatch.setenv("VLLM_LOGGING_LEVEL", "")
+    monkeypatch.setenv("VLLM_NVFP4_GEMM_BACKEND", "")
 
     vllm_compatible_model._sanitize_rtvi_vllm_env()
 
     assert "VLLM_CONFIGURE_LOGGING" not in vllm_compatible_model.os.environ
     assert "VLLM_LOGGING_LEVEL" not in vllm_compatible_model.os.environ
+    assert "VLLM_NVFP4_GEMM_BACKEND" not in vllm_compatible_model.os.environ
 
 
 def test_rtvi_vllm_env_sanitizer_preserves_explicit_import_env(monkeypatch):
     monkeypatch.setenv("VLLM_CONFIGURE_LOGGING", "0")
     monkeypatch.setenv("VLLM_LOGGING_LEVEL", "debug")
+    monkeypatch.setenv("VLLM_NVFP4_GEMM_BACKEND", "marlin")
 
     vllm_compatible_model._sanitize_rtvi_vllm_env()
 
     assert vllm_compatible_model.os.environ["VLLM_CONFIGURE_LOGGING"] == "0"
     assert vllm_compatible_model.os.environ["VLLM_LOGGING_LEVEL"] == "debug"
+    assert vllm_compatible_model.os.environ["VLLM_NVFP4_GEMM_BACKEND"] == "marlin"
 
 
 def test_kv_cache_dtype_override_is_forwarded_when_supported(monkeypatch):
