@@ -110,8 +110,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  # NVSTREAMER_CONFIG_DIR is set in dev-profile-mc-tracking/.env, so this
-  # variant inherits vst-config.json from base.yml's default mount.
   nvstreamer-mc-tracking:
     extends:
       file: base.yml
@@ -119,7 +117,8 @@ services:
     profiles: !override ["nvstreamer-mc-tracking"]
     container_name: vss-vios-nvstreamer-mc-tracking
     volumes:
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/tmp/nv_streamer/videos
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
     depends_on:
       bp-configurator-mc-tracking:
         condition: service_healthy

@@ -139,7 +139,7 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
      developer-profiles/dev-profile-mc-tracking/deepstream/configs \
      developer-profiles/dev-profile-mc-tracking/vss-behavior-analytics/configs \
      developer-profiles/dev-profile-mc-tracking/vst/configs \
-     developer-profiles/dev-profile-mc-tracking/nvstreamer/configs \
+     services/nvstreamer/configs \
      services/analytics/video-analytics-api/configs
    chmod o+r services/infra/haproxy/haproxy.cfg.template
    ```

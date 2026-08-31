@@ -130,7 +130,7 @@ commons:
 
       # Update NVStreamer configs
       - operation_type: "json_update"
-        target_file: ${VSS_APPS_DIR}/developer-profiles/dev-profile-mc-tracking/nvstreamer/configs/vst-config.json
+        target_file: ${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json
         backup: true
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
