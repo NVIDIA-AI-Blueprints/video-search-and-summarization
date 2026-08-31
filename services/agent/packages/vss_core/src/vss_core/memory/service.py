@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
+import logging
 from typing import Any
 from typing import Protocol
 
@@ -25,6 +26,8 @@ from .store import MemoryStore
 from .store import coerce_utc_instant
 from .store import storage_id_for
 
+logger = logging.getLogger(__name__)
+
 
 class BackendReconciler(Protocol):
     """Optional one-shot poll of a still-pending backend job.
@@ -35,6 +38,12 @@ class BackendReconciler(Protocol):
     """
 
     def reconcile(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord | None: ...
+
+
+class SemanticMemorySynchronizer(Protocol):
+    """Derived-memory boundary invoked only after authoritative persistence."""
+
+    def sync_record(self, record: UnifiedMemoryRecord) -> object: ...
 
 
 class MemoryNotFoundError(LookupError):
@@ -175,9 +184,11 @@ class MemoryService:
         store: MemoryStore | None = None,
         *,
         reconciler: BackendReconciler | None = None,
+        semantic_memory: SemanticMemorySynchronizer | None = None,
     ) -> None:
         self._store: MemoryStore = store if store is not None else InMemoryStore()
         self._reconciler = reconciler
+        self._semantic_memory = semantic_memory
 
     @property
     def store(self) -> MemoryStore:
@@ -185,7 +196,9 @@ class MemoryService:
 
     def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
         _reject_nested_collections(record)
-        return self._store.upsert(record)
+        persisted = self._store.upsert(record)
+        self._sync_nonfatal(persisted)
+        return persisted
 
     def upsert_bundle(self, bundle: RecordBundle) -> PersistResult:
         """Idempotently upsert parent then children; never raises on partial failure.
@@ -222,7 +235,7 @@ class MemoryService:
         written_children_by_id: dict[str, UnifiedMemoryRecord] = {}
 
         try:
-            self._store.upsert(bundle.parent)
+            persisted_parent = self._store.upsert(bundle.parent)
             written_ids.add(storage_id_for(bundle.parent))
         except Exception as error:
             failed.append(
@@ -255,9 +268,9 @@ class MemoryService:
         for child in bundle.children:
             child_storage_id = storage_id_for(child)
             try:
-                self._store.upsert(child)
+                persisted_child = self._store.upsert(child)
                 written_ids.add(child_storage_id)
-                written_children_by_id[child_storage_id] = child
+                written_children_by_id[child_storage_id] = persisted_child
             except Exception as error:
                 failed.append(
                     PersistFailure(
@@ -279,7 +292,7 @@ class MemoryService:
             corrected = _parent_after_partial_children(bundle.parent, written_children)
             if corrected != bundle.parent:
                 try:
-                    self._store.upsert(corrected)
+                    persisted_parent = self._store.upsert(corrected)
                 except Exception as error:
                     failed.append(
                         PersistFailure(
@@ -291,12 +304,46 @@ class MemoryService:
                         )
                     )
 
+        if self._semantic_memory is not None:
+            # Derived synchronization starts only after every authoritative write
+            # (including partial-parent correction) has finished. Read the parent
+            # back so its final corrected status/counts are what gets embedded.
+            try:
+                final_parent = self._store.get(bundle.parent.job.job_id) or persisted_parent
+            except Exception as error:
+                # A post-write read is required only for derived indexing. Preserve
+                # the authoritative persistence result if that read is unavailable.
+                logger.warning(
+                    "semantic memory parent refresh failed for %r (%s)",
+                    storage_id_for(persisted_parent),
+                    type(error).__name__,
+                )
+                final_parent = persisted_parent
+            self._sync_nonfatal(final_parent)
+            for child in written_children_by_id.values():
+                self._sync_nonfatal(child)
+
         return PersistResult(
             requested=requested,
             expected=expected,
             written=len(written_ids),
             failed=failed,
         )
+
+    def _sync_nonfatal(self, record: UnifiedMemoryRecord) -> None:
+        if self._semantic_memory is None:
+            return
+        try:
+            self._semantic_memory.sync_record(record)
+        except Exception as error:
+            # Embedding infrastructure is derived and must never alter the
+            # authoritative result. Do not include backend messages: they may
+            # contain endpoint credentials, payload text, or vector values.
+            logger.warning(
+                "semantic memory synchronization failed for %r (%s)",
+                storage_id_for(record),
+                type(error).__name__,
+            )
 
     def get(
         self,
@@ -431,10 +478,11 @@ def build_memory_service(
     memory_index: str | None = None,
     store: MemoryStore | None = None,
     reconciler: BackendReconciler | None = None,
+    semantic_memory: SemanticMemorySynchronizer | None = None,
 ) -> MemoryService:
     """Construct a memory service from explicit runtime settings (no process env)."""
     if store is not None:
-        return MemoryService(store, reconciler=reconciler)
+        return MemoryService(store, reconciler=reconciler, semantic_memory=semantic_memory)
     if es_endpoint:
         from .backends.elasticsearch import DEFAULT_MEMORY_INDEX
         from .backends.elasticsearch import ElasticsearchMemoryStore
@@ -443,7 +491,7 @@ def build_memory_service(
             endpoint=es_endpoint,
             index=memory_index or DEFAULT_MEMORY_INDEX,
         )
-        return MemoryService(es_store, reconciler=reconciler)
+        return MemoryService(es_store, reconciler=reconciler, semantic_memory=semantic_memory)
     raise ConfigurationError("memory service requires --es-endpoint (or an injected store); process env is not read")
 
 
@@ -555,5 +603,6 @@ __all__ = [
     "MemoryService",
     "PersistFailure",
     "PersistResult",
+    "SemanticMemorySynchronizer",
     "build_memory_service",
 ]

@@ -18,8 +18,10 @@ from typing import Any
 
 __all__ = [
     "SCHEMA_ID",
+    "ElasticsearchEmbeddingStore",
     "EmbeddingProvider",
     "EmbeddingProviderError",
+    "EmbeddingSyncResult",
     "InMemoryStore",
     "JobFilters",
     "JobInfo",
@@ -38,6 +40,7 @@ __all__ = [
     "OpenClawDailyNoteStore",
     "PersistResult",
     "RecordBundle",
+    "SemanticMemorySynchronizer",
     "UnifiedMemoryRecord",
     "build_memory_service",
     "canonical_searchable_text",
@@ -56,6 +59,8 @@ _LAZY_EXPORTS = {
     "JobInfo": ".models",
     "EmbeddingProvider": ".embeddings",
     "EmbeddingProviderError": ".embeddings",
+    "EmbeddingSyncResult": ".backends.elasticsearch_embeddings",
+    "ElasticsearchEmbeddingStore": ".backends.elasticsearch_embeddings",
     "OpenAICompatibleEmbeddingProvider": ".embeddings",
     "canonical_searchable_text": ".embeddings",
     "content_hash": ".embeddings",
@@ -69,6 +74,7 @@ _LAZY_EXPORTS = {
     "MemoryNotFoundError": ".service",
     "NestedCollectionError": ".service",
     "PersistResult": ".service",
+    "SemanticMemorySynchronizer": ".service",
     "build_memory_service": ".service",
     "RecordBundle": ".adapters",
     "LifecycleAdapter": ".adapters",
@@ -86,6 +92,8 @@ if TYPE_CHECKING:
     from .adapters import RecordBundle
     from .adapters import get_adapter
     from .adapters import register_adapter
+    from .backends.elasticsearch_embeddings import ElasticsearchEmbeddingStore
+    from .backends.elasticsearch_embeddings import EmbeddingSyncResult
     from .backends.in_memory import InMemoryStore
     from .embeddings import EmbeddingProvider
     from .embeddings import EmbeddingProviderError
@@ -105,6 +113,7 @@ if TYPE_CHECKING:
     from .service import MemoryService
     from .service import NestedCollectionError
     from .service import PersistResult
+    from .service import SemanticMemorySynchronizer
     from .service import build_memory_service
     from .store import JobFilters
     from .store import MemoryDecodeError
