@@ -143,7 +143,7 @@ class ContainerGuardTests(unittest.TestCase):
             )
 
         original = container_guard._find_records
-        container_guard._find_records = lambda *_: [conflict]
+        container_guard._find_records = lambda *_, **__: [conflict]
         try:
             with self.assertRaisesRegex(ValueError, "refusing unlabeled container"):
                 container_guard.find_owned_containers(

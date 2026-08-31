@@ -3,9 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 ######################################################################################################
 
+import subprocess
 import sys
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
 import canary_executor
 
@@ -396,7 +399,8 @@ class CanaryExecutorTests(unittest.TestCase):
             canary_executor.status_wait_timeout(plain),
             plain["timeouts"]["ready"]
             + plain["timeouts"]["benchmark"]
-            + canary_executor.WATCHER_BASE_GRACE,
+            + canary_executor.WATCHER_BASE_GRACE
+            + canary_executor.cleanup_timeout_budget(plain["stream_count"]),
         )
         self.assertGreater(
             canary_executor.status_wait_timeout(semantic),
@@ -409,8 +413,28 @@ class CanaryExecutorTests(unittest.TestCase):
             + 10
             + min(120, semantic["timeouts"]["benchmark"])
             + 2 * canary_executor.SEMANTIC_DELETE_TIMEOUT
-            + canary_executor.SEMANTIC_DRAIN_TIMEOUT,
+            + canary_executor.SEMANTIC_DRAIN_TIMEOUT
+            + canary_executor.cleanup_timeout_budget(semantic["stream_count"])
+            - canary_executor.cleanup_timeout_budget(plain["stream_count"]),
         )
+
+    def test_cleanup_timeout_is_terminal_and_evidenced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(canary_executor.RemoteRun)
+            run.logs = Path(directory)
+            run.result = "RUNNING"
+
+            def stall():
+                raise subprocess.TimeoutExpired(["docker", "rm"], 3)
+
+            result = run.bounded_cleanup("docker rm", stall)
+
+            self.assertEqual(result.returncode, 124)
+            self.assertEqual(run.result, "FAIL")
+            self.assertIn(
+                "docker rm: exceeded 3s",
+                (run.logs / "cleanup-timeouts.log").read_text(),
+            )
 
     def test_requires_fresh_measurements_from_each_independent_source(self):
         record = {

@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,6 +69,9 @@ HTTP_TIMEOUT = 30
 SEMANTIC_DELETE_TIMEOUT = 90
 SEMANTIC_DRAIN_TIMEOUT = 60
 WATCHER_BASE_GRACE = 180
+CLEANUP_SHORT_TIMEOUT = 15
+CLEANUP_LONG_TIMEOUT = 60
+CLEANUP_FINALIZE_GRACE = 30
 
 
 def _nonempty(manifest: dict[str, Any], fields: set[str]) -> None:
@@ -193,6 +197,7 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
         manifest["timeouts"]["ready"]
         + manifest["timeouts"]["benchmark"]
         + WATCHER_BASE_GRACE
+        + cleanup_timeout_budget(manifest["stream_count"])
     )
     if manifest["semantic_isolation"]:
         total += (
@@ -205,6 +210,15 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
             + HTTP_TIMEOUT
         )
     return total
+
+
+def cleanup_timeout_budget(stream_count: int) -> int:
+    return (
+        10
+        + 3 * CLEANUP_LONG_TIMEOUT
+        + (stream_count + 7) * CLEANUP_SHORT_TIMEOUT
+        + CLEANUP_FINALIZE_GRACE
+    )
 
 
 def validate_source_coverage(
@@ -641,6 +655,7 @@ class RemoteRun:
         capture: Path | None = None,
         cwd: Path | None = None,
         check: bool = True,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with (self.logs / "commands.log").open("a", encoding="utf-8") as stream:
             stream.write(shlex.join(argv) + "\n")
@@ -651,13 +666,18 @@ class RemoteRun:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            timeout=timeout,
         )
         if capture:
             capture.write_text(result.stdout)
         return result
 
     def compose(
-        self, *argv: str, capture: Path | None = None, check: bool = True
+        self,
+        *argv: str,
+        capture: Path | None = None,
+        check: bool = True,
+        timeout: int | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return self.command(
             "docker",
@@ -674,7 +694,21 @@ class RemoteRun:
             capture=capture,
             cwd=self.deploy,
             check=check,
+            timeout=timeout,
         )
+
+    def bounded_cleanup(
+        self,
+        label: str,
+        operation: Callable[[], subprocess.CompletedProcess[str]],
+    ) -> subprocess.CompletedProcess[str]:
+        try:
+            return operation()
+        except subprocess.TimeoutExpired as error:
+            self.result = "FAIL"
+            with (self.logs / "cleanup-timeouts.log").open("a") as stream:
+                stream.write(f"{label}: exceeded {error.timeout}s\n")
+            return subprocess.CompletedProcess(error.cmd, 124, error.stdout or "")
 
     def prepare(self) -> None:
         self.root.mkdir(parents=True, exist_ok=False)
@@ -1111,26 +1145,41 @@ override = {"services": {"rtvi-server": {"volumes": [
                 self.dmon.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.dmon.kill()
-        self.compose(
-            "logs", "--no-color", capture=self.logs / "compose.log", check=False
+        self.bounded_cleanup(
+            "compose logs",
+            lambda: self.compose(
+                "logs",
+                "--no-color",
+                capture=self.logs / "compose.log",
+                check=False,
+                timeout=CLEANUP_LONG_TIMEOUT,
+            ),
         )
-        self.compose(
-            "down",
-            "-v",
-            "--remove-orphans",
-            capture=self.logs / "cleanup.log",
-            check=False,
+        self.bounded_cleanup(
+            "compose down",
+            lambda: self.compose(
+                "down",
+                "-v",
+                "--remove-orphans",
+                capture=self.logs / "cleanup.log",
+                check=False,
+                timeout=CLEANUP_LONG_TIMEOUT,
+            ),
         )
         expected_aux = [*self.publisher_names, self.media_name]
         try:
             owned_aux = container_guard.find_owned_containers(
-                self.m["run_id"], self.project, ()
+                self.m["run_id"],
+                self.project,
+                (),
+                timeout=CLEANUP_SHORT_TIMEOUT,
             )
         except (
             ValueError,
             json.JSONDecodeError,
             OSError,
             subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
         ) as error:
             owned_aux = []
             self.result = "FAIL"
@@ -1148,50 +1197,70 @@ override = {"services": {"rtvi-server": {"volumes": [
                     if name == self.media_name
                     else f"publisher-{index}.log"
                 )
-                self.command(
-                    "docker",
-                    "logs",
-                    container_id,
-                    check=False,
-                    capture=self.logs / log_name,
+                self.bounded_cleanup(
+                    f"docker logs {name}",
+                    lambda container_id=container_id, log_name=log_name: self.command(
+                        "docker",
+                        "logs",
+                        container_id,
+                        check=False,
+                        capture=self.logs / log_name,
+                        timeout=CLEANUP_SHORT_TIMEOUT,
+                    ),
                 )
         owned_ids = sorted(set(owned_by_name.values()))
         if owned_ids:
-            self.command(
-                "docker",
-                "rm",
-                "-f",
-                *owned_ids,
-                check=False,
-                capture=self.logs / "aux-cleanup.log",
+            self.bounded_cleanup(
+                "docker rm auxiliaries",
+                lambda: self.command(
+                    "docker",
+                    "rm",
+                    "-f",
+                    *owned_ids,
+                    check=False,
+                    capture=self.logs / "aux-cleanup.log",
+                    timeout=CLEANUP_LONG_TIMEOUT,
+                ),
             )
-        post_run = self.command(
-            "docker",
-            "ps",
-            "-a",
-            "--filter",
-            f"label={RUN_LABEL}={self.m['run_id']}",
-            "--format",
-            "{{.ID}}|{{.Names}}|{{.Status}}",
-            check=False,
+        post_run = self.bounded_cleanup(
+            "inspect run containers",
+            lambda: self.command(
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"label={RUN_LABEL}={self.m['run_id']}",
+                "--format",
+                "{{.ID}}|{{.Names}}|{{.Status}}",
+                check=False,
+                timeout=CLEANUP_SHORT_TIMEOUT,
+            ),
         ).stdout
-        post_compose = self.command(
-            "docker",
-            "ps",
-            "-a",
-            "--filter",
-            f"label=com.docker.compose.project={self.project}",
-            "--format",
-            "{{.ID}}|{{.Names}}|{{.Status}}",
-            check=False,
+        post_compose = self.bounded_cleanup(
+            "inspect compose containers",
+            lambda: self.command(
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"label=com.docker.compose.project={self.project}",
+                "--format",
+                "{{.ID}}|{{.Names}}|{{.Status}}",
+                check=False,
+                timeout=CLEANUP_SHORT_TIMEOUT,
+            ),
         ).stdout
         post = post_run + post_compose
         (self.evidence / "post-cleanup-containers.txt").write_text(post)
-        gpu = self.command(
-            "nvidia-smi",
-            "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
-            "--format=csv,noheader",
-            check=False,
+        gpu = self.bounded_cleanup(
+            "inspect GPU processes",
+            lambda: self.command(
+                "nvidia-smi",
+                "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
+                "--format=csv,noheader",
+                check=False,
+                timeout=CLEANUP_SHORT_TIMEOUT,
+            ),
         ).stdout
         (self.evidence / "post-cleanup-gpu.csv").write_text(gpu)
         stable = [
