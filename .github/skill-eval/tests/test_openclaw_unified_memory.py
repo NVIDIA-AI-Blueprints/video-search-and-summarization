@@ -30,12 +30,25 @@ def test_group_envelope_requires_four_turns() -> None:
 
 
 def test_openclaw_setup_removes_stale_runtime_first() -> None:
-    reset, setup = _openclaw_setup_commands("openclaw setup --baseline")
+    reset, setup = _openclaw_setup_commands(
+        "openclaw setup --baseline --workspace ."
+    )
 
     assert reset == (
         "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
     )
-    assert setup.endswith("openclaw setup --baseline")
+    assert setup.endswith(
+        'openclaw setup --baseline --workspace "$HOME/.openclaw/workspace"'
+    )
+    assert "--workspace ." not in setup
+
+
+def test_openclaw_setup_adds_configured_workspace_when_missing() -> None:
+    _, setup = _openclaw_setup_commands("openclaw setup --baseline")
+
+    assert setup.endswith(
+        'openclaw setup --baseline --workspace "$HOME/.openclaw/workspace"'
+    )
 
 
 def _run_prediction_pipeline(

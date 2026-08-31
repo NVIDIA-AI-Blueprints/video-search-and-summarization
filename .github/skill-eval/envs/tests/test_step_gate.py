@@ -61,6 +61,35 @@ def _async_ok(*_a, **_kw):
 
 
 class StepGateTest(unittest.IsolatedAsyncioTestCase):
+    async def _record_start_commands(self, task_dir_name: str) -> list[str]:
+        tmp = Path(tempfile.mkdtemp())
+        env_dir = tmp / task_dir_name / "environment"
+        env_dir.mkdir(parents=True)
+        env = brev_env.BrevEnvironment()
+        env.environment_dir = env_dir
+        env._instance_name = "vss-eval-test"
+        commands: list[str] = []
+
+        async def record_exec(_instance, command, **_kwargs):
+            commands.append(command)
+            return _async_ok()
+
+        with mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
+             mock.patch.object(env, "_reset_docker_runtime", new=mock.AsyncMock()), \
+             mock.patch.object(env, "_purge_host_data_dirs", new=mock.AsyncMock()), \
+             mock.patch.object(env, "_sync_repo_to_pr_head", new=mock.AsyncMock()), \
+             mock.patch.object(brev_env, "_find_brev_instance",
+                               new=mock.AsyncMock(return_value={"name": "vss-eval-test"})), \
+             mock.patch.object(brev_env, "_check_instance_matches",
+                               new=mock.AsyncMock(return_value=None)), \
+             mock.patch.object(brev_env, "_check_live_resources",
+                               new=mock.AsyncMock(return_value=None)), \
+             mock.patch.object(brev_env, "_run_brev_exec",
+                               new=mock.AsyncMock(side_effect=record_exec)):
+            await env.start(force_build=False)
+
+        return commands
+
     async def _run_start_for(self, task_dir_name: str):
         """Drive start() for a task dir named `task_dir_name`, with every
         box-side coroutine stubbed, and return the set of gated helpers that
@@ -125,34 +154,31 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
 
     async def test_every_task_clears_staged_skills_before_upload(self):
-        tmp = Path(tempfile.mkdtemp())
-        env_dir = tmp / "step-3" / "environment"
-        env_dir.mkdir(parents=True)
-        env = brev_env.BrevEnvironment()
-        env.environment_dir = env_dir
-        env._instance_name = "vss-eval-test"
-        commands: list[str] = []
-
-        async def record_exec(_instance, command, **_kwargs):
-            commands.append(command)
-            return _async_ok()
-
-        with mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
-             mock.patch.object(brev_env, "_find_brev_instance",
-                               new=mock.AsyncMock(return_value={"name": "vss-eval-test"})), \
-             mock.patch.object(brev_env, "_check_instance_matches",
-                               new=mock.AsyncMock(return_value=None)), \
-             mock.patch.object(brev_env, "_check_live_resources",
-                               new=mock.AsyncMock(return_value=None)), \
-             mock.patch.object(brev_env, "_run_brev_exec",
-                               new=mock.AsyncMock(side_effect=record_exec)):
-            await env.start(force_build=False)
+        commands = await self._record_start_commands("step-3")
 
         self.assertTrue(
             any("rm -rf /logs/artifacts /logs/verifier /skills" in cmd
                 for cmd in commands),
             "every warm-worker task must remove stale staged skills",
         )
+
+    async def test_step1_resets_openclaw_workspace_and_attestations_together(self):
+        commands = await self._record_start_commands("step-1")
+        combined = "\n".join(commands)
+
+        self.assertIn(
+            'sudo rm -rf "$HOME/.openclaw/workspace" '
+            '"$HOME/.openclaw/workspace-attestations"',
+            combined,
+        )
+        self.assertIn('mkdir -p "$HOME/.openclaw/workspace"', combined)
+
+    async def test_later_steps_preserve_openclaw_workspace_and_attestations(self):
+        commands = await self._record_start_commands("step-2")
+        combined = "\n".join(commands)
+
+        self.assertNotIn("workspace-attestations", combined)
+        self.assertNotIn('rm -rf "$HOME/.openclaw/workspace"', combined)
 
 if __name__ == "__main__":
     unittest.main()

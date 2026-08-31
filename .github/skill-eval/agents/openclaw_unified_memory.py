@@ -20,6 +20,7 @@ STRUCTURED_OUTPUT_SCRIPT = (
     Path(__file__).resolve().parents[1] / "benchmark" / "structured_output.py"
 )
 REMOTE_STRUCTURED_OUTPUT_SCRIPT = "/logs/agent/structured_output.py"
+OPENCLAW_WORKSPACE = "~/.openclaw/workspace"
 RESET_OPENCLAW_RUNTIME_CLI = (
     "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
 )
@@ -57,15 +58,32 @@ def _prediction_extractor_command(
 
 
 def _openclaw_setup_commands(setup_cli: str) -> tuple[str, str]:
-    """Return a clean, version-compatible setup sequence for a warm worker."""
-    return RESET_OPENCLAW_RUNTIME_CLI, _nvm22(setup_cli)
+    """Return setup commands pinned to the configured warm-worker workspace."""
+    args = shlex.split(setup_cli)
+    normalized: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--workspace":
+            if index + 1 >= len(args):
+                raise ValueError("OpenClaw setup --workspace requires a value")
+            index += 2
+            continue
+        if arg.startswith("--workspace="):
+            index += 1
+            continue
+        normalized.append(arg)
+        index += 1
+
+    command = f'{shlex.join(normalized)} --workspace "$HOME/.openclaw/workspace"'
+    return RESET_OPENCLAW_RUNTIME_CLI, _nvm22(command)
 
 
 class UnifiedMemoryOpenClaw(OpenClaw):
     """Minimal extension: four prompts share one unique ``--session-key``."""
 
     _DEFAULT_CONFIG: ClassVar[dict[str, Any]] = {
-        "agents": {"defaults": {"workspace": "~/.openclaw/workspace"}}
+        "agents": {"defaults": {"workspace": OPENCLAW_WORKSPACE}}
     }
 
     def _build_register_skills_command(self) -> str | None:

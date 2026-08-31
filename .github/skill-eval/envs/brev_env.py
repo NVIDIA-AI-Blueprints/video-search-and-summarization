@@ -303,11 +303,15 @@ class BrevEnvironment(BaseEnvironment):
         self._leg_state_dir = f"{scratch_root}/state"
         reset_state = "sudo rm -rf {state}; " if task_id == "step-1" else ""
         # Step 1 starts a new leg: do not inherit deployment discovery or
-        # OpenClaw workspace memory from a prior run. Steps 2+ consume the
-        # configuration and workspace created by this leg.
+        # OpenClaw workspace memory from a prior run. Its workspace and
+        # workspace-attestations are one reset unit; leaving the attestation
+        # behind makes OpenClaw reject the intentionally fresh workspace as
+        # vanished. Steps 2+ consume the workspace created by this leg.
         reset_leg_runtime = (
             'sudo rm -f "$HOME/.vss/config.json"; '
-            'sudo rm -rf "$HOME/.openclaw/workspace"; '
+            'sudo rm -rf "$HOME/.openclaw/workspace" '
+            '"$HOME/.openclaw/workspace-attestations"; '
+            'mkdir -p "$HOME/.openclaw/workspace"; '
             if task_id == "step-1"
             else ""
         )
