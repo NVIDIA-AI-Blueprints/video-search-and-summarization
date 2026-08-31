@@ -167,12 +167,6 @@ For example:
 - changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
   `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
 
-**Compute the closure transitively, not one hop.** A value can reach a sentinel
-through intermediate variables, so a single-level scan for `${HOST_IP}` misses
-it. Follow each reference until no value changes.
-`validate_resolved_yml.py`'s sentinel check is the backstop: a missed closure
-member surfaces there as a `<HOST_IP>` or `/path/to/deploy/docker` placeholder.
-
 Find the exact closure by following variable references in the selected
 Foundation's `.env` and `overrides.env`; do not assume a later primitive
 override will update an earlier derived value.
@@ -243,8 +237,6 @@ From the repository root:
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
 FOUNDATION="$(sed -n 's/^FOUNDATION=//p' "$BUILD_DIR/override.env")"
-SCRIPTS="$REPO/skills/vss-build-vision-agent/scripts"
-
 # Establish the helper-script runner FIRST: every script below goes through
 # "${VSS_SKILL_PY[@]}". Invoking `uv run` directly anywhere in this block would
 # strand a host that passed the prerequisite check on the python3 fallback.
@@ -273,17 +265,10 @@ docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
 
-<<<<<<< HEAD:skills/vss-build-vision-ai/references/composition.md
 "${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \
   "$BUILD_DIR/resolved.yml"
 
 "${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/validate_resolved_yml.py" \
-=======
-"${VSS_SKILL_PY[@]}" "$SCRIPTS/normalize_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml"
-
-"${VSS_SKILL_PY[@]}" "$SCRIPTS/validate_resolved_yml.py" \
->>>>>>> 9e31958e8 (Make warehouse variant selection, self-contained in warehouse.md):skills/vss-build-vision-agent/references/composition.md
   "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
 ```
 

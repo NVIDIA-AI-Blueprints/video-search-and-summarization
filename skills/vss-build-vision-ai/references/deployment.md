@@ -15,23 +15,20 @@ Never copy or edit the Foundation files. Generate the exact deployment model
 from the root Compose graph, optional changed-service patches, and four ordered
 env layers:
 
-**Run the Resolve block in [`composition.md`](composition.md#resolve) verbatim.**
-It is the single source of truth for this step; do not reconstruct it from
-memory here. It previously existed in two copies and they drifted — this one
-hardcoded a `dev-profile-$FOUNDATION` Foundation directory and omitted the
-warehouse steps entirely, so a `warehouse` build followed to the letter pointed
-at a nonexistent `dev-profile-warehouse/` and baked the `<HOST_IP>` sentinel
-into every rendered stream config.
+**Run your Foundation's Resolve block verbatim; do not reconstruct it from
+memory here.** A developer profile resolves through
+[`composition.md`](composition.md#resolve); `warehouse` resolves through
+[`profiles/warehouse.md`](profiles/warehouse.md), which uses different env layers
+and adds a render and a validation step. Each is the single source of truth for
+its own path — this file previously carried a third copy, and it drifted.
 
-What that block does, and why each part matters:
+Both paths then rejoin the deploy lifecycle below unchanged. What either block
+does, and why each part matters:
 
-| Step | Applies to | Consequence of skipping |
-|---|---|---|
-| Establish `VSS_SKILL_PY` (`uv run`, else `python3`) **before** any script call | every build | a `uv`-less host that passed prerequisites dies on the first helper script |
-| Select `FOUNDATION_DIR` by `case` — `industry-profiles/warehouse-operations` for `warehouse`, `developer-profiles/dev-profile-<F>` otherwise | every build | wrong or missing env layers; `warehouse` has no `dev-profile-` directory |
-| `render_warehouse_configurator_env.py` **before** `docker compose config` | `warehouse` | `bp-configurator-<mode>` reads the checked-in `overrides.env` and bakes `HOST_IP='<HOST_IP>'` |
-| `normalize_resolved_yml.py`, then `validate_resolved_yml.py` | every build | dangling optional deps and stale sentinels reach deployment |
-| `validate_warehouse_env.py` | `warehouse` | `MODE`/`BP_PROFILE`/`FOUNDATION_VARIANT`/dataset/broker mismatches fail at bring-up or silently at runtime |
+| Step | Consequence of skipping |
+|---|---|
+| Establish `VSS_SKILL_PY` (`uv run`, else `python3`) **before** any script call | a `uv`-less host that passed prerequisites dies on the first helper script |
+| `normalize_resolved_yml.py`, then `validate_resolved_yml.py` | dangling optional deps and stale sentinels reach deployment |
 
 Write `resolved.yml` with the `>` redirect exactly as shown — see `composition.md`
 for how to keep Compose's stderr out of the file. Act on that stderr rather than
@@ -137,3 +134,5 @@ leftover containers, stale volumes, and bind-mounted data cleanup.
 - `deploy/docker/containers.env`
 - `deploy/docker/developer-profiles/dev-profile-*/.env`
 - `deploy/docker/developer-profiles/dev-profile-*/overrides.env`
+- `deploy/docker/industry-profiles/warehouse-operations/.env`
+- `deploy/docker/industry-profiles/warehouse-operations/overrides.env`

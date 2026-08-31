@@ -56,14 +56,6 @@ Credential variables are mode-scoped. Validate them with
 | Different model | Model name, matching slug, model type, serving path, and any derived endpoint or artifact path |
 
 `LLM_BASE_URL` and `VLM_BASE_URL` must not end in `/v1`; the agent appends it.
-
-**The remote-VLM row does not apply to a `warehouse` Foundation.** Warehouse
-requires `VLM_MODE=none` and `VLM_NAME_SLUG=none`: the Docker warehouse path
-never sets `RTVI_VLM_MODEL_TO_USE=openai-compat`, so the row's recipe cannot be
-produced by `blueprint-deploy.sh --use-remote-vlm` and the combination is
-unvalidated there. `scripts/validate_warehouse_env.py` rejects it; see
-[`profiles/warehouse.md`](profiles/warehouse.md). Remote **LLM** is unaffected
-and is the validated warehouse remote configuration.
 `RTVI_VLM_ENDPOINT` must end in `/v1` because RT-VLM consumes it verbatim.
 
 ## Remote endpoint gate

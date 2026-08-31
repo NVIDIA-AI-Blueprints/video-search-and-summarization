@@ -185,9 +185,5 @@ they explicitly choose it:
 | Custom local path | user-provided |
 | NGC `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026` | `<extract>/vss-warehouse-app-data` — the **inner** directory, the one holding `videos/`, `playback/`, `models/`, `data_log/` |
 
-Calibration is **not** part of `$VSS_DATA_DIR`. Each shipped sample dataset
-carries a checked-in `calibration.json` under
-`warehouse-<mode>-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/`, which
-Compose bind-mounts directly from the repo — so no calibration run and no
-staging is required for the sample datasets. Only a custom dataset needs one;
-`scripts/validate_warehouse_env.py` fails the build when that file is missing.
+Calibration is **not** part of `$VSS_DATA_DIR` and needs no staging here — see
+[`profiles/warehouse.md`](profiles/warehouse.md).

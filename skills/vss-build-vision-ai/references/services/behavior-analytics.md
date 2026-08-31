@@ -14,9 +14,8 @@
   service.
 - On `warehouse` the key is mode-suffixed (`vss-behavior-analytics-2d`, `-3d`)
   and consumes the mode's perception output: `mdx-raw` for `2d`, `mdx-bev` for
-  `3d`. It requires the blueprint configurator and the
-  VIOS infrastructure peers — see [`configurator.md`](configurator.md) and
-  [`vios.md`](vios.md).
+  `3d`. It requires the blueprint configurator for its mounted config — see
+  [`configurator.md`](configurator.md).
 - **`vss-behavior-analytics` publishes no HTTP listener** and declares no ports;
   it is a broker consumer. The HAProxy `/behavior-analytics` route is defined but
   its backend never passes health check, so it always returns 503. Read behaviors

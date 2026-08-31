@@ -13,9 +13,7 @@ selectable here. Anything else routes to `vss-deploy-profile`.
 `COMPOSE_PROFILES_WH_*` list that `MODE` + `BP_PROFILE` + size identify, expand
 it verbatim, and deploy it. Do not add, remove or prune service keys, and do not
 treat another Foundation as a starting point: each list is a validated
-combination, and the delta rules in [`../composition.md`](../composition.md)
-apply to developer profiles only. To change the shape of a deployment, select a
-different variant.
+combination. To change the shape of a deployment, select a different variant.
 
 This file is self-contained for warehouse. It carries the env layers, build
 artifacts and resolve pipeline below, and shares the rest of the skill's
@@ -73,7 +71,7 @@ of these.
 | VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sensor-bp-wait-bp-configurator` |
 | Video Analytics API | `vss-video-analytics-api-<mode>`, `import-calibration-output-container-<mode>` |
 | Ingress | `vss-haproxy-ingress` |
-| Monitoring | `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` |
+| Monitoring | `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` — observational, so nothing else requires them. `GRAFANA_HOST_PORT` defaults to `35000` → container `3000`, with no HAProxy route. `node-exporter` and `cadvisor` set no `container_name` and appear as `<project>-node-exporter-1` / `-cadvisor-1` |
 | Agent / RT-VLM / LLM NIM | `bp_wh` only: `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix`, `alert-bridge`, `rtvi-vlm`, `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
 `redis` is in **every** warehouse list — it backs `sdr-controller` regardless of
@@ -91,7 +89,7 @@ its absence from the service list is not a defect.
 | `MODE`, `BP_PROFILE`, `STREAM_TYPE` | Select the variant. These three pick the `COMPOSE_PROFILES_WH_*` list; they are not free-form. |
 | `SAMPLE_VIDEO_DATASET`, `NUM_STREAMS` | Must match each other and the variant — see Hard constraints. |
 | `HARDWARE_PROFILE` | Selects perception tuning in `blueprint-configurator/blueprint_config.yml` and LLM NIM sizing, including the per-mode stream ceiling in [`../sizing.md`](../sizing.md). Not validated by Compose; the configurator only uppercases it, so an unrecognized value (including a spacing or hyphenation variant such as `IGX THOR`) silently matches no tuning section. |
-| `VSS_APPS_DIR`, `VSS_DATA_DIR` | Ship as `/path/to/…` sentinels — always set both. Their closure is listed in [`../composition.md`](../composition.md). |
+| `VSS_APPS_DIR`, `VSS_DATA_DIR` | Ship as `/path/to/…` sentinels — always set both. See the closure table under Build and resolve. |
 | `RT_CV_DEVICE_ID` (0), `RT_VLM_DEVICE_ID` (1), `LLM_DEVICE_ID` (2) | GPU layout. |
 | `LLM_MODE`, `LLM_NAME`, `LLM_NAME_SLUG`, `LLM_BASE_URL` | `bp_wh` + `MODE=2d` only; `none` everywhere else. For `remote`, `LLM_BASE_URL` is the endpoint root **without** a trailing `/v1` — the agent config appends it. |
 | `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path, and remote VLM is not wired end to end on the Docker path — see below. |
@@ -240,13 +238,22 @@ placeholders — always set both. A missed closure member surfaces as a
 
 ### Resolve
 
-Run from the repository root, after the helper-runner preamble in
-[`../composition.md`](../composition.md) sets `VSS_SKILL_PY` and `SCRIPTS`.
+Run from the repository root.
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
 FOUNDATION_DIR="$REPO/deploy/docker/industry-profiles/warehouse-operations"
+SCRIPTS="$REPO/skills/vss-build-vision-agent/scripts"
+
+# Establish the helper-script runner FIRST: every script below goes through
+# "${VSS_SKILL_PY[@]}". Calling `uv run` directly would strand a host that
+# passed the prerequisite check on the python3 fallback.
+if command -v uv >/dev/null 2>&1; then
+  VSS_SKILL_PY=(uv run)
+else
+  VSS_SKILL_PY=(python3)
+fi
 
 # BEFORE `config`: materialize the configurator's env_file.
 "${VSS_SKILL_PY[@]}" "$SCRIPTS/render_warehouse_configurator_env.py" \
