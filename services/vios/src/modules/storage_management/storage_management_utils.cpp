@@ -2015,6 +2015,17 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
                     LOG(info) << "Deleting orphaned upload: " << data.m_absoluteFilePath << endl;
                     deleteFile(data.m_absoluteFilePath);
                 }
+                // The successful path removes this once it has been consumed.
+                // A failed one used to leave it behind, so every failed upload
+                // cost the disk a partial file that nothing would ever claim.
+                // It may not exist if the transcode failed before writing, so
+                // ask first rather than log a deletion error for it.
+                if (enc_params.m_outFilePath != EMPTY_STRING && isFileExist(enc_params.m_outFilePath))
+                {
+                    LOG(info) << "Deleting partial transcode output: "
+                              << enc_params.m_outFilePath << endl;
+                    deleteFile(enc_params.m_outFilePath);
+                }
                 out = Json::nullValue;
                 string error_message = string("Transcoding failed");
                 LOG(error) << error_message << endl;
