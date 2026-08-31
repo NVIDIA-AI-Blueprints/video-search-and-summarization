@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import canary_executor
 
@@ -444,6 +445,20 @@ class CanaryExecutorTests(unittest.TestCase):
         run.remember_auxiliary("publisher-1", created)
 
         self.assertEqual(run.aux_by_name, {"publisher-1": "a" * 64})
+
+    def test_remote_commands_have_a_default_subprocess_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(canary_executor.RemoteRun)
+            run.logs = Path(directory)
+            completed = subprocess.CompletedProcess(["docker", "logs"], 0, "")
+
+            with mock.patch.object(subprocess, "run", return_value=completed) as called:
+                run.command("docker", "logs", "container", check=False)
+
+            self.assertEqual(
+                called.call_args.kwargs["timeout"],
+                canary_executor.RUNTIME_COMMAND_TIMEOUT,
+            )
 
     def test_checksum_deadline_leaves_no_partial_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
