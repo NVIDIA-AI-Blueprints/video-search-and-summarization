@@ -436,6 +436,15 @@ class CanaryExecutorTests(unittest.TestCase):
                 (run.logs / "cleanup-timeouts.log").read_text(),
             )
 
+    def test_created_auxiliary_id_is_retained_without_discovery(self):
+        run = object.__new__(canary_executor.RemoteRun)
+        run.aux_by_name = {}
+        created = subprocess.CompletedProcess(["docker", "run"], 0, "a" * 64 + "\n")
+
+        run.remember_auxiliary("publisher-1", created)
+
+        self.assertEqual(run.aux_by_name, {"publisher-1": "a" * 64})
+
     def test_checksum_deadline_leaves_no_partial_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
