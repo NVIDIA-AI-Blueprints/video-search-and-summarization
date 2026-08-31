@@ -248,7 +248,7 @@ jobs:
     name: Security Scan (detect-secrets)
     needs: prepare-source
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: services/agent
@@ -277,10 +277,25 @@ jobs:
 
       - name: detect-secrets
         run: |
+          mapfile -t TRACKED_FILES < "$GITHUB_WORKSPACE/.ci/tracked-files.txt"
+
+          if [ "${#TRACKED_FILES[@]}" -eq 0 ]; then
+            echo "tracked-files.txt is empty; refusing to run an empty security scan."
+            exit 1
+          fi
+
+          for file in "${TRACKED_FILES[@]}"; do
+            if [ ! -f "$GITHUB_WORKSPACE/$file" ]; then
+              echo "Tracked file does not resolve from repository root: $file"
+              exit 1
+            fi
+          done
+
+          cd "$GITHUB_WORKSPACE"
           detect-secrets-hook --no-verify \
             --exclude-files '(gitleaks-baseline\.json|^deploy/docker/MANIFEST$)' \
             --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deployments/MANIFEST$)' \
-            $(cat "$GITHUB_WORKSPACE/.ci/tracked-files.txt")
+            "${TRACKED_FILES[@]}"
 
   # ---------------------------------------------------------------------------
   # Job 5: Frontend lint + typecheck
