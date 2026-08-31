@@ -351,12 +351,14 @@ For a full reset that also drops locally-built images (Elasticsearch, init conta
 
 5. **Clean up dangling volumes**
 
-This is scoped to `COMPOSE_PROJECT_NAME` so dangling volumes from unrelated stopped containers/apps on the host are not touched. `COMPOSE_PROJECT_NAME` defaults to `vss` but can be customized in `overrides.env` — export it from there first so this standalone command (which isn't run through `docker compose` and won't otherwise see `overrides.env`) targets the same project you actually deployed, instead of silently falling back to `vss`:
+Scoped to `COMPOSE_PROJECT_NAME` (default `vss`) so unrelated volumes on the host aren't touched:
 
 ```bash
 export COMPOSE_PROJECT_NAME=$(grep -E '^COMPOSE_PROJECT_NAME=' industry-profiles/warehouse-operations/overrides.env | cut -d= -f2)
 docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss}" | xargs -r docker volume rm
 ```
+
+This misses anonymous volumes (no compose label), which can pile up from `--force-recreate`/rebuild cycles. If needed, and no unrelated Docker workloads share this host, sweep unscoped instead: `docker volume ls -q -f "dangling=true" | xargs -r docker volume rm`.
 
 6. **Data / backup cleanup**
 
