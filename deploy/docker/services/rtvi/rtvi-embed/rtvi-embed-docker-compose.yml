@@ -22,18 +22,6 @@ services:
     image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-develop-latest}
     container_name: vss-rtvi-embed
     user: "1001:1001"
-    # STARTUP COST: this service builds its Cosmos-Embed1 TensorRT engines on
-    # every start -- ONNX export plus trtexec into /tmp/triton_model_repo, which
-    # is container-local and NOT backed by any volume below, so a recreated
-    # container repeats the whole thing. Measured on AGX Thor 2026-08-31: ~5.5
-    # minutes and a transient ~6 GiB of GPU memory for the video branch at
-    # --max_batch_size 64. Nothing budgets for that spike, and on a shared single
-    # GPU it is the difference between starting and not: with a local LLM and a
-    # local RT-VLM also resident it failed with
-    #   "AUTOTUNER ERROR: ran out of memory, capacity 3780 MiB, required 6150 MiB"
-    # followed by "Created engine with size: 0 MiB" and a Triton
-    # "failed to load all models" that names none of this. Invisible on a large
-    # discrete GPU. Caching the engine repository would remove both costs.
     profiles: ["rtvi-embed"]
     deploy:
       resources:

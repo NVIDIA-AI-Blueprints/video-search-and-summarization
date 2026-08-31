@@ -488,33 +488,6 @@ function mask_external_ip_args() {
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
-  local _profile="${3:-}"
-
-  # Search on a single-GPU edge board. RT-VLM shares the one GPU with the
-  # perception pipeline: RT-CV, RT-Embed and streamprocessing. The LLM is always
-  # remote in this configuration -- process_args() rejects a local LLM alongside
-  # a local VLM on these boards -- so this fraction only has to cover perception.
-  #
-  # The fraction is NOT a private quota. vLLM computes
-  #   available_kv = (total x utilization) - (memory used by ALL processes)
-  # and then expands the KV cache to fill whatever that leaves. Measured on AGX
-  # Thor (122.82 GiB unified) 2026-08-31 at 0.25 with the LLM remote:
-  # "Available KV cache memory: 8.92 GiB", 64,928 tokens, and RT-VLM warmed up
-  # and served. Note it took that much KV while reporting a maximum concurrency
-  # of 1.98x -- max_num_seqs and max_model_len do NOT cap the allocation, so this
-  # fraction is the only lever.
-  #
-  # Two consequences worth knowing before changing it. Raising it does not just
-  # add headroom, it hands RT-VLM more KV, which is how 0.55 starved rt-embed's
-  # TensorRT engine build. And freeing memory elsewhere (an FP8 checkpoint over
-  # BF16, say) is absorbed as KV unless this fraction drops by the same amount.
-  #
-  # Thor's 0.25 is measured. Spark is unvalidated -- driver issues on that board.
-  if [[ "${_profile}" == "search" ]] && [[ "${_vlm_mode}" == "local_shared" ]]; then
-    case "${_hardware_profile}" in
-      DGX-SPARK|AGX-THOR) echo "0.25"; return ;;
-    esac
-  fi
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
@@ -627,9 +600,8 @@ function usage() {
   echo "                                     - OTHER"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
   echo "                                   • profile search additionally supported on DGX-SPARK and AGX-THOR (not IGX-THOR):"
-  echo "                                     the single GPU hosts exactly one model. Default is a local VLM with a"
-  echo "                                     remote LLM (needs LLM_ENDPOINT_URL); pass --llm <model> --use-remote-vlm"
-  echo "                                     to swap which one stays on the board. Both local is rejected."
+  echo "                                     VLM must be remote (--use-remote-vlm); LLM defaults to remote, pass"
+  echo "                                     --llm <model> to host it on the board's single GPU"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: --llm-device-id, --vlm-device-id not accepted"
   echo "                                   • GB300 is valid for search; local model device IDs must match. A unique GB300 is auto-detected when IDs are omitted"
   echo "  -i, --host-ip                    Host IP."
@@ -676,8 +648,6 @@ function usage() {
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: not accepted"
   echo "  --use-remote-vlm                 Use remote VLM; requires VLM_ENDPOINT_URL on the host (both are required together)."
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
-  echo "                                   • profile search on DGX-SPARK / AGX-THOR: the VLM is local by default, so"
-  echo "                                     pass this to move it off the board; required alongside a local --llm there"
   echo "  --vlm-model-type                 VLM backend type when --use-remote-vlm is passed: nim or openai."
   echo "  --vlm-env-file                   Path to VLM env file. Absolute or relative to CWD."
   echo "                                   • Not allowed when --use-remote-vlm is passed"
@@ -1078,87 +1048,34 @@ function process_args() {
         vlm_device_id="0"
       fi
 
-      # Search on edge hardware has one GPU, shared with RT-CV, RT-Embed and
-      # streamprocessing, so it can host exactly one of the two models. The
-      # default is the VLM: RT-VLM runs on the board and the LLM is remote.
-      #   (no flags)                     local VLM + remote LLM, needs LLM_ENDPOINT_URL
-      #   --vlm <model>                  same, on a specific RT-VLM checkpoint
-      #   --llm <model> --use-remote-vlm local LLM instead, needs VLM_ENDPOINT_URL
-      #   --use-remote-vlm --use-remote-llm  both remote, needs both URLs
-      #
-      # The VLM is the default rather than the LLM because it keeps the standard
-      # search topology: rtvi-vlm stays in COMPOSE_PROFILES serving the profile's
-      # own checkpoint, the agent reaches it over the rtvi profile, and clips
-      # travel as VST links. Sending the VLM remote instead drops rtvi-vlm and
-      # switches the agent to inlining clips as base64, which caps clip size and
-      # requires the far end to be a real NIM. It also means video never leaves
-      # the board and the only off-box traffic is the LLM's text.
-      #
-      # Both local is rejected below -- measured on AGX Thor 2026-08-31, it
-      # cannot work; see the block comment on that check.
+      # Search on edge hardware has one GPU to work with, and streamprocessing,
+      # RT-CV and RT-Embed all need it, so the VLM always runs on a remote
+      # endpoint. The LLM defaults to remote as well, but passing --llm without
+      # --use-remote-llm keeps it on the board's GPU instead.
       if contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}" && [[ "${profile}" == "search" ]]; then
-        local _edge_llm_local=0 _edge_vlm_local=0
+        local _edge_llm_local=0
         if contains_element "llm" "${options_provided[@]}" && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
           _edge_llm_local=1
         fi
-        # Local unless explicitly sent away. Note that --vlm is only a checkpoint
-        # choice here, not the thing that enables local hosting: it *replaces*
-        # RTVI_VLM_MODEL_PATH, and since this profile defaults to the FP8 Cosmos3
-        # Nano, naming e.g. nvidia/cosmos3-reasoner quietly swaps in BF16 --
-        # roughly 8 GiB more weights on a board with none to spare. Leaving it
-        # unset keeps the profile's own checkpoint, which is what most callers
-        # want.
-        _edge_vlm_local=1
-        if contains_element "use-remote-vlm" "${options_provided[@]}"; then
-          _edge_vlm_local=0
-        fi
-
-        # Both models local does not fit on these boards. Measured on AGX Thor
-        # (122.82 GiB unified) on 2026-08-31: the LLM holds a fixed 36.85 GiB and
-        # cannot go below the INT4 profile's 32 GiB floor, RT-VLM's KV cache
-        # expands to fill whatever its own fraction leaves, and rt-embed needs
-        # ~6 GiB at startup to build its TensorRT engine. vLLM sizes each engine
-        # as (total x utilization) - (memory used by ALL processes), so the two
-        # engines and rt-embed each measure a different moment and the fraction
-        # only selects which one dies: 0.25 killed RT-VLM (KV budget -30.43 GiB),
-        # 0.45 killed the LLM (29.29 GiB free against 36.85 required), 0.55
-        # killed rt-embed (TensorRT autotuner, 3780 of 6150 MiB). Every other
-        # combination was verified working on the same board.
-        if [[ "${_edge_llm_local}" -eq 1 ]] && [[ "${_edge_vlm_local}" -eq 1 ]]; then
-          echo "[ERROR] Search on ${hardware_profile} cannot host the LLM and the VLM at the same time: the board's single GPU also carries RT-CV, RT-Embed and streamprocessing. Choose one:"
-          echo "        • local VLM, remote LLM (default):  drop --llm             (with LLM_ENDPOINT_URL)"
-          echo "        • local LLM, remote VLM:            --use-remote-vlm       (with VLM_ENDPOINT_URL)"
+        if contains_element "vlm" "${options_provided[@]}" && ! contains_element "use-remote-vlm" "${options_provided[@]}"; then
+          echo "[ERROR] Search on ${hardware_profile} cannot host a local VLM: the board's only GPU already carries the perception pipeline. Use --use-remote-vlm with VLM_ENDPOINT_URL."
           ((_all_good++))
         fi
-
         # The endpoints are read here because llm_base_url/vlm_base_url are only
         # populated by the --use-remote-* option handlers.
         if [[ "${_edge_llm_local}" -eq 0 ]]; then
           edge_force_remote_llm=1
           llm_base_url="${llm_base_url:-${LLM_ENDPOINT_URL:-}}"
           if [[ -z "${llm_base_url}" ]]; then
-            echo "[ERROR] Search on ${hardware_profile} uses a remote LLM: set LLM_ENDPOINT_URL, or pass --llm <model> --use-remote-vlm to host the LLM on the board instead of the VLM."
+            echo "[ERROR] Search on ${hardware_profile} uses a remote LLM: set LLM_ENDPOINT_URL, or pass --llm <model> to host it on the board's GPU."
             ((_all_good++))
           fi
         fi
-        if [[ "${_edge_vlm_local}" -eq 0 ]]; then
-          edge_force_remote_vlm=1
-          vlm_base_url="${vlm_base_url:-${VLM_ENDPOINT_URL:-}}"
-          if [[ -z "${vlm_base_url}" ]]; then
-            echo "[ERROR] --use-remote-vlm on ${hardware_profile} needs VLM_ENDPOINT_URL, or drop it to host the VLM on the board (the default)."
-            ((_all_good++))
-          fi
-        elif [[ -n "${vlm}" ]]; then
-          # A local VLM here is RT-VLM, not a standalone NIM, so the model has to
-          # be one of the integrated checkpoints. Checking now keeps the failure
-          # next to the flag that caused it; the generic check further down runs
-          # after the stack has already started coming up. Only reachable when a
-          # checkpoint was actually named: the default leaves ${vlm} empty and
-          # keeps the profile's own path.
-          if [[ -z "$(get_rtvi_vlm_model_path "${vlm}")" ]]; then
-            echo "[ERROR] VLM '${vlm}' is not an integrated RT-VLM checkpoint, so search on ${hardware_profile} cannot host it locally. Use --use-remote-vlm with VLM_ENDPOINT_URL, or pick a supported checkpoint."
-            ((_all_good++))
-          fi
+        edge_force_remote_vlm=1
+        vlm_base_url="${vlm_base_url:-${VLM_ENDPOINT_URL:-}}"
+        if [[ -z "${vlm_base_url}" ]]; then
+          echo "[ERROR] Search on ${hardware_profile} uses a remote VLM: set VLM_ENDPOINT_URL."
+          ((_all_good++))
         fi
         # A local LLM shares GPU 0 with perception, so it needs the -shared hw file
         # for this board. Check it here: compose would otherwise fail on a missing
@@ -1901,7 +1818,7 @@ function state_up() {
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")"
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
       if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
@@ -1934,13 +1851,6 @@ function state_up() {
       # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
       if [[ "${profile}" == "base" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-      elif [[ "${profile}" == "search" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-        # Thor is excluded from the generic sizing block above, so search with a
-        # local RT-VLM would otherwise inherit the profile's empty value and let
-        # vLLM fall back to its own default -- far too large for a board that is
-        # also running perception and, optionally, the LLM. A host env override
-        # still wins, which is how the fraction gets tuned during bring-up.
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")}"
       else
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
       fi
@@ -1968,19 +1878,12 @@ function state_up() {
       fi
     fi
   fi
-  # Search on edge hardware with a REMOTE VLM: the agent calls the endpoint
-  # directly instead of proxying through RT-VLM, which frees the GPU that the
-  # container would otherwise hold for media preprocessing. That means routing
+  # Search on edge hardware: the VLM is always a remote endpoint, and the agent
+  # calls it directly instead of proxying through RT-VLM, which frees the GPU that
+  # the container would otherwise hold for media preprocessing. That means routing
   # the agent at a direct profile (nim/openai rather than rtvi), switching its
   # media framing to inline base64, and dropping rtvi-vlm from the deployment.
-  #
-  # None of that applies when --vlm keeps the VLM on the board: rtvi-vlm is then
-  # the thing serving the model, so it has to stay in COMPOSE_PROFILES and the
-  # agent has to keep talking to it over the rtvi profile. Leaving media mode
-  # alone matters too -- the agent hands RT-VLM a VST link rather than inlining
-  # the clip as base64, which is both cheaper on the board and avoids RT-VLM's
-  # ~7.5 MB cap on inlined video (VideoUrl.url max_length in nim_compat.py).
-  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}" && [[ "${vlm_mode}" == "remote" ]]; then
+  if [[ "${profile}" == "search" ]] && contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}"; then
     # Only an explicit --vlm-model-type counts here: vlm_model_type is otherwise
     # pre-filled from the profile env files, where search sets it to rtvi.
     if contains_element "vlm-model-type" "${options_provided[@]}" && [[ -n "${vlm_model_type}" ]]; then
