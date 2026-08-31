@@ -1,11 +1,12 @@
 # NemoClaw VSS Installer
 
-`init_nemoclaw.sh` bootstraps a NemoClaw sandbox on a Brev instance, configures its NVIDIA-hosted model provider, uploads the repository `skills/`, and updates OpenClaw allowed origins.
+`init_nemoclaw.sh` bootstraps a NemoClaw sandbox on a Brev instance, configures its model provider, uploads the repository `skills/`, and updates OpenClaw allowed origins.
 
-It supports two onboard providers, selected via the **required** `NEMOCLAW_PROVIDER` env var:
+It supports three onboard providers, selected via the **required** `NEMOCLAW_PROVIDER` env var:
 
 - `build` — NVIDIA Endpoints (`integrate.api.nvidia.com`), authenticated with `NVIDIA_API_KEY`.
 - `custom` — any OpenAI-compatible endpoint (e.g. a local vLLM), configured with `NEMOCLAW_ENDPOINT_URL` and `COMPATIBLE_API_KEY`.
+- `orcarouter` — the [OrcaRouter](https://www.orcarouter.ai) OpenAI-compatible AI gateway (`api.orcarouter.ai`), authenticated with `ORCAROUTER_API_KEY`. Exposes the same provider/model namespace as OpenRouter plus adaptive routing, failover, guardrails, and agent-tool governance on the same endpoint.
 
 ## What It Does
 
@@ -81,6 +82,26 @@ NEMOCLAW_PROVIDER=custom \
     --nvidia-api-key "$NVIDIA_API_KEY"
 ```
 
+### `orcarouter` provider (OrcaRouter gateway)
+
+`ORCAROUTER_API_KEY` is required when `NEMOCLAW_PROVIDER=orcarouter`. `NEMOCLAW_MODEL` defaults to `orcarouter/auto` for adaptive routing across the gateway's model namespace:
+
+```bash
+NEMOCLAW_PROVIDER=orcarouter \
+ORCAROUTER_API_KEY="$ORCAROUTER_API_KEY" \
+  bash deploy/docker/scripts/nemoclaw/init_nemoclaw.sh demo
+```
+
+Equivalent with CLI flags:
+
+```bash
+NEMOCLAW_PROVIDER=orcarouter \
+  bash deploy/docker/scripts/nemoclaw/init_nemoclaw.sh \
+    --sandbox-name demo \
+    --model orcarouter/auto \
+    --orcarouter-api-key "$ORCAROUTER_API_KEY"
+```
+
 ### Background run on a Brev instance
 
 ```bash
@@ -94,11 +115,12 @@ nohup env NEMOCLAW_PROVIDER=build NVIDIA_API_KEY="$NVIDIA_API_KEY" \
 | Option | Description | Default |
 |---|---|---|
 | `--sandbox-name NAME` | Target sandbox name | `demo` |
-| `--model NAME` | NemoClaw inference model | `nvidia/nemotron-3-super-120b-a12b` |
+| `--model NAME` | NemoClaw inference model | `orcarouter/auto` (`orcarouter` provider) / `nvidia/nemotron-3-super-120b-a12b` (otherwise) |
 | `--nvidia-base-url URL` | NVIDIA API base URL for the `build` provider | `https://integrate.api.nvidia.com/v1` |
 | `--nvidia-api-key KEY` | API key for the `build` provider | `NVIDIA_API_KEY` env fallback |
 | `--endpoint-url URL` | OpenAI-compatible endpoint URL (required when `NEMOCLAW_PROVIDER=custom`) | — |
 | `--compatible-api-key KEY` | API key for the OpenAI-compatible endpoint (required when `NEMOCLAW_PROVIDER=custom`) | — |
+| `--orcarouter-api-key KEY` | API key for the OrcaRouter gateway (required when `NEMOCLAW_PROVIDER=orcarouter`) | `ORCAROUTER_API_KEY` env fallback |
 | `--openclaw-config-script PATH` | Path to `update_openclaw_config.py` | `deploy/docker/scripts/nemoclaw/update_openclaw_config.py` |
 | `--policy-file PATH` | Custom sandbox policy file | `assets/vss_nemoclaw_policy.yaml` |
 | `--help` | Show usage help | n/a |
@@ -109,9 +131,11 @@ The script also honors these environment variables:
 
 - `VSS_REPO_DIR`: repo root used to resolve plugin assets and the default policy file
 - `NEMOCLAW_SANDBOX_NAME`
-- `NEMOCLAW_PROVIDER` (**required**) — `build` or `custom`
+- `NEMOCLAW_PROVIDER` (**required**) — `build`, `custom`, or `orcarouter`
 - `NEMOCLAW_ENDPOINT_URL` — OpenAI-compatible endpoint URL; required when `NEMOCLAW_PROVIDER=custom`
 - `COMPATIBLE_API_KEY` — API key for the OpenAI-compatible endpoint; required when `NEMOCLAW_PROVIDER=custom`
+- `ORCAROUTER_API_KEY` — API key for the OrcaRouter gateway; required when `NEMOCLAW_PROVIDER=orcarouter`
+- `ORCAROUTER_BASE_URL` — OrcaRouter gateway base URL (default `https://api.orcarouter.ai/v1`)
 - `OPENSHELL_PROVIDER_NAME`
 - `NEMOCLAW_MODEL`
 - `NVIDIA_BASE_URL`
@@ -144,8 +168,9 @@ If the config update succeeds, the helper also prints:
 
 ## Troubleshooting
 
-- Verify `NEMOCLAW_PROVIDER` is set (`build` or `custom`) — the script exits immediately if it is unset.
+- Verify `NEMOCLAW_PROVIDER` is set (`build`, `custom`, or `orcarouter`) — the script exits immediately if it is unset.
 - For `NEMOCLAW_PROVIDER=custom`, verify both `NEMOCLAW_ENDPOINT_URL` and `COMPATIBLE_API_KEY` are set (or pass `--endpoint-url` / `--compatible-api-key`).
+- For `NEMOCLAW_PROVIDER=orcarouter`, verify `ORCAROUTER_API_KEY` is set (or pass `--orcarouter-api-key`).
 - Verify `NVIDIA_API_KEY` is set before running the installer.
 - If NemoClaw onboarding fails, verify `nemoclaw` is resolvable or that `/home/ubuntu/NemoClaw/install.sh` exists and is executable.
 - If the custom policy is skipped, confirm `assets/vss_nemoclaw_policy.yaml` exists or pass `--policy-file`.
