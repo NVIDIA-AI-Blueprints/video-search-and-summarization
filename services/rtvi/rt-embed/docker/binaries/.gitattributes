@@ -1,0 +1,17 @@
+libcuvidv4l2.so filter=lfs diff=lfs merge=lfs -text
+libgstnvvideo4linux2.so filter=lfs diff=lfs merge=lfs -text
+deepstream_sdk_v9.1.0_x86_64.tbz2 filter=lfs diff=lfs merge=lfs -text
+pyds-1.2.0-cp312-cp312-linux_x86_64.whl filter=lfs diff=lfs merge=lfs -text
+tensorrt_llm-0.18.0.dev2025022500-cp312-cp312-linux_x86_64.whl filter=lfs diff=lfs merge=lfs -text
+flash_attn-2.7.4.post1-cp312-cp312-linux_x86_64.whl filter=lfs diff=lfs merge=lfs -text
+xformers-0.0.30+56be3b5e.d20250303-cp312-cp312-linux_x86_64.whl filter=lfs diff=lfs merge=lfs -text
+ds8.0/libcuvidv4l2.so filter=lfs diff=lfs merge=lfs -text
+ds8.0/libgstnvvideo4linux2.so filter=lfs diff=lfs merge=lfs -text
+arm64/libnvds_infer_server.so filter=lfs diff=lfs merge=lfs -text
+arm64/libnvdsgst_inferserver.so filter=lfs diff=lfs merge=lfs -text
+thor/* filter=lfs diff=lfs merge=lfs -text
+igpu/libnvbufsurface.so filter=lfs diff=lfs merge=lfs -text
+igpu/libnvbufsurftransform.so filter=lfs diff=lfs merge=lfs -text
+igpu/libgstnvvideo4linux2.so filter=lfs diff=lfs merge=lfs -text
+amd64/*.so filter=lfs diff=lfs merge=lfs -text
+arm64/*.so filter=lfs diff=lfs merge=lfs -text

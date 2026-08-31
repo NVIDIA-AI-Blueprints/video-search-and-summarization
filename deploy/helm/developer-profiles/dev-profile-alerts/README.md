@@ -41,6 +41,11 @@ Two modes, each with a **single values file** — use only one `-f` when install
 | `values-verification.yaml` | Verification |
 | `values-realtime.yaml` | Real-time |
 
+The mode files also set **Manage Alerts** editors:
+verification keeps **both Real-time Alerts and CV Alerts Verification**, while
+real-time shows **Real-time Alerts** only. Set both `vss-agent-ui.alertsRealtimeEnabled` and
+`vss-agent-ui.alertsCvVerificationEnabled` to `false` to hide Manage Alerts.
+
 ## GPU requirements
 
 With default **`values.yaml`** and the mode values files, the stack requests **4 GPUs** for verification and **3 GPUs** for real-time (`nvidia.com/gpu: 1` each). These defaults enable the local Nemotron NIM; **RTVI-VLM** loads its own VLM checkpoint by default, so the Cosmos NIM is not listed unless you explicitly enable a shared VLM NIM. Pod names include the Helm release name and a replica hash; below lists the **workload** you will see in `kubectl get pods`.
@@ -155,19 +160,19 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** **`""`** | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
 | **`infra.phoenix.enabled`** | **`true`** | Set **`false`** to disable Phoenix ( **`infra`** subchart). |
 | **`infra.redis.enabled`** | **`true`** | Set **`false`** to disable Redis. |
-| **`infra.sdrc.enabled`** | **`true`** | Enables the combined SDRC controller/router used by Alerts for streamprocessing and, in verification mode, **vss-rtvi-cv** provisioning. |
+| **`infra.sdrc.enabled`** | **`true`** | Enables the combined SDRC controller/router used by Alerts for streamprocessing and, in verification mode, **vss-rtvi-cv** provisioning. **Keep enabled.** The docker compose alerts profile removed SDRC in favour of VIOS webhooks that post to a single fixed **`vss-rtvi-cv:9010`** address. Helm keeps SDRC because it distributes streams across replicas, routes clients to the owning pod by stream-ID, and re-places streams on pod loss — none of which a webhook can do. This divergence from compose is intentional; do not replace SDRC with VIOS webhooks here. |
 | **`infra.sdrc.configFilePath`** | **`configs/sdrc/config-verification.yml`** | Profile-local SDRC workload config rendered into the **`sdrc-config`** ConfigMap. **`values-realtime.yaml`** switches this to **`configs/sdrc/config-realtime.yml`**. |
 | **`vios.enabled`** | **`true`** | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | **`true`** | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
 | **`vios.vss-vios-sensor.enabled`** | **`true`** | Set **`false`** to disable the **sensor** workload. |
-| **`vios.vss-vios-sensor.streamProcessorService`** | **`sdrc`** | Sensor registers streams through the SDRC controller service (**`sdrc-controller:10000`** by default). |
+| **`vios.vss-vios-sensor.streamProcessorService`** | **`sdrc`** | Sensor registers streams through the SDRC controller service (**`sdrc-controller:10000`** by default). Keep as **`sdrc`** — see **`infra.sdrc.enabled`** above. |
 | **`vios.vss-vios-sensor.persistence`** | Each of **`vstData`** and **`vstVideo`**: mount on, **`create: false`**, **`existingClaim`** empty by default | Controls whether **sensor** mounts two shared folders (**data** and **video**). **Typical setup:** leave **`existingClaim`** blank—Helm wires the pods to the PVCs created when **`vios.vstStorage.createSharedPvcs`** is **`true`**. **Custom PVCs:** set **`existingClaim`** to your claim name for that volume. **Disable a mount:** set that volume’s **`enabled`** to **`false`** (that path is not mounted). |
 | **`vios.vss-vios-streamprocessing.enabled`** | **`true`** | Set **`false`** to disable **vss-vios-streamprocessing**. |
 | **`vios.vss-vios-streamprocessing.useSdrEnvoyStyleHeadless`** | **`false`** | Streamprocessing service style used for SDRC discovery; leave **`false`** unless a deployment-specific override requires the alternate headless wiring. |
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** (when **`vios.vstStorage.createSharedPvcs`** is **`true`**), or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | **`true`** | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | **`""`** | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | **`true`** in chart defaults and mode sample files | When **`true`**, renders **`templates/vss-ingress.yaml`**: main host routes for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**, **`/video-analytics-api`**, **`/alert-bridge`**, **`/va-mcp`** (with HAProxy path-rewrite annotations), optional **Kibana** / **Phoenix** / **NVStreamer** hosts. |
+| **`vssIngress.enabled`** | **`true`** in chart defaults and mode sample files | When **`true`**, renders **`templates/vss-ingress.yaml`** from the [canonical route table](../../services/common/README.md): main host routes for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress** (**`/vst`**, **`/storage`**), **`/video-analytics-api`**, **`/behavior-analytics`**, **`/alert-bridge`**, **`/va-mcp`**, **`/elasticsearch`**, **`/rtvi-cv`**, **`/phoenix`** (with HAProxy path-rewrite annotations), plus optional **Kibana** / **Phoenix** / **NVStreamer** hosts and a host-less east-west rule for **`/rtvi-cv`**. |
 | **`vssIngress.ingressClassName`** | **`haproxy`** | **`spec.ingressClassName`**. Must match an **`IngressClass`** on the cluster. **`metadata.annotations`** use **`haproxy.org/path-rewrite`** for **HAProxy** Ingress; other controllers may need different annotations or manual YAML (**`vss-ingress-example*.yaml`**). |
 | **`vssIngress.host`** | **`""`** | Main Ingress hostname; if empty, **`global.externalHost`** is used. |
 | **`vssIngress.vssUiPort`** | **`3000`** | Backend port for **vss-agent-ui** paths. |
@@ -176,6 +181,9 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vssIngress.videoAnalyticsApiPort`** | **`8081`** | Backend port for **vss-video-analytics-api** (**`/video-analytics-api`**). |
 | **`vssIngress.alertBridgePort`** | **`9080`** | Backend port for **vss-alert-bridge** (**`/alert-bridge`**). |
 | **`vssIngress.vaMcpPort`** | **`9901`** | Backend port for **vss-va-mcp** (**`/va-mcp`**). Public MCP URL is **`http://<host>/va-mcp/mcp`**. |
+| **`vssIngress.behaviorAnalyticsPort`** | **`8080`** | Backend port for **vss-behavior-analytics** (**`/behavior-analytics`**). Kafka-only builds answer **`503`** here; that is an absent service, not a failure. |
+| **`vssIngress.elasticsearchPort`** | **`9200`** | Backend port for **`/elasticsearch`**. The edge guard is on the **`elasticsearch`** **`Service`** (**`infra.elasticsearch.ingressGuard`**): guarded at the edge: PUT/DELETE, cluster-admin paths and the two-segment mutating operations are denied, but **POST still reaches Elasticsearch** (`_bulk`, `_reindex`, `/<index>/_doc`) — the same grant the Docker edge makes, not a read-only endpoint. |
+| **`vssIngress.rtviCvPort`** | **`9010`** | Backend port for **vss-rtvi-cv** (**`/rtvi-cv`**). This profile runs RT-CV in **`profileMode: alerts`**, whose **`Service`** port is **`9010`**, not the **`9000`** other profiles use. |
 | **`vssIngress.kibanaHost`** / **`phoenixHost`** / **`streamerHost`** | **`""`** | Optional host overrides; defaults **`kibana.`** / **`phoenix.`** / **`streamer.`** + main host. |
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port. |
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port. |
@@ -195,7 +203,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`agent.vss-agent.waitForDependencies.enabled`** | **`true`** in **`values.yaml`** | When **`true`**, an **initContainer** waits until the **vss-va-mcp** workload (TCP **9901**) accepts connections before **vss-agent** starts when **MCP** is enabled, avoiding **`ConnectError`** during FastAPI startup. Set **`false`** to skip. Override **`waitForDependencies.vaMcpHost`** / **`vaMcpPort`** if **`VIDEO_ANALYSIS_MCP_URL`** uses a different host. |
 | **`agent.vss-agent.extraEnv`** | *(omit)* | Optional **`{ name, value }`** appended last. |
 | **`vss-agent-ui.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent-ui** deployment. |
-| **`vss-agent-ui.fillAlertBridgeUrlFromGlobal`** | **`true`** | When **`true`**, **Alerts** tab can use **`alertsApiUrl`** / global wiring to **vss-alert-bridge**. **Real-time (`values-realtime.yaml`):** **`false`** because **vss-alert-bridge** is **`enabled: false`** **Alerts** tab uses **MDX** web API URLs instead (see **vss-agent-ui** templates). |
+| **`vss-agent-ui.fillAlertBridgeUrlFromGlobal`** | **`true`** | Keeps the Alerts tab wired to **vss-alert-bridge** in both launcher modes. |
 | **`vss-agent-ui.agentApiUrlBase`** | **`""`** | Base URL for the **vss-agent** HTTP API (browser **`NEXT_PUBLIC_AGENT_API_URL_BASE`**, typically ends with **`/api/v1`**). If unset, built from **`global.externalScheme`** / **`externalHost`** / **`externalPort`** as **`<global>/api/v1`**, else defaults to in-cluster **`http://<release>-vss-agent:8000/api/v1`**. |
 | **`vss-agent-ui.vstApiUrl`** | **`""`** | **VST** HTTP API URL for the browser (**`NEXT_PUBLIC_VST_API_URL`**). If unset, built as **`<global>/vst/api`**, else **`http://<release>-vss-vios-ingress:30888/vst/api`**. |
 | **`vss-agent-ui.chatCompletionUrl`** | **`""`** | HTTP chat completion URL (**`NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL`**). If unset, built as **`<global>/chat/stream`**, else **`http://<release>-vss-agent:8000/chat/stream`**. |
@@ -205,17 +213,15 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vss-agent-ui.enableDashboardTab`** | **`"false"`** | Dashboard tab toggle; defaults to **`false`** for the Alerts profile. |
 | **`vss-agent-ui.envOverrides`** | short list | Alerts-specific **`NEXT_PUBLIC_*`** overrides for workflow, the **Alerts** tab, upload/RTSP/WebSocket behavior, and verified-state UI behavior; other **`NEXT_PUBLIC_*`** keys come from **`deploy/helm/services/ui/values.yaml`** **`env`**. |
 | **`vss-summarization.enabled`** | **`false`** | Keep **`false`** for alerts. |
-| **`vss-alert-bridge.enabled`** | **`true`** | Set **`false`** to disable **vss-alert-bridge** when using **`real-time`** mode. |
+| **`vss-alert-bridge.enabled`** | **`true`** | Enabled in both modes, matching **`COMPOSE_PROFILES_CV`** and **`COMPOSE_PROFILES_VLM`**. In real-time it consumes RT-VLM incidents; in verification it enriches CV alerts. |
 | **`vss-alert-bridge.kafkaBootstrapServers`** | **`""`** | Kafka bootstrap string for incident/enhanced topics. When empty, the rendered **`config.yml`** defaults to **`kafka-kafka:9092`**; with **`global.useReleaseNamePrefix: true`**, **`<release>-kafka-kafka:9092`**. |
-| **`vss-alert-bridge.redisHost`** | **`""`** | Redis host for **event_bridge** streams. When empty, defaults to **`<release>-redis`**. |
-| **`vss-alert-bridge.redisPort`** | **`6379`** | Redis port for source/sink streams in **`config.yml`**. |
 | **`vss-alert-bridge.elasticHosts`** | **`""`** | Elasticsearch HTTP URL for **`elastic.hosts`** in **`config.yml`**. When empty, defaults to **`http://<release>-elasticsearch:9200`**. |
 | **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | Base URL of the **vss-rtvi-vlm** HTTP service (no **`/v1`** suffix here; **`config.yml`** appends **`/v1`** for **`vlm.base_url`**). When empty, defaults to **`http://vss-rtvi-vlm:8000`** or **`http://<release>-vss-rtvi-vlm:8000`** when release-name prefixes are enabled. |
 | **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | NGC model id passed to **`vlm.model`**; must match the **RTVI-VLM** NIM you run (same idea as **`agent.vss-agent.vlmName`**). |
 | **`vss-alert-bridge.vstBaseUrl`** | **`""`** | **VST** ingress base URL for **`vst_config`** and storage paths in **`config.yml`**. When empty, defaults to **`http://<release>-vss-vios-ingress:30888`**. |
 | **`vss-alert-bridge.alertReviewMediaBaseDir`** | **`""`** | Optional **`ALERT_REVIEW_MEDIA_BASE_DIR`** in **`config.yml`** for alert-review media; leave empty if unused. |
-| **`vss-alert-bridge.configVariant`** | **`""`** | **`""`:** default **`config.yml`**. |
-| **`vss-alert-bridge.waitForDependencies.enabled`** | **`true`** in **`values.yaml`** | When **`true`**, an **initContainer** waits until **Kafka**, **Redis**, and **Elasticsearch** TCP ports accept connections before **`vss-alert-bridge`** starts (reduces startup **`Connection refused`** when infra stack pods are still coming up). Set **`false`** to skip. Override **`waitForDependencies.*Host`** / ports if your service DNS differs. |
+| **`vss-alert-bridge.configVariant`** | **`""`** | **`""`:** default **`config.yml`**. Set **`edge-local-vlm`** explicitly to use the edge verifier configuration. |
+| **`vss-alert-bridge.waitForDependencies.enabled`** | **`true`** in **`values.yaml`** | When **`true`**, an **initContainer** waits until **Kafka** and **Elasticsearch** accept connections before **`vss-alert-bridge`** starts. Set **`false`** to skip. |
 | **`infra.kafka.enabled`** | **`true`** | Set **`false`** to disable **Kafka** (infra subchart). Bootstrap DNS is **`kafka-kafka:9092`**; with **`global.useReleaseNamePrefix: true`**, **`<release>-kafka-kafka:9092`**. |
 | **`infra.kafka.persistence.size`** | **10Gi** in **`values.yaml`** | PVC size for Kafka broker data (alerts override). |
 | **`infra.kafka.persistence.storageClass`** | **`""`** | **StorageClass** for the Kafka PVC. |
@@ -251,7 +257,8 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`infra.logstash.elasticsearch.host`** | **`""`** | Elasticsearch output host. When empty, defaults to **`elasticsearch:9200`** unprefixed (see **logstash** subchart **`_helpers.tpl`**). |
 | **`vios.vss-vios-nvstreamer.enabled`** | **`true`** | Set **`false`** to disable **NVStreamer** for Alerts. |
 | **`rtvi.vss-rtvi-cv.enabled`** | **`true`** | Set **`false`** to disable **vss-rtvi-cv** in **`real-time`** mode |
-| **`rtvi.vss-rtvi-vlm.enabled`** | **`false`** in **`values.yaml`** | Set **`true`** for **real-time** alerts. |
+| **`rtvi.vss-rtvi-vlm.enabled`** | **`true`** in both mode files | Verification uses RT-VLM as its verifier with Kafka output disabled; real-time enables Kafka output. |
+| **`rtvi.vss-rtvi-vlm.envOverrides`** | mode deltas | Overrides only mode-specific environment values while inheriting the complete RT-VLM leaf defaults. Avoid replacing the full **`env`** list. |
 | **`rtvi.vss-rtvi-vlm.useSharedNim`** | **`false`** in **`values.yaml`** | When **`true`**, RT-VLM proxies to a shared OpenAI-compatible VLM service instead of loading **`modelPath`** in-pod. Set **`sharedNimService`**, **`viaVlmOpenAiModelDeploymentName`**, and **`ngcApiSecret`** to match that service. |
 | **`rtvi.vss-rtvi-vlm.vlmNameSlug`** | unset | Optional nested override used by the **rtvi-vlm** subchart to derive the in-cluster shared VLM service host when **`useSharedNim: true`**. This is separate from top-level developer-profile values. |
 | **`rtvi.vss-rtvi-vlm.nims.enabled`** | **`true`** (mirrors **`nims.enabled`** in **`values.yaml`**) | Subchart copy of the umbrella NIM switch. **`vss-rtvi-vlm`** also treats non-empty **`global.vlmBaseUrl`** as remote VLM (so **`--set-string global.vlmBaseUrl=...`** picks **`VIA_VLM_*`** from globals even if **`--set nims.enabled=false`** alone does not update this key). |
@@ -262,7 +269,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`agent.vss-va-mcp.elasticsearchUrl`** | **`""`** | **Elasticsearch** URL for MCP. When empty, defaults to **`http://<release>-elasticsearch:9200`**. **`hfToken`**, **`vstMcpUrl`**, and **`hostIp`** are in **`deploy/helm/services/agent/charts/va-mcp/values.yaml`**. |
 | **`vss-proxy.enabled`** | **`false`** | Optional nginx proxy. |
 | **`nims.enabled`** | **`true`** | Master switch for all NIM subcharts (requires NIM Operator + GPUs). Set **`false`** with **`global.*`** URLs/names for remote-only LLM/VLM. For **vss-rtvi-vlm** **`VIA_VLM_*`**, setting **`global.vlmBaseUrl`** (and **`global.vlmName`**) is enough for remote mode; optionally also **`--set rtvi.vss-rtvi-vlm.nims.enabled=false`** to match **`nims.enabled`**. |
-| **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for the bundled **`nemotron`** and **`cosmos`** NIM ConfigMaps. Supported values include **`H100`**, **`L40S`**, and **`RTXPRO6000BW`**. |
+| **`nims.gpuType`** | **`RTXPRO6000BW`** in both mode files | Selects **`gpuProfiles`** tuning for the bundled **`nemotron`** and **`cosmos`** NIM ConfigMaps. Supported values include **`H100`**, **`L40S`**, and **`RTXPRO6000BW`**. |
 | **`nims.<model>.enabled`** | per model | Enable only models you deploy; align slugs and **vss-agent**/**vss-alert-bridge** NGC ids. |
 
 ### Remote LLM and VLM

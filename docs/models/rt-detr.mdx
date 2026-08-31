@@ -1,0 +1,590 @@
+---
+title: "RT-DETR (2D warehouse detection)"
+description: ""
+position: 5
+---
+TAO **RT-DETR** fine-tuning and deployment guidance for 2D warehouse object detection.
+
+<Note>
+This page combines the RT-DETR Warehouse 2D Model overview, sample output, model-card reference, runtime performance, evaluation KPI, and TAO workflow for dataset preparation, training, evaluation, inference, export, optional FP16 optimization, and Perception microservice integration.
+</Note>
+
+TAO RT-DETR is an advanced 2D Single-Camera Real-Time Detection Transformer tailored for warehouse environments and industrial automation settings.
+It generates precise 2D bounding boxes for a diverse set of objects including people, humanoid robots, autonomous vehicles, and warehouse equipment.
+The RT-DETR Warehouse 2D Model v1.0.2 is part of NVIDIA's RT-DETR family and is pretrained on warehouse scene datasets for precise 2D object detection in industrial environments. This release uses a lighter-weight ResNet-50 backbone to reduce model size and inference cost while retaining competitive accuracy.
+
+![TAO RT-DETR Sample Output](/assets/images/rtdetr/rtdetr_output.png)
+
+## Release Information
+
+The RT-DETR Warehouse 2D Model v1.0.2 release is scheduled for NGC on June 2, 2026.
+
+| Version | Backbone | Input shape | Notes |
+| --- | --- | --- | --- |
+| v1.0.2 | ResNet-50 | batch size x 3 x 640 x 640 | Lightweight deployable model for warehouse 2D object detection. |
+
+The model was trained and evaluated on seven warehouse-centric classes: Person, Fourier GR1_T2 Humanoid, Agility Digit Humanoid, Nova Carter, Transporter, Forklift, and Pallet.
+
+Key NGC artifacts include:
+
+* [rtdetr_warehouse_v1.0.2.onnx and FP16 ONNX](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse/files?version=deployable_rn50_v1.0.2) for ResNet-50 deployment.
+
+## Model Card
+
+The [TAO RT-DETR model card on NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse) describes architecture, datasets, and accuracy methodology.
+
+## Inference using Perception Microservice
+
+Detailed information can be found in the [Warehouse 2D single-camera detection and tracking ](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR) page.
+
+## Real-Time Inference Throughput & Latency
+
+Inference runs through the DeepStream pipeline on TensorRT. The table below summarizes how many camera streams each GPU supports at 30 FPS and 15 FPS with `interval=1`. The stream counts are computed from GPU compute/latency measurements as `batch_size * 1000 / latency_ms`, then divided by the target FPS.
+
+Tested deployable model: v1.0.2 FP16, ResNet-50 backbone.
+
+| GPU | @30 FPS | @15 FPS (interval=1) |
+| --- | --- | --- |
+| 1x GB200 | 158 | 316 |
+| 1x B200 | 141 | 282 |
+| 1x H200 | 85 | 170 |
+| 1x H100 | 76 | 153 |
+| 1x H100 NVL | 59 | 118 |
+| 1x A100 | 36 | 72 |
+| 1x RTX PRO 6000 (Workstation) | 49 | 99 |
+| 1x RTX PRO 6000 (Server) | 45 | 90 |
+| 1x RTX 6000 Ada | 28 | 56 |
+| 1x L40S | 29 | 59 |
+| 1x L40 | 25 | 51 |
+| 1x L4 | 9 | 18 |
+| 1x DGX Spark | 7 | 15 |
+| 1x IGX Thor T7000 (iGPU) | 9 | 18 |
+| 1x IGX Thor Mini (T234 Orin iGPU) | 10 | 21 |
+| 1x IGX Thor T7000 + RTX PRO 6000 | 37 | 75 |
+| 1x Jetson AGX Thor - T5000 | 9 | 18 |
+
+## KPI
+
+The key performance indicators are Average Precision (AP) per-class evaluated on the Warehouse Synthetic Test dataset. AP quantifies a detector's ability to trade off precision and recall for a single object category by computing the normalized area under its precision-recall curve.
+
+The model supports 7 object categories: Person, Agility Digit (humanoid robot), Fourier GR1_T2 (humanoid robot), Nova Carter, Transporter, Forklift, and Pallet.
+
+**Evaluation Settings**
+
+The reported metrics use the following evaluation configuration:
+
+* **AP Variant**: COCO AP@0.50
+* **IoU Thresholds**: 0.50
+* **Max Detections**: 100 detections per image
+* **Matching Policy**: Greedy matching based on IoU with ground truth boxes, highest confidence predictions matched first
+
+The Warehouse Synthetic Test evaluation uses the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) subset from the [NVIDIA PhysicalAI-SmartSpaces dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces). This is a comprehensive, annotated dataset for multi-camera tracking and 2D/3D object detection, synthetically generated with NVIDIA Omniverse. The dataset consists of time-synchronized video from indoor warehouse scenes with annotations for 2D & 3D bounding boxes and multi-camera tracking IDs. The Warehouse Synthetic Test dataset used for evaluation is the [Warehouse_019](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/test/Warehouse_019) scene from the test split.
+
+| Dataset | Person | Agility Digit | GR1_T2 | Nova Carter | Transporter | Forklift | Pallet |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Building K | 0.936 | N/A | N/A | 0.833 | N/A | N/A | N/A |
+| Warehouse Videos Test | 0.740 | 0.823 | 0.877 | 0.984 | N/A | 0.988 | 0.508 |
+| Warehouse Synthetic Test | 0.949 | 0.950 | 0.888 | 0.970 | 0.950 | 0.723 | 0.866 |
+
+Please refer to the [Model Card](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse/) for more details on benchmark datasets and evaluation methodology.
+
+## Model versions
+
+The VSS 3.2.0 model card identifies **RT-DETR 2D Warehouse Perception Model v1.0** as the warehouse detector family and lists deployable updates through **v1.0.2**:
+
+| NGC version | Backbone | Input resolution | Artifact and purpose |
+| --- | --- | --- | --- |
+| `trainable_efficientvit_l2_v1.0` | EfficientViT-L2 | training spec dependent | `rtdetr_warehouse_v1.0.pth` for TAO fine-tuning and transfer learning |
+| `deployable_efficientvit_l2_v1.0` | EfficientViT-L2 | 544x960 | `rtdetr_warehouse_v1.0.onnx` and `rtdetr_warehouse_v1.0.fp16.onnx` |
+| `deployable_efficientvit_l2_v1.0.1` | EfficientViT-L2 | 640x640 | Updated ONNX exports with optimized inference resolution |
+| `deployable_rn50_v1.0.2` | ResNet-50 | 640x640 | Lightweight ONNX exports distilled from the v1.0.1 EfficientViT-L2 model |
+
+Use `backbone: efficientvit_l2` for the v1.0/v1.0.1 EfficientViT-L2 path, or `backbone: resnet50` for the v1.0.2 lightweight path.
+
+## Hardware & Software Requirements
+
+Please refer to the [Requirements section](https://docs.nvidia.com/tao/tao-toolkit/latest/text/getting_started.html) of the TAO Toolkit Quick Start Guide for more details.
+
+Runtime integration for the deployable warehouse model uses DeepStream 8.0 and TAO 6.25.10 or later. The reported inference measurements use TensorRT 10.13.3.9 or later, depending on the target platform.
+
+## Dataset Requirements
+
+The RT-DETR model can be fine-tuned on your own dataset for warehouse object detection tasks. The model is pre-trained on large-scale warehouse datasets including synthetic and real-world data.
+
+For fine-tuning on your custom dataset, the data requirements are as follows:
+
+**Minimum Requirements:**
+
+1. **Image Format**
+
+   - RGB images in standard formats (JPEG, PNG)
+   - Recommended resolution: 640x640 or higher
+
+2. **Number of Training Images**
+
+   - Minimum: 1,000 annotated images per class
+   - Recommended: 5,000+ images for robust performance
+
+3. **Annotations**
+
+   - Ground Truth 2D bounding boxes in COCO format or compatible format
+   - Class labels for all objects
+
+4. **Data Split**
+
+   - Training set: 70-80% of total data
+   - Validation set: 10-15% of total data
+   - Test set: 10-15% of total data
+
+The model supports 7 object categories: Person, Agility Digit (humanoid robot), Fourier GR1_T2 (humanoid robot), Nova Carter, Transporter, Forklift, and Pallet.
+
+## Fine-tuning using NVIDIA TAO Toolkit
+
+RT-DETR can be fine-tuned via the TAO containers and the TAO CLI Notebook.
+
+The documentation provided below accompanies the cells in the TAO fine-tuning notebook and offers guidance on how to execute them.
+TAO RT-DETR supports the following tasks via the Jupyter notebook:
+
+* dataset `convert`
+* model `train`
+* model `evaluate`
+* model `inference`
+* model `export`
+
+An experiment specification file (also known as a configuration file) is used for fine-tuning the model. It consists of several main components:
+
+* `dataset`
+* `model`
+* `train`
+* `evaluate`
+* `inference`
+* `export`
+
+For more information on experiment spec file, please refer to the [Train Adapt Optimize (TAO) Toolkit User Guide - RT-DETR](https://docs.nvidia.com/tao/tao-toolkit/text/cv_finetuning/pytorch/object_detection/rt_detr.html).
+
+### Backbone Configuration
+
+Use ResNet-50 for v1.0.2:
+
+```yaml
+model:
+  backbone: resnet50
+  dec_layers: 6
+  enc_layers: 1
+  num_queries: 300
+  return_interm_indices:
+  - 1
+  - 2
+  - 3
+  train_backbone: true
+```
+
+The following is a ResNet-50 example spec file for training an RT-DETR model on warehouse datasets.
+
+Notice that the example fine-tunes, evaluates, and exports at 640x640 resolution for optimized inference.
+
+```yaml
+results_dir: /results
+
+dataset:
+  augmentation:
+      eval_spatial_size:
+      - 640
+      - 640
+      multi_scales:
+      - - 640
+        - 640
+      train_spatial_size:
+      - 640
+      - 640
+  batch_size: 16
+  dataset_type: serialized
+  num_classes: 7
+  remap_mscoco_category: false
+  train_data_sources:
+  - image_dir: ??
+    json_file: ??
+  val_data_sources:
+    image_dir: ??
+    json_file: ??
+  workers: 8
+
+model:
+  backbone: resnet50
+  dec_layers: 6
+  enc_layers: 1
+  num_queries: 300
+  return_interm_indices:
+  - 1
+  - 2
+  - 3
+  train_backbone: true
+
+train:
+  checkpoint_interval: 1
+  ema:
+      decay: 0.999
+  enable_ema: false
+  num_epochs: 30
+  num_gpus: 8
+  num_nodes: 1
+  optim:
+      lr: 1e-4
+      lr_backbone: 1e-5
+      lr_steps:
+      - 1000
+      momentum: 0.9
+  precision: bf16
+  pretrained_model_path: ??
+  validation_interval: 1
+
+inference:
+  checkpoint: ??
+  conf_threshold: 0.5
+  input_width: 640
+  input_height: 640
+  color_map:
+      person: green
+      nova_carter: red
+      transporter: blue
+      forklift: yellow
+      pallet: purple
+      gr1_t2: orange
+      agility_digit: pink
+
+evaluate:
+  checkpoint: ??
+  input_width: 640
+  input_height: 640
+
+export:
+  checkpoint: ??
+  gpu_id: ??
+  input_height: 640
+  input_width: 640
+  onnx_file: ??
+  opset_version: 17
+  serialize_nvdsinfer: true
+```
+
+### Dataset Preparation
+
+The RT-DETR model supports two data input formats for training. You can prepare your dataset in either format depending on your data source.
+
+**Option 1: COCO Format**
+
+The standard format for RT-DETR training is the COCO (Common Objects in Context) format. This format uses JSON annotation files with the following structure:
+
+```text
+{
+  "images": [
+    {
+      "id": 1,
+      "file_name": "image_001.jpg",
+      "width": 640,
+      "height": 640
+    }
+  ],
+  "annotations": [
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [x, y, width, height],
+      "area": 1234.5,
+      "iscrowd": 0
+    }
+  ],
+  "categories": [
+    {"id": 1, "name": "person"},
+    {"id": 2, "name": "agility_digit"},
+    {"id": 3, "name": "gr1_t2"},
+    {"id": 4, "name": "nova_carter"},
+    {"id": 5, "name": "transporter"},
+    {"id": 6, "name": "forklift"},
+    {"id": 7, "name": "pallet"}
+  ]
+}
+```
+
+For detailed information on the COCO format specification, please refer to the [TAO Toolkit Data Annotation Format - Object Detection COCO Format](https://docs.nvidia.com/tao/tao-toolkit/latest/text/data_annotation_format.html#object-detection-coco-format) documentation.
+
+The directory structure for COCO format should be:
+
+```text
+dataset/
+├── images/
+│   ├── train/
+│   │   ├── image_001.jpg
+│   │   ├── image_002.jpg
+│   │   └── ...
+│   ├── val/
+│   │   ├── image_001.jpg
+│   │   └── ...
+│   └── test/
+│       ├── image_001.jpg
+│       └── ...
+└── annotations/
+    ├── train.json
+    ├── val.json
+    └── test.json
+```
+
+**Option 2: H5 Files Format**
+
+For synthetic data generation pipelines or large-scale datasets, RT-DETR also supports data stored in HDF5 (H5) format. In this format, RGB images are stored within H5 files organized by camera.
+
+The directory structure for H5 format is as follows:
+
+```text
+dataset/
+├── Camera_01.h5
+├── Camera_02.h5
+├── Camera_03.h5
+├── ...
+└── annotations/
+    ├── train.json
+    └── val.json
+```
+
+Each H5 file contains an `rgb` group with RGB image frames (e.g., `rgb_00000.jpg`, `rgb_00001.jpg`, ...).
+
+The ground truth annotations use the same COCO JSON format as Option 1, but the `file_name` field in the `images` array uses a special H5 URI format:
+
+```text
+h5://<h5_file_name_without_extension>:<rgb_file_key in rgb group>
+```
+
+For example:
+
+```text
+{
+  "images": [
+    {
+      "id": 1,
+      "file_name": "h5://Camera_01:rgb_00000.jpg",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": 2,
+      "file_name": "h5://Camera_01:rgb_00001.jpg",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": 3,
+      "file_name": "h5://Camera_02:rgb_00000.jpg",
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "annotations": [...],
+  "categories": [...]
+}
+```
+
+### Launch Model Fine-tuning
+
+Below are the important configurations that need to be updated to launch training:
+
+```yaml
+dataset:
+  augmentation:
+    eval_spatial_size:
+    - 640
+    - 640
+    multi_scales:
+    - - 640
+      - 640
+    train_spatial_size:
+    - 640
+    - 640
+  batch_size: 16 # Depending on your GPU memory
+  dataset_type: serialized
+  num_classes: 7 # Update based on your dataset
+  remap_mscoco_category: false
+  train_data_sources:
+  - image_dir: ?? # Update this based on your training image directory
+    json_file: ?? # Update this based on your training annotations file
+    sample_size: '10000' # Update based on your dataset size
+  val_data_sources:
+    image_dir: ?? # Update this based on your validation image directory
+    json_file: ?? # Update this based on your validation annotations file
+  workers: 8 # Depending on your CPU memory
+```
+
+```yaml
+model:
+  backbone: resnet50
+  dec_layers: 6
+  enc_layers: 1
+  num_queries: 300
+  return_interm_indices:
+  - 1
+  - 2
+  - 3
+  train_backbone: true
+```
+
+```yaml
+train:
+  checkpoint_interval: 1 # Update this based on your dataset size
+  ema:
+    decay: 0.999
+  enable_ema: false
+  num_epochs: 30 # Update this based on your dataset size
+  num_gpus: 8 # Update this based on your GPU count
+  num_nodes: 1 # Update this based on your GPU count
+  optim:
+    lr: 1e-4
+    lr_backbone: 1e-5
+    lr_steps:
+    - 1000
+    momentum: 0.9
+  precision: bf16 # Use bf16 for faster training on supported GPUs
+  pretrained_model_path: ?? # Update this to the pretrained model path
+  validation_interval: 1 # Update this based on your dataset size
+```
+
+Once the configurations are modified, launch training by running the following command:
+
+```bash
+tao model rtdetr train \
+    -e=<spec configuration YAML file> \
+    dataset.train_data_sources.image_dir=<training image directory> \
+    dataset.train_data_sources.json_file=<training annotations file> \
+    dataset.val_data_sources.image_dir=<validation image directory> \
+    dataset.val_data_sources.json_file=<validation annotations file> \
+    results_dir=<results directory>
+```
+
+The pretrained RT-DETR warehouse checkpoints and deployable ONNX artifacts are available in the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse). Select the NGC version that matches the backbone and input resolution summarized above.
+
+### Evaluate the fine-tuned model
+
+The fine-tuned model's accuracy can be evaluated using the Average Precision (AP) metrics.
+
+Below are the important configurations that need to be updated to launch evaluation:
+
+```yaml
+dataset:
+  batch_size: 4
+  num_classes: 7
+  remap_mscoco_category: false
+  test_data_sources:
+    image_dir: ?? # Update this based on your test image directory
+    json_file: ?? # Update this based on your test annotations file
+  augmentation:
+    eval_spatial_size:
+    - 640
+    - 640
+
+evaluate:
+  checkpoint: ?? # Update this based on your fine-tuned model path
+  input_width: 640
+  input_height: 640
+```
+
+Once the configurations are modified, launch evaluation by running the following command:
+
+```bash
+tao model rtdetr evaluate \
+    -e=<spec configuration YAML file> \
+    evaluate.checkpoint=<fine-tuned model path> \
+    dataset.test_data_sources.image_dir=<test image directory> \
+    dataset.test_data_sources.json_file=<test annotations file>
+    results_dir=<results directory>
+```
+
+### Run Inference on the fine-tuned model
+
+The fine-tuned model's output can be inspected by running inference and visualizing the 2D bounding boxes.
+Below are the important configurations that need to be updated to launch inference:
+
+```yaml
+inference:
+  checkpoint: ?? # Update this based on your fine-tuned model path
+  conf_threshold: 0.5 # Update this based on your confidence threshold
+  input_width: 640 # Update this based on your input width
+  input_height: 640 # Update this based on your input height
+  color_map: # Update this based on your color map
+    person: blue
+    agility_digit: green
+    gr1_t2: red
+    nova_carter: yellow
+    forklift: purple
+    pallet: orange
+    transporter: pink
+dataset:
+  ...
+  augmentation:
+    eval_spatial_size:
+    - 640 # Update this based on your input height
+    - 640 # Update this based on your input width
+```
+
+```yaml
+dataset:
+  infer_data_sources:
+    image_dir: ?? # Update this based on your test image directory
+    classmap: ?? # Update this based on your classmap file
+  num_classes: 7 # Update this based on your number of classes
+  batch_size: 4 # Update this based on your batch size
+  workers: 8 # Update this based on your workers
+  remap_mscoco_category: false
+```
+
+Once the configurations are modified, launch inference by running the following command:
+
+```bash
+tao model rtdetr inference \
+    -e=<spec configuration YAML file> \
+    inference.checkpoint=<fine-tuned model path> \
+    dataset.infer_data_sources.image_dir=<test image directory> \
+    dataset.infer_data_sources.classmap=<classmap file> \
+    results_dir=<results directory>
+```
+
+### Export the fine-tuned model
+
+Below are the important configurations that need to be updated to launch export:
+
+```yaml
+export:
+  checkpoint: ?? # Update this based on your fine-tuned model path
+  gpu_id: ?? # Update this based on your GPU id
+  input_height: 640
+  input_width: 640
+  onnx_file: ?? # Update this based on your desired model name
+  opset_version: 17
+  serialize_nvdsinfer: true # Set to true for DeepStream integration
+```
+
+Once the configurations are modified, launch export by running the following command:
+
+```bash
+tao model rtdetr export \
+    -e=<spec configuration YAML file> \
+    export.checkpoint=<fine-tuned model path> \
+    export.onnx_file=<onnx file> \
+    results_dir=<results directory>
+```
+
+By default, the exported model is in ONNX format, FP32 precision. To further optimize the model for deployment,
+you can convert the model to FP16 precision using the [NVIDIA Model Optimizer](https://nvidia.github.io/Model-Optimizer/)
+
+  Step 1: Install NVIDIA Model Optimizer and set up your environment by following the official instructions here: https://nvidia.github.io/Model-Optimizer/getting_started/_installation_for_Linux.html
+
+  Step 2: Convert the model to FP16 precision using the following command:
+
+  ```bash
+  python -m modelopt.onnx.autocast --onnx_path <ONNX file path> \
+    --output_path <OUTPUT FP16 ONNX file path> \
+    --low_precision_type fp16 --keep_io_types
+  ```
+
+#### Using the fine-tuned model in the Perception Microservice
+
+Once the model is fine-tuned and exported to ONNX format, it can be used in the Perception Microservice.
+Refer to the [Integrating a New RT-DETR Model](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR#integrating-a-new-rt-detr-model) section for more details.

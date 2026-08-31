@@ -1,0 +1,203 @@
+---
+title: "Agent Skills"
+description: ""
+position: 2
+---
+<Warning>
+Agent Skills are released as **Early Access** and are not intended for use in production environments.
+Agent Skills for VSS were validated using Claude Opus 4.6.
+</Warning>
+
+Agent Skills are reusable, self-contained capabilities that coding agents (such as Claude
+Code and Codex) can load to deploy and operate the VSS Blueprint. Each Skill follows
+the [agentskills.io](https://agentskills.io) specification and packages prompts,
+reference data, and helper scripts so the coding agent can deploy a VSS profile, manage
+cameras and streams, query incidents, run searches, summarize videos, and generate
+reports. All from natural-language requests.
+
+<Note>
+Agent Skills are a developer-side tool for working with the VSS Blueprint. They are
+distinct from the in-product [VSS Agent ](/VSS-Agents), which runs inside a
+deployed VSS workflow and orchestrates VSS microservices.
+</Note>
+
+## Skill Anatomy
+
+Each VSS Skill is a folder under the `skills/` directory of the VSS Blueprint
+repository. A VSS Skill folder contains the following:
+
+- A `SKILL.md` file with YAML frontmatter declaring the Skill's `name`,
+  `description`, `version`, and `license`. The `description` tells the coding
+  agent when to invoke that VSS Skill. For example, when the user asks to deploy a
+  VSS profile, add a camera, query alerts, or summarize a video.
+- The body of `SKILL.md` documents the VSS commands, API calls, and patterns the
+  Skill uses. Typically `curl` calls against the VSS REST API, the VA-MCP server,
+  or VIOS.
+- Optional reference files such as VSS deployment notes, alert-type prompt templates,
+  or example payloads for the workflow the Skill targets.
+- Optional evaluation specs under `eval/` that are exercised by the VSS Skills Eval
+  CI workflow on every pull request that touches the `skills/` directory of the
+  VSS Blueprint repository.
+
+When a coding agent loads its skills directory, it reads each `SKILL.md` frontmatter and
+adds the VSS Skill to its tool list. The agent then matches user requests against the
+Skills' descriptions and invokes the appropriate VSS Skill for each task. VSS Skills can
+be added or updated while the agent is running. When a new `SKILL.md` appears in the
+skills directory, the agent picks it up without a restart.
+
+## Usage Patterns
+
+VSS Agent Skills are used in two complementary ways:
+
+- **Deployment.** A coding agent such as Claude Code or Codex loads the Skills, takes a
+  natural-language request like *"Deploy VSS for video search"*, and invokes
+  `vss-deploy-profile` to select the profile, run pre-flight checks, and bring up the
+  Docker Compose stack. The developer does not need to remember exact flags, profile
+  names, or compose commands.
+- **Runtime.** Once VSS is running, an always-on coding agent such as NemoClaw loads
+  the same Skills and acts as the operational interface to the deployment. The user can
+  manage cameras and streams, submit and verify alerts, run searches, summarize videos,
+  and generate reports through natural-language chat.
+
+## Available Skills
+
+The official VSS Agent Skills are published in the `skills/` folder of the
+[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/skills)
+on GitHub, and mirrored to the public NVIDIA Skills catalog at
+[github.com/nvidia/skills](https://github.com/nvidia/skills).
+
+| Skill | Description |
+| --- | --- |
+| `vss-ask-video` | Answer text questions about video content by calling the VLM (or RT-VLM) `chat/completions` endpoint directly, on a VIOS clip or a video the user supplies. Does not go through the VSS agent. |
+| `vss-deploy-dense-captioning` | Deploy and call the RT-VLM dense captioning microservice on stored video files and live RTSP streams. Captions, alerts, stream management, or OpenAI-compatible completions. |
+| `vss-deploy-detection-tracking-2d` | Deploy, operate, debug, or tear down the RTVI-CV (Real Time Video Intelligence CV) perception microservice locally, and call its REST API to manage streams, health probes, and metrics. Supports the `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, and `smartcity-gdino` use cases. |
+| `vss-deploy-detection-tracking-3d` | Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to `vss-generate-video-calibration` when calibration data is missing. For sample prompts and expected agent steps, see the [MV3DT Agent Skills walkthrough](/warehouse-docs/MV3DT-profile#agent-skills-walkthrough). |
+| `vss-deploy-profile` | Configure, deploy, debug, verify, or tear down any VSS profile using a Docker Compose-centric workflow. |
+| `vss-deploy-video-embedding` | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file, text, and video embeddings and live RTSP, plus Redis, Kafka, and OpenTelemetry integration. |
+| `vss-generate-video-calibration` | Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For sample prompts and expected agent steps, see the [Auto Calibration Agent Skills walkthrough](/autocalib-getting-started#agent-skills-walkthrough). |
+| `vss-generate-video-report` | Produce video analysis reports through Mode A (clip URL + direct VLM `chat/completions` call) or Mode B (incident-range query via `vss-query-analytics`), then render markdown output. Does **not** route report generation through VSS agent `/generate`. |
+| `vss-generate-video-report-rag` | Generate video summary reports using the `video_search_frag` extension with Video Summarization, Enterprise RAG context, and HITL parameter collection. |
+| `vss-manage-alerts` | Add, manage, and monitor alerts on streamed video in either CV verification mode or VLM real-time mode. |
+| `vss-manage-video-io-storage` | Manage video and stream operations, recording timelines, clip extraction, and snapshots using the Video IO and Storage (VIOS) microservices. |
+| `vss-query-analytics` | Query video analytics data and metrics from Elasticsearch via the VA-MCP server. |
+| `vss-search-archive` | Search video archives using natural language with fusion search over Cosmos Embed1 embeddings and computer vision attribute matching. |
+| `vss-setup-behavior-analytics` | Deploy the `vss-behavior-analytics` service standalone, with custom configs or calibration, without the full warehouse stack. |
+| `vss-setup-video-analytics-api` | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
+| `vss-summarize-video` | Summarize a video by routing short clips to the VLM NIM and longer videos to the Video Summarization microservice. |
+
+## Report Skill Error Handling
+
+The `vss-generate-video-report` skill applies the following fail-fast handling:
+
+- **Profile probe failure**: stop and ask the user to deploy the required profile
+  via `vss-deploy-profile` (`base` for Mode A, `alerts` for Mode B).
+- **Clip URL rewrite env missing**: if any of `VSS_PUBLIC_HTTP_PROTOCOL`,
+  `VSS_PUBLIC_HOST`, or `VSS_PUBLIC_PORT` is unset, fail with the missing
+  variable instead of emitting malformed browser URLs.
+- **VLM endpoint/model mismatch**: if `${VLM_ENDPOINT}/models` fails or does not
+  list `${VLM_MODEL}`, try the alternate backend once; otherwise surface the
+  concrete error.
+- **Remote endpoint cannot fetch internal clip URL**: do not issue a doomed VLM
+  request; return a reachability requirement for `VIDEO_URL` instead.
+- **No incidents in Mode B**: return an explicit zero-results report for the
+  requested range/scope; do not invent incidents and do not auto-switch to Mode A.
+
+## Supported Agent Harnesses
+
+VSS Agent Skills can be loaded by any agent harness that follows the
+[agentskills.io](https://agentskills.io) specification. The following agent harnesses are validated:
+
+- [Claude Code](https://docs.anthropic.com/claude/docs/claude-code)
+- [OpenAI Codex](https://platform.openai.com/docs/codex)
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [NemoClaw](https://github.com/NVIDIA/NemoClaw)
+
+For more information on agent harnesses with VSS, see [Agent Harnesses ](/agent-harnesses). Each agent harness expects Skills under a standard directory:
+
+| Host | Skills directory |
+| --- | --- |
+| Claude Code | `~/.claude/skills/<name>/` |
+| Codex | `~/.codex/skills/<name>/` |
+| Other `agentskills.io`-compatible hosts | `~/.agents/skills/<name>/` |
+
+## Installing Skills
+
+Skills are installed by asking the coding agent itself to read the Skills catalog and
+register each Skill into the host's skills directory. Symlinks are used so that a
+`git pull` of the Blueprint repository keeps every Skill up to date automatically.
+
+### Step 1: Clone the VSS Blueprint repository
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git checkout tags/v3.2.1
+```
+
+### Step 2: Ask the coding agent to install the Skills
+
+Open the repository in your coding agent and paste the following prompt:
+
+```text
+Read skills/README.md and every SKILL.md file under skills/. For each skill in the
+catalog, install it for this host so I can invoke it from a shell or chat session.
+Use the host's standard skills directory. Symlink each skill folder rather than
+copying it so a git pull here keeps every install up to date. Skip skills that are
+already installed and pointing at this checkout. When you're done, list the skills
+you registered and which directory you used.
+```
+
+The agent reads each `SKILL.md` frontmatter, creates the symlinks, and confirms what is
+installed. The Skills become invokable in the next agent session.
+
+To install only a single Skill, ask the agent:
+
+```text
+Install only skills/<name>/ for this host the same way.
+```
+
+## Using Skills
+
+With VSS Agent Skills installed, prompt the coding agent in natural language to deploy a
+profile or operate the deployment. The agent invokes the matching Skill from the
+catalog. After installing Skills, see the following guides to get started:
+
+- [Quickstart: Agent Skills Walkthrough](/quickstart#agent-skills-walkthrough) — deploy and operate the base profile using Skills.
+- [Video Summarization ](/agent-workflow-lvs) — skills-based workflow for video summarization.
+- [Video Search ](/agent-workflow-search) — skills-based workflow for natural language video search.
+- [Real-Time Alerts ](/agent-workflow-rt-alert) — skills-based workflow for real-time alert generation.
+
+Once the deployment is up and running, Skills can be used to perform workflow tasks or interact with individual
+microservices. Here are some prompt examples which would call the `vss-manage-video-io-storage` Skill for Video IO and Storage (VIOS):
+
+```text
+Add an RTSP camera at rtsp://10.0.0.5:554/stream1.
+```
+
+```text
+Extract a video clip from 30 to 40 seconds (mp4 container) from the uploaded video
+and return a shareable URL.
+```
+
+## Updating Skills
+
+After a `git pull` of the Blueprint repository, the symlinks already point at the
+updated content. No further action is needed unless new Skills were added or existing
+ones were renamed. To pick up newly added Skills, ask the agent:
+
+```text
+Re-read skills/README.md and add any new skills missing from this host's skills
+directory.
+```
+
+To uninstall every Skill, ask the agent:
+
+```text
+Remove every VSS skill symlink you previously created under this host's skills
+directory.
+```
+
+## Related Documentation
+
+- [VSS Agents ](/VSS-Agents) - The in-product agent that runs inside a deployed VSS workflow.
+- [Agent Workflows ](/agent-workflows) - End-to-end workflows demonstrated through developer profiles.

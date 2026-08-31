@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+image:
+  repository: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b
+  tag: "2.0.9-variant"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+resources:
+  limits:
+    nvidia.com/gpu: "1"
+  requests:
+    nvidia.com/gpu: "1"
+
+storage:
+  pvc:
+    storageClass: ""
+    size: "100Gi"
+
+metrics:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 8000
+
+nodeSelector: {}
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+global:
+  pullSecretName: "ngc-nim-docker-reg-secret"
+  authSecretName: "ngc-nim-api-key-secret"
+  storageClass: ""

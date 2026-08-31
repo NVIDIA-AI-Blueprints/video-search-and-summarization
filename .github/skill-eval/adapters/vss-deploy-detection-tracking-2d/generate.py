@@ -219,12 +219,21 @@ def generate_task(
     dataset_group = kind
 
     # gpu_count: prefer spec's resources.platforms[platform].gpu_count if
-    # declared, else fall back to the PLATFORMS dict default. This keeps
-    # the dataset aligned with the operator-provisioned pool (e.g.
-    # RTXPRO6000BW pool members are 2-GPU g7e.12xlarge today).
+    # declared, else fall back to the PLATFORMS dict default. Usage specs
+    # (REST API exercises against an already-running container) only need
+    # 1 GPU — the RTVI-CV inference workload runs on a single device;
+    # the 2-GPU default is for deploy specs that build TensorRT engines.
     spec_platforms = (spec.get("resources") or {}).get("platforms") or {}
     spec_plat_cfg = spec_platforms.get(platform) or {}
-    gpu_count = int(spec_plat_cfg.get("gpu_count", pspec.get("gpu_count", 1)))
+    if "gpu_count" in spec_plat_cfg:
+        gpu_count = int(spec_plat_cfg["gpu_count"])
+    elif kind == "usage":
+        # Usage specs exercise API endpoints on an already-deployed
+        # container — 1 GPU suffices for inference regardless of the
+        # platform's deploy-time default.
+        gpu_count = 1
+    else:
+        gpu_count = int(pspec.get("gpu_count", 1))
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
         step_dir = output_root / dataset_group / f"{platform_short}-{mode}"

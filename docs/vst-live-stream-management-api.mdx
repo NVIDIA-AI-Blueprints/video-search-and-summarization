@@ -1,0 +1,42 @@
+---
+title: "VST Live Stream Management API"
+description: ""
+position: 2
+---
+This page provides API reference for the VST Live Stream Service.
+
+## Overview
+
+The Live Stream service is designed to facilitate the live or real-time streaming of sensors. This service encompasses real-time video streaming capabilities with comprehensive control and monitoring features.
+
+## Key Features
+
+The service provides the following capabilities:
+
+- **Live Streaming**: Live streaming of sensors using WebRTC protocol
+- **Listing Live Streams**: The list of available live streams can be queried
+- **Snapshot Capturing**: Ability to capture snapshot or picture of a live stream
+- **Live Stream Monitoring**: Real-time status update for the live stream
+- **Sub-stream Support**: A sensor can have a main stream and multiple sub-streams. Streaming of both types of streams is supported
+- **Performance Analytics**: Ability to get stats for live stream to measure performance
+- **Stream Operations**: The stream supports various operations like querying the stream to get the current position and metadata of stream, pause and play the live stream
+
+## Base URL
+
+The API is available at:
+
+* **REST API**: `https://localhost/api`
+
+All API endpoints are prefixed with `/v1/live`.
+
+## Authentication
+
+The VST Live Stream Management API uses optional bearer token authentication for endpoints that modify stream configuration or perform operations. GET requests typically do not require authentication.
+
+<Note>
+Endpoints that require authentication are marked with a security requirement in the API specification.
+</Note>
+
+## Reference
+
+OpenAPI Specification can be found [here ](/vst-live-stream-management-api-reference).

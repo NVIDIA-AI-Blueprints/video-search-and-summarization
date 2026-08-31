@@ -18,8 +18,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
-  tag: "3.3.0-26.08.2"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm
+  tag: "develop-latest"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -70,6 +70,11 @@ redisPassword: ""
 service:
   port: 8000
   type: ClusterIP
+
+# Server-side ingress timeout for this backend. Empty leaves the controller
+# default; the LVS and search profiles raise it, since a long generation there
+# outlasts it.
+ingressTimeoutServer: ""
 
 # Compose: user 1001:1001, shm 16gb, GPU
 securityContext:

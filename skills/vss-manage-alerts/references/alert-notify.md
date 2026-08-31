@@ -37,6 +37,29 @@ The webhook server is a single relay on `:9090`; Alert Bridge POSTs incidents to
 - The `/status` endpoint reports per-backend state — use it to tell the user which destinations are live.
 
 > ⚠️ **The server exits at startup on a bad backend.** A failed Slack `auth_test` (invalid/placeholder `SLACK_BOT_TOKEN`), missing Dashboard credentials, or an unset `VST_ENDPOINT` each terminate the process (`sys.exit(1)`) — there is no degraded half-started mode. Collect real credentials **before** starting; never launch with placeholders to "see if it works".
+>
+> **The credentials gate is not something to get past.** The values in `.env.example`
+> (`xoxb-YOUR-SLACK-BOT-TOKEN`, `C0YOUR_CHANNEL_ID`) are documentation, not credentials — a
+> `.env` you created by copying that file contains no more than a placeholder does. Do not
+> point `SLACK_API_URL`/the Slack base URL at a mock, stub, proxy or local server to make
+> `auth_test` succeed, and do not start the relay just to show the wiring works. Without a
+> real bot token and channel id the correct outcome is to **stop and ask the operator for
+> them** — a relay that only runs because Slack was faked reports "notifications configured"
+> while nothing reaches Slack, which is worse than not starting it at all.
+>
+> Those are examples, not a list to route around. Editing `slack_notifier.py` or any other
+> file under `scripts/alert-notify/` to skip, flag off or soften the `auth_test` call is the
+> same mistake in a more expensive form: it disables the one check that would have told the
+> operator their credentials are wrong, and it leaves that hole behind for the next person.
+> **Never modify this code to make a start succeed.** If the token is missing, the answer is
+> a question to the operator, not a patch.
+>
+> When you do stop and ask, ask for everything a working Slack setup needs, not just the
+> token: `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, **and** `NOTIFY_BACKENDS=slack`
+> (or `slack,dashboard`). Leaving the last one out is the quiet failure — the operator hands
+> you a valid token, the relay starts, and every incident goes to the Dashboard because that
+> is what the default selects. A request that omits it sets up the person answering it to
+> fail.
 
 ---
 
@@ -93,11 +116,13 @@ scripts/alert-notify/
 2. **`.env` file** in `{baseDir}/.env`
 3. **Shell environment** variables already exported
 
-Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are available. If any is missing, resolve it before proceeding:
+Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) are available. If any is missing, resolve it before proceeding:
 - `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` — ask the user to provide them.
 - `VST_ENDPOINT` — use the `vss-manage-video-io-storage` skill to discover the VST endpoint, or ask the user.
+- `NOTIFY_BACKENDS` — set to `slack` (or `slack,dashboard`); without it the relay defaults to Dashboard and no incident reaches Slack.
+- **If `NOTIFY_BACKENDS` includes `dashboard`** — also require `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN` (the Dashboard backend's `init()` raises and the server exits without them); ask the operator, same as the Slack token.
 
-Do not start the server without all three variables set.
+Do not start the server without all four variables set.
 
 **Run all commands yourself** — never instruct the user to run commands manually.
 
@@ -145,7 +170,7 @@ If either command fails, do NOT proceed to Step 4. Report the error to the user.
 
 ### Step 3 — Configure Environment
 
-Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are set (via OpenClaw `skills.entries` injection, `.env` file, or shell env).
+Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are set (via OpenClaw `skills.entries` injection, `.env` file, or shell env).
 
 **For Slack credentials** — if `SLACK_BOT_TOKEN` or `SLACK_CHANNEL_ID` is missing, ask the user:
 
@@ -159,17 +184,19 @@ Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are set (via 
 
 > "I need the VST endpoint (`host:port`) to resolve video clip URLs. What is the VST address?"
 
-Once all three values are available, write the `.env` file:
+Once all four values are available, write the `.env` file:
 
 ```bash
 cat > {baseDir}/.env << 'EOF'
 SLACK_BOT_TOKEN=<token>
 SLACK_CHANNEL_ID=<channel_id>
 VST_ENDPOINT=<host>:<port>
+NOTIFY_BACKENDS=slack
 EOF
 ```
+> If `NOTIFY_BACKENDS` includes `dashboard`, add `OPENCLAW_GATEWAY_URL=<url>` and `OPENCLAW_GATEWAY_AUTH_TOKEN=<token>` to the same file — the Dashboard backend exits at startup without them.
 
-**Do not start the server** until `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are all set.
+**Do not start the server** until `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are all set. Omitting `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) is the quiet failure the warning above names: the relay starts and every incident goes to the Dashboard by default, never reaching Slack.
 
 ### Step 4 — Start the Server
 
@@ -199,12 +226,13 @@ curl -sf http://localhost:9090/webhook/alert-notify/health | jq .
 {
   "status": "healthy",
   "uptime_seconds": 3.1,
-  "slack_connected": true,
-  "channel_id": "C07XXXXXXXX",
-  "notifications_sent": 0,
-  "last_error": null
+  "backends": ["slack"],
+  "vst_endpoint": "<host>:<port>",
+  "vst_public_url_base": "http://<host>:<port>",
+  "notifications_sent": 0
 }
 ```
+(`status` is `degraded` if no backend is connected. Per-backend connection detail is under `/status`'s `per_backend`.)
 
 If the health check fails, check `webhook.log` for errors:
 
@@ -233,17 +261,23 @@ curl -sf http://localhost:9090/webhook/alert-notify/status | jq .
 
 | Field | Description |
 |---|---|
+| `service` | Always `alert-notify` |
 | `status` | `running` if the server is active |
 | `uptime_seconds` | How long the server has been running |
 | `started_at` | ISO timestamp when the server started |
-| `slack.connected` | Whether the Slack client is authenticated |
-| `slack.channel_id` | Target Slack channel |
+| `backends` | Active backend names — e.g. `["slack"]` or `["slack","dashboard"]` |
+| `vst` | `{ endpoint, public_url_base }` for VST clip-URL resolution |
+| `per_backend.<name>` | Per-backend status object (e.g. `per_backend.slack.connected` = whether that backend is authenticated/ready) |
 | `stats.notifications_sent` | Total notifications sent since startup |
-| `stats.last_error` | Last error message (null if none) |
 
 If the request fails (connection refused), the server is not running. Report:
 
 > "The alert Slack webhook is not running. Would you like me to start it?"
+
+That is the whole answer. **Do not ask for `SLACK_BOT_TOKEN` or
+`SLACK_CHANNEL_ID` here** — checking status needs no credentials, and
+requesting them to report that a process is down answers a different question
+than the one asked. They are asked for only if the user then says yes.
 
 ---
 
@@ -259,12 +293,14 @@ curl -sf -X POST http://localhost:9090/webhook/alert-notify/test | jq .
 
 ```json
 {
-  "status": "sent",
-  "message": "Test notification delivered to Slack",
-  "slack_ts": "<epoch>.000100",
-  "channel": "C07XXXXXXXX"
+  "status": "ok",
+  "message": "Test notification dispatched",
+  "per_backend": {
+    "slack": { "success": true }
+  }
 }
 ```
+(`status` is `ok` when every backend delivered, `partial` when some failed; all-failed returns HTTP 502 with the same body.)
 
 Report to the user:
 
@@ -318,7 +354,7 @@ The webhook accepts VSS incident payloads via `POST /webhook/alert-notify`. The 
 |---|---|---|
 | **Verdict** | `info.verdict` | Alert verdict: confirmed, rejected, verification-failed, not-confirmed |
 | **Category** | `category` | Alert category (e.g. `protective_hat_violation`) |
-| **Sensor ID** | `sensorId` | UUID of the sensor that generated the alert |
+| **Sensor ID** | `sensorId` | Sensor identity on the incident — usually the sensor **name** (RT-VLM precedence `camera_id` → `sensor_name` → stream id); a VIOS UUID only when the rule was created without `sensor_name` |
 | **Place** | `place.name` | Human-readable location name |
 | **Timestamp** | `timestamp` | ISO 8601 timestamp of the incident |
 | **VLM Reasoning** | `info.reasoning` | Vision Language Model reasoning explanation |

@@ -29,5 +29,7 @@ export declare function fetchAlertsData(): Promise<{
     vlmVerifiedAlertReportPromptTemplate: string;
     maxSearchTimeLimit: string;
     mediaWithObjectsBbox: boolean;
+    enableRealtimeAlerts: boolean;
+    enableCvAlertsVerification: boolean;
 }>;
 //# sourceMappingURL=server.d.ts.map

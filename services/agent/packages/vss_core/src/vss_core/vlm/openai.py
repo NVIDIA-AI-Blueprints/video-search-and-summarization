@@ -36,7 +36,7 @@ from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import scrub_log
 
 if TYPE_CHECKING:
-    from vss_core.vst.protocols import VSTSnapshot
+    from vss_core.vios.protocols import VSTSnapshot
 
 logger = logging.getLogger(__name__)
 

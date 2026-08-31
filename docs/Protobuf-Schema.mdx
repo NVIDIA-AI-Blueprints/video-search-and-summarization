@@ -1,0 +1,1276 @@
+---
+title: "Protobuf Schema"
+description: ""
+position: 2
+---
+The protobuf schema are defined using the two files as described below.
+
+- `schema.proto`_ contains the Frames definition which is used by perception to send metadata
+- `ext.proto`_ contains the Behavior definition which is used the by behavior analytics
+
+## schema.proto
+
+```proto
+syntax = "proto3";
+
+package nv;
+
+import "google/protobuf/timestamp.proto";
+
+/*
+represent metadata in a video frame
+*/
+message Frame {
+
+    /*
+    version
+    */
+    string version = 1;
+    /*
+    frame id
+    */
+    string id = 2;
+
+    /*
+    timestamp in UTC format
+    */
+    google.protobuf.Timestamp timestamp = 3;
+
+    /*
+    sensor id
+    */
+    string sensorId = 4;
+
+    /*
+    sequence of detected objects
+    */
+    repeated Object objects = 5;
+
+    /*
+    fov metrics
+    */
+
+    repeated TypeMetrics fov = 6;
+
+    /*
+    ROI based object count
+    */
+    repeated TypeMetrics rois = 7;
+
+    SD socialDistancing = 8;
+
+    /*
+    Panoptic segmentation mask
+    */
+    Segmentation segmentation = 9;
+
+    /*
+    interactions between objects
+    */
+
+    repeated Interaction interactions = 10;
+
+    /*
+    congestion on floors, etc
+    */
+
+    repeated Congestion congestions = 11;
+
+    /*
+    info, generic attr=value for any customization
+    */
+
+    map<string, string> info = 12;
+
+}
+
+/*
+represents detected object in a given frame, most of the attributes in an Object are optional
+and is dictated by the inference model pipeline. Object id, bbox, type and confidence is muust have, rest is optional
+*/
+message Object{
+    /*
+    object ID
+    */
+    string id = 1;
+
+    /*
+    detection bbox
+    */
+    Bbox bbox = 2;
+
+    /*
+    type of object, example Person, Vehicle, Face
+    */
+    string type = 3;
+
+    /*
+    confidence
+    */
+    float confidence = 4;
+
+    /*
+    map of attributes, name:value pair. example secondary attributes for vehicle would are color, make etc
+    when a person is detected it will height, eye-color etc.
+    */
+    map<string, string> info = 5;
+
+    /*
+    object appearance vector or embedding
+    */
+    Embedding embedding = 6;
+
+    /*
+    object pose, primarily provides array of keypoints
+        */
+    Pose pose = 7;
+
+    /*
+    gaze, direction and angle of gaze
+    */
+    Gaze gaze = 8;
+
+    /*
+    lip activity like speaking, silent
+    */
+    LipActivity lipActivity = 9;
+
+    /*
+    speed of object
+    */
+    float speed = 10;
+
+    /*
+    in direction x, y, z
+    */
+    repeated float dir = 11;
+
+    /*
+
+    cartesian coordinate
+    */
+    Coordinate coordinate = 12;
+
+    /*
+    lat, lon, alt
+    */
+    Location location = 13;
+
+    /*
+    bbox3d, represented using array of 12 coordinates
+    */
+    Bbox3d bbox3d = 14;
+
+}
+
+/*
+cartesian coordinates
+*/
+message Coordinate{
+    double x = 1;
+    double y = 2;
+    double z = 3;
+
+}
+
+/*
+geo location
+*/
+message Location{
+    double lat = 1;
+    double lon = 2;
+    double alt = 3;
+}
+/*
+top left corner + bottom right corner
+*/
+message Bbox {
+    float leftX = 1;
+    float  topY = 2;
+    float rightX = 3;
+    float bottomY = 4;
+    /*
+    Typically there will be a single array of embeddings representing the characteristics seen in 2d bbox. But there may be situations where multiple embeddings may be used to represent different characteristics of the object
+    */
+    repeated Embedding embeddings = 5;
+    float confidence = 6;
+    map<string, string> info = 7;
+}
+
+/*
+type = Image or Camera
+for Image consider only (x,y), and for Camera (x,y,z)
+*/
+
+message Bbox3d{
+    /*
+    The double typed coordinate values will appear in the following order:
+    x, y, z, width, length, height, pitch, roll, yaw, vx, vy, vz
+    */
+    repeated double coordinates = 1;
+    /*
+    embeddings representing the characteristics as seen in 3d bbox
+    */
+    repeated Embedding embeddings = 2;
+    float confidence = 3;
+    map<string, string> info = 4;
+}
+
+/*
+Segmentation Mask
+*/
+message Segmentation{
+    repeated int32 mask = 1;
+    map<string, string> info = 2;
+}
+
+message TypeMetrics{
+    /*
+    roi or fov id, optional for fov
+    */
+    string id = 1;
+    /*
+    type of object
+    */
+    string type = 2;
+    /*
+    count of object
+    */
+    int32 count = 3;
+
+    /*
+    object coordinates
+    */
+
+    repeated Coordinate coordinates = 4;
+
+    /*
+    objects ids
+    */
+    repeated string objectIds = 5;
+
+    /*
+    optional attributes
+    */
+    map<string, string> info = 6;
+
+}
+
+/*
+Cluster, array of 2D points
+*/
+message Cluster{
+    repeated Point2D points = 1;
+}
+
+/*
+2D point, represented using x,y coordinates
+*/
+message Point2D{
+    double x = 1;
+    double y = 2;
+}
+
+/*
+social distancing
+*/
+message SD{
+    /*
+    cluster threshold
+    */
+    double threshold = 1;
+    /*
+    number of clusters violating social distancing
+    */
+    int32 proximityDetections = 2;
+    /*
+    2D point clusters
+    */
+    repeated Cluster clusters = 3;
+    /*
+    info, generic attr=value for any customization
+    */
+    map<string, string> info = 4;
+}
+
+/*
+definition of polygon geometry, equivalent to wkt format.
+*/
+message Polygon{
+    /*
+    Polygon boundary, equivalent to exterior in wkt format
+    */
+    repeated Point2D coordinates = 1;
+    /*
+    Polygon holes, equivalent to interiors in wkt format. Multiple holes can present for one polygon.
+    */
+    repeated PolygonHole holes = 2;
+}
+
+/*
+definition of polygon hole.
+*/
+message PolygonHole{
+    /*
+    polygon hole, equivalent to polygon's interior in wkt format
+    */
+    repeated Point2D coordinates = 1;
+}
+
+message Interaction{
+    /*
+    id
+    */
+    string id = 1;
+    /*
+    objects ids
+    */
+    repeated string objectIds = 2;
+
+    /*
+    object coordinates
+    */
+
+    repeated Coordinate coordinates = 3;
+
+    /*
+    description, example person interacting with a box
+    */
+
+    string description = 4;
+
+    /*
+    optional attributes
+    */
+    map<string, string> info = 5;
+
+}
+
+message Congestion{
+    /*
+    optional id
+    */
+    string id = 1;
+    /*
+    objects ids
+    */
+    repeated string objectIds = 2;
+
+    /*
+    amount values between 0 and 1, use segmentation mask to calculate
+    */
+    float amount = 3;
+    /*
+    optional attributes
+    */
+    map<string, string> info = 4;
+
+}
+
+/*
+The type represent the  nature of the pose,
+i.e., pose2D, pose25D or pose3D,
+
+which is followed by several Keypoints or bodyparts.
+Each Keypoint comprises of
+
+    -name,
+
+    -coordinate (x,y,z, confidence)
+
+    -quaternion (qx,qy,qz,qw), quaternion values are optional.
+
+    - e.g., |left-eye|x,y,z,0.75|qx,qy,qz,qw|.
+
+-For pose3D, the coordinates (x,y,z) are in the world coordinate system with
+respect to the camera (unit: mm).
+
+-For pose2.5D, it shares the same format as pose3D,
+however, the coordinates (x,y) are in the image plane (unit: pixel) and the z coordinate
+stands for the metric depth relative to the root keypoint, i.e., pelvis (unit: mm).
+
+-For pose2D, (x,y) are the image pixel coordinates and the z coordinate is ignored, e.g., |right-ear,x,y,0.0.0.80|.
+
+*/
+message Pose{
+
+    /*
+    pose2D or pose3D or pose25D
+    */
+    string type = 1;
+
+    /*
+    array of keypoints
+    */
+    repeated Keypoint keypoints = 2;
+
+    /*
+    array of pose actons with their probabilities or confidence
+    */
+    repeated Action actions = 3;
+
+    /*
+    optional attributes
+    */
+    map<string, string> info = 4;
+
+    /*
+    Keypoint + quaternion
+    */
+    message Keypoint{
+        //name of keypoint
+        string name = 1;
+
+        // Array comprising of (x,y,z, confidence)
+        repeated float coordinates = 2;
+
+        //Array comprising of (qx,qy,qz,qw)
+        repeated float quaternion = 3;
+
+    }
+
+    /*
+    Pose Action, like walking, running
+    */
+    message Action{
+        /*
+        type of action, standing, running etc
+        */
+        string type = 1;
+
+        /*
+        confidence of actions
+        */
+        float confidence = 2;
+    }
+}
+
+/*
+Gaze point of reference  x,y,z are in the camera coordinate system.
+theta, phi are angles
+*/
+message Gaze{
+
+    float x = 1;
+    float y = 2;
+    float z = 3;
+    float theta = 4;
+    float phi = 5;
+
+}
+
+/*
+activity like silent speaking
+*/
+message LipActivity{
+    string classLabel = 1;
+}
+
+/*
+event like moving, parked, etc
+*/
+message Event{
+    /*
+    id
+    */
+    string id = 1;
+    /*
+    type
+    */
+    string type = 2;
+
+    /*
+    optional attributes
+    */
+    map<string, string> info = 5;
+}
+
+/*
+*
+* Analytics Module to be nested in every message, example below
+*
+* {{{
+*
+*
+* "analyticsModule": {
+* 			"id": "module-id",
+* 			"description": "Vehicle Detection and License Plate Recognition",
+* 			"source": "OpenALR",
+* 			"version": "3.0"
+* }
+*
+*
+* }}}
+*
+*/
+
+message  AnalyticsModule{
+    /*
+    id
+    */
+    string id = 1;
+    /*
+    description
+    */
+    string description = 2;
+    /*
+    source
+    */
+    string source = 3;
+    /*
+    version
+    */
+    string version = 4;
+    /*
+    additional info
+    */
+    map<string, string> info = 5;
+
+}
+
+/*
+*
+* Sensor object to be nested in every message, example
+*
+* {{{
+*
+*
+* "sensor": {
+* 		"id": "string",
+* 		"type": "Camera/Puck",
+* 		"location": {
+* 			  "lat": 45.99,
+* 			  "lon": 35.54,
+* 			  "alt": 79.03
+*       },
+*  		"coordinate": {
+* 			   "x": 5.2,
+* 			  "y": 10.1,
+* 			  "z": 11.2
+*      },
+*      "description": "Entrance of Endeavor Garage Right Lane"
+* }
+*
+*
+* }}}
+*
+*/
+message Sensor{
+    /*
+    id
+    */
+    string id = 1;
+    /*
+    Camera or Puck
+    */
+    string type = 2;
+
+    /*
+    description
+    */
+    string description = 3;
+    /*
+    in lat, lon, alt
+    */
+    Location location = 4;
+    /*
+    in x,y,z
+    */
+    Coordinate coordinate = 5;
+    /*
+    additional info
+    */
+    map<string, string> info = 6;
+
+}
+
+/*
+*
+* Describing a scene needs describing where the scene is happening – place,
+* what is happening in terms of events, and who are the objects participating in the event.
+* note coordinate(x,y,z) are in meters
+*
+* Json representation of Place
+* {{{
+*
+*
+        "place": {
+            "id": "string",
+            "name": "endeavor",
+            "type": "building/garage",
+            "location": {
+                "lat": 37.37060687475246,
+                "lon": -121.9672466762127,
+                "alt": 0.00
+            }
+*
+*
+* }}}
+*
+*
+*
+*/
+message Place{
+    /*
+    Id
+    */
+    string id = 1;
+    /*
+    name
+    */
+    string name = 2;
+    /*
+    Parking Lot or Entrance or Room
+    */
+    string type = 3;
+    /*
+    in lat, lon, alt
+    */
+    Location location = 4;
+    /*
+    in x,y,z
+    */
+    Coordinate coordinate = 5;
+    /*
+    additional info, example details of park lot
+    */
+    map<string, string> info = 6;
+
+}
+
+/*
+represents a single object detection
+*/
+message Message{
+    string messageid = 1;
+    string mdsversion = 2;
+    google.protobuf.Timestamp  timestamp = 3;
+    Place place = 4;
+    Sensor          sensor = 5;
+    AnalyticsModule analyticsModule = 6;
+    Object       object = 7;
+    Event           event = 8;
+    string videoPath = 9;
+}
+
+/*
+Embedding
+*/
+message Embedding{
+
+    /*
+    vector
+    */
+    repeated float vector = 1 [packed = true];
+
+    /*
+    extra info if needed
+    */
+    map<string, string> info = 2;
+
+}
+
+enum ImageFormat {
+    RAW = 0;
+    JPG = 1;
+    JPEG = 2;
+    PNG = 3;
+};
+
+message ImageData {
+    ImageFormat format = 1;
+    string encoding = 2;  // RGB, Grayscale
+    string name = 3;
+    bytes data = 4;
+    // Optional/Custom additional information in Key, Value pair
+    map<string, string> info = 5;
+}
+
+message VisionLLM{
+
+    string version = 1;
+    /*
+    timestamp in UTC format
+    */
+    google.protobuf.Timestamp timestamp = 2;
+
+    /*
+    end timestamp in UTC format
+    */
+    google.protobuf.Timestamp end = 3;
+
+    /*
+    start frame id
+    */
+    string startFrameId = 4;
+    /*
+    end frame id
+    */
+    string  endFrameId = 5;
+
+    /*
+    sensor, can be camera, video, etc.
+    */
+    Sensor sensor = 6;
+
+    /*
+    LLM query, response, embeddings
+    */
+    LLM llm = 7;
+
+    map<string, string> info = 8;
+
+}
+
+message LLM{
+
+    /*
+    details of LLM used, like name, version
+    */
+    map<string, string> info = 1;
+    /*
+    list of queries
+    */
+    repeated Query queries = 2;
+
+    /*
+    representative vision embeddings
+    */
+    repeated Embedding visionEmbeddings = 3;
+
+}
+
+message Query{
+    /*
+    id is optional
+    */
+    string id = 1;
+    /*
+    query params
+    */
+    map<string, string> params = 2;
+    /*
+    user/system prompts
+    */
+    map<string, string> prompts = 3;
+    /*
+    response to query
+    */
+    string response = 4;
+    /*
+    optional embedding for query and response
+    */
+    repeated Embedding embeddings = 5;
+}
+```
+
+An example of json frame object which follows the above protobuf schema can be found below
+
+```Json
+{
+    "version": "4.0",
+    "timestamp": "2023-10-30T22:30:30.000Z",
+    "id": "1",
+    "sensorId": "Sensor_1",
+    "objects": [
+        {
+            "dir": [],
+            "lipActivity": null,
+            "info": {
+                "visibility": "0.974372",
+                "footLocation2D": "899.152,316.812",
+                "footLocation3D": "9.85312,-12.53092",
+                "convexHull": "10,-4,23,-19,7,20,-18,26"
+            },
+            "coordinate": null,
+            "speed": 0,
+            "bbox": {
+                "topY": 107.74882507324219,
+                "rightX": 1116.9134521484375,
+                "bottomY": 311.5032653808594,
+                "leftX": 1063.572021484375
+            },
+            "embedding": {
+                "info": {},
+                "vector": [
+                    -0.003528113476932049,
+                    -0.002565900795161724,
+                    -0.020954856649041176,
+                    0.023293567821383476
+                ]
+            },
+            "location": null,
+            "gaze": null,
+            "id": "1",
+            "confidence": 0.9556514024734497,
+            "pose": null,
+            "type": "Person"
+        },
+        {
+            "dir": [],
+            "lipActivity": null,
+            "info": {
+                "visibility": "0.991698",
+                "footLocation2D": "297.655,179.069",
+                "footLocation3D": "17.56687,20.29478",
+                "convexHull": "-19,-33,-18,-32,3,35"
+            },
+            "coordinate": null,
+            "speed": 0,
+            "bbox": {
+                "topY": 115.80743408203125,
+                "rightX": 861.8057861328125,
+                "bottomY": 328.8199768066406,
+                "leftX": 814.3302001953125
+            },
+            "embedding": {
+                "info": {},
+                "vector": [
+                    0.0002149203501176089,
+                    -0.023472599685192108,
+                    -0.02617083303630352,
+                    0.022965412586927414
+                ]
+            },
+            "location": null,
+            "gaze": null,
+            "id": "2",
+            "confidence": 0.9136765003204346,
+            "pose": null,
+            "type": "Person"
+        }
+    ]
+}
+```
+
+## ext.proto
+
+```proto
+syntax = "proto3";
+
+package nv;
+
+option java_package = "nv.schema";
+
+import "google/protobuf/timestamp.proto";
+import "schema.proto";
+//import "struct.proto";
+
+/*
+* represents locations array, for geo coodinates Array[Array[lon, lat]], for cartesian coordinates Array[Array[x,y]]
+*/
+message GeoLocation{
+    string type = 1;
+
+    /*
+    Array(x,y)
+    */
+    message Point{
+        repeated double point = 1;
+    }
+    /*
+    Array of points
+    */
+    repeated Point coordinates = 2;
+
+    //repeated google.protobuf.ListValue coordinates = 2;
+}
+
+/*
+* represent object Behavior, and comprise of attributes from object movement + [[Object]] appearance
+* with highest confidence + [[Sensor]] + [[Place]]
+*  + [[Pose]] + [[LipActivity]] + [[Gaze]]
+*
+*
+*
+*
+* the JSON representation of this object Behavior message  is stored in persistent store like Elasticsearch for search and indexing
+*
+*
+*/
+message Behavior{
+    /*
+    * object id, usually a combination of sensorId + objectId
+    */
+    string id = 1;
+
+    /*
+    * start timestamp
+    */
+    google.protobuf.Timestamp timestamp = 2;
+
+    /*
+    * end timestamp
+    */
+    google.protobuf.Timestamp end = 3;
+
+    // start timestamp
+
+    //google.protobuf.Timestamp timestamp = 4;
+
+    /*
+    * representing array of [lon,lat] or [x,y]
+    */
+    GeoLocation locations = 5;
+
+    /*
+    * representing smoothened array of [lon,lat] or [x,y]
+    */
+    GeoLocation smoothLocations = 6;
+
+    /*
+    * road network edges, only applicable for geo coordinates
+    */
+    repeated string edges = 7;
+
+    /*
+    * distance traveled in meters
+    */
+    double distance = 8;
+
+    /*
+    * avg speed in mph
+    */
+    double speed = 9;
+
+    /*
+    * speed over a period of the trajectory
+    */
+    repeated double speedOverTime = 10;
+
+    /*
+    * timeInterval, end time - start time
+    */
+    double timeInterval = 11;
+
+    /*
+    * bearing angle
+    */
+    double bearing = 12;
+
+    /*
+    * N, S, E or W based on bearing
+    */
+    string direction = 13;
+
+    /*
+    * number of raw coordinates
+    */
+    int32 length = 14;
+
+    /*
+    * where object was seen by the sensor
+    */
+    Place place = 15;
+
+    /*
+    * sensor details
+    */
+    Sensor sensor = 16;
+
+    /*
+    * AnalyticsModule
+    */
+    AnalyticsModule analyticsModule = 17;
+
+    /*
+    * object details, associated with this trajectory
+    */
+    Object object = 18;
+
+    /*
+    * event details
+    */
+    Event event = 19;
+
+    /*
+    * video url if available
+    */
+    string videoPath = 20;
+
+    /*
+    * Array of pose
+    */
+    repeated Pose poses = 21;
+
+    /*
+    * Array of LipActivity
+    */
+    repeated LipActivity lipActivities = 22;
+
+    /*
+    * Array of Gaze
+    */
+    repeated Gaze gazes = 23;
+
+    /*
+    * Array of embeddings
+    */
+    repeated Embedding embeddings = 24;
+
+    /*
+    * LLM query, response, embeddings for behavior analysis and anomaly detection
+    */
+    LLM llm = 26;
+
+    /*
+    * addition information, that may be needed by an application
+    */
+    map<string, string> info = 25;
+
+}
+
+message Incident{
+    /*
+    * sensor id
+    */
+    string sensorId = 1;
+
+    /*
+    * start timestamp
+    */
+    google.protobuf.Timestamp timestamp = 2;
+
+    /*
+    * end timestamp
+    */
+    google.protobuf.Timestamp end = 3;
+
+    /*
+    * Array of object IDs involved in the incident. If the array is not empty, then the first ID represents the primary object.
+    * May be empty for incidents that don't involve any specific objects.
+    */
+    repeated string objectIds = 4;
+
+    /*
+    * Array of frameIds when the incident took place (Optional)
+    */
+    repeated string frameIds = 5;
+
+    /*
+    * where object was seen by the sensor
+    */
+    Place place = 6;
+
+    /*
+    * AnalyticsModule: Module responsible for generating the Incident
+    */
+    AnalyticsModule analyticsModule = 7;
+
+    /*
+    * Category of the incident
+    */
+    string category = 8;
+
+    /*
+    * Embeddings can be related to object appearance or it could be representative of a scene description provided by VLM
+    */
+    repeated Embedding embeddings = 9;
+
+    /*
+    * Is the incident an anomaly
+    */
+    bool isAnomaly = 10;
+
+    /*
+    * LLM query, response, embeddings for incident analysis and anomaly detection
+    */
+    LLM llm = 12;
+
+    /*
+    * optional attributes
+    */
+    map<string, string> info = 11;
+}
+
+message SpaceUtilizationMetrics{
+    /*
+    * area size of the occupied space (in square meters)
+    */
+    double spaceOccupied = 1;
+
+    /*
+    * area size of the free space (in square meters)
+    */
+    double freeSpace = 2;
+
+    /*
+    * area size of the total space (in square meters)
+    */
+    double totalSpace = 3;
+
+    /*
+    * the ratio/percentage that the total space is utilized/occupied
+    */
+    double spaceUtilization = 4;
+
+    /*
+    * the max number of extra pallets that can fit into the free space
+    */
+    int32 numExtraPallets = 5;
+
+    /*
+    * area size of the utilizable free space
+    */
+    double utilizableFreeSpace = 6;
+
+    /*
+    * the ratio/percentage that the free space is utilizable
+    */
+    double freeSpaceQuality = 7;
+
+    /*
+    * flag to indicate if the space is safe
+    */
+    bool isUnsafe = 8;
+}
+
+message SpaceUtilizationLayouts{
+    /*
+    * layout of the free space
+    */
+    repeated Polygon freeSpace = 1;
+
+    /*
+    * layout of the utilizable free space
+    */
+    repeated Polygon utilizableFreeSpace = 2;
+}
+
+message SpaceUtilization{
+
+    /*
+    * ROI id
+    */
+    string id = 1;
+
+    /*
+    * timestamp in UTC format
+    */
+    google.protobuf.Timestamp timestamp = 2;
+
+    /*
+    * Metrics regarding utilization of space
+    */
+    SpaceUtilizationMetrics metrics = 3;
+
+    /*
+    * Sensors associated with the ROI
+    */
+    repeated string sensors = 4;
+
+    /*
+    * Layouts of free space and utilizable free space
+    */
+    SpaceUtilizationLayouts layouts = 5;
+
+}
+```
+
+An example of json behavior object which follows the above protobuf schema can be found below
+
+```Json
+{
+    "analyticsModule": {
+        "description": "",
+        "info": {},
+        "version": "",
+        "id": "",
+        "source": ""
+    },
+    "end": "2023-11-11T09:50:31.252Z",
+    "object": {
+        "bbox": {
+            "bottomY": 144,
+            "leftX": 1625,
+            "topY": 72,
+            "rightX": 1664
+        },
+        "location": {
+            "lat": -0.0002441081085205078,
+            "lon": -0.00026202797699034064,
+            "alt": 0
+        },
+        "info": {
+            "visibility": "0.991698",
+            "footLocation2D": "297.655,179.069",
+            "footLocation3D": "17.56687,20.29478",
+            "convexHull": "-19,-33,-18,-32,3,35"
+        },
+        "coordinate": {
+            "z": 0,
+            "y": 27.123123168945312,
+            "x": 29.114219665527344
+        },
+        "id": "1052",
+        "confidence": 0.9485750198364258,
+        "pose": null,
+        "gaze": null,
+        "type": "Person",
+        "lipActivity": null,
+        "speed": 0,
+        "dir": [],
+        "embedding": null
+    },
+    "timestamp": "2023-11-11T09:50:31.218Z",
+    "id": "Sensor_1 #-# 1052",
+    "edges": [],
+    "timeInterval": 0.034,
+    "bearing": 239.8590251375903,
+    "poses": [],
+    "place": {
+        "location": null,
+        "name": "building=Building_1",
+        "type": "",
+        "coordinate": null,
+        "info": {},
+        "id": ""
+    },
+    "locations": {
+        "type": "linestring",
+        "coordinates": [
+            [
+                29.199949264526367,
+                27.270771026611328
+            ],
+            [
+                29.114219665527344,
+                27.123123168945312
+            ]
+        ]
+    },
+    "info": {},
+    "distance": 0.1707321118533282,
+    "videoPath": "frameId-10696",
+    "direction": "Down",
+    "gazes": [],
+    "speed": 11.232845266702702,
+    "event": null,
+    "smoothLocations": {
+        "type": "linestring",
+        "coordinates": [
+            [
+                29.199949264526367,
+                27.270771026611328
+            ],
+            [
+                29.114219665527344,
+                27.123123168945312
+            ]
+        ]
+    },
+    "length": 2,
+    "sensor": {
+        "description": "Sensor_1",
+        "location": null,
+        "type": "",
+        "coordinate": null,
+        "info": {},
+        "id": "Sensor_1"
+    },
+    "lipActivities": [],
+    "speedOverTime": [
+        11.232845266702702
+    ]
+}
+```

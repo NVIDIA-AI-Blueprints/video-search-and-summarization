@@ -138,6 +138,39 @@ class TestVlmQueryValidation:
 
         assert params.vlm_generation_config.preserve_reasoning_tags is True
 
+    def test_json_schema_response_format_reaches_generation_config(self):
+        schema = {
+            "type": "object",
+            "properties": {"person_visible": {"type": "boolean"}},
+            "required": ["person_visible"],
+            "additionalProperties": False,
+        }
+        query = _vlm_query(
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "alerts", "strict": True, "schema": schema},
+            }
+        )
+
+        params = VlmRequestParams.from_vlm_query(query)
+
+        assert params.vlm_generation_config.response_format == {
+            "type": "json_schema",
+            "json_schema": {"name": "alerts", "strict": True, "schema": schema},
+        }
+
+    def test_json_schema_response_format_requires_schema(self):
+        with pytest.raises(ValidationError, match="json_schema is required"):
+            _vlm_query(response_format={"type": "json_schema"})
+
+    def test_structured_output_rejects_ignore_eos(self):
+        with pytest.raises(ValidationError, match="ignore_eos=true is incompatible"):
+            _vlm_query(response_format={"type": "json_object"}, ignore_eos=True)
+
+    def test_structured_output_rejects_min_tokens(self):
+        with pytest.raises(ValidationError, match="min_tokens is incompatible"):
+            _vlm_query(response_format={"type": "json_object"}, min_tokens=10)
+
     def test_media_io_num_frames_zero_is_invalid(self):
         """num_frames must be positive unless it is the NIM -1 sentinel."""
         with pytest.raises(ValidationError, match="or -1"):

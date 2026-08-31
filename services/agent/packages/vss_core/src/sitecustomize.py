@@ -43,7 +43,7 @@ def _load_env_file(env_path: Path) -> None:
 
     if env_path.is_file():
         load_dotenv(env_path, override=False)
-        logger.info("Loaded environment variables from %s", env_path)
+        logger.debug("Loaded environment variables from %s", env_path)
     else:
         logger.warning("Env file %s not found; skipping", env_path)
 
@@ -61,7 +61,7 @@ def _auto_load_env_files() -> None:
                     env_path = project_root / env_path
 
                 if env_path.is_file():
-                    logger.info("Loading environment variables from %s", env_path)
+                    logger.debug("Loading environment variables from %s", env_path)
                     _load_env_file(env_path)
                 else:
                     logger.warning("Env file %s not found; skipping", env_path)
@@ -70,7 +70,11 @@ def _auto_load_env_files() -> None:
         except Exception:
             logger.exception("Error reading %s", env_pointer)
     else:
-        logger.info(".env_file not found at %s", env_pointer)
+        # The pointer is optional, so its absence is the ordinary case, not
+        # news. This runs at interpreter startup -- before a CLI parses
+        # --log-level -- so anything logged here is unconditional noise on
+        # stderr for every single invocation.
+        logger.debug(".env_file not found at %s", env_pointer)
 
 
 try:

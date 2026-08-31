@@ -98,6 +98,19 @@ class TestAlertConfigRequest:
         with pytest.raises(ValidationError):
             AlertConfigRequest(alert_type="test", prompt="p", unknown_field="x")
 
+    @pytest.mark.parametrize("blank", ["", "   ", "\n\t"])
+    def test_blank_system_prompt_becomes_unset(self, blank):
+        """A blank one is not a client error — the field is optional — so it
+        means the same thing as omitting it: the service default applies."""
+        req = AlertConfigRequest(alert_type="test", prompt="p", system_prompt=blank)
+        assert req.system_prompt is None
+
+    def test_system_prompt_padding_is_stripped(self):
+        req = AlertConfigRequest(
+            alert_type="test", prompt="p", system_prompt="  You are an auditor.  "
+        )
+        assert req.system_prompt == "You are an auditor."
+
 
 class TestAlertConfigUpdateRequest:
 
@@ -130,6 +143,19 @@ class TestAlertConfigUpdateRequest:
     def test_unknown_top_level_field_rejected(self):
         with pytest.raises(ValidationError):
             AlertConfigUpdateRequest(prompt="p", typo_field="x")
+
+    def test_blank_system_prompt_clears_the_stored_one(self):
+        """The route keys "provided" off ``model_fields_set``, so a blank value
+        still reaches the service — as ``None``, which clears the record and
+        puts the alert type back on the service default."""
+        req = AlertConfigUpdateRequest(system_prompt="   ")
+
+        assert req.system_prompt is None
+        assert "system_prompt" in req.model_fields_set
+
+    def test_system_prompt_padding_is_stripped(self):
+        req = AlertConfigUpdateRequest(system_prompt="  You are an auditor.  ")
+        assert req.system_prompt == "You are an auditor."
 
 
 class TestVlmParams:

@@ -16,7 +16,7 @@
 import logging
 import re
 import yaml
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 from handlers.exception_handler.vss_exceptions import VSSException
 
@@ -24,12 +24,28 @@ from .alert_type_config_loader import AlertTypeConfigLoader
 
 logger = logging.getLogger(__name__)
 
+# Applied when the resolved alert config carries no system prompt of its own.
+# The user prompt is the detection question; the system prompt is the VLM
+# contract, so it is the service's call, not the operator's. Matches the
+# ``system`` text in the shipped ``alert_type_config.json``, and is mirrored by
+# ``prompt.default_system_prompt`` in every shipped config, which is what an
+# operator overrides -- a verifier usually wants stronger framing than this.
+# Editing it here alone changes no deployment; the drift guard in
+# test/unit/test_shipped_config_defaults.py fails until the configs follow.
+DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
+
 
 class PromptManager:
     """Manages prompt templates and selection logic based on alert types."""
     
-    def __init__(self, config_file: str = 'config.yaml'):
-        """Initialize prompt manager backed by the alert-config store (ES/in-process)."""
+    def __init__(self, config_file: str = 'config.yaml', seed_prompts: bool = True):
+        """Initialize prompt manager backed by the alert-config store (ES/in-process).
+
+        ``seed_prompts`` gates the startup write. Reading the store is per
+        instance of this class; writing it is not — with several pipeline
+        processes every one of them would seed the same documents and race,
+        so only one is asked to.
+        """
         self.logger = logging.getLogger(self.__class__.__name__)
 
         try:
@@ -41,6 +57,12 @@ class PromptManager:
         prompt_cfg = config.get('prompt', {}) or {}
         self.prefer_payload_prompt = bool(prompt_cfg.get('prefer_payload_prompt', False))
         self.override_prompts_on_start = bool(prompt_cfg.get("override_prompts_on_start", False))
+        self.default_system_prompt = self._read_default_system_prompt(prompt_cfg)
+        if not self.default_system_prompt:
+            self.logger.warning(
+                'prompt.default_system_prompt is empty; alert types without a '
+                'system prompt of their own will be sent none'
+            )
 
         # Share a single alert-config store across the process. The
         # factory returns an in-process store when persistence is
@@ -60,181 +82,42 @@ class PromptManager:
 
         self.GENERAL_PROMPT_TEMPLATE = 'Analyze this video and determine if there are any safety concerns or anomalies present.'
         self.FORMAT_PROMPT_TEMPLATE = 'Please provide your answer first, and finally conclude it in the following format: "Answer: Yes/No\\nConfidence: [score between 0.0 and 1.0]"'
-        self.alert_type_prompts = {}
-        self.alert_type_system_prompts = {}
 
-        if self.override_prompts_on_start:
+        if self.override_prompts_on_start and seed_prompts:
             self._seed_prompts_to_store()
-        
+
+    @staticmethod
+    def _read_default_system_prompt(prompt_cfg: Dict[str, Any]) -> str:
+        """Read ``prompt.default_system_prompt`` as a string, or fail startup.
+
+        YAML will hand back an int, list or dict here as readily as a string,
+        and neither outcome is one an operator would notice: a truthy
+        non-string reaches the VLM as invalid message content, while a falsy
+        one turns the fallback off — the failure the default exists to prevent.
+
+        ``null`` is rejected with the rest of them, and that includes the
+        valueless ``default_system_prompt:`` YAML parses as null. Turning the
+        default off is supported, but ``""`` is the one way to ask for it: a
+        key someone left empty, or a Helm value that rendered to nothing,
+        reads as an accident, and guessing "no system message" from it would
+        disable the feature exactly where nobody is looking. Omitting the key
+        entirely is the other normal case and keeps ``DEFAULT_SYSTEM_PROMPT``.
+        """
+        value = prompt_cfg.get('default_system_prompt', DEFAULT_SYSTEM_PROMPT)
+        if not isinstance(value, str):
+            raise RuntimeError(
+                f"prompt.default_system_prompt must be a string, got "
+                f"{type(value).__name__} ({value!r}). Use \"\" to send no "
+                f"system prompt, or remove the key to keep the service default."
+            )
+        return value.strip()
+
     def load_prompts(self) -> None:
         self.logger.info("load_prompts() is deprecated; prompts are fetched directly from the alert-config store")
     
     def _set_default_prompts(self) -> None:
         self.logger.info("_set_default_prompts() is unused in the new prompt flow")
     
-    def get_system_prompt_for_entity(self, entity: Dict[str, Any]) -> Optional[str]:
-        """Resolve system prompt with payload-first precedence, else a fresh read from the alert-config store (exact alert_type match), else None."""
-        def _get_alert_type():
-            if 'alert' in entity and isinstance(entity['alert'], dict):
-                return entity['alert'].get('type')
-            return None
-        
-        def _get_embedded_system_prompt():
-            # Prefer top-level vlm_params; fall back to legacy nested
-            # ``vss_params.vlm_params`` / camelCase shapes if present.
-            candidates = [
-                entity.get('vlm_params'),
-                entity.get('vlmParams'),
-                (entity.get('vss_params') or {}).get('vlm_params') if isinstance(entity.get('vss_params'), dict) else None,
-                (entity.get('vssParams') or {}).get('vlmParams') if isinstance(entity.get('vssParams'), dict) else None,
-            ]
-            for vlm_params in candidates:
-                if isinstance(vlm_params, dict) and 'system_prompt' in vlm_params:
-                    sp = vlm_params['system_prompt']
-                    if sp and isinstance(sp, str) and sp.strip():
-                        return sp
-            return None
-        
-        # Payload-first precedence for system prompt
-        embedded = _get_embedded_system_prompt()
-        if embedded:
-            self.logger.debug("Using embedded system_prompt from payload (payload-first)")
-            return embedded
-        
-        alert_type = _get_alert_type()
-        if alert_type:
-            # Fetch fresh from the store to reflect any dynamic updates (exact match only)
-            fresh_system_prompt = self.get_fresh_system_prompt_for_alert_type(alert_type)
-            if fresh_system_prompt:
-                self.logger.debug(f"Using fresh system_prompt from store for alert type: {alert_type}")
-                return fresh_system_prompt
-        
-        return None
-        
-    def get_fresh_system_prompt_for_alert_type(self, alert_type: str) -> Optional[str]:
-        """Fetch the system prompt from ``alert_config:{alert_type}``."""
-        try:
-            if self.alert_config_store is None:
-                return None
-            data = self.alert_config_store.get(alert_type)
-            if not data:
-                return None
-            return data.get('system_prompt') or None
-        except Exception as e:
-            self.logger.error(f"Failed to fetch system prompt from alert_config:{alert_type}: {e}")
-            return None
-
-    def get_prompts_for_entity(self, entity: Dict[str, Any]) -> List[Dict[str, str]]:
-        alert_type = self._extract_alert_type(entity)
-        if not alert_type:
-            event_id = entity.get('eventId') or entity.get('event_id') or 'N/A'
-            sensor_id = entity.get('sensorId') or entity.get('sensor_id') or 'N/A'
-            raise VSSException(f"Alert type missing for entity - eventId: {event_id}, sensorId: {sensor_id}")
-
-        stored_prompt = self.get_fresh_prompt_for_alert_type(alert_type)
-        if not stored_prompt:
-            raise VSSException(f"No prompt found in the alert-config store for alert type: {alert_type}")
-
-        substituted_prompt = self._substitute_placeholders(stored_prompt, entity)
-        return [{
-            'question': substituted_prompt,
-            'expectedAnswer': 'yes'
-        }]
-    
-    def get_prompt_for_alert_type(self, alert_type: str) -> Optional[str]:
-        """
-        Get prompt based on alert type from the alert-config store.
-        
-        Uses a dynamic keyword matching algorithm that:
-        1. First tries direct matches (exact, lowercase, normalized)
-        2. Then uses intelligent keyword matching with scoring:
-           - Matches keywords from input against config keys
-           - Scores based on number of matches, match ratios, and relevance
-           - Prefers exact substring matches
-           - Penalizes overly long config keys for better specificity
-        
-        Args:
-            alert_type: Type of alert (e.g., 'traffic_jam', 'animal_on_road', etc.)
-            
-        Returns:
-            The appropriate prompt text, or None if not found
-        """
-        self.logger.debug(f"Selecting prompt for alert type: {alert_type}")
-        
-        # First check the in-memory map (seeded from the alert type config)
-        if alert_type in self.alert_type_prompts:
-            self.logger.debug(f"Found direct mapping for alert type: {alert_type}")
-            return self.alert_type_prompts[alert_type]
-        
-        # This should not happen if initialization was done properly
-        # Log a warning as prompts should have been loaded during initialization
-        self.logger.warning(f"Prompt for alert type '{alert_type}' not found in cache. This indicates initialization issue.")
-        
-        # Try lowercase version
-        alert_type_lower = alert_type.lower()
-        if alert_type_lower in self.alert_type_prompts:
-            self.logger.debug(f"Found mapping for lowercase alert type: {alert_type_lower}")
-            return self.alert_type_prompts[alert_type_lower]
-        
-        # Try with underscores replaced by spaces and vice versa
-        alert_type_normalized = alert_type.lower().replace('_', ' ')
-        alert_type_with_underscores = alert_type.lower().replace(' ', '_')
-        
-        for key, prompt in self.alert_type_prompts.items():
-            key_normalized = key.lower().replace('_', ' ')
-            if key_normalized == alert_type_normalized or key.lower() == alert_type_with_underscores:
-                self.logger.debug(f"Found mapping with normalized alert type: {key}")
-                return prompt
-        
-        # Try keyword matching: split input alert_type and check if any keyword matches config keys
-        alert_type_words = set(alert_type_lower.replace('_', ' ').split())
-        
-        # Score each config key based on matching keywords
-        best_match = None
-        best_score = 0
-        
-        for config_key, prompt in self.alert_type_prompts.items():
-            config_key_words = set(config_key.lower().replace('_', ' ').split())
-            
-            # Calculate intersection of words
-            matching_words = alert_type_words.intersection(config_key_words)
-            
-            if matching_words:
-                # Base score: number of matching words
-                score = len(matching_words)
-                
-                # Bonus for matching a higher proportion of the config key
-                config_match_ratio = len(matching_words) / len(config_key_words)
-                score += config_match_ratio
-                
-                # Bonus for matching a higher proportion of the input alert type
-                input_match_ratio = len(matching_words) / len(alert_type_words)
-                score += input_match_ratio * 0.5
-                
-                # Strong preference for exact substring matches
-                if alert_type_lower in config_key.lower() or config_key.lower() in alert_type_lower:
-                    score += 3
-                
-                # Penalty for config keys that are much longer than necessary
-                # This helps prefer "traffic_jam" over "traffic_obstruction" for input "traffic"
-                length_difference = abs(len(config_key_words) - len(alert_type_words))
-                score -= length_difference * 0.1
-                
-                self.logger.debug(f"Scoring '{config_key}' for '{alert_type}': "
-                                f"score={score:.2f}, matching_words={matching_words}")
-                
-                if score > best_score:
-                    best_score = score
-                    best_match = config_key
-        
-        if best_match:
-            self.logger.debug(f"Found best keyword match for '{alert_type}': '{best_match}' (score: {best_score:.2f})")
-            return self.alert_type_prompts[best_match]
-        
-        # No specific prompt found
-        self.logger.warning(f"No specific prompt found for alert type: {alert_type}")
-        return None
-
     def get_fresh_prompts_for_alert_type(self, alert_type: str) -> tuple[Optional[str], Optional[str]]:
         """Fetch SYSTEM and USER prompt from ``alert_config:{alert_type}``.
 
@@ -262,16 +145,20 @@ class PromptManager:
         """Get the format prompt template."""
         return self.FORMAT_PROMPT_TEMPLATE
     
-    def get_prompts_for_message(self, message: Dict[str, Any]) -> tuple[str, str]:
+    def get_prompts_for_message(
+        self, message: Dict[str, Any]
+    ) -> tuple[Optional[str], Optional[str]]:
         """
-        Get the system and user prompts for a message from the alert-config store,
+        Get the user and system prompts for a message from the alert-config store,
         then perform placeholder substitution.
         
         Args:
             message: Message dictionary containing alert information
         
         Returns:
-            The prompt string with substitutions applied, or empty string if not found
+            ``(user_prompt, system_prompt)``. Either is ``None`` when the alert
+            type has none configured; ``(None, None)`` is what the pipelines
+            read as "not configured" to record the ``no_prompt`` outcome.
         """
         alert_type = message.get('category', '')
         if not alert_type:
@@ -288,7 +175,47 @@ class PromptManager:
             final_prompt = self._substitute_placeholders(stored_user_prompt, message)
             self.logger.debug(f"Final User Prompt after substitution: {final_prompt}")
 
-        return final_prompt, stored_system_prompt
+        return final_prompt, self._resolve_system_prompt(alert_type, final_prompt, stored_system_prompt)
+
+    def _resolve_system_prompt(
+        self,
+        alert_type: str,
+        user_prompt: Optional[str],
+        stored_system_prompt: Optional[str],
+    ) -> Optional[str]:
+        """Resolve the system prompt a VLM call is made with. Single entry point.
+
+        A config created over the API can legitimately omit ``system_prompt``
+        — it is optional there — and callers of this method hand what they get
+        straight to the VLM, which drops the system role when it is empty. So
+        the default is applied here rather than at seed time, where only
+        ``alert_type_config.json`` would ever benefit from it.
+
+        The *default* is what the user prompt gates, not the stored value.
+        Without a user prompt there is no VLM call to give a contract to, and
+        the enhancer reads ``(None, None)`` as "this alert type is not
+        configured" to record the ``no_prompt`` outcome — inventing a system
+        prompt would mask that. A record that stores a system prompt and no
+        user prompt still resolves to ``(None, <stored>)``: the API rejects an
+        empty ``prompt``, so that shape only comes from a malformed store
+        record, and it is not this method's job to paper over one.
+
+        Whitespace never survives this method: a blank stored value resolves to
+        ``None`` (an omitted role beats an empty system message) and padding is
+        trimmed off a real one. Store contents are not all API-validated —
+        ``alert_type_config.json`` is seeded verbatim — so normalizing here is
+        what makes the guarantee hold for every source.
+        """
+        stored = (stored_system_prompt or '').strip()
+        if stored:
+            return stored
+        if user_prompt and self.default_system_prompt:
+            self.logger.debug(
+                f"No system prompt configured for alert type '{alert_type}'; "
+                "using the service default"
+            )
+            return self.default_system_prompt
+        return None
 
     def get_enrichment_prompt_for_message(self, message: Dict[str, Any]) -> Optional[str]:
         """

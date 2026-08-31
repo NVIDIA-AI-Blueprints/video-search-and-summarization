@@ -149,6 +149,9 @@ def normalize(path: Path) -> int:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("resolved.yml")
     normalize(path)
 

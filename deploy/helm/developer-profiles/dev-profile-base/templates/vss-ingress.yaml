@@ -1,16 +1,73 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 {{- if .Values.vssIngress.enabled }}
 {{- $vi := .Values.vssIngress }}
-{{- $vlmIngress := (index $vi "vlm") | default dict }}
-{{- $vlmEnabled := default false (index $vlmIngress "enabled") }}
-{{- $vlmServicePort := default 8000 (index $vlmIngress "servicePort") }}
-{{- /* Base serves VLM via rtvi.vss-rtvi-vlm (vlmNameSlug=none). Do not use vlmNameSlug as a Service name. */}}
-{{- $rtvi := index (.Values.rtvi | default dict) "vss-rtvi-vlm" | default dict }}
-{{- $agent := index (.Values.agent | default dict) "vss-agent" | default dict }}
-{{- $vlmChartName := coalesce ((index $vlmIngress "serviceName") | default "" | trim) ((index $agent "rtviVlmServiceName") | default "" | trim) "vss-rtvi-vlm" }}
 {{- $host := default .Values.global.externalHost $vi.host }}
 {{- $phoenixHost := $vi.phoenixHost | default "" | trim }}
-{{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
-{{- $phoenixStackEnabled := and $fp (default true $fp.enabled) }}
+{{- $infra := .Values.infra | default dict }}
+{{- $fp := index $infra "phoenix" | default dict }}
+{{- $fes := index $infra "elasticsearch" | default dict }}
+{{- $vios := .Values.vios | default dict }}
+{{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
+{{- $agentRoot := .Values.agent | default dict }}
+{{- $agent := index $agentRoot "vss-agent" | default dict }}
+{{- $vaMcp := index $agentRoot "vss-va-mcp" | default dict }}
+{{- $ui := index .Values "vss-agent-ui" | default dict }}
+{{- $rtvi := .Values.rtvi | default dict }}
+{{- $vlm := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- /* Enablement is read with vss.ingress.enabled, not `default true`: sprig
+       treats an explicit `false` as empty and would hand back the default,
+       mounting a route at a Service that was never created. */}}
+{{- $en := "vss.ingress.enabled" }}
+{{- $infraOn := include $en (dict "vals" $infra "default" true) }}
+{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
+{{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
+{{- /* Base serves the VLM via rtvi.vss-rtvi-vlm (vlmNameSlug=none). Do not use
+       vlmNameSlug as a Service name -- with vlmNameSlug=none it resolves to a
+       Service that does not exist. `vssIngress.vlm.*` is the former name of
+       these keys and still wins where set. */}}
+{{- $vlmLegacy := $vi.vlm | default dict }}
+{{- $vlmOn := and $rtviOn (include $en (dict "vals" $vlm "default" false)) (include $en (dict "vals" $vlmLegacy "default" true)) }}
+{{- $vlmChartName := coalesce ($vlmLegacy.serviceName | default "" | trim) ($vi.rtviVlmServiceName | default "" | trim) ((index $agent "rtviVlmServiceName") | default "" | trim) "vss-rtvi-vlm" }}
+{{- /* Which of the canonical routes this profile can serve. The mounts
+       themselves live in the shared table (services/common); this only says
+       which backends are here and on what port. */}}
+{{- $b := dict }}
+{{- if include $en (dict "vals" $ui "default" true) }}
+{{- $_ := set $b "ui" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui")) "port" $vi.vssUiPort) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $agent "default" true)) }}
+{{- $_ := set $b "agent" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent")) "port" $vi.vssAgentPort) }}
+{{- end }}
+{{- if and (include $en (dict "vals" $vios "default" true)) (include $en (dict "vals" $viosIngress "default" true)) }}
+{{- $_ := set $b "vst" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress")) "port" $vi.vstIngressPort) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcp "default" false)) }}
+{{- $_ := set $b "va-mcp" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-va-mcp" "chartName" "vss-va-mcp" "subchartValues" $vaMcp)) "port" $vi.vaMcpPort) }}
+{{- end }}
+{{- if $vlmOn }}
+{{- $_ := set $b "rtvi-vlm" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-rtvi-vlm" "chartName" $vlmChartName "subchartValues" $vlm)) "port" (coalesce $vlmLegacy.servicePort $vi.rtviVlmPort)) }}
+{{- end }}
+{{- if and $infraOn (include $en (dict "vals" $fes "default" false)) }}
+{{- $_ := set $b "elasticsearch" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "elasticsearch" "chartName" "elasticsearch" "subchartValues" $fes)) "port" $vi.elasticsearchPort) }}
+{{- end }}
+{{- if and $infraOn (include $en (dict "vals" $fp "default" true)) }}
+{{- $_ := set $b "phoenix" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" $fp)) "port" $vi.phoenixPort) }}
+{{- end }}
+{{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
 {{- if $host }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -21,11 +78,10 @@ metadata:
     app.kubernetes.io/name: vss
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-  {{- if $phoenixStackEnabled }}
+  {{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
   annotations:
     haproxy.org/path-rewrite: |
-      /phoenix/(.*) /\1
-      /phoenix /
+      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
   {{- end }}
 spec:
   ingressClassName: {{ default "haproxy" $vi.ingressClassName | quote }}
@@ -33,102 +89,8 @@ spec:
     - host: {{ $host | quote }}
       http:
         paths:
-          - path: /api/chat
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }}
-                port:
-                  number: {{ $vi.vssUiPort }}
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /chat
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /websocket
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /static
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /docs
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /openapi.json
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /redoc
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /generate
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-{{- if $vlmEnabled }}
-          - path: /v1
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-rtvi-vlm" "chartName" $vlmChartName "subchartValues" $rtvi) }}
-                port:
-                  number: {{ $vlmServicePort }}
-{{- end }}
-          - path: /vst
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress") }}
-                port:
-                  number: {{ $vi.vstIngressPort }}
-{{- if $phoenixStackEnabled }}
-          - path: /phoenix
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" $fp) }}
-                port:
-                  number: {{ $vi.phoenixPort | default 6006 }}
-{{- end }}
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }}
-                port:
-                  number: {{ $vi.vssUiPort }}
-{{- if and $phoenixStackEnabled (ne $phoenixHost "") }}
+          {{- include "vss.ingress.paths" (dict "backends" $b) | nindent 10 }}
+{{- if and (index $b "phoenix") (ne $phoenixHost "") }}
     - host: {{ $phoenixHost | quote }}
       http:
         paths:
@@ -136,9 +98,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" $fp) }}
+                name: {{ (index $b "phoenix").service }}
                 port:
-                  number: {{ $vi.phoenixPort | default 6006 }}
+                  number: {{ (index $b "phoenix").port }}
 {{- end }}
 {{- end }}
 {{- end }}

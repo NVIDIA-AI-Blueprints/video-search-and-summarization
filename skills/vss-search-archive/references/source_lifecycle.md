@@ -4,7 +4,7 @@ Use the search agent's source endpoints so VST, VIOS, and Elasticsearch remain
 consistent. Never replace these operations with direct backend mutations.
 
 These Agent-backed mutations are the full-stack path. For a headless
-`vss-build-vision-agent` deployment with no Agent tier, provision the source
+`vss-build-vision-ai` deployment with no Agent tier, provision the source
 through `vss-manage-video-io-storage`'s
 [direct register-and-fan-out workflow](../../vss-manage-video-io-storage/references/provision-vios-source.md),
 then return here for search. Do not apply the Agent endpoint recipes below to
@@ -30,8 +30,6 @@ the backends' own service, model, and index inventory:
 : "${VSS_ORIGIN:?set the deployment origin}"
 : "${VSS_REPO_ROOT:?set the validated checkout}"
 VSS_ORIGIN="${VSS_ORIGIN%/}"
-AGENT_URL="${VSS_ORIGIN}"
-VST_URL="${VSS_ORIGIN}"
 
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
 "${VSS[@]}" search run --help >/dev/null || exit 1
@@ -58,10 +56,11 @@ resolve_search_indexes() {
 }
 ```
 
-Do not call `resolve_search_indexes` on a fresh stack. Indexes are created
-lazily by ingestion. After every intended upload completes, re-run
-`vss configure --base-url "${VSS_ORIGIN}"`, refresh `CONFIG_JSON`, and call
-`resolve_search_indexes` before readiness checks.
+Indexes are created lazily by ingestion, so `resolve_search_indexes` fails on a
+fresh stack and keeps failing until the embedding index exists. Never call it
+once and treat the failure as fatal — pair it with `vss configure --base-url
+"${VSS_ORIGIN}"` inside the bounded readiness wait below, so each pass re-reads
+the deployment and a late-created index is picked up.
 Never use `ELASTIC_SEARCH_INDEX`, an index template, or a guessed date in place
 of `vss configure show`.
 
@@ -181,11 +180,10 @@ from the VST source list, then delete its UUID only through the Agent:
 
 ```bash
 VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-  "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
 mapfile -t SENSORS_TO_DELETE < <(
   printf '%s' "${VST_SENSOR_LIST}" |
-    jq -er '.[] | select(.name == "airport" or
+    jq -er '.sensors[] | select(.name == "airport" or
                         .name == "warehouse_sample" or
                         .name == "warehouse-ladder" or
                         .name == "sample-warehouse-ladder") |
@@ -195,16 +193,15 @@ for SENSOR_TO_DELETE in "${SENSORS_TO_DELETE[@]}"; do
   test -n "${SENSOR_TO_DELETE}" || exit 1
   DELETE_TIMEOUT=$(readiness_timeout 300) || exit 1
   curl -fsS --connect-timeout 5 --max-time "${DELETE_TIMEOUT}" -X DELETE \
-    "${AGENT_URL%/}/api/v1/videos/${SENSOR_TO_DELETE}" |
+    "${VSS_ORIGIN%/}/api/v1/videos/${SENSOR_TO_DELETE}" |
     jq -e '.status == "success"' >/dev/null || exit 1
 done
 
 while :; do
   VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-  VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-    "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+  VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
   if ! printf '%s' "${VST_SENSOR_LIST}" | jq -e \
-    'any(.[]; .name == "airport" or
+    'any(.sensors[]; .name == "airport" or
               .name == "warehouse_sample" or
               .name == "warehouse-ladder" or
               .name == "sample-warehouse-ladder")' >/dev/null; then
@@ -221,9 +218,22 @@ partial state through a backend.
 
 ## File source
 
-List current sources through `vss-manage-video-io-storage`; do not upload an
-exact existing source. Confirm an interactive upload, then use the mandatory
-three-step agent flow. This flow is mandatory for every file ingestion:
+List current sources with `"${VSS[@]}" vios list`; do not upload an exact
+existing source. Confirm an interactive upload, then use the mandatory
+three-step agent flow.
+
+**The block below ingests ONE file. Run it again, in full, for each further
+file** — `POST /api/v1/videos`, the upload, then `/complete`, every time. Set
+`FILE_PATH` (and `UPLOAD_FILENAME` if it differs) and re-run from the top. The
+failure mode is doing the first step once and reusing its upload URL or
+`SENSOR` for the next file: the second file then has no `/api/v1/videos` call
+of its own, is never registered, and its index documents never appear — which
+surfaces much later as an empty search rather than an upload error.
+
+**There is no one-step shortcut.** `PUT /api/v1/videos-for-search/{filename}`
+is deprecated; calling it fails the ingestion contract even when it appears to
+work. Repeating the three steps per file is the supported path — the repetition
+is the cost of the contract, not a sign you have taken a wrong turn.
 
 For the release fixtures, download the exact pinned bundle into a fresh
 directory; never use `find` to substitute a pre-existing warehouse-looking
@@ -242,7 +252,7 @@ test -s "${SAMPLE_DIR}/sample-warehouse-ladder.mp4" || exit 1
 ```
 
 ```bash
-: "${AGENT_URL:?resolve the selected search agent}"
+: "${VSS_ORIGIN:?resolve the selected search agent}"
 : "${FILE_PATH:?set the local media path}"
 test -r "${FILE_PATH}" || exit 1
 SOURCE_FILENAME=$(basename -- "${FILE_PATH}")
@@ -253,7 +263,7 @@ RTVI_CV_LOG_SINCE="${RTVI_CV_LOG_SINCE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 UPLOAD_REQUEST=$(jq -cn --arg filename "${UPLOAD_FILENAME}" '{filename: $filename}')
 UPLOAD_REQUEST_TIMEOUT=$(readiness_timeout 30) || exit 1
 UPLOAD_URL_RESPONSE=$(curl -sfS --max-time "${UPLOAD_REQUEST_TIMEOUT}" -X POST \
-  "${AGENT_URL}/api/v1/videos" \
+  "${VSS_ORIGIN}/api/v1/videos" \
   -H "Content-Type: application/json" -d "${UPLOAD_REQUEST}")
 UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" |
   jq -er '.url | select(type == "string" and length > 0)') || exit 1
@@ -277,7 +287,7 @@ COMPLETE_TIMEOUT=$(readiness_timeout 900) || exit 1
 COMPLETE_RESPONSE=$(printf '%s' "${UPLOAD_RESPONSE}" |
   jq --arg filename "${UPLOAD_FILENAME}" '. + {filename: $filename}' |
   curl -sfS --connect-timeout 10 --max-time "${COMPLETE_TIMEOUT}" -X POST \
-    "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
+    "${VSS_ORIGIN}/api/v1/videos/${SENSOR}/complete" \
     -H "Content-Type: application/json" -d @-)
 printf '%s' "${COMPLETE_RESPONSE}" | jq -e . >/dev/null || exit 1
 printf '%s' "${COMPLETE_RESPONSE}" |
@@ -287,11 +297,10 @@ printf '%s' "${COMPLETE_RESPONSE}" |
   { echo "Upload completion failed validation" >&2; exit 1; }
 
 VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$(curl -fsS --connect-timeout 5 --max-time "${VST_LIST_TIMEOUT}" \
-  "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
 printf '%s' "${VST_SENSOR_LIST}" | jq -e \
   --arg sensor "${SENSOR}" --arg name "${CANONICAL_SOURCE}" \
-  'any(.[]; .sensorId == $sensor and .name == $name)' >/dev/null || {
+  'any(.sensors[]; .sensor_id == $sensor and .name == $name)' >/dev/null || {
     echo "VST did not register ${CANONICAL_SOURCE} with sensorId ${SENSOR}" >&2
     exit 1
   }
@@ -321,26 +330,37 @@ bounded wait:
 ```bash
 : "${WAREHOUSE_SAMPLE_SENSOR:?preserve warehouse_sample upload sensorId}"
 : "${WAREHOUSE_LADDER_SENSOR:?preserve warehouse-ladder upload sensorId}"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
-resolve_search_indexes || exit 1
 : "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
 while :; do
-  SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
-  LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
-    "${WAREHOUSE_LADDER_SENSOR}" 2>/dev/null || echo 0)
-  LADDER_BEHAVIOR_COUNT=$(index_count "${BEHAVIOR_INDEX}" sensor.id.keyword \
-    warehouse-ladder 2>/dev/null || echo 0)
-  LADDER_RAW_COUNT=$(index_count "${RAW_INDEX}" sensorId.keyword \
-    warehouse-ladder 2>/dev/null || echo 0)
-  if (( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
-        LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )); then
-    break
+  # Re-read the deployment every pass. Indexes are created lazily by ingestion,
+  # so `configure` + `resolve_search_indexes` run inside this wait, not before
+  # it: resolving once while the embedding index does not yet exist fails
+  # outright and never reaches the document counts below.
+  if "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" >/dev/null 2>&1 &&
+     resolve_search_indexes; then
+    SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
+      "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
+    LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
+      "${WAREHOUSE_LADDER_SENSOR}" 2>/dev/null || echo 0)
+    LADDER_BEHAVIOR_COUNT=$(index_count "${BEHAVIOR_INDEX}" sensor.id.keyword \
+      warehouse-ladder 2>/dev/null || echo 0)
+    LADDER_RAW_COUNT=$(index_count "${RAW_INDEX}" sensorId.keyword \
+      warehouse-ladder 2>/dev/null || echo 0)
+    if (( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
+          LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )); then
+      break
+    fi
   fi
   CURRENT_EPOCH=$(date +%s)
   (( CURRENT_EPOCH < SEARCH_READINESS_DEADLINE )) || break
   sleep 15
 done
+# Fail loudly if the wait expired without the indexes appearing, rather than
+# falling through with EMBED_INDEX unset into a search that reads nothing.
+resolve_search_indexes || {
+  echo "search indexes never appeared before the deadline (embedding index missing)" >&2
+  exit 1
+}
 printf 'indexes=%s,%s,%s sensors=%s,%s counts=%s,%s,%s,%s\n' \
   "${EMBED_INDEX}" "${BEHAVIOR_INDEX}" "${RAW_INDEX}" \
   "${WAREHOUSE_SAMPLE_SENSOR}" "${WAREHOUSE_LADDER_SENSOR}" \
@@ -382,7 +402,7 @@ direct index-level validation or create a port-forward.
 Register the exact RTSP URL through the selected search agent:
 
 ```bash
-curl -sfS -X POST "${AGENT_URL}/api/v1/rtsp-streams/add" \
+curl -sfS -X POST "${VSS_ORIGIN}/api/v1/rtsp-streams/add" \
   -H "Content-Type: application/json" \
   -d '{
     "sensorUrl": "rtsp://<host>:<port>/<path>",
@@ -432,19 +452,27 @@ delete_index_count() {
 
 DELETE_TIMEOUT=$(delete_timeout 60) || exit 1
 DELETE_RESPONSE=$(curl -sfS --max-time "${DELETE_TIMEOUT}" -X DELETE \
-  "${AGENT_URL%/}/api/v1/videos/${SAVED_SENSOR_ID}") || exit 1
+  "${VSS_ORIGIN%/}/api/v1/videos/${SAVED_SENSOR_ID}") || exit 1
 printf '%s' "${DELETE_RESPONSE}" | jq -e '.status == "success"' >/dev/null || exit 1
 
+# Last-known state, so an expiry can say what is still present rather than
+# only that it gave up.
+VST_PRESENT=unknown EMBED_COUNT=unknown BEHAVIOR_COUNT=unknown RAW_COUNT=unknown
 while :; do
   VST_TIMEOUT=$(delete_timeout 15) || {
-    echo "Timed out waiting for source and index cleanup" >&2
-    exit 1
+    # The delete was accepted; cleanup did not finish inside the deadline.
+    # Report what is still there and exit 6 (partial) -- exiting 1 with a bare
+    # message loses the half that did succeed, and reads as "delete failed"
+    # when the source may already be gone and only an index still draining.
+    printf 'delete_status=partial vst_present=%s counts=%s,%s,%s\n' \
+      "${VST_PRESENT}" "${EMBED_COUNT}" "${BEHAVIOR_COUNT}" "${RAW_COUNT}" >&2
+    echo "cleanup did not finish within the deadline; the values above are what is still present" >&2
+    exit 6
   }
-  VST_SENSORS=$(curl -fsS --max-time "${VST_TIMEOUT}" \
-    "${VST_URL%/}/vst/api/v1/sensor/list") || exit 1
+  VST_SENSORS=$("${VSS[@]}" vios list) || exit 1
   VST_PRESENT=$(printf '%s' "${VST_SENSORS}" | jq -r \
     --arg id "${SAVED_SENSOR_ID}" --arg name "${SAVED_SOURCE_NAME}" \
-    'any(.[]; .sensorId == $id or .name == $name)') || exit 1
+    'any(.sensors[]; .sensor_id == $id or .name == $name)') || exit 1
   case "${VST_PRESENT}" in true|false) ;; *) exit 1 ;; esac
   EMBED_COUNT=$(delete_index_count "${EMBED_INDEX}" sensor.id.keyword \
     "${SAVED_SENSOR_ID}") || exit 1

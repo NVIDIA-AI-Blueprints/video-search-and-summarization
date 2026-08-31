@@ -35,7 +35,7 @@ differs. Source ingestion and deletion remain Agent-backed.
 - A running VSS `search` profile and its host-reachable Compose or Ingress
   origin.
 - A checkout containing `services/agent`, host `uv`, `curl`, and `jq`.
-- `vss-manage-video-io-storage` for source listing and inspection.
+- `vss vios list` for source listing and inspection (same CLI, same recorded origin).
 
 Resolve and validate the checkout once:
 
@@ -63,7 +63,6 @@ if [ -z "${VSS_ORIGIN:-}" ]; then
     }
 fi
 VSS_ORIGIN="${VSS_ORIGIN%/}"
-AGENT_URL="${VSS_ORIGIN}"
 VST_URL="${VSS_ORIGIN}"
 VSS_VIOS_URL="${VSS_ORIGIN}/vst"
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
@@ -73,7 +72,7 @@ In a persisted multi-step workflow, reuse the origin recorded by the prepared
 deployment as above. Do not repeat public-origin selection, edit routing, or
 redeploy merely because the next agent turn did not inherit shell variables.
 
-See [deployment resolution](../vss-build-vision-agent/references/deployment_resolution.md)
+See [deployment resolution](../vss-build-vision-ai/references/deployment_resolution.md)
 for the deployment-owned `VSS_PUBLIC_URL` contract. On Kubernetes, never use
 port-forwarding, Service DNS, NodePorts, or a guessed Helm release. Routes not
 exposed through the Ingress are recorded as absent and a search path needing
@@ -90,13 +89,17 @@ index inventory is a snapshot.
    are unavailable, ask whether to reconnect or deploy it with
    `vss-deploy-profile -p search`; do not target another profile.
 
-2. When the user names a file, camera, or sensor, list registered sources
-   through the configured origin before invoking the search CLI. Accept only
-   an exact source, stream ID, or one unambiguous normalized substring match.
+2. When the user names a file, camera, or sensor, list registered sources with
+   `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin
+   `vss configure` recorded, so it takes no endpoint. Accept only an exact
+   source, stream ID, or one unambiguous normalized substring match.
 
    - No match: report the missing source, list available names, and ask the
      user to clarify or explicitly request ingestion. Stop without probing the
-     search CLI, deploying, or ingesting.
+     search CLI, deploying, or ingesting. **Never continue with a different
+     source.** Answering about `warehouse_sample` when the request named
+     `warehouse-ladder` returns a confident answer about the wrong video, and
+     nothing downstream can tell it was substituted.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 

@@ -26,7 +26,7 @@ deploy/docker/rag-secret.override.yml
 # Auto-generated Orchestrator MCP TLS material
 assets/orchestrator_mcp_*.pem
 
-# Generated build artifacts from the vss-build-vision-agent skill. A build name
+# Generated build artifacts from the vss-build-vision-ai skill. A build name
 # labels only its _builds/<name>/ directory; it is never a Compose profile.
 # override.env and resolved.yml may contain credentials, so ignore the tree.
 _builds/

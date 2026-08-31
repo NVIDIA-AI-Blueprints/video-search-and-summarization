@@ -1,0 +1,128 @@
+"Key","Description",Typical Value
+"**network**",**Section to define all Network related parameters**,
+"""server_domain_name""","Server domain name","""vst-service"""
+"""stunurl_list""","STUN server address","[""stun.l.google.com:19302""]"
+"""static_turnurl_list""","TURN server address",[]
+"""coturn_turnurl_list_with_secret""","Coturn Turnurl list with secret",[]
+"""use_coturn_auth_secret""","Enable/Disable Coturn Auth secret",FALSE
+"""use_twilio_stun_turn""","Enable/Disable Twilio",FALSE
+"""twilio_account_sid""","Twilio Account Sid","`""""`"
+"""rx_socket_buffer_size""",RX socket buffer size,1000000
+"""tx_socket_buffer_size""",TX socket buffer size,1000000
+"""twilio_auth_token""","Auth token for Twilio","`""""`"
+"""ntp_servers""","NTP server address","[""time.google.com""]"
+"""use_sensor_ntp_time""","If true then forward camera/nvstreamer ntp time in SR reports to the clients. Otherwise provide current ntp time in SR report.",TRUE
+"""max_webrtc_out_connections""","Max number of webrtc output connections at a given time",8
+"""webservice_access_control_list""","An Access Control List allows restrictions to be put on the list of IP addresses which have access to the web server. The ACL is a comma separated list of IP subnets, where each subnet is pre-pended by either a - or a + sign. A plus sign means allow, where a minus sign means deny. If a subnet mask is omitted, such as -1.2.3.4, this means to deny only that single IP address.","""+10.42.0.0/32"""
+"""rtsp_server_port""","User given rtsp port number",8554
+"""rtsp_preferred_network_iface""","Preferred network interface for RTSP streaming","""eth1"""
+"""rtsp_streaming_over_tcp""","Enable / Disable RTSP Streaming over TCP ",FALSE
+"""rtsp_server_reclamation_client_timeout_sec""","Timeout for RTSP Server reclamation client",10
+"""stream_monitor_interval_secs""","Stream Monitor interval in seconds",2
+"""webrtc_latency_ms""",Latency for webrtc in milliseconds,500
+"""enable_frame_drop""",Enable/Disable frame drop,TRUE
+"""webrtc_video_quality_tunning""",webRTC video quality tunning,"{""resolution_2160"":{""bitrate_start"":20000,""bitrate_range"":[15000,25000],""qp_range_I"":[0,30],""qp_range_P"":[0,51]},""resolution_1440"":{""bitrate_start"":10000,""bitrate_range"":[8000,15000],""qp_range_I"":[10,30],""qp_range_P"":[10,30]},""resolution_1080"":{""bitrate_start"":5000,""bitrate_range"":[3000,8000],""qp_range_I"":[10,30],""qp_range_P"":[10,30]},""resolution_720"":{""bitrate_start"":3000,""bitrate_range"":[2000,5000],""qp_range_I"":[10,30],""qp_range_P"":[10,30]},""resolution_480"":{""bitrate_start"":1000,""bitrate_range"":[800,3000],""qp_range_I"":[10,30],""qp_range_P"":[10,30]}}"
+"""webrtc_peer_conn_timeout_sec""",Timeout duration in seconds for peer connection establishment ,10
+"""remote_vst_address""",Cloud VIOS Address,13.0.0.1:30000
+"""webrtc_port_range""",Min and Max Port Range for WebRTC,"``{""min"": 0, ""max"": 0}``"
+"""enable_websocket_pingpong""",Enable/Disable websocket ping pong messages,FALSE
+"""websocket_keep_alive_ms""", Timeout for websocket to keep alive ,5000
+"""ai_bridge_endpoint""","AI Bridge endpoint URL","``http://<ai-bridge-domain>:<port>/api/bridge/graphql``"
+"**onvif**",**Section to define all ONVIF related parameters**,
+"""device_discovery_timeout_secs""","Device discovery timeout to receive probe match message from device",10
+"""onvif_request_timeout_secs""","Timeout to receive ONVIF command response from device",10
+"""device_discovery_freq_secs""",device discovery frequency in secs,15
+"""device_discovery_interfaces""","Network interface for device discovery e.g eth0, eth1",[]
+"""max_devices_supported""","Limiting maximum number of devices",16
+"""onvif_sensor_time_sync_interval_secs""","Interval in seconds for syncing time between the ONVIF sensor and VIOS",60
+"""onvif_sensor_time_sync_compensation_ms""","Compensation in milliseconds applied to time-sync requests with the ONVIF sensor",20
+"**data**",**Section to define all VIOS data related parameters**,
+"""storage_config_file""",Path to storage configuration JSON file,./configs/vst_storage.json
+"""storage_threshold_percentage""",% value of storage occupancy when aging policy triggers,95
+"""storage_monitoring_frequency_secs""","Monitor storage usage with frequency in seconds",2
+"""supported_video_codecs""","Video codec supported for video recording","[""h264"",""h265""]"
+"""supported_audio_codecs""",Audio codec supported for audio recording and decode,"[""pcmu"",""pcma"",""mpeg4-generic""]"
+"""nv_streamer_max_upload_file_size_MB""",Maximum file upload size in MB. Applicable for file upload in both VIOS and NVStreamer.,1000
+"""max_video_download_size_MB""",Limiting the maximum video download size,1000
+"""always_recording""",Enable/Disable always ON recording,FALSE
+"""use_software_path""","Enable allows processing on CPU otherwise on GPU",FALSE
+"""webrtc_sender_quality""",webrtc input quality,"""pass_through"""
+"""enable_rtsp_server_sei_metadata""",Enable SEI support for rtsp server,TRUE
+"""enable_proxy_server_sei_metadata""",Enable SEI support for proxy server,TRUE
+"""gpu_indices""",GPU indices,[]
+"""webrtc_out_enable_insert_sps_pps""",webRTC Out Enable / Disable SPS PPS insertion,TRUE
+"""webrtc_out_set_iframe_interval""",webRTC Out set I-Frame Interval,30
+"""webrtc_out_set_idr_interval""",webRTC Out set IDR Interval,256
+"""webrtc_out_min_drc_interval""",webRTC Out minimum interval between DRC requests,5
+"""device_name""",Device Name for edge VIOS,"""VST_EDGE"""
+"""device_location""",Device Location for edge VIOS,"""6th_Floor"""
+"""enable_dec_low_latency_mode""",Enable/Disable low latency in decoder,FALSE
+"""use_centralize_local_db""",Enable/Disable Centralized local db,TRUE
+"""restore_rtsp_streams_on_startup""","When enabled, on container startup previously configured RTSP proxy streams are re-read from the central database and re-registered on the RTSP server, so that previously added streams survive restarts.",TRUE
+"""max_network_db_connections""","Maximum number of connections to the centralized network database",10
+"""default_file_expiry_minutes""","Default file expiry time in minutes (e.g., 10080 = 7 days)",10080
+"""download_files_timeout_secs""","Timeout in seconds for video download operations",120
+"""picture_api_timeout_secs""","Timeout in seconds for picture (snapshot) API operations",20
+"**notifications**",**Section to define all Notifications related parameters**,
+"""enable_notification""","Enable notification of device events on message broker",FALSE
+"""use_message_broker""",Message Broker to use (Kafka/Redis),"""kafka"""
+"""message_broker_topic""","Topic/event used in message broker","""vst.event"""
+"""enable_notification_consumer""",Enable/Disable notification consumer,TRUE
+"""use_message_broker_consumer""",Message Broker to use (Kafka/Redis),"""kafka"""
+"""message_broker_topic_consumer""",Topic/event used in message broker,"""mdx-bev"""
+"""message_broker_payload_key""",Payload key used in message broker,"""sensor.id"""
+"""redis_server_env_var""",Redis server address:port,REDIS_SVC_SERVICE_HOST:6379
+"""kafka_server_address""",Kafka server address and port,"""10.0.0.1:9092"""
+"""message_broker_metadata_topic""","Topic used by the message broker for metadata events","""mdx-raw"""
+"""mqtt_broker_address""","MQTT broker address used for notifications","""tcp://172.17.0.1:1883"""
+**debug**,**Section to define all Debug related parameters**,
+"""enable_perf_logging""","Enable/Disable perf logging",TRUE
+"""enable_qos_monitoring""","Enable/Disable QOS logging",TRUE
+"""qos_logfile_path""",QOS log file path,/root/vst_release/webroot/log/
+"""qos_data_capture_interval_sec""",QOS log capture interval,1
+"""qos_data_publish_interval_sec""",QOS log publish interval,5
+"""enable_gst_debug_probes""","Enable/Disable gstreamer probes",TRUE
+"""enable_prometheus""",Enable/Disable stats update on prometheus,FALSE
+"""prometheus_port""",prometheus port number,8080
+"""enable_highlighting_logs""",Enable certain logs highlighting by special colors,TRUE
+"""enable_debug_apis""",Enable/Disable Debug apis,TRUE
+"""dump_webrtc_input_stats""",Enable/Disable webRTC IN stats,FALSE
+"""enable_frameid_in_webrtc_stream""",Enable/Disable frameid in webRTC Stream,FALSE
+"""enable_network_bandwidth_notification""",Enable/Disable network bandwidth notification,FALSE
+"""enable_latency_logging""",Enable/Disable latency logging,FALSE
+"""update_record_details_in_sec""",Update record details in seconds,70
+"**overlay**",**Section to define all overlay related parameters**,
+"""video_metadata_server""","Server to fetch Metadata from","""10.0.0.1:9200/mdx-raw*"""
+"""video_metadata_query_batch_size_num_frames""",Size of metadata to fetch,300
+"""use_video_metadata_protobuf""","Use Protobuf spec for metadata parsing",TRUE
+"""enable_gem_drawing""",Enable/Disable GEM drawing,TRUE
+"""calibration_file_path""",Path to calibration file,"""/home/vst/vst_release/configs/calibration.json"""
+"""calibration_mode""",Calibration mode,"""synthetic"""
+"""use_camera_groups""",Enable/Disable camera groups,TRUE
+"""enable_recentering""",Enable/Disable recentering,FALSE
+"""floor_map_file_path""",Path to floor map file,"""/home/vst/vst_release/configs/Top.png"""
+"""3d_overlay_sensor_name""",3D overlay sensor name,"""bev-sensor-1"""
+"""bbox_tolerance_ms""",Bounding box tolerance in milliseconds,0
+"""analytic_server_address""",Analytic server address,""""""
+"""overlay_color_code""",Overlay color code, 
+"""halo_safety_udp_port""",UDP port for halo safety communication,-1
+"""halo_safety_proximity_class""",Proximity class for halo safety detection,"""Forklift"""
+"""halo_safety_active_text""",Text displayed in halo safety active mode,"""Standard Mode"""
+"""halo_safety_active_text_color""",Text color in halo safety active mode,"""black"""
+"""halo_safety_active_text_bg_color""",Background color for text in halo safety active mode,"""white"""
+"""halo_safety_inactive_text""",Text displayed in halo safety inactive mode,"""Efficient Mode"""
+"""halo_safety_inactive_text_color""",Text color in halo safety inactive mode,"""green"""
+"""halo_safety_inactive_text_bg_color""",Background color for text in halo safety inactive mode,"""white"""
+"""halo_safety_text_size""",Text size for halo safety display,16
+"""overlay_text_font_type""","Font type used for overlay text rendering","""DejaVuSansMono.ttf"""
+"""enable_overlay_skip_frame""","Enable/Disable frame skipping in the overlay rendering pipeline",FALSE
+"**security**
+",**Section to define all security related parameters**,
+"""use_https""",Enable/Disable https,FALSE
+"""use_rtsp_authentication""",Enable/Disable RTSP proxy stream authentication,TRUE
+"""use_http_digest_authentication""","Enable/Disable HTTP user authentication",TRUE
+"""nv_org_id""", NGC ORG ID ,ngc_org_id
+"""nv_ngc_key""", NGC Key ,ngc_key
+"**observability**",**Section to define all observability / telemetry parameters**,
+"""enable_telemetry""","Enable/Disable OpenTelemetry tracing",FALSE
+"""otlp_endpoint""","OTLP endpoint URL for OpenTelemetry trace export","""http://localhost:4318/v1/traces"""

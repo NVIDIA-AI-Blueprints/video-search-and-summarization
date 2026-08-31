@@ -1,0 +1,224 @@
+---
+title: "Search Performance"
+description: ""
+position: 3
+---
+
+## Overview
+
+The [Search Workflow ](/agent-workflow-search) lets you query indexed video archives in
+natural language. During ingestion, uploaded clips are embedded through
+[RTVI-Embed ](/performance-rt-embed) (Cosmos-Embed1-448p) and
+[RTVI-CV ](/performance-rt-cv)/Behavior Analytics; during query execution, the Vision
+Agent decomposes each request, routes to embed search and attribute search as needed, and
+optionally verifies candidates with the critic agent (Cosmos3 Nano Reasoner VLM) before
+returning timestamped results.
+
+The tables below benchmark that search agent performance. Query
+latency and throughput measurements use the vad-r1-v2 / benchmark query set (121 natural-language queries
+over 17 indexed clips) at concurrent query levels 1, 10, 20, and 50. Each run reports
+client-side end-to-end (E2E) average and P90 latency, successful query throughput (QPS),
+and per-stage latency on NVIDIA RTX PRO 6000 Blackwell SE and H100 SXM. A separate
+section reports video upload latency and chunk counts on both platforms for files ranging from short clips to 2-hour sources. Use these numbers to size GPU choice and
+expected query latency under concurrent search load on VSS 3.2.
+
+## Test Configuration
+
+### Search Performance
+
+| Parameter | Value |
+| --- | --- |
+| VSS release | 3.2 |
+| Platforms tested | NVIDIA RTX PRO 6000 Blackwell SE, H100 SXM |
+| Dataset | vad-r1-v2 / benchmark |
+| Benchmark queries | 121 natural-language queries over 17 indexed videos |
+| Indexed videos | 17 vad-r1-v2 clips (72.28 MB total corpus) |
+| Embedding model | Cosmos-Embed1-448p |
+| Reasoning LLM | NVIDIA Nemotron Nano 9B v2 |
+| Video understanding VLM | Cosmos3 Nano Reasoner (`ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`) |
+| Agent mode | Enabled (critic enabled) |
+| Top-K | 5 |
+| Concurrent queries | 1, 10, 20, 50 |
+
+### Video Upload Performance
+
+| Parameter | Value |
+| --- | --- |
+| Platforms tested | NVIDIA RTX PRO 6000 Blackwell SE, H100 SXM |
+| Chunk duration | 5 seconds |
+
+## E2E Performance
+
+Avg and P90 client-side E2E latency and successful query throughput for the 121-query
+vad-r1-v2 / benchmark run under increasing concurrent query load.
+
+<Note>
+The reported QPS was bounded by running a single VSS agent container.
+</Note>
+
+<Tabs>
+<Tab title="NVIDIA RTX PRO 6000 SE">
+
+| Concurrent queries | E2E Avg (s) | E2E P90 (s) | QPS |
+| --- | --- | --- | --- |
+| 1 | 3.611 | 4.241 | 0.277 |
+| 10 | 12.542 | 22.736 | 0.782 |
+| 20 | 19.006 | 24.370 | 0.987 |
+| 50 | 38.318 | 51.712 | 1.018 |
+
+</Tab>
+<Tab title="H100">
+
+| Concurrent queries | E2E Avg (s) | E2E P90 (s) | Successful QPS |
+| --- | --- | --- | --- |
+| 1 | 2.385 | 2.875 | 0.419 |
+| 10 | 13.301 | 26.317 | 0.741 |
+| 20 | 16.919 | 23.738 | 1.084 |
+| 50 | 33.963 | 46.520 | 1.153 |
+
+</Tab>
+</Tabs>
+
+## Latency Stage Breakdown
+
+Per-stage average and P90 latency breakdown.
+
+<Tabs>
+<Tab title="NVIDIA RTX PRO 6000 SE">
+**Latency Stage Breakdown — 1 Concurrent Query**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 3.611 | 4.241 |
+| Search (agent chain) | 2.958 | 3.544 |
+| Video understanding | 1.403 | 1.889 |
+| Critic agent | 1.558 | 2.017 |
+| Attribute search | 0.472 | 0.573 |
+| Nemotron Nano 9B v2 (LLM) | 0.907 | 1.062 |
+| VST video clip (tool) | 0.051 | 0.066 |
+| Embed search | 0.037 | 0.040 |
+
+**Latency Stage Breakdown — 10 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 12.542 | 22.736 |
+| Search (agent chain) | 9.885 | 19.850 |
+| Video understanding | 5.352 | 8.776 |
+| Critic agent | 6.300 | 9.285 |
+| Attribute search | 0.076 | 0.176 |
+| Nemotron Nano 9B v2 (LLM) | 3.439 | 13.186 |
+| VST video clip (tool) | 0.083 | 0.153 |
+| Embed search | 0.020 | 0.028 |
+
+**Latency Stage Breakdown — 20 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 19.006 | 24.370 |
+| Search (agent chain) | 7.935 | 11.138 |
+| Video understanding | 5.664 | 8.335 |
+| Critic agent | 6.625 | 9.748 |
+| Attribute search | 0.108 | 0.247 |
+| Nemotron Nano 9B v2 (LLM) | 1.201 | 1.578 |
+| VST video clip (tool) | 0.101 | 0.165 |
+| Embed search | 0.031 | 0.036 |
+
+**Latency Stage Breakdown — 50 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 38.318 | 51.712 |
+| Search (agent chain) | 7.630 | 10.578 |
+| Video understanding | 5.381 | 8.068 |
+| Critic agent | 6.303 | 9.385 |
+| Attribute search | 0.094 | 0.166 |
+| Nemotron Nano 9B v2 (LLM) | 1.127 | 1.416 |
+| VST video clip (tool) | 0.087 | 0.151 |
+| Embed search | 0.023 | 0.032 |
+
+</Tab>
+<Tab title="H100">
+**Latency Stage Breakdown — 1 Concurrent Query**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 2.385 | 2.875 |
+| Search (agent chain) | 2.363 | 2.854 |
+| Video understanding | 1.299 | 1.642 |
+| Critic agent | 1.553 | 1.978 |
+| Attribute search | 0.100 | 0.203 |
+| Nemotron Nano 9B v2 (LLM) | 0.559 | 0.660 |
+| VST video clip (tool) | 0.118 | 0.157 |
+| Embed search | 0.025 | 0.033 |
+
+**Latency Stage Breakdown — 10 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 13.301 | 26.317 |
+| Search (agent chain) | 10.666 | 24.690 |
+| Video understanding | 4.718 | 7.388 |
+| Critic agent | 5.555 | 8.020 |
+| Attribute search | 0.218 | 0.463 |
+| Nemotron Nano 9B v2 (LLM) | 4.462 | 16.104 |
+| VST video clip (tool) | 0.247 | 0.391 |
+| Embed search | 0.058 | 0.079 |
+
+**Latency Stage Breakdown — 20 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 16.919 | 23.738 |
+| Search (agent chain) | 7.178 | 10.727 |
+| Video understanding | 4.565 | 7.289 |
+| Critic agent | 5.574 | 8.247 |
+| Attribute search | 0.205 | 0.387 |
+| Nemotron Nano 9B v2 (LLM) | 0.914 | 1.258 |
+| VST video clip (tool) | 0.224 | 0.384 |
+| Embed search | 0.044 | 0.083 |
+
+**Latency Stage Breakdown — 50 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) |
+| --- | --- | --- |
+| End-to-End (client) | 33.963 | 46.520 |
+| Search (agent chain) | 6.834 | 10.220 |
+| Video understanding | 4.620 | 6.892 |
+| Critic agent | 5.310 | 7.457 |
+| Attribute search | 0.255 | 0.396 |
+| Nemotron Nano 9B v2 (LLM) | 0.887 | 1.067 |
+| VST video clip (tool) | 0.201 | 0.364 |
+| Embed search | 0.036 | 0.057 |
+
+</Tab>
+</Tabs>
+
+## Video Upload Latency
+
+This table shows average and P90 upload latency, with chunk counts, for video ingestion. Each
+row is one test: either a single video or a batch of multiple videos uploaded together. The
+**Duration** column shows how long each video is (or the range of video durations in a batch).
+
+<Tabs>
+<Tab title="NVIDIA RTX PRO 6000 SE">
+
+| Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Video 1 | 1 | 140 min | 1684 | 1684 | 138.5 | - | 2421.59 MB |
+| Video 2 | 1 | 60 min | 720 | 720 | 59.4 | - | 1047.76 MB |
+| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 4.57 | 5.43 | 183.25 MB |
+| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 2.22 | 2.78 | 72.28 MB |
+
+</Tab>
+<Tab title="H100">
+
+| Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Video 1 | 1 | 140 min | 1684 | 1684 | 99.7 | - | 2421.59 MB |
+| Video 2 | 1 | 60 min | 720 | 720 | 41.8 | - | 1047.76 MB |
+| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 7.90 | 9.10 | 183.25 MB |
+| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 4.01 | 5.48 | 72.28 MB |
+
+</Tab>
+</Tabs>

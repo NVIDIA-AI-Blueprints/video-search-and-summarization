@@ -1,0 +1,10 @@
+Key,Description,Typical Value
+**streams**,**Array of streams in JSON format**,"`""""`"
+"""enabled""",Enable / Disable stream,TRUE / FALSE
+"""stream_in""",Actual RTSP URL of camera,"`""rtsp://admin:admin@10.xx.xx.xx/h264""`"
+"""name""",Stream Name,Camera_Front_Door
+"""Nvstreamer""",Nvstreamer configuration,
+"""enabled""",Enable / Disable Nvstreamer,TRUE / FALSE
+"""endpoint""",Nvstreamer endpoint,"`""localhost:31000""`"
+"""api""",Nvstreamer API,"`""/api/v1/sensor/streams""`"
+"""max_stream_count""",Maximum number of streams,4

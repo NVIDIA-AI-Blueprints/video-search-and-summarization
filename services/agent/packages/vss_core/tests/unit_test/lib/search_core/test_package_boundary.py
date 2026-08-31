@@ -51,7 +51,7 @@ def test_reusable_vst_and_vlm_packages_do_not_import_search_core() -> None:
     src_path = str(Path(__file__).resolve().parents[4] / "src")
     env["PYTHONPATH"] = src_path if not pythonpath else f"{src_path}{os.pathsep}{pythonpath}"
 
-    for package in ("vss_core.vst", "vss_core.vlm", "vss_core.critic"):
+    for package in ("vss_core.vios", "vss_core.vlm", "vss_core.critic"):
         code = f"import sys; import {package}; assert 'vss_core.search_core' not in sys.modules"
         subprocess.run([sys.executable, "-B", "-c", code], check=True, env=env)
 

@@ -1,0 +1,255 @@
+---
+title: "Behavior Analytics"
+description: ""
+position: 2
+---
+The **Behavior Analytics** microservice is implemented in [Python](https://www.python.org/) and leverages the [Python Multiprocessing](https://docs.python.org/3/library/multiprocessing.html) library for parallel processing.
+
+The perception layer processes camera or video input streams, performing sequential frame analysis for object detection and tracking. It generates object embeddings and sends protobuf messages containing frame metadata to a message broker. The pipeline supports multiple message brokers including **Kafka**, **Redis Streams**, and **MQTT**, allowing flexibility based on deployment requirements.
+
+The metadata from the perception layer represents a frame containing object detection bounding boxes, tracking IDs, embedding vectors, and other attributes. This input is processed by the pipeline to generate Behavior data. A Behavior represents an object tracked over time with its associated attributes.
+
+## Configurations
+
+The Behavior Analytics microservice requires configuration files that control various aspects of the analytics pipeline. These files allow users to customize the system's behavior according to their specific requirements.
+
+### Application Configuration File
+
+The main configuration file for Behavior Analytics controls message broker settings, sensor configurations, and pipeline parameters. The configuration supports multiple message broker types (Kafka, Redis Streams, MQTT).
+
+```json
+{
+  "kafka": {
+    "brokers": "localhost:9092",
+    "group": "behavior-analytics",
+    "consumer": {
+      "autoOffsetReset": "latest",
+      "enableAutoCommit": false,
+      "maxPollIntervalMs": 900000,
+      "maxPartitionFetchBytes": 10485760,
+      "fetchMaxBytes": 104857600,
+      "maxPollRecords": 10000,
+      "timeout": 0.01
+    },
+    "producer": {
+      "lingerMs": 0
+    },
+    "topics": [
+      {"name": "raw", "value": "mdx-raw"},
+      {"name": "frames", "value": "mdx-frames"},
+      {"name": "behavior", "value": "mdx-behavior"},
+      {"name": "notification", "value": "mdx-notification"},
+      {"name": "events", "value": "mdx-events"},
+      {"name": "incidents", "value": "mdx-incidents"}
+    ]
+  },
+  "sensors": [
+    {
+      "id": "default",
+      "configs": [
+        {"name": "proximityDetectionEnable", "value": "true"},
+        {"name": "proximityDetectionThreshold", "value": "1.8"},
+        {"name": "proximityDetectionCenterClasses", "value": "[\"Person\"]"},
+        {"name": "proximityDetectionSurroundingClasses", "value": "[\"Person\"]"}
+      ]
+    }
+  ],
+  "app": [
+    {"name": "sourceType", "value": "kafka"},
+    {"name": "sinkType", "value": "kafka"},
+    {"name": "numWorkersForBehaviorCreation", "value": "2"},
+    {"name": "numWorkersForFrameEnhancement", "value": "2"},
+    {"name": "behaviorWatermarkSec", "value": "30"},
+    {"name": "behaviorStateTimeout", "value": "10"},
+    {"name": "behaviorMaxPoints", "value": "200"},
+    {"name": "objectConfidenceThreshold", "value": "0.5"},
+    {"name": "proximityViolationIncidentEnable", "value": "true"},
+    {"name": "proximityViolationIncidentThreshold", "value": "1"},
+    {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
+    {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
+    {"name": "fovCountViolationIncidentEnable", "value": "true"},
+    {"name": "fovCountViolationIncidentObjectThreshold", "value": "3"},
+    {"name": "fovCountViolationIncidentObjectType", "value": "Person"}
+  ]
+}
+```
+
+#### Message Broker Configuration
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `sourceType` | Message broker type for input (kafka, redisStream, mqtt) | `kafka` |
+| `sinkType` | Message broker type for output (kafka, redisStream, mqtt) | `kafka` |
+
+#### Kafka Topics
+
+| Topic Name | Description | Default Value |
+| --- | --- | --- |
+| `raw` | Input metadata from perception layer | `mdx-raw` |
+| `behavior` | Behavior data output | `mdx-behavior` |
+| `events` | Tripwire and ROI events | `mdx-events` |
+| `frames` | Enhanced frames metadata | `mdx-frames` |
+| `notification` | Calibration updates and sensor notifications | `mdx-notification` |
+| `incidents` | Incident data from violation detection | `mdx-incidents` |
+
+#### Pipeline Configuration
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `numWorkersForBehaviorCreation` | Number of workers for behavior creation (0 disables) | Required |
+| `numWorkersForFrameEnhancement` | Number of workers for frame enhancement (0 disables) | Required |
+| `in3dMode` | Enable 3D mode for pipeline processing | `false` |
+| `compactFrame` | Enable compact frame metadata format (recommended for 3D / multi-sensor frames) | `false` |
+| `objectConfidenceThreshold` | Minimum confidence score for object detection | `0.5` |
+| `clusterThreshold` | Cosine similarity threshold for per-object embedding clustering (Chinese Restaurant Process) during state management | `0.9` |
+| `imageLocationMode` | For image coordinate system, which bbox point is used as the object location (`center` or `bottom_center`) | `bottom_center` |
+
+#### Playback Configuration
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `playbackInSimulationMode` | Use simulated time for playback | `false` |
+| `playbackLoop` | Number of times to loop through playback data | `1` |
+| `playbackFilterEmptyObjects` | Filter out frames with no objects | `true` |
+| `playbackSimulationTimedeltaInMin` | Time delta in minutes for simulation mode | `60` |
+| `playbackSimulationFps` | Frames per second for simulation playback | `1` |
+| `playbackSimulationBaseTime` | Base timestamp for simulation (ISO format) | `""` |
+| `playbackStartUpDelaySec` | Delay in seconds before playback starts | `0` |
+| `playbackSensors` | List of sensor IDs to include in playback (empty = all) | `[]` |
+
+#### State Management Configuration
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `behaviorStateTimeout` | Timeout (seconds) before object state cleanup | `10` |
+| `behaviorStateValidInterval` | Maximum gap (seconds) between an object's previous state end and next state start before treating them as separate behaviors | `6` |
+| `behaviorWatermarkSec` | Watermark for behavior in seconds | `30` |
+| `behaviorMaxPoints` | Maximum behavior points to store | `200` |
+| `stateManagementFilter` | Whitelist of object types to admit into the pipeline; other types are dropped at frame ingest (empty = no filter) | `[]` |
+
+#### Proximity Detection Configuration (Sensor-level)
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `proximityDetectionEnable` | Enable proximity violation detection | `false` |
+| `proximityDetectionThreshold` | Distance threshold in meters | `1.8` |
+| `proximityDetectionCenterClasses` | Center object types (e.g., AMR, humanoid) | `[]` |
+| `proximityDetectionSurroundingClasses` | Surrounding object types to check | `[]` |
+
+#### Incident Detection Configuration
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `incidentObjectTtl` | TTL (seconds) for object presence data | `3600` |
+| `proximityViolationIncidentEnable` | Enable proximity violation incidents | `false` |
+| `proximityViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
+| `proximityViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `restrictedAreaViolationIncidentEnable` | Enable restricted area incidents | `false` |
+| `restrictedAreaViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
+| `restrictedAreaViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `confinedAreaViolationIncidentEnable` | Enable confined area incidents | `false` |
+| `confinedAreaViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
+| `confinedAreaViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `fovCountViolationIncidentEnable` | Enable FOV count violation incidents | `false` |
+| `fovCountViolationIncidentObjectThreshold` | Maximum objects allowed in FOV | `1` |
+| `fovCountViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
+| `fovCountViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `fovCountViolationIncidentObjectType` | Object type to count for FOV violations | `Person` |
+
+#### Tripwire Configuration (Sensor-level)
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `tripwireMinPoints` | Minimum points before/after tripwire crossing | `5` |
+
+#### Frame Management Configuration (Sensor-level)
+
+| Parameter | Description | Default Value |
+| --- | --- | --- |
+| `sensorMinFrames` | Minimum frames for frame state management | `5` |
+
+### Calibration File
+
+The calibration file defines camera parameters, regions of interest (ROIs), tripwires, and coordinate transformations. Use the Calibration tool to generate this JSON file. For more details, refer to the [../calibration](/calibration) documentation. For the calibration JSON structure, see [../calibration-schema](/calibration-schema).
+
+## Runtime Configuration Adjustments
+
+This section covers common configuration changes for deploying the Behavior Analytics pipeline.
+
+### Modifying Message Broker Settings
+
+To switch between message brokers (Kafka, Redis Streams, MQTT), update the `sourceType` and `sinkType` parameters:
+
+```json
+{
+  "app": [
+    {"name": "sourceType", "value": "redisStream"},
+    {"name": "sinkType", "value": "redisStream"}
+  ]
+}
+```
+
+Ensure the corresponding broker configuration section is properly configured (`kafka`, `redisStream`, or `mqtt`).
+
+### Configuring Worker Parallelism
+
+Adjust the number of workers based on your deployment's processing requirements:
+
+```json
+{
+  "app": [
+    {"name": "numWorkersForBehaviorCreation", "value": "4"},
+    {"name": "numWorkersForFrameEnhancement", "value": "4"}
+  ]
+}
+```
+
+<Note>
+Setting worker count to `0` disables that processing stage. Both parameters are required and have no default values.
+</Note>
+
+### Enabling Violation Detection
+
+To enable specific violation types for incident generation:
+
+```json
+{
+  "app": [
+    {"name": "proximityViolationIncidentEnable", "value": "true"},
+    {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
+    {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
+    {"name": "fovCountViolationIncidentEnable", "value": "true"},
+    {"name": "fovCountViolationIncidentObjectThreshold", "value": "5"},
+    {"name": "fovCountViolationIncidentObjectType", "value": "Person"}
+  ]
+}
+```
+
+### Configuring Sensor-Specific Settings
+
+Override default configurations for specific sensors:
+
+```json
+{
+  "sensors": [
+    {
+      "id": "default",
+      "configs": [
+        {"name": "proximityDetectionEnable", "value": "false"},
+        {"name": "tripwireMinPoints", "value": "5"}
+      ]
+    },
+    {
+      "id": "Warehouse_Cam1",
+      "configs": [
+        {"name": "proximityDetectionEnable", "value": "true"},
+        {"name": "proximityDetectionThreshold", "value": "2.0"},
+        {"name": "proximityDetectionCenterClasses", "value": "[\"Agility_Digit_Humanoid\"]"},
+        {"name": "proximityDetectionSurroundingClasses", "value": "[\"Person\"]"}
+      ]
+    }
+  ]
+}
+```
+
+Sensors inherit from the `default` configuration and override only the specified parameters.

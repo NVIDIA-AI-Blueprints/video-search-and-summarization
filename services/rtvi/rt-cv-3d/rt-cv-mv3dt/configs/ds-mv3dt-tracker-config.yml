@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,89 +12,63 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 BaseConfig:
-  minDetectorConfidence: 0.027087304322979212
+  minDetectorConfidence: 0.266
+  checkClassMatch: 1
   useBatchNumForFrameId: 1
+
 TargetManagement:
   enableBboxUnClipping: 1
   preserveStreamUpdateOrder: 0
   maxTargetsPerStream: 200
-  minIouDiff4NewTarget: 0.22656630527418112
-  minTrackerConfidence: 0.6957540479571296
-  probationAge: 5
-  maxShadowTrackingAge: 162
-  earlyTerminationAge: 1
+  minIouDiff4NewTarget: 0.3
+  minTrackerConfidence: 0.6
+  probationAge: 17
+  maxShadowTrackingAge: 150
+  earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
-  outputTerminatedTracks: 0
+
 TrajectoryManagement:
   useUniqueID: 0
   enableReAssoc: 1
-  minMatchingScore4Overall: 0.9349462651721144
-  minTrackletMatchingScore: 0.2940
+  minMatchingScore4Overall: 0.95
+  minTrackletMatchingScore: 0.3
   minMatchingScore4ReidSimilarity: 0
-  matchingScoreWeight4TrackletSimilarity: 0.7981
+  matchingScoreWeight4TrackletSimilarity: 0.8
   matchingScoreWeight4ReidSimilarity: 0
   minTrajectoryLength4Projection: 34
   prepLength4TrajectoryProjection: 58
   trajectoryProjectionLength: 33
   maxAngle4TrackletMatching: 67
-  minSpeedSimilarity4TrackletMatching: 0.0574
-  minBboxSizeSimilarity4TrackletMatching: 0.1013
+  minSpeedSimilarity4TrackletMatching: 0.06
+  minBboxSizeSimilarity4TrackletMatching: 0.1
   maxTrackletMatchingTimeSearchRange: 27
-  trajectoryProjectionProcessNoiseScale: 0.0100
+  trajectoryProjectionProcessNoiseScale: 0.01
   trajectoryProjectionMeasurementNoiseScale: 100
-  trackletSpacialSearchRegionScale: 0.0100
+  trackletSpacialSearchRegionScale: 0.01
   reidExtractionInterval: 0
+
 DataAssociator:
   dataAssociatorType: 0
   associationMatcherType: 1
-  checkClassMatch: 1
-  minMatchingScore4Overall: 0.4
-  minMatchingScore4SizeSimilarity: 0.4
-  minMatchingScore4Iou: 0.1393522182207021
-  minMatchingScore4VisualSimilarity: 0.0520394823204932
-  matchingScoreWeight4SizeSimilarity: 0.104589699500018
-  matchingScoreWeight4Iou: 0.7844652139368062
-  matchingScoreWeight4VisualSimilarity: 0.9294872869302965
-  tentativeDetectorConfidence: 0.70167245554449
-  minMatchingScore4TentativeIou: 0.1768733030811293
-  minMatchingScore4PeerAssocIou: 0.2
+  minMatchingScore4Overall: 0.5
+  minMatchingScore4SizeSimilarity: 0.1
+  minMatchingScore4Iou: 0.25
+  matchingScoreWeight4SizeSimilarity: 0.2
+  matchingScoreWeight4Iou: 0.6
+  tentativeDetectorConfidence: 0.8
+  minMatchingScore4TentativeIou: 0.25
+  minMatchingScore4PeerAssocIou: 0.25
+
 StateEstimator:
-  stateEstimatorType: 3
-  processNoiseVar4Loc: 6497.75224242603
-  processNoiseVar4Vel: 8035.858212054732
-  measurementNoiseVar4Detector: 100.0000
-  measurementNoiseVar4Tracker: 883.5847350922555
-ObjectModelProjection:
-  minPoseConfidence: 0.925
-  outputFootLocation: 1
-  outputVisibility: 1
-  outputConvexHull: 0
-  cameraModelFilepath:
-    Camera: /tmp/camInfo/Camera.yml
-    Camera_01: /tmp/camInfo/Camera_01.yml
-    Camera_02: /tmp/camInfo/Camera_02.yml
-    Camera_03: /tmp/camInfo/Camera_03.yml
-  objectModelType: 0
-VisualTracker:
-  visualTrackerType: 0
-  useColorNames: 1
-  useHog: 1
-  featureImgSizeLevel: 5
-  featureFocusOffsetFactor_y: -0.10525549278780495
-  filterLr: 0.025008995723548734
-  filterChannelWeightsLr: 0.09460260509799209
-  gaussianSigma: 0.44967391866177786
-MultiViewAssociator:
-  multiViewAssociatorType: 1
-  maxPeerToPredDistance4Fusion: 3.0
-  minPeerTrackletMatchScore: 0.3
-  minPeerVisibility4Fusion: 0.15
-  recentlyActiveAge: 178
-Communicator:
-  communicatorType: 2
-  pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
-  mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt
+  stateEstimatorType: 4
+  processNoiseVar4Loc: 56.3
+  processNoiseVar4Size: 96.1
+  processNoiseVar4Vel: 84.6
+  measurementNoiseVar4Detector: 78.4
+  measurementNoiseVar4Tracker: 82.3
+
 PoseEstimator:
   poseEstimatorType: 1
   useVPICropScaler: 1
@@ -110,3 +84,32 @@ PoseEstimator:
   onnxFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
   modelEngineFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx_b1_gpu0_fp16.engine
   poseInferenceInterval: -1
+
+ObjectModelProjection:
+  outputFootLocation: 1
+  minPoseConfidence: 0.95
+  cameraModelFilepath:
+    Camera: /tmp/camInfo/Camera.yml
+    Camera_01: /tmp/camInfo/Camera_01.yml
+    Camera_02: /tmp/camInfo/Camera_02.yml
+    Camera_03: /tmp/camInfo/Camera_03.yml
+  objectModelType: 0
+
+MultiViewAssociator:
+  multiViewAssociatorType: 1
+  enableLatePeerReAssoc: 1
+  enableIDCorrection: 0
+  enableSeeThrough: 1
+  maxPeerTrackletSize: 30
+  recentlyActiveAge: 150
+  minCommonFrames4MatchScore: 15
+  minPeerTrackletMatchScore: 0.25
+  minPeerVisibility4Fusion: 0.1
+  maxPeerToPredDistance4Fusion: 2.0
+  maxTrackletMatchingTimeSearchRange: 5
+  maxPeerFrameDiff4NoDet: 5
+
+Communicator:
+  communicatorType: 2
+  pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
+  mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt

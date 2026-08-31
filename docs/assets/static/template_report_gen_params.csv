@@ -1,0 +1,15 @@
+Parameter,Default,Description
+object_store,(required),Object store reference for storing reports
+base_url,http://localhost:8000/static,Base URL for serving report files
+template_path,"""""",Path to template directory
+template_name,None,"Template file name (e.g., incident_report.md)"
+llm_name,"""""",LLM for report generation
+video_understanding_tool,"""""",VLM tool for video analysis
+picture_url_tool,vst_picture_url,Tool for snapshot URLs
+video_url_tool,None,Tool for video URLs
+vlm_prompts,[],List of prompts for VLM analysis
+report_prompt,"""""",System prompt for report generation
+agent_version,v1.0.0,Agent version to include in report
+save_local_copy,false,Save local copy of reports
+output_dir,./agent_reports,Directory for local copies
+

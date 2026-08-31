@@ -1,4 +1,7 @@
 dependencies:
+- name: common
+  repository: file://../../services/common
+  version: 3.3.0
 - name: vios
   repository: file://../../services/vios
   version: 3.3.0
@@ -20,5 +23,5 @@ dependencies:
 - name: nims
   repository: file://../../services/nims
   version: 3.3.0
-digest: sha256:e2dc1d1218b8ff6f568eeb6e399777ed935897aab84da5310fe5fa13472848a0
-generated: "2026-08-19T11:18:26.89357+05:30"
+digest: sha256:547b67c0ccc8748f3bad408ace2f040c46cc65e1e67804571f74d6d0fc9d0c87
+generated: "2026-08-26T13:53:27.746418754Z"

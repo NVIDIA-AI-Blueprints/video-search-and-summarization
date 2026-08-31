@@ -32,13 +32,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  bp-configurator-mc-tracking-init:
-    extends:
-      file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
-      service: bp-configurator-init-base
-    profiles: ["bp-configurator-mc-tracking-init"]
-    container_name: vss-configurator-mc-tracking-init
-
   bp-configurator-mc-tracking:
     extends:
       file: ${VSS_APPS_DIR}/services/configurators/vss-configurator/docker-compose.yaml
@@ -48,7 +41,7 @@ services:
       default:
         aliases:
           - vss-configurator
-    profiles: ["bp-configurator-mc-tracking"]
+    profiles: !override ["bp-configurator-mc-tracking"]
     environment:
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/blueprint-configurator/blueprint_config.yml
       DS_CONFIG_DIR: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/deepstream/configs
@@ -65,7 +58,7 @@ services:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking:$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking:rw
       - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      bp-configurator-mc-tracking-init:
+      broker-health-check:
         condition: service_completed_successfully
 
   kibana-init-container-mc-tracking:

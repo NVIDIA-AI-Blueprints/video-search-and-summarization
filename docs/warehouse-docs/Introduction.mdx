@@ -1,0 +1,81 @@
+---
+title: "Introduction"
+description: ""
+position: 1
+---
+## Physical Environment Challenges and the Warehouse Blueprint Solution
+
+Organizations operating warehouses, factories, and logistics hubs confront escalating complexity. These environments demand efficiency, safety, and real-time adaptability. Many organizations struggle with:
+
+* **Limited Real-Time Visibility:** Manual methods and siloed data systems prevent real-time tracking of assets, personnel, and processes.
+* **Suboptimal Resource Utilization:** Poor space and equipment usage increases operational costs.
+* **Safety Concerns:** Dynamic and hazardous environments challenge personnel safety and compliance efforts.
+* **Scalability Limitations:** Organizations cannot adapt to fluctuating demands or scale operations effectively.
+
+To address these challenges, organizations must transform raw video and sensor data from physical spaces into actionable insights. **Warehouse Blueprint** delivers the foundational capabilities to accomplish this transformation. This comprehensive platform leverages advanced AI and computer vision to enable machines to perceive, understand, and interact with the physical world.
+
+Warehouse Blueprint implements a layered architecture that comprises Foundational Microservices, Blueprints, and AI Agents. Developers use this architecture to build and deploy sophisticated warehouse blueprint applications. Solutions range from applications that utilize pre-built AI Agents for specific tasks to custom integrations that leverage core Foundational Blueprints, supporting both warehouse blueprint 2D and 3D applications with tailored calibration approaches.
+
+## Key Concepts
+
+### Layered Architecture
+
+Warehouse Blueprint implements a layered architecture that includes Foundational Microservices, Blueprints, and AI Agents. We refer to the complete end-to-end reference architecture, which incorporates all core components, as the Warehouse Blueprint Agentic Blueprint. The 'Safety Inspector' blueprint serves as an example that we discuss in subsequent sections.
+
+![Stack Diagram - Warehouse Blueprint Stack](/assets/images/spatial-ai-layered-arch.png)
+
+### Foundational Microservices and Blueprints
+
+Core, deployable Microservices and Blueprints deliver fundamental capabilities (e.g., [Warehouse Blueprint 3D ](/warehouse-docs/3D-profile), [Warehouse Blueprint 2D with Agents ](/warehouse-docs/2D-profile-with-agents), [VIOS Microservice ](/vios-microservices)). Developers integrate these directly or AI Agents consume them.
+
+### AI Agents
+
+Customizable packages contain core Agent logic and use "Tools" to interact with Foundational Microservices and Blueprints (e.g., [Agents](/warehouse-docs/agents)).
+
+### Agentic Application Blueprint
+
+End-to-end examples combine AI Agents with Foundation Microservices and Blueprints (e.g., [Warehouse Blueprint](/warehouse-docs/Quickstart-Guide#deploy-the-blueprint)). These examples serve as starting points or demonstrations and often map to a Deployment Profile.
+
+### Tool
+
+AI Agents use this interface or abstraction to invoke functionality from [VSS Reference User Interface ](/vss-ui).
+
+### Deployment Profile
+
+Pre-defined combinations of Microservices, Blueprints, and Agents [deploy](/warehouse-docs/Quickstart-Guide#deployment-options) specific capability sets.
+
+### Simulation / Digital Twin
+
+Development requires [simulation and digital twin capabilities ](/warehouse-docs/Simulation-and-Synthetic-Data-Generation) (SDG, 3D Calibration data, testing).
+
+### Relationship with Outside-In Safety (OIS)
+
+Warehouse Blueprint provides foundational Blueprints such as the 2D Warehouse Blueprint, which OIS consumes and documents within its specific context.
+
+### Developer Journeys
+
+Developers can integrate with Warehouse 2D & 3D Blueprints using two modes:
+
+* Deploy Warehouse 2D Blueprint with Agents
+
+	- Interact with the system using natural language (via API or UI)
+	- Access analytics APIs and event streams directly in this mode
+
+* Deploy only Warehouse 2D & 3D Blueprints
+
+	- Integrate via APIs and event streams (e.g., Kafka)
+
+## Core Use Cases
+
+Warehouse Blueprint enables applications that transform physical operations. These applications deliver value through:
+
+* **Real-time Alerts:** Systems send immediate notifications for critical events (e.g., safety violations, security breaches) to enable prompt responses.
+* **On-Demand Insights:** Users perform ad-hoc queries and analytics on operational data (e.g., space utilization, asset movement, process bottlenecks) for informed decision-making.
+* **Continuous Data Integration:** Systems maintain seamless data flow to and from enterprise systems (e.g., WMS, ERP) for comprehensive monitoring, trend analysis, and strategic planning.
+
+**Warehouse Blueprint** enables these key use cases:
+
+| Use Case | Core Goal |
+| --- | --- |
+| Workspace Safety & Proximity Monitoring | Monitor environments for potential hazards, detect proximity breaches between personnel and machinery, and enforce safety protocols through real-time alerts to improve worker safety. |
+| Production Line & Process Optimization | Detect and track personnel, equipment (e.g., AMRs), and materials along production lines, identify bottlenecks, and analyze operational hotspots to increase throughput and efficiency. |

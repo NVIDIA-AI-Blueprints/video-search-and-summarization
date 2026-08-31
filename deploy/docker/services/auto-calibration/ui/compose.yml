@@ -15,7 +15,7 @@
 
 services:
   vss-auto-calibration-ui:
-    image: ${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui}:${VSS_AUTO_CALIBRATION_UI_TAG:-3.3.0-2}
+    image: ${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui}:${VSS_AUTO_CALIBRATION_UI_TAG:-3.3.0-3}
     container_name: vss-auto-calibration-ui
     profiles: ["vss-auto-calibration-ui"]
 

@@ -50,13 +50,16 @@ host, not inside VSS pods. Supply one public Ingress origin as
 `vss.<ip>.nip.io` for **base**, **lvs**, and **alerts**, `vss-search.<ip>.nip.io`
 for **search**). Canonical variable mapping, Docker fallbacks, and the
 no-port-forward rule live in
-[`vss-build-vision-agent/references/deployment_resolution.md`](vss-build-vision-agent/references/deployment_resolution.md).
-Base quickstart operate uses `/vst` (VIOS) and Prefix `/v1` (RT-VLM) on that
-origin for `vss-manage-video-io-storage`, `vss-ask-video`, and
-`vss-generate-video-report` Mode A. LVS operate uses Exact `/v1/ready` and
-`/v1/summarize` for `vss-summarize-video` (and report Mode A when LVS is ready),
-plus Exact `/v1/models` / `/v1/chat/completions` for RT-VLM — not a Prefix `/v1`
-and not LVS `/models` or LVS `/openapi.json` through Ingress. Alerts operate
+[`vss-build-vision-ai/references/deployment_resolution.md`](vss-build-vision-ai/references/deployment_resolution.md).
+Every service is mounted at its own name on that origin, the same on every
+profile and on the Docker edge — the table in
+[`deploy/helm/services/common/README.md`](../deploy/helm/services/common/README.md).
+Base quickstart operate uses `/vst` (VIOS) and `/rtvi-vlm/v1` (RT-VLM) for
+`vss-manage-video-io-storage`, `vss-ask-video`, and `vss-generate-video-report`
+Mode A. LVS operate uses `/lvs/v1/ready` and `/lvs/v1/summarize` for
+`vss-summarize-video` (and report Mode A when LVS is ready), with RT-VLM at the
+same `/rtvi-vlm/v1` as everywhere else. Nothing is published at the origin root
+`/v1`. Alerts operate
 uses `/vst`, `/alert-bridge` (rules + incidents; never Agent `/generate` for
 rule CRUD), and `/va-mcp` for `vss-manage-alerts` / `vss-query-analytics` —
 not Elasticsearch `:9200` or RT-VLM `:8018` through Ingress. Search archive

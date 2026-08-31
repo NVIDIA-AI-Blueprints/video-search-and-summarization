@@ -1,0 +1,33 @@
+---
+title: "Release Notes"
+description: ""
+---
+## Version 1.0 (January 2026)
+
+Initial release of the NVIDIA Public Safety AI Blueprint.
+
+### Features
+
+- **Tailgating Detection** – CV-based perception pipeline for detecting unauthorized entry at secure access points
+- **VLM Alert Verification** – Cosmos3 Nano Reasoner validates alerts to reduce false positives
+- **AI Agent** – Natural language interaction powered by Nemotron Nano 9B v2 for querying incidents and generating reports
+- **Dashboard** – Visualize alerts and incident metadata
+- **Kibana Integration** – View and analyze security events
+- **MCP Integration** – Agent tools for video retrieval, analytics queries, and report generation
+
+### Supported Hardware
+
+- NVIDIA H100 (recommended for local NIMs)
+- NVIDIA L40S
+- NVIDIA RTX PRO 6000 Blackwell
+
+### Known Limitations
+
+- NIMs have been tested on H100; configurations may need adjustment on other hardware
+- VLM analysis of very long videos requires extended processing time
+- The default LLM has a limited context window; large amounts of incident data may exceed capacity
+- The RT-CV and Behavior Analytics solution serves as a simple example and therefore operates under specific conditions. An incident is triggered upon detecting at least one individual within the field of view (FOV), and ends once no individuals remain in the FOV for a predefined duration (default: 4 seconds). This method is most effective when incidents are separated by sufficiently long intervals without any person present in the FOV.
+- Sample videos have been modified with blank frames appended at the end to ensure compatibility with the RT-CV and Behavior Analytics solution.
+- The Kibana dashboard currently contains no data.
+- Occasional hallucinations in VLM reasoning have resulted in intermittent inaccurate verdicts.
+- The report generation agent may, at times, input incorrect values for the “Number of Person Entering” field.

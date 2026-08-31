@@ -7,7 +7,6 @@ import { videoStream, rtspStream } from '../helpers/streamFixtures';
 const mockOpenVideoModal = jest.fn(() => Promise.resolve());
 const mockCloseVideoModal = jest.fn();
 const mockChunkedUpload = jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' });
-const mockNotifyUploadComplete = jest.fn().mockResolvedValue(undefined);
 let lastUploadDialogProps: any = null;
 let lastUploadProgressPopupProps: any = null;
 let lastUploadSuccessPopupProps: any = null;
@@ -41,7 +40,6 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
 
 jest.mock('../../lib-src/chunkedUpload', () => ({
   chunkedUpload: (...args: any[]) => mockChunkedUpload(...args),
-  notifyUploadComplete: (...args: any[]) => mockNotifyUploadComplete(...args),
 }));
 
 const mockTimelines = new Map([
@@ -129,7 +127,6 @@ const defaultProps = {
   videoManagementData: {
     systemStatus: 'ok',
     vstApiUrl: 'https://vst.example.com/vst',
-    agentApiUrl: 'https://agent.example.com',
   },
 };
 
@@ -223,7 +220,7 @@ describe('VideoManagementComponent — video playback', () => {
     expect(screen.queryByTestId('video-modal')).not.toBeInTheDocument();
   });
 
-  it('uses uploadFilename from dialog for VST upload and complete notification', async () => {
+  it('uses uploadFilename from dialog for the direct VST upload', async () => {
     renderComponent();
 
     expect(lastUploadDialogProps).toBeTruthy();
@@ -249,15 +246,6 @@ describe('VideoManagementComponent — video playback', () => {
       );
     });
 
-    await waitFor(() => {
-      expect(mockNotifyUploadComplete).toHaveBeenCalledWith(
-        'https://agent.example.com',
-        'renamed_video.mp4',
-        expect.any(Object),
-        { embedding: false },
-        expect.any(AbortSignal),
-      );
-    });
   });
 
   it('uses uploadFilename as-is without appending extension (matches Chat behavior)', async () => {
@@ -408,8 +396,16 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     renderComponent();
     await selectAllAndConfirmDelete();
 
-    expect(mockDeleteVideo).toHaveBeenCalledWith('https://agent.example.com', videoStream.sensorId);
-    expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
+    expect(mockDeleteVideo).toHaveBeenCalledWith(
+      'https://vst.example.com/vst',
+      videoStream.sensorId,
+      '2025-01-01T00:00:00Z',
+      '2025-01-01T01:03:30Z',
+    );
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith(
+      'https://vst.example.com/vst',
+      rtspStream.sensorId,
+    );
   });
 
   it('waits for VST to stop listing deleted sensors before closing the dialog', async () => {
@@ -432,7 +428,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await selectAllAndConfirmDelete();
 
     expect(screen.getByTestId('delete-confirm-dialog')).toBeInTheDocument();
-    // The agent accepted this delete, so it must not be reported as a failure
+    // VST accepted this delete, so it must not be reported as a failure
     expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent(
       `Deletion was accepted but these are still listed by VST: ${rtspStream.name}`,
     );
@@ -442,7 +438,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 
   // A convergence timeout is not a failed delete: re-sending it would target a
-  // sensor the agent already removed.
+  // sensor VST already removed.
   it('re-polls without re-sending the delete when VST has not converged yet', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
       remainingSensorIds: [rtspStream.sensorId],
@@ -465,7 +461,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     expect(screen.queryByTestId('delete-confirm-dialog')).not.toBeInTheDocument();
   });
 
-  // Cancelling only dismisses the dialog — the agent still accepted the delete, so
+  // Cancelling only dismisses the dialog — VST still accepted the delete, so
   // a later attempt must not repeat the destructive request.
   it('does not re-send the delete after the dialog is cancelled and reopened', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
@@ -492,7 +488,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 
   // An acknowledgement belongs to the backend that gave it. A sensor id reused on a
-  // different VST/agent has not been deleted there, so the new backend must still get
+  // different VST has not been deleted there, so the new backend must still get
   // the request instead of the dialog polling it to a timeout.
   it('re-sends the delete when the component is pointed at a different backend', async () => {
     mockWaitUntilStreamsRemoved.mockResolvedValueOnce({
@@ -512,7 +508,6 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
           videoManagementData={{
             systemStatus: 'ok',
             vstApiUrl: 'https://other-vst.example.com/vst',
-            agentApiUrl: 'https://other-agent.example.com',
           }}
         />,
       );
@@ -523,13 +518,13 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await reopenDeleteDialogAndConfirm();
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://other-agent.example.com',
-      rtspStream.name,
+      'https://other-vst.example.com/vst',
+      rtspStream.sensorId,
     );
   });
 
   // Clearing on backend change is not enough on its own: a delete already awaiting its
-  // agent response would otherwise record that answer afterwards, leaving the new
+  // VST response would otherwise record that answer afterwards, leaving the new
   // backend's identical sensor id looking accepted and its Retry stuck polling.
   it('discards an acknowledgement that arrives after the backend changed', async () => {
     let settleRtspDelete: (value: unknown) => void = () => {};
@@ -545,14 +540,13 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     const { rerender } = renderComponent();
     await selectAllAndConfirmDelete();
 
-    // The tab is pointed elsewhere while the agent call is still outstanding
+    // The tab is pointed elsewhere while the VST call is still outstanding
     await act(async () => {
       rerender(
         <VideoManagementComponent
           videoManagementData={{
             systemStatus: 'ok',
             vstApiUrl: 'https://other-vst.example.com/vst',
-            agentApiUrl: 'https://other-agent.example.com',
           }}
         />,
       );
@@ -569,8 +563,8 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     });
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://other-agent.example.com',
-      rtspStream.name,
+      'https://other-vst.example.com/vst',
+      rtspStream.sensorId,
     );
   });
 
@@ -604,7 +598,10 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
 
     await reopenDeleteDialogAndConfirm();
 
-    expect(mockDeleteRtspStream).toHaveBeenCalledWith('https://agent.example.com', rtspStream.name);
+    expect(mockDeleteRtspStream).toHaveBeenCalledWith(
+      'https://vst.example.com/vst',
+      rtspStream.sensorId,
+    );
   });
 
   it('keeps a failed stream selected and reports it without waiting for VST on that id', async () => {

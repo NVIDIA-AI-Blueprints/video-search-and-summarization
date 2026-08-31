@@ -195,10 +195,11 @@ spec:
               value: "openai-compat"
             {{- end }}
             {{- $useSharedNim := .Values.useSharedNim }}
+            {{- $envOverrides := .Values.envOverrides | default dict }}
             {{- range .Values.env }}
             {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) }}
             - name: {{ .name }}
-              value: {{ .value | quote }}
+              value: {{ ternary (index $envOverrides .name) .value (hasKey $envOverrides .name) | quote }}
             {{- end }}
             {{- end }}
           ports:

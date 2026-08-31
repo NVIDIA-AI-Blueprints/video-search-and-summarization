@@ -401,7 +401,8 @@ if __name__ == '__main__':
     print("  DELETE /files/{media_id} - Delete uploaded files")
     print("  GET /health - Health check")
     print("  GET /status - Service status")
-    print("\nRunning on http://0.0.0.0:8080")
+    port = int(os.getenv("VSS_SIM_PORT", "8080"))
+    print(f"\nRunning on http://0.0.0.0:{port}")
     
     # Run the Flask app (debug=False to prevent fork/reloader issues)
-    app.run(host='0.0.0.0', port=8080, debug=False) 
+    app.run(host='0.0.0.0', port=port, debug=False)

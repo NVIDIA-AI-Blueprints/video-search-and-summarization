@@ -21,7 +21,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 |---|---|---|---|
 | RT-CV (DeepStream perception) | `vss-rtvi-cv` | 9000 | Object detection / tracking on incoming streams; default model family `rtdetr-warehouse` |
 | RT-Embed (Cosmos Embed1) | `vss-rtvi-embed` | 8017 | Video + text embedding generation |
-| LLM NIM (default) | `nvidia-nemotron-nano-9b-v2` | 30081 | Same options as `base` (Nano 9B v2 default). Container name = `${LLM_NAME_SLUG}`. |
+| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Same options as `base` (Nemotron 3.5 Lightning 30B A3B default). Container name = `${LLM_NAME_SLUG}`. |
 | RT-VLM | `vss-rtvi-vlm` | 8018 | Local Cosmos3 inference or an OpenAI-compatible proxy to a remote VLM; serves Critique and `video_understanding` |
 | VSS Agent | `vss-agent` | 8000 | Orchestrates tool calls, embed search, critique |
 | VSS Agent UI | `vss-agent-ui` | 3000 | Search tab |
@@ -34,7 +34,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 
 | Role | Model | Slug | Served by |
 |---|---|---|---|
-| LLM | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` | NIM (port 30081) |
+| LLM | `nvidia/nemotron-3.5-lightning-30b-a3b` | `nemotron-3.5-lightning-30b-a3b` | NIM (port 30081) |
 | Embed (RT-Embed) | `nvidia/Cosmos-Embed1-448p-anomaly-detection` | — | RT-Embed (port 8017), `MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` |
 | Perception (RT-CV) | siglip2 v1.1 + RTDETR (warehouse) | — | RT-CV (DeepStream pipeline) |
 | VLM (RT-VLM) | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` (default local checkpoint; FP8 so it fits alongside RT-CV on GPU 0) | `VLM_NAME_SLUG=none`; activated via the `rtvi-vlm` compose profile | RT-VLM (port 8018) |
@@ -106,7 +106,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.3.0-26.08.1` (SBSA: `3.3.0-26.08.1-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest` (multi-architecture manifest). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
@@ -133,7 +133,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
-| `RTVI_EMBED_TAG` | (image tag) | `3.3.0-26.08.1` | x86 / iGPU. For DGX Spark: use the published `3.3.0-26.08.1-sbsa` variant when available. |
+| `VSS_RT_EMBED_TAG` | (image tag) | `develop-latest` | Pin a promoted or immutable image tag when required. |
 
 **Default Cosmos-Embed1 deployment runs on Triton (ONNX), not vLLM.** From `start_rtvi_embed.sh:47-49` and `src/models/custom/samples/cosmos-embed1/inference.py:55-56`, the default `VLM_MODEL_TO_USE=custom` loads Cosmos-Embed1 via Triton-served ONNX models (`text_embeddings`, `video_embeddings`). For that path:
 
@@ -147,7 +147,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 
 ### RT-CV sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-cv:3.3.0-26.07.2` (SBSA: `3.3.0-sbsa-26.07.2`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
+Image: the managed GHCR coordinate `VSS_RT_CV_IMAGE`:`VSS_RT_CV_TAG` (SBSA: same image, tag `develop-latest-sbsa`). Compose: `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`.
 
 RT-CV is a **DeepStream perception pipeline**, not a vLLM container. It has no `--gpu-memory-utilization`-style knob. Memory scales with stream count and the active model family.
 
@@ -162,13 +162,27 @@ Knobs (in `dev-profile-search/.env`):
 | `DS_TRACKER_REID` | `false` | Enable re-identification (extra VRAM). |
 | `VISION_ENCODER_MODEL` | `siglip_v2` | Vision encoder downloaded by ds-start phase 0. |
 | `RT_CV_DEVICE_ID` | `0` | Which GPU RT-CV pins to. |
-| `PERCEPTION_TAG` | `3.3.0-26.07.2` | Image tag (use `-sbsa-` variant on DGX Spark). |
+| `VSS_RT_CV_TAG` | `3.3.0-26.07.2` | Image tag (use `-sbsa-` variant on DGX Spark). |
 
 The upstream perf guide doesn't publish a single GB number — it publishes per-GPU max stream counts (consistent with the table above for RT-Embed). Treat **`NUM_STREAMS=16`** as a starting point on H100 / RTX PRO 6000 / L40S; lower it on smaller GPUs or when co-locating with a VLM.
 
 ## Worked example — LLM + RT-Embed on GPU 1
 
-Default layout, Nano 9B v2 LLM + Cosmos-Embed1 on GPU 1.
+Default layout, Nemotron 3.5 Lightning 30B A3B LLM + Cosmos-Embed1 on GPU 1.
+
+Note: `hw-H100-shared.env` pins `NIM_MODEL_PROFILE` to the INT4 single-GPU profile,
+which `list-model-profiles` labels `vllm-int4-tp1-pp1-32.0` (requires >=32 GB). The
+env var takes the profile's **SHA**, not that label:
+
+```bash
+NIM_MODEL_PROFILE=2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4
+```
+
+Re-derive it with `docker run --rm --gpus all -e NGC_API_KEY=$NGC_CLI_API_KEY <nim-image>
+list-model-profiles` if the image tag changes. (Some NIMs accept a
+`name-hash` form such as `vllm-fp8-tp1-pp1-<sha>` — see
+`services/nim/nemotron-3-nano/hw-H100-shared.env` — so copy whichever form that
+image's own listing prints.)
 
 **RT-Embed budget rule of thumb: 10 GB.** Cosmos-Embed1 weights are ~2 GB (1 B params at FP16); the rest is per-stream activation buffers, decoder workers, and Triton/ONNX runtime overhead. 10 GB is a comfortable budget for `NUM_STREAMS=16` on any GPU. Reserve those 10 GB and give the LLM the rest, leaving the standard 15% framework headroom.
 
@@ -181,11 +195,25 @@ Default layout, Nano 9B v2 LLM + Cosmos-Embed1 on GPU 1.
 
 Formula: `NIM_KVCACHE_PERCENT = (GPU_VRAM - 10) / GPU_VRAM - 0.15`, rounded to 2 decimals.
 
-Two writes:
+The shipped `hw-H100-shared.env` deliberately uses **0.5**, not the table value: the
+pinned INT4 profile needs only 32 GB, so 0.5 already fits the weights and the table's
+larger numbers buy KV cache, nothing else. Raise them only when you actually want more
+KV cache, and change **both** knobs together — `NIM_GPU_MEM_FRACTION` is what vLLM
+checks, so raising `NIM_KVCACHE_PERCENT` alone has no effect.
+
+Ceiling: vLLM refuses to start unless
+`free_memory >= NIM_GPU_MEM_FRACTION x total_memory`, and it does *not* subtract memory
+already held by other processes. On an 80 GB H100 with RT-Embed resident (~10 GB), the
+fraction must stay below ~0.87; on a GPU shared with more services the ceiling is much
+lower. Exceeding it produces `Engine core initialization failed`, not a fallback.
+
+Two writes (optional tuning — the shipped defaults work as-is):
 
 ```bash
-# 1. In deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/hw-H100-shared.env
+# 1. In deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env
+#    Shipped: both 0.5. Raise together, and only for extra KV cache.
 NIM_KVCACHE_PERCENT=0.72             # LLM gets ~58 GB; leaves 10 GB for RT-Embed + 12 GB framework
+NIM_GPU_MEM_FRACTION=0.72            # must match; this is the value vLLM enforces
 
 # 2. In deploy/docker/developer-profiles/dev-profile-search/generated.env
 RT_EMBED_DEVICE_ID=1

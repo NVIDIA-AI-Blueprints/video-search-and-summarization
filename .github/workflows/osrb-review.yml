@@ -29,7 +29,12 @@ defaults:
 jobs:
   review:
     name: Trigger private OSRB review
-    if: startsWith(github.event.workflow_run.head_branch, 'pull-request/')
+    # License Diff is allowed to fail (non-empty diffs still fail on
+    # develop). Cancelled is different: a superseded PR revision must not
+    # start the private GitLab reviewer.
+    if: >-
+      startsWith(github.event.workflow_run.head_branch, 'pull-request/') &&
+      github.event.workflow_run.conclusion != 'cancelled'
     runs-on: [self-hosted, downstream-pipeline]
     timeout-minutes: 45
     env:

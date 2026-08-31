@@ -1,0 +1,281 @@
+---
+title: "FAQ"
+description: ""
+position: 4
+---
+## Overview
+
+This page contains frequently asked questions and answers to those questions. In some cases, steps for debugging and solving issues are provided.
+
+If your issue is not addressed on this page, please raise it on [GitHub Issues](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues). For any questions or requests for new features, please start a thread on [GitHub Discussions](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/discussions).
+
+**VIOS**
+
+- [Why do large file uploads to VIOS fail?](/faq#why-do-large-file-uploads-to-vios-fail)
+- [Why are video uploads to VIOS slow?](/faq#why-are-video-uploads-to-vios-slow)
+- [How do I re-encode a video and disable B-frames before uploading to VIOS?](/faq#how-do-i-re-encode-a-video-and-disable-b-frames-before-uploading-to-vios)
+
+**Video Summarization MS**
+
+- [Can the Video Summarization microservice process multiple videos simultaneously?](/faq#can-the-video-summarization-microservice-process-multiple-videos-simultaneously)
+- [What video formats are supported?](/faq#what-video-formats-are-supported)
+- [How do I use a custom VLM model in the Video Summarization microservice?](/faq#how-do-i-use-a-custom-vlm-model-in-the-video-summarization-microservice)
+- [How can I change the VLM prompt for summarization?](/faq#how-can-i-change-the-vlm-prompt-for-summarization)
+
+**Real-Time Video Intelligence**
+
+- [What streaming protocols are supported?](/faq#what-streaming-protocols-are-supported)
+- [What file-based video formats are supported?](/faq#what-file-based-video-formats-are-supported)
+
+**Local LLM and VLM deployments on OTHER hardware**
+
+- [NVIDIA A100 (80 GB)](/faq#nvidia-a100-80-gb)
+- [NVIDIA H200](/faq#nvidia-h200)
+- [NVIDIA RTX PRO 4500 Blackwell](/faq#nvidia-rtx-pro-4500-blackwell)
+
+**Local RTVI-VLM deployments on OTHER hardware**
+
+- [NVIDIA RTX PRO 4500 Blackwell](/faq#nvidia-rtx-pro-4500-blackwell)
+
+**Remote VLM (`nim` model-type)**
+
+- [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos)
+
+**Deployment networking and host firewall**
+
+- [Why does Kibana show request timeouts or ELK services fail startup health checks?](/faq#why-does-kibana-show-request-timeouts-or-elk-services-fail-startup-health-checks)
+- [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high)
+- [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
+- [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
+
+## VIOS
+
+### Why do large file uploads to VIOS fail?
+
+Upload size is governed by two settings (NGINX `client_max_body_size` and `nv_streamer_max_upload_file_size_MB`). The effective limit is the lower of the two. Refer to [Configuring upload file size limit](/vios-microservices#configuring-upload-file-size-limit) for configuration steps.
+
+### Why are video uploads to VIOS slow?
+
+Slow uploads are commonly caused by VPN overhead. Upload from a machine on the same local network as the VIOS deployment when possible.
+
+### How do I re-encode a video and disable B-frames before uploading to VIOS?
+
+Videos with B-frames or incompatible encoding settings may fail to play back or stream correctly. Re-encode with B-frames disabled and a fixed keyframe interval before uploading. Refer to [Synchronize Streaming of Videos](/vios-nvstreamer#synchronize-streaming-of-videos) for the recommended `ffmpeg` command.
+
+## Video Summarization MS
+
+### Can the Video Summarization microservice process multiple videos simultaneously?
+
+No, the Video Summarization microservice processes one video at a time to ensure optimal GPU utilization. Use a queue system for batch processing.
+
+### What video formats are supported?
+
+The Video Summarization microservice supports common formats: MP4, AVI, MOV, MKV, WebM. Install proprietary codecs via `INSTALL_PROPRIETARY_CODECS=true` for additional formats.
+
+### How do I use a custom VLM model in the Video Summarization microservice?
+
+Set `VLM_MODEL_TO_USE` and provide model path via `MODEL_ROOT_DIR` volume mount.
+
+### How can I change the VLM prompt for summarization?
+
+You can customize the VLM prompt by using the following flags in your API request: `override_vlm_prompt` and `prompt`. Here is an example of how to use them in a `curl` command:
+
+```bash
+curl --location 'http://localhost:38111/summarize' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "url": "<video url>",
+    "model": "<model name>",
+    "events": [
+      <event list>
+    ],
+    "scenario": "<scenario>",
+    "override_vlm_prompt": true,
+    "prompt": "<Your prompt goes here>\n\nProvide the result in JSON format with \"seconds\" for time depiction for each event.\nUse the following keywords in the JSON output: '\''start_time'\'', '\''end_time'\'', '\''description'\'', \"type\".\nThe \"type\" field should correspond to an event type from the event list.\n\nExample output format:\n{\n  \"start_time\": t_start,\n  \"end_time\": t_end,\n  \"description\": \"EVENT1\",\n  \"type\": \"event_type from the event list\"\n}\n\nMake sure the answer contains correct timestamps."
+  }'
+```
+
+Replace `<Your prompt goes here>` and `<event list>` with your custom values as needed.
+
+You need to keep the output format as is for the VLM to generate the correct output that can be
+processed by the downstream pipeline.
+
+## Real-Time Video Intelligence (RTVI)
+
+### What streaming protocols are supported?
+
+The reference blueprint uses **RTSP** for live video and **files/URLs** where each RTVI microservice documents them; other protocols require a custom DeepStream/GStreamer graph or an RTSP gateway. Refer to [Streaming protocols](/object-detection-tracking#streaming-protocols) in [Object Detection and Tracking ](/object-detection-tracking).
+
+### What file-based video formats are supported?
+
+DeepStream-backed RTVI paths support **H.264**, **H.265**, **JPEG**, and **MJPEG** in common **multimedia container formats** (for example MP4 or MKV) when **GStreamer** can demux them; each microservice still defines which file or URL inputs it accepts. Refer to [File-based video and codecs](/object-detection-tracking#file-based-video-and-codecs) in [Object Detection and Tracking ](/object-detection-tracking).
+
+## Remote VLM (`nim` model-type) and video access
+
+How does a remote `nim` VLM access videos?
+
+### How does a remote `nim` VLM access videos?
+
+When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs elsewhere and must connect back to your host on **port 30888** to fetch videos. The VLM must be able to reach that port on:
+
+- The **external IP** passed via `-e`, if you provide one when running the agent workflow, or
+- Otherwise, the **internal host IP** you pass via `-i` or the auto-derived internal host IP.
+
+Ensure your network and firewall allow the `nim` VLM to access port 30888 on the appropriate IP from where the VLM runs.
+
+**Exception: Nemotron Omni with `ENABLE_AUDIO=true`:** For remote Omni VLMs on the base agent profile, the agent inlines the MP4 as `data:video/mp4;base64,…` instead of giving the VLM a VST `video_url`. Port **30082** must be reachable for the OpenAI-compatible API; See [Using Nemotron Omni (audio-enabled VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm).
+
+<Note>
+The same connectivity pattern (a service that needs to reach VST on the host's IP) can also fail when the caller is a *local* container on a Docker bridge network rather than a remote host. See [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
+</Note>
+
+## ELK Services Timeouts or Startup Health Check Failures
+
+### Why does Kibana show request timeouts or ELK services fail startup health checks?
+
+If Kibana shows `Request timeout: "Request timed out"`, inspect the relevant service logs before changing Kibana settings.
+
+A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can appear as `Unable to retrieve search results` with `Request timeout: "Request timed out"`. Check Elasticsearch allocation and disk watermarks before tuning Kibana timeouts. See [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high).
+
+If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, check the service logs to confirm it is starting slowly rather than failing because of a configuration issue. If the service becomes ready shortly after Docker marks it unhealthy, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root), then redeploy.
+
+### Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?
+
+Elasticsearch protects the ELK stack with disk watermarks. One common symptom is Kibana Discover failing with `Unable to retrieve search results` and `Request timeout: "Request timed out"`. By default, the low watermark is `85%` disk used, the high watermark is `90%` disk used, and flood stage is `95%` disk used.
+
+- At the **low watermark**, Elasticsearch avoids allocating new shards to that node.
+- At the **high watermark**, Elasticsearch tries to relocate shards away from that node.
+- At **flood stage**, Elasticsearch sets affected indices to `read_only_allow_delete` so writes stop before the disk fills completely.
+
+Check disk allocation and configured watermarks:
+
+```bash
+curl --location "http://<ip>:9200/_cat/allocation?v"
+curl --location "http://<ip>:9200/_cluster/settings?include_defaults=true&filter_path=**.disk.watermark*"
+```
+
+If flood stage is reached, fix the disk pressure first. Common options are:
+
+- Remove unnecessary local data or logs from the Elasticsearch host.
+- Remove unnecessary containers which are not being used.
+- Add disk capacity or add Elasticsearch capacity so shards have somewhere safe to move.
+
+After disk usage drops below the high watermark, Elasticsearch normally removes the block automatically. If an index remains read-only after disk pressure is fixed, clear the block manually:
+
+```bash
+curl --location --request PUT "http://<ip>:9200/*/_settings?expand_wildcards=all" \
+  --header "Content-Type: application/json" \
+  --data "{\"index.blocks.read_only_allow_delete\": null}"
+```
+
+## Deployment networking and host firewall
+
+### Bridge-network container cannot reach a VSS service on the host
+
+**Symptom.** All containers come up healthy and host-side health probes pass, but the end-to-end workflow silently produces no output. On `dev-profile-search`, ingestion completes in VST but no embeddings are generated; other profiles may instead hang or never produce a summary/alert. Container logs do not identify the cause.
+
+**Cause.** VSS mixes host-networked services (VST, VSS Agent, HAProxy ingress) with bridge-networked services (for example, `vss-rtvi-embed` on `dev-profile-search`). Calls from a bridge container to a host service hit the host's `INPUT` chain. If the host has a default-deny firewall (UFW, `firewalld`, `iptables`/`nftables`) with no allow rule for the Docker bridge subnets, the packets are silently dropped. This is a host configuration issue, not a VSS defect.
+
+**Diagnose** — the host can reach the target, but a bridge container cannot:
+
+```bash
+# On the host: expected HTTP 200
+curl -fsS http://${HOST_IP}:30888/healthz
+
+# Inside a bridge container: bug present = "Connection timed out"
+docker exec <bridge-container> curl --max-time 5 http://${HOST_IP}:30888/healthz
+
+# Bug present = "Chain INPUT (policy DROP ...)"
+sudo iptables -L INPUT -n | head -1
+```
+
+On `dev-profile-search` use `vss-rtvi-embed` as the bridge container; on other profiles, `docker network inspect mdx_default` lists candidates.
+
+**Fix.** Allow inbound traffic from the Docker bridge subnets — typically `172.18.0.0/16` (Compose-managed `mdx_default`) and `172.17.0.0/16` (default `docker0`). Confirm the actual subnet with `docker network inspect mdx_default | grep -i subnet`.
+
+```bash
+# UFW
+sudo ufw allow from 172.17.0.0/16
+sudo ufw allow from 172.18.0.0/16
+sudo ufw reload
+
+# firewalld
+sudo firewall-cmd --permanent --zone=trusted --add-source=172.17.0.0/16
+sudo firewall-cmd --permanent --zone=trusted --add-source=172.18.0.0/16
+sudo firewall-cmd --reload
+
+# iptables (persist via your distro's mechanism)
+sudo iptables -I INPUT -s 172.17.0.0/16 -j ACCEPT
+sudo iptables -I INPUT -s 172.18.0.0/16 -j ACCEPT
+```
+
+Re-run the bridge-container `curl` to confirm HTTP 200, then re-run the profile's workflow.
+
+As an alternative, move the failing service to host networking (for `vss-rtvi-embed`, add `network_mode: host` and drop the `ports:` mapping in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`). This sidesteps the firewall but edits a shipped Compose file, so prefer the firewall fix.
+
+Related: [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
+
+PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
+
+### PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
+
+The streaming upload endpoint rejects requests without a video `Content-Type` header (HTTP 400, `Content-Type header is required. Must be a video format (e.g., video/mp4, video/x-matroska)`). A header problem produces an immediate 400 from the agent; the firewall issue in [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host) instead lets the upload look successful in VST but produces no embeddings.
+
+```bash
+curl -X PUT -H "Content-Type: video/mp4" \
+  --upload-file /path/to/sample.mp4 \
+  http://${HOST_IP}:8000/api/v1/videos-for-search/sample.mp4
+```
+
+Supported values are `video/mp4` and `video/x-matroska`.
+
+## Local LLM and VLM deployments on OTHER hardware
+
+### NVIDIA A100 (80 GB)
+
+#### Can I run local LLM and VLM on NVIDIA A100 80 GB GPUs?
+
+Yes. The default models (`nvidia/nvidia-nemotron-nano-9b-v2` for LLM and `nvidia/cosmos3-nano-reasoner`
+for VLM) have been verified to work on dedicated A100 (80 GB) GPUs each with no environment overrides. There
+are no tested overrides to make these defaults work on a shared GPU.
+
+### NVIDIA H200
+
+#### Can I run local LLM and VLM on NVIDIA H200 GPUs?
+
+Yes. The H200 is supported for local LLM and VLM deployments. The default LLM and VLM
+will work in shared mode if the override environment variables include the following:
+
+**LLM:**
+
+- `NIM_KVCACHE_PERCENT=0.4`
+- `NIM_MAX_NUM_SEQS=4`
+- `NIM_MAX_MODEL_LEN=128000`
+- `NIM_LOW_MEMORY_MODE=1`
+
+**VLM:**
+
+- `NIM_KVCACHE_PERCENT=0.4`
+- `NIM_MAX_MODEL_LEN=32768`
+- `NIM_MAX_NUM_SEQS=4`
+- `MAX_JOBS=4`
+- `NIM_DISABLE_MM_PREPROCESSOR_CACHE=1`
+
+### NVIDIA RTX PRO 4500 Blackwell
+
+#### Can I run local LLM and VLM on NVIDIA RTX PRO 4500 Blackwell GPUs?
+
+No. For NVIDIA RTX PRO 4500 Blackwell, only the Remote LLM deployment option should be considered. Use the Remote LLM tab with `--use-remote-llm` and do not use the Shared GPU or Dedicated GPU options that deploy a local LLM.
+
+## Local RTVI-VLM deployments on OTHER hardware
+
+### NVIDIA RTX PRO 4500 Blackwell
+
+#### Can I run local RTVI-VLM on NVIDIA RTX PRO 4500 Blackwell GPUs?
+
+Yes. For NVIDIA RTX PRO 4500 Blackwell, add or update the following values in the `.env` file for the profile being deployed:
+
+```bash
+RTVI_VLM_MAX_MODEL_LEN=20480
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
+```

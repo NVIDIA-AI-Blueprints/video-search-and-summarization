@@ -1,3 +1,13 @@
+# SDRC workload config — alerts profile, verification mode (2d_cv).
+# Kept for Helm on purpose: the compose alerts profile no longer runs SDRC and
+# provisions vss-rtvi-cv from VIOS webhooks instead. Webhooks post to a single
+# fixed address, so they cannot place streams across replicas or recover them,
+# which is why SDRC stays in Kubernetes. Do not delete these workloads to match
+# compose — see infra.sdrc in the chart values.yaml.
+
+defaults:
+  WDM_XDS_GRPC_ADS_ENABLED: "true"
+
 k8s-workload-streamprocessing:
   wl_obj_name: vss-vios-streamprocessing
   port: 4005
@@ -17,7 +27,6 @@ k8s-workload-streamprocessing:
   WDM_WL_DELETE_URL: /api/v1/proxy/stream/
   WDM_WL_CHANGE_ID_ADD: camera_proxy
   WDM_WL_CHANGE_ID_DEL: camera_remove
-  WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
   WDM_WL_THRESHOLD: 100
   WDM_CONTROLLER_REPROVISION: true
   WDM_RESET_ON_WLOBJ_CRASH: false
@@ -46,7 +55,10 @@ k8s-workload-streamprocessing:
   ENVOY_REQUEST_TIMEOUT: "30"
   ENVOYROUTEHEADER: streamid
   WDM_WL_CONFIG_PORT: "30001"
-  WDM_WL_HEALTH_CHECK_WAIT_ENABLED: false
+  WDM_ADD_HEALTH_CHECK_TIMEOUT: '-1'
+  WDM_WL_HEALTH_CHECK_URL: '/api/v1/live/version'
+  WDM_ADD_CALL_DELAY: 1
+  WDM_PROVISION_ASYNC: false
 
 k8s-workload-rtvi-cv:
   wl_obj_name: vss-rtvi-cv
