@@ -51,6 +51,7 @@ services:
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
       SEND_CONFIG_TO_SDR: true
       ENABLE_CALIBRATION_PROCESS: true
+      CALL_SENSOR_ADD_API: true
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/overrides.env}
@@ -74,22 +75,6 @@ services:
       kibana:
         condition: service_healthy
 
-  vss-video-analytics-api-mc-tracking:
-    extends:
-      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
-      service: vss-video-analytics-api
-    profiles: ["vss-video-analytics-api-mc-tracking"]
-    container_name: vss-video-analytics-api-mc-tracking
-    networks:
-      default:
-        aliases:
-          - vss-video-analytics-api
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-      elasticsearch-init-container:
-        condition: service_completed_successfully
-
   import-calibration-output-container-mc-tracking:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking
@@ -100,8 +85,7 @@ services:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
       - $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
-    depends_on:
-      - vss-video-analytics-api-mc-tracking
+    restart: on-failure
 
   # Extends the generic, shared rtvi-cv-mv3dt library (services/rtvi/rtvi-cv/rtvi-cv-mv3dt/) —
   # that path is a shared capability name, not this profile's own packaging.
