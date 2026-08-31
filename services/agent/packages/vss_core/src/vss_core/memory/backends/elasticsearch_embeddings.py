@@ -28,6 +28,7 @@ from ..models import MemoryOutput
 from ..models import UnifiedMemoryRecord
 from ..store import MemoryQuery
 from ..store import MemoryStore
+from ..store import coerce_utc_instant
 from ..store import storage_id_for
 
 EMBEDDING_SCHEMA = "nv.vss.memory.embedding/1.0"
@@ -199,10 +200,95 @@ class ElasticsearchEmbeddingStore:
         query_vector: list[float],
         candidate_count: int,
     ) -> list[str]:
-        """Semantic retrieval is added with query-mode support in the next change."""
-        del query, query_vector, candidate_count
+        """Return filtered kNN hits as ordered authoritative storage IDs."""
+        if candidate_count <= 0:
+            return []
+        if len(query_vector) != self._provider.dimensions:
+            raise ConfigurationError(
+                f"query embedding has {len(query_vector)} dimensions; expected {self._provider.dimensions}"
+            )
         self._ensure_compatible_index()
-        raise NotImplementedError("semantic memory queries are not implemented yet")
+        body = {
+            "size": candidate_count,
+            "_source": ["storage_id"],
+            "knn": {
+                "field": "vector",
+                "query_vector": query_vector,
+                "k": candidate_count,
+                "num_candidates": candidate_count,
+                "filter": {"bool": self._semantic_filter(query)},
+            },
+        }
+        try:
+            response = self._client.search(index=self._index, body=body)
+        except ESNotFoundError:
+            return []
+        except (ESConnectionError, ESTransportError) as error:
+            raise BackendUnreachableError("elasticsearch", "embedding search failed", cause=error) from error
+        storage_ids: list[str] = []
+        for hit in response.get("hits", {}).get("hits", []):
+            if not isinstance(hit, dict):
+                continue
+            source = hit.get("_source")
+            storage_id = source.get("storage_id") if isinstance(source, dict) else None
+            if not isinstance(storage_id, str):
+                storage_id = hit.get("_id")
+            if isinstance(storage_id, str):
+                storage_ids.append(storage_id)
+        return storage_ids
+
+    @staticmethod
+    def _semantic_filter(query: MemoryQuery) -> dict[str, list[dict[str, Any]]]:
+        filters: list[dict[str, Any]] = []
+        must_not: list[dict[str, Any]] = []
+        if query.job_id:
+            filters.append({"term": {"job_id": query.job_id}})
+        if query.group:
+            filters.append({"term": {"group": query.group}})
+        if query.status:
+            filters.append({"term": {"status": query.status}})
+        if query.sensor_id:
+            filters.append({"term": {"sensor_ids": query.sensor_id}})
+        if query.record_type:
+            filters.append({"term": {"record_type": query.record_type}})
+        if query.record_id:
+            filters.append({"term": {"record_id": query.record_id}})
+        if query.parents_only or not query.include_children:
+            filters.append({"term": {"is_child": False}})
+
+        since = coerce_utc_instant(query.since)
+        until = coerce_utc_instant(query.until)
+        if since is not None or until is not None:
+            if query.time_field == "window":
+                if until is not None:
+                    filters.append({"range": {"window_start": {"lte": datetime_to_iso8601(until)}}})
+                if since is not None:
+                    filters.append(
+                        {
+                            "bool": {
+                                "should": [
+                                    {"range": {"window_end": {"gte": datetime_to_iso8601(since)}}},
+                                    {
+                                        "bool": {
+                                            "must_not": [{"exists": {"field": "window_end"}}],
+                                            "filter": [
+                                                {"range": {"window_start": {"gte": datetime_to_iso8601(since)}}}
+                                            ],
+                                        }
+                                    },
+                                ],
+                                "minimum_should_match": 1,
+                            }
+                        }
+                    )
+            else:
+                bounds: dict[str, str] = {}
+                if since is not None:
+                    bounds["gte"] = datetime_to_iso8601(since)
+                if until is not None:
+                    bounds["lte"] = datetime_to_iso8601(until)
+                filters.append({"range": {"created_at": bounds}})
+        return {"filter": filters, "must_not": must_not}
 
     def _ensure_compatible_index(self) -> None:
         try:
@@ -248,6 +334,14 @@ class ElasticsearchEmbeddingStore:
         memory_input = record.input
         window = memory_input.window if memory_input is not None else None
         sensors = memory_input.sensors if memory_input is not None else None
+        sensor_ids = list(
+            dict.fromkeys(
+                value
+                for sensor in sensors or []
+                for value in (sensor.id, sensor.info.get("name") if sensor.info is not None else None)
+                if isinstance(value, str) and value
+            )
+        )
         document: dict[str, Any] = {
             "storage_id": storage_id_for(record),
             "schema": EMBEDDING_SCHEMA,
@@ -260,7 +354,7 @@ class ElasticsearchEmbeddingStore:
             "status": record.job.status,
             "is_child": record.job.is_child,
             "created_at": datetime_to_iso8601(record.job.created_at),
-            "sensor_ids": [sensor.id for sensor in sensors or []],
+            "sensor_ids": sensor_ids,
         }
         if record.job.record_id is not None:
             document["record_id"] = record.job.record_id

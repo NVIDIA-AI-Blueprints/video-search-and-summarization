@@ -70,6 +70,7 @@ class _FakeES:
         self.docs: dict[str, dict[str, Any]] = {}
         self.indexed: list[str] = []
         self.last_body: dict[str, Any] | None = None
+        self.last_mget_ids: list[str] | None = None
 
     def index(self, *, index: str, id: str, document: dict[str, Any], refresh: str | None = None) -> dict[str, Any]:
         self.docs[id] = document
@@ -87,6 +88,19 @@ class _FakeES:
         self.last_body = body
         hits = [{"_id": doc_id, "_source": doc} for doc_id, doc in self.docs.items()]
         return {"hits": {"hits": hits}}
+
+    def mget(self, *, index: str, ids: list[str]) -> dict[str, Any]:
+        self.last_mget_ids = ids
+        return {
+            "docs": [
+                {
+                    "_id": doc_id,
+                    "found": doc_id in self.docs,
+                    **({"_source": self.docs[doc_id]} if doc_id in self.docs else {}),
+                }
+                for doc_id in reversed(ids)
+            ]
+        }
 
     def close(self) -> None:
         return None
@@ -136,6 +150,16 @@ def test_elasticsearch_get_missing_returns_none() -> None:
     store = ElasticsearchMemoryStore(endpoint="http://unused", client=_FakeES())
     assert store.get("missing") is None
     assert store.get_record("missing", "event", "x") is None
+
+
+def test_elasticsearch_get_many_uses_mget_and_preserves_input_order() -> None:
+    client = _FakeES()
+    store = ElasticsearchMemoryStore(endpoint="http://unused", client=client)
+    first = store.upsert(_parent("first", status="completed"))
+    second = store.upsert(_parent("second", status="completed"))
+
+    assert store.get_many(["second", "missing", "first", "second"]) == [second, first, second]
+    assert client.last_mget_ids == ["second", "missing", "first", "second"]
 
 
 def test_elasticsearch_list_before_anything_is_ingested_is_empty() -> None:

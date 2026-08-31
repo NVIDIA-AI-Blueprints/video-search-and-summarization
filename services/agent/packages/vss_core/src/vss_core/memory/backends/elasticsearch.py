@@ -14,6 +14,7 @@ own compound ``_id``. ``list_jobs`` returns parents only
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 import logging
 from typing import Any
@@ -109,6 +110,27 @@ class ElasticsearchMemoryStore:
         if not isinstance(source, dict):
             return None
         return _decode(source, storage_id)
+
+    def get_many(self, storage_ids: Sequence[str]) -> list[UnifiedMemoryRecord]:
+        """Batch-fetch canonical documents while preserving requested order."""
+        requested = list(storage_ids)
+        if not requested:
+            return []
+        try:
+            response = self._client.mget(index=self._index, ids=requested)
+        except ESNotFoundError:
+            return []
+        except (ESConnectionError, ESTransportError) as error:
+            raise BackendUnreachableError("elasticsearch", "batch get failed", cause=error) from error
+        by_id: dict[str, UnifiedMemoryRecord] = {}
+        for document in response.get("docs", []):
+            if not isinstance(document, dict) or document.get("found") is False:
+                continue
+            storage_id = document.get("_id")
+            source = document.get("_source")
+            if isinstance(storage_id, str) and isinstance(source, dict):
+                by_id[storage_id] = _decode(source, storage_id)
+        return [by_id[storage_id] for storage_id in requested if storage_id in by_id]
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         body = self._build_search_body(

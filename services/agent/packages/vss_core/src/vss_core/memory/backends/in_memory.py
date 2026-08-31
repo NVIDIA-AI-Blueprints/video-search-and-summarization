@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from ..models import UnifiedMemoryRecord
@@ -140,6 +141,10 @@ class InMemoryStore:
         record_id: str,
     ) -> UnifiedMemoryRecord | None:
         return self._records.get(make_storage_id(job_id=job_id, record_type=record_type, record_id=record_id))
+
+    def get_many(self, storage_ids: Sequence[str]) -> list[UnifiedMemoryRecord]:
+        """Return existing records in caller-supplied storage-ID order."""
+        return [record for storage_id in storage_ids if (record := self._records.get(storage_id)) is not None]
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         matched = [record for record in self._records.values() if _matches_query(record, query)]

@@ -18,6 +18,7 @@ from vss_core.memory.backends.elasticsearch_embeddings import ElasticsearchEmbed
 from vss_core.memory.backends.in_memory import InMemoryStore
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryService
+from vss_core.memory.store import MemoryQuery
 from vss_core.memory.store import storage_id_for
 
 MODEL = "embed-model"
@@ -98,6 +99,8 @@ class _FakeES:
         self.docs: dict[str, dict[str, Any]] = {}
         self.index_calls: list[str] = []
         self.update_calls: list[str] = []
+        self.search_hits: list[str] = []
+        self.search_body: dict[str, Any] | None = None
         self.indices = _Indices(self)
 
     def get(self, *, index: str, id: str, source_excludes: list[str] | None = None) -> dict[str, Any]:
@@ -123,6 +126,14 @@ class _FakeES:
             raise ESNotFoundError("not found", {}, {"_id": id})
         del self.docs[id]
         return {"result": "deleted"}
+
+    def search(self, *, index: str, body: dict[str, Any]) -> dict[str, Any]:
+        self.search_body = body
+        return {
+            "hits": {
+                "hits": [{"_id": storage_id, "_source": {"storage_id": storage_id}} for storage_id in self.search_hits]
+            }
+        }
 
     def close(self) -> None:
         return None
@@ -330,3 +341,81 @@ def test_bundle_finishes_writes_then_syncs_final_partial_parent_and_successful_d
     assert semantic.records[0].output is not None
     assert semantic.records[0].output.ext == {"event_count": 1}
     assert semantic.records[1].output is not None and semantic.records[1].output.answer == "second"
+
+
+def test_semantic_search_builds_filtered_knn_and_returns_ordered_storage_ids() -> None:
+    backend, client, _, _ = _backend()
+    client.mapping = backend.mapping
+    client.search_hits = ["job-2#event#event-2", "job-1"]
+    query = MemoryQuery(
+        text="forklift paraphrase",
+        job_id="job-1",
+        group="summary",
+        status="completed",
+        sensor_id="camera-1",
+        record_type="event",
+        record_id="event-1",
+        since="2026-08-31T10:00:00Z",
+        until="2026-08-31T12:00:00Z",
+        time_field="window",
+    )
+
+    assert backend.semantic_search(query, [0.1, 0.2, 0.3], 25) == ["job-2#event#event-2", "job-1"]
+    assert client.search_body is not None
+    assert client.search_body["size"] == 25
+    knn = client.search_body["knn"]
+    assert knn["field"] == "vector"
+    assert knn["query_vector"] == [0.1, 0.2, 0.3]
+    assert knn["k"] == knn["num_candidates"] == 25
+    filters = knn["filter"]["bool"]["filter"]
+    assert {"term": {"job_id": "job-1"}} in filters
+    assert {"term": {"group": "summary"}} in filters
+    assert {"term": {"status": "completed"}} in filters
+    assert {"term": {"sensor_ids": "camera-1"}} in filters
+    assert {"term": {"record_type": "event"}} in filters
+    assert {"term": {"record_id": "event-1"}} in filters
+    assert any("window_start" in str(item) for item in filters)
+    assert any("window_end" in str(item) for item in filters)
+
+
+@pytest.mark.parametrize(("parents_only", "include_children"), ((True, True), (False, False)))
+def test_semantic_search_filters_out_children(parents_only: bool, include_children: bool) -> None:
+    backend, client, _, _ = _backend()
+    client.mapping = backend.mapping
+
+    backend.semantic_search(
+        MemoryQuery(text="summary", parents_only=parents_only, include_children=include_children),
+        [0.1, 0.2, 0.3],
+        5,
+    )
+
+    assert client.search_body is not None
+    assert {"term": {"is_child": False}} in client.search_body["knn"]["filter"]["bool"]["filter"]
+
+
+def test_semantic_search_created_at_range_and_dimension_validation() -> None:
+    backend, client, _, _ = _backend()
+    client.mapping = backend.mapping
+
+    backend.semantic_search(
+        MemoryQuery(
+            text="summary",
+            since="2026-08-30T10:00:00Z",
+            until="2026-08-31T12:00:00Z",
+        ),
+        [0.1, 0.2, 0.3],
+        5,
+    )
+
+    assert client.search_body is not None
+    filters = client.search_body["knn"]["filter"]["bool"]["filter"]
+    assert {
+        "range": {
+            "created_at": {
+                "gte": "2026-08-30T10:00:00Z",
+                "lte": "2026-08-31T12:00:00Z",
+            }
+        }
+    } in filters
+    with pytest.raises(ConfigurationError, match="query embedding has 2 dimensions"):
+        backend.semantic_search(MemoryQuery(text="summary"), [0.1, 0.2], 5)

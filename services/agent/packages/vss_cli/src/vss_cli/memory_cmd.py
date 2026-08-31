@@ -248,6 +248,7 @@ def get_record(
 
 @memory.command("query")
 @click.option("--query", "text", default=None, help="Free-text match over memory content.")
+@click.option("--mode", type=click.Choice(("keyword", "semantic", "hybrid")), help="Override the retrieval strategy.")
 @click.option("--job-id")
 @click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
@@ -262,6 +263,7 @@ def get_record(
 @_output_options
 def query_records(
     text: str | None,
+    mode: str | None,
     job_id: str | None,
     group: str | None,
     status: str | None,
@@ -292,8 +294,16 @@ def query_records(
             until=until,
             time_field=time_field,
             limit=limit,
+            mode=mode,  # type: ignore[arg-type]
         )
-        records = _memory().service.query(query)
+        service = _memory().service
+        if mode in {"semantic", "hybrid"} and not service.semantic_retrieval_available:
+            click.echo(
+                "vss memory: warning: memory embeddings are disabled; falling back to keyword retrieval",
+                err=True,
+            )
+            query.mode = "keyword"
+        records = service.query(query)
     except ValueError as error:
         _fail("invalid input", error, Exit.INVALID_INPUT)
     except Exception as error:

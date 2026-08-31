@@ -139,6 +139,37 @@ def test_query_and_events_return_child_records(injected_memory: Memory) -> None:
     assert events[0]["description"] == "forklift entered aisle"
 
 
+def test_query_help_exposes_only_dynamic_retrieval_mode_override() -> None:
+    result = _invoke("query", "--help")
+    assert result.exit_code == 0
+    assert "--mode" in result.output
+    assert "keyword" in result.output
+    assert "semantic" in result.output
+    assert "hybrid" in result.output
+    for option in (
+        "--embedding-model",
+        "--embedding-endpoint",
+        "--embedding-index",
+        "--embedding-dimensions",
+        "--device",
+    ):
+        assert option not in result.output
+
+
+@pytest.mark.parametrize("mode", ("semantic", "hybrid"))
+def test_explicit_semantic_mode_warns_and_preserves_json_when_embeddings_disabled(
+    injected_memory: Memory,
+    mode: str,
+) -> None:
+    injected_memory.service.upsert(UnifiedMemoryRecord.model_validate(_event()))
+
+    result = _invoke("query", "--query", "forklift", "--mode", mode)
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["records"][0]["job"]["record_id"] == "event-1"
+    assert "embeddings are disabled" in result.stderr
+
+
 def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -> None:
     injected_memory.service.upsert(UnifiedMemoryRecord.model_validate(_parent()))
     result = _invoke("events", "--asset-id", "camera-1", "--match", "not present")
