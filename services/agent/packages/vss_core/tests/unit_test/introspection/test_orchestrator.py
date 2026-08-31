@@ -34,9 +34,16 @@ END = "2026-08-26T12:01:00Z"
 
 
 def _record(
-    *, record_id: str | None = "event-1", answer: str = "A forklift crossed the loading bay."
+    *,
+    record_id: str | None = "event-1",
+    query: str = "forklift",
+    answer: str = "A forklift crossed the loading bay.",
+    sensor: str = "camera-east",
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> UnifiedMemoryRecord:
-    start = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    start = start or datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    end = end or datetime(2026, 8, 26, 12, 1, tzinfo=UTC)
     return UnifiedMemoryRecord(
         job=JobInfo(
             job_id="search-1",
@@ -47,11 +54,11 @@ def _record(
             created_at=start,
         ),
         input=MemoryInput(
-            query="forklift",
-            sensors=[SensorInfo(id="camera-east")],
+            query=query,
+            sensors=[SensorInfo(id=sensor)],
             window=TimeWindow(
                 start=TimestampPoint(timestamp=start),
-                end=TimestampPoint(timestamp=datetime(2026, 8, 26, 12, 1, tzinfo=UTC)),
+                end=TimestampPoint(timestamp=end),
             ),
         ),
         output=MemoryOutput(answer=answer),
@@ -235,9 +242,99 @@ async def test_builds_internal_parent_child_query_with_all_request_selectors() -
     assert query.time_field == "window"
     assert query.include_children is True
     assert query.limit == 7
-    assert memory.queries[1].parents_only is True
-    assert memory.queries[1].job_id == "search-1"
+    parent_query = memory.queries[1]
+    assert parent_query.parents_only is True
+    assert parent_query.include_children is False
+    assert parent_query.job_id == "search-1"
+    assert parent_query.sensor_id == "camera-east"
+    assert parent_query.group == "search"
+    assert parent_query.time_field == "window"
+    assert parent_query.since is not None
+    assert parent_query.until is not None
+    assert parent_query.text is None
+    assert parent_query.record_id is None
     assert [record.job.is_child for record in judge.records] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_parent_expansion_does_not_add_out_of_scope_parents() -> None:
+    scoped_child = _record()
+    other_sensor_parent = _record(record_id=None, sensor="camera-west")
+    memory, _ = _memory(other_sensor_parent, scoped_child)
+    judge = _Judge(_decision(sufficient=True))
+
+    result = await introspect(
+        IntrospectionRequest(
+            query="forklift",
+            sensor="camera-east",
+            start_time=START,
+            end_time=END,
+        ),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert [record.job.record_id for record in judge.records] == ["event-1"]
+    assert all(record.input.sensors[0].id == "camera-east" for record in judge.records)
+
+
+@pytest.mark.asyncio
+async def test_parent_expansion_does_not_add_parents_outside_the_time_window() -> None:
+    scoped_child = _record()
+    earlier_parent = _record(
+        record_id=None,
+        start=datetime(2026, 8, 26, 10, 0, tzinfo=UTC),
+        end=datetime(2026, 8, 26, 10, 5, tzinfo=UTC),
+    )
+    memory, _ = _memory(earlier_parent, scoped_child)
+    judge = _Judge(_decision(sufficient=True))
+
+    result = await introspect(
+        IntrospectionRequest(
+            query="forklift",
+            sensor="camera-east",
+            start_time=START,
+            end_time=END,
+        ),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert [record.job.record_id for record in judge.records] == ["event-1"]
+
+
+@pytest.mark.asyncio
+async def test_parent_expansion_keeps_in_scope_parent_without_text_match() -> None:
+    child = _record()
+    parent = _record(record_id=None, query="shift notes", answer="Warehouse shift summary.")
+    memory, _ = _memory(parent, child)
+    judge = _Judge(_decision(sufficient=True))
+
+    result = await introspect(
+        IntrospectionRequest(
+            query="forklift",
+            sensor="camera-east",
+            start_time=START,
+            end_time=END,
+        ),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert [record.job.is_child for record in judge.records] == [True, False]
+    assert judge.records[1].output.answer == "Warehouse shift summary."
 
 
 @pytest.mark.asyncio

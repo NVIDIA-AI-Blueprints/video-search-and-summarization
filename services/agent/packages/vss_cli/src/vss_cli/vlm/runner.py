@@ -251,49 +251,28 @@ async def run_vlm_job(
     resolver = resolve_sensor_fn or resolve_sensor
     segments_reader = recorded_segments_fn or recorded_segments
     vst_url = str(deployment.base_url).rstrip("/")
-    sensor = await resolver(vst_url, request.sensor, timeout_seconds=float(timeout_seconds))
-    segments = await segments_reader(vst_url, sensor.stream_id, timeout_seconds=float(timeout_seconds))
-    if not segments:
-        from vss_core.vios import VIOSInvalidInputError
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
 
-        raise VIOSInvalidInputError(f"nothing is recorded for sensor {sensor.name!r}")
-    start_time, end_time = resolve_window(segments, request.start_time, request.end_time, sensor.kind)
+    def remaining_seconds() -> float:
+        left = deadline - loop.time()
+        if left <= 0:
+            raise TimeoutError()
+        return left
 
     owns_analyzer = analyzer is None
-    if analyzer is None:
-        analyzer, model = _production_analyzer(deployment, timeout_seconds)
-    else:
-        model = analyzer_model or type(analyzer).__name__
-
-    job_id = mint_job_id()
-    created_at = utc_now_iso()
+    sensor = None
+    start_time: str | None = None
+    end_time: str | None = None
+    job_id: str | None = None
+    created_at: str | None = None
+    input_data: Any = None
+    model = analyzer_model or (type(analyzer).__name__ if analyzer is not None else "")
     adapter = VLMAdapter()
-    params = {
-        "model": model,
-        "time_format": "iso",
-        "timeout_seconds": timeout_seconds,
-    }
-    input_data = adapter.build_input(
-        prompt=request.prompt,
-        intent=request.intent,
-        sensor_name=sensor.name,
-        sensor_type=sensor.kind,
-        sensor_id=sensor.sensor_id,
-        stream_id=sensor.stream_id,
-        start_time=start_time,
-        end_time=end_time,
-        params=params,
-    )
     persistence_error: str | None = None
-    if memory is not None:
-        try:
-            memory.service.upsert(adapter.submitted_record(job_id=job_id, created_at=created_at, input_data=input_data))
-        except Exception as error:
-            persistence_error = str(error)
-            memory = None
 
     def close(status: Literal["failed", "partial", "timeout"], detail: str) -> Literal["absent", "closed", "stale"]:
-        if memory is None:
+        if memory is None or job_id is None or created_at is None or input_data is None:
             return "absent"
         closed = mark_terminal(
             memory,
@@ -308,9 +287,64 @@ async def run_vlm_job(
         )
         return "closed" if closed else "stale"
 
+    def timeout_result(*, record: Literal["absent", "closed", "stale"]) -> VLMJobResult:
+        return VLMJobResult(
+            job_id=job_id or mint_job_id(),
+            status="timeout",
+            answer=None,
+            sensor_name=sensor.name if sensor is not None else request.sensor,
+            start_time=start_time or request.start_time,
+            end_time=end_time or request.end_time,
+            model=model or "vlm",
+            persisted=record == "closed",
+            record=record,
+            error=f"VLM job timed out after {timeout_seconds}s",
+            persistence_error=persistence_error,
+        )
+
     try:
         try:
             async with asyncio.timeout(timeout_seconds):
+                sensor = await resolver(vst_url, request.sensor, timeout_seconds=remaining_seconds())
+                segments = await segments_reader(vst_url, sensor.stream_id, timeout_seconds=remaining_seconds())
+                if not segments:
+                    from vss_core.vios import VIOSInvalidInputError
+
+                    raise VIOSInvalidInputError(f"nothing is recorded for sensor {sensor.name!r}")
+                start_time, end_time = resolve_window(segments, request.start_time, request.end_time, sensor.kind)
+
+                if analyzer is None:
+                    analyzer, model = _production_analyzer(deployment, max(1, int(remaining_seconds())))
+                elif not model:
+                    model = type(analyzer).__name__
+
+                job_id = mint_job_id()
+                created_at = utc_now_iso()
+                params = {
+                    "model": model,
+                    "time_format": "iso",
+                    "timeout_seconds": timeout_seconds,
+                }
+                input_data = adapter.build_input(
+                    prompt=request.prompt,
+                    intent=request.intent,
+                    sensor_name=sensor.name,
+                    sensor_type=sensor.kind,
+                    sensor_id=sensor.sensor_id,
+                    stream_id=sensor.stream_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    params=params,
+                )
+                if memory is not None:
+                    try:
+                        memory.service.upsert(
+                            adapter.submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
+                        )
+                    except Exception as error:
+                        persistence_error = str(error)
+                        memory = None
+
                 answer = await analyzer.analyze(
                     sensor_id=sensor.sensor_id,
                     start_timestamp=start_time,
@@ -318,24 +352,44 @@ async def run_vlm_job(
                     prompt=request.prompt,
                     time_format="iso",
                 )
+
+                success_record: Literal["absent", "closed", "stale"] = "absent"
+                persisted = False
+                if memory is not None:
+                    try:
+                        memory.service.upsert(
+                            adapter.terminal_record(
+                                job_id=job_id,
+                                created_at=created_at,
+                                status="completed",
+                                input_data=input_data,
+                                output=adapter.build_output(answer=answer, model=model),
+                            )
+                        )
+                        success_record = "closed"
+                        persisted = True
+                    except Exception as error:
+                        persistence_error = str(error)
+                        success_record = close("partial", f"completion persistence failed: {error}")
+                final_status: Literal["completed", "partial"] = "partial" if persistence_error else "completed"
+                return VLMJobResult(
+                    job_id=job_id,
+                    status=final_status,
+                    answer=answer,
+                    sensor_name=sensor.name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    model=model,
+                    persisted=persisted,
+                    record=success_record,
+                    persistence_error=persistence_error,
+                )
         except TimeoutError as error:
-            detail = f"VLM inference timed out after {timeout_seconds}s"
-            record = close("timeout", detail)
-            result = VLMJobResult(
-                job_id=job_id,
-                status="timeout",
-                answer=None,
-                sensor_name=sensor.name,
-                start_time=start_time,
-                end_time=end_time,
-                model=model,
-                persisted=record == "closed",
-                record=record,
-                error=detail,
-                persistence_error=persistence_error,
-            )
-            raise VLMJobError(result, error) from error
+            record = close("timeout", f"VLM job timed out after {timeout_seconds}s")
+            raise VLMJobError(timeout_result(record=record), error) from error
         except Exception as error:
+            if job_id is None or sensor is None or start_time is None or end_time is None:
+                raise
             record = close("failed", str(error))
             result = VLMJobResult(
                 job_id=job_id,
@@ -351,40 +405,8 @@ async def run_vlm_job(
                 persistence_error=persistence_error,
             )
             raise VLMJobError(result, error) from error
-
-        success_record: Literal["absent", "closed", "stale"] = "absent"
-        persisted = False
-        if memory is not None:
-            try:
-                memory.service.upsert(
-                    adapter.terminal_record(
-                        job_id=job_id,
-                        created_at=created_at,
-                        status="completed",
-                        input_data=input_data,
-                        output=adapter.build_output(answer=answer, model=model),
-                    )
-                )
-                success_record = "closed"
-                persisted = True
-            except Exception as error:
-                persistence_error = str(error)
-                success_record = close("partial", f"completion persistence failed: {error}")
-        final_status: Literal["completed", "partial"] = "partial" if persistence_error else "completed"
-        return VLMJobResult(
-            job_id=job_id,
-            status=final_status,
-            answer=answer,
-            sensor_name=sensor.name,
-            start_time=start_time,
-            end_time=end_time,
-            model=model,
-            persisted=persisted,
-            record=success_record,
-            persistence_error=persistence_error,
-        )
     finally:
-        if owns_analyzer:
+        if owns_analyzer and analyzer is not None:
             close_analyzer = getattr(analyzer, "aclose", None)
             if close_analyzer is not None:
                 await close_analyzer()

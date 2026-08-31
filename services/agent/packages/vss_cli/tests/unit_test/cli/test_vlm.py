@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from click.testing import CliRunner
@@ -231,6 +232,47 @@ def test_timeout_is_terminal_and_closes_record() -> None:
     assert caught.value.result.status == "timeout"
     assert caught.value.result.record == "closed"
     assert memory.service.list_jobs()[0].job.status == "timeout"
+
+
+def test_timeout_is_shared_across_validation_and_inference() -> None:
+    class _SlowAnalyzer(_Analyzer):
+        async def analyze(self, **kwargs: Any) -> str:
+            self.calls.append(kwargs)
+            await asyncio.sleep(0.8)
+            return self.answer
+
+    async def slow_sensor(*_args: Any, **_kwargs: Any) -> SensorRef:
+        await asyncio.sleep(0.8)
+        return await _sensor()
+
+    analyzer = _SlowAnalyzer()
+    started = time.monotonic()
+    with pytest.raises(VLMJobError) as caught:
+        _run(analyzer, resolver=slow_sensor, timeout_seconds=1)
+    elapsed = time.monotonic() - started
+
+    assert caught.value.result.status == "timeout"
+    assert caught.value.result.record == "absent"
+    assert elapsed < 1.5
+
+
+def test_later_phases_receive_remaining_timeout_not_a_fresh_budget() -> None:
+    seen: dict[str, float] = {}
+
+    async def tracking_sensor(*_args: Any, timeout_seconds: float, **_kwargs: Any) -> SensorRef:
+        seen["sensor"] = timeout_seconds
+        await asyncio.sleep(0.3)
+        return await _sensor()
+
+    async def tracking_segments(*_args: Any, timeout_seconds: float, **_kwargs: Any) -> list[tuple[str, str]]:
+        seen["segments"] = timeout_seconds
+        return SEGMENTS
+
+    _run(_Analyzer(), timeout_seconds=1, resolver=tracking_sensor, segments=tracking_segments)
+
+    assert seen["sensor"] <= 1
+    assert seen["segments"] < seen["sensor"]
+    assert seen["segments"] <= 0.8
 
 
 def test_invalid_window_never_calls_analyzer() -> None:

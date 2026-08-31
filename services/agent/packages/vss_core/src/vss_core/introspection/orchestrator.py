@@ -274,6 +274,11 @@ async def _retrieve_records(
             memory.query,
             MemoryQuery(
                 job_id=job_id,
+                sensor_id=query.sensor_id,
+                group=query.group,
+                since=query.since,
+                until=query.until,
+                time_field=query.time_field,
                 include_children=False,
                 parents_only=True,
                 limit=1,
