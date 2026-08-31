@@ -11,7 +11,7 @@ For **remote** VLMs, as long as the API is [OpenAI compatible](https://platform.
 
 When deploying with a local VLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:
 
-- **Default model:** `nvidia/cosmos3-nano-reasoner` (configured as a local NIM endpoint).
+- **Default model:** Local VLMs are served by RT-VLM. The Base, Alerts, and Live Video Search profiles use Cosmos3 Nano Reasoner BF16 (`nim_nvidia_cosmos3-nano-reasoner_bf16-final`); Search uses the FP8 checkpoint (`nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix`) to share the GPU with its critic workload. The `VLM_NAME` value is the model ID advertised by RT-VLM, not the checkpoint name.
 
 <Info>
 The Cosmos3 Reasoner NIM requires a **Personal API Key** (`NGC_CLI_API_KEY`).
@@ -20,21 +20,26 @@ Legacy NGC API keys will fail authentication.
 
 - **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
 
-- **Different local model:** Set `VLM_NAME` and `VLM_NAME_SLUG` in the selected profile `overrides.env` to use one of the supported model names:
+- **Different local model:** For a local VLM, configure RT-VLM rather than selecting a standalone NIM Compose profile. Set `VLM_NAME`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` together in the selected profile `overrides.env`.
 
-  - `nvidia/cosmos-reason2-8b`
-  - `Qwen/Qwen3-VL-8B-Instruct`
+  The supported model selections map to the following RT-VLM values:
+
+  | Model selection | `VLM_NAME` | `RTVI_VLM_MODEL_PATH` | `RTVI_VLM_MODEL_TO_USE` |
+  | --- | --- | --- | --- |
+  | `nvidia/cosmos-reason1-7b` | `nim_nvidia_cosmos-reason1-7b_1_1-fp8-dynamic` | `ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic` | `cosmos-reason1` |
+  | `nvidia/cosmos-reason2-8b` | `nim_nvidia_cosmos-reason2-8b_hf-0303` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-0303` | `cosmos-reason2` |
+  | `nvidia/cosmos3-reasoner` | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | `cosmos-reason3` |
+  | `nvidia/cosmos3-reasoner-fp8` | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` | `cosmos-reason3` |
+  | `Qwen/Qwen3-VL-8B-Instruct` | `Qwen3-VL-8B-Instruct` | `git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct` | `vllm-compatible` |
 
 <Note>
-Cosmos 3 Reasoner names are different depending on model size. In
-`deploy/docker/developer-profiles/dev-profile-base/.env`, for the nano
-model, set `VLM_NAME=nvidia/cosmos3-nano-reasoner` and
-`NIM_MODEL_SIZE=nano`. For the super model, set
-`VLM_NAME=nvidia/cosmos3-super-reasoner` and
-`NIM_MODEL_SIZE=super`. Set `VLM_NAME_SLUG=cosmos3-reasoner` for both.
+`nvidia/cosmos3-reasoner` is a supported selection name. For the current
+profiles it maps to the Cosmos3 Nano BF16 RT-VLM checkpoint above; it is not a
+direct `VLM_NAME` value. Use the FP8 selection for the smaller-footprint
+checkpoint, including the Search profile default.
 </Note>
 
-- **Verified models:** Only the default `nvidia/cosmos3-nano-reasoner` is verified for local deployment. For other models, ensure GPU memory meets requirements and refer to [VLM NIM documentation](https://docs.nvidia.com/nim/vision-language-models/1.7.0/support-matrix.html).
+- **Compatibility:** The profile defaults are the shipped local configurations. For another model, ensure GPU memory meets its requirements and refer to [VLM NIM documentation](https://docs.nvidia.com/nim/vision-language-models/1.7.0/support-matrix.html).
 
 - **Custom VLM weights:** Set `VLM_CUSTOM_WEIGHTS` to the path of a directory containing custom VLM weights. See [VLM Custom Weights](/vss/getting-started/prerequisites#vlm-custom-weights) in Prerequisites for download instructions.
 
