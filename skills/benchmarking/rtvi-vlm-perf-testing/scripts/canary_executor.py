@@ -198,6 +198,8 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
         startup_timeout_budget(manifest["stream_count"])
         + manifest["timeouts"]["ready"]
         + manifest["timeouts"]["benchmark"]
+        # Final readiness call, benchmark shutdown, compose ps, and service logs.
+        + 4 * RUNTIME_COMMAND_TIMEOUT
         + WATCHER_BASE_GRACE
         + cleanup_timeout_budget(manifest["stream_count"])
     )
