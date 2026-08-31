@@ -68,7 +68,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from osrb_compare import (  # noqa: E402
     DENYLISTED,
+    VERDICT_LICENSE_DRIFT,
+    VERDICT_NOT_APPROVED,
+    VERDICT_OSRB_CONDITIONAL,
+    VERDICT_OSRB_REFUSED,
     VERDICT_USAGE_DRIFT,
+    VERDICT_VERSION_DRIFT,
     canonical_package,
     is_permissive,
     load_conditions,
@@ -243,6 +248,68 @@ def build_triage_input(
         "new_unknowns": new_unknowns,
         "refused_or_conditional": refused_or_conditional,
         "removed": removed,
+    }
+
+
+# Package names the state comparison flags that are not third-party
+# distributions: NVIDIA first-party code, and the base-image / OS packages whose
+# licence lives inside a built image, not in any registry. They dominate the raw
+# NOT_APPROVED count and would drown the real gaps, so the repo-state summary
+# separates them out rather than listing them.
+_FIRST_PARTY_RE = re.compile(
+    r"^(nvidia-vss|vss[-_]|vss$|deep[-_]search|cv[-_]pipeline|gst[-_]video[-_]sei|"
+    r"vllm[-_]cosmos|nvidia-rag|tritonserver|triton[-_]python[-_]backend|pyds|"
+    r"pynvvideocodec)",
+    re.IGNORECASE,
+)
+_ARTIFACT_RE = re.compile(r"^\$\{|\.deb$|\.tar\.|^install\.|\.org$|^https?://")
+_IMAGE_LANGS = {"container", "deb", "apk"}
+
+
+def _not_approved_class(row: dict[str, str]) -> str:
+    package = row.get("package", "")
+    if _ARTIFACT_RE.search(package):
+        return "artifact"
+    if _FIRST_PARTY_RE.match(canonical_package(package)):
+        return "first_party"
+    if row.get("language", "") in _IMAGE_LANGS:
+        return "base_image"
+    return "third_party"
+
+
+def summarize_repo_state(compliance_rows: list[dict[str, str]]) -> dict:
+    """Whole-repo state vs the approved baseline, for the report-only section.
+
+    This is NOT the PR delta — it is every inventory row's verdict, so a
+    reviewer can see the refusals, conditions and licence disagreements that
+    predate this PR without downloading the compliance CSV. The NOT_APPROVED
+    pile is split so the ~40 genuinely-unapproved third-party packages are not
+    lost among base-image OS packages (which need an image SBOM, not an OSRB
+    submission) and first-party names.
+    """
+    counts: dict[str, int] = {}
+    for row in compliance_rows:
+        verdict = row.get("verdict", "").strip().upper()
+        counts[verdict] = counts.get(verdict, 0) + 1
+
+    def _rows(verdict: str) -> list[dict[str, str]]:
+        return [
+            r for r in compliance_rows
+            if r.get("verdict", "").strip().upper() == verdict
+        ]
+
+    na_class: dict[str, int] = {}
+    for row in _rows(VERDICT_NOT_APPROVED):
+        key = _not_approved_class(row)
+        na_class[key] = na_class.get(key, 0) + 1
+
+    return {
+        "counts": counts,
+        "refused": _rows(VERDICT_OSRB_REFUSED),
+        "conditional": _rows(VERDICT_OSRB_CONDITIONAL),
+        "license_drift": _rows(VERDICT_LICENSE_DRIFT),
+        "version_drift_count": counts.get(VERDICT_VERSION_DRIFT, 0),
+        "not_approved_class": na_class,
     }
 
 
@@ -795,10 +862,98 @@ def _risk_band_moved(row: dict[str, str]) -> bool:
     )
 
 
+def _render_repo_state(state: dict, run_url: str) -> list[str]:
+    """The whole-repo comparison, collapsed. Pre-existing state, not this PR.
+
+    A reviewer sees the refusals, conditions and licence disagreements that the
+    delta sections above never mention (because this PR did not introduce them)
+    without downloading the compliance CSV. Framed explicitly as repo state so
+    it is never read as something this PR must fix.
+    """
+    counts = state["counts"]
+    refused = state["refused"]
+    conditional = state["conditional"]
+    drift = state["license_drift"]
+    na = state["not_approved_class"]
+    actionable = (
+        len(refused) + len(conditional) + len(drift)
+        + state["version_drift_count"] + na.get("third_party", 0)
+    )
+    lines = [
+        "<details>",
+        f"<summary>Repo state vs the OSRB-approved baseline — "
+        f"{actionable} to review (pre-existing, not introduced by this PR)</summary>",
+        "",
+        "The whole repository measured against the approved baseline, not this "
+        "pull request's diff. Report-only; it never blocks. Full detail is in "
+        "the `osrb-compliance` artifact"
+        + (f" from [this run]({run_url})." if run_url else "."),
+        "",
+        "| verdict | rows |",
+        "|---|---|",
+    ]
+    for verdict in (
+        "OSRB_REFUSED", "OSRB_CONDITIONAL", "LICENSE_DRIFT",
+        "VERSION_DRIFT", "NOT_APPROVED", "MODULE_UNSUBMITTED",
+    ):
+        if counts.get(verdict):
+            lines.append(f"| {verdict} | {counts[verdict]} |")
+    lines.append("")
+    lines.append(
+        f"Of {counts.get('NOT_APPROVED', 0)} NOT_APPROVED: "
+        f"**{na.get('third_party', 0)} genuinely-unapproved third-party**, "
+        f"{na.get('base_image', 0)} base-image / OS packages (need an image SBOM, "
+        f"not an OSRB submission), {na.get('first_party', 0)} first-party names, "
+        f"{na.get('artifact', 0)} scanner artifacts."
+    )
+    lines.append("")
+
+    if refused:
+        lines.append("**Refused packages still present** — the most serious:")
+        lines.append("| module | detail |")
+        lines.append("|---|---|")
+        for row in refused:
+            lines.append(
+                f"| {markdown_cell(row.get('module', ''))} "
+                f"| {markdown_cell((row.get('notes', '') or '')[:160])} |"
+            )
+        lines.append("")
+
+    if conditional:
+        lines.append("**Conditional approvals shipping** (approval is not unconditional):")
+        lines.append("| package | module | condition |")
+        lines.append("|---|---|---|")
+        for row in conditional[:12]:
+            lines.append(
+                f"| {markdown_cell(row.get('package', ''))} "
+                f"| {markdown_cell(row.get('module', ''))} "
+                f"| {markdown_cell((row.get('notes', '') or '')[:120])} |"
+            )
+        lines.append("")
+
+    if drift:
+        lines.append("**Licence disagreements** (repo resolves a different licence than approved):")
+        lines.append("| package | module | repo licence | approved licence |")
+        lines.append("|---|---|---|---|")
+        for row in drift[:20]:
+            lines.append(
+                f"| {markdown_cell(row.get('package', ''))} "
+                f"| {markdown_cell(row.get('module', ''))} "
+                f"| {markdown_cell((row.get('license', '') or '')[:30])} "
+                f"| {markdown_cell((row.get('approved_license', '') or '')[:30])} |"
+            )
+        lines.append("")
+
+    lines.append("</details>")
+    lines.append("")
+    return lines
+
+
 def build_comment(
     triage: dict[str, list],
     results: dict,
     run_url: str = "",
+    repo_state: dict | None = None,
 ) -> str:
     """Render the PR comment. Pure: TriageInput + validated results in,
     markdown out; the caller decides where it goes. Everything is scrubbed
@@ -1035,6 +1190,10 @@ def build_comment(
         lines.append(f"_Removed dependencies (report-only): {removed}_")
         lines.append("")
 
+    # -- 5b. Repo state (report-only, pre-existing) ------------------------------
+    if repo_state:
+        lines.extend(_render_repo_state(repo_state, run_url))
+
     # -- 6. Footer ---------------------------------------------------------------
     lines.append("---")
     lines.append(
@@ -1180,7 +1339,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[osrb-triage] inventory.csv updated: {changed} row(s)",
                   file=sys.stderr)
 
-    comment = build_comment(triage, results, run_url=_default_run_url())
+    repo_state = summarize_repo_state(compliance_rows)
+    comment = build_comment(
+        triage, results, run_url=_default_run_url(), repo_state=repo_state
+    )
     Path(args.comment_out).write_text(comment, encoding="utf-8")
 
     verdicts_doc = {

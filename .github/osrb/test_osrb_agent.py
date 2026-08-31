@@ -732,5 +732,65 @@ class ScrubInternalTest(unittest.TestCase):
         ):
             self.assertEqual(agent.scrub_internal(text), text)
 
+
+class RepoStateSectionTest(unittest.TestCase):
+    """The collapsed repo-state section surfaces pre-existing findings.
+
+    The delta comment is scoped to what the PR changed, so on a tooling PR it
+    says 'nothing'. The refusals, conditions and licence disagreements that
+    predate the PR would then be invisible unless a reviewer downloaded the
+    compliance CSV. This section carries them, clearly framed as repo state.
+    """
+
+    def _state_rows(self):
+        def row(**kw):
+            base = {"package": "", "version": "1.0", "language": "python",
+                    "module": "services/x", "license": "", "approved_license": "",
+                    "notes": "", "usage_evidence": "declared", "source_file": ""}
+            base.update(kw)
+            return base
+        return [
+            row(verdict="OSRB_REFUSED", package="batch", module="services/rtvi/rt-vlm",
+                notes="comment-93: OSRB REFUSED this batch."),
+            row(verdict="OSRB_CONDITIONAL", package="mkl", notes="comment-15: needs attorney"),
+            row(verdict="LICENSE_DRIFT", package="arize-phoenix-otel",
+                license="Apache-2.0", approved_license="Elastic-2.0"),
+            row(verdict="NOT_APPROVED", package="real-thirdparty", language="python"),
+            row(verdict="NOT_APPROVED", package="curl", language="deb"),
+            row(verdict="NOT_APPROVED", package="pyds", language="python"),
+            row(verdict="NOT_APPROVED", package="${IMG}", language="container"),
+            row(verdict="APPROVED", package="fine"),
+        ]
+
+    def test_summary_classifies_not_approved(self) -> None:
+        st = agent.summarize_repo_state(self._state_rows())
+        self.assertEqual(st["not_approved_class"]["base_image"], 1)   # curl (deb)
+        self.assertEqual(st["not_approved_class"]["first_party"], 1)  # pyds
+        self.assertEqual(st["not_approved_class"]["artifact"], 1)     # ${IMG}
+        self.assertEqual(st["not_approved_class"]["third_party"], 1)  # real-thirdparty
+        self.assertEqual(len(st["refused"]), 1)
+        self.assertEqual(len(st["license_drift"]), 1)
+
+    def test_section_lists_refusals_conditions_and_drift(self) -> None:
+        st = agent.summarize_repo_state(self._state_rows())
+        comment = agent.build_comment({"new_deps": [], "license_changes": [],
+            "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
+            "removed": []}, {"validated": [], "rejected": [], "flagged": [],
+            "unverifiable": [], "not_triaged": []}, repo_state=st)
+        self.assertIn("Repo state vs the OSRB-approved baseline", comment)
+        self.assertIn("pre-existing, not introduced by this PR", comment)
+        self.assertIn("Refused packages still present", comment)
+        self.assertIn("arize-phoenix-otel", comment)
+        self.assertIn("Elastic-2.0", comment)
+        # the base-image rows are counted, not listed as actionable
+        self.assertIn("base-image / OS packages", comment)
+
+    def test_no_repo_state_means_no_section(self) -> None:
+        comment = agent.build_comment({"new_deps": [], "license_changes": [],
+            "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
+            "removed": []}, {"validated": [], "rejected": [], "flagged": [],
+            "unverifiable": [], "not_triaged": []}, repo_state=None)
+        self.assertNotIn("Repo state vs the OSRB-approved baseline", comment)
+
 if __name__ == "__main__":
     unittest.main()
