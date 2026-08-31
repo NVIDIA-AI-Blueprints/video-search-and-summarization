@@ -108,6 +108,32 @@ docker compose -f compose.yml \
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
 - `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
+<Note>
+The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
+You can change this model by selecting an option from the following table and
+setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
+in `overrides.env`.
+</Note>
+
+<a id="alert-verification-available-vlm-models"></a>
+
+**Available VLM Models**
+
+| Model | Name | Path |
+| --- | --- | --- |
+| CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_hf` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_hf` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+
+<Note>
+Super models have only been tested on RTX PRO 6000 and H100 with a single GPU dedicated to the VLM.
+
+NVFP4 models only work on Blackwell platforms.
+</Note>
+
 
 Set these required placeholder values in the existing assignments:
 
@@ -651,6 +677,19 @@ Deploy the VSS alerts verification profile on this DGX-SPARK machine with a remo
 Deploy the VSS alerts verification profile on this IGX-THOR machine with a remote LLM.
 Deploy the VSS alerts verification profile on this AGX-THOR machine with a remote LLM.
 ```
+
+The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+which VLM models are available during the deployment process, or request a different model
+directly in your deployment prompt:
+
+```text title="VLM model prompts"
+Which VLM models are available for the alerts profile?
+Deploy the VSS alerts verification profile with the Cosmos3 Super Reasoner FP8 VLM.
+```
+
+The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in `overrides.env` to the model
+you request. The same options and hardware constraints listed in
+[Available VLM Models](#alert-verification-available-vlm-models) apply.
 
 If you would like to modify the workflow to work with other videos or usecases, you can update the following files:
 
