@@ -11,18 +11,22 @@ For **remote** LLMs, as long as the API is [OpenAI compatible](https://platform.
 
 When deploying with a local LLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:
 
-- **Default model:** `nvidia/nvidia-nemotron-nano-9b-v2` (configured as a local NIM endpoint).
+- **Default model:** The local default is profile-specific. The Base, Live Video Search, and Search profiles use `nvidia/nemotron-3.5-lightning-30b-a3b`; the Alerts profile uses `nvidia/nvidia-nemotron-nano-9b-v2`. Each profile's `overrides.env` includes the matching `LLM_NAME` and `LLM_NAME_SLUG`.
 
 - **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
 
-- **Different local model:** Set `LLM_NAME` and `LLM_NAME_SLUG` in the selected profile `overrides.env` to use one of the supported model names:
+- **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile `overrides.env` to use one of the supported local models:
 
-  - `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`
-  - `nvidia/nemotron-3-nano`
-  - `nvidia/llama-3.3-nemotron-super-49b-v1.5`
-  - `openai/gpt-oss-20b`
+  | `LLM_NAME` | `LLM_NAME_SLUG` |
+  | --- | --- |
+  | `nvidia/nvidia-nemotron-nano-9b-v2` | `nvidia-nemotron-nano-9b-v2` |
+  | `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` | `nvidia-nemotron-nano-9b-v2-fp8` |
+  | `nvidia/nemotron-3-nano` | `nemotron-3-nano` |
+  | `nvidia/nemotron-3.5-lightning-30b-a3b` | `nemotron-3.5-lightning-30b-a3b` |
+  | `nvidia/llama-3.3-nemotron-super-49b-v1.5` | `llama-3.3-nemotron-super-49b-v1.5` |
+  | `openai/gpt-oss-20b` | `gpt-oss-20b` |
 
-- **Verified models:** Only the default `nvidia/nvidia-nemotron-nano-9b-v2` is verified for local deployment. For other models, ensure GPU memory meets requirements and refer to [LLM NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
+- **Compatibility:** The profile defaults are the shipped local configurations. For another model, ensure GPU memory meets its requirements and refer to [LLM NIM documentation](https://docs.nvidia.com/nim/large-language-models/latest/supported-models.html).
 
 - **GPU assignment:** Set `LLM_DEVICE_ID` to pin the local LLM to a specific GPU (e.g. when sharing with a local VLM). See the quickstart deploy tab-set for examples.
 
