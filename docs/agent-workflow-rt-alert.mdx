@@ -268,6 +268,50 @@ LLM_MODEL_TYPE=<nim-or-openai>
 </Tab>
 </Tabs>
 </Tab>
+<Tab title="GB300">
+<Tabs>
+<Tab title="Shared GPU">
+
+```ini
+HARDWARE_PROFILE=GB300
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=develop-latest-sbsa
+```
+</Tab>
+<Tab title="Dedicated GPU">
+
+```ini
+HARDWARE_PROFILE=GB300
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=develop-latest-sbsa
+MODE=2d_vlm
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=local
+LLM_DEVICE_ID=1
+VLM_MODE=local
+VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=GB300
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=develop-latest-sbsa
+MODE=2d_vlm
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+</Tabs>
+</Tab>
 <Tab title="RTXPRO6000BW">
 <Tabs>
 <Tab title="Shared GPU">
