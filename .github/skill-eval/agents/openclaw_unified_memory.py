@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 import shlex
 from typing import Any, ClassVar, override
@@ -15,17 +16,14 @@ from harbor.models.agent.context import AgentContext
 
 GROUP_PREFIX = "<!-- unified-memory-group\n"
 GROUP_SUFFIX = "\n-->"
+STRUCTURED_OUTPUT_SCRIPT = (
+    Path(__file__).resolve().parents[1] / "benchmark" / "structured_output.py"
+)
+REMOTE_STRUCTURED_OUTPUT_SCRIPT = "/logs/agent/structured_output.py"
 RESET_OPENCLAW_RUNTIME_CLI = (
     "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
 )
-PREDICTION_JQ_FILTER = r"""
-(.payloads[0].text | select(type == "string")) as $response
-|
-{
-  case_id: $case_id,
-  answer: (try ($response | fromjson) catch null)
-}
-"""
+RESPONSE_JQ_FILTER = '.payloads[0].text | select(type == "string")'
 
 
 def _group_envelope(instruction: str) -> dict[str, Any] | None:
@@ -45,11 +43,16 @@ def _group_envelope(instruction: str) -> dict[str, Any] | None:
     return envelope
 
 
-def _prediction_extractor_command(case_id: str) -> str:
+def _prediction_extractor_command(
+    case_id: str,
+    structured_output_script: str = REMOTE_STRUCTURED_OUTPUT_SCRIPT,
+) -> str:
     return (
-        "jq -ce "
+        f"jq -ce {shlex.quote(RESPONSE_JQ_FILTER)} "
+        f"| python3 {shlex.quote(structured_output_script)} "
+        "| jq -ce "
         f"--arg case_id {shlex.quote(case_id)} "
-        f"{shlex.quote(PREDICTION_JQ_FILTER)}"
+        f"{shlex.quote('{case_id: $case_id, answer: .}')}"
     )
 
 
@@ -99,6 +102,10 @@ class UnifiedMemoryOpenClaw(OpenClaw):
         await environment.upload_file(
             upload_path,
             f"{self._CONTAINER_LOGS_AGENT}/{self._UPLOAD_CONFIG_FILENAME}",
+        )
+        await environment.upload_file(
+            STRUCTURED_OUTPUT_SCRIPT,
+            REMOTE_STRUCTURED_OUTPUT_SCRIPT,
         )
         for command in _openclaw_setup_commands(self._SETUP_CLI):
             await self.exec_as_agent(environment, command=command, env=env)

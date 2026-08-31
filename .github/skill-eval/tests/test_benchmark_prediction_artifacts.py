@@ -7,6 +7,7 @@ import pytest
 from benchmark.prediction_artifacts import (
     PredictionArtifactError,
     load_prediction_artifacts,
+    parse_choice_answer,
 )
 
 
@@ -32,6 +33,31 @@ def test_load_prediction_artifacts_preserves_question_order(tmp_path) -> None:
 
     assert [item.case_id for item in observed] == list(expected)
     assert [item.answer.label for item in observed] == list("ABCD")
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    (
+        ('{"label":"A"}', "A"),
+        ('```json\n{"label":"B"}\n```', "B"),
+        ('Explanation before the answer.\n\n```json\n{"label":"C"}\n```', "C"),
+    ),
+)
+def test_parse_choice_answer_accepts_supported_json_forms(response, expected) -> None:
+    assert parse_choice_answer(response).label == expected
+
+
+@pytest.mark.parametrize(
+    "response",
+    (
+        "The answer is A.",
+        '```json\n{"label":"A"}\n```\ntrailing text',
+        '```json\n{"label":"A"}\n```\n```json\n{"label":"B"}\n```',
+    ),
+)
+def test_parse_choice_answer_rejects_ambiguous_responses(response) -> None:
+    with pytest.raises(ValueError):
+        parse_choice_answer(response)
 
 
 @pytest.mark.parametrize("unexpected_name", [None, "prediction-5.json"])

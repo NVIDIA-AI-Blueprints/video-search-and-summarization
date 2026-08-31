@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+from pathlib import Path
 import shlex
 import subprocess
 
+from benchmark import structured_output
 from agents.openclaw_unified_memory import (
     GROUP_PREFIX,
     GROUP_SUFFIX,
@@ -48,7 +50,7 @@ def _run_prediction_pipeline(
         "set -o pipefail; "
         f"printf %s {shlex.quote(encoded)} "
         f"| tee {shlex.quote(log_path)} "
-        f"| {_prediction_extractor_command(case_id)} "
+        f"| {_prediction_extractor_command(case_id, str(Path(structured_output.__file__)))} "
         f"> {shlex.quote(temporary_path)} "
         f"&& mv {shlex.quote(temporary_path)} {shlex.quote(prediction_path)}"
     )
@@ -83,9 +85,28 @@ def test_prediction_pipeline_preserves_complete_log(tmp_path) -> None:
     }
 
 
-def test_prediction_pipeline_marks_non_json_response_invalid(tmp_path) -> None:
+def test_prediction_pipeline_rejects_non_json_response(tmp_path) -> None:
     response = 'The answer is "B".'
     prediction_path = tmp_path / "prediction-1.json"
+    try:
+        _run_prediction_pipeline(
+            {"payloads": [{"text": response}]},
+            "video-1",
+            str(tmp_path / "openclaw.txt"),
+            str(tmp_path / "prediction-1.json.tmp"),
+            str(prediction_path),
+        )
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise AssertionError("invalid response unexpectedly produced a prediction")
+    assert not prediction_path.exists()
+
+
+def test_prediction_pipeline_accepts_final_fenced_json(tmp_path) -> None:
+    response = 'Explanation before the answer.\n\n```json\n{"label":"B"}\n```'
+    prediction_path = tmp_path / "prediction-1.json"
+
     _run_prediction_pipeline(
         {"payloads": [{"text": response}]},
         "video-1",
@@ -94,7 +115,10 @@ def test_prediction_pipeline_marks_non_json_response_invalid(tmp_path) -> None:
         str(prediction_path),
     )
 
-    assert json.loads(prediction_path.read_text(encoding="utf-8"))["answer"] is None
+    assert json.loads(prediction_path.read_text(encoding="utf-8")) == {
+        "case_id": "video-1",
+        "answer": {"label": "B"},
+    }
 
 
 def test_four_prediction_artifacts_are_numbered_in_order(tmp_path) -> None:

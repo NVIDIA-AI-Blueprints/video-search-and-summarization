@@ -9,11 +9,20 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from benchmark.domain import CaseAnswer
+from benchmark.domain import CaseAnswer, ChoiceAnswer
+from benchmark.structured_output import extract_json_payload
 
 
 class PredictionArtifactError(ValueError):
     """Raised when per-question prediction artifacts violate their contract."""
+
+
+def parse_choice_answer(response: str) -> ChoiceAnswer:
+    """Parse an LLM response into the canonical multiple-choice answer."""
+    payload = extract_json_payload(response)
+
+    # Enforce the ChoiceAnswer schema after removing transport formatting.
+    return ChoiceAnswer.model_validate_json(payload)
 
 
 def load_prediction_artifacts(
