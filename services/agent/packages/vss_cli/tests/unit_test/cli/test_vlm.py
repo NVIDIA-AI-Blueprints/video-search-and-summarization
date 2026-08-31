@@ -256,6 +256,50 @@ def test_timeout_is_shared_across_validation_and_inference() -> None:
     assert elapsed < 1.5
 
 
+def test_timeout_recovery_does_not_retry_persist_or_hang_on_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss_cli.vlm.runner as runner_mod
+
+    class _HangingCleanupAnalyzer(_Analyzer):
+        async def analyze(self, **kwargs: Any) -> str:
+            self.calls.append(kwargs)
+            await asyncio.sleep(2)
+            return self.answer
+
+        async def aclose(self) -> None:
+            await asyncio.sleep(10)
+
+    class _FailingTerminalStore(InMemoryStore):
+        def upsert(self, record: Any) -> Any:
+            if record.job.status == "timeout":
+                time.sleep(0.2)
+                raise BackendUnreachableError("elasticsearch", "offline")
+            return super().upsert(record)
+
+    analyzer = _HangingCleanupAnalyzer()
+    monkeypatch.setattr(runner_mod, "_production_analyzer", lambda *_args, **_kwargs: (analyzer, "test-vlm"))
+    memory = memory_mod.Memory(MemoryService(_FailingTerminalStore()), index="test-memory")
+
+    started = time.monotonic()
+    with pytest.raises(VLMJobError) as caught:
+        asyncio.run(
+            run_vlm_job(
+                VLMJobRequest(sensor="warehouse", start_time=START, end_time=END, prompt="What happened?"),
+                _deployment(),
+                memory=memory,
+                timeout_seconds=1,
+                resolve_sensor_fn=_sensor,
+                recorded_segments_fn=_segments,
+            )
+        )
+    elapsed = time.monotonic() - started
+
+    assert caught.value.result.status == "timeout"
+    assert caught.value.result.record == "stale"
+    assert elapsed < 3
+
+
 def test_later_phases_receive_remaining_timeout_not_a_fresh_budget() -> None:
     seen: dict[str, float] = {}
 

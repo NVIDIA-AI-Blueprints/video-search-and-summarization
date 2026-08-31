@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _TERMINAL_WRITE_ATTEMPTS = 3
 _TERMINAL_WRITE_BACKOFF_SECONDS = 0.5
+_CLEANUP_TIMEOUT_SECONDS = 1.0
 
 
 def _ulid() -> str:
@@ -274,6 +275,13 @@ async def run_vlm_job(
     def close(status: Literal["failed", "partial", "timeout"], detail: str) -> Literal["absent", "closed", "stale"]:
         if memory is None or job_id is None or created_at is None or input_data is None:
             return "absent"
+        attempts = _TERMINAL_WRITE_ATTEMPTS
+        backoff_seconds = _TERMINAL_WRITE_BACKOFF_SECONDS
+        # Past the shared deadline, persistence is one best-effort write. The
+        # usual retry/sleep would return after the documented maximum.
+        if deadline - loop.time() <= 0:
+            attempts = 1
+            backoff_seconds = 0
         closed = mark_terminal(
             memory,
             adapter,
@@ -282,8 +290,8 @@ async def run_vlm_job(
             input_data=input_data,
             status=status,
             message=detail,
-            attempts=_TERMINAL_WRITE_ATTEMPTS,
-            backoff_seconds=_TERMINAL_WRITE_BACKOFF_SECONDS,
+            attempts=attempts,
+            backoff_seconds=backoff_seconds,
         )
         return "closed" if closed else "stale"
 
@@ -409,7 +417,11 @@ async def run_vlm_job(
         if owns_analyzer and analyzer is not None:
             close_analyzer = getattr(analyzer, "aclose", None)
             if close_analyzer is not None:
-                await close_analyzer()
+                try:
+                    async with asyncio.timeout(_CLEANUP_TIMEOUT_SECONDS):
+                        await close_analyzer()
+                except Exception:
+                    pass
 
 
 __all__ = [
