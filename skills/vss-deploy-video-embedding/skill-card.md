@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when deploying, operating, integrating, or customizing the VSS 3.3.0 GA RT-Embed Video Embedding microservice, including custom BYOM embedding backends such as VideoPrism. <br>
+Use this skill when deploying, operating, integrating, or customizing the VSS RT-Embed Video Embedding microservice, including BYOM custom embedding backends with VideoPrism as an example. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying, operating, integrating, or customizing the VSS Video Embedding (RT-Embed) microservice to generate text and video embeddings using Cosmos-Embed1-448p or a custom BYOM backend such as VideoPrism for video search and summarization workflows. <br>
+Developers and engineers deploying, operating, integrating, or customizing the VSS Video Embedding (RT-Embed) microservice to generate text and video embeddings using Cosmos-Embed1-448p or a BYOM custom backend such as VideoPrism for video search and summarization workflows. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,7 +25,7 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 Risk: BYOM wrappers can fail at startup if required `BaseVlmModel` abstract methods are missing or model paths point to the wrong implementation. <br>
-Mitigation: Follow the VideoPrism BYOM checklist, validate `/v1/models`, and run focused unit/API checks before deployment. <br>
+Mitigation: Follow the custom model BYOM checklist, validate `/v1/models`, and run focused unit/API checks before deployment. <br>
 
 Risk: Video-only embedding models may not support text-to-video search semantics. <br>
 Mitigation: Require a compatible text encoder in the same embedding space or return a clear 4xx text-endpoint error. <br>
@@ -35,7 +35,7 @@ Mitigation: Require a compatible text encoder in the same embedding space or ret
 - [Integration Reference](references/integrate-vss-deploy-video-embedding.md) <br>
 - [REST API Reference](references/rest-api.md) <br>
 - [Environment Variable Matrix](references/environment.md) <br>
-- [VideoPrism BYOM Reference](references/byom-videoprism.md) <br>
+- [Custom Model BYOM Reference](references/byom-custom-model.md) <br>
 - [Troubleshooting Guide](references/troubleshooting.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>

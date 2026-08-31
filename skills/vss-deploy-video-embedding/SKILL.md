@@ -2,10 +2,10 @@
 name: vss-deploy-video-embedding
 description: >
   Use this skill when deploying, operating, integrating, or customizing the
-  VSS 3.3.0 GA RT-Embed Video Embedding microservice. Covers standalone
+  VSS RT-Embed Video Embedding microservice. Covers standalone
   Docker Compose deployment, the `/v1` REST API for text/video embeddings
   and live streams, Redis/Kafka/OTel integration, troubleshooting, and
-  bring-your-own-model (BYOM) custom embedding backends such as VideoPrism.
+  bring-your-own-model (BYOM) custom embedding backends, with VideoPrism as an example.
   Do not use for RT-CV, RT-VLM, VSS Agent, or general VSS deployment work
   that does not include RT-Embed.
 license: Apache-2.0
@@ -33,7 +33,7 @@ RT-Embed.
 
 ## Service Snapshot
 
-- **VSS 3.3.0 GA skill:** `vss-deploy-video-embedding`.
+- **Skill:** `vss-deploy-video-embedding`.
 - **Legacy 3.1 name:** RT-Embed.
 - **Compose service:** `rtvi-embed`.
 - **Container name:** `vss-rtvi-embed`.
@@ -56,7 +56,7 @@ do not duplicate full workflows from this top-level file.
 | Deploy, size, upgrade, roll back, or tear down standalone RT-Embed with the default Cosmos-Embed1 model | [`references/deploy-vss-deploy-video-embedding.md`](references/deploy-vss-deploy-video-embedding.md) |
 | Call RT-Embed APIs for files, text/video embeddings, live streams, model listing, health, metrics, metadata, or manifests | [`references/rest-api.md`](references/rest-api.md) |
 | Wire RT-Embed into another service or deployment with Redis, Kafka, OpenTelemetry, auth, storage, or env var mapping | [`references/integrate-vss-deploy-video-embedding.md`](references/integrate-vss-deploy-video-embedding.md) and [`references/environment.md`](references/environment.md) |
-| Add, wire, or validate a custom/BYOM embedding backend such as VideoPrism | [`references/byom-videoprism.md`](references/byom-videoprism.md) |
+| Add, wire, or validate a custom/BYOM embedding backend, with VideoPrism as an example | [`references/byom-custom-model.md`](references/byom-custom-model.md) |
 | Debug readiness, model/cache startup, permissions, Redis/Kafka reachability, API failures, or observability | [`references/troubleshooting.md`](references/troubleshooting.md) |
 
 Selection rules:
@@ -64,7 +64,7 @@ Selection rules:
 - For normal RT-Embed or Cosmos-Embed1 deployment, use the deployment reference;
   say this is the default deployment path and not the BYOM/custom model
   workflow.
-- For VideoPrism, custom embedding models, or model implementation path questions,
+- For BYOM, custom embedding models, VideoPrism examples, or model implementation path questions,
   use the BYOM reference first, then deployment/API references only as needed.
 - For direct endpoint calls, use the API reference and reuse deployment context
   only when the service is not already running.
@@ -100,8 +100,8 @@ Selection rules:
   and Compose snippets live in [`references/integrate-vss-deploy-video-embedding.md`](references/integrate-vss-deploy-video-embedding.md).
 - **Environment matrix:** host-to-container renames, optional volumes, and
   secret-sensitive variables live in [`references/environment.md`](references/environment.md).
-- **BYOM details:** VideoPrism/custom model contract, Docker/Helm overrides,
-  model path variables, and validation live in [`references/byom-videoprism.md`](references/byom-videoprism.md).
+- **BYOM details:** custom model contract, Docker/Helm overrides, model path
+  variables, and VideoPrism example validation live in [`references/byom-custom-model.md`](references/byom-custom-model.md).
 - **Troubleshooting details:** common startup, cache, permission, bus, and API
   failures live in [`references/troubleshooting.md`](references/troubleshooting.md).
 
@@ -114,5 +114,5 @@ Selection rules:
 | [references/rest-api.md](references/rest-api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
 | [references/integrate-vss-deploy-video-embedding.md](references/integrate-vss-deploy-video-embedding.md) | Integration reference: peers, inputs/outputs, env vars, network, example Compose snippet. |
 | [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
-| [references/byom-videoprism.md](references/byom-videoprism.md) | BYOM reference: VideoPrism/custom model contract, path overrides, Docker/Helm wiring, and validation checklist. |
+| [references/byom-custom-model.md](references/byom-custom-model.md) | BYOM reference: custom model contract, path overrides, Docker/Helm wiring, and VideoPrism example validation checklist. |
 | [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |

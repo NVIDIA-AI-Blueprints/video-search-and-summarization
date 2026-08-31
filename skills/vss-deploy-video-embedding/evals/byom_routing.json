@@ -14,10 +14,10 @@
   },
   "expects": [
     {
-      "query": "What skill should I use to integrate VideoPrism as a custom BYOM backend for RT-Embed 3.3.0? Do not deploy anything; just explain the route and key files.",
+      "query": "What skill should I use to integrate a custom BYOM backend for RT-Embed, for example VideoPrism? Do not deploy anything; just explain the route and key files.",
       "checks": [
-        "The agent selects or loads `vss-deploy-video-embedding` and uses its BYOM/VideoPrism guidance.",
-        "The answer identifies VideoPrism as a bring-your-own-model / custom RT-Embed model integration task.",
+        "The agent selects or loads `vss-deploy-video-embedding` and uses its custom model BYOM guidance.",
+        "The answer identifies the request as a bring-your-own-model / custom RT-Embed model integration task, with VideoPrism only as an example backend.",
         "The answer names the key RT-Embed BYOM hooks: `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, and `MODEL_REPOSITORY_SCRIPT_PATH`.",
         "The answer points to the custom model implementation area under `services/rtvi/rt-embed/src/models/custom/samples/`.",
         "The agent does not run Docker, deploy services, pull images, or expose credential values."

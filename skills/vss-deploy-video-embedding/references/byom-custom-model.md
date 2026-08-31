@@ -1,7 +1,8 @@
-# VideoPrism BYOM For RT-Embed
+# Custom Model BYOM For RT-Embed
 
-This reference guides an agent through integrating a VideoPrism-style embedding
-backend with the VSS RT-Embed 3.3.0 code path.
+This reference guides an agent through integrating a custom embedding backend
+with RT-Embed. It uses VideoPrism as the worked example, but the same BYOM
+contract applies to other custom text/video embedding models.
 
 ## 1. Start From The Existing Custom Model Pattern
 
@@ -23,9 +24,10 @@ MODEL_REPOSITORY_SCRIPT_PATH
 The implementation path must contain `inference.py`. The dynamic loader imports
 that module and instantiates the `BaseVlmModel` subclass.
 
-## 2. Add The VideoPrism Model Directory
+## 2. Add The Custom Model Directory
 
-Create:
+Create a model-specific directory under the custom samples tree. For example,
+a VideoPrism wrapper can live at:
 
 ```bash
 services/rtvi/rt-embed/src/models/custom/samples/videoprism/
@@ -43,15 +45,17 @@ Optimized version:
 inference.py
 create_triton_model_repo.py
 triton_model_repo/video_embeddings/config.pbtxt
-triton_model_repo/text_embeddings/config.pbtxt   # only if VideoPrism has text encoder support
+triton_model_repo/text_embeddings/config.pbtxt   # only if the model has text encoder support
 ```
 
 ## 3. Implement `inference.py`
 
-Mirror the shape of the Cosmos sample:
+Mirror the shape of the Cosmos sample. The skeleton below uses VideoPrism names
+only as an example; rename the class, environment variables, and model methods
+for the custom backend you are integrating:
 
 - Import `BaseVlmModel`, `InputConfig`, `VlmGenerationConfig`, `VlmModelOutput`, and `ChunkInfo`.
-- Load the VideoPrism processor/model in `_initialize_model`.
+- Load the custom model processor/model in `_initialize_model`.
 - Implement `model_name`.
 - Implement `can_batch`.
 - Implement all remaining `BaseVlmModel` abstract methods:
@@ -175,19 +179,19 @@ RT-Embed exposes both:
 - `/v1/generate_text_embeddings`
 
 Video search requires video and text embeddings in the same vector space. If the
-VideoPrism model being integrated is video-only, choose one of these explicit
+custom model being integrated is video-only, choose one of these explicit
 behaviors:
 
 1. Add a route-level validation guard that returns a clear 4xx error for text
    requests with a message like
-   `VideoPrism BYOM text embeddings are not configured`.
-2. Pair VideoPrism with a compatible text encoder and guarantee both endpoints
+   `Custom BYOM text embeddings are not configured`.
+2. Pair the custom model with a compatible text encoder and guarantee both endpoints
    return the same embedding dimension and semantic space.
 
 Do not silently return zero vectors, random vectors, or embeddings from an
 unrelated text model.
 
-For a video-only VideoPrism backend, do not rely on an exception thrown inside
+For a video-only custom backend, do not rely on an exception thrown inside
 `generate(...)`, `rtvi_stream_handler.generate_text_embeddings(...)`, the model
 pipeline, or the failed-request response path to become the user-facing
 response. Those locations cross executor/request-status boundaries and can be
@@ -227,11 +231,12 @@ checkpoint and exits successfully.
 
 ## 6. Wire Docker Compose
 
-For local Compose validation:
+For local Compose validation, set the standard RT-Embed deployment values plus
+the custom model overrides. The example below uses VideoPrism paths:
 
 ```bash
 export VSS_RT_EMBED_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
-# Pin a published RT-Embed image tag for the VSS 3.3.0 code line.
+# Pin a published RT-Embed image tag when needed; develop uses develop-latest by default.
 export VSS_RT_EMBED_TAG="${VSS_RT_EMBED_TAG:-develop-latest}"
 export RTVI_EMBED_PORT=8017
 export VSS_DATA_DIR="${PWD}/.standalone-data"
@@ -261,7 +266,8 @@ docker compose -f rtvi-embed-docker-compose.yml \
 
 ## 7. Wire Helm
 
-Set these `rtvi-embed` chart values:
+Set these `rtvi-embed` chart values for the custom backend. The example below
+uses VideoPrism paths:
 
 ```yaml
 modelPath: "git:https://huggingface.co/<org>/<videoprism-checkpoint>"
@@ -337,11 +343,11 @@ If the BYOM wrapper adds new behavior, add tests for:
 
 ## 10. Completion Criteria
 
-The VideoPrism BYOM integration is ready when:
+The custom model BYOM integration is ready when:
 
 - `inference.py` loads from `MODEL_IMPLEMENTATION_PATH`.
-- `/v1/models` advertises the VideoPrism model id.
+- `/v1/models` advertises the custom model id.
 - Video embeddings return non-empty numeric vectors with a stable dimension.
 - Text endpoint behavior is explicitly supported or explicitly rejected.
 - Compose and Helm can set the three model path variables.
-- Cold-start logs clearly show the VideoPrism path, not the Cosmos sample path.
+- Cold-start logs clearly show the custom implementation path, not the Cosmos sample path.
