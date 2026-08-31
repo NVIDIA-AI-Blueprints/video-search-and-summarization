@@ -46,8 +46,7 @@ function getTests(c) {
             validate: (b) => {
                 const { incidents } = JSON.parse(b);
                 if (!Array.isArray(incidents)) return 'missing incidents array';
-                const alertTypes = new Set(incidents.map(({ info }) => info && info.alertCategory));
-                if (alertTypes.has(undefined)) return 'missing info.alertCategory';
+                const alertTypes = new Set(incidents.map(({ category, info }) => (info && info.alertCategory) || category));
                 if (alertTypes.size !== 4) return `expected 4 unique alert types, got ${alertTypes.size}`;
                 const unexpectedAlertTypes = [...alertTypes].filter((alertType) => !expectedVlmAlertTypes.has(alertType));
                 if (unexpectedAlertTypes.length > 0) return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}`;

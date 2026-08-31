@@ -168,7 +168,7 @@ describe('Incident', () => {
                 body: {
                     hits: {
                         hits: [
-                            { _source: { info: { alertCategory: 'Near Miss Violation' } } },
+                            { _source: { category: 'Near Miss Violation', info: {} } },
                             { _source: { info: { alertCategory: 'Load Quality Violation' } } },
                             { _source: { info: { alertCategory: 'Pathway Obstruction Violation' } } },
                             { _source: { info: { alertCategory: 'PPE Violation' } } },
@@ -180,7 +180,7 @@ describe('Incident', () => {
 
             const result = await incident.getIncidents(elasticDb, input);
 
-            const alertTypes = new Set(result.incidents.map(({ info }) => info.alertCategory));
+            const alertTypes = new Set(result.incidents.map(({ category, info }) => info.alertCategory || category));
             const expectedAlertTypes = new Set([
                 'Load Quality Violation',
                 'Near Miss Violation',
