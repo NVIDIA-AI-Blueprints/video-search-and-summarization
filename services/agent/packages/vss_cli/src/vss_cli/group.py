@@ -300,6 +300,23 @@ class CommandGroup(ABC):
             ctx.memory = memory_mod.build(ctx.deployment)
         return ctx.memory
 
+    @final
+    def persist_memory(self, ctx: Context, *, no_persist: bool) -> Any:
+        """Return the memory store when the deployment policy says to persist, else None.
+
+        Centralises the effective-persist check so individual commands do not
+        need to import or call :func:`vss_cli.memory_policy.effective_persist`
+        directly.  The policy is: persist iff ``memory.enabled`` and
+        ``memory.persist_by_default`` are both true in the deployment config
+        *and* ``--no-persist`` was not supplied.
+        """
+        from vss_cli.memory_policy import effective_persist
+
+        deployment = ctx.deployment
+        if not effective_persist(deployment, no_persist=no_persist):
+            return None
+        return self.memory(ctx)
+
     def status(self, job_id: str, ctx: Context) -> Result:
         return Result(body=self.memory(ctx).status(self.name, job_id), job_id=job_id)
 

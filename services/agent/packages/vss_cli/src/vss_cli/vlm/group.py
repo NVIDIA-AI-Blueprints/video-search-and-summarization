@@ -343,9 +343,7 @@ class VlmGroup(CommandGroup):
             model_params=model_params,
         )
 
-        from vss_cli.memory_policy import effective_persist
-
-        memory = self.memory(ctx) if effective_persist(deployment, no_persist=options.no_persist) else None
+        memory = self.persist_memory(ctx, no_persist=options.no_persist)
 
         # Build and send the VLM request.
         request_payload = _build_vlm_request(
