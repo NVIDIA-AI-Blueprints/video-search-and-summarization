@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Redis Streams as BOTH the source and the VLM-enhanced sink. Kafka is left out
+# of the event bridge entirely so the test fails if any part of the pipeline
+# still reaches for a broker it was not given.
+
+ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+vst_config:
+  base_url: "http://127.0.0.1:30888"
+  sensor_list_endpoint: "/vst/api/v1/live/streams"
+  segment_anchor: "end"
+  segment_duration_seconds: 10
+  add_overlay: false
+  storage:
+    base_url: "http://127.0.0.1:30888"
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  db: 0
+  maxlen: 1000
+
+vlm:
+  base_url: "http://127.0.0.1:18081/v1"
+  model: "nvidia/cosmos-reason2-8b"
+  max_tokens: 256
+  min_pixels: 1568
+  max_pixels: 345600
+  num_frames: 18
+  enable_sampling: false
+  sampling_fps: 4
+
+event_bridge:
+  sourceType: "redisStream"
+  sinkType: "redisStream"
+
+  redis_source:
+    streams:
+      incident: "mdx-incidents"
+      alert: "mdx-alerts"
+    consumer_group: "alert-bridge-vlm-group-p1-redis"
+    consumer_config:
+      count: 10
+      block_time: 100
+      # Read from the beginning: the harness starts Alert MS before the test
+      # publishes, but a '$' group created at boot would also work. '0-0' keeps
+      # the test independent of that timing.
+      start_id: "0-0"
+
+  redis_sink:
+    streams:
+      enhanced_anomaly: "alert-bridge-enhanced-alerts"
+      incidents: "alert-bridge-incidents"
+
+prompt:
+  prefer_payload_prompt: true
+  override_prompts_on_start: true
+
+alert_type_config_file: "alert_type_config.json"
+
+alert_agent:
+  num_workers: 1
+  max_allowed_stream_size: 2
+  default_stream_interval: 1
+  vst_pass_through_mode: false
+  chunk_size: 1
+  event_filters:
+    dedup_ttl_seconds: 3
+    end_time_in_dedup_key_categories: []
+    protect_confirmed_verdicts:
+      enabled: false
+      ttl_seconds: 600
+
+elastic:
+  enabled: true
+  hosts:
+    - http://127.0.0.1:9200
+  index_name: "mdx-vlm-incidents"
+
+vlm_enhanced_sink:
+  type: "redisStream"
+  incident:
+    redisStream:
+      stream: "mdx-vlm-incidents"
+      message_type: "incident"
+      key_field: "sensorId"
+  alert:
+    redisStream:
+      stream: "mdx-vlm-alerts"
+      message_type: "alert"
+      key_field: "sensor.id"
+
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"

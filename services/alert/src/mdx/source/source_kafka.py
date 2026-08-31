@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -21,71 +20,17 @@ from typing import Any, Callable, Dict, List, Optional
 
 from mdx.kafka_message_broker import KafkaMessageBroker
 from mdx.source.source_base import SourceBase
+from mdx.source.source_utils import record_key_alignment
 from mdx.stream_message import StreamMessage
 
-# Record-key alignment guardrail (guarded so a minimal env cannot
-# break the consume path).
+# Rebalance accounting reports through the module directly rather than a
+# source_utils helper, because the counter it feeds is Kafka-specific. Guarded
+# so a minimal environment without the metrics package cannot break the consume
+# path.
 try:  # pragma: no cover - exercised indirectly
     from metrics import recorder as _metrics
 except Exception:  # pragma: no cover
     _metrics = None
-
-
-def _classify_key_alignment(key: Any, value: Any) -> str:
-    """Classify whether a Kafka record ``key`` aligns with the payload sensorId.
-
-    Dedup determinism relies on the producer keying records by ``sensorId``
-    so a cohort always lands on one consumer (the partition-key contract).
-    Returns ``"yes"`` when the record key matches the payload's sensorId,
-    ``"no"`` when it clearly does not, and ``"unknown"`` when it cannot be
-    determined (missing key, non-JSON/protobuf payload). Best-effort and
-    fully defensive — never raises.
-    """
-    try:
-        if key is None:
-            return "unknown"
-        key_str = key.decode("utf-8") if isinstance(key, (bytes, bytearray)) else str(key)
-        key_str = key_str.strip()
-        if not key_str:
-            return "unknown"
-        if isinstance(value, (bytes, bytearray)):
-            try:
-                value = value.decode("utf-8")
-            except Exception:
-                return "unknown"
-        if isinstance(value, str):
-            try:
-                value = json.loads(value)
-            except Exception:
-                return "unknown"
-        if not isinstance(value, dict):
-            return "unknown"
-        # Incident payloads carry top-level ``sensorId``; alert/anomaly
-        # payloads carry the id nested under ``sensor.id`` (mirrors the
-        # anomaly cohort-key builder). Support both so the guardrail covers
-        # both cohort classes (the partition-key contract).
-        sensor_id = value.get("sensorId")
-        if not sensor_id:
-            sensor = value.get("sensor")
-            if isinstance(sensor, dict):
-                sensor_id = sensor.get("id")
-        if not sensor_id:
-            return "unknown"
-        # Producer keys records by sensorId; every cohort key is a superset
-        # beginning with sensorId, so alignment holds when the record key is
-        # (or begins with) the payload sensorId.
-        return "yes" if key_str == str(sensor_id) or key_str.startswith(str(sensor_id)) else "no"
-    except Exception:
-        return "unknown"
-
-
-def _record_key_alignment(key: Any, value: Any) -> None:
-    if _metrics is None:
-        return
-    try:
-        _metrics.inc_record_key_alignment(_classify_key_alignment(key, value))
-    except Exception:  # pragma: no cover - metrics must never break consume
-        pass
 
 
 class MockKafkaMessage:
@@ -394,7 +339,7 @@ class SourceKafka(SourceBase):
                             earliest_kafka_ts_ms = msg[2]
                     # Surface producer-side partition-key drift.
                     if len(msg) >= 2:
-                        _record_key_alignment(msg[0], msg[1])
+                        record_key_alignment(msg[0], msg[1])
 
         # Capture timestamp AFTER all messages consumed from all topics
         kafka_consumed_at = datetime.now(timezone.utc).isoformat()

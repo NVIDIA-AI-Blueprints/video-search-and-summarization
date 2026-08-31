@@ -15,6 +15,7 @@
 
 """Resolution and validation of alert_agent.processes."""
 
+import time
 from unittest.mock import patch
 
 import pytest
@@ -233,6 +234,68 @@ class TestAwaitSourcePartitions:
     def test_the_timeout_message_names_the_topics(self, monkeypatch):
         self._counts(monkeypatch, [None])
         with pytest.raises(RuntimeError, match="mdx-incidents"):
+            await_source_partitions({}, required=2, timeout=0.05, interval=0.01)
+
+
+class TestATransportWithNoPartitionsIsNotWaitedFor:
+    """A wait for something that cannot exist is spent, not merely wasted.
+
+    Everything this function does is Kafka topic metadata, and the only signal
+    it has for "not readable yet" is the same empty answer a Redis source gives
+    forever. So it waited out the whole pre-join budget, reported that it could
+    not read a partition count, and left the VLM warmup with nothing -- while
+    ``/health`` answered 503 throughout. At more than one process the same
+    answer is fatal, so a Redis deployment asking for four pipelines could not
+    start at all, though a Redis consumer group has no such ceiling.
+    """
+
+    REDIS = {"event_bridge": {"sourceType": "redisStream"}}
+
+    @staticmethod
+    def _never_readable(monkeypatch):
+        """Metadata that stays unreadable, as it does for every non-Kafka source."""
+        calls = []
+
+        def fake(config, timeout=10.0):
+            calls.append(timeout)
+            return None
+
+        monkeypatch.setattr(process_scaling, "source_partitions_by_topic", fake)
+        return calls
+
+    def test_a_redis_source_returns_at_once(self, monkeypatch):
+        calls = self._never_readable(monkeypatch)
+        started = time.monotonic()
+        assert await_source_partitions(self.REDIS, required=1, timeout=30.0) == {}
+        assert time.monotonic() - started < 1.0
+        # Not even one read: there are no topics to read metadata for.
+        assert calls == []
+
+    def test_several_processes_are_allowed_on_a_transport_without_partitions(
+        self, monkeypatch,
+    ):
+        self._never_readable(monkeypatch)
+        assert await_source_partitions(self.REDIS, required=4, timeout=30.0) == {}
+
+    @pytest.mark.parametrize("spelling", ["redisStream", "redis_stream", "REDIS", "console"])
+    def test_every_non_kafka_spelling_is_recognized(self, monkeypatch, spelling):
+        self._never_readable(monkeypatch)
+        config = {"event_bridge": {"sourceType": spelling}}
+        assert await_source_partitions(config, required=2, timeout=30.0) == {}
+
+    def test_kafka_still_waits(self, monkeypatch):
+        """The only behaviour that must not change is the one that was right."""
+        self._never_readable(monkeypatch)
+        with pytest.raises(RuntimeError, match="within"):
+            await_source_partitions(
+                {"event_bridge": {"sourceType": "kafka"}},
+                required=2, timeout=0.05, interval=0.01,
+            )
+
+    def test_an_unnamed_source_type_still_waits(self, monkeypatch):
+        """The default deployment is Kafka and must reach the wait."""
+        self._never_readable(monkeypatch)
+        with pytest.raises(RuntimeError, match="within"):
             await_source_partitions({}, required=2, timeout=0.05, interval=0.01)
 
 

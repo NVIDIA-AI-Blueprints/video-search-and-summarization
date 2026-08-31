@@ -106,7 +106,7 @@ from handlers.async_dispatch_mixin import (
 from handlers.async_external_io_mixin import AsyncExternalIOMixin
 from handlers.async_vlm_mode_mixin import AsyncVLMModeMixin
 from handlers.event_loop_pipeline_mixin import EventLoopPipelineMixin
-from utils.event_utils import normalize_alert_message, is_alert
+from utils.event_utils import normalize_alert_message, is_alert, stamp_event_kind
 from utils.partition_in_flight import DEFAULT_DRAIN_TIMEOUT, PartitionInFlight
 from utils import startup_deadline
 from utils import fleet_state
@@ -132,6 +132,14 @@ WATCHDOG_MARGIN_SECONDS = 5.0
 # the container is timing, and a client that will not close is not worth the
 # whole grace period.
 CLIENT_CLOSE_TIMEOUT = 5.0
+
+# How often the consume loop refreshes the published readiness. Kafka
+# republishes on its rebalance callbacks; Redis has no equivalent event, so
+# without a timer the state published at boot would stand for the life of the
+# process and a broker that went away afterwards would keep reporting healthy.
+# One second is the supervisor's own poll interval, and readiness is not worth
+# resolving finer than the thing that reads it.
+READINESS_REPUBLISH_SECONDS = 5.0
 from utils.process_supervisor import DRAIN_SECONDS, ProcessSupervisor
 from utils.url_transformer import transform_video_url, is_vlm_local
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
@@ -398,6 +406,12 @@ class AnomalyEnhancer(
         # thread, so a per-consumer bound multiplies by the topic count against
         # a poll interval that does not.
         self._rebalance_drain_deadline: Optional[float] = None
+        # What the consume loop's readiness timer calls. Left None here and set
+        # by the multi-process child entry point, which needs its own signalling
+        # on top of the gauges; a single-process pipeline falls back to
+        # publishing the state directly.
+        self._readiness_hook: Optional[Callable[[], Any]] = None
+        self._last_readiness_publish_at: float = 0.0
         self.source.set_revoke_hook(self._drain_revoked_partitions)
         # Registered here rather than only in the multi-process entry point,
         # because the revoke hook above is installed for every deployment: a
@@ -1050,7 +1064,7 @@ class AnomalyEnhancer(
             set_assigned_partitions, set_pipeline_process_counts,
         )
 
-        ready = self.source.is_ready()
+        ready = _pipeline_ready(self)
         set_assigned_partitions(self.source.assigned_partition_count())
         if ready:
             self._rebalance_drain_deadline = None
@@ -1131,6 +1145,71 @@ class AnomalyEnhancer(
         """
         return self.pipeline_mode == PIPELINE_MODE_SYNC or self.vst_pass_through_mode
 
+    def _source_kind_is_authoritative(self) -> bool:
+        """Whether the source's own answer outranks the payload's on alert vs incident.
+
+        Declared by the adapter, because only it knows where its answer came
+        from: a Redis stream name is deployment configuration, while a Kafka
+        record's kind has always travelled in the payload. Read by name, and
+        tolerant of a pipeline with no source yet, so that not declaring
+        anything means the payload keeps deciding.
+        """
+        source = getattr(self, "source", None)
+        return bool(getattr(source, "kind_is_authoritative", False))
+
+    def _readiness_needs_polling(self) -> bool:
+        """Whether readiness has to be refreshed on a timer for this deployment.
+
+        A transport that reports its own state changes does not need one, and
+        must not be given one: republishing calls
+        :meth:`_publish_assignment_state`, which closes the rebalance drain
+        budget, and that budget is deliberately spent once per rebalance rather
+        than per revoke. On a timer it would be reopened between revokes of the
+        same rebalance, which is the per-consumer bound it exists to replace.
+
+        So the need is declared by the adapter rather than assumed here: a
+        source or sink whose health is an ordinary runtime condition with no
+        event behind it sets ``needs_readiness_polling``. Read by name so that
+        adapters predating the attribute keep the event-driven behaviour they
+        were written for.
+        """
+        for half in (getattr(self, "source", None),
+                     getattr(self, "vlm_enhanced_event_sink", None)):
+            if getattr(half, "needs_readiness_polling", False):
+                return True
+        return False
+
+    def _republish_readiness_periodically(self) -> None:
+        """Refresh the published readiness on a timer from the consume loop.
+
+        Kafka republishes on its rebalance callbacks, which fire whenever its
+        state actually changes. Redis has no such event: a broker that goes away
+        after startup produces empty polls, so the state published at boot would
+        stand for the life of the process and ``/health`` would answer 200 while
+        nothing was being consumed. A timer is what closes that gap, for the
+        transports that say they need it.
+        """
+        now = time.monotonic()
+        if now - self._last_readiness_publish_at < READINESS_REPUBLISH_SECONDS:
+            return
+        self._last_readiness_publish_at = now
+        if not self._readiness_needs_polling():
+            return
+        try:
+            # The supervised hook, when there is one: under a supervisor the
+            # fleet counts are the parent's and a child reports through its
+            # ready event, so publishing the state alone would move a gauge and
+            # leave the signal the endpoint actually reads untouched.
+            hook = self._readiness_hook
+            if hook is not None:
+                hook()
+            else:
+                self._publish_assignment_state()
+        except Exception:
+            # The consume loop outliving its own bookkeeping is the point; an
+            # unpublishable gauge must not stop messages being processed.
+            logger.debug("Could not republish readiness", exc_info=True)
+
     def _run_consume_loop(self, worker_pool: Optional[ThreadPoolExecutor]) -> None:
         """Poll the source and schedule every message until interrupted."""
         while True:
@@ -1138,6 +1217,8 @@ class AnomalyEnhancer(
 
             if self._webhook_forwarder is not None:
                 self._webhook_forwarder.poll_and_forward()
+
+            self._republish_readiness_periodically()
 
             if not raw_messages:
                 continue
@@ -1380,9 +1461,10 @@ class AnomalyEnhancer(
                             "Skipping malformed JSON message in batch: %s", exc
                         )
             else:
-                # Kafka sources provide protobuf tuples; Redis Stream sources
-                # provide JSON strings. Only run protobuf decoding for the
-                # Kafka-shaped tuple path.
+                # Remaining shape is the (key, value, timestamp) tuple batch that
+                # carries protobuf. Both transports can produce it: Kafka always
+                # does, and the Redis Streams source does when the envelope
+                # payload is protobuf rather than JSON text.
                 messages_input = messages if isinstance(messages, dict) else {'batch': messages}
                 decoded_messages = protobuf_anomalies_to_json_string_list(
                     messages_input,
@@ -1408,6 +1490,19 @@ class AnomalyEnhancer(
                 if (message_type or "").lower() != "incident"
                 else messages
             )
+
+            # Only for a source that says its own kind is the authoritative one.
+            # Redis Streams does: the entry's kind comes from the stream it was
+            # read on, which is deployment configuration, while terminal routing
+            # keys on a payload field -- so the two can disagree in both
+            # directions without raising, and stamping is what makes the
+            # configured stream decide. Kafka's kind reaches routing through the
+            # payload exactly as it did before this was here, because a stamp
+            # would change where an existing deployment's events land.
+            if self._source_kind_is_authoritative():
+                kind = ("incident" if (message_type or "").lower() == "incident"
+                        else "alert")
+                messages = [stamp_event_kind(m, kind) for m in messages]
 
             if self.vst_pass_through_mode:
                 self._process_media_passthrough(worker_id, messages)
@@ -2908,6 +3003,44 @@ def _log_instance_concurrency(enhancer: "AnomalyEnhancer", process_count: int) -
     )
 
 
+def _terminal_sink_ready(enhancer: "AnomalyEnhancer") -> bool:
+    """Whether the sink that publishes verdicts can currently be written to.
+
+    Part of readiness because the alternative is a process that consumes,
+    verifies and then discards -- indistinguishable from a healthy one by
+    throughput alone, since a sink dropping everything moves no counter a
+    dashboard is watching. Defensive: a sink that cannot answer must not be
+    able to fail readiness by omission.
+    """
+    from metrics.recorder import set_sink_ready
+
+    sink = getattr(enhancer, "vlm_enhanced_event_sink", None)
+    if sink is None:
+        return True
+    try:
+        healthy = bool(sink.is_healthy())
+    except Exception:
+        logger.debug("Terminal sink health check raised; assuming healthy", exc_info=True)
+        return True
+    set_sink_ready(getattr(sink, "transport_label", "elastic"), healthy)
+    return healthy
+
+
+def _pipeline_ready(enhancer: "AnomalyEnhancer") -> bool:
+    """Both halves of "can this process do its job".
+
+    A source it can read and a sink it can write. Either one failing leaves the
+    process running and serving nothing, which is the state readiness exists to
+    report -- and for the Redis transport both are ordinary runtime conditions
+    rather than the startup-only concerns they are for Kafka and Elasticsearch.
+
+    Module level so the two publish paths share one definition of ready; they
+    disagreed about it once already, which is how a lone pipeline came to
+    answer 200 through its whole startup.
+    """
+    return bool(enhancer.source.is_ready()) and bool(_terminal_sink_ready(enhancer))
+
+
 def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
                        ready_event: Optional[Any], started: bool = True) -> bool:
     """Mirror the live assignment into the readiness signal and the gauge.
@@ -2925,7 +3058,7 @@ def _publish_readiness(enhancer: "AnomalyEnhancer", index: int,
     # partitions a member legitimately owns none of it -- the documented
     # replicas x processes > partitions rollout -- and requiring work here
     # would leave it unready for good. The count is reported separately.
-    ready = enhancer.source.is_ready()
+    ready = _pipeline_ready(enhancer)
     if ready_event is not None:
         if not ready:
             # Losing partitions is reported immediately, whatever else this
@@ -2974,6 +3107,12 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
         enhancer.source.set_assignment_change_hook(
             lambda: _publish_readiness(enhancer, index, ready_event,
                                        started=startup["complete"])
+        )
+        # The same callback on the consume loop's timer. A source with no
+        # assignment to change -- Redis -- never fires the hook above, so this
+        # is the only thing that would report a broker lost after startup.
+        enhancer._readiness_hook = lambda: _publish_readiness(
+            enhancer, index, ready_event, started=startup["complete"]
         )
         # A shared wall-clock deadline, not a shared duration. Given the same
         # number, the child started counting after its spawn and its

@@ -19,6 +19,18 @@ import json
 from datetime import datetime
 import logging
 
+# Top level, and from the envelope module rather than the broker: this class is
+# used by both transports, and reaching the same helpers through
+# ``redis_stream_broker`` meant a Kafka-only deployment imported ``redis`` to
+# read a field map. That is what the deferred imports here used to avoid.
+from mdx.redis_stream_envelope import (
+    HEADERS_FIELD,
+    KEY_FIELD,
+    PAYLOAD_FIELD,
+    extract_envelope,
+    message_id_to_epoch_ms,
+)
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -112,6 +124,65 @@ class StreamMessage:
             logger.error(f"Error creating StreamMessage from Kafka: {e}")
             raise
     
+    @classmethod
+    def from_redis_stream(
+        cls,
+        stream_name: str,
+        message_id: Any,
+        fields: Dict[Any, Any],
+        schema_file: str = 'request_schema.yaml',
+    ) -> 'StreamMessage':
+        """Create StreamMessage from a Redis Stream entry.
+
+        Expects the MDX envelope (``key`` / ``value`` / ``headers``) with a JSON
+        payload in ``value``. Protobuf payloads are not handled here — the
+        Redis source decodes those with the schema helpers before this point,
+        the same way the Kafka source does.
+        """
+        try:
+            payload, key, headers = extract_envelope(fields)
+            if payload is None:
+                raise ValueError(f"Redis stream entry {message_id!r} carries no payload field")
+
+            entry_id = (
+                message_id.decode('utf-8')
+                if isinstance(message_id, (bytes, bytearray))
+                else str(message_id)
+            )
+            message = cls.from_json_with_schema(
+                payload.decode('utf-8'),
+                schema_file,
+                message_id=key.decode('utf-8') if key else None,
+            )
+            message.metadata = {
+                'source': 'redisStream',
+                'stream': stream_name,
+                'entry_id': entry_id,
+                'published_at_ms': message_id_to_epoch_ms(message_id),
+                'headers': headers,
+                'schema_file': schema_file,
+            }
+            if not message.id:
+                message.id = entry_id
+            return message
+        except Exception as e:
+            logger.error(f"Error creating StreamMessage from Redis Stream: {e}")
+            raise
+
+    def to_redis_fields(self) -> Dict[str, Any]:
+        """Serialize to the MDX Redis Stream envelope field map.
+
+        The payload is JSON — matching what the event-bridge Kafka sink writes
+        to its topics — so the two transports carry byte-identical bodies.
+        """
+        key = self.get_field('sensor_id', self.id) or ''
+        headers = (self.metadata or {}).get('headers') or {}
+        return {
+            KEY_FIELD: str(key).encode('utf-8'),
+            PAYLOAD_FIELD: self.to_json().encode('utf-8'),
+            HEADERS_FIELD: json.dumps(headers),
+        }
+
     @staticmethod
     def _parse_timestamp(timestamp_str: Optional[str]) -> datetime:
         """Parse timestamp with fallback to current time"""

@@ -74,6 +74,9 @@ if PROMETHEUS_ENABLED:
         KAFKA_LAG_DURATION,
         KAFKA_LAG_DURATION_BY_SENSOR,
         RECORD_KEY_ALIGNMENT,
+        REDIS_PUBLISH_FAILURES,
+        SOURCE_DROPPED,
+        TERMINAL_PUBLISH_DROPPED,
         VERDICT_RETENTION_DELETED,
         VERDICT_RETENTION_LAST_RUN,
         VERDICT_RETENTION_RUNS,
@@ -842,6 +845,16 @@ def warm_startup_labels() -> None:
         ALERT_CONFIG_READ_SOURCE.labels(source=source).inc(0)
     for aligned in RECORD_KEY_ALIGNMENT_VALUES:
         RECORD_KEY_ALIGNMENT.labels(aligned=aligned).inc(0)
+    for outcome in REDIS_PUBLISH_OUTCOMES:
+        REDIS_PUBLISH_FAILURES.labels(outcome=outcome).inc(0)
+    for transport in SOURCE_DROP_TRANSPORTS:
+        for reason in SOURCE_DROP_REASONS:
+            SOURCE_DROPPED.labels(transport=transport, reason=reason).inc(0)
+    for transport in TERMINAL_SINK_TRANSPORTS:
+        for event_kind in TERMINAL_EVENT_KINDS:
+            TERMINAL_PUBLISH_DROPPED.labels(
+                transport=transport, event_kind=event_kind,
+            ).inc(0)
     for store in DEDUP_CACHE_STORES:
         for mode in DEDUP_CACHE_EVICTION_MODES:
             DEDUP_CACHE_EVICTIONS.labels(store=store, mode=mode).inc(0)
@@ -865,6 +878,32 @@ DEDUP_CACHE_EVICTION_MODES = ("lazy", "sweep")
 VERDICT_FAIL_OPEN_REASONS = ("es_down", "error", "expired", "malformed", "write_error")
 ALERT_CONFIG_READ_SOURCES = ("cache", "es", "snapshot")
 RECORD_KEY_ALIGNMENT_VALUES = ("yes", "no", "unknown")
+REDIS_PUBLISH_OUTCOMES = (
+    "recovered", "dropped", "replayed",
+    # The read path's two. Separate series rather than folded into the write
+    # path's, because they mean the opposite thing: a dropped *publish* is a
+    # verdict nobody received, a dropped *ack* is a verdict that will be produced
+    # a second time when another consumer reclaims the entry. Alerting on the
+    # first and on the second are different conversations.
+    "ack_dropped", "ack_recovered",
+)
+SOURCE_DROP_REASONS = (
+    "no_payload", "undecodable", "unmapped_kind", "schema_invalid",
+    # A payload that named one kind and arrived on another's stream. Counted
+    # apart from schema_invalid because it points at a producer's routing rather
+    # than at its payloads, which is a different thing to go and fix.
+    "kind_mismatch",
+    # JSON in an encoding other than UTF-8. Its own reason because the fix is a
+    # producer's encoder setting, not its schema, and because this one used to
+    # take the consumer down with it rather than being counted.
+    "payload_encoding",
+)
+#: Terminal (VLM-enhanced) sink transports that report publish outcomes.
+TERMINAL_SINK_TRANSPORTS = ("elastic", "kafka", "redis_stream", "console")
+TERMINAL_EVENT_KINDS = ("incident", "alert")
+# Only the transports that actually report; adding one here without a call site
+# would warm a series that can never move.
+SOURCE_DROP_TRANSPORTS = ("redis_stream",)
 # Closed set of ES index labels for the readiness gauge (bounded cardinality).
 INDEX_READY_NAMES = ("confirmed-verdicts", "alert-configs")
 
@@ -928,6 +967,67 @@ def inc_record_key_alignment(aligned: str) -> None:
     if not PROMETHEUS_ENABLED or aligned not in RECORD_KEY_ALIGNMENT_VALUES:
         return
     RECORD_KEY_ALIGNMENT.labels(aligned=aligned).inc()
+
+
+def inc_redis_publish_failure(outcome: str) -> None:
+    """Record one failed Redis Streams publish attempt.
+
+    ``outcome`` must be in :data:`REDIS_PUBLISH_OUTCOMES`: ``recovered`` when a
+    retry succeeded, ``dropped`` when retries were exhausted and the payload was
+    discarded, and ``replayed`` when a pipelined batch failed after its commands
+    were sent and was re-published entry by entry — the one outcome that counts
+    entries which may have landed *twice* rather than not at all, and the one to
+    check when a consumer reports duplicates.
+
+    ``ack_dropped`` and ``ack_recovered`` are the read path's, and are about
+    ``XACK`` rather than ``XADD``: an ack that never landed leaves its entry
+    pending for another consumer to reclaim, re-verify and publish again, so a
+    rising ``ack_dropped`` explains duplicate verdicts that ``replayed`` does
+    not. NEVER pass a stream name or sensorId.
+    """
+    if not PROMETHEUS_ENABLED or outcome not in REDIS_PUBLISH_OUTCOMES:
+        return
+    REDIS_PUBLISH_FAILURES.labels(outcome=outcome).inc()
+
+
+def inc_terminal_publish_dropped(transport: str, event_kind: str) -> None:
+    """Record one VLM-verified result that never reached the terminal sink.
+
+    Separate from :func:`inc_redis_publish_failure`, which counts write
+    attempts: this counts verdicts. The VLM call was made, the answer was
+    produced, and it is now gone — which is the number an operator wants to
+    alert on. ``transport`` must be in :data:`TERMINAL_SINK_TRANSPORTS` and
+    ``event_kind`` in :data:`TERMINAL_EVENT_KINDS`. NEVER pass a stream name,
+    index or sensorId.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+    if transport not in TERMINAL_SINK_TRANSPORTS or event_kind not in TERMINAL_EVENT_KINDS:
+        return
+    from metrics.prometheus_metrics import TERMINAL_PUBLISH_DROPPED
+    TERMINAL_PUBLISH_DROPPED.labels(transport=transport, event_kind=event_kind).inc()
+
+
+def set_sink_ready(transport: str, ready: bool) -> None:
+    """Publish whether the terminal sink is currently usable (1) or not (0)."""
+    if not PROMETHEUS_ENABLED or transport not in TERMINAL_SINK_TRANSPORTS:
+        return
+    from metrics.prometheus_metrics import SINK_READY
+    SINK_READY.labels(transport=transport).set(1 if ready else 0)
+
+
+def inc_source_dropped(transport: str, reason: str) -> None:
+    """Record one consumed entry discarded before it reached the pipeline.
+
+    ``transport`` must be in :data:`SOURCE_DROP_TRANSPORTS` and ``reason`` in
+    :data:`SOURCE_DROP_REASONS`; anything else is dropped so a bad call site
+    cannot mint a stray series. NEVER pass a stream name or sensorId.
+    """
+    if not PROMETHEUS_ENABLED:
+        return
+    if transport not in SOURCE_DROP_TRANSPORTS or reason not in SOURCE_DROP_REASONS:
+        return
+    SOURCE_DROPPED.labels(transport=transport, reason=reason).inc()
 
 
 def record_verdict_retention_run(deleted: int, ok: bool, run_ts: Optional[float] = None) -> None:

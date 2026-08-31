@@ -2663,3 +2663,62 @@ class TestGetIncidentsConsolidate:
         resp = client.get("/api/v1/realtime/incidents")
         assert resp.status_code == 200
         assert mocks["incident"].list_incidents.await_args.kwargs["consolidate"] is None
+
+
+class TestTheIncidentIndexFollowsTheConfiguredSink:
+    """Which Elasticsearch index the incident API reads.
+
+    The sink transport used to be declared once per kind
+    (``vlm_enhanced_sink.incident.type``) and is now declared once for both at
+    the top level. This resolver read the per-kind key, so after the move it
+    matched nothing and the configured index was ignored in favour of the
+    hardcoded default — invisibly, because every shipped config sets an index
+    equal to that default. Both shapes are covered so the next move of the key
+    fails here rather than in a deployment whose incidents cannot be found.
+    """
+
+    @staticmethod
+    def resolve(config):
+        import importlib
+        from unittest.mock import MagicMock, patch
+
+        routes = importlib.import_module("web.api.realtime_routes")
+        routes.get_incident_service.cache_clear()
+        try:
+            with patch.object(routes, "load_config", return_value=config), \
+                 patch.object(routes, "get_elastic_client", return_value=MagicMock()), \
+                 patch.object(routes, "IncidentService") as service:
+                routes.get_incident_service()
+            return service.call_args.kwargs["index_base"]
+        finally:
+            routes.get_incident_service.cache_clear()
+
+    def test_the_current_shape_is_honoured(self):
+        assert self.resolve(
+            {"vlm_enhanced_sink": {"type": "elastic",
+                                   "incident": {"elastic": {"index": "custom-idx"}}}}
+        ) == "custom-idx"
+
+    def test_the_superseded_per_kind_shape_still_works(self):
+        assert self.resolve(
+            {"vlm_enhanced_sink": {"incident": {"type": "elastic",
+                                                "elastic": {"index": "custom-idx"}}}}
+        ) == "custom-idx"
+
+    def test_an_undeclared_type_is_elastic(self):
+        assert self.resolve(
+            {"vlm_enhanced_sink": {"incident": {"elastic": {"index": "custom-idx"}}}}
+        ) == "custom-idx"
+
+    def test_the_spelling_is_folded_like_the_sink_factory_folds_it(self):
+        assert self.resolve(
+            {"vlm_enhanced_sink": {"type": "Elasticsearch",
+                                   "incident": {"elastic": {"index": "custom-idx"}}}}
+        ) == "custom-idx"
+
+    def test_a_non_elastic_sink_leaves_the_default(self):
+        """Nothing writes that index, so the configured one is not what to read."""
+        assert self.resolve(
+            {"vlm_enhanced_sink": {"type": "redisStream",
+                                   "incident": {"elastic": {"index": "custom-idx"}}}}
+        ) == "mdx-vlm-incidents"

@@ -1,0 +1,17 @@
+# Test dependencies for the Alert MS unit suite. Install alongside the service's
+# own requirements.txt:
+#
+#   pip install -r requirements.txt -r test/requirements.txt
+#
+# These are deliberately not in the service requirements.txt, which is what the
+# container image installs.
+pytest
+pytest-asyncio
+pytest-cov
+
+# fakeredis backs the Redis Streams round-trip tests, which assert on the actual
+# wire format rather than on a mock's call args. Those tests importorskip, so a
+# run without fakeredis loses them silently and still reports green — the reason
+# this file exists instead of the dependency living only in the CI workflow,
+# where a local run could not see it.
+fakeredis

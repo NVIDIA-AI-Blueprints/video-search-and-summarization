@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Console sink for VLM-enhanced results: the local-development extension. Needs
+# neither a broker nor Elasticsearch on the output side, so this run also proves
+# the sink transports are selected independently of the source (Kafka here).
+
+ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+vst_config:
+  base_url: "http://127.0.0.1:30888"
+  sensor_list_endpoint: "/vst/api/v1/live/streams"
+  segment_anchor: "end"
+  segment_duration_seconds: 10
+  add_overlay: false
+  storage:
+    base_url: "http://127.0.0.1:30888"
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+kafka:
+  bootstrap_servers: "127.0.0.1:9092"
+  group_id: "kafka-p1-functional"
+  anomalyTopic: "mdx-incidents"
+  enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"
+  incidents_topic: "alert-bridge-incidents"
+  max_poll_records: 1
+  auto_offset_reset: "latest"
+  enable_auto_commit: false
+  max_poll_interval_ms: 300000
+  poll_timeout: 500
+  message_type: "Incident"
+  session_timeout_ms: 10000
+  heartbeat_interval_ms: 3000
+
+vlm:
+  base_url: "http://127.0.0.1:18081/v1"
+  model: "nvidia/cosmos-reason2-8b"
+  max_tokens: 256
+  min_pixels: 1568
+  max_pixels: 345600
+  num_frames: 18
+  enable_sampling: false
+  sampling_fps: 4
+
+event_bridge:
+  sourceType: "kafka"
+  sinkType: "console"
+
+  kafka_source:
+    group_id: "alert-bridge-vlm-group-p1-console"
+    topics:
+      incident: "mdx-incidents"
+      alert: "mdx-alerts"
+
+  console_sink:
+    pretty: true
+    max_chars: 0
+
+prompt:
+  prefer_payload_prompt: true
+  override_prompts_on_start: true
+
+alert_type_config_file: "alert_type_config.json"
+
+alert_agent:
+  num_workers: 1
+  max_allowed_stream_size: 2
+  default_stream_interval: 1
+  vst_pass_through_mode: false
+  chunk_size: 1
+  event_filters:
+    dedup_ttl_seconds: 3
+    end_time_in_dedup_key_categories: []
+    protect_confirmed_verdicts:
+      enabled: false
+      ttl_seconds: 600
+
+elastic:
+  enabled: true
+  hosts:
+    - http://127.0.0.1:9200
+  index_name: "mdx-vlm-incidents"
+
+vlm_enhanced_sink:
+  type: "console"
+  console:
+    pretty: true
+    max_chars: 0
+
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"

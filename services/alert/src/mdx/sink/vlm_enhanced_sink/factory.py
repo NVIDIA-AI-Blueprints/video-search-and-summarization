@@ -18,14 +18,62 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+from mdx.transport.names import (
+    TERMINAL_SINK_ALIASES as _SINK_ALIASES,
+    normalize,
+    require_terminal_sink_type,
+)
 from .sink_base import VLMEnhancedSink
+from .sink_console import VLMEnhancedConsoleSink
 from .sink_elastic import VLMEnhancedElasticSink
 from .sink_kafka import VLMEnhancedKafkaSink
 
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_sink_type(value: Any) -> Optional[str]:
+    """Resolve a configured sink type to its canonical name.
+
+    The event bridge's vocabulary plus Elasticsearch, which only a terminal sink
+    can be. Both factories read operator-supplied transport names out of the same
+    config file, so they share the table and the folding rule rather than each
+    keeping a copy on the same contract by agreement.
+    """
+    return normalize(value, _SINK_ALIASES)
+
+
+def _warn_on_per_kind_type(sink_root: Dict[str, Any], resolved: str) -> None:
+    """Point out ``incident.type`` / ``alert.type`` keys, which are never read.
+
+    One sink serves both kinds, so the transport comes from the top-level
+    ``vlm_enhanced_sink.type`` alone. Configs carrying a per-kind ``type`` are
+    common and predate the extra transports, and while it was only ever
+    decoration it now actively misleads: a chart that renders ``type:
+    redisStream`` at the top and a hardcoded ``incident.type: elastic`` below
+    reads as though incidents still go to Elasticsearch. This is a warning
+    rather than an error because those stale keys sit in working deployments,
+    and rejecting them would break the very upgrade that selects Redis.
+    """
+    for kind in ("incident", "alert"):
+        section = sink_root.get(kind)
+        if not isinstance(section, dict) or "type" not in section:
+            continue
+        declared = _normalize_sink_type(section.get("type"))
+        if declared == resolved:
+            logger.debug(
+                "Ignoring redundant vlm_enhanced_sink.%s.type; the transport comes "
+                "from vlm_enhanced_sink.type", kind,
+            )
+        else:
+            logger.warning(
+                "vlm_enhanced_sink.%s.type is '%s' but is never read: both kinds use "
+                "vlm_enhanced_sink.type, which resolved to '%s'. Remove the per-kind "
+                "'type' key so the config stops contradicting itself.",
+                kind, section.get("type"), resolved,
+            )
 
 
 def _load_category_mapping(config: Dict[str, Any]) -> Dict[str, str]:
@@ -85,7 +133,18 @@ def build_vlm_enhanced_sink(
     """
 
     sink_root = config.get("vlm_enhanced_sink", {}) or {}
-    sink_type = (sink_root.get("type") or "elastic").lower()
+    configured = sink_root.get("type") or "elastic"
+    # Raises before the per-kind warnings below, so an operator sees the actual
+    # problem instead of advice about keys on a sink that never resolved. The
+    # same call runs in startup validation, which is where a deployment reaches
+    # it: this one is the guard for a sink built directly.
+    sink_type = require_terminal_sink_type(configured)
+    # Log both spellings: the configured value is what an operator can grep for
+    # in their config, the resolved one is what actually selected the sink.
+    logger.info(
+        "VLM enhanced sink type: %r resolved to '%s'", configured, sink_type
+    )
+    _warn_on_per_kind_type(sink_root, sink_type)
 
     category_mapping = _load_category_mapping(config)
     verdict_description_mapping = _load_verdict_description_mapping(config)
@@ -112,6 +171,26 @@ def build_vlm_enhanced_sink(
             alert_config_store=alert_config_store,
         )
 
-    raise ValueError(f"Unsupported vlm_enhanced_sink.type: {sink_type}")
+    if sink_type == "redisStream":
+        # Imported here rather than at module scope so the `redis` package is
+        # only required by deployments that actually select this transport.
+        from .sink_redis_stream import VLMEnhancedRedisStreamSink
+
+        return VLMEnhancedRedisStreamSink.from_config(
+            config,
+            category_mapping=category_mapping,
+            alert_config_store=alert_config_store,
+        )
+
+    if sink_type == "console":
+        return VLMEnhancedConsoleSink.from_config(
+            config,
+            category_mapping=category_mapping,
+            alert_config_store=alert_config_store,
+        )
+
+    raise AssertionError(  # pragma: no cover - every resolved type is handled above
+        f"Resolved sink type {sink_type!r} has no branch"
+    )
 
 

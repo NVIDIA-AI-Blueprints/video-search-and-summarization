@@ -60,7 +60,7 @@ for a detailed layout + data-flow diagram).
 | `src/vst/` | VST video-clip resolution (sensor ID + timestamps) |
 | `src/clients/` | Elasticsearch client + in-process dedup/verdict-protection state handler |
 | `src/persistence/` | Elasticsearch persistence store |
-| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Elasticsearch) |
+| `src/mdx/` | Alert ingestion sources/sinks (Kafka, Redis Streams, Elasticsearch, console) |
 | `blueprint_config/` | Example configs for the warehouse / public-safety / smart-city blueprints |
 | `test/` | Unit, functional, and end-to-end tests (see `test/TEST_README.md`) |
 
@@ -71,7 +71,9 @@ for a detailed layout + data-flow diagram).
 - A reachable OpenAI-compatible **VLM backend** (configured in `config.yaml`)
 - **Elasticsearch** (durable storage for alert configs + confirmed-verdict protection)
 - Depending on your source/sink choice: **Kafka** and/or **Elasticsearch**
-- No **Redis** instance is required.
+- **Redis** only if you opt into the Redis Streams transports (see
+  [Event bridge transports](#event-bridge-transports)). Alert MS keeps no state
+  in Redis and never deploys it.
 
 ## Installation
 
@@ -262,7 +264,10 @@ alert_agent:
   then compared. Compose gates the container on the topic-init container and
   never spends that wait; on Kubernetes the topics come from a Job with no
   ordering against the Deployment, so a first install would otherwise fail
-  a perfectly good configuration.
+  a perfectly good configuration. A source that has no partitions to wait for
+  skips the wait rather than exhausting it: with a `redisStream` source there is
+  no topic to appear, so the retry loop only delayed startup by its full deadline
+  and ate the window the VLM warm-up and the consumer-group join needed.
 - **Across replicas the constraint is `replicas × processes ≤ partitions`.**
   Consumer-group members are pods *and* processes: 2 replicas × 4 processes
   needs 8 partitions, and 3 × 4 on 8 partitions leaves 4 members idle. A pod
@@ -460,6 +465,411 @@ Enriched results are persisted to Elasticsearch and published to the Kafka
 sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
 to the configured sink topic, and can also query stored alerts/incidents over
 the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
+
+## Event bridge transports
+
+Three transport selections are made independently, so a deployment can move one
+of them off Kafka without touching the others. Kafka is the default source and
+sink, and Elasticsearch the default for VLM-enhanced results, so a config that
+sets none of these behaves exactly as before.
+
+| Setting | Default | Alternatives | Carries |
+|---------|---------|--------------|---------|
+| `event_bridge.sourceType` | `kafka` | `redisStream` | Incoming Alert and Incident payloads |
+| `event_bridge.sinkType` | `kafka` | `redisStream`, `console` | Validation-error responses |
+| `vlm_enhanced_sink.type` | `elastic` | `kafka`, `redisStream`, `console` | VLM-verified Alert and Incident results |
+
+Transport names are matched case-insensitively and ignore `_` and `-`, so
+`redisStream`, `redis_stream` and `redis` all select the same implementation. The
+resolved name is logged next to the configured one at startup, which is the
+quickest way to confirm a value was understood as intended.
+
+One VLM-enhanced sink serves both incidents and alerts, so `vlm_enhanced_sink.type`
+is read only at that top level. A `type` nested under `incident:` or `alert:` has
+never been read; older configs carry one, and the service now warns when it finds
+one that disagrees with the transport actually in use. The per-kind blocks carry
+routing — index, stream, topic — not transport selection.
+
+Selecting a `redisStream` transport requires an existing Redis instance —
+Alert MS does not deploy one, and none of the service's own state lives there
+(dedup state is in-process, durable state is in Elasticsearch). The connection
+comes from the top-level `redis` block, the analogue of
+`kafka.bootstrap_servers`; the per-component blocks (`event_bridge.redis_source`,
+`event_bridge.redis_sink`, `vlm_enhanced_sink.redisStream`) hold the stream names
+and may override any connection field. `config.yaml` carries a commented example
+of each.
+
+Stream names are required, not defaulted, in the two places where guessing one
+produces a service that runs and delivers nothing:
+
+* `event_bridge.redis_source.streams` must name **both** `incident` and `alert`
+  (`anomaly` is read as `alert`). Both kinds are produced upstream and verified
+  by the same pipeline, so a map naming one is a config that lost a line — and
+  the service it produced consumed half its traffic while reporting healthy.
+* each `vlm_enhanced_sink.<kind>.redisStream.stream` must be set when that sink
+  is selected. There is no default: substituting one publishes verdicts to a
+  name the deployment never gave, which nobody is reading.
+
+Both are rejected before anything starts, and a blank value counts as absent —
+that is what a rendered config produces for an unset variable.
+
+A key that is *not* one of the names a section reads is rejected there too,
+rather than ignored. Ignored is indistinguishable from absent, and absent on the
+sink side means "do not publish that kind" — so one misspelt key disabled a whole
+route while the sink reported healthy. The error names the keys the section does
+accept.
+
+Payloads use the MDX stream envelope — `XADD <stream> * key <sensorId> value
+<payload> headers <json>` — which is what vss-behavior-analytics publishes and
+what the Logstash `redis_stream` input consumes (its `data_field` defaults to
+`value`). The Redis source reads both encodings the envelope carries (protobuf
+and JSON text); the Redis sink writes the same protobuf messages the Kafka sink
+does, so downstream consumers decode either transport identically.
+
+**On the read side the body field is not required to be `value`.** A producer
+using the JSON envelope — `data` as the body with `metadata` alongside it, which
+is what RT-VLM publishes — is read without configuration: the source looks for
+`value`, then `data`, then `payload`, then `metadata`, in that order. The order
+matters rather than first-match-wins, because an entry carrying both `data` and
+`metadata` has a body *and* a sidecar, and reading the sidecar as the event
+yields something that decodes and describes nothing. Publishing is always
+`value`, since that is the field every reader shipped in this repository looks
+in.
+
+The `console` sink renders results to the log instead of a datastore. It needs no
+broker, which makes it the quickest way to inspect verdicts while developing, but
+output is not durable and nothing downstream can consume it.
+
+**It redacts by default.** The document carries the VLM's reasoning about the
+people and vehicles in the footage, the VST video URL and the GPS fix, and
+selecting this sink is a quick debugging decision while the log collector it
+writes to is someone else's long-lived system — so those fields are masked unless
+you say otherwise. The verdict, id, sensorId, category and timestamps are left
+readable, which is what the sink is selected to show. A JSON array is masked
+element by element, since a batch published as one carries the same fields the
+paths name. A payload that is not JSON cannot be field-masked at all, so while
+redaction is on it is logged as a size and digest rather than printed.
+
+`max_chars` truncates the rendered text. Like every display setting here it
+falls back to its default on a value it cannot use, with a warning naming the
+key — a rendered config substitutes an unset variable as `""`, and no log-format
+option is worth failing a container over.
+
+`event_bridge.console_sink.redact` and `vlm_enhanced_sink.console.redact` control
+it. A list of dotted paths (or a comma-separated string) replaces the default
+set; the word `none` turns masking off and logs the document in full. An unset or
+empty value means the default — deliberately, because a rendered deployment
+config substitutes an unset variable as `""` and that must not read as consent.
+
+### Delivery semantics
+
+Both sources are **at-most-once**, and deliberately so: the Kafka source commits
+offsets inside its poll loop and the Redis source `XACK`s once a batch is decoded
+— in both cases before the VLM has verified anything. A crash mid-verification
+therefore drops that batch rather than replaying it. The alternative costs more
+than it returns here: verification is the expensive step, dedup state is
+in-process and does not survive a restart, so replaying a batch would re-run the
+VLM and can publish a second verdict for an event already in Elasticsearch.
+Choosing Redis Streams does not change this contract in either direction, which
+is the point — the transport is swappable without the pipeline's guarantees
+moving underneath it.
+
+Within that contract the ack still follows a decision about each entry rather
+than the read: an entry is acked once it has been accepted into a batch or
+explicitly rejected. So a non-empty `XPENDING` means a consumer died between
+those two points, not that work is queued.
+
+That window is small but not empty, and an entry stranded in a dead consumer's
+pending list is never redelivered by `XREADGROUP >` — so the source sweeps for
+them with `XAUTOCLAIM`, on a timer rather than only when a poll came back empty.
+Idle-only was the wrong trigger for the case that needs it: a replica dies while
+the group is busy, which is exactly when polls stop being empty, so the sweep
+would not fire until the backlog cleared. Two knobs, in different places because
+they mean different things:
+
+| Setting | Where | Default | What it does |
+|---|---|---|---|
+| `reclaim_interval` | `event_bridge.redis_source.consumer_config` | 30s | How often to sweep. `0` disables it. Checked on every poll, so it is a period under load and a floor when idle. |
+| `pending_min_idle_ms` | top-level `redis` | 60000ms | How long an entry must have been idle before another consumer may claim it. |
+
+On Compose both are set in the mounted config file itself; in Helm they are
+`redis.reclaimIntervalSeconds` and `redis.pendingMinIdleMs`, which render into
+the same two keys. The earlier spellings `reclaim_min_idle_ms` and
+`reclaim_min_idle_time` are still read, with a warning naming the current one.
+`XAUTOCLAIM` needs Redis 6.2+; on an older server the sweep is disabled after
+the first rejection and says so once.
+
+**The idle threshold does not have to clear a VLM verification.** Every read path
+acks an entry before returning it — commit-on-consume, matching the Kafka source
+— so an entry is pending only between `XREADGROUP` and `XACK`, and is still
+pending after that only because the consumer died in between. The threshold is
+therefore how long a *stranded* entry waits before anyone picks it up, and the
+cost of setting it high is recovery time after a replica is lost, not correctness.
+
+**The sweep also collects the dead consumers themselves.** A consumer name is
+per-process (`alert-bridge-<host>-<pid>`), so every restart and every pipeline
+child leaves a record behind in the group, and Redis keeps them until something
+calls `XGROUP DELCONSUMER`. Left alone, `XINFO CONSUMERS` on a long-lived
+deployment grows without bound. So the same timer that reclaims entries drops any
+consumer record that holds nothing pending and has been idle past the reclaim
+window, and a source removes its own record on a clean shutdown. Entries are
+reclaimed before records are dropped, so a record is only ever removed after its
+work has been moved. On a server without `XINFO CONSUMERS` — or an ACL that
+withholds it — the pruning is disabled after the first rejection and the reclaim
+sweep carries on.
+
+The shutdown half of that is housekeeping, and is treated as such: releasing its
+own record runs after SIGTERM, inside the deployment's grace period, and costs two
+commands per stream. So it is skipped outright when Redis is already known to be
+unreachable, and abandoned once it has spent five seconds — in both cases the idle
+sweep removes the record later, which is what it is for. Overrunning the grace
+period would instead earn a SIGKILL and lose the shutdown this was part of.
+
+Read-path drops are counted, not just logged. An entry that cannot be used is
+acked and discarded — the right call for a poison pill, since leaving it un-acked
+replays it forever — and shows up under
+`alert_bridge_source_dropped_total{transport="redis_stream",reason=...}`:
+
+| `reason` | Meaning |
+|---|---|
+| `no_payload` | No payload field in the envelope, or an empty one. |
+| `undecodable` | A payload the protobuf decoder rejected, or one the JSON parser did not finish. The second is why the reason is broad: a few hundred kilobytes of nested brackets raises `RecursionError`, which is not a parse error, so it escaped the read loop with the batch unacked and the reclaim sweep handed the same entry to the next process — one `XADD`, a permanent restart. Such an entry is dropped rather than retried as protobuf, since a payload the JSON parser choked on is JSON text and the protobuf decoder is lenient enough to make an event out of it. |
+| `unmapped_kind` | An entry from a stream this consumer has no configured kind for. |
+| `schema_invalid` | JSON that parsed but carries no `sensorId` and no `sensor.id`. Any client can `XADD` to these streams; without this check an arbitrary object reached the VLM, which then paid to verify it. |
+| `payload_encoding` | JSON in an encoding other than UTF-8. `json.loads` accepts UTF-16 and UTF-32 by sniffing the BOM, but everything downstream of the source is UTF-8 — so such an entry parsed here and then raised in the batch builder, where the entry had already been acked and the failure crashed the consumer instead of dropping one message. One `XADD` was enough to do it. |
+| `kind_mismatch` | JSON that set `notification_type` to a kind other than its stream's. The stream decides the kind and the pipeline stamps it over the payload's, so such an entry was not mis-decoded but relabelled — verified as the stream's kind and published as one. Only a contradiction counts: a payload that omits the field, or sets a value naming no kind, is accepted and the stream decides. |
+
+A rising count means a producer is emitting entries this consumer cannot use —
+except for `kind_mismatch`, which says a producer is publishing usable events to
+the wrong stream.
+
+### Scaling the Redis source: dedup needs consumer affinity
+
+**Run one Alert MS replica per Redis consumer group, or shard by sensorId.**
+
+Dedup, the end-time delta filter and the VLM rate limit are all kept
+**in-process**, and that is only sound because a given `sensorId` is always seen
+by the same instance. On Kafka that holds structurally: `mdx-incidents` is
+partitioned by `sensorId`, every dedup cohort key is prefixed with `sensorId`,
+and a consumer owns whole partitions — so a cohort never splits across pods
+(`test_multi_consumer_dedup` pins this).
+
+A Redis Streams consumer group gives no such guarantee. `XREADGROUP` hands each
+entry to whichever consumer asks first, and each replica registers under its own
+consumer name (`alert-bridge-<host>-<pid>`). Two replicas on one group therefore
+interleave the same sensor's events, each sees only part of the cohort, and
+duplicates that in-process dedup would have suppressed reach the VLM instead —
+extra verification cost and duplicate verdicts, quietly. Nothing errors.
+
+How bad the duplicate gets depends on the **sink**, and the all-Redis
+configuration is the worst case:
+
+| Sink | What a cross-replica duplicate costs |
+|---|---|
+| `elastic` | The VLM verifies twice (wasted GPU), but the sink indexes by fingerprint (`document["Id"]`), so Elasticsearch still holds **one** document. |
+| `redisStream` / `kafka` | The VLM verifies twice **and** both verdicts are appended — `XADD` has no doc-id equivalent, so a genuine duplicate reaches downstream consumers. |
+
+`test_redis_multi_consumer_dedup` demonstrates both: with two replicas on one
+group, twelve events for a single sensorId split 6/6 across them, and a repeated
+fingerprint produced two publishes that only Elasticsearch's doc id collapsed.
+
+If you must run more than one replica against Redis, either give each replica
+its own consumer group over a disjoint set of streams (shard by sensor), or
+enable `alert_agent.event_filters.protect_confirmed_verdicts` so the
+Elasticsearch-backed verdict marker catches the duplicates that in-process state
+no longer can. Note that it is **off by default**, so an unsharded scale-up has
+no backstop as shipped.
+
+The write path is where at-most-once bites hardest, so it does not simply give
+up. A `redisStream` sink is the payload's only destination — the source has
+already acked and nothing upstream will offer the verdict again — so a failed
+`XADD` is retried (`publish_retries`, default 2, with a short linear backoff),
+rebuilding the connection first when the failure was a dropped one. Retries are
+few on purpose: the caller is on the consume path, so blocking there stalls the
+batch behind it. When they are exhausted the payload *is* dropped, and that is
+visible rather than silent: the sink logs an error naming the stream, and
+`alert_bridge_redis_publish_failures_total{outcome="dropped"}` counts it. The
+`outcome="recovered"` series counts blips a retry absorbed — a rising
+`recovered` with a flat `dropped` means Redis is unstable but nothing was lost.
+Alert on `dropped`.
+
+A third series, `outcome="replayed"`, is the honest accounting for the case where
+a retry can cost something. A write whose reply never arrived — a connection lost
+or timed out *after* the command reached the socket — does not say whether Redis
+appended the entry, so the retry may append a second copy. A pipelined batch
+widens the same window rather than introducing a new one: `execute` sends every
+append before reading any reply, so a break in between leaves entries the server
+already applied with nothing to say so, and the fallback re-publishes all of them.
+
+Retrying is still the right default — the source has acked, so not retrying drops
+verdicts outright — and Redis offers nothing to make the append idempotent: the
+entry ID is the server's to assign, and an ID chosen here so a second attempt
+would be refused is also refused whenever another writer got in first, which turns
+a rare duplicate into a silent loss. So the count is how you find out. `replayed`
+is the upper bound on duplicates a downstream reader may have seen; failures that
+cannot have applied anything — the server's own refusal, a connection never
+opened, an authentication rejection — are retried without adding to it. It is
+separate from `recovered` because the two answer different questions: `recovered`
+says the payload was not lost, `replayed` says it may have landed twice, and one
+publish can be counted under both.
+
+Collapsing a duplicate is the consumer's job, and what it has to work with depends
+on `payload_format`: `json` carries the whole document including its `Id`
+fingerprint, and a protobuf `alert` (Behavior) carries `id`, but the protobuf
+`Incident` schema has no identifier field at all — on that route the counter is
+the only signal there was one.
+
+**One publish is bounded by a clock as well as by a retry count.** A retry count
+alone does not bound time, because every attempt can spend a whole socket
+timeout, and that time is time the consume path is not reading. One publish
+against a host that accepts packets and answers nothing measured **126.7s** —
+which neither retry setting predicted, because the timeouts were 30s and the
+client was retrying each connect four times underneath. `publish_budget` (top-level
+`redis`, default 15s) is the ceiling on one publish including its retries,
+checked between attempts — never mid-attempt, since interrupting an append in
+flight would leave one that may have landed indistinguishable from one that did
+not. A batch falling back to individual publishes shares one budget rather than
+taking one each. Set it to `0` for no ceiling.
+
+Because the budget is read *between* attempts, it only bounds a publish while one
+attempt fits inside it — and an attempt costs `redis.socket_timeout`, which is
+**5s** by default and in every shipped config for that reason. It was 30s, which
+put a single attempt past the 15s budget; raise it there again and startup logs a
+warning naming both values rather than leaving you to measure it. `socket_timeout`
+is the unit of every worst case on this transport, not just this one: shutdown
+spends it per stream it tidies up, and the readiness probe below spends it inside
+the consumer group's session window. It must stay above
+`consumer_config.block_time` (100ms) so an idle blocking read is not read as a
+timeout; startup warns if it does not.
+
+**The client does no retrying of its own.** redis-py 6 otherwise retries a
+connection that times out four times, sleeping up to ten seconds between the
+attempts, underneath all of the above — which does not compose with it. Measured
+on one command against a host that times out on connect: four connect attempts and
+ten seconds of sleeping that `publish_retries`, `publish_budget` and the counters
+knew nothing about, so at the timeouts this shipped with, one publish cost minutes
+while both retry layers reported doing what they were configured to do. The client
+is configured for a single attempt per command so that retrying happens in one
+place and is counted there.
+
+**Acks are retried too, and that retry is the safe one.** `XACK` is idempotent,
+so unlike a publish it cannot duplicate anything, while a lost ack is expensive:
+the entry stays pending until the reclaim sweep gives it to another consumer,
+which verifies it a second time and publishes a second verdict. It gets the same
+retry count, backoff and budget as a publish, and its own two series —
+`outcome="ack_recovered"` and `outcome="ack_dropped"`. They are separate from the
+write path's because they mean the opposite thing: a dropped *publish* is a
+verdict nobody received, a dropped *ack* is a verdict that will be produced
+again. A rising `ack_dropped` is the explanation for duplicates that `replayed`
+does not account for.
+
+A sink that lost its connection also recovers its own readiness. The health flag
+used to clear only on a successful publish, so a sink between verdicts stayed
+unready indefinitely after a blip that had already healed; the readiness check now
+pings when the flag is down — at most once a second, because the readiness timer is
+not its only caller. Every consumer-group assignment and revocation reads it too,
+on the rebalance callback, where a ping against a host that is not answering costs
+a socket timeout inside the window the group allows a member before evicting it.
+Between probes the answer is the flag.
+
+**Publishing is batched where there is a batch to publish.** The event-bridge
+sink's `write_*` methods are each handed a list, and each used to issue one
+`XADD` per entry — so a ten-event batch spent ten round trips of latency on the
+consume path, which the source cannot read past. They now go out in one
+pipelined exchange (not a `MULTI`: these are independent appends, and a
+transaction would only add a mode where one bad entry discards the rest). Order,
+envelope and per-entry drop accounting are unchanged, because anything the
+pipeline cannot place falls back to the individual retrying path.
+
+The VLM-enhanced sink is not batched, and cannot be without changing what it
+promises: it is called once per verdict as each one is produced, so batching
+there would mean holding finished verdicts back to accumulate a batch — trading
+the latency this saves for latency on the result nobody asked to delay.
+
+Startup behaviour differs between the two directions, also deliberately. The
+Redis sink pings on construction and refuses to start when Redis is unreachable,
+because a sink that cannot reach its destination has nowhere to put results and
+would discard them silently. The Redis source instead logs and retries with
+backoff, because a consumer outliving a broker restart is normal operation. The
+Kafka sink does not ping at all, so moving a sink to Redis makes startup stricter
+than it was.
+
+On Docker Compose the selections and the connection live in the config file the
+profile mounts — `event_bridge.sourceType`, `event_bridge.sinkType`,
+`vlm_enhanced_sink.type` and the top-level `redis` block, all shipped on their
+Kafka defaults. In Helm they are the `eventSourceType`, `eventSinkType`,
+`vlmSinkType`, and `redis.*` values, which render into those same keys. The
+compose files pass no `REDIS_*` variables and are not modified by this feature,
+so an existing deployment takes the new image with no change at all.
+
+**Neither has a default endpoint.** `redis.host` is empty as shipped on both
+paths, and Helm refuses to render when a `redisStream` transport is selected
+without one. Both used to fall back to the bundled development Redis, which meant
+a forgotten host produced a working pipeline attached to the wrong instance —
+including publishing verdicts into streams the deployment does not own. For the
+bundled instance, ask for it explicitly with `redis.useInClusterRedis: true`.
+
+Everything that decides *where* a component connects, or whether it will be let
+in, is judged at startup — before the API is up and before the pipeline processes
+fork — so a one-line config mistake fails the container with the key named rather
+than crash-looping a child with a stack trace:
+
+| Setting | Unset means | Judged how |
+|---|---|---|
+| `redis.host` | nothing; a `redisStream` transport is refused | No default endpoint, per above |
+| `redis.port` | 6379 | Anything outside 1-65535 fails, instead of reaching the client and reading as "Redis is down" |
+| `redis.db` | 0 | `db: "one"` fails rather than coercing to 0, which would connect to a database that exists, accept every command and consume an empty stream in the wrong place |
+| `redis.password_file` / `_env` | no credential, which is fine | A source that was named and yields nothing fails, rather than surfacing as `NOAUTH` on the first command |
+| `vlm_enhanced_sink.type` | `elastic` | A name nobody implements fails here; validation used to resolve any non-Redis value to "not Redis" and pass it, so `type: mongo` was rejected later, by the sink factory inside a forked child |
+
+Every row is a Redis setting or a selection this feature added. Kafka's own
+endpoint is deliberately not on the list: that path is unchanged by this feature
+and validates nothing new.
+
+Knobs that only tune *how* a component behaves are treated the opposite way, on
+purpose: an unusable value warns, names the full config path, and falls back to
+the default rather than refusing to start. A typo in a backoff is not worth a
+failed deployment — but it is worth a line, which is what the copies of that
+coercion did not do before. Where the fallback would disable the knob's job
+(`error_backoff: 0` paces nothing; `count: 0` reads nothing) the value is raised
+to a floor instead.
+
+Authentication and TLS are configured out-of-band from the rest of the config,
+because that config is a ConfigMap:
+
+| | Config key (Compose) | Helm value |
+|---|---|---|
+| ACL username | `redis.username` | `redis.username` |
+| Password, inline (dev) | `redis.password` | `redis.password` |
+| Password, from a file | `redis.password_file` | `redis.passwordSecret` |
+| TLS on | `redis.ssl` | `redis.tls.enabled` |
+| Private CA | `redis.ssl_ca_certs` | `redis.tls.caCertSecret` |
+| Client cert / key (mTLS) | `redis.ssl_certfile` / `redis.ssl_keyfile` | `redis.tls.clientCertSecret` |
+
+The Helm secrets are mounted into the pod for you. On Compose the file keys name
+paths *inside the container*, and the Alerts compose mounts nothing for them, so
+mount the host directory holding them yourself — a compose override file is the
+place for it, since the shipped compose is left untouched. A password file wins
+over an inline password when both are set.
+
+Naming a password file or environment variable that yields nothing falls back to
+the inline password if there is one, and **fails startup if there is not** —
+naming the path it could not read. The Helm shape has no inline value, so a
+`passwordSecret` whose mount never appeared would otherwise connect
+unauthenticated and surface as `NOAUTH` on the first command, several layers away
+from the mount that caused it. Leaving all three unset is still fine: an instance
+with no `requirepass` is the ordinary local case.
+
+`redis.ssl` and `redis.tls` are two spellings of one switch, and writing the
+mapping form is enough: `tls: {}` means TLS on with the defaults, because an empty
+block is a deployment asking for TLS and having nothing to add. That distinction
+exists because an empty mapping is falsy in Python — read as a boolean, such a
+config ran unencrypted and said nothing about it. The certificate settings are the
+flat keys beside it (`ssl_cert_reqs`, `ssl_ca_certs`, `ssl_certfile`,
+`ssl_keyfile`), so keys nested *under* `tls` are not read, and are named in a
+warning rather than ignored. The scalar spelling keeps value semantics — `ssl: ""`
+is an unresolved variable, not a request — and a value that is neither true-like
+nor false-like leaves TLS off and says so.
 
 ## Testing
 

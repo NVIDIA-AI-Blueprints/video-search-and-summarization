@@ -25,6 +25,23 @@ export PID_DIR="${PID_DIR:-/tmp/alert_agent_p1_functional}"
 export ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
 export BOOTSTRAP="${BOOTSTRAP:-127.0.0.1:9092}"
 export TOPIC="${TOPIC:-mdx-incidents}"
+# A test whose optional infrastructure is absent exits with this instead of 0,
+# so a skipped transport is reported as skipped rather than counted as a pass.
+export EXIT_SKIP=66
+# Whether a missing Redis is a failure rather than a skip. Defaults to 1
+# because step1_start_simulators.sh now starts one: the stack provides the
+# broker, so a skip no longer means "this host has no Redis", it means the
+# container did not come up — and that must not report as green with the whole
+# redisStream transport untested.
+#
+# SKIP_REDIS=1 is the single switch for running without it: step1 starts no
+# container and the skips come back, so the two settings cannot contradict each
+# other. An explicit REDIS_REQUIRED in the environment still wins.
+if [ "${SKIP_REDIS:-0}" = "1" ]; then
+    export REDIS_REQUIRED="${REDIS_REQUIRED:-0}"
+else
+    export REDIS_REQUIRED="${REDIS_REQUIRED:-1}"
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -83,6 +100,31 @@ wait_for_service() {
     return 1
 }
 
+redis_server_version() {
+    if docker ps -q -f name="$REDIS_CONTAINER" | grep -q .; then
+        docker exec "$REDIS_CONTAINER" redis-cli INFO server 2>/dev/null \
+            | sed -n 's/^redis_version:\([0-9.]*\).*/\1/p'
+    else
+        return 1
+    fi
+}
+
+# Whether this Redis actually has XAUTOCLAIM (6.2+). The image is whatever was
+# already pulled on the host, so it can be older — and on an older one the
+# source disables its stranded-entry sweep for the life of the process, so every
+# reclaim assertion passes without exercising anything. Warned rather than
+# fatal: the rest of the transport works fine on 6.0.
+assert_redis_supports_reclaim() {
+    local version
+    version=$(redis_server_version) || return 0
+    case "$version" in
+        [0-5].*|6.0.*|6.1.*)
+            print_status "info" \
+                "Redis $version has no XAUTOCLAIM (needs 6.2+): the reclaim sweep is inert, so reclaim coverage passes vacuously. Set REDIS_IMAGE=redis:7-alpine." ;;
+        *) ;;
+    esac
+}
+
 # ─── Phase 1: Setup ───────────────────────────────────────────────────────────
 
 phase_setup() {
@@ -95,8 +137,46 @@ phase_setup() {
     cd "$REPO_ROOT"
 
     # --- Redis ---
-    # Removed: Alert MS no longer depends on Redis. Dedup/filter state is
-    # in-process; durable state (verdict protection, alert configs) is in ES.
+    # Alert MS state does NOT live in Redis: dedup/filter state is in-process
+    # and durable state (verdict protection, alert configs) is in ES. This
+    # container exists solely for the optional Redis Streams source/sink
+    # transports — every other P1 test runs on Kafka exactly as before.
+    #
+    # Because this starts one, a redisStream test that skips means this block
+    # failed rather than "the host has no Redis", which is why REDIS_REQUIRED
+    # defaults to 1. SKIP_REDIS=1 opts out of both together.
+    if [ "${SKIP_REDIS:-0}" = "1" ]; then
+        print_status "info" "SKIP_REDIS=1 — the redisStream tests will skip"
+    else
+    print_status "wait" "Checking Redis on :6379 (Redis Streams transport tests)..."
+    if check_port 127.0.0.1 6379; then
+        print_status "ok" "Redis already running on :6379"
+        assert_redis_supports_reclaim
+    else
+        # Prefer any redis image already pulled so the suite runs on a host with
+        # no registry access; REDIS_IMAGE overrides the choice.
+        local redis_image="${REDIS_IMAGE:-}"
+        if [ -z "$redis_image" ]; then
+            redis_image=$(docker images --format '{{.Repository}}:{{.Tag}}' \
+                | grep -E '^(redis|valkey/valkey):' | grep -v '<none>' | head -1)
+        fi
+        redis_image="${redis_image:-redis:7-alpine}"
+
+        docker rm -f "$REDIS_CONTAINER" 2>/dev/null || true
+        if docker run -d --name "$REDIS_CONTAINER" -p 6379:6379 \
+                "$redis_image" >/dev/null 2>&1; then
+            echo "$REDIS_CONTAINER" > "$PID_DIR/redis_container"
+            if wait_for_service "redis" "check_port 127.0.0.1 6379" 30; then
+                print_status "ok" "Redis ready ($redis_image)"
+                assert_redis_supports_reclaim
+            else
+                print_status "info" "Redis failed to become ready (REDIS_REQUIRED=$REDIS_REQUIRED)"
+            fi
+        else
+            print_status "info" "Could not start Redis ($redis_image) (REDIS_REQUIRED=$REDIS_REQUIRED)"
+        fi
+    fi
+    fi
 
     # --- Kafka ---
     print_status "wait" "Checking Kafka on :9092..."
@@ -316,6 +396,36 @@ reset_test_state() {
     # Clear persistence layer indices — otherwise alert configs written
     # by previous tests leak across runs (ES is the source of truth).
     curl -sf -X DELETE "$ES_HOST/ab-alert_configs" >/dev/null 2>&1 || true
+    # Drop the Redis Streams transport streams and their consumer groups. Left
+    # behind, a stale group's pending-entries list makes the next redisStream
+    # test read someone else's incident.
+    if docker ps -q -f name="$REDIS_CONTAINER" | grep -q .; then
+        docker exec "$REDIS_CONTAINER" redis-cli FLUSHDB >/dev/null 2>&1 || true
+    fi
+    # Fast-forward every Kafka consumer group to the end of its topics. Alert MS
+    # runs with auto_offset_reset=latest, so a group that has never committed
+    # starts at the end and only ever sees what its own test produced. A group
+    # that committed during an earlier run does not: it resumes from that offset
+    # and replays every incident the tests in between left on mdx-incidents,
+    # which then lands in this test's ES index and output topic and fails
+    # assertions that look for the newest document. This gives a reused broker
+    # the same clean slate as a freshly created one. Alert Bridge is already
+    # stopped here, so no group has active members to block the reset.
+    if docker ps -q -f name="$KAFKA_CONTAINER" | grep -q .; then
+        local group_args=""
+        local group
+        for group in $(docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
+                --bootstrap-server localhost:9092 --list 2>/dev/null); do
+            group_args="$group_args --group $group"
+        done
+        if [ -n "$group_args" ]; then
+            # shellcheck disable=SC2086  # word splitting is how the flags are passed
+            docker exec "$KAFKA_CONTAINER" kafka-consumer-groups \
+                --bootstrap-server localhost:9092 $group_args \
+                --reset-offsets --to-latest --all-topics --execute \
+                >/dev/null 2>&1 || true
+        fi
+    fi
 }
 
 # ─── Phase 2: Run Tests ───────────────────────────────────────────────────────
@@ -376,6 +486,13 @@ phase_run_tests() {
             print_status "ok" "$test_name: PASS"
             pass=$((pass + 1))
             results+=("PASS  $test_name")
+        elif [ $exit_code -eq "$EXIT_SKIP" ]; then
+            # Distinct from PASS on purpose. A skip used to exit 0, so a run
+            # where optional infrastructure never came up reported all-green
+            # with the transport under test never exercised.
+            print_status "info" "$test_name: SKIP"
+            skip=$((skip + 1))
+            results+=("SKIP  $test_name")
         else
             print_status "fail" "$test_name: FAIL (exit $exit_code)"
             fail=$((fail + 1))
@@ -391,12 +508,18 @@ phase_run_tests() {
     for r in "${results[@]}"; do
         if [[ "$r" == PASS* ]]; then
             echo -e "  ${GREEN}$r${NC}"
+        elif [[ "$r" == SKIP* ]]; then
+            echo -e "  ${YELLOW}$r${NC}"
         else
             echo -e "  ${RED}$r${NC}"
         fi
     done
     echo ""
-    echo "  Passed: $pass  Failed: $fail"
+    echo "  Passed: $pass  Failed: $fail  Skipped: $skip"
+    if [ "$skip" -gt 0 ]; then
+        echo "  ($skip skipped for missing optional infrastructure; set"
+        echo "   REDIS_REQUIRED=1 to make the redisStream tests fail instead)"
+    fi
 
     if [ "$fail" -gt 0 ]; then
         return 1
@@ -448,7 +571,14 @@ phase_cleanup() {
         docker rm -f "$KAFKA_CONTAINER" >/dev/null 2>&1 || true
     fi
 
-    # Redis removed — nothing to stop.
+    # Stop Redis (only started for the Redis Streams transport tests)
+    if [ -f "$PID_DIR/redis_container" ]; then
+        local rc
+        rc=$(cat "$PID_DIR/redis_container")
+        docker rm -f "$rc" >/dev/null 2>&1 || true
+        rm -f "$PID_DIR/redis_container"
+        print_status "ok" "Redis container stopped"
+    fi
 
     # Clean up PID dir
     rm -f "$PID_DIR"/*.log "$PID_DIR"/*.json "$PID_DIR"/*.pid 2>/dev/null || true

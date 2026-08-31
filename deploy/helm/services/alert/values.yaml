@@ -23,11 +23,110 @@ image:
   pullPolicy: IfNotPresent
 replicas: 1
 
+# Rendering refuses replicas > 1 together with eventSourceType: redisStream.
+# A Redis consumer group hands each entry to whichever consumer asks first, so
+# one sensor's events are split across replicas — and dedup, the end-time delta
+# filter and the VLM rate limit are all process-local and assume they are not.
+# Set this true once each replica has its own redis.consumerGroup over disjoint
+# streams, or once alert_agent.event_filters.protect_confirmed_verdicts is on.
+allowMultiReplicaRedisSource: false
+
 # Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.
-# Redis has been removed from Alert MS: dedup/filter state is in-process
-# and durable state (verdict protection, alert configs) lives in Elasticsearch.
+# Note: dedup/filter state is in-process and durable state (verdict protection,
+# alert configs) lives in Elasticsearch — the redis settings below are only for
+# the optional Redis Streams transports, not for state.
 kafkaBootstrapServers: ""
 elasticHosts: ""
+
+# Event bridge transports, selected independently. Kafka is the default for
+# both, so existing deployments are unaffected.
+#   eventSourceType: kafka | redisStream
+#   eventSinkType:   kafka | redisStream | console
+# The event bridge sink carries validation-error responses; VLM-enhanced results
+# are published by the sink selected with vlmSinkType.
+# Names are matched the way the application matches them: case-insensitively,
+# ignoring "_" and "-", with "redis" accepted as an alias of "redisStream". The
+# startup wait below derives which brokers to wait for from these values, so it
+# stays in step with the transports the pod actually opens.
+eventSourceType: "kafka"
+eventSinkType: "kafka"
+
+# Transport for VLM-enhanced Alert and Incident results.
+#   elastic (default) | kafka | redisStream | console
+vlmSinkType: "elastic"
+
+# Connection for the optional Redis Streams transports. Only read when a
+# redisStream transport is selected above. Alert MS does not deploy Redis and
+# keeps no state in it, so the endpoint has to come from whoever does.
+#
+# There is no release-based default. host used to fall back to <release>-redis,
+# which meant selecting a redisStream transport and forgetting the host attached
+# the deployment to the bundled development Redis without saying so — including
+# publishing verdicts into streams it does not own. Rendering now fails and names
+# this key instead. For the bundled instance, ask for it: useInClusterRedis.
+redis:
+  host: ""
+  # Development only: point host at the in-cluster infra Redis. Its streams are
+  # not durable and not yours to keep.
+  useInClusterRedis: false
+  port: 6379
+  db: 0
+  # ACL username, for a Redis 6+ instance that uses ACL users rather than a
+  # single requirepass. Leave "" for the default user.
+  username: ""
+  # Rendered into a ConfigMap, which is not a secret — so setting this without
+  # passwordSecret fails rendering unless allowPasswordInConfigMap says the
+  # instance is local or throwaway and that is acceptable. Use passwordSecret
+  # for everything else.
+  password: ""
+  allowPasswordInConfigMap: false
+  # Read the password from a mounted Secret instead. Both keys are required to
+  # take effect; the mount is added to the pod automatically. Once set, a Secret
+  # that is missing or empty at startup fails the pod naming the path, rather
+  # than connecting unauthenticated and reporting NOAUTH later.
+  #   passwordSecret: { name: my-redis-auth, key: password }
+  passwordSecret: {}
+  # TLS for a customer-managed endpoint. Verification is on whenever tls is
+  # enabled; caCertSecret supplies a private CA, and omitting it uses the
+  # image's system trust store. Set certReqs: none only for a self-signed
+  # development instance.
+  tls:
+    enabled: false
+    certReqs: "required"
+    # caCertSecret: { name: my-redis-ca, key: ca.crt }
+    caCertSecret: {}
+    # Client certificate, for an instance with tls-auth-clients yes — which
+    # refuses a connection that presents none, so tls.enabled alone cannot
+    # reach one. certKey / keyKey name the entries inside the Secret and
+    # default to the kubernetes.io/tls pair.
+    #   clientCertSecret: { name: my-redis-client, certKey: tls.crt, keyKey: tls.key }
+    clientCertSecret: {}
+  # Approximate MAXLEN cap applied when publishing. Empty or 0 means Alert MS
+  # never trims — the streams belong to your deployment, and trimming on every
+  # publish makes ordinary output delete your older entries. Set a positive
+  # number to opt in, matching what vss-behavior-analytics and rt-vlm use.
+  maxlen: 0
+  # What one unanswered Redis command costs, in seconds. Every worst case here
+  # is a multiple of it: a publish spends it per attempt, a shutdown spends it
+  # per stream it tidies up, and a readiness probe on the consumer-group
+  # rebalance path spends it inside the window the group allows a member. This
+  # was 30s, which made each of those a minutes-long stall against an
+  # unreachable instance and put one publish attempt past the 15s publish
+  # budget, so it is deliberately short — raise it only if your instance is
+  # genuinely slow, and keep it above the source's block_time (100ms) so an idle
+  # blocking read is not read as a timeout.
+  socketTimeout: 5
+  socketConnectTimeout: 5
+  # Stranded-entry recovery. An entry delivered to a consumer that then died
+  # stays in that consumer's pending list and is never redelivered, so a replica
+  # lost mid-batch strands its work without this. reclaimIntervalSeconds is how
+  # often to sweep (0 disables it); pendingMinIdleMs is how long an entry must
+  # have been idle before another consumer may claim it. Entries are acked on
+  # read, before verification, so this window does not contain a VLM call — it
+  # is what a stranded entry waits before anyone picks it up.
+  reclaimIntervalSeconds: 30
+  pendingMinIdleMs: 60000
+  consumerGroup: "alert-bridge-vlm-group"
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"
 # VST base for Alert Bridge media lookup (vst_config.base_url). Default: in-cluster
@@ -67,9 +166,11 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 
-# Block the main container until Kafka and Elasticsearch accept TCP (avoids
-# startup crashes when alert-bridge runs before infra stack services are listening).
-# Redis is no longer a dependency of Alert MS.
+# Block the main container until its dependencies accept TCP (avoids startup
+# crashes when alert-bridge runs before infra stack services are listening).
+# Which endpoints are waited on follows the selected transports: Kafka is
+# skipped when neither the source nor the sink uses it, and Redis is added when
+# either does.
 waitForDependencies:
   enabled: false
   image:
@@ -80,5 +181,8 @@ waitForDependencies:
   kafkaPort: "9092"
   elasticsearchHost: ""
   elasticsearchPort: "9200"
+  # Leave "" to reuse the redis.host / redis.port values above.
+  redisHost: ""
+  redisPort: ""
   maxRetries: "90"
   retryInterval: "2"

@@ -761,6 +761,60 @@ RECORD_KEY_ALIGNMENT = Counter(
     ['aligned'],
 )
 
+# (4c) Redis Streams publish reliability. When a redisStream sink is selected
+# Redis is the only destination, so an XADD that never lands is silent data
+# loss of an already-verified verdict. outcome ∈ closed enum:
+#   recovered – XADD failed but a bounded retry succeeded (transient blip)
+#   dropped   – retries exhausted, payload discarded (actual loss — alert on it)
+# No stream label: stream names are operator-configured and would be unbounded.
+REDIS_PUBLISH_FAILURES = Counter(
+    'alert_bridge_redis_publish_failures_total',
+    'Redis Streams publish attempts that failed, by whether a retry recovered them',
+    ['outcome'],
+)
+
+# (4d) Read-path drops. The sources are at-most-once by design, so an entry that
+# cannot be decoded is acked and discarded rather than replayed forever. That is
+# the right call for a poison pill, but it must not be invisible: without a
+# counter the only trace is a log line. Mirrors the write-path counter above.
+#   no_payload    – envelope carried no value/data/payload/metadata field
+#   undecodable   – StreamMessage construction raised on the entry
+#   unmapped_kind – entry came from a stream with no configured event kind, so
+#                   choosing a decode schema would mean guessing one
+# transport is a closed enum; only the Redis source reports today, the Kafka
+# source has equivalent drop sites that are not wired yet.
+SOURCE_DROPPED = Counter(
+    'alert_bridge_source_dropped_total',
+    'Consumed entries discarded before the pipeline, by transport and reason',
+    ['transport', 'reason'],
+)
+
+# (4e) Verdicts lost at the terminal sink. Distinct from the publish counter
+# above, which counts failed XADD attempts on any Redis write: this counts
+# already-verified Alert and Incident results that never reached their
+# destination — the VLM call was made and paid for, and the answer is gone.
+# transport and event_kind are both closed enums; no stream, topic, index or
+# sensorId label.
+TERMINAL_PUBLISH_DROPPED = Counter(
+    'alert_bridge_terminal_publish_dropped_total',
+    'VLM-verified results that never reached the terminal sink, by transport and kind',
+    ['transport', 'event_kind'],
+)
+
+# (4f) Whether the terminal sink can currently be written to. Feeds pipeline
+# readiness: a sink that is discarding every verdict is a degradation the
+# health endpoint has to report, because throughput metrics alone look
+# identical to a healthy idle service. 1 = usable, 0 = not.
+SINK_READY = Gauge(
+    'alert_bridge_sink_ready',
+    'Whether the terminal VLM-enhanced sink is currently usable (1) or not (0)',
+    ['transport'],
+    # livemin: any live pipeline whose sink is unusable pulls the instance's
+    # value to 0. A dead process's shard must not keep reporting the sink it
+    # last saw, which is why this is the live variant.
+    multiprocess_mode='livemin',
+)
+
 # ---------------------------------------------------------------------------
 # Confirmed-verdict marker retention (hourly throttled reaper)
 # ---------------------------------------------------------------------------

@@ -76,9 +76,14 @@ echo "=== Step 1: Starting Simulators ==="
 echo ""
 
 # --- Redis ---
-# Redis has been removed from Alert MS. Dedup/filter state is in-process and
-# durable state (verdict protection, alert configs) lives in Elasticsearch,
-# so no Redis container is started for the functional stack.
+# Alert MS has no Redis state: dedup/filter state is in-process and durable
+# state (verdict protection, alert configs) lives in Elasticsearch, so nothing
+# in this stack needs a Redis to run.
+#
+# The optional redisStream transports do, and the tests that exercise them are
+# in the P1 suite, which starts its own container (see p1/run_p1.sh). Kept there
+# rather than duplicated here so there is one place that decides the image and
+# the version floor.
 
 # --- Kafka ---
 print_status "wait" "Checking Kafka on :9092..."

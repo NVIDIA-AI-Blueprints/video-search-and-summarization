@@ -93,6 +93,21 @@ def available_cpus() -> int:
         return os.cpu_count() or 1
 
 
+def source_is_kafka(config: Optional[Dict[str, Any]]) -> bool:
+    """Whether the source reads Kafka topics, and so has partitions at all.
+
+    An absent ``sourceType`` is Kafka, which is what makes this safe to ask of
+    every config: the default deployment answers True without naming a
+    transport.
+
+    Separated from :func:`source_topics` because the two questions have the same
+    answer and different meanings. "No topics" is a config this cannot size and
+    must wait for; "not Kafka" is a config where there is nothing to size.
+    """
+    bridge = (config or {}).get("event_bridge", {}) or {}
+    return str(bridge.get("sourceType", "kafka")).lower() == "kafka"
+
+
 def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
     """Non-heartbeat Kafka source topics, empty when the source is not Kafka.
 
@@ -105,7 +120,7 @@ def source_topics(config: Optional[Dict[str, Any]]) -> List[str]:
     """
     config = config or {}
     bridge = config.get("event_bridge", {}) or {}
-    if str(bridge.get("sourceType", "kafka")).lower() != "kafka":
+    if not source_is_kafka(config):
         return []
 
     topics = (bridge.get("kafka_source", {}) or {}).get("topics") or {}
@@ -232,7 +247,25 @@ def await_source_partitions(
     after the topic-init container has completed, so the first read is already
     authoritative, while on Kubernetes the topics arrive from a Job that races
     this one and an immediate read would fail a perfectly good install.
+
+    A source that is not Kafka returns immediately. Everything below is about
+    Kafka topic metadata, and a transport that has no partitions cannot produce
+    any: the wait ran to the full deadline, found nothing, and reported that it
+    could not read the partition count -- so selecting Redis spent the whole
+    pre-join budget on a question that has no answer, left nothing for the VLM
+    warmup, and held ``/health`` at 503 for the duration. At more than one
+    process it was worse than slow: the same unreadable count is a hard failure
+    there, so a Redis deployment with ``alert_agent.processes: 4`` could not
+    start at all, though a Redis consumer group has no per-partition ceiling on
+    its members.
     """
+    if not source_is_kafka(config):
+        logger.info(
+            "Source is not Kafka, so there is no partition count to wait for; "
+            "starting %d pipeline process(es)", required,
+        )
+        return {}
+
     deadline = time.monotonic() + timeout
     warned = False
     while True:

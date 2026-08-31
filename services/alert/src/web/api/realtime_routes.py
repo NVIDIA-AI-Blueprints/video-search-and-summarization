@@ -278,11 +278,20 @@ def get_always_on_service() -> AlwaysOnService:
 @lru_cache()
 def get_incident_service() -> IncidentService:
     """Create IncidentService with shared ES client."""
+    from mdx.transport.names import ELASTIC, TERMINAL_SINK_ALIASES, normalize
+
     config = load_config()
     sink_cfg = config.get("vlm_enhanced_sink", {})
     incident_cfg = sink_cfg.get("incident", {})
     index_base = "mdx-vlm-incidents"
-    if incident_cfg.get("type") == "elastic":
+    # Read from the top level, and through the same normalizer the sink factory
+    # uses. The transport used to be declared per kind and is now declared once
+    # for both, so a per-kind lookup here matched nothing and this override
+    # became unreachable -- silently, because every shipped config sets an index
+    # equal to the fallback. A deployment that had customised the index would
+    # have had its incidents written to that index and read back from the
+    # default one.
+    if normalize(sink_cfg.get("type") or ELASTIC, TERMINAL_SINK_ALIASES) == ELASTIC:
         index_base = incident_cfg.get("elastic", {}).get("index", index_base)
 
     consolidation = config.get("rtvi_vlm", {}).get("consolidation", {})

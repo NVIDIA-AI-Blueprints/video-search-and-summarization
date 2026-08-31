@@ -134,13 +134,15 @@ if docker ps -q -f name="$KAFKA_DEFAULT" | grep -q .; then
     print_status "ok" "Default Kafka container stopped"
 fi
 
-# Redis removed from Alert MS — best-effort cleanup of any leftover Redis
-# test container from older runs, but none is started anymore.
-for legacy_redis in "$(cat "$PID_DIR/redis_container" 2>/dev/null)" "alert-agent-redis-test"; do
-    [ -n "$legacy_redis" ] || continue
-    if docker ps -q -f name="$legacy_redis" | grep -q .; then
-        docker rm -f "$legacy_redis" >/dev/null 2>&1 || true
-        print_status "ok" "Removed leftover Redis container ($legacy_redis)"
+# Alert MS keeps no state in Redis, but step1 starts one so the redisStream P1
+# tests have a broker to run against instead of skipping. The literal name is
+# kept in the list as well as the recorded one, so a container left behind by a
+# run that died before writing the file is still cleaned up.
+for redis_container in "$(cat "$PID_DIR/redis_container" 2>/dev/null)" "alert-agent-redis-test"; do
+    [ -n "$redis_container" ] || continue
+    if docker ps -q -f name="$redis_container" | grep -q .; then
+        docker rm -f "$redis_container" >/dev/null 2>&1 || true
+        print_status "ok" "Removed Redis container ($redis_container)"
     fi
 done
 rm -f "$PID_DIR/redis_container" 2>/dev/null || true

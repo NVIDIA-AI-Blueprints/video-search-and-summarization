@@ -51,6 +51,14 @@ These run against simulators with known inputs — not a live deployment.
 | `test_direct_media_download` | Send incident with `info.media_urls`; verify AB downloads media and processes via Mode 3 | Direct media URL download bypasses VST |
 | `test_http_ondemand_verification` | POST to `/api/v1/verification/ondemand`: (1) valid request → 202, then result in ES; (2) unknown category → 400; (3) NIM down → 202, then error result | Asynchronous on-demand API contract, background publishing, and VLM fault tolerance |
 | `test_kafka_sink_vlm` | Send incident with `info.video_path`; verify VLM result published to Kafka sink | Base64 encode + VLM + Kafka sink pipeline |
+| `test_redis_stream_source_sink` | Publish an incident into a Redis Stream with the MDX envelope; verify the enhanced result appears on the output stream and input entries are acked | Redis Streams as both source and sink, protobuf wire format, consumer-group acking |
+| `test_redis_stream_alert_json` | Publish an **alert** into `mdx-alerts` in the **JSON envelope** (`data` body + populated `metadata` sidecar); verify the enhanced alert reaches `mdx-vlm-alerts`, did **not** cross-route to the incident stream, and that the input entry survives (trimming is opt-in) | The second wire format and its payload-field precedence; the alert route's schema and stream; the source-derived kind being authoritative; MAXLEN off by default |
+| `test_redis_sink_kafka_source` | Produce to Kafka but publish VLM results to a Redis Stream | Source and sink transports are selected independently |
+| `test_redis_source_elastic_sink` | Consume from a Redis Stream and publish to the default Elasticsearch sink, with `sinkType` left at its kafka default | A Redis source against a non-Redis terminal sink — the likely upgrade shape — plus the startup warning naming split error/terminal transports |
+| `test_console_sink` | Select the console sink for both the event bridge and VLM results; verify the verdict is rendered to the log | Console sink emits processed results and needs no broker |
+| `test_redis_kind_mismatch_drop` | **Negative.** Publish an alert declaring `notification_type: "incident"` onto the alert stream, alongside a well-formed one; verify the contradicting entry reaches neither output stream, is acked rather than left pending, and is logged as a kind conflict rather than a bad payload — while the well-formed alert still lands | The stream is the authority on kind, so a payload that claims another one is rejected instead of relabelled; rejection is per entry, not per read batch; a dropped entry is acked so it is not replayed forever |
+| `test_redis_invalid_config_startup` | **Negative.** Four one-field mutations of a valid Redis config — a source naming one kind, a terminal route naming no stream, a blank stream on the event-bridge sink, a port outside the TCP range — each must stop the service, with the log naming the setting; the unmodified config is started first as the control | Every one of these is judged by `validate_configuration` before the API child, the metrics port and the fork, so a one-line config mistake fails the container instead of crash-looping a child |
+| `test_redis_multi_consumer_dedup` | **Negative.** Two Alert MS instances share one Redis consumer group: 12 events for one sensorId split across both (A), a repeated fingerprint escapes in-process dedup and only ES doc-id idempotency collapses it (B), and killing one instance restores correct dedup (C) | Redis consumer groups provide no per-sensor affinity, so in-process dedup needs one replica per group or sensor sharding |
 | `test_realtime_replay` | 8 sub-tests for `POST /api/v1/realtime/replay`: happy-path, partial RTVI failure, concurrent 409, POST/DELETE blocked 503, GET available during replay, persistence-disabled 501, AB restart state survival | Replay API contract, concurrency guards, persistence fallback, durability |
 | `test_realtime_alerts` (Test 8c) | Index 3 consecutive positives (same camera + alert type); `GET /api/v1/realtime/incidents?consolidate=true` (with a time window) returns one event and `total=1` (event count), `consolidate=false` returns 3 raw, and `consolidate=true` without a window is rejected `400` | Read-time consolidation groups duplicates into one event over a required window while raw chunk records remain available |
 | `test_realtime_alerts` (Test 8d) | Index sensor A/alert (2 chunks), A/intrusion (1), B/alert (1); per-sensor `consolidate=true` returns A=2 events, B=1 event | Consolidation groups are isolated by `(sensorId, category)` |
@@ -75,6 +83,11 @@ test/functional/p1/
 ```
 
 The orchestrator starts Alert Bridge fresh with each test's `config.yaml` before calling its `run.sh`.
+
+A `run.sh` exits `0` to pass, `$EXIT_SKIP` (66) to skip because optional
+infrastructure is absent, and anything else to fail. Skipping with `0` is what
+let a run report all-green with a transport never exercised, so use the
+`EXIT_SKIP` code and let the orchestrator count it.
 
 ## Flags
 
@@ -433,6 +446,130 @@ NIM simulator is automatically restarted in default CR2 mode after this test.
 
 ---
 
+### test_redis_stream_source_sink
+
+**Purpose:** Verify Redis Streams works as both the source and the sink. Kafka is left out of `event_bridge` entirely, so nothing in this test can succeed through the default transport.
+
+**Config:** `event_bridge.sourceType: redisStream`, `event_bridge.sinkType: redisStream`, `vlm_enhanced_sink.type: redisStream`, top-level `redis` block pointing at `127.0.0.1:6379`.
+
+**Trigger:** `produce_incident_redis` publishes an Incident protobuf into `mdx-incidents` using the MDX envelope (`key` / `value` / `headers`) that vss-behavior-analytics writes, so the source reads a real upstream payload rather than a test-only shape.
+
+**Check:** Assert the AB log shows `"Creating source: ... resolved to 'redisStream'"` (a silent fallback to Kafka would otherwise make the test fail with a confusing timeout). Poll `mdx-vlm-incidents` with `XRANGE`, decode each entry through `extract_envelope`, and assert one carries the test `sensorId`. Decoding it proves the payload is the protobuf-in-MDX-envelope shape the Logstash `redis_stream` input consumes. Finally assert `XPENDING` on the input stream is 0.
+
+**Pass:** Enhanced incident found on the output stream and consumed entries were acked.
+**Fail:** AB selected the wrong source, no matching entry within 60s.
+**Skip:** Only with `SKIP_REDIS=1`. The suite starts its own Redis, so a missing one is a failure by default (see [Requiring the Redis transport](#requiring-the-redis-transport)).
+
+---
+
+### test_redis_stream_alert_json
+
+**Purpose:** Cover what the incident test above leaves untested — the alert route, and the second wire format. Both are contracts on their own: the alert route takes a different protobuf schema and a different output stream, and the JSON envelope is what decides whether the payload-field precedence holds against a real producer rather than only a unit test.
+
+**Config:** `event_bridge.sourceType: redisStream`, `sinkType: redisStream`, `vlm_enhanced_sink.type: redisStream` with an `alert` route on `mdx-vlm-alerts`. `redis.maxlen` is left unset so trimming stays off.
+
+**Trigger:** `produce_alert_redis ... --envelope json` publishes a Behavior payload into `mdx-alerts` as `data` / `timestamp` / `metadata`, with `metadata` populated. The payload carries **no** `notification_type`, so its kind is known only from the stream it arrived on — the case that used to be published to the incident stream because terminal routing re-derived the kind from the payload and found nothing.
+
+**Check:**
+1. AB selected the `redisStream` source.
+2. The enhanced alert appears on `mdx-vlm-alerts`, decoded as a Behavior protobuf.
+3. Its `event.type` survived, which proves the body came from `data` rather than the `metadata` sidecar — the sidecar carries no event fields, so a document read from it would be missing them.
+4. Nothing for this sensor appears on `mdx-vlm-incidents`. A cross-route is otherwise silent: both writes succeed.
+5. `XPENDING` on the input stream is 0.
+6. The input stream still holds its entry — trimming is opt-in, and the previous default trimmed on every publish.
+
+**Pass:** All six.
+**Fail:** A blank `event.type` (the sidecar was decoded as the body), the alert on the incident stream (the kind was re-derived from the payload), or a trimmed input stream.
+**Skip:** Only with `SKIP_REDIS=1`. Otherwise the suite starts a Redis and a missing one is a failure (see [Requiring the Redis transport](#requiring-the-redis-transport)).
+
+---
+
+### test_redis_kind_mismatch_drop
+
+**Purpose:** The stream an entry arrives on decides its kind, and the pipeline stamps that answer over the payload's `notification_type`. So an incident-shaped payload published to the alert stream is not rejected by anything downstream — it is relabelled: verified with the alert prompt and published to the alert destination, with nothing raised anywhere. Only the source can see the contradiction, because only the source knows which stream the entry came from.
+
+**Config:** Its own input and output streams and its own consumer group (`…-km`), so a drop counted here cannot have come from an entry another test left behind.
+
+**Trigger:** Two Behavior payloads onto the alert stream, differing in exactly one field: one declaring `notification_type: "incident"`, one declaring nothing.
+
+**Check:**
+1. AB selected the `redisStream` source.
+2. The well-formed alert reaches the alert output stream. Until it does there is nothing to conclude from the other one's absence, because an idle pipeline drops everything.
+3. The contradicting payload reaches neither output stream — not the kind it claimed, not the kind the stream says.
+4. The log attributes the drop to the declared kind rather than to a malformed payload. The body is valid, and a run that dropped it as `schema_invalid` would satisfy 3 while telling operators the wrong thing about their producer.
+5. `XPENDING` on the input stream is 0: a rejected entry is acked, or it is redelivered on every restart and every reclaim sweep.
+
+**Pass:** All five.
+**Fail:** The contradicting payload on either output stream (the declaration was ignored, or terminal routing believed the payload over the stream), the well-formed one missing (the whole read batch was rejected), or the entry left pending.
+**Skip:** Only with `SKIP_REDIS=1`. Otherwise the suite starts a Redis and a missing one is a failure (see [Requiring the Redis transport](#requiring-the-redis-transport)).
+
+---
+
+### test_redis_invalid_config_startup
+
+**Purpose:** Unit tests assert that the Redis config validators raise. What only a running process can show is that the raise reaches the exit — that nothing between the validator and `__main__` catches it, logs it, and carries on with a degraded pipeline. Each of these configs once produced a service that came up, passed its readiness probe, and quietly did less than the deployment asked for.
+
+**Config:** This test's `config.yaml` is the *valid* one. The run derives a broken variant per case from it, which is what makes each rejection attributable.
+
+**Trigger:** The unmodified config is started first as the control, then four one-field mutations in turn: a source naming one kind, a `vlm_enhanced_sink` route naming no stream, a blank stream on the event-bridge sink, and a port outside the TCP range.
+
+**Check:** For each variant, the process must stop on its own **and** its log must name the setting at fault. Both halves are the assertion: exiting alone is not enough, because a process that dies for an unrelated reason also exits, and the message is what says the operator was told which key to fix rather than left with a traceback about a connection.
+
+**Pass:** The control starts, and all four variants refuse with the setting named.
+**Fail:** The control not starting (the cases would prove nothing), a variant that starts and keeps running, or one that stops without naming its setting.
+**Skip:** Only with `SKIP_REDIS=1`. The rejections are all decided before the first connection, but the control connects for real.
+
+**Note on placement:** two of these cases used to be caught where the Redis client is built, which is inside a forked pipeline child — after the API child, the metrics port and the topic-metadata wait. A mistyped port or a misspelt route key crash-looped children there instead of failing the container. Both are pure predicates over config, so they now sit in `validate_configuration` with the rest, and this test is what holds them there.
+
+---
+
+### test_redis_sink_kafka_source
+
+**Purpose:** Verify the source and sink transports are resolved independently. This is the combination most likely to break: a selection that leaks from one role into the other still looks correct in the all-Kafka and all-Redis runs.
+
+**Config:** `event_bridge.sourceType: kafka`, `event_bridge.sinkType: kafka`, `vlm_enhanced_sink.type: redisStream`.
+
+**Trigger:** One incident produced to the `mdx-incidents` Kafka topic with `info.video_path`.
+
+**Check:** Assert the AB log shows `"Creating source: ... resolved to 'kafka'"`, then poll the `mdx-vlm-incidents` Redis Stream for the test `sensorId`.
+
+**Pass:** Incident consumed from Kafka and its enhanced result published to Redis.
+**Fail:** AB switched the source to Redis, or nothing appeared on the output stream within 60s.
+**Skip:** Only with `SKIP_REDIS=1`. Otherwise the suite starts a Redis and a missing one is a failure (see [Requiring the Redis transport](#requiring-the-redis-transport)).
+
+---
+
+### test_redis_source_elastic_sink
+
+**Purpose:** The mirror of the test above, and the shape a real upgrade produces: an existing Elasticsearch-based install swapping only its input transport. Every other `redisStream` test ends in a Redis stream, which leaves this — the most likely deployment — uncovered, and it is where a coupling bug hides, because a source selection that leaked into the sink still "works". The documents just arrive somewhere else.
+
+**Config:** `event_bridge.sourceType: redisStream` with `vlm_enhanced_sink.type: elastic`. `sinkType` is deliberately left unset, so it defaults to kafka — which is what an operator who sets only `sourceType` actually gets.
+
+**Trigger:** One Incident protobuf published into `mdx-incidents` in the MDX envelope.
+
+**Check:** AB selected the `redisStream` source; the startup log names the split between the error-path and terminal transports; the enhanced incident lands in Elasticsearch; `XPENDING` on the input stream is 0. The last one is asserted here as well as in the Redis-to-Redis test because acking is the source's job and must not depend on which sink the verdict reached.
+
+**Pass:** Enhanced incident in Elasticsearch, input entry acked.
+**Fail:** Nothing in Elasticsearch within 60s, or entries left pending.
+**Skip:** Only with `SKIP_REDIS=1`. Otherwise the suite starts a Redis and a missing one is a failure (see [Requiring the Redis transport](#requiring-the-redis-transport)).
+
+---
+
+### test_console_sink
+
+**Purpose:** Verify the console sink — the local-development extension — emits processed results when explicitly selected. Needs no broker or Elasticsearch on the output side, so this run doubles as a second independent-selection case (Kafka source, non-broker sink).
+
+**Config:** `event_bridge.sinkType: console`, `vlm_enhanced_sink.type: console`, source left on Kafka.
+
+**Trigger:** One incident produced to Kafka with `info.video_path`.
+
+**Check:** Assert the startup warnings from both console sinks appear (`"Console sink selected"` and `"Console VLM enhanced sink selected"`) and the source is still Kafka. Then poll the AB log for a line carrying *both* `"[console-sink] vlm-enhanced incident"` and the test `sensorId` — with a log-only sink, the log line *is* the deliverable. The two must match on the same line: the consumer group is static, so a rerun resumes from its committed offset and replays incidents left on `mdx-incidents` by earlier tests, and waiting for the first console-sink line of any kind would latch onto one of those. Matching them separately is also too weak, because the `sensorId` shows up in unrelated DEBUG lines even when the sink never rendered the document. `_SingleLineFormatter` collapses the newlines of the rendered JSON, so the whole document reliably sits on the marker's line.
+
+**Pass:** Both sinks announced themselves and a verdict was rendered for the test sensor.
+**Fail:** Either sink did not start, or no rendered verdict for the test sensor within 90s.
+
+---
+
 ### test_async_smoke
 
 **Purpose:** Verify async external I/O guardrails (`alert_agent.async_io.*`) can be enabled and still process incidents end-to-end.
@@ -549,7 +686,7 @@ print_status "ok" "PASS: ..."
 ### What the framework handles
 
 - **Timestamps** — `produce_incident` patches to today automatically
-- **State isolation** — in-process dedup state resets on each AB restart; the ES sim (and ES verdict index) is flushed between tests
+- **State isolation** — in-process dedup state resets on each AB restart; the ES sim (and ES verdict index) is flushed between tests; Redis is flushed and every Kafka consumer group is fast-forwarded to the end of its topics, so a test never inherits incidents an earlier test left on `mdx-incidents` (this is what makes repeated `--skip-setup` runs behave like a fresh broker)
 - **AB lifecycle** — orchestrator restarts AB with your config before each test
 - **Cleanup** — orchestrator handles teardown after all tests
 
@@ -592,6 +729,7 @@ cat /tmp/alert_agent_p1_functional/alert_bridge.log
 | Service | Port | Health Check |
 |---------|------|--------------|
 | Kafka | 9092 | TCP connect |
+| Redis | 6379 | TCP connect (optional — only the `redisStream` transport tests use it) |
 | Elasticsearch (sim) | 9200 | `GET /health` |
 | NIM (sim) | 18081 | TCP connect |
 | VST (sim) | 30888 | `GET /status` |
@@ -599,7 +737,48 @@ cat /tmp/alert_agent_p1_functional/alert_bridge.log
 | Alert Bridge (HTTP) | 9080 | `GET /health` |
 | Alert Bridge (Prometheus) | 9081 | `GET /metrics` when `PROMETHEUS_METRICS_ENABLED=true` |
 
-Kafka runs as a Docker container. All other services run as Python processes managed by `run_p1.sh`. No Redis is required.
+Kafka runs as a Docker container. All other services run as Python processes managed by `run_p1.sh`.
+
+Redis also runs as a Docker container, but only so the `redisStream` transport tests have a broker to talk to — Alert MS keeps no state in Redis (dedup state is in-process, durable state is in Elasticsearch). If the container cannot start, `run_p1.sh` logs it and continues; the Redis tests skip and every other test runs unaffected.
+
+`run_p1.sh` picks the Redis image already present on the host so the suite also runs without registry access, and falls back to `redis:7-alpine` when none is cached. Set `REDIS_IMAGE` to pin a specific one:
+
+```bash
+REDIS_IMAGE=redis:7-alpine ./run_p1.sh
+```
+
+#### Requiring the Redis transport
+
+A skipped test is reported as `SKIP` and exits `66`, distinct from `PASS`. That
+distinction matters: the skip used to exit `0`, so a run where Redis silently
+failed to start reported all-green with the transport under test never
+exercised once — the suite could not tell "the Redis paths work" from "the
+Redis paths were not tried".
+
+Reporting it is not enough where the transport is the thing being validated, so
+`REDIS_REQUIRED=1` turns the skip into a failure — and **that is now the
+default**, because `run_p1.sh` starts a Redis container itself. Since the suite
+provides the broker, a skip no longer means "this host has no Redis"; it means
+the container did not come up, which is a failure of the run rather than a
+property of the host.
+
+To run without it, one switch turns off both the container and the requirement:
+
+```bash
+./run_p1.sh                           # starts Redis; redisStream tests must pass
+SKIP_REDIS=1 ./run_p1.sh              # no container, redisStream tests skip
+REDIS_REQUIRED=0 ./run_p1.sh          # container, but a failure to start only skips
+```
+
+`REDIS_IMAGE` overrides the image, which otherwise is whichever `redis` or
+`valkey` tag is already pulled on the host. Anything older than 6.2 has no
+`XAUTOCLAIM`, so the source disables its stranded-entry sweep and the reclaim
+assertions pass without exercising it; setup prints a notice when it detects
+that rather than letting the coverage look real.
+
+There is no CI job invoking this suite in the repository, so nothing sets these
+today — the defaults are what a `run_p1.sh` invocation gets, wherever it runs
+from.
 
 ---
 

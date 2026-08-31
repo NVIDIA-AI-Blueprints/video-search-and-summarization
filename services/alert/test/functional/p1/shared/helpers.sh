@@ -75,6 +75,194 @@ produce_incident() {
     fi
 }
 
+# ─── Redis Streams transport (optional source/sink) ─────────────────────────
+REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-alert-agent-redis-test}"
+
+redis_available() {
+    nc -z "$REDIS_HOST" "$REDIS_PORT" 2>/dev/null
+}
+
+# Gate a redisStream test on Redis being there, and decide what its absence
+# means. Call as: require_redis "<test name>" || exit $?
+#
+# A suite that reports success when the transport under test was never
+# exercised proves nothing, and the skip used to be unconditional — so a run
+# where Redis failed to start passed with every redisStream test skipped and
+# nothing to distinguish it from a run that tested them.
+#
+# run_p1.sh starts a Redis, so REDIS_REQUIRED defaults to 1 there: a missing
+# broker means the container did not come up, which is a failure. SKIP_REDIS=1
+# is the way to run without it, and turns these back into skips. The default
+# here stays 0 so a test invoked directly, outside the orchestrator, behaves as
+# it always did.
+require_redis() {
+    local test_name="${1:-redisStream test}"
+    if redis_available; then
+        print_status "ok" "Redis reachable at $REDIS_HOST:$REDIS_PORT"
+        return 0
+    fi
+    if [ "${REDIS_REQUIRED:-0}" = "1" ]; then
+        print_status "fail" \
+            "FAIL: $test_name needs Redis on $REDIS_HOST:$REDIS_PORT and REDIS_REQUIRED=1. Run with SKIP_REDIS=1 to skip the redisStream tests instead."
+        return 1
+    fi
+    print_status "info" \
+        "SKIP: no Redis on $REDIS_HOST:$REDIS_PORT (set REDIS_REQUIRED=1 to fail instead)"
+    return "${EXIT_SKIP:-66}"
+}
+
+# Publish an alert (Behavior) into a Redis Stream as a JSON payload.
+#
+# The two envelope formats are a real interop contract: the MDX envelope keeps
+# the body in `value`, while RT-VLM and the pre-MDX prototype use a `data` /
+# `metadata` JSON envelope. `--envelope json` publishes the latter, so the
+# source's field precedence is exercised by a producer rather than only by a
+# unit test.
+# Usage: produce_alert_redis REPO_ROOT STREAM PAYLOAD ID_SUFFIX [--envelope json]
+produce_alert_redis() {
+    local repo_root="$1" stream="$2" payload="$3" id_suffix="$4"
+    shift 4
+    local pid_dir="${PID_DIR:-/tmp/alert_agent_p1_functional}"
+    local patched="$pid_dir/.patched_redis_alert_$(basename "$payload")_$$"
+
+    patch_timestamps "$payload" "$patched"
+    python3 "$repo_root/test/protobuf/produce_incident_redis_stream.py" \
+        --host "$REDIS_HOST" --port "$REDIS_PORT" --stream "$stream" \
+        --payload "$patched" --id-suffix "$id_suffix" --json "$@"
+    local rc=$?
+    rm -f "$patched"
+    return $rc
+}
+
+# XPENDING count for a group, or 0 when the stream or group is absent.
+# An un-acked entry is replayed on every restart, so this is how a test proves
+# the ack lifecycle actually completed rather than merely not erroring.
+redis_pending_count() {
+    local stream="$1" group="$2"
+    docker exec "$REDIS_CONTAINER" redis-cli XPENDING "$stream" "$group" 2>/dev/null \
+        | head -1 | tr -d '\r' || echo 0
+}
+
+# Publish an Incident protobuf into a Redis Stream using the MDX envelope,
+# mirroring produce_incident() but for the redisStream source.
+# Usage: produce_incident_redis REPO_ROOT STREAM PAYLOAD ID_SUFFIX [--json]
+produce_incident_redis() {
+    local repo_root="$1" stream="$2" payload="$3" id_suffix="$4"
+    local encoding="${5:-}"
+    local pid_dir="${PID_DIR:-/tmp/alert_agent_p1_functional}"
+    local patched="$pid_dir/.patched_redis_$(basename "$payload")_$$"
+
+    patch_timestamps "$payload" "$patched"
+    python3 "$repo_root/test/protobuf/produce_incident_redis_stream.py" \
+        --host "$REDIS_HOST" --port "$REDIS_PORT" --stream "$stream" \
+        --payload "$patched" --id-suffix "$id_suffix" $encoding
+    local rc=$?
+    rm -f "$patched"
+    return $rc
+}
+
+# Number of entries currently in a Redis Stream (0 when the stream is absent).
+redis_stream_len() {
+    docker exec "$REDIS_CONTAINER" redis-cli XLEN "$1" 2>/dev/null | tr -d '\r' || echo 0
+}
+
+# Poll a Redis Stream for an entry whose payload mentions SENSOR_ID, and echo
+# the decoded document. Handles both payload encodings the sink can emit:
+# protobuf (the default, what Logstash consumes) and JSON.
+# Usage: poll_redis_stream_for_sensor STREAM SENSOR_ID [TIMEOUT] [INTERVAL]
+poll_redis_stream_for_sensor() {
+    local stream="$1" sensor_id="$2" timeout="${3:-60}" interval="${4:-3}"
+    local repo_root="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+    local elapsed=0
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local doc
+        doc=$(AB_SRC="$repo_root/src" REDIS_HOST="$REDIS_HOST" REDIS_PORT="$REDIS_PORT" \
+              STREAM="$stream" SENSOR_ID="$sensor_id" python3 - <<'PYEOF'
+import json
+import os
+import sys
+
+sys.path.insert(0, os.environ["AB_SRC"])
+
+import redis
+
+from mdx.redis_stream_broker import extract_envelope
+
+client = redis.Redis(
+    host=os.environ["REDIS_HOST"],
+    port=int(os.environ["REDIS_PORT"]),
+    decode_responses=False,
+)
+sensor_id = os.environ["SENSOR_ID"]
+
+def as_document(payload):
+    """Decode an entry body to a dict, whichever shape it is in.
+
+    Three shapes reach here: JSON text, an Incident protobuf, and a Behavior
+    protobuf — the last one because the alert route publishes Behavior, so a
+    poller that only tried Incident could not see an alert at all and would
+    report a timeout instead of the wrong-schema bug it actually hit.
+    """
+    try:
+        return json.loads(payload)
+    except (ValueError, UnicodeDecodeError):
+        pass
+
+    from mdx.protobuf import Behavior, Incident
+
+    incident = Incident()
+    try:
+        incident.ParseFromString(payload)
+        if incident.sensorId:
+            return {
+                "kind": "incident",
+                "sensorId": incident.sensorId,
+                "category": incident.category,
+                "info": dict(incident.info),
+            }
+    except Exception:
+        pass
+
+    behavior = Behavior()
+    try:
+        behavior.ParseFromString(payload)
+    except Exception:
+        return None
+    return {
+        "kind": "alert",
+        "sensorId": behavior.sensor.id,
+        "eventType": behavior.event.type,
+        "info": dict(behavior.info),
+    }
+
+
+for _entry_id, fields in client.xrange(os.environ["STREAM"]) or []:
+    payload, _key, _headers = extract_envelope(fields)
+    if payload is None:
+        continue
+    document = as_document(payload)
+    if not document:
+        continue
+    found = str(document.get("sensorId") or (document.get("sensor") or {}).get("id") or "")
+    if sensor_id in found:
+        print(json.dumps(document))
+        break
+PYEOF
+        ) || doc=""
+
+        if [ -n "$doc" ] && [ "$doc" != "{}" ]; then
+            echo "$doc"
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    return 1
+}
+
 # Poll ES sim for documents — from P0 step4 pattern
 # Uses ES simulator's /_all endpoint (NOT standard ES _search)
 poll_es_sim() {

@@ -86,6 +86,47 @@ def strip_normalization_fields(message: Dict[str, Any]) -> Dict[str, Any]:
     return doc
 
 
+#: Payload field that carries an event's alert/incident classification through
+#: to terminal routing. :func:`is_alert` reads only this field.
+EVENT_KIND_FIELD = 'notification_type'
+
+
+def stamp_event_kind(message: Dict[str, Any], kind: str) -> Dict[str, Any]:
+    """Record ``kind`` as the event's authoritative classification.
+
+    The source derives the kind from the stream or topic an entry arrived on,
+    which is deployment configuration. Terminal routing reads it back through
+    :func:`is_alert`, which keys on a payload field — so without this the two
+    can disagree: a producer that sets ``notification_type`` publishes an
+    incident to the alert stream, and an alert whose nested blocks are absent
+    (so normalization never set the field) publishes to the incident stream.
+    Neither raises. Writing the transport's answer here is what makes the
+    configured stream, rather than the payload, decide where a verdict goes.
+
+    ``incident`` clears the field rather than setting it to ``"incident"``: an
+    incident carried none before, and adding one would change every published
+    incident document to fix a routing bug in the alert direction.
+
+    Returns a shallow copy when a change is needed, and ``message`` itself
+    otherwise, matching :func:`normalize_alert_message`.
+    """
+    if not isinstance(message, dict):
+        return message
+
+    if str(kind).lower() == 'alert':
+        if message.get(EVENT_KIND_FIELD) == 'alert':
+            return message
+        updated = dict(message)
+        updated[EVENT_KIND_FIELD] = 'alert'
+        return updated
+
+    if message.get(EVENT_KIND_FIELD) is None:
+        return message
+    updated = dict(message)
+    updated.pop(EVENT_KIND_FIELD, None)
+    return updated
+
+
 def is_alert(message: Dict[str, Any]) -> bool:
     """Detect if message is an alert-style payload.
 
