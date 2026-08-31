@@ -465,29 +465,25 @@ RTVI_VLM_MODEL_PATH=none
 Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
-**This deployment uses the following defaults:**
+**Configure service addresses in `deploy/docker/developer-profiles/dev-profile-base/overrides.env`:**
 
-- Host IP: src IP from `ip route get 1.1.1.1`, which is the default IP address for the agent.
-
-**Override IP than the one derived:**
-
-- `-i`: Manually specify the host IP address.
-- `-e` / `--external-ip`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host. For VSS on a **cloud** machine, this flag is **required** — pass the instance's external IP (for example, its public address).
+- `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
 
 <Note>
-**Switch Agent Workflows:** You can deploy different agent workflows by changing the `-p` (profile) argument. For alerts, also specify `-m` (mode):
+**Switch Agent Workflows:** In the Docker Compose commands, use the matching `developer-profiles/dev-profile-<profile>/.env` and `developer-profiles/dev-profile-<profile>/overrides.env` files. For the Alerts profile, set `MODE` in `developer-profiles/dev-profile-alerts/overrides.env` to the workflow mode:
 
 - `base`: Base vision agent (this quickstart)
-- `lvs`: [Video Summarization Workflow](/vss/vision-agent/agent-workflows/video-summarization#step-1-deploy-the-agent)
-- `search`: [Search Workflow](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent)
-- `alerts`: Alert workflows (requires `-m verification` or `-m real-time`)
+- `lvs`: [Video Summarization Workflow](/agent-workflow-lvs#step-1-deploy-the-agent)
+- `search`: [Search Workflow](/agent-workflow-search#step-1-deploy-the-search-agent)
+- `alerts`: Alert workflows
 
-  - [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — use `-m verification`
-  - [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — use `-m real-time`
+  - [Alert Verification Workflow](/agent-workflow-alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
+  - [Real-Time Alert Workflow](/agent-workflow-rt-alert#step-1-deploy-the-agent) — `MODE=2d_vlm`
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:
@@ -505,8 +501,7 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
 1. Check the VSS Agent health endpoint:
 
    ```bash
-   HOST_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
-   curl -fsS "http://${HOST_IP}:8000/health"
+   curl -fsS "http://<HOST_IP>:8000/health"
    ```
 
 2. Confirm the expected base-profile containers are running and healthy:
