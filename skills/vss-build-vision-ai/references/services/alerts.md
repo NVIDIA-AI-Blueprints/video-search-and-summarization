@@ -6,14 +6,12 @@
 |---|---|
 | Alert verification and real-time bridge | `alert-bridge` |
 | Video-analytics MCP | `vss-va-mcp` |
-| Alerts analytics API | `vss-video-analytics-api-alerts` |
+| Alerts analytics API | `vss-video-analytics-api` |
 
-`vss-video-analytics-api-alerts` is the **same** single `vss-video-analytics-api`
-container that other Foundations expose under their own key; only one exists per
-build. When included, use `vss-video-analytics-api-alerts` **only when the
-selected Foundation is `alerts`**; on any other Foundation the analytics API is
-that Foundation's key — never introduce the `-alerts` key to add a second key for
-the one container.
+`vss-video-analytics-api` is a common Compose service with one profile key and one
+container name across all Foundations. Include that key when the build needs the
+REST query surface; never add a Foundation-specific alias or a second API
+instance.
 
 ## Required peers
 

@@ -89,22 +89,6 @@ services:
       kibana:
         condition: service_healthy
 
-  vss-video-analytics-api-mv3dt:
-    extends:
-      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
-      service: vss-video-analytics-api
-    profiles: ["vss-video-analytics-api-mv3dt"]
-    container_name: vss-video-analytics-api-mv3dt
-    networks:
-      default:
-        aliases:
-          - vss-video-analytics-api
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-      elasticsearch-init-container:
-        condition: service_completed_successfully
-
   import-calibration-output-container-mv3dt:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app
@@ -115,8 +99,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
-    depends_on:
-      - vss-video-analytics-api-mv3dt
+    restart: on-failure
 
   vss-rtvi-cv-bev-fusion:
     extends:

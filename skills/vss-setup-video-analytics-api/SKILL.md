@@ -1,16 +1,16 @@
 ---
 name: vss-setup-video-analytics-api
-description: Use to deploy the vss-video-analytics-api REST service standalone (config-source, data-log bind, Elasticsearch, optional Kafka). Not for full warehouse deploy.
+description: Use to deploy the vss-video-analytics-api REST service standalone with its Elasticsearch ingest-pipeline and, when configured, Kafka-topic readiness gates. Not for full warehouse deploy.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.2.0"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment video-analytics-api rest-api"
 ---
 ## Purpose
 
-Deploy the video-analytics-api REST service standalone with the user's chosen config, data-log bind, and Elasticsearch / Kafka connectivity.
+Deploy the video-analytics-api REST service standalone with the user's chosen config and data-log bind. The service exposes port 8081 and `/livez` only after Elasticsearch, the `insertion-timestamp-pipeline`, and any configured Kafka topic requirements are ready.
 
 ## Instructions
 
@@ -84,8 +84,8 @@ The full operational walkthrough — config-source options, data-log volume beha
    > exposed (host snapshot, shared screen, ticket attachment),
    > rotate immediately.
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
-4. **Elasticsearch** — must be reachable at the URL configured in `elasticsearch.node`. The server pings ES on startup; if unreachable, it exits (and `restart: always` brings it back). If you need to bring up ES too, use the infra compose: `docker compose -f services/infra/compose.yml up -d elasticsearch`.
-5. **Optional Kafka broker**. The API can run without Kafka. If you want a quiet broker-less deployment, use the image-baked config or a custom config with `kafka.brokers: []`; the service-shipped compose config points at `localhost:9092`, so Kafka-dependent features (dynamic config, dynamic calibration, RTLS/AMR) will fail until a broker is reachable.
+4. **Elasticsearch and ingest pipeline** — the endpoint in `elasticsearch.node` must be reachable and contain `insertion-timestamp-pipeline`. Elasticsearch port availability alone is insufficient: the API deliberately waits for that pipeline before binding port 8081. When using the infra compose, start both `elasticsearch` and `elasticsearch-init-container`.
+5. **Kafka is optional only when disabled in the config.** With `kafka.brokers: []` or `null`, the API skips Kafka. With brokers configured, it waits before listening until `mdx-notification`, `mdx-amr`, and at least one `mdx-rtls*` topic exist. The service-shipped config enables Kafka, so choose either a broker-less config or provision those topics.
 6. **`$VSS_DATA_DIR` for the default compose.** The base compose bind-mounts `$VSS_DATA_DIR/data_log/vss_video_analytics_api` for multipart upload handling and file-backed assets such as calibration images. Set the directory to a writable host path and pre-create it, or remove that mount if image uploads are not needed.
 
 If any required prerequisite fails, surface the gap before going further.
@@ -96,7 +96,7 @@ Hand the user [`references/deploy-video-analytics-api-service.md`](references/de
 
 1. Choose a config — image-baked default, service-shipped, or custom.
 2. Decide whether a data-log volume is needed for file uploads.
-3. Confirm infrastructure dependencies — Elasticsearch (required), Kafka (optional).
+3. Confirm readiness dependencies — Elasticsearch plus `insertion-timestamp-pipeline`; and, if Kafka is configured, the required topics.
 4. Deploy + verify with `docker compose up` and health check.
 
 The compose-file edits, config options, deploy + verify commands, REST API endpoint table, and troubleshooting table all live in that reference — don't duplicate them here.
@@ -107,7 +107,7 @@ Use [`references/deploy-video-analytics-api-service.md`](references/deploy-video
 
 ## Kafka-dependent features (runtime, requires broker)
 
-Once the container is up **and a Kafka broker is reachable**, three additional capabilities are available:
+When Kafka is configured, the container does not become live until its broker and required topics are available. Once it is live, three additional capabilities are available:
 
 ### Dynamic config
 
