@@ -331,43 +331,86 @@ bool sendFile(struct mg_connection* connection, const DashAssetResult& asset, bo
                     return false;
                 }
                 body.erase(0, moof - 4);
-                const size_t mfhd = body.find("mfhd");
-                if (mfhd != std::string::npos && mfhd + 12 <= body.size())
+                // Each file restarts mp4mux at zero, so the decode time is
+                // rebuilt from the segment index.  It must scale with the
+                // configured segment duration: assuming one second here
+                // silently compresses the timeline for any other setting.
+                const uint64_t segmentTicks = static_cast<uint64_t>(
+                    std::max(1, GET_CONFIG().dash_segment_duration_sec)) * mediaTimescale(asset.path);
+                // Segments are only as long as the muxer could make them,
+                // so the decode time is the sum of what came before rather
+                // than a multiple of the nominal duration; otherwise the
+                // timeline claims media the segments do not contain.
+                const uint64_t base = SegmentDurations::instance().startTicks(
+                    asset.path.parent_path(), number, segmentTicks);
+                // A keyframe interval longer than the configured segment
+                // duration makes mp4mux close a fragment before the segment
+                // ends, so one file holds several moof boxes.  Rewriting only
+                // the first left every later fragment at the offset mp4mux
+                // gave it within the file; the player placed those samples
+                // back near the start of the timeline and the segment then
+                // delivered less media than the manifest promised, leaving a
+                // hole the length of the samples that went missing.  Walk the
+                // boxes and carry every fragment onto the same timeline.
+                uint32_t fragment = 0;
+                for (size_t offset = 0; offset + 8 <= body.size();)
                 {
-                    // mfhd.sequence_number is required to progress across
-                    // media fragments; a reset mp4mux writes 1 in every
-                    // independently generated file.
-                    const uint32_t sequence = static_cast<uint32_t>(number);
-                    for (size_t index = 0; index < 4; ++index)
+                    const uint64_t boxSize =
+                        (static_cast<uint8_t>(body[offset]) << 24)
+                        | (static_cast<uint8_t>(body[offset + 1]) << 16)
+                        | (static_cast<uint8_t>(body[offset + 2]) << 8)
+                        | static_cast<uint8_t>(body[offset + 3]);
+                    if (boxSize < 8 || offset + boxSize > body.size())
                     {
-                        body[mfhd + 11 - index] = static_cast<char>(sequence >> (index * 8));
+                        break;
                     }
-                }
-                const size_t tfdt = body.find("tfdt");
-                if (tfdt != std::string::npos && tfdt + 12 <= body.size())
-                {
-                    const uint8_t version = static_cast<uint8_t>(body[tfdt + 4]);
-                    // Each file restarts mp4mux at zero, so the decode time is
-                    // rebuilt from the segment index.  It must scale with the
-                    // configured segment duration: assuming one second here
-                    // silently compresses the timeline for any other setting.
-                    const uint64_t segmentTicks = static_cast<uint64_t>(
-                        std::max(1, GET_CONFIG().dash_segment_duration_sec)) * mediaTimescale(asset.path);
-                    // Segments are only as long as the muxer could make them,
-                    // so the decode time is the sum of what came before rather
-                    // than a multiple of the nominal duration; otherwise the
-                    // timeline claims media the segments do not contain.
-                    const uint64_t time = SegmentDurations::instance().startTicks(
-                        asset.path.parent_path(), number, segmentTicks);
-                    const size_t value = tfdt + 8;
-                    const size_t width = version == 1 ? 8 : 4;
-                    if (value + width <= body.size())
+                    if (body.compare(offset + 4, 4, "moof") != 0)
                     {
-                        for (size_t index = 0; index < width; ++index)
+                        offset += static_cast<size_t>(boxSize);
+                        continue;
+                    }
+                    const size_t end = offset + static_cast<size_t>(boxSize);
+                    // A moof carries only metadata, so a box name found inside
+                    // it is the box and not a byte pattern out of the media.
+                    const size_t mfhd = body.find("mfhd", offset);
+                    if (mfhd != std::string::npos && mfhd + 12 <= end)
+                    {
+                        // mfhd.sequence_number is required to progress across
+                        // media fragments; a reset mp4mux writes 1 in every
+                        // independently generated file.  Later fragments of the
+                        // same file must not repeat the number the first took.
+                        const uint32_t sequence = static_cast<uint32_t>(number) * 256U + fragment;
+                        for (size_t index = 0; index < 4; ++index)
                         {
-                            body[value + width - 1 - index] = static_cast<char>(time >> (index * 8));
+                            body[mfhd + 11 - index] = static_cast<char>(sequence >> (index * 8));
                         }
                     }
+                    const size_t tfdt = body.find("tfdt", offset);
+                    if (tfdt != std::string::npos && tfdt + 12 <= end)
+                    {
+                        const uint8_t version = static_cast<uint8_t>(body[tfdt + 4]);
+                        const size_t value = tfdt + 8;
+                        const size_t width = version == 1 ? 8 : 4;
+                        if (value + width <= end)
+                        {
+                            // Keep the fragment's own offset inside the file so
+                            // the samples stay where the muxer put them
+                            // relative to the segment, and move the whole
+                            // segment onto the segment timeline.
+                            uint64_t relative = 0;
+                            for (size_t index = 0; index < width; ++index)
+                            {
+                                relative = (relative << 8) | static_cast<uint8_t>(body[value + index]);
+                            }
+                            const uint64_t time = base + relative;
+                            for (size_t index = 0; index < width; ++index)
+                            {
+                                body[value + width - 1 - index] = static_cast<char>(time >> (index * 8));
+                            }
+                        }
+                    }
+                    ++fragment;
+                    offset = end;
                 }
             }
         }
