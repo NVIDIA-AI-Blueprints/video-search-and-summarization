@@ -29,7 +29,7 @@ global:
 
 bp-configurator:
   enabled: true
-  name: bp-configurator-mv3dt
+  name: bp-configurator-mc-tracking
   data:
     enabled: true
     mountPath: /opt/data
@@ -61,7 +61,7 @@ bp-configurator:
     - name: NUM_STREAMS
       value: "4"
     - name: MODE
-      value: mv3dt
+      value: mc-tracking
     - name: LOG_LEVEL
       value: INFO
     - name: NVSTREAMER_STREAMS_ENDPOINT
@@ -121,7 +121,7 @@ bp-configurator:
 
 calibration-import:
   enabled: true
-  name: import-calibration-output-mv3dt
+  name: import-calibration-output-mc-tracking
   apiUrl: http://vss-video-analytics-api:8081
   calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
   imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/developer-profiles/dev-profile-mc-tracking/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
@@ -130,7 +130,7 @@ calibration-import:
   requireImages: true
 
 warehouse:
-  mode: mv3dt
+  mode: mc-tracking
   behaviorAnalytics:
     calibrationFile: files/behavior-analytics/calibration.json
 
@@ -252,7 +252,7 @@ infra:
     basePath: /kibana
     init:
       enabled: true
-      objectsBundle: warehouse-mv3dt
+      objectsBundle: mc-tracking
   kafka:
     enabled: true
     topicJob:
@@ -382,9 +382,9 @@ rtvi:
   enabled: true
   vss-rtvi-cv:
     enabled: true
-    profileMode: standalone-mv3dt
+    profileMode: standalone-mc-tracking
     replicas: 1
-    otelServiceName: rtvi-cv-mv3dt
+    otelServiceName: rtvi-cv-mc-tracking
     # image: inherited from the rtvi-cv subchart's managed GHCR channel.
     # Pinning it here would override that default and silently keep this
     # profile on NGC, exactly like the other managed images which are not
@@ -414,7 +414,7 @@ rtvi:
       bootstrapServers: ""
     standaloneWarehouse:
       streamType: kafka
-      mv3dt:
+      mcTracking:
         instanceId: "0"
         batchSize: "4"
         maxBatchSize: "4"

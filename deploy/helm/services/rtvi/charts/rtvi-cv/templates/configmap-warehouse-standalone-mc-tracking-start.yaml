@@ -1,17 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mc-tracking") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-start
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mc-tracking-start
   labels:
     {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
-    vss-rtvi-cv.profileMode: standalone-mv3dt
+    vss-rtvi-cv.profileMode: standalone-mc-tracking
 data:
-  ds-start-mv3dt.sh: |
-{{ .Files.Get "files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh" | nindent 4 }}
+  ds-start-mc-tracking.sh: |
+{{ .Files.Get "files/warehouse-standalone-mc-tracking/deepstream/init-scripts/ds-start-mc-tracking.sh" | nindent 4 }}
   download-models.sh: |
 {{ .Files.Get "files/download-models.sh" | nindent 4 }}
   {{- if .Values.downloadModelsFromNgc }}

@@ -14,9 +14,9 @@
 # limitations under the License.
 
 # ============================================================================
-# RT-DETR + MV3DT pipeline for warehouse-mv3dt-app — Redis variant
-# Uses standard nvinfer (RT-DETR detector) + NvMultiObjectTracker (MV3DT)
-# Publishes raw per-camera frames to Redis stream mdx-mv3dt-raw for fusion.
+# RT-DETR + mc-tracking pipeline for dev-profile-mc-tracking — Redis variant
+# Uses standard nvinfer (RT-DETR detector) + NvMultiObjectTracker (mc-tracking)
+# Publishes raw per-camera frames to Redis stream mdx-mc-tracking-raw for fusion.
 # ============================================================================
 
 [application]
@@ -173,7 +173,7 @@ tracker-height=1088
 display-tracking-id=1
 gpu-id=0
 ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
-ll-config-file=ds-mv3dt-tracker-config.yml
+ll-config-file=ds-mc-tracking-tracker-config.yml
 
 [tests]
 file-loop=0

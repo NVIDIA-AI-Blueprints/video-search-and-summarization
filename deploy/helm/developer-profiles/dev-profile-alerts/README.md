@@ -29,7 +29,7 @@ writable copy under `configs/` before applying runtime changes.
 The verification profile selects `DS_MODEL_FAMILY=rtdetr-gdino`. Its model
 download Job writes one completion marker per destination artifact, and the
 RTVI CV pod waits for both each marker and its artifact before starting.
-Standalone warehouse and MV3DT startup scripts are separate and are not
+Standalone warehouse and mc-tracking startup scripts are separate and are not
 affected by this developer-profile policy.
 
 ## Modes

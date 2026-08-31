@@ -1,28 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") .Values.standaloneWarehouse.mv3dt.fusion.enabled }}
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mc-tracking") .Values.standaloneWarehouse.mcTracking.fusion.enabled }}
 {{- $sw := .Values.standaloneWarehouse }}
-{{- $mv3dt := $sw.mv3dt | default dict }}
-{{- $fusion := $mv3dt.fusion | default dict }}
+{{- $mcTracking := $sw.mcTracking | default dict }}
+{{- $fusion := $mcTracking.fusion | default dict }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "vss-rtvi-cv.fullname" . }}-mv3dt-fusion
+  name: {{ include "vss-rtvi-cv.fullname" . }}-mc-tracking-fusion
   labels:
-    app.kubernetes.io/name: vss-rtvi-cv-mv3dt-fusion
+    app.kubernetes.io/name: vss-rtvi-cv-mc-tracking-fusion
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: vss-rtvi-cv-mv3dt-fusion
+      app.kubernetes.io/name: vss-rtvi-cv-mc-tracking-fusion
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: vss-rtvi-cv-mv3dt-fusion
+        app.kubernetes.io/name: vss-rtvi-cv-mc-tracking-fusion
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       {{- with .Values.nodeSelector }}
@@ -39,7 +39,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: mv3dt-fusion
+        - name: mc-tracking-fusion
           image: {{ include "vss-rtvi-cv.fusionImage" . }}
           imagePullPolicy: {{ $fusion.image.pullPolicy | default "IfNotPresent" }}
           env:
@@ -48,9 +48,9 @@ spec:
             - name: KAFKA_BOOTSTRAP
               value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
             - name: REDIS_HOST
-              value: {{ include "vss-rtvi-cv.mv3dtRedisHost" . | quote }}
+              value: {{ include "vss-rtvi-cv.mcTrackingRedisHost" . | quote }}
             - name: REDIS_PORT
-              value: {{ $mv3dt.redisPort | default "6379" | quote }}
+              value: {{ $mcTracking.redisPort | default "6379" | quote }}
             - name: RAW_TOPIC
               value: {{ $fusion.rawTopic | default "mdx-raw" | quote }}
             - name: FUSED_TOPIC
@@ -58,7 +58,7 @@ spec:
             - name: SENSOR_TIMEOUT_MS
               value: {{ $fusion.sensorTimeoutMs | default "100" | quote }}
             - name: MAX_EXPECTED_SENSORS
-              value: {{ $fusion.maxExpectedSensors | default $mv3dt.maxBatchSize | default "4" | quote }}
+              value: {{ $fusion.maxExpectedSensors | default $mcTracking.maxBatchSize | default "4" | quote }}
             - name: BUFFER_DURATION_S
               value: {{ $fusion.bufferDurationS | default "2.0" | quote }}
             - name: OTEL_SDK_DISABLED

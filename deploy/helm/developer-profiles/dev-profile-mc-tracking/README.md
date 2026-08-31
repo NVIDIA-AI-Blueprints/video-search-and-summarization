@@ -17,7 +17,7 @@ See the License for the specific language governing permissions and limitations 
 
 # Dev Profile: Multi-Camera Tracking Helm Chart
 
-This profile chart wraps `deploy/helm/services/infra` and `deploy/helm/services/rtvi`, enabling Kafka, Redis, shared-infra Mosquitto, MV3DT BEV fusion, and **`vss-rtvi-cv.profileMode`**=`standalone-mv3dt`.
+This profile chart wraps `deploy/helm/services/infra` and `deploy/helm/services/rtvi`, enabling Kafka, Redis, shared-infra Mosquitto, mc-tracking BEV fusion, and **`vss-rtvi-cv.profileMode`**=`standalone-mc-tracking`.
 
 ```bash
 helm dependency build deploy/helm/developer-profiles/dev-profile-mc-tracking
@@ -178,7 +178,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| **`infra.mosquitto.enabled`** | **`true`** | MQTT broker used by the MV3DT pipeline for inter-service messaging. Disable only if providing an external broker. |
+| **`infra.mosquitto.enabled`** | **`true`** | MQTT broker used by the mc-tracking pipeline for inter-service messaging. Disable only if providing an external broker. |
 | **`infra.phoenix.enabled`** | **`false`** | Phoenix observability is off by default in this profile. Set **`true`** to enable pipeline traces and spans. |
 | **`infra.redis.persistence.size`** | **`5Gi`** | PVC size for Redis. |
 | **`infra.elasticsearch.persistence.data.size`** | **`10Gi`** | PVC size for Elasticsearch data. |
@@ -199,14 +199,14 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | Key | Default | Description |
 |-----|---------|-------------|
 | **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
-| **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`100Gi`** | PVC size for the NGC model download job. Larger than 2D/3D because MV3DT downloads two models. |
-| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1` | GPU request/limit for the CV inference pod. Always required for the MV3DT pipeline. |
-| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.batchSize`** | **`4`** | Number of camera frames batched per BEV fusion pass. |
-| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.maxBatchSize`** | **`4`** | Maximum batch size cap for BEV fusion. |
-| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.sensorTimeoutMs`** | **`100`** | Timeout in ms waiting on a sensor frame before proceeding with a partial batch. |
-| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.maxExpectedSensors`** | **`4`** | Number of cameras the BEV fusion expects. Keep in step with NVStreamer **`syncFileCount`**. |
-| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.fusion.rawTopic`** | **`mdx-raw`** | Kafka topic for per-camera detection messages fed into BEV fusion. |
-| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.fusion.fusedTopic`** | **`mdx-bev`** | Kafka topic for BEV-fused output consumed by behavior analytics. |
+| **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`100Gi`** | PVC size for the NGC model download job. Larger than 2D/3D because mc-tracking downloads two models. |
+| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1` | GPU request/limit for the CV inference pod. Always required for the mc-tracking pipeline. |
+| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mcTracking.batchSize`** | **`4`** | Number of camera frames batched per BEV fusion pass. |
+| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mcTracking.maxBatchSize`** | **`4`** | Maximum batch size cap for BEV fusion. |
+| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mcTracking.sensorTimeoutMs`** | **`100`** | Timeout in ms waiting on a sensor frame before proceeding with a partial batch. |
+| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mcTracking.maxExpectedSensors`** | **`4`** | Number of cameras the BEV fusion expects. Keep in step with NVStreamer **`syncFileCount`**. |
+| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mcTracking.fusion.rawTopic`** | **`mdx-raw`** | Kafka topic for per-camera detection messages fed into BEV fusion. |
+| **`rtvi.vss-rtvi-cv.standaloneWarehouse.mcTracking.fusion.fusedTopic`** | **`mdx-bev`** | Kafka topic for BEV-fused output consumed by behavior analytics. |
 
 ##### `monitoring`
 
@@ -372,7 +372,7 @@ install or an upgrade where you want streams sized to your hardware, generate a 
 
 ```bash
 python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
-  --mode mv3dt --num-streams <N> -o values-stream-cap.generated.yaml
+  --mode mc-tracking --num-streams <N> -o values-stream-cap.generated.yaml
 ```
 
 Layer `-f values-stream-cap.generated.yaml` into `helm upgrade --install`, and set

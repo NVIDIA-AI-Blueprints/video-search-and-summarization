@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $mcTracking := (.Values.standaloneWarehouse).mcTracking | default dict }}
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mc-tracking") (not ($mcTracking.dynamicCameraConfig | default dict).enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mc-tracking-caminfo
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-mc-tracking
+data:
+{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-mc-tracking/calibration/camInfo/*" }}
+{{- $base := base $path }}
+  {{ $base }}: |
+{{ $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}

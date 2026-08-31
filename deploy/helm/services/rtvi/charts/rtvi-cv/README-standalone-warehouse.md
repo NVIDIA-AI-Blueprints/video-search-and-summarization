@@ -1,6 +1,6 @@
-# Standalone warehouse: `standalone-2d`, `standalone-3d`, and `standalone-mv3dt`
+# Standalone warehouse: `standalone-2d`, `standalone-3d`, and `standalone-mc-tracking`
 
-This document describes a **from-scratch** install of the **`vss-rtvi-cv`** subchart under the **`rtvi`** umbrella using **`profileMode`** **`standalone-2d`**, **`standalone-3d`**, or **`standalone-mv3dt`**. Warehouse videos, playback, and calibration data come from the NGC **`vss-warehouse-app-data`** bundle, while RT-CV models are downloaded separately from versioned NGC model packages onto the same PVC. The 2D/3D standalone profiles use FakeSink / `STREAM_TYPE=none`; MV3DT is normally installed through its warehouse profile chart with Kafka or Redis, Mosquitto, and the BEV-fusion companion.
+This document describes a **from-scratch** install of the **`vss-rtvi-cv`** subchart under the **`rtvi`** umbrella using **`profileMode`** **`standalone-2d`**, **`standalone-3d`**, or **`standalone-mc-tracking`**. Warehouse videos, playback, and calibration data come from the NGC **`vss-warehouse-app-data`** bundle, while RT-CV models are downloaded separately from versioned NGC model packages onto the same PVC. The 2D/3D standalone profiles use FakeSink / `STREAM_TYPE=none`; MC-Tracking is normally installed through its warehouse profile chart with Kafka or Redis, Mosquitto, and the BEV-fusion companion.
 
 For chart internals (templates, ConfigMaps, jobs), see `charts/rtvi-cv/`.
 
@@ -84,9 +84,9 @@ helm dependency update
 
 ---
 
-## 4. Install (`standalone-2d`, `standalone-3d`, or `standalone-mv3dt`)
+## 4. Install (`standalone-2d`, `standalone-3d`, or `standalone-mc-tracking`)
 
-Minimal install: enable **`vss-rtvi-cv`**, set **`profileMode`**, turn on both NGC download paths, and size the models PVC. Populate `ngcModelsToDownload` with the profile-specific entries used by the warehouse 2D/3D/MV3DT umbrella chart values. Adjust **`persistence.storageClass`** and **`persistence.models.size`** for your cluster.
+Minimal install: enable **`vss-rtvi-cv`**, set **`profileMode`**, turn on both NGC download paths, and size the models PVC. Populate `ngcModelsToDownload` with the profile-specific entries used by the warehouse 2D/3D/MC-Tracking umbrella chart values. Adjust **`persistence.storageClass`** and **`persistence.models.size`** for your cluster.
 
 ```bash
 cd deploy/helm/services/rtvi
@@ -155,7 +155,7 @@ HTTP probe (if enabled): **`httpPort`** defaults to **9000** inside the pod.
 |-----------------|----------|---------------------------|--------|
 | `standalone-2d` | RT-DETR warehouse + file cams | `rtdetr-warehouse` | Videos from app-data; RT-DETR from the model Job. |
 | `standalone-3d` | Sparse4D warehouse + file cams | `sparse4d-warehouse` | Videos from app-data; ONNX from the model Job; anchor and labels from chart assets. |
-| `standalone-mv3dt` | RT-DETR + MV3DT tracker | Dedicated `ds-start-mv3dt.sh` | App-data remains independent; RT-DETR and BodyPose3DNet come from the model Job; MQTT generation and BEV fusion remain MV3DT-specific. |
+| `standalone-mc-tracking` | RT-DETR + MC-Tracking tracker | Dedicated `ds-start-mc-tracking.sh` | App-data remains independent; RT-DETR and BodyPose3DNet come from the model Job; MQTT generation and BEV fusion remain MC-Tracking-specific. |
 
 Do **not** set `profileMode` to `alerts` or `search` in the same release if you intend this document’s flow; those modes use different StatefulSet templates (Kafka wait, different configs).
 
@@ -210,7 +210,7 @@ kubectl delete job -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE}" 
 - **Pod `Init:0/1` waiting on NGC**: Job not complete or marker missing — check Job logs:  
   `kubectl logs job/vss-rtvi-cv-download-ngc-app-data -n "${NAMESPACE}"` (adjust name if prefixed).
 - **Pod waiting for RT-CV models**: models are downloaded during ds-start phase 0 inside the perception container. Check perception container logs for download progress or errors; the startup requires both each artifact and its `.done` marker.
-- **Permission errors writing TensorRT engines**: 2D/3D use writable **`/opt/storage/trt-cache`**; MV3DT writes beside RT-DETR and under **`/opt/storage/BodyPose3DNet`**. Ensure the applicable engine-directory init container ran.
+- **Permission errors writing TensorRT engines**: 2D/3D use writable **`/opt/storage/trt-cache`**; MC-Tracking writes beside RT-DETR and under **`/opt/storage/BodyPose3DNet`**. Ensure the applicable engine-directory init container ran.
 - **Wrong profile rendered**: `helm get values "${RELEASE}" -n "${NAMESPACE}"` and confirm **`vss-rtvi-cv.profileMode`**.
 
 ---

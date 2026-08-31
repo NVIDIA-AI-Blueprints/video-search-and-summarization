@@ -1007,7 +1007,7 @@ if grep -q 'downloadModelsFromNgc: true' "${_helm_dev_mct_values}" \
   && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_dev_mct_values}" \
   && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_dev_mct_values}" \
   && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_dev_mct_statefulset}" \
-  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_dev_mct_statefulset}" \
+  && grep -q 'name: ensure-mc-tracking-engine-dirs' "${_helm_dev_mct_statefulset}" \
   && ! grep -q 'wait-for-models' "${_helm_dev_mct_statefulset}" \
   && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
     "${_helm_dev_mct_statefulset}" "${_helm_dev_mct_defaults}"; then

@@ -11,7 +11,7 @@ keywords:
   - metropolis
   - developer-profiles
   - rtvi
-  - mv3dt
+  - mc-tracking
 maintainers:
   - name: NVIDIA
 dependencies:

@@ -3,18 +3,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# RT-DETR + MV3DT pipeline start script for single-container deployment.
+# RT-DETR + mc-tracking pipeline start script for single-container deployment.
 #
 # Generated files:
 #   /tmp/generated/pub_sub_info_config.yml
 
-echo "##### RT-DETR + MV3DT pipeline #####"
+echo "##### RT-DETR + mc-tracking pipeline #####"
 
 ARCH="$(uname -m)"
 # libgomp/libGLdispatch must load first to reserve static TLS; keep any
 # preloads supplied by the image or operator after them.
-MV3DT_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
-export LD_PRELOAD="${MV3DT_PRELOAD}${LD_PRELOAD:+:${LD_PRELOAD}}"
+MC_TRACKING_PRELOAD="/usr/lib/${ARCH}-linux-gnu/libgomp.so.1:/usr/lib/${ARCH}-linux-gnu/libGLdispatch.so.0"
+export LD_PRELOAD="${MC_TRACKING_PRELOAD}${LD_PRELOAD:+:${LD_PRELOAD}}"
 
 # Phase 0: manifest-driven NGC model acquisition (replaces Compose/Helm download init).
 ensure_models_from_manifest() {
@@ -221,15 +221,15 @@ cat "${PUB_SUB_OUT}"
 
 # Select the main config for the active stream type.
 if [ "${STREAM_TYPE}" = "redis" ]; then
-  MAIN_BASENAME="ds-main-redis-config-mv3dt.txt"
+  MAIN_BASENAME="ds-main-redis-config-mc-tracking.txt"
 else
   [ "${STREAM_TYPE}" = "kafka" ] || echo "STREAM_TYPE not set or invalid. Defaulting to kafka..."
-  MAIN_BASENAME="ds-main-config-mv3dt.txt"
+  MAIN_BASENAME="ds-main-config-mc-tracking.txt"
 fi
 MAIN_CONFIG="${CONFIG_DIR}/${MAIN_BASENAME}"
-TRACKER_EFFECTIVE="${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+TRACKER_EFFECTIVE="${CONFIG_DIR}/ds-mc-tracking-tracker-config.yml"
 
-if [ "${MV3DT_DYNAMIC_CAMERA_CONFIG}" = "true" ]; then
+if [ "${MC_TRACKING_DYNAMIC_CAMERA_CONFIG}" = "true" ]; then
   NUM_CAMS=$(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; echo x; done | wc -l)
   [ "${NUM_CAMS}" -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
   echo "Dynamic camera config: ${NUM_CAMS} camera(s) from calibration."
@@ -248,7 +248,7 @@ if [ "${MV3DT_DYNAMIC_CAMERA_CONFIG}" = "true" ]; then
   # Only cameraModelFilepath changes; pubSubInfoConfigPath is absolute and
   # mqttProtoAdaptorConfigPath is cwd-relative, so both still resolve. Batch size
   # is left as configured — it is bounded by the DS model engine, not camera count.
-  TRACKER_EFFECTIVE="${GENERATED_DIR}/ds-mv3dt-tracker-config.yml"
+  TRACKER_EFFECTIVE="${GENERATED_DIR}/ds-mc-tracking-tracker-config.yml"
   CAM_ENTRIES=""
   while IFS= read -r cam; do
     CAM_ENTRIES+="    ${cam}: /tmp/camInfo/${cam}.yml"$'\n'
@@ -261,7 +261,7 @@ if [ "${MV3DT_DYNAMIC_CAMERA_CONFIG}" = "true" ]; then
     inblock && /^ ? ?[^ ]/ { inblock=0 }
     inblock { next }
     { print }
-  ' "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml" > "${TRACKER_EFFECTIVE}"
+  ' "${CONFIG_DIR}/ds-mc-tracking-tracker-config.yml" > "${TRACKER_EFFECTIVE}"
   grep -q "^    .*: /tmp/camInfo/" "${TRACKER_EFFECTIVE}" \
     || { echo "ERROR: failed to inject cameraModelFilepath entries into ${TRACKER_EFFECTIVE}"; exit 1; }
 
@@ -275,7 +275,7 @@ cat "${CONFIG_DIR}/ds-pgie-config.yml"
 echo -e "\nTracker config:"
 cat "${TRACKER_EFFECTIVE}"
 
-echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
+echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + mc-tracking)..."
 echo -e "\nMain config:"
 cat "${MAIN_CONFIG}"
 exec_as_runtime_user ./metropolis_perception_app -c "${MAIN_CONFIG}" -m 1 -t 0 -l 5 --message-rate 1

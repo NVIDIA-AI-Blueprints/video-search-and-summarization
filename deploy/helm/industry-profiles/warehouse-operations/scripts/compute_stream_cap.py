@@ -7,7 +7,7 @@ write a bp-configurator.env values-override for helm upgrade/install -f.
 
     compute_stream_cap.py --mode 2d --num-streams 6
     compute_stream_cap.py --mode 3d --num-streams 30 --hardware-profile H100
-    compute_stream_cap.py --mode mv3dt --num-streams 4 --gpu-index 1 -o values-streams.yaml
+    compute_stream_cap.py --mode mc-tracking --num-streams 4 --gpu-index 1 -o values-streams.yaml
 """
 import argparse
 import subprocess
@@ -24,7 +24,14 @@ BLUEPRINT_CONFIG = (
 HELM_WAREHOUSE_DIR = REPO_ROOT / "deploy/helm/industry-profiles/warehouse-operations"
 
 CHART_DIR_OVERRIDES = {
-    "mv3dt": REPO_ROOT / "deploy/helm/developer-profiles/dev-profile-mc-tracking",
+    "mc-tracking": REPO_ROOT / "deploy/helm/developer-profiles/dev-profile-mc-tracking",
+}
+
+# mc-tracking ships its own blueprint_config.yml (own dev-profile tree), not the
+# shared warehouse-operations one 2d/3d read.
+BLUEPRINT_CONFIG_OVERRIDES = {
+    "mc-tracking": REPO_ROOT
+    / "deploy/docker/developer-profiles/dev-profile-mc-tracking/blueprint-configurator/blueprint_config.yml",
 }
 
 # nvidia-smi GPU name substring -> HARDWARE_PROFILE, matching
@@ -68,14 +75,18 @@ def detect_hardware_profile(gpu_index: int) -> str:
 
 
 def max_streams_supported(hardware_profile: str, mode: str) -> int | None:
-    with open(BLUEPRINT_CONFIG) as f:
+    blueprint_config = BLUEPRINT_CONFIG_OVERRIDES.get(mode, BLUEPRINT_CONFIG)
+    if not blueprint_config.exists():
+        sys.exit(f"error: blueprint config not found: {blueprint_config}")
+
+    with open(blueprint_config) as f:
         config = yaml.safe_load(f)
 
     profile = config.get(hardware_profile)
     if profile is None:
         print(
             f"warning: '{hardware_profile}' has no tuned section in "
-            f"{BLUEPRINT_CONFIG.name} — no stream cap will be applied",
+            f"{blueprint_config.name} — no stream cap will be applied",
             file=sys.stderr,
         )
         return None
@@ -84,7 +95,7 @@ def max_streams_supported(hardware_profile: str, mode: str) -> int | None:
     if mode_cfg is None or "max_streams_supported" not in mode_cfg:
         print(
             f"warning: '{hardware_profile}' has no '{mode}' tuning in "
-            f"{BLUEPRINT_CONFIG.name} — no stream cap will be applied",
+            f"{blueprint_config.name} — no stream cap will be applied",
             file=sys.stderr,
         )
         return None
@@ -109,7 +120,7 @@ def patch_env_list(env: list, num_streams: int, hardware_profile: str) -> list:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", required=True, choices=["2d", "3d", "mv3dt"])
+    parser.add_argument("--mode", required=True, choices=["2d", "3d", "mc-tracking"])
     parser.add_argument("--num-streams", required=True, type=int, help="Requested stream count")
     parser.add_argument(
         "--hardware-profile",

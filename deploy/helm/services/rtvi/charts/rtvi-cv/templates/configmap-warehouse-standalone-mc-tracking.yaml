@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# DeepStream configs for profileMode standalone-mv3dt (RT-DETR + MV3DT + BEV fusion).
+# DeepStream configs for profileMode standalone-mc-tracking (RT-DETR + mc-tracking + BEV fusion).
 
-{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mc-tracking") }}
 {{- $bundle := "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs" }}
-{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict }}
-{{- $fusion := $mv3dt.fusion | default dict }}
+{{- $mcTracking := .Values.standaloneWarehouse.mcTracking | default dict }}
+{{- $fusion := $mcTracking.fusion | default dict }}
 {{- $rawTopic := $fusion.rawTopic | default "mdx-raw" }}
 {{- $kafkaBootstrap := include "vss-rtvi-cv.kafkaBootstrap" . }}
 {{- $kafkaParts := splitList ":" $kafkaBootstrap }}
@@ -28,43 +28,43 @@
 {{- $kafkaPort = last $kafkaParts }}
 {{- end }}
 {{- $kafkaConn := printf "%s;%s;%s" $kafkaHost $kafkaPort $rawTopic }}
-{{- $redisHost := include "vss-rtvi-cv.mv3dtRedisHost" . }}
-{{- $redisPort := $mv3dt.redisPort | default "6379" }}
-{{- $mqttEndpoint := printf "%s:%s" (include "vss-rtvi-cv.mv3dtMqttHost" .) ($mv3dt.mqttPort | default "1883") }}
-{{- $dynamicCam := ($mv3dt.dynamicCameraConfig | default dict).enabled }}
-{{- $trackerCfg := ternary "/tmp/generated/ds-mv3dt-tracker-config.yml" (printf "%s/ds-mv3dt-tracker-config.yml" $bundle) (default false $dynamicCam) }}
+{{- $redisHost := include "vss-rtvi-cv.mcTrackingRedisHost" . }}
+{{- $redisPort := $mcTracking.redisPort | default "6379" }}
+{{- $mqttEndpoint := printf "%s:%s" (include "vss-rtvi-cv.mcTrackingMqttHost" .) ($mcTracking.mqttPort | default "1883") }}
+{{- $dynamicCam := ($mcTracking.dynamicCameraConfig | default dict).enabled }}
+{{- $trackerCfg := ternary "/tmp/generated/ds-mc-tracking-tracker-config.yml" (printf "%s/ds-mc-tracking-tracker-config.yml" $bundle) (default false $dynamicCam) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mc-tracking
   labels:
     {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
-    vss-rtvi-cv.profileMode: standalone-mv3dt
+    vss-rtvi-cv.profileMode: standalone-mc-tracking
 data:
-{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-mv3dt/deepstream/configs/*" }}
+{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-mc-tracking/deepstream/configs/*" }}
 {{- $base := base $path }}
 {{- $content := $.Files.Get $path }}
-{{- if eq $base "ds-main-config-mv3dt.txt" }}
+{{- if eq $base "ds-main-config-mc-tracking.txt" }}
   {{ $base }}: |
 {{- $c := replace "msg-broker-conn-str=localhost;9092;mdx-raw" (printf "msg-broker-conn-str=%s" $kafkaConn) $content }}
 {{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
 {{- $c = replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) $c }}
 {{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
-{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s" $trackerCfg) $c }}
+{{- $c = replace "ll-config-file=ds-mc-tracking-tracker-config.yml" (printf "ll-config-file=%s" $trackerCfg) $c }}
 {{- $c = replace "http-port=9000" (printf "http-port=%v" $.Values.httpPort) $c }}
-{{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mv3dt.maxBatchSize | default "4")) }}
-{{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mv3dt.batchSize | default "4")) }}
+{{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mcTracking.maxBatchSize | default "4")) }}
+{{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mcTracking.batchSize | default "4")) }}
 {{ $c | nindent 4 }}
-{{- else if eq $base "ds-main-redis-config-mv3dt.txt" }}
+{{- else if eq $base "ds-main-redis-config-mc-tracking.txt" }}
   {{ $base }}: |
 {{- $c := replace "msg-broker-conn-str=localhost;6379;" (printf "msg-broker-conn-str=%s;%s;" $redisHost $redisPort) $content }}
 {{- $c = replace "topic=mdx-raw" (printf "topic=%s" $rawTopic) $c }}
 {{- $c = replace "msg-broker-config=ds-redis-config.txt" (printf "msg-broker-config=%s/ds-redis-config.txt" $bundle) $c }}
 {{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
-{{- $c = replace "ll-config-file=ds-mv3dt-tracker-config.yml" (printf "ll-config-file=%s" $trackerCfg) $c }}
+{{- $c = replace "ll-config-file=ds-mc-tracking-tracker-config.yml" (printf "ll-config-file=%s" $trackerCfg) $c }}
 {{- $c = replace "http-port=9000" (printf "http-port=%v" $.Values.httpPort) $c }}
-{{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mv3dt.maxBatchSize | default "4")) }}
-{{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mv3dt.batchSize | default "4")) }}
+{{- $c = regexReplaceAll "(?m)^max-batch-size=4$" $c (printf "max-batch-size=%s" ($mcTracking.maxBatchSize | default "4")) }}
+{{- $c = regexReplaceAll "(?m)^batch-size=4$" $c (printf "batch-size=%s" ($mcTracking.batchSize | default "4")) }}
 {{ $c | nindent 4 }}
 {{- else if eq $base "ds-redis-config.txt" }}
   {{ $base }}: |

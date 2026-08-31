@@ -3,16 +3,16 @@
 {{- with index .Subcharts "rtvi" -}}
 {{- with index .Subcharts "vss-rtvi-cv" -}}
 {{- $name = include "vss-rtvi-cv.fullname" . -}}
-{{- $mqttHost = include "vss-rtvi-cv.mv3dtMqttHost" . -}}
+{{- $mqttHost = include "vss-rtvi-cv.mcTrackingMqttHost" . -}}
 {{- end -}}
 {{- end -}}
-Warehouse MV3DT app profile rendered.
+Multi-Camera Tracking profile rendered.
 
 Main workloads:
   StatefulSet: {{ $name }}
-  Fusion Deployment: {{ $name }}-mv3dt-fusion
+  Fusion Deployment: {{ $name }}-mc-tracking-fusion
   Mosquitto Deployment/Service: {{ $mqttHost }}
-  Profile: standalone-mv3dt
+  Profile: standalone-mc-tracking
 
 NGC data delivery:
   App data Job: {{ $name }}-download-ngc-app-data (videos/playback/calibration)

@@ -57,7 +57,7 @@ redis:
   nodeSelector: {}
   tolerations: []
 
-# Mosquitto subchart (MQTT broker for MV3DT cross-camera messaging). Service
+# Mosquitto subchart (MQTT broker for mc-tracking cross-camera messaging). Service
 # name stays "mosquitto" when useReleaseNamePrefix is false.
 mosquitto:
   enabled: false
