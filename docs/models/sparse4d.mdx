@@ -15,7 +15,7 @@ The Sparse4D model cards on NGC ([sparse4d_rn50](https://catalog.ngc.nvidia.com/
 
 ## Inference using Perception Microservice
 
-Detailed information can be found in the [3D Multi-Camera Detection and Tracking (Sparse4D) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) page.
+Detailed information can be found in the [3D Multi-Camera Detection and Tracking (Sparse4D) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) page.
 
 ## Model versions
 
@@ -94,7 +94,7 @@ Results highlighted in the above tables are for the latest v2.2 models on the te
 ### Dataset Requirements
 
   The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes or your own dataset obtained by setting up a Digital Twin and generating synthetic data via Isaac Sim.
-  Please refer to the [Simulation and Synthetic Data Generation](/warehouse-docs/Simulation-and-Synthetic-Data-Generation) page for more details on the latter.
+  Please refer to the [Simulation and Synthetic Data Generation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation) page for more details on the latter.
 
   Performing 3D Multi-Camera Detection & Tracking in large regions such as warehouses with high-density cameras becomes computationally expensive. Therefore, we divide a region into a collection of groups called Bird's Eye View (BEV) groups. Each Bird's Eye View (BEV) group can contain multiple cameras, and these BEV groups may overlap with one another. Sparse4D is trained on such BEV groups.
   The below image represents a top down view of a single scene with multiple BEV groups. Each unique color represents a BEV group highlighting its camera coverage in the entire scene.
@@ -133,7 +133,7 @@ Results highlighted in the above tables are for the latest v2.2 models on the te
 
      - Single calibration file containing all camera parameters (intrinsic & extrinsic)
 
-Information related to the file format for the above files can be found [here](/warehouse-docs/Dataset-Post-Processing).
+Information related to the file format for the above files can be found [here](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/dataset-post-processing).
 An example dataset can be found in the [Warehouse_014](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/train/Warehouse_014) scene from the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset.
 
 ### Camera Grouping for Model Fine-tuning
@@ -208,7 +208,7 @@ Key options:
 * `--vis_combined`: Generate a single combined image instead of separate images per group.
 
 <Note>
-For deployment and inference use cases where cameras should be partitioned into non-overlapping clusters, refer to the [Camera Clustering](/warehouse-docs/3D-profile#camera-clustering) section in the 3D Vision AI Profile documentation.
+For deployment and inference use cases where cameras should be partitioned into non-overlapping clusters, refer to the [Camera Clustering](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) section in the 3D Vision AI Profile documentation.
 </Note>
 
 ### Expected time for finetuning
@@ -691,7 +691,7 @@ Once the configurations are modified, launch training by running the following c
 
 ### Evaluate the fine-tuned model
 
-The fine-tuned model's tracking accuracy can be evaluated using the Higher Order Tracking Accuracy (HOTA) metric, decomposed as Detection Accuracy (DetA), Association Accuracy (AssA), and Localization Accuracy (LocA). Please refer to the [KPI](/models/sparse4d#kpi) section above for more details on the metric definition and how to interpret per-class scores.
+The fine-tuned model's tracking accuracy can be evaluated using the Higher Order Tracking Accuracy (HOTA) metric, decomposed as Detection Accuracy (DetA), Association Accuracy (AssA), and Localization Accuracy (LocA). Please refer to the [KPI](/vss/system-components/models/sparse4d-3d-multi-camera#kpi) section above for more details on the metric definition and how to interpret per-class scores.
 
 Below are the important configurations that need to be updated to launch evaluation:
 
@@ -755,4 +755,4 @@ Once the configurations are modified, launch export by running the following com
 ### Using the fine-tuned model in the Perception Microservice
 
 Once the model is fine-tuned and exported to ONNX format, it can be used in the Perception Microservice.
-Refer to the [Integrating a Sparse4D Model Checkpoint](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#integrating-a-sparse4d-model-checkpoint) section for more details.
+Refer to the [Integrating a Sparse4D Model Checkpoint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint) section for more details.
