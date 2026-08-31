@@ -94,7 +94,6 @@ services:
       kibana:
         condition: service_healthy
 
-
   import-calibration-output-container-smartcities:
     build:
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app

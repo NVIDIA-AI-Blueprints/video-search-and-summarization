@@ -120,7 +120,6 @@ services:
       kibana:
         condition: service_healthy
 
-
   import-calibration-output-container-2d:
     build:
       context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app

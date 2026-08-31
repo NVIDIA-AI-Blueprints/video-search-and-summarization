@@ -32,9 +32,6 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-
-
-
   perception-2d-fusion:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
