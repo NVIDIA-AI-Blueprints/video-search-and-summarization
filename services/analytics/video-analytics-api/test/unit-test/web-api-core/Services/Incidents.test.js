@@ -158,25 +158,38 @@ describe('Incident', () => {
 
         it('should return VLM verified incidents', async () => {
             const input = {
-                sensorId: 'sensor123',
                 vlmVerified: true,
-                vlmVerdict: 'confirmed',
-                fromTimestamp: '2023-01-12T11:20:10.000Z',
-                toTimestamp: '2023-01-12T14:20:10.000Z'
+                vlmVerdict: 'all',
+                maxResultSize: 10000
             };
 
             searchStub.resolves({
                 indexAbsent: false,
                 body: {
                     hits: {
-                        hits: []
+                        hits: [
+                            { _source: { info: { alertCategory: 'Near Miss Violation' } } },
+                            { _source: { info: { alertCategory: 'Pathway Obstruction Violation' } } },
+                            { _source: { info: { alertCategory: 'PPE Violation' } } },
+                            { _source: { info: { alertCategory: 'PPE Violation' } } }
+                        ]
                     }
                 }
             });
 
             const result = await incident.getIncidents(elasticDb, input);
 
-            expect(result).to.have.property('incidents');
+            const alertTypes = new Set(result.incidents.map(({ info }) => info.alertCategory));
+            const expectedAlertTypes = new Set([
+                'Near Miss Violation',
+                'Pathway Obstruction Violation',
+                'PPE Violation'
+            ]);
+
+            expect(alertTypes.size).to.equal(3);
+            expect([...alertTypes].filter((alertType) => !expectedAlertTypes.has(alertType))).to.be.empty;
+            expect([...expectedAlertTypes].filter((alertType) => !alertTypes.has(alertType))).to.be.empty;
+            expect(searchStub.firstCall.args[1].index).to.equal('mdx-vlm-incidents-*');
         });
 
         it('should return VLM incidents with not-confirmed verdict', async () => {
