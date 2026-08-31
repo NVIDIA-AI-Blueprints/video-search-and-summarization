@@ -38,7 +38,12 @@ trap 'rm -rf "$uv_env"' EXIT
 export UV_PROJECT_ENVIRONMENT="$uv_env"
 
 uv sync --frozen --no-default-groups --extra agent --quiet
-uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --quiet pip-licenses
+# Pin pip-licenses: an unpinned install resolved to a 6.0.0 pre-release whose
+# console script does `from piplicenses.__main__ import main`, and that module
+# is absent -> ModuleNotFoundError, then "pip-licenses CSV had no header". 5.5.5
+# is the latest stable (6.x is pre-release only) and a compliance check wants a
+# deterministic tool version anyway.
+uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --quiet "pip-licenses==5.5.5"
 
 # Both halves of the pipe run inside the agent's uv venv: pip-licenses needs
 # the venv to enumerate installed packages, and check_python_licenses.py needs
