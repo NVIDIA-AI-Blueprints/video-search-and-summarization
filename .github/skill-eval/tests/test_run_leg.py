@@ -235,7 +235,11 @@ class HarborCommand(unittest.TestCase):
         ]
         self.assertEqual(
             agent_kwargs,
-            ["session_to_trajectory=true", "thinking=off"],
+            [
+                f"version={run_leg.OPENCLAW_VERSION}",
+                "session_to_trajectory=true",
+                "thinking=off",
+            ],
         )
 
     def test_build_command_rejects_unknown_agent(self):
