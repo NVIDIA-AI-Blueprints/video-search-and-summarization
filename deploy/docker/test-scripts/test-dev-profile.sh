@@ -591,14 +591,26 @@ for _edge_hw in DGX-SPARK AGX-THOR; do
   LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
     run_dry_run_test "${_edge_hw} allows search with remote LLM and remote VLM" \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --use-remote-vlm --vlm y -d
-  run_negative_test "${_edge_hw} search requires LLM_ENDPOINT_URL and VLM_ENDPOINT_URL" 1 \
+  # The VLM is local by default here, so only the LLM endpoint is required.
+  run_negative_test "${_edge_hw} search requires LLM_ENDPOINT_URL" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" -d
   VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
     run_negative_test "${_edge_hw} search rejects a local LLM with no tuning for the board" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/nvidia-nemotron-nano-9b-v2 --use-remote-vlm --vlm y -d
+  # A local VLM alongside a remote LLM is the default arrangement on these
+  # boards, so naming a checkpoint for it must be accepted.
   LLM_ENDPOINT_URL=http://127.0.0.1:8000 \
-    run_negative_test "${_edge_hw} search rejects a local VLM" 1 \
+    run_dry_run_test "${_edge_hw} search allows a local VLM with a remote LLM" \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --vlm nvidia/cosmos3-reasoner-fp8 -d
+  # Both models on one board does not fit -- see the both-local check in
+  # process_args(). --llm without --use-remote-vlm leaves the VLM local too.
+  LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
+    run_negative_test "${_edge_hw} search rejects a local LLM and a local VLM together" 1 \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
+  # An RT-VLM checkpoint the profile cannot serve locally is still rejected.
+  LLM_ENDPOINT_URL=http://127.0.0.1:8000 \
+    run_negative_test "${_edge_hw} search rejects a local VLM that is not an RT-VLM checkpoint" 1 \
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --vlm not/a-real-vlm -d
 done
 # The FP8 Nemotron is the one LLM shipping hw-<board>-shared.env for these boards.
 for _edge_hw in DGX-SPARK AGX-THOR; do
@@ -606,6 +618,21 @@ for _edge_hw in DGX-SPARK AGX-THOR; do
     run_dry_run_test "${_edge_hw} allows search with a local FP8 LLM and a remote VLM" \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 --use-remote-vlm --vlm y -d
 done
+# The default on these boards: no VLM flags at all keeps RT-VLM on the single GPU
+# serving the profile's own checkpoint, with only the LLM remote. Asserting
+# VLM_MODEL_TYPE=rtvi is what distinguishes this from the remote path below,
+# where the agent bypasses RT-VLM entirely.
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 \
+  run_dry_run_up_and_check_generated_env "generated.env search on AGX-THOR keeps RT-VLM local by default" "search" \
+  -i 127.0.0.1 -H AGX-THOR --use-remote-llm --llm x -d -- \
+  "LLM_MODE" "remote" \
+  "VLM_MODE" "local_shared" \
+  "VLM_MODEL_TYPE" "rtvi" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.25" \
+  "RT_VLM_DEVICE_ID" "0" \
+  "RT_CV_DEVICE_ID" "0" \
+  "RT_EMBED_DEVICE_ID" "0"
+
 # These boards drop the RT-VLM proxy and point the agent straight at the endpoint,
 # collapsing every GPU placement onto the board's single device.
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
