@@ -186,6 +186,24 @@ function warehouse_compose_selector_from_profile_mode() {
   esac
 }
 
+function warehouse_print_accepted_p_values() {
+  echo "[ERROR] Accepted -p compose lists (industry-profiles/warehouse-operations/overrides.env):"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_2D"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_2D  COMPOSE_PROFILES_WH_REDIS_2D"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_3D  COMPOSE_PROFILES_WH_REDIS_3D"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_MV3DT  COMPOSE_PROFILES_WH_REDIS_MV3DT"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL  COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL  COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL  COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_AUTO_CALIB"
+  echo "[ERROR]   COMPOSE_PROFILES_PLAYBACK_KAFKA_2D  COMPOSE_PROFILES_PLAYBACK_REDIS_2D"
+  echo "[ERROR]   COMPOSE_PROFILES_PLAYBACK_KAFKA_3D  COMPOSE_PROFILES_PLAYBACK_REDIS_3D"
+  echo "[ERROR]   COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT  COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT"
+  echo "[ERROR] Shorthand: WH_2D, WH_KAFKA_2D, WH_AUTO_CALIB, PLAYBACK_REDIS_2D, ..."
+  echo "[ERROR] Blueprint aliases: bp_wh | bp_wh_kafka | bp_wh_redis | bp_wh_auto_calib"
+  echo "[ERROR]   kafka/redis need -m 2d|3d|mv3dt; optional --minimal or --playback"
+}
+
 function warehouse_infer_from_compose_profiles_selector() {
   local _selector="${1}"
   case "${_selector}" in
@@ -409,10 +427,15 @@ function usage() {
   echo "                                   • 2d, 3d, or mv3dt for perception variants"
   echo "                                   • auto-calibration for the single warehouse auto-calib stack"
   echo "  -p, --bp-profile                Warehouse stack to deploy. Writes COMPOSE_PROFILES in generated.env."
-  echo "                                   • Blueprint names (use -m for kafka/redis):"
-  echo "                                     bp_wh (2d agent stack), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
-  echo "                                   • Or a compose list: WH_AUTO_CALIB, WH_KAFKA_3D, WH_KAFKA_3D_MINIMAL,"
-  echo "                                     PLAYBACK_REDIS_2D, COMPOSE_PROFILES_WH_AUTO_CALIB, ..."
+  echo "                                   • Compose lists from warehouse-operations/overrides.env:"
+  echo "                                     COMPOSE_PROFILES_WH_2D"
+  echo "                                     COMPOSE_PROFILES_WH_{KAFKA,REDIS}_{2D,3D,MV3DT}"
+  echo "                                     COMPOSE_PROFILES_WH_{KAFKA,REDIS}_{2D,3D,MV3DT}_MINIMAL"
+  echo "                                     COMPOSE_PROFILES_WH_AUTO_CALIB"
+  echo "                                     COMPOSE_PROFILES_PLAYBACK_{KAFKA,REDIS}_{2D,3D,MV3DT}"
+  echo "                                   • Shorthand: WH_2D, WH_KAFKA_3D, WH_AUTO_CALIB, PLAYBACK_REDIS_2D, ..."
+  echo "                                   • Blueprint aliases: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
+  echo "                                     (kafka/redis need -m 2d|3d|mv3dt; optional --minimal/--playback)"
   echo "                                   • If omitted, COMPOSE_PROFILES in overrides.env is used."
   echo "  --minimal                        With -p bp_wh_kafka or bp_wh_redis: use the *_MINIMAL compose list."
   echo "  --playback                       With -p bp_wh_kafka or bp_wh_redis: use COMPOSE_PROFILES_PLAYBACK_*."
@@ -769,17 +792,19 @@ function process_args() {
           fi
           if ! _compose_selector="$(warehouse_compose_selector_from_profile_mode "${bp_profile}" "${mode}" "${compose_variant}")"; then
             echo "[ERROR] Cannot map -p ${bp_profile} -m ${mode} ${compose_variant:+--${compose_variant}} to a COMPOSE_PROFILES list."
-            echo "[ERROR] Use -p bp_wh (2d), -p bp_wh_kafka|bp_wh_redis -m 2d|3d|mv3dt, or -p bp_wh_auto_calib."
+            warehouse_print_accepted_p_values
             ((_all_good++))
           elif ! _inferred="$(warehouse_infer_from_compose_profiles_selector "${_compose_selector}")"; then
             echo "[ERROR] Unknown COMPOSE_PROFILES selector: ${_compose_selector}"
+            warehouse_print_accepted_p_values
             ((_all_good++))
           else
             compose_profiles_selector="${_compose_selector}"
           fi
         else
           echo "[ERROR] Invalid -p ${_p_arg}."
-          echo "[ERROR] Use bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib, or a compose list such as WH_AUTO_CALIB / WH_KAFKA_3D."
+          warehouse_print_accepted_p_values
+          bp_profile=""
           ((_all_good++))
         fi
       else
@@ -794,7 +819,7 @@ function process_args() {
           ((_all_good++))
         elif ! _inferred="$(warehouse_infer_from_compose_profiles_selector "${_compose_selector}")"; then
           echo "[ERROR] Unknown COMPOSE_PROFILES selector: ${_compose_selector}"
-          echo "[ERROR] Set COMPOSE_PROFILES=\${COMPOSE_PROFILES_WH_2D} (or pass -p WH_AUTO_CALIB, -p bp_wh_kafka -m 3d, ...)"
+          warehouse_print_accepted_p_values
           ((_all_good++))
         else
           local _inferred_profile _inferred_mode
@@ -808,7 +833,7 @@ function process_args() {
           compose_profiles_selector="${_compose_selector}"
         fi
       fi
-      if [[ -z "${bp_profile}" ]]; then
+      if [[ -z "${bp_profile}" ]] && ! contains_element "bp-profile" "${options_provided[@]}"; then
         bp_profile="$(warehouse_default_bp_profile "${mode}" "${_deploy_env}" "${_deploy_overrides_env}")"
       fi
       # HARDWARE_PROFILE: default from .env for any warehouse mode/profile when -H not passed
