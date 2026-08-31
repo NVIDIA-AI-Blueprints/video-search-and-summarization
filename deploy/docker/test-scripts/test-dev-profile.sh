@@ -594,16 +594,17 @@ for _edge_hw in DGX-SPARK AGX-THOR; do
   run_negative_test "${_edge_hw} search requires LLM_ENDPOINT_URL and VLM_ENDPOINT_URL" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" -d
   VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
-    run_negative_test "${_edge_hw} search rejects a local LLM with no tuning for the board" 1 \
+    run_negative_test "${_edge_hw} search rejects a local LLM" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/nvidia-nemotron-nano-9b-v2 --use-remote-vlm --vlm y -d
   LLM_ENDPOINT_URL=http://127.0.0.1:8000 \
     run_negative_test "${_edge_hw} search rejects a local VLM" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --vlm nvidia/cosmos3-reasoner-fp8 -d
 done
-# The FP8 Nemotron is the one LLM shipping hw-<board>-shared.env for these boards.
+# No LLM is hostable on these boards, including one that ships a -shared.env for
+# them: two vLLM engines cannot share the single GPU with the perception pipeline.
 for _edge_hw in DGX-SPARK AGX-THOR; do
   VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
-    run_dry_run_test "${_edge_hw} allows search with a local FP8 LLM and a remote VLM" \
+    run_negative_test "${_edge_hw} search rejects a local LLM even with board tuning" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 --use-remote-vlm --vlm y -d
 done
 # These boards drop the RT-VLM proxy and point the agent straight at the endpoint,

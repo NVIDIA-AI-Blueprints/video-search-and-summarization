@@ -1048,14 +1048,25 @@ function process_args() {
         vlm_device_id="0"
       fi
 
-      # Search on edge hardware has one GPU to work with, and streamprocessing,
-      # RT-CV and RT-Embed all need it, so the VLM always runs on a remote
-      # endpoint. The LLM defaults to remote as well, but passing --llm without
-      # --use-remote-llm keeps it on the board's GPU instead.
+      # Search on edge hardware has one GPU, and streamprocessing, RT-CV and
+      # RT-Embed all need it, so both models run on remote endpoints. Neither can
+      # be hosted on the board:
+      #
+      # - The VLM never fits: the perception pipeline already owns the GPU.
+      # - Two vLLM engines cannot share one GPU at all. Each sizes itself as
+      #   (fraction x total) - (memory held by every other process) and then
+      #   expands its KV cache to fill the remainder, so no pair of fractions
+      #   satisfies both. Measured on AGX Thor (122.82 GiB unified, 2026-08-31):
+      #   the LLM alone holds 36.85 GiB and cannot go under the INT4 profile's
+      #   32 GiB floor, and rt-embed needs ~6 GiB to build its TensorRT engine.
+      #
+      # Only the endpoint URLs are needed; --use-remote-llm/--use-remote-vlm are
+      # accepted but redundant. --llm/--vlm still name the *remote* model when
+      # the matching --use-remote-* flag is passed.
       if contains_element "${hardware_profile}" "${search_edge_hardware_profiles[@]}" && [[ "${profile}" == "search" ]]; then
-        local _edge_llm_local=0
         if contains_element "llm" "${options_provided[@]}" && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
-          _edge_llm_local=1
+          echo "[ERROR] Search on ${hardware_profile} cannot host a local LLM: the board's only GPU already carries the perception pipeline. Use --use-remote-llm with LLM_ENDPOINT_URL."
+          ((_all_good++))
         fi
         if contains_element "vlm" "${options_provided[@]}" && ! contains_element "use-remote-vlm" "${options_provided[@]}"; then
           echo "[ERROR] Search on ${hardware_profile} cannot host a local VLM: the board's only GPU already carries the perception pipeline. Use --use-remote-vlm with VLM_ENDPOINT_URL."
@@ -1063,33 +1074,17 @@ function process_args() {
         fi
         # The endpoints are read here because llm_base_url/vlm_base_url are only
         # populated by the --use-remote-* option handlers.
-        if [[ "${_edge_llm_local}" -eq 0 ]]; then
-          edge_force_remote_llm=1
-          llm_base_url="${llm_base_url:-${LLM_ENDPOINT_URL:-}}"
-          if [[ -z "${llm_base_url}" ]]; then
-            echo "[ERROR] Search on ${hardware_profile} uses a remote LLM: set LLM_ENDPOINT_URL, or pass --llm <model> to host it on the board's GPU."
-            ((_all_good++))
-          fi
+        edge_force_remote_llm=1
+        llm_base_url="${llm_base_url:-${LLM_ENDPOINT_URL:-}}"
+        if [[ -z "${llm_base_url}" ]]; then
+          echo "[ERROR] Search on ${hardware_profile} uses a remote LLM: set LLM_ENDPOINT_URL."
+          ((_all_good++))
         fi
         edge_force_remote_vlm=1
         vlm_base_url="${vlm_base_url:-${VLM_ENDPOINT_URL:-}}"
         if [[ -z "${vlm_base_url}" ]]; then
           echo "[ERROR] Search on ${hardware_profile} uses a remote VLM: set VLM_ENDPOINT_URL."
           ((_all_good++))
-        fi
-        # A local LLM shares GPU 0 with perception, so it needs the -shared hw file
-        # for this board. Check it here: compose would otherwise fail on a missing
-        # hw-<HARDWARE_PROFILE>-shared.env with no indication of what went wrong.
-        if [[ "${_edge_llm_local}" -eq 1 ]] && [[ -n "${llm}" ]]; then
-          local _edge_llm_slug _edge_llm_hw
-          _edge_llm_slug="$(get_llm_slug "${llm}")"
-          if [[ -n "${_edge_llm_slug}" ]]; then
-            _edge_llm_hw="${deployment_directory}/services/nim/${_edge_llm_slug}/hw-${hardware_profile}-shared.env"
-            if [[ ! -f "${_edge_llm_hw}" ]]; then
-              echo "[ERROR] LLM '${llm}' has no ${hardware_profile} tuning for a shared GPU (${_edge_llm_hw#"${deployment_directory}/"} not found). Keep the LLM remote with --use-remote-llm, or pick a model that ships that file."
-              ((_all_good++))
-            fi
-          fi
         fi
       fi
 
