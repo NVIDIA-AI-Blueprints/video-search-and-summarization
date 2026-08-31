@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Configures NemoClaw to use either NVIDIA's hosted Nemotron model (NEMOCLAW_PROVIDER=build)
-# or an OpenAI-compatible endpoint (NEMOCLAW_PROVIDER=custom).
+# Configures NemoClaw to use NVIDIA's hosted Nemotron model (NEMOCLAW_PROVIDER=build),
+# an OpenAI-compatible endpoint (NEMOCLAW_PROVIDER=custom), or the OrcaRouter
+# OpenAI-compatible AI gateway (NEMOCLAW_PROVIDER=orcarouter).
 # For "build": requires NVIDIA_API_KEY (via --nvidia-api-key, env var, or interactive prompt).
 # For "custom": requires NEMOCLAW_ENDPOINT_URL and COMPATIBLE_API_KEY; NVIDIA_API_KEY is unused.
+# For "orcarouter": requires ORCAROUTER_API_KEY; NVIDIA_API_KEY is unused.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -10,15 +12,22 @@ VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 NEMOCLAW_REPO_DIR="${NEMOCLAW_REPO_DIR:-${HOME}/NemoClaw}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 # NEMOCLAW_PROVIDER selects the Nemoclaw onboard/install provider. Required — no default.
-# Accepted values: "build" (NVIDIA Endpoints / integrate.api.nvidia.com) or "custom" (OpenAI-compatible endpoint).
+# Accepted values: "build" (NVIDIA Endpoints / integrate.api.nvidia.com), "custom" (OpenAI-compatible endpoint),
+# or "orcarouter" (OrcaRouter gateway / api.orcarouter.ai).
 NEMOCLAW_PROVIDER="${NEMOCLAW_PROVIDER:?NEMOCLAW_PROVIDER is required}"
 # Custom-provider settings — required when NEMOCLAW_PROVIDER=custom (OpenAI-compatible endpoint).
 NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-}"
 COMPATIBLE_API_KEY="${COMPATIBLE_API_KEY:-}"
+# OrcaRouter-provider settings — required when NEMOCLAW_PROVIDER=orcarouter (OrcaRouter gateway).
+ORCAROUTER_API_KEY="${ORCAROUTER_API_KEY:-}"
+ORCAROUTER_BASE_URL="${ORCAROUTER_BASE_URL:-https://api.orcarouter.ai/v1}"
 # OpenShell provider display name (separate from Nemoclaw's NEMOCLAW_PROVIDER for onboard).
 OPENCLAW_PLUGIN_VARIANT="${OPENCLAW_PLUGIN_VARIANT:-}"
 OPENSHELL_PROVIDER_NAME="${OPENSHELL_PROVIDER_NAME:-nvidia}"
-NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-nvidia/nemotron-3-super-120b-a12b}"
+# NEMOCLAW_MODEL defaults per provider; resolved in parse_args() because the
+# default depends on NEMOCLAW_PROVIDER. orcarouter/auto for the OrcaRouter gateway
+# (adaptive routing), nvidia/nemotron-3-super-120b-a12b otherwise.
+NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-}"
 NEMOCLAW_NON_INTERACTIVE=1
 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1
 NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
@@ -47,17 +56,19 @@ usage() {
 Usage:
   bash init_nemoclaw.sh [--nvidia-api-key <KEY>] [options]
   NVIDIA_API_KEY=<key> bash init_nemoclaw.sh [options]
+  ORCAROUTER_API_KEY=<key> bash init_nemoclaw.sh [options]
 
   When NEMOCLAW_PROVIDER=build, the NVIDIA API key is resolved in this order:
     1. --nvidia-api-key flag (overrides env)
     2. NVIDIA_API_KEY environment variable
     3. Interactive prompt (if neither is set)
   When NEMOCLAW_PROVIDER=custom, NVIDIA_API_KEY is ignored — use --endpoint-url and --compatible-api-key.
+  When NEMOCLAW_PROVIDER=orcarouter, ORCAROUTER_API_KEY is used with the OrcaRouter gateway (api.orcarouter.ai).
 
 Options:
-  --nvidia-api-key KEY        NVIDIA API key (required when NEMOCLAW_PROVIDER=build; ignored for "custom")
+  --nvidia-api-key KEY        NVIDIA API key (required when NEMOCLAW_PROVIDER=build; ignored for "custom"/"orcarouter")
   --sandbox-name NAME         Sandbox name (default: demo)
-  --model NAME                NVIDIA model ID (default: nvidia/nemotron-3-super-120b-a12b)
+  --model NAME                Model ID (default: orcarouter/auto for "orcarouter"; nvidia/nemotron-3-super-120b-a12b otherwise)
   --nvidia-base-url URL       NVIDIA API base URL (default: https://integrate.api.nvidia.com/v1)
   --endpoint-url URL          OpenAI-compatible endpoint URL (REQUIRED when --provider=custom)
   --compatible-api-key KEY    API key for the OpenAI-compatible endpoint (REQUIRED when --provider=custom)
@@ -68,9 +79,11 @@ Options:
   --help                      Show this help
 
 Environment (non-interactive Nemoclaw / OpenShell):
-  NEMOCLAW_PROVIDER           Nemoclaw onboard/install provider (REQUIRED; must be "build" = NVIDIA Endpoints / integrate.api.nvidia.com, or "custom" = OpenAI-compatible)
+  NEMOCLAW_PROVIDER           Nemoclaw onboard/install provider (REQUIRED; must be "build" = NVIDIA Endpoints / integrate.api.nvidia.com, "custom" = OpenAI-compatible, or "orcarouter" = OrcaRouter gateway)
   NEMOCLAW_ENDPOINT_URL       OpenAI-compatible endpoint URL (REQUIRED when NEMOCLAW_PROVIDER=custom)
   COMPATIBLE_API_KEY          API key for the OpenAI-compatible endpoint (REQUIRED when NEMOCLAW_PROVIDER=custom)
+  ORCAROUTER_API_KEY          API key for the OrcaRouter gateway (REQUIRED when NEMOCLAW_PROVIDER=orcarouter)
+  ORCAROUTER_BASE_URL         OrcaRouter gateway base URL (default: https://api.orcarouter.ai/v1)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
   OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
@@ -104,6 +117,10 @@ parse_args() {
         ;;
       --compatible-api-key)
         COMPATIBLE_API_KEY="$2"
+        shift 2
+        ;;
+      --orcarouter-api-key)
+        ORCAROUTER_API_KEY="$2"
         shift 2
         ;;
       --nemoclaw-repo-dir)
@@ -146,12 +163,23 @@ parse_args() {
   # NVIDIA_API_KEY is only required for the "build" provider (NVIDIA Endpoints).
   # In "custom" mode the OpenAI-compatible endpoint uses COMPATIBLE_API_KEY instead,
   # which is validated separately in validate_custom_provider_settings().
+  # In "orcarouter" mode the OrcaRouter gateway uses ORCAROUTER_API_KEY instead.
   if [ "${NEMOCLAW_PROVIDER}" = "build" ] && [ -z "${NVIDIA_API_KEY:-}" ]; then
     read -rsp "Enter your NVIDIA API key: " NVIDIA_API_KEY
     printf '\n'
     if [ -z "${NVIDIA_API_KEY:-}" ]; then
       log "ERROR: NVIDIA API key is required when NEMOCLAW_PROVIDER=build."
       exit 1
+    fi
+  fi
+
+  # Provider-specific default model: the OrcaRouter gateway defaults to its
+  # adaptive-routing model id; the other providers keep the NVIDIA Nemotron default.
+  if [ -z "${NEMOCLAW_MODEL:-}" ]; then
+    if [ "${NEMOCLAW_PROVIDER}" = "orcarouter" ]; then
+      NEMOCLAW_MODEL="orcarouter/auto"
+    else
+      NEMOCLAW_MODEL="nvidia/nemotron-3-super-120b-a12b"
     fi
   fi
 }
@@ -222,7 +250,8 @@ configure_openshell_provider() {
   fi
 
   # Pick endpoint + key based on NEMOCLAW_PROVIDER. "build" uses NVIDIA Endpoints;
-  # "custom" uses the user-supplied OpenAI-compatible endpoint (e.g. a local vLLM).
+  # "custom" uses the user-supplied OpenAI-compatible endpoint (e.g. a local vLLM);
+  # "orcarouter" uses the OrcaRouter gateway base URL with the ORCAROUTER_API_KEY.
   local openai_base_url openai_api_key
   case "${NEMOCLAW_PROVIDER}" in
     build)
@@ -233,8 +262,12 @@ configure_openshell_provider() {
       openai_base_url="${NEMOCLAW_ENDPOINT_URL}"
       openai_api_key="${COMPATIBLE_API_KEY}"
       ;;
+    orcarouter)
+      openai_base_url="${ORCAROUTER_BASE_URL}"
+      openai_api_key="${ORCAROUTER_API_KEY}"
+      ;;
     *)
-      log "ERROR: NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER} is not supported by configure_openshell_provider (expected 'build' or 'custom')."
+      log "ERROR: NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER} is not supported by configure_openshell_provider (expected 'build', 'custom', or 'orcarouter')."
       return 1
       ;;
   esac
@@ -515,16 +548,31 @@ validate_custom_provider() {
   fi
 }
 
-export_provider_env() {
-  export NEMOCLAW_PROVIDER
+validate_orcarouter_provider() {
+  if [ "${NEMOCLAW_PROVIDER}" != "orcarouter" ]; then
+    return 0
+  fi
+  if [ -z "${ORCAROUTER_API_KEY}" ]; then
+    log "ERROR: NEMOCLAW_PROVIDER=orcarouter requires ORCAROUTER_API_KEY (or --orcarouter-api-key)."
+    exit 1
+  fi
+}
+
+# NemoClaw's onboard/install flow only understands "build" (NVIDIA Endpoints) and
+# "custom" (OpenAI-compatible endpoint). OrcaRouter is a first-class OpenShell
+# provider in this script, but NemoClaw itself sees it as a custom OpenAI-compatible
+# endpoint — so downgrade the provider value and derive the custom-endpoint vars
+# from the OrcaRouter settings before invoking the NemoClaw installer.
+export_installer_provider_env() {
+  if [ "${NEMOCLAW_PROVIDER}" = "orcarouter" ]; then
+    export NEMOCLAW_PROVIDER="custom"
+    export NEMOCLAW_ENDPOINT_URL="${ORCAROUTER_BASE_URL}"
+    export COMPATIBLE_API_KEY="${ORCAROUTER_API_KEY}"
+  fi
   export NEMOCLAW_MODEL
   export NEMOCLAW_NON_INTERACTIVE
   export NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
   export NVIDIA_API_KEY
-  if [ "${NEMOCLAW_PROVIDER}" = "custom" ]; then
-    export NEMOCLAW_ENDPOINT_URL
-    export COMPATIBLE_API_KEY
-  fi
 }
 
 run_onboard() {
@@ -535,8 +583,10 @@ run_onboard() {
   }
 
   log "Running nemoclaw onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
-  export_provider_env
-  "$nemoclaw_cmd" onboard --non-interactive
+  (
+    export_installer_provider_env
+    "$nemoclaw_cmd" onboard --non-interactive
+  )
 }
 
 run_install() {
@@ -549,7 +599,7 @@ run_install() {
 
   log "Running NemoClaw installer (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
   (
-    export_provider_env
+    export_installer_provider_env
     export NEMOCLAW_SANDBOX_NAME
     cd "$NEMOCLAW_REPO_DIR" && ./install.sh --non-interactive
   )
@@ -629,8 +679,10 @@ main() {
 
 parse_args "$@"
 validate_custom_provider
+validate_orcarouter_provider
 export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
 export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
+export ORCAROUTER_API_KEY ORCAROUTER_BASE_URL
 export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
 
 main
