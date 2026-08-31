@@ -662,9 +662,20 @@ class RemoteRun:
             f"{self.project}-publisher-{index}"
             for index in range(1, manifest["stream_count"] + 1)
         ]
+        self.aux_by_name: dict[str, str] = {}
         self.dmon: subprocess.Popen[str] | None = None
         self.result = "RUNNING"
         self._cleaned = False
+
+    def remember_auxiliary(
+        self, name: str, result: subprocess.CompletedProcess[str]
+    ) -> None:
+        container_id = result.stdout.strip()
+        if not re.fullmatch(r"[0-9a-f]{12,64}", container_id):
+            raise RuntimeError(
+                f"docker run returned an invalid container ID for {name}"
+            )
+        self.aux_by_name[name] = container_id
 
     def event(self, phase: str, state: str, message: str) -> None:
         record = {
@@ -869,7 +880,7 @@ override = {"services": {"rtvi-server": {"volumes": [
 
     def launch(self) -> None:
         label = f"{RUN_LABEL}={self.m['run_id']}"
-        self.command(
+        media = self.command(
             "docker",
             "run",
             "-d",
@@ -882,6 +893,7 @@ override = {"services": {"rtvi-server": {"volumes": [
             self.m["mediamtx_image"],
             capture=self.evidence / "mediamtx.container",
         )
+        self.remember_auxiliary(self.media_name, media)
         time.sleep(2)
         for index, name in enumerate(self.publisher_names, start=1):
             if self.m["semantic_isolation"]:
@@ -894,7 +906,7 @@ override = {"services": {"rtvi-server": {"volumes": [
                 path = f"bcd-{index}"
                 source_args = ["-stream_loop", "-1", "-i", "/input.mp4", "-c", "copy"]
                 volume_args = ["-v", f"{self.m['video']}:/input.mp4:ro"]
-            self.command(
+            publisher = self.command(
                 "docker",
                 "run",
                 "-d",
@@ -913,6 +925,7 @@ override = {"services": {"rtvi-server": {"volumes": [
                 f"rtsp://127.0.0.1:{self.m['ports']['rtsp']}/{path}",
                 capture=self.evidence / f"publisher-{index}.container",
             )
+            self.remember_auxiliary(name, publisher)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             media_logs = self.command(
@@ -1199,6 +1212,7 @@ override = {"services": {"rtvi-server": {"volumes": [
             ),
         )
         expected_aux = [*self.publisher_names, self.media_name]
+        owned_by_name = dict(self.aux_by_name)
         try:
             owned_aux = container_guard.find_owned_containers(
                 self.m["run_id"],
@@ -1218,10 +1232,12 @@ override = {"services": {"rtvi-server": {"volumes": [
             (self.logs / "aux-cleanup.log").write_text(
                 f"refused unsafe auxiliary cleanup: {error}\n"
             )
-        owned_by_name = {
-            str(record.get("Name", "")).removeprefix("/"): str(record["Id"])
-            for record in owned_aux
-        }
+        owned_by_name.update(
+            {
+                str(record.get("Name", "")).removeprefix("/"): str(record["Id"])
+                for record in owned_aux
+            }
+        )
         for index, name in enumerate(expected_aux, start=1):
             if container_id := owned_by_name.get(name):
                 log_name = (
