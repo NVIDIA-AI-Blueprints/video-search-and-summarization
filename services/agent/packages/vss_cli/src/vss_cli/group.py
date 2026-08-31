@@ -163,6 +163,17 @@ def _exit_for(exc: Exception) -> Exit | None:
         # back as the client's own ApiError, which is not a TransportError.
         # `memory.write_failures()` says the same thing for the write path.
         "ApiError": Exit.BACKEND_UNREACHABLE,
+        # httpx transport failures that vss_core may not re-wrap as a typed
+        # exception (e.g. warm_media_url on an unreachable clip URL).  Mapped by
+        # class name so the framework does not import httpx at module scope.
+        "ConnectError": Exit.BACKEND_UNREACHABLE,
+        "NetworkError": Exit.BACKEND_UNREACHABLE,
+        "RemoteProtocolError": Exit.BACKEND_UNREACHABLE,
+        "ConnectTimeout": Exit.TIMEOUT,
+        "ReadTimeout": Exit.TIMEOUT,
+        "WriteTimeout": Exit.TIMEOUT,
+        "PoolTimeout": Exit.TIMEOUT,
+        "TimeoutException": Exit.TIMEOUT,
     }
     for klass in type(exc).__mro__:
         code = by_name.get(klass.__name__)
