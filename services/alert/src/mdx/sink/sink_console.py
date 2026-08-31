@@ -21,11 +21,18 @@ would publish. Not intended for production: output is not durable and nothing
 downstream can consume it.
 """
 
+import hashlib
 import json
 import logging
 from typing import Any, Callable, List, Optional
 
-from mdx.sink.console_render import parse_redact_paths, redact
+from mdx.sink.console_render import (
+    REDACTION_DISABLED,
+    redact,
+    redaction_notice,
+    resolve_max_chars,
+    resolve_redact_paths,
+)
 from mdx.sink.sink_base import SinkBase
 from mdx.stream_message import StreamMessage
 
@@ -39,16 +46,18 @@ class ConsoleSink(SinkBase):
 
         section = (config.get('event_bridge') or {}).get('console_sink') or {}
         self.pretty = bool(section.get('pretty', True))
-        self.max_chars = int(section.get('max_chars', 0))
-        self.redact_paths = parse_redact_paths(section.get('redact'))
+        self.max_chars = resolve_max_chars(
+            section.get('max_chars'), 'event_bridge.console_sink.max_chars',
+        )
+        self.redact_paths, self.redaction_mode = resolve_redact_paths(section.get('redact'))
 
         self.logger.warning(
             "Console sink selected: intended for local development. Event bridge "
-            "output is logged only, is not durable, and payloads are written to "
-            "the log in full, so whoever can read these logs can read the "
-            "payload contents%s",
-            f". Masking {self.redact_paths}" if self.redact_paths else
-            ". Redaction is off: set event_bridge.console_sink.redact to mask fields",
+            "output is logged only, is not durable, and whoever can read these "
+            "logs can read what is written to them%s",
+            redaction_notice(
+                self.redact_paths, self.redaction_mode, "event_bridge.console_sink.redact",
+            ),
         )
 
     def _render(self, payload: Any) -> str:
@@ -59,14 +68,35 @@ class ConsoleSink(SinkBase):
                 try:
                     payload = json.loads(payload)
                 except ValueError:
-                    # Not JSON, so there are no field paths to mask. Truncation
-                    # is the only protection left for an opaque payload.
+                    # Not JSON, so there are no field paths to mask and
+                    # redaction cannot be applied at all. A protobuf Behavior
+                    # arriving on the raw write path lands here, and its
+                    # printable runs include the same reasoning and URLs the
+                    # dotted paths exist to mask — so while redaction is on
+                    # this is summarized rather than dumped.
+                    if self.redaction_mode != REDACTION_DISABLED:
+                        return self._summarize_opaque(payload)
                     return self._truncate(payload)
             payload = redact(payload, self.redact_paths)
             text = json.dumps(payload, indent=2 if self.pretty else None, default=str)
         except Exception as exc:
             text = f"<unrenderable payload: {exc}>"
         return self._truncate(text)
+
+    @staticmethod
+    def _summarize_opaque(text: str) -> str:
+        """Describe a payload that cannot be field-masked, without printing it.
+
+        Size and digest are enough for the question the raw write path is
+        debugged with — is anything arriving, and is it the same bytes twice —
+        and neither reveals the contents.
+        """
+        raw = text.encode('utf-8', errors='replace')
+        digest = hashlib.sha256(raw).hexdigest()[:12]
+        return (
+            f"<{len(raw)} bytes, sha256:{digest}, not JSON so no field paths "
+            f"apply; set event_bridge.console_sink.redact: none to log it in full>"
+        )
 
     def _truncate(self, text: str) -> str:
         if self.max_chars and len(text) > self.max_chars:

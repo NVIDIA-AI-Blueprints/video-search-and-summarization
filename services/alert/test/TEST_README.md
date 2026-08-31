@@ -18,7 +18,16 @@ Tests are grouped by type so unit tests stay isolated from the rest:
 
 1. Make sure you have test video files available
 2. Make sure your VSS agent is running and configured in `config.yaml`
-3. Ensure Python dependencies are installed
+3. Ensure Python dependencies are installed:
+
+```bash
+pip install -r requirements.txt -r test/requirements.txt
+```
+
+`test/requirements.txt` is what CI installs, and installing it is what makes a
+local run comparable to CI. Some tests only exist when an optional package is
+present — the Redis Streams round-trip tests `importorskip` `fakeredis` — so a
+run without it drops them and still reports green.
 
 For Kafka and on-demand Prometheus latency/counter reports, see
 [`latency/README.md`](latency/README.md). The report includes a separate

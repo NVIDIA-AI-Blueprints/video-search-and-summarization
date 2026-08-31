@@ -298,10 +298,11 @@ jobs:
         working-directory: services/alert
         run: |
           uv venv --python "${{ matrix.python_version }}"
-          # fakeredis backs the Redis Streams round-trip tests, which assert on
-          # the actual wire format. They importorskip, so leaving it out makes
-          # them vanish from the run silently rather than fail.
-          uv pip install --python .venv/bin/python -r requirements.txt pytest pytest-asyncio pytest-cov fakeredis
+          # test/requirements.txt, not a list here: the tests that only run when
+          # an optional package is installed (fakeredis backs the Redis Streams
+          # round-trip tests and importorskips) would otherwise be declared
+          # somewhere a local run cannot see, and silently vanish from it.
+          uv pip install --python .venv/bin/python -r requirements.txt -r test/requirements.txt
 
       - name: Generate Alert MS coverage
         if: matrix.name == 'alert'

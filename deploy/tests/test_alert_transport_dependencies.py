@@ -33,7 +33,14 @@ _ENDPOINTS_RE = re.compile(r'ENDPOINTS="([^"]*)"')
 
 
 def _wait_endpoints(**values: str) -> list[str]:
-    """Render the chart and return the endpoints the init container waits on."""
+    """Render the chart and return the endpoints the init container waits on.
+
+    ``redis.host`` is always supplied. The chart refuses to render a redisStream
+    transport without one — deliberately, since it has no default to fall back
+    to — and it is inert when no Redis transport is selected, so setting it
+    unconditionally keeps every case here about the subject: which endpoints the
+    wait covers. A caller that wants a different host passes its own.
+    """
     cmd = [
         "helm",
         "template",
@@ -44,6 +51,7 @@ def _wait_endpoints(**values: str) -> list[str]:
         "--set",
         "waitForDependencies.enabled=true",
     ]
+    values.setdefault("redis.host", REDIS_ENDPOINT.split(":")[0])
     for key, value in values.items():
         cmd.extend(["--set", f"{key}={value}"])
 

@@ -19,6 +19,18 @@ import json
 from datetime import datetime
 import logging
 
+# Top level, and from the envelope module rather than the broker: this class is
+# used by both transports, and reaching the same helpers through
+# ``redis_stream_broker`` meant a Kafka-only deployment imported ``redis`` to
+# read a field map. That is what the deferred imports here used to avoid.
+from mdx.redis_stream_envelope import (
+    HEADERS_FIELD,
+    KEY_FIELD,
+    PAYLOAD_FIELD,
+    extract_envelope,
+    message_id_to_epoch_ms,
+)
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -128,8 +140,6 @@ class StreamMessage:
         the same way the Kafka source does.
         """
         try:
-            from mdx.redis_stream_broker import extract_envelope, message_id_to_epoch_ms
-
             payload, key, headers = extract_envelope(fields)
             if payload is None:
                 raise ValueError(f"Redis stream entry {message_id!r} carries no payload field")
@@ -165,8 +175,6 @@ class StreamMessage:
         The payload is JSON — matching what the event-bridge Kafka sink writes
         to its topics — so the two transports carry byte-identical bodies.
         """
-        from mdx.redis_stream_broker import HEADERS_FIELD, KEY_FIELD, PAYLOAD_FIELD
-
         key = self.get_field('sensor_id', self.id) or ''
         headers = (self.metadata or {}).get('headers') or {}
         return {

@@ -132,6 +132,22 @@ class TestTheProducerIsNotOpenedUntilItIsUsed:
         sink.write_data([{"id": "beh-1"}], lambda d: nvSchemaBehavior(id=d["id"]))
         sink.producer.produce.assert_called_once()
 
+    def test_closing_an_unused_sink_does_not_open_one(self):
+        """The pipeline closes this sink on every shutdown, so going through the
+        property in ``close`` cancelled the laziness for exactly the deployment
+        it was added for."""
+        with patch("mdx.sink.sink_kafka.KafkaMessageBroker") as broker_cls:
+            sink = KafkaSink(NEW_CONFIG)
+            sink.close()
+        broker_cls.return_value.get_producer.assert_not_called()
+
+    def test_closing_a_used_sink_still_flushes(self):
+        sink = make_sink()
+        sink.write_data([{"id": "beh-1"}], lambda d: nvSchemaBehavior(id=d["id"]))
+        sink.producer.flush.reset_mock()
+        sink.close()
+        sink.producer.flush.assert_called_once()
+
 
 class TestWriteData:
     def test_publishes_transformed_protobuf(self, sink):
@@ -271,5 +287,9 @@ class TestWriteIncidentData:
 
 class TestClose:
     def test_close_flushes_the_producer(self, sink):
+        # Opened first, which construction used to do. What this protects is
+        # that shutdown flushes what is buffered; a sink with no producer has
+        # nothing buffered, and that case is covered separately above.
+        sink.producer
         sink.close()
         sink.producer.flush.assert_called_once()

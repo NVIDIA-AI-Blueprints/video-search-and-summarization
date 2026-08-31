@@ -17,9 +17,8 @@
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $kafkaHost := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
 {{- $esHost := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
-{{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
 {{- $redis := .Values.redis | default dict }}
-{{- $redisHost := $redis.host | default $redisDef }}
+{{- $redisHost := include "vss-alert-bridge.redisHost" . }}
 {{- $cosmosHost := ternary (printf "%s-nvidia-cosmos3-reasoner" .Release.Name) "nvidia-cosmos3-reasoner" $pfx }}
 {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
 {{- /* vlmBaseUrl: tpl() enables optional {{…}} templates; "" and static URLs behave as before (empty → defaults in vlm.base_url below). */}}
@@ -80,11 +79,15 @@ redis:
   host: "{{ $redisHost }}"
   port: {{ $redis.port | default 6379 }}
   db: {{ $redis.db | default 0 }}
-  password: "{{ $redis.password | default "" }}"
+  # ACL username. Redis 6+ AUTH takes a username as well as a password, and an
+  # instance with an ACL rather than a single requirepass needs it — there was
+  # no way to supply one, so those deployments could not authenticate at all.
+  username: "{{ $redis.username | default "" }}"
+  password: "{{ include "vss-alert-bridge.redisPassword" . }}"
 {{- if and $redis.passwordSecret $redis.passwordSecret.name $redis.passwordSecret.key }}
   # This file is a ConfigMap, so the password itself must not be written into
-  # it. The Secret is mounted read-only and read at connect time; password_file
-  # takes precedence over the inline value above.
+  # it. The Secret is mounted read-only and read at connect time, and the
+  # inline value above renders empty whenever this key is present.
   password_file: "/etc/alert-bridge/redis-auth/{{ $redis.passwordSecret.key }}"
 {{- end }}
 {{- if $redisTls.enabled }}
@@ -93,11 +96,29 @@ redis:
 {{- if and $redisTls.caCertSecret $redisTls.caCertSecret.name $redisTls.caCertSecret.key }}
   ssl_ca_certs: "/etc/alert-bridge/redis-ca/{{ $redisTls.caCertSecret.key }}"
 {{- end }}
+{{- if and $redisTls.clientCertSecret $redisTls.clientCertSecret.name }}
+  # Mutual TLS. An instance configured with `tls-auth-clients yes` refuses a
+  # connection that presents no client certificate, so TLS alone was not enough
+  # to reach one.
+  ssl_certfile: "/etc/alert-bridge/redis-client/{{ $redisTls.clientCertSecret.certKey | default "tls.crt" }}"
+  ssl_keyfile: "/etc/alert-bridge/redis-client/{{ $redisTls.clientCertSecret.keyKey | default "tls.key" }}"
+{{- end }}
 {{- end }}
   # 0 / absent means Alert MS never trims. The streams belong to the
   # deployment, and trimming on publish would make ordinary output delete the
   # deployment's own older entries.
   maxlen: {{ $redis.maxlen | default 0 }}
+  # What one unanswered command costs. Short on purpose: it is the unit of every
+  # worst case above it — publish_budget bounds retries but is read between
+  # attempts, and shutdown and the group's session timeout have to fit whole
+  # commands. Must stay above block_time below.
+  socket_timeout: {{ $redis.socketTimeout | default 5 }}
+  socket_connect_timeout: {{ $redis.socketConnectTimeout | default 5 }}
+  # Reclaim tuning, both optional. pending_min_idle_ms is how long an entry
+  # must sit unacknowledged in a dead consumer's pending list before another
+  # consumer may claim it; the sweep interval itself is
+  # event_bridge.redis_source.consumer_config.reclaim_interval below.
+  pending_min_idle_ms: {{ $redis.pendingMinIdleMs | default 60000 }}
 
 vlm:
   base_url: "{{ $vlmUrl | default (printf "http://%s:8000" $cosmosHost) }}/v1"
@@ -138,6 +159,11 @@ event_bridge:
       count: 10
       block_time: 100
       start_id: '$'
+      # Seconds between sweeps for entries stranded in a dead consumer's
+      # pending list, and for the dead consumer records themselves.
+      # 0 disables the sweep. Pairs with redis.pending_min_idle_ms above,
+      # which is the age an entry must reach before it may be claimed.
+      reclaim_interval: {{ $redis.reclaimIntervalSeconds | default 30 }}
 
   redis_sink:
     streams:

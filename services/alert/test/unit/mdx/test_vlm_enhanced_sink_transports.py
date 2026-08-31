@@ -41,10 +41,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mdx.redis_stream_broker import HEADERS_FIELD, KEY_FIELD, PAYLOAD_FIELD
 from mdx.sink.vlm_enhanced_sink.factory import build_vlm_enhanced_sink
 from mdx.sink.vlm_enhanced_sink.sink_console import VLMEnhancedConsoleSink
-from mdx.sink.vlm_enhanced_sink.sink_redis_stream import VLMEnhancedRedisStreamSink
+from mdx.sink.vlm_enhanced_sink.sink_redis_stream import (
+    DEFAULT_ALERT_STREAM,
+    DEFAULT_INCIDENT_STREAM,
+    PROBE_INTERVAL_SECONDS,
+    VLMEnhancedRedisStreamSink,
+)
 
 REDIS_CONFIG = {
     "redis": {"host": "redis", "port": 6379},
@@ -59,10 +63,41 @@ INCIDENT = {"id": "inc-1", "sensorId": "cam-1", "category": "Loitering"}
 ALERT = {"id": "alt-1", "notification_type": "alert", "sensor": {"id": "cam-2"}}
 
 
+#: What the shipped configs name each route, and what ``make_redis_sink`` fills
+#: in for a caller that does not name one itself.
+SHIPPED_STREAMS = {"incident": "mdx-vlm-incidents", "alert": "mdx-vlm-alerts"}
+
+
+def with_required_keys(config):
+    """``config`` plus the keys the sink requires but the caller is not testing.
+
+    A connection, and a stream on each route. Every caller here passes only the
+    fragment it cares about, and the sink refuses to infer either of these: no
+    host would mean connecting to localhost, and no stream would mean publishing
+    verdicts to a name the deployment never gave. Filling them in keeps each
+    case about its own subject; a case about one of these requirements builds
+    its config itself rather than going through here.
+    """
+    config = dict(config or REDIS_CONFIG)
+    config.setdefault("redis", REDIS_CONFIG["redis"])
+
+    sink_root = dict(config.get("vlm_enhanced_sink") or {})
+    for kind, stream in SHIPPED_STREAMS.items():
+        kind_block = dict(sink_root.get(kind) or {})
+        route = dict(kind_block.get("redisStream") or {})
+        route.setdefault("stream", stream)
+        kind_block["redisStream"] = route
+        sink_root[kind] = kind_block
+    config["vlm_enhanced_sink"] = sink_root
+    return config
+
+
 def make_redis_sink(config=None, **kwargs):
+    """Build the sink from ``config``, supplying what it does not name."""
+    config = with_required_keys(config)
     with patch("mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker") as broker_cls:
         broker_cls.return_value.add.return_value = b"1-0"
-        return VLMEnhancedRedisStreamSink.from_config(config or REDIS_CONFIG, **kwargs)
+        return VLMEnhancedRedisStreamSink.from_config(config, **kwargs)
 
 
 @pytest.fixture
@@ -99,10 +134,45 @@ class TestRedisStreamRouting:
         assert sink._incident_route["payload_format"] == "protobuf"
         assert sink._alert_route["payload_format"] == "protobuf"
 
-    def test_default_stream_names_match_the_kafka_topics(self):
-        sink = make_redis_sink({"vlm_enhanced_sink": {"type": "redisStream"}})
-        assert sink._incident_route["stream"] == "mdx-vlm-incidents"
-        assert sink._alert_route["stream"] == "mdx-vlm-alerts"
+    @pytest.mark.parametrize("kind", ["incident", "alert"])
+    def test_a_route_with_no_stream_is_rejected(self, kind):
+        """There is no default for where a verdict goes.
+
+        Inferring one produced a deployment that published, reported healthy and
+        was read by nobody — the failure mode a default is supposed to prevent,
+        arriving instead as silence.
+        """
+        config = {
+            "redis": REDIS_CONFIG["redis"],
+            "vlm_enhanced_sink": {
+                "type": "redisStream",
+                # The other kind is named, so the message must be about this one.
+                **{k: {"redisStream": {"stream": s}}
+                   for k, s in SHIPPED_STREAMS.items() if k != kind},
+            },
+        }
+        with patch("mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"):
+            with pytest.raises(ValueError, match=f"{kind}.redisStream.stream is not set"):
+                VLMEnhancedRedisStreamSink.from_config(config)
+
+    @pytest.mark.parametrize("kind", ["incident", "alert"])
+    def test_the_rejection_names_what_the_shipped_configs_use(self, kind):
+        """The name is still worth telling an operator — as the likely intent,
+        not as something applied on their behalf."""
+        config = {
+            "redis": REDIS_CONFIG["redis"],
+            "vlm_enhanced_sink": {"type": "redisStream"},
+        }
+        with patch("mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"):
+            with pytest.raises(ValueError) as raised:
+                VLMEnhancedRedisStreamSink.from_config(config)
+        assert SHIPPED_STREAMS["incident"] in str(raised.value)
+
+    def test_the_shipped_stream_names_match_the_kafka_topics(self):
+        """Both transports carry the same verdicts, so a consumer switching
+        between them reads the same names."""
+        assert DEFAULT_INCIDENT_STREAM == SHIPPED_STREAMS["incident"]
+        assert DEFAULT_ALERT_STREAM == SHIPPED_STREAMS["alert"]
 
     def test_errors_are_published_too(self, protobuf):
         sink = make_redis_sink()
@@ -133,17 +203,66 @@ class TestRedisStreamRouting:
         assert sink._incident_route["payload_format"] == "json"
         assert sink._alert_route["payload_format"] == "json"
 
-    def test_an_unknown_message_type_raises(self):
+    def test_an_unknown_message_type_is_rejected_at_construction(self):
+        """It used to be caught at publish time, which meant a verdict had
+        already been produced and paid for before anyone found out."""
         config = {
             "vlm_enhanced_sink": {
                 "type": "redisStream",
                 "incident": {"redisStream": {"stream": "s", "message_type": "bogus"}},
             }
         }
-        sink = make_redis_sink(config)
-        sink.publish_success(dict(INCIDENT), "prompt", None, {})
-        # The publish path logs and returns rather than propagating.
-        sink._broker.add.assert_not_called()
+        with pytest.raises(ValueError, match="message_type"):
+            make_redis_sink(config)
+
+    def test_a_message_type_that_belongs_to_the_other_route_is_rejected(self):
+        """The dangerous case, and the one that used to succeed: 'incident' on
+        the alert route serializes a Behavior with the Incident schema, which
+        publishes cleanly and is undecodable downstream."""
+        config = {
+            "vlm_enhanced_sink": {
+                "type": "redisStream",
+                "alert": {"redisStream": {"stream": "s", "message_type": "incident"}},
+            }
+        }
+        with pytest.raises(ValueError, match="on the alert route"):
+            make_redis_sink(config)
+
+    def test_both_kinds_on_one_stream_is_rejected(self):
+        config = {
+            "vlm_enhanced_sink": {
+                "type": "redisStream",
+                "incident": {"redisStream": {"stream": "shared"}},
+                "alert": {"redisStream": {"stream": "shared"}},
+            }
+        }
+        with pytest.raises(ValueError, match="cannot carry both"):
+            make_redis_sink(config)
+
+    def test_a_blank_stream_does_not_fall_back_to_the_default(self):
+        """A blank value is an unresolved variable; substituting the default
+        publishes verdicts to a stream the deployment never asked for."""
+        config = {
+            "vlm_enhanced_sink": {
+                "type": "redisStream",
+                "incident": {"redisStream": {"stream": ""}},
+            }
+        }
+        with pytest.raises(ValueError, match="stream is empty") as raised:
+            make_redis_sink(config)
+        # Removing the key is explicitly not the way out, and the message says
+        # so: this sink has no default for where a verdict goes.
+        assert "does not guess" in str(raised.value)
+
+    def test_an_unsupported_payload_format_is_rejected(self):
+        config = {
+            "vlm_enhanced_sink": {
+                "type": "redisStream",
+                "redisStream": {"payload_format": "avro"},
+            }
+        }
+        with pytest.raises(ValueError, match="payload_format"):
+            make_redis_sink(config)
 
 
 class TestRedisStreamKeys:
@@ -257,10 +376,10 @@ class TestRedisStreamFailureHandling:
         assert broker_cls.call_args.args[0]["host"] == "redis"
 
     def test_the_sink_block_can_override_the_shared_connection(self):
-        config = {
+        config = with_required_keys({
             "redis": {"host": "redis"},
             "vlm_enhanced_sink": {"type": "redisStream", "redisStream": {"host": "other"}},
-        }
+        })
         with patch(
             "mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"
         ) as broker_cls:
@@ -361,7 +480,32 @@ class TestTerminalSinkHealth:
     def test_an_unreachable_sink_is_unhealthy(self):
         sink = make_redis_sink()
         sink._broker.connection_healthy = False
+        sink._broker.ping.return_value = False
         assert sink.is_healthy() is False
+
+    def test_a_reachable_sink_does_not_pay_for_a_ping(self):
+        """The healthy answer is on the readiness timer, once a second."""
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = True
+        # The constructor's own ping is not what is under test here.
+        sink._broker.ping.reset_mock()
+        sink.is_healthy()
+        sink._broker.ping.assert_not_called()
+
+    def test_an_unhealthy_sink_recovers_without_a_publish(self):
+        """A sink is passive: the only commands it issues are publishes.
+
+        So the flag it reads only cleared on the next verdict, and a deployment
+        with no traffic stayed unready for as long as it had nothing to say --
+        long after Redis came back. Restarting the container was the only way
+        out of a state the container was in no way responsible for.
+        """
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = False
+        sink._broker.ping.reset_mock()
+        sink._broker.ping.return_value = True
+        assert sink.is_healthy() is True
+        sink._broker.ping.assert_called_once_with()
 
     def test_nothing_published_yet_counts_as_healthy(self):
         """The constructor already pinged, and an idle deployment must not look
@@ -369,6 +513,33 @@ class TestTerminalSinkHealth:
         sink = make_redis_sink()
         sink._broker.connection_healthy = None
         assert sink.is_healthy() is True
+
+    def test_the_recovery_probe_is_rate_limited(self):
+        """Readiness is not its only caller. Every consumer-group assignment and
+        revocation reads it on the rebalance callback, where a ping against a
+        host that is not answering costs a socket timeout inside the window the
+        group allows a member -- so a rebalance storm could evict the member it
+        was checking on.
+        """
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = False
+        sink._broker.ping.reset_mock()
+        sink._broker.ping.return_value = False
+        assert [sink.is_healthy() for _ in range(20)] == [False] * 20
+        sink._broker.ping.assert_called_once_with()
+
+    def test_the_next_interval_probes_again(self):
+        """Rate-limited, not cached: a broker that came back has to be noticed
+        without waiting for a publish that may never come."""
+        sink = make_redis_sink()
+        sink._broker.connection_healthy = False
+        sink._broker.ping.reset_mock()
+        sink._broker.ping.return_value = False
+        sink.is_healthy()
+        sink._last_probe_at -= PROBE_INTERVAL_SECONDS + 1
+        sink._broker.ping.return_value = True
+        assert sink.is_healthy() is True
+        assert sink._broker.ping.call_count == 2
 
     def test_the_transport_label_identifies_the_sink_in_metrics(self):
         assert make_redis_sink().transport_label == "redis_stream"
@@ -431,7 +602,10 @@ class TestFactorySelection:
 
     @pytest.mark.parametrize("spelling", ["redisStream", "redis_stream", "redisstream"])
     def test_redis_stream_spellings_all_resolve(self, spelling):
-        config = {"vlm_enhanced_sink": {"type": spelling}}
+        config = with_required_keys({
+            "redis": REDIS_CONFIG["redis"],
+            "vlm_enhanced_sink": {"type": spelling},
+        })
         with patch("mdx.sink.vlm_enhanced_sink.sink_redis_stream.RedisStreamBroker"):
             assert isinstance(build_vlm_enhanced_sink(config), VLMEnhancedRedisStreamSink)
 

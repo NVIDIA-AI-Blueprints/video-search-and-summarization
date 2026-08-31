@@ -49,6 +49,7 @@ P1_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$P1_ROOT/../../.." && pwd)"
 source "$P1_ROOT/shared/helpers.sh"
 
+TEST_NAME="redis_multi_consumer_dedup"
 PID_DIR="${PID_DIR:-/tmp/alert_agent_p1_functional}"
 ES_HOST="${ES_HOST:-http://127.0.0.1:9200}"
 REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
@@ -168,10 +169,10 @@ start_instance() {
 # ── 0. Prerequisites ─────────────────────────────────────────────────────────
 print_status "wait" "Checking prerequisites"
 curl -fsS "$ES_HOST/health" >/dev/null || { print_status "fail" "ES sim unreachable"; exit 2; }
-if ! redis_available; then
-    print_status "info" "Redis not available; skipping (transport is optional)"
-    exit 0
-fi
+# Skips through require_redis rather than `exit 0`, which reported this test as
+# having passed on a host with no Redis — for the one test whose whole subject is
+# what two consumers in a group do, that is the reading least worth allowing.
+require_redis "$TEST_NAME" || exit $?
 
 stop_alert_bridge_local "$PID_DIR"
 fuser -k "${AB1_PORT}/tcp" "${AB2_PORT}/tcp" 2>/dev/null || true

@@ -69,11 +69,12 @@ spec:
       {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
       {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
       {{- $esDef := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
-      {{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
       {{- $redis := .Values.redis | default dict }}
       {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
       {{- $esH := .Values.waitForDependencies.elasticsearchHost | default $esDef }}
-      {{- $redisH := .Values.waitForDependencies.redisHost | default $redis.host | default $redisDef }}
+      {{- /* Same resolution as the config, so the endpoint waited on cannot
+             differ from the one connected to. */}}
+      {{- $redisH := .Values.waitForDependencies.redisHost | default (include "vss-alert-bridge.redisHost" .) }}
       {{- $redisP := .Values.waitForDependencies.redisPort | default $redis.port | default 6379 }}
       {{- /* Only wait on the brokers the selected transports actually use, so a
              Redis-only deployment does not block on an absent Kafka. */}}
@@ -184,6 +185,11 @@ spec:
               mountPath: /etc/alert-bridge/redis-ca
               readOnly: true
             {{- end }}
+            {{- if and $rTls.enabled $rTls.clientCertSecret $rTls.clientCertSecret.name }}
+            - name: redis-client-cert
+              mountPath: /etc/alert-bridge/redis-client
+              readOnly: true
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -227,6 +233,21 @@ spec:
             items:
               - key: {{ $rvTls.caCertSecret.key }}
                 path: {{ $rvTls.caCertSecret.key }}
+        {{- end }}
+        {{- if and $rvTls.enabled $rvTls.clientCertSecret $rvTls.clientCertSecret.name }}
+        {{- $certKey := $rvTls.clientCertSecret.certKey | default "tls.crt" }}
+        {{- $keyKey := $rvTls.clientCertSecret.keyKey | default "tls.key" }}
+        - name: redis-client-cert
+          secret:
+            secretName: {{ $rvTls.clientCertSecret.name }}
+            # The private key is readable only by the container's user; a
+            # client key mounted 0644 is a finding in its own right.
+            defaultMode: 0400
+            items:
+              - key: {{ $certKey }}
+                path: {{ $certKey }}
+              - key: {{ $keyKey }}
+                path: {{ $keyKey }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

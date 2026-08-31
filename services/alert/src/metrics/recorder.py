@@ -878,8 +878,26 @@ DEDUP_CACHE_EVICTION_MODES = ("lazy", "sweep")
 VERDICT_FAIL_OPEN_REASONS = ("es_down", "error", "expired", "malformed", "write_error")
 ALERT_CONFIG_READ_SOURCES = ("cache", "es", "snapshot")
 RECORD_KEY_ALIGNMENT_VALUES = ("yes", "no", "unknown")
-REDIS_PUBLISH_OUTCOMES = ("recovered", "dropped")
-SOURCE_DROP_REASONS = ("no_payload", "undecodable", "unmapped_kind")
+REDIS_PUBLISH_OUTCOMES = (
+    "recovered", "dropped", "replayed",
+    # The read path's two. Separate series rather than folded into the write
+    # path's, because they mean the opposite thing: a dropped *publish* is a
+    # verdict nobody received, a dropped *ack* is a verdict that will be produced
+    # a second time when another consumer reclaims the entry. Alerting on the
+    # first and on the second are different conversations.
+    "ack_dropped", "ack_recovered",
+)
+SOURCE_DROP_REASONS = (
+    "no_payload", "undecodable", "unmapped_kind", "schema_invalid",
+    # A payload that named one kind and arrived on another's stream. Counted
+    # apart from schema_invalid because it points at a producer's routing rather
+    # than at its payloads, which is a different thing to go and fix.
+    "kind_mismatch",
+    # JSON in an encoding other than UTF-8. Its own reason because the fix is a
+    # producer's encoder setting, not its schema, and because this one used to
+    # take the consumer down with it rather than being counted.
+    "payload_encoding",
+)
 #: Terminal (VLM-enhanced) sink transports that report publish outcomes.
 TERMINAL_SINK_TRANSPORTS = ("elastic", "kafka", "redis_stream", "console")
 TERMINAL_EVENT_KINDS = ("incident", "alert")
@@ -956,7 +974,16 @@ def inc_redis_publish_failure(outcome: str) -> None:
 
     ``outcome`` must be in :data:`REDIS_PUBLISH_OUTCOMES`: ``recovered`` when a
     retry succeeded, ``dropped`` when retries were exhausted and the payload was
-    discarded. NEVER pass a stream name or sensorId.
+    discarded, and ``replayed`` when a pipelined batch failed after its commands
+    were sent and was re-published entry by entry — the one outcome that counts
+    entries which may have landed *twice* rather than not at all, and the one to
+    check when a consumer reports duplicates.
+
+    ``ack_dropped`` and ``ack_recovered`` are the read path's, and are about
+    ``XACK`` rather than ``XADD``: an ack that never landed leaves its entry
+    pending for another consumer to reclaim, re-verify and publish again, so a
+    rising ``ack_dropped`` explains duplicate verdicts that ``replayed`` does
+    not. NEVER pass a stream name or sensorId.
     """
     if not PROMETHEUS_ENABLED or outcome not in REDIS_PUBLISH_OUTCOMES:
         return

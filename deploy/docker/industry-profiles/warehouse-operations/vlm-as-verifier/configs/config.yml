@@ -58,25 +58,51 @@ kafka:
 
 # Redis connection shared by every Redis Streams component. Only read when a
 # redisStream source or sink is selected below, so these values are inert in the
-# default Kafka deployment. Alert MS does not deploy Redis — point REDIS_HOST at
-# an instance you provide. REDIS_HOST has no default on purpose: it used to fall
-# back to the bundled `redis` service, so selecting a redisStream transport and
-# forgetting the host silently attached the deployment to the wrong instance.
+# default Kafka deployment. Alert MS does not deploy Redis — point host at an
+# instance you provide. It is blank rather than defaulted on purpose: it used to
+# fall back to the bundled `redis` service, so selecting a redisStream transport
+# and forgetting the host silently attached the deployment to the wrong
+# instance, which is worse than a deployment that does not start.
+#
+# Edit these values here. The Alerts compose passes no REDIS_* variables into
+# the container, and this file is what it mounts, so this is the one place the
+# connection is stated — the same arrangement as the Helm chart's own config.
 redis:
-  host: "${REDIS_HOST}"
-  port: ${REDIS_PORT}
-  db: ${REDIS_DB}
+  host: ""
+  port: 6379
+  db: 0
+  # ACL username, for an instance using Redis 6+ ACL users rather than a single
+  # requirepass. Empty means the default user.
+  username: ""
   # password_file wins over password when both are set: it names a mounted
   # secret read at connect time, so the credential never enters this file.
-  password: "${REDIS_PASSWORD}"
-  password_file: "${REDIS_PASSWORD_FILE}"
-  # Verification is on whenever ssl is true. ssl_ca_certs supplies a private
-  # CA; unset uses the image's system trust store.
-  ssl: ${REDIS_SSL}
-  ssl_cert_reqs: "${REDIS_SSL_CERT_REQS}"
-  ssl_ca_certs: "${REDIS_SSL_CA_CERTS}"
+  password: ""
+  password_file: ""
+  # Verification is on whenever ssl is true, so there is nothing to add here to
+  # get it -- add `ssl_cert_reqs: none` to turn it off, which is for a
+  # self-signed development instance and worth having to write down.
+  # ssl_ca_certs supplies a private CA; unset uses the image's system trust
+  # store. ssl_certfile / ssl_keyfile are the client pair an instance with
+  # `tls-auth-clients yes` requires -- without them ssl alone cannot connect.
+  ssl: false
+  ssl_ca_certs: ""
+  ssl_certfile: ""
+  ssl_keyfile: ""
   # Empty or 0 means Alert MS never trims these streams.
-  maxlen: ${REDIS_STREAM_MAXLEN}
+  maxlen: 0
+  # What one unanswered Redis command costs, in seconds. Short on purpose: it is
+  # the unit of every worst case above it -- publish_budget bounds retries but is
+  # only read between attempts, and shutdown and the consumer group's
+  # session_timeout_ms have to fit whole commands. This was 30s, which made each
+  # of those a minutes-long stall against an unreachable instance and put one
+  # publish attempt past the 15s publish budget. Keep it above
+  # consumer_config.block_time below.
+  socket_timeout: 5
+  socket_connect_timeout: 5
+  # How long an entry must sit unacknowledged in a dead consumer's pending list
+  # before another consumer may claim it. The sweep interval is
+  # event_bridge.redis_source.consumer_config.reclaim_interval.
+  pending_min_idle_ms: 60000
 
 #VLM Configuration
 vlm:
@@ -102,8 +128,8 @@ rtvi_vlm:
 
 # Event Bridge Configuration - Kafka source/sink (Redis removed)
 event_bridge:
-  sourceType: "${ALERT_EVENT_SOURCE_TYPE}"
-  sinkType: "${ALERT_EVENT_SINK_TYPE}"
+  sourceType: "kafka"
+  sinkType: "kafka"
 
   kafka_source:
     group_id: 'alert-bridge-vlm-group-ab'
@@ -117,11 +143,15 @@ event_bridge:
     streams:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
-    consumer_group: "${ALERT_REDIS_CONSUMER_GROUP}"
+    consumer_group: "alert-bridge-vlm-group"
     consumer_config:
       count: 10
       block_time: 100
       start_id: '$'
+      # Seconds between sweeps for entries stranded in a dead consumer's
+      # pending list, and for the dead consumer records themselves.
+      # 0 disables it. Pairs with redis.pending_min_idle_ms above.
+      reclaim_interval: 30
 
   # Read only when sinkType is redisStream.
   redis_sink:
@@ -164,11 +194,11 @@ elastic:
   hosts:
     - http://elasticsearch:9200
 
-# Transport for VLM-enhanced results, selected via ALERT_VLM_SINK_TYPE
-# (elastic by default). The redisStream routes publish the same protobuf
-# messages as the kafka routes, wrapped in the MDX envelope.
+# Transport for VLM-enhanced results, selected here (elastic by default). The
+# redisStream routes publish the same protobuf messages as the kafka routes,
+# wrapped in the MDX envelope.
 vlm_enhanced_sink:
-  type: "${ALERT_VLM_SINK_TYPE}"
+  type: "elastic"
   incident:
     elastic:
       index: "mdx-vlm-incidents"

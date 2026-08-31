@@ -28,10 +28,20 @@ export TOPIC="${TOPIC:-mdx-incidents}"
 # A test whose optional infrastructure is absent exits with this instead of 0,
 # so a skipped transport is reported as skipped rather than counted as a pass.
 export EXIT_SKIP=66
-# Set to 1 to turn those skips into failures. CI should, so a run where Redis
-# silently failed to start cannot report all-green with every redisStream test
-# quietly skipped.
-export REDIS_REQUIRED="${REDIS_REQUIRED:-0}"
+# Whether a missing Redis is a failure rather than a skip. Defaults to 1
+# because step1_start_simulators.sh now starts one: the stack provides the
+# broker, so a skip no longer means "this host has no Redis", it means the
+# container did not come up — and that must not report as green with the whole
+# redisStream transport untested.
+#
+# SKIP_REDIS=1 is the single switch for running without it: step1 starts no
+# container and the skips come back, so the two settings cannot contradict each
+# other. An explicit REDIS_REQUIRED in the environment still wins.
+if [ "${SKIP_REDIS:-0}" = "1" ]; then
+    export REDIS_REQUIRED="${REDIS_REQUIRED:-0}"
+else
+    export REDIS_REQUIRED="${REDIS_REQUIRED:-1}"
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -90,6 +100,31 @@ wait_for_service() {
     return 1
 }
 
+redis_server_version() {
+    if docker ps -q -f name="$REDIS_CONTAINER" | grep -q .; then
+        docker exec "$REDIS_CONTAINER" redis-cli INFO server 2>/dev/null \
+            | sed -n 's/^redis_version:\([0-9.]*\).*/\1/p'
+    else
+        return 1
+    fi
+}
+
+# Whether this Redis actually has XAUTOCLAIM (6.2+). The image is whatever was
+# already pulled on the host, so it can be older — and on an older one the
+# source disables its stranded-entry sweep for the life of the process, so every
+# reclaim assertion passes without exercising anything. Warned rather than
+# fatal: the rest of the transport works fine on 6.0.
+assert_redis_supports_reclaim() {
+    local version
+    version=$(redis_server_version) || return 0
+    case "$version" in
+        [0-5].*|6.0.*|6.1.*)
+            print_status "info" \
+                "Redis $version has no XAUTOCLAIM (needs 6.2+): the reclaim sweep is inert, so reclaim coverage passes vacuously. Set REDIS_IMAGE=redis:7-alpine." ;;
+        *) ;;
+    esac
+}
+
 # ─── Phase 1: Setup ───────────────────────────────────────────────────────────
 
 phase_setup() {
@@ -105,11 +140,18 @@ phase_setup() {
     # Alert MS state does NOT live in Redis: dedup/filter state is in-process
     # and durable state (verdict protection, alert configs) is in ES. This
     # container exists solely for the optional Redis Streams source/sink
-    # transports, so its absence must only skip those tests — every other P1
-    # test runs on Kafka exactly as before.
+    # transports — every other P1 test runs on Kafka exactly as before.
+    #
+    # Because this starts one, a redisStream test that skips means this block
+    # failed rather than "the host has no Redis", which is why REDIS_REQUIRED
+    # defaults to 1. SKIP_REDIS=1 opts out of both together.
+    if [ "${SKIP_REDIS:-0}" = "1" ]; then
+        print_status "info" "SKIP_REDIS=1 — the redisStream tests will skip"
+    else
     print_status "wait" "Checking Redis on :6379 (Redis Streams transport tests)..."
     if check_port 127.0.0.1 6379; then
         print_status "ok" "Redis already running on :6379"
+        assert_redis_supports_reclaim
     else
         # Prefer any redis image already pulled so the suite runs on a host with
         # no registry access; REDIS_IMAGE overrides the choice.
@@ -126,12 +168,14 @@ phase_setup() {
             echo "$REDIS_CONTAINER" > "$PID_DIR/redis_container"
             if wait_for_service "redis" "check_port 127.0.0.1 6379" 30; then
                 print_status "ok" "Redis ready ($redis_image)"
+                assert_redis_supports_reclaim
             else
-                print_status "info" "Redis failed to become ready — redisStream tests will skip"
+                print_status "info" "Redis failed to become ready (REDIS_REQUIRED=$REDIS_REQUIRED)"
             fi
         else
-            print_status "info" "Could not start Redis ($redis_image) — redisStream tests will skip"
+            print_status "info" "Could not start Redis ($redis_image) (REDIS_REQUIRED=$REDIS_REQUIRED)"
         fi
+    fi
     fi
 
     # --- Kafka ---

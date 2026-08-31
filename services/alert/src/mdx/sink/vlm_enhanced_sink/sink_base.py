@@ -63,6 +63,21 @@ def build_vlm_enriched_event(
     return enriched
 
 
+def document_id(document: Dict[str, Any]) -> Optional[str]:
+    """The identifier a verdict document is known by, under either spelling.
+
+    The pipeline writes the dedup fingerprint to ``Id`` (capitalised, as
+    Elasticsearch stores it) while the events it derives from carry a producer's
+    own ``id``. Reading only the lower-case one -- which the sinks did, and the
+    console sink most visibly, printing ``id=None`` beside every verdict it
+    rendered -- names nothing at all for anything that reached the VLM.
+
+    Same order as ``AsyncDispatchMixin``, so the id in a sink's line is the id
+    the dispatch log used for the same event.
+    """
+    return document.get("Id") or document.get("id")
+
+
 def log_enriched_event(
     logger: logging.Logger,
     sink_type: str,
@@ -118,6 +133,13 @@ class VLMEnhancedSink(ABC):
     #: ``alert_bridge_terminal_publish_dropped_total``. Closed enum — see
     #: ``metrics.recorder.TERMINAL_SINK_TRANSPORTS``.
     transport_label: str = "elastic"
+
+    #: Whether :meth:`is_healthy` can change without anything announcing it, so
+    #: the consume loop has to re-read it on a timer. Default ``False``: a sink
+    #: whose health is fixed at startup has nothing for a timer to discover, and
+    #: polling is not free of consequence -- it republishes assignment state,
+    #: which closes the rebalance drain budget.
+    needs_readiness_polling: bool = False
 
     def is_healthy(self) -> bool:
         """Whether this sink can currently be written to.

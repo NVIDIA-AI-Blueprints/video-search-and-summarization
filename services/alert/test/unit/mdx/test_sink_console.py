@@ -77,8 +77,18 @@ class TestRendering:
             sink.write_msg([b'{"id": "evt-1"}'])
         assert '"id": "evt-1"' in caplog.text
 
-    def test_non_json_bytes_fall_back_to_text(self, caplog):
+    def test_non_json_bytes_are_summarized_while_redaction_is_on(self, caplog):
+        """Nothing can be field-masked in an opaque payload, and a protobuf's
+        printable runs carry the material the dotted paths exist to hide — so
+        the default posture describes it instead of printing it."""
         sink = ConsoleSink({})
+        with caplog.at_level("INFO"):
+            sink.write_msg([b"not json at all"])
+        assert "not json at all" not in caplog.text
+        assert "sha256:" in caplog.text
+
+    def test_non_json_bytes_fall_back_to_text_when_redaction_is_off(self, caplog):
+        sink = ConsoleSink({"event_bridge": {"console_sink": {"redact": "none"}}})
         with caplog.at_level("INFO"):
             sink.write_msg([b"not json at all"])
         assert "not json at all" in caplog.text

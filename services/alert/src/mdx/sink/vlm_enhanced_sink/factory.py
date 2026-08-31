@@ -20,6 +20,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from mdx.transport.names import (
+    TERMINAL_SINK_ALIASES as _SINK_ALIASES,
+    normalize,
+    require_terminal_sink_type,
+)
 from .sink_base import VLMEnhancedSink
 from .sink_console import VLMEnhancedConsoleSink
 from .sink_elastic import VLMEnhancedElasticSink
@@ -28,31 +33,16 @@ from .sink_kafka import VLMEnhancedKafkaSink
 
 logger = logging.getLogger(__name__)
 
-#: Accepted spellings per sink type. Matching is case- and
-#: separator-insensitive so ``redisStream``, ``redis_stream`` and
-#: ``redis-stream`` all select the Redis Streams sink.
-_SINK_ALIASES = {
-    "elastic": "elastic",
-    "elasticsearch": "elastic",
-    "kafka": "kafka",
-    "redisstream": "redisStream",
-    "redis": "redisStream",
-    "console": "console",
-}
-
 
 def _normalize_sink_type(value: Any) -> Optional[str]:
     """Resolve a configured sink type to its canonical name.
 
-    Returns ``None`` when the value is not a recognized sink, matching
-    ``event_bridge_factory._normalize_transport``. The two normalizers are kept
-    on one contract deliberately: they read operator-supplied transport names
-    from the same config file, and a reader who checks one should not have to
-    re-derive how the other treats an unknown or non-string value.
+    The event bridge's vocabulary plus Elasticsearch, which only a terminal sink
+    can be. Both factories read operator-supplied transport names out of the same
+    config file, so they share the table and the folding rule rather than each
+    keeping a copy on the same contract by agreement.
     """
-    if not isinstance(value, str):
-        return None
-    return _SINK_ALIASES.get(value.strip().lower().replace("_", "").replace("-", ""))
+    return normalize(value, _SINK_ALIASES)
 
 
 def _warn_on_per_kind_type(sink_root: Dict[str, Any], resolved: str) -> None:
@@ -144,19 +134,16 @@ def build_vlm_enhanced_sink(
 
     sink_root = config.get("vlm_enhanced_sink", {}) or {}
     configured = sink_root.get("type") or "elastic"
-    sink_type = _normalize_sink_type(configured)
+    # Raises before the per-kind warnings below, so an operator sees the actual
+    # problem instead of advice about keys on a sink that never resolved. The
+    # same call runs in startup validation, which is where a deployment reaches
+    # it: this one is the guard for a sink built directly.
+    sink_type = require_terminal_sink_type(configured)
     # Log both spellings: the configured value is what an operator can grep for
     # in their config, the resolved one is what actually selected the sink.
     logger.info(
         "VLM enhanced sink type: %r resolved to '%s'", configured, sink_type
     )
-    if sink_type is None:
-        # Raise before the per-kind warnings so an operator sees the actual
-        # problem instead of advice about keys on a sink that never resolved.
-        raise ValueError(
-            f"Unsupported vlm_enhanced_sink.type: {configured!r} "
-            "(supported: 'elastic', 'kafka', 'redisStream', 'console')"
-        )
     _warn_on_per_kind_type(sink_root, sink_type)
 
     category_mapping = _load_category_mapping(config)

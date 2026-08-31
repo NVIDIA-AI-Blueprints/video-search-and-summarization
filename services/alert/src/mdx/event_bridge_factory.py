@@ -18,23 +18,22 @@ from typing import Dict, Any, Optional
 
 from mdx.source.source_base import SourceBase
 from mdx.sink.sink_base import SinkBase
+from mdx.stream_routing import (
+    EVENT_BRIDGE_SINK_ROUTES, HEARTBEAT_KIND, LEGACY_KIND_ALIASES,
+    SUPPORTED_KINDS, canonical_kind, require_distinct_streams,
+    require_kind_coverage, require_known_keys, require_stream_map,
+    require_stream_name,
+)
+# The transport vocabulary and the folding rule are shared with the terminal
+# sink's factory, which reads the same operator-supplied names out of the same
+# config file. Re-exported here because both are part of this module's published
+# surface.
+from mdx.transport.names import (
+    CONSOLE, KAFKA, REDIS_STREAM, normalize as _normalize_transport,
+    require_terminal_sink_type,
+)
 
 logger = logging.getLogger(__name__)
-
-KAFKA = 'kafka'
-REDIS_STREAM = 'redisStream'
-CONSOLE = 'console'
-
-#: Accepted spellings for each transport. Selection is case- and
-#: separator-insensitive so ``redisStream``, ``redis_stream`` and
-#: ``redis-stream`` all resolve to the same transport, matching the
-#: ``redisStream`` spelling used by vss-behavior-analytics.
-_TRANSPORT_ALIASES = {
-    'kafka': KAFKA,
-    'redisstream': REDIS_STREAM,
-    'redis': REDIS_STREAM,
-    'console': CONSOLE,
-}
 
 _SOURCE_TYPES = {
     KAFKA: 'Apache Kafka message broker',
@@ -53,16 +52,153 @@ _REQUIRED_SECTIONS = {
     'sink': {REDIS_STREAM: 'redis_sink'},
 }
 
-#: How ``vlm_enhanced_sink.type`` spellings map onto the transports above, for
-#: the split-transport check. ``elastic`` has no event-bridge equivalent and is
-#: therefore absent: an Elasticsearch terminal sink alongside a Kafka error sink
-#: is the default deployment, not a mismatch.
-_VLM_SINK_TO_TRANSPORT = {
-    'kafka': KAFKA,
-    'redisstream': REDIS_STREAM,
-    'redis': REDIS_STREAM,
-    'console': CONSOLE,
+#: Keys that must carry a value inside each required section, beyond the section
+#: merely existing. Checking only for the section made ``validate_configuration``
+#: return ``True`` for a section holding nothing usable, which pushed the real
+#: error into the source or sink constructor further into startup — where it is
+#: reported against a transport class rather than against the config the operator
+#: has open. Streams are checked separately because they are nested.
+_REQUIRED_SECTION_KEYS = {
+    'redis_source': ('consumer_group',),
+    'redis_sink': (),
 }
+
+
+#: Keys each Redis section's stream map accepts. The source's are event kinds;
+#: the sink's are the output routes it publishes, which is why the two cannot
+#: share one vocabulary or one set of rules.
+_REDIS_STREAM_KEYS = {
+    'redis_source': SUPPORTED_KINDS,
+    'redis_sink': EVENT_BRIDGE_SINK_ROUTES,
+}
+
+#: Keys a section takes but that are not what an operator should be told to
+#: write: the heartbeat stream, which is not an event kind and is optional, and
+#: the legacy kind spellings the source still folds. Listed so an unknown key is
+#: refused here without these being refused with it.
+_REDIS_STREAM_EXTRA_KEYS = {
+    'redis_source': (HEARTBEAT_KIND, *LEGACY_KIND_ALIASES),
+    'redis_sink': (),
+}
+
+
+def _validate_redis_streams(section_name: str, section: Dict[str, Any]) -> bool:
+    """Report whether a Redis section names a valid set of streams.
+
+    The rules live in :mod:`mdx.stream_routing` because the source and both sinks
+    enforce the same ones; this only adapts them to the boolean contract
+    ``validate_configuration`` has, so that an operator gets the same sentence
+    here as they would from the constructor that runs later.
+    """
+    setting = f"event_bridge.{section_name}.streams"
+    keys = _REDIS_STREAM_KEYS[section_name]
+    try:
+        streams = require_stream_map(section.get('streams'), setting, keys)
+        require_known_keys(
+            streams, setting, keys, _REDIS_STREAM_EXTRA_KEYS[section_name],
+        )
+        for key, value in streams.items():
+            require_stream_name(value, f"{setting}['{key}']")
+        require_distinct_streams(streams, setting)
+        if section_name == 'redis_source':
+            # Only the source. Its keys are event kinds, so "both kinds present"
+            # is a question that can be asked of them; the sink's keys are output
+            # route names and the same check would reject every valid config.
+            require_kind_coverage(
+                {canonical_kind(key) for key in streams}, setting,
+            )
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return False
+    return True
+
+def _validate_redis_connection(config: Dict[str, Any], section_name: Optional[str],
+                               selected_by: str,
+                               override: Optional[Dict[str, Any]] = None) -> bool:
+    """Report whether a Redis component can reach the instance it names.
+
+    Everything here decides *where* this connects or whether it will be let in --
+    host, port, logical database, credential -- so all of it is checked together
+    and none of it falls back to a default. They also fail as one thing to the
+    operator, who is looking at one connection block.
+
+    At startup rather than where the client is built, which is inside a forked
+    pipeline child: a mistyped port, a database that is not a number or a Secret
+    whose mount never appeared each crash-looped a child on a traceback instead
+    of failing the container with the key to fix.
+
+    Imported inside the function, as the Redis source and sink are: this module
+    is on the Kafka path, and a top-level import would load the ``redis``
+    package for a deployment that never uses it.
+    """
+    from mdx.redis_stream_broker import (
+        require_redis_db, require_redis_endpoint, require_redis_port,
+        resolve_redis_config,
+    )
+    from mdx.transport.secrets import resolve_secret
+
+    try:
+        merged = resolve_redis_config(config, section_name, override=override)
+        require_redis_endpoint(merged, selected_by)
+        require_redis_port(merged.get("port"))
+        require_redis_db(merged.get("db"))
+        # For the raise, not the value: a `password_file` that names an unmounted
+        # path, or a `password_env` naming an unset variable, is refused here
+        # rather than at the first command's NOAUTH. The secret itself is read
+        # again where the client is built and is deliberately not carried out of
+        # this function.
+        resolve_secret(merged, "password")
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return False
+    return True
+
+
+def _validate_vlm_enhanced_sink(config: Dict[str, Any]) -> bool:
+    """Report whether the terminal sink's own transport config holds up.
+
+    The terminal sink is selected separately from the event bridge's — see
+    :func:`_warn_on_split_transports` — so its Redis settings are its own and
+    are not reached by the loop over event-bridge roles. Unchecked here, they
+    were checked where that sink is constructed: inside the pipeline child, after
+    the API child, the metrics port and the fork.
+
+    The name is checked first, and against the terminal sink's own vocabulary.
+    Read through the event bridge's table instead -- which has no Elasticsearch
+    entry, that being something only a terminal sink can be -- every value it
+    did not recognize resolved to ``None`` and was waved through as "not Redis".
+    So ``type: mongo`` passed validation and failed in the forked child, and
+    ``type: elasticsearc`` did the same while looking like the default.
+
+    Past the name, only the redisStream selection has anything to check.
+    Elasticsearch is the default and Kafka reuses the broker config the event
+    bridge already validated, so both fall through untouched.
+    """
+    configured = (config.get('vlm_enhanced_sink') or {}).get('type')
+    try:
+        resolved = require_terminal_sink_type(configured)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return False
+
+    if resolved != REDIS_STREAM:
+        return True
+
+    from mdx.sink.vlm_enhanced_sink.sink_redis_stream import resolve_routes
+
+    try:
+        resolve_routes(config)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return False
+
+    # Resolved the way the sink resolves it, through the same overlay rule, so a
+    # per-sink `redisStream` block naming a different instance is judged as that
+    # sink will read it rather than as the event bridge's connection.
+    return _validate_redis_connection(
+        config, None, 'vlm_enhanced_sink.type',
+        override=(config.get('vlm_enhanced_sink') or {}).get('redisStream') or {},
+    )
 
 
 def _warn_on_split_transports(config: Dict[str, Any], sink_type: Optional[str]) -> None:
@@ -81,10 +217,11 @@ def _warn_on_split_transports(config: Dict[str, Any], sink_type: Optional[str]) 
     operator see it in the log they are already reading at boot.
     """
     configured_vlm = ((config.get('vlm_enhanced_sink') or {}).get('type') or 'elastic')
-    if not isinstance(configured_vlm, str):
-        return
-    key = configured_vlm.strip().lower().replace('_', '').replace('-', '')
-    vlm_transport = _VLM_SINK_TO_TRANSPORT.get(key)
+    # Read against the event-bridge vocabulary rather than the terminal sink's,
+    # which is what makes an Elasticsearch terminal sink resolve to nothing here
+    # and pass without a warning: it has no event-bridge equivalent, so pairing
+    # it with a Kafka error sink is the default deployment, not a mismatch.
+    vlm_transport = _normalize_transport(configured_vlm)
     if vlm_transport is None or vlm_transport == sink_type:
         return
     logger.warning(
@@ -108,17 +245,6 @@ def _configured_transport(config: Dict[str, Any], key: str) -> Any:
     if isinstance(raw, str) and not raw.strip():
         return KAFKA
     return raw
-
-
-def _normalize_transport(value: Any) -> Optional[str]:
-    """Resolve a configured transport name to its canonical form.
-
-    Returns ``None`` when the value is not a recognized transport.
-    """
-    if not isinstance(value, str):
-        return None
-    key = value.strip().lower().replace('_', '').replace('-', '')
-    return _TRANSPORT_ALIASES.get(key)
 
 
 class EventBridgeFactory:
@@ -259,12 +385,43 @@ class EventBridgeFactory:
             # section is a hard error rather than a warning.
             for role, transport in (('source', source_type), ('sink', sink_type)):
                 required = _REQUIRED_SECTIONS[role].get(transport)
-                if required and not event_bridge.get(required):
+                if not required:
+                    continue
+                section = event_bridge.get(required)
+                if not section:
                     logger.error(
                         "%s selected as the %s but event_bridge.%s is missing or empty",
                         transport, role, required,
                     )
                     return False
+                if not isinstance(section, dict):
+                    logger.error(
+                        "event_bridge.%s must be a mapping, got %s",
+                        required, type(section).__name__,
+                    )
+                    return False
+
+                if not _validate_redis_streams(required, section):
+                    return False
+
+                if not _validate_redis_connection(
+                    config, required, f"event_bridge.{role}Type",
+                ):
+                    return False
+
+                for key in _REQUIRED_SECTION_KEYS.get(required, ()):
+                    value = section.get(key)
+                    if not (value.strip() if isinstance(value, str) else value):
+                        logger.error(
+                            "event_bridge.%s.%s is required when %s is the %s",
+                            required, key, transport, role,
+                        )
+                        return False
+
+            # Independent of the loop above, because the terminal sink's
+            # transport is selected independently of the event bridge's.
+            if not _validate_vlm_enhanced_sink(config):
+                return False
 
             logger.info("Event bridge configuration validation passed")
             return True

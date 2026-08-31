@@ -13,18 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Redis Streams source with the default Elasticsearch terminal sink.
+# A payload that names the wrong kind for the stream it arrived on.
 #
-# The other redisStream tests all end in a Redis stream, which leaves the most
-# likely real deployment untested: an existing Elasticsearch-based install that
-# only swaps its input transport. It is also the combination where a coupling
-# bug would hide, because both directions still "work" if the source and sink
-# selections leak into each other -- the documents just come out of the wrong
-# place.
+# The stream decides an entry's kind, and the pipeline stamps that answer over
+# the payload's `notification_type` — so an entry published to the wrong stream
+# is not mis-decoded, it is relabelled: verified as the kind the stream says and
+# published to that kind's destination, with nothing raised anywhere. This run
+# proves the source rejects the contradiction instead, and that rejecting it does
+# not disturb the well-formed alert published alongside it.
 #
-# sinkType is left at its kafka default on purpose. That is what an operator
-# who sets only sourceType gets, so the startup warning about split transports
-# is exercised by the configuration a real upgrade produces.
+# The consumer group and the streams are this test's own, so a drop counted here
+# cannot have come from an entry another test left behind.
+#
+# Kafka is left out of the event bridge entirely, so nothing here can pass by
+# falling back to the default transport.
 
 ALERT_REVIEW_MEDIA_BASE_DIR: ""
 
@@ -38,16 +40,12 @@ vst_config:
     base_url: "http://127.0.0.1:30888"
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
 
-kafka:
-  bootstrap_servers: "127.0.0.1:9092"
-  group_id: "alert-bridge-p1-redis-elastic"
-  poll_timeout: 5
-  message_type: "Incident"
-
 redis:
   host: "127.0.0.1"
   port: 6379
   db: 0
+  # Left unset deliberately: trimming is opt-in, and this test asserts the
+  # input stream still holds its entry after consumption.
 
 vlm:
   base_url: "http://127.0.0.1:18081/v1"
@@ -61,23 +59,22 @@ vlm:
 
 event_bridge:
   sourceType: "redisStream"
-  # sinkType intentionally unset — it defaults to kafka, which is the split
-  # this deployment shape produces and which startup is expected to name.
+  sinkType: "redisStream"
 
   redis_source:
     streams:
-      incident: "mdx-incidents"
-      alert: "mdx-alerts"
-    consumer_group: "alert-bridge-vlm-group-p1-redis-elastic"
+      incident: "mdx-incidents-km"
+      alert: "mdx-alerts-km"
+    consumer_group: "alert-bridge-vlm-group-p1-kind-mismatch"
     consumer_config:
       count: 10
       block_time: 100
       start_id: "0-0"
 
-  kafka_sink:
-    topics:
-      enhanced_anomaly: "alert-bridge-enhanced-alerts"
-      incidents: "alert-bridge-incidents"
+  redis_sink:
+    streams:
+      enhanced_anomaly: "alert-bridge-enhanced-alerts-km"
+      incidents: "alert-bridge-incidents-km"
 
 prompt:
   prefer_payload_prompt: true
@@ -104,22 +101,18 @@ elastic:
     - http://127.0.0.1:9200
   index_name: "mdx-vlm-incidents"
 
-# The default terminal sink. Named explicitly rather than left to the default
-# so the test reads as the deliberate pairing it is.
-#
-# The per-kind index blocks are required, not decoration: VLMEnhancedElasticSink
-# reads an index per kind and has no fallback, so `type` on its own raised
-# "Missing required configuration: vlm_enhanced_sink.incident.elastic.index"
-# inside the pipeline child and this test never had an Alert Bridge to poll.
-# This is the shape the shipped Compose and Helm configs render.
 vlm_enhanced_sink:
-  type: "elastic"
+  type: "redisStream"
   incident:
-    elastic:
-      index: "mdx-vlm-incidents"
+    redisStream:
+      stream: "mdx-vlm-incidents-km"
+      message_type: "incident"
+      key_field: "sensorId"
   alert:
-    elastic:
-      index: "mdx-vlm-alerts"
+    redisStream:
+      stream: "mdx-vlm-alerts-km"
+      message_type: "alert"
+      key_field: "sensor.id"
 
 logging:
   level: "DEBUG"

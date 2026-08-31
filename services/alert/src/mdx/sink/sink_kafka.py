@@ -153,8 +153,15 @@ class KafkaSink(SinkBase):
     def close(self) -> None:
         """
         Closes the Kafka producer.
+
+        Reads ``_producer`` rather than the property, so shutting down a sink
+        that was never written to does not construct one. Going through the
+        property here undid the laziness above at the one moment it matters: the
+        pipeline closes this sink on every shutdown, so a Redis-only deployment
+        built a producer against an absent broker on its way out.
         """
-        self.producer.flush()
+        if self._producer is not None:
+            self._producer.flush()
 
     def write_incident_data(self, data: List[dict], message_transform_func: Callable = None) -> None:
         """

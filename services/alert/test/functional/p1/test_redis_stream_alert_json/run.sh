@@ -80,6 +80,13 @@ fi
 #    field: an alert whose kind is only implied by its stream is exactly the
 #    case that used to be published to the incident stream, because terminal
 #    routing re-derived the kind from the payload and found nothing.
+#
+#    analyticsModule.id is not free text. For an alert it becomes the event's
+#    category, which is what a prompt is looked up by, and an unconfigured
+#    category is dropped before the VLM with "No prompt found" — so a
+#    descriptive name here failed this test somewhere it does not test. It has
+#    to be one of the types in alert_type_config.json; "Stop Anomaly Module" is
+#    the one that matches a vehicle stopped in a travel lane.
 PAYLOAD="$PID_DIR/alert_redis_json.json"
 cat > "$PAYLOAD" << EOF
 {
@@ -92,7 +99,7 @@ cat > "$PAYLOAD" << EOF
     "description": "Redis JSON envelope alert test camera"
   },
   "analyticsModule": {
-    "id": "Redis JSON Envelope Test",
+    "id": "Stop Anomaly Module",
     "description": "Testing the JSON envelope on the alert route",
     "source": "test",
     "version": "1.0",

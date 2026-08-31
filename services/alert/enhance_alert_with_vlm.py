@@ -1053,10 +1053,6 @@ class AnomalyEnhancer(
             lambda _f, released_id=worker_id: self.worker_queue.put(released_id)
         )
 
-    def is_ready(self) -> bool:
-        """Whether this pipeline can currently consume and publish."""
-        return _pipeline_ready(self)
-
     def _publish_assignment_state(self) -> None:
         """Republish what this process holds, and reopen the drain budget.
 
@@ -1149,6 +1145,40 @@ class AnomalyEnhancer(
         """
         return self.pipeline_mode == PIPELINE_MODE_SYNC or self.vst_pass_through_mode
 
+    def _source_kind_is_authoritative(self) -> bool:
+        """Whether the source's own answer outranks the payload's on alert vs incident.
+
+        Declared by the adapter, because only it knows where its answer came
+        from: a Redis stream name is deployment configuration, while a Kafka
+        record's kind has always travelled in the payload. Read by name, and
+        tolerant of a pipeline with no source yet, so that not declaring
+        anything means the payload keeps deciding.
+        """
+        source = getattr(self, "source", None)
+        return bool(getattr(source, "kind_is_authoritative", False))
+
+    def _readiness_needs_polling(self) -> bool:
+        """Whether readiness has to be refreshed on a timer for this deployment.
+
+        A transport that reports its own state changes does not need one, and
+        must not be given one: republishing calls
+        :meth:`_publish_assignment_state`, which closes the rebalance drain
+        budget, and that budget is deliberately spent once per rebalance rather
+        than per revoke. On a timer it would be reopened between revokes of the
+        same rebalance, which is the per-consumer bound it exists to replace.
+
+        So the need is declared by the adapter rather than assumed here: a
+        source or sink whose health is an ordinary runtime condition with no
+        event behind it sets ``needs_readiness_polling``. Read by name so that
+        adapters predating the attribute keep the event-driven behaviour they
+        were written for.
+        """
+        for half in (getattr(self, "source", None),
+                     getattr(self, "vlm_enhanced_event_sink", None)):
+            if getattr(half, "needs_readiness_polling", False):
+                return True
+        return False
+
     def _republish_readiness_periodically(self) -> None:
         """Refresh the published readiness on a timer from the consume loop.
 
@@ -1156,13 +1186,15 @@ class AnomalyEnhancer(
         state actually changes. Redis has no such event: a broker that goes away
         after startup produces empty polls, so the state published at boot would
         stand for the life of the process and ``/health`` would answer 200 while
-        nothing was being consumed. A timer is what closes that gap, and it
-        covers the terminal sink for both transports.
+        nothing was being consumed. A timer is what closes that gap, for the
+        transports that say they need it.
         """
         now = time.monotonic()
         if now - self._last_readiness_publish_at < READINESS_REPUBLISH_SECONDS:
             return
         self._last_readiness_publish_at = now
+        if not self._readiness_needs_polling():
+            return
         try:
             # The supervised hook, when there is one: under a supervisor the
             # fleet counts are the parent's and a child reports through its
@@ -1453,23 +1485,24 @@ class AnomalyEnhancer(
             messages = parsed_messages
 
             # Normalize alerts Msg
-            batch_is_incident = (message_type or "").lower() == "incident"
             messages = (
-                messages if batch_is_incident
-                else [normalize_alert_message(m) for m in messages]
+                [normalize_alert_message(m) for m in messages]
+                if (message_type or "").lower() != "incident"
+                else messages
             )
 
-            # The batch's kind came from the source's stream or topic
-            # configuration, which is the only authoritative answer to "alert or
-            # incident". Stamped over whatever the payload carried so terminal
-            # routing reads the transport's answer: normalization only sets the
-            # field when the nested Behavior blocks are present, and a producer
-            # is free to set it on an incident, so re-deriving it downstream
-            # cross-routes in both directions without raising.
-            messages = [
-                stamp_event_kind(m, "incident" if batch_is_incident else "alert")
-                for m in messages
-            ]
+            # Only for a source that says its own kind is the authoritative one.
+            # Redis Streams does: the entry's kind comes from the stream it was
+            # read on, which is deployment configuration, while terminal routing
+            # keys on a payload field -- so the two can disagree in both
+            # directions without raising, and stamping is what makes the
+            # configured stream decide. Kafka's kind reaches routing through the
+            # payload exactly as it did before this was here, because a stamp
+            # would change where an existing deployment's events land.
+            if self._source_kind_is_authoritative():
+                kind = ("incident" if (message_type or "").lower() == "incident"
+                        else "alert")
+                messages = [stamp_event_kind(m, kind) for m in messages]
 
             if self.vst_pass_through_mode:
                 self._process_media_passthrough(worker_id, messages)

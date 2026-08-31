@@ -54,41 +54,6 @@ services:
       ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
-      # Event bridge transports. Kafka is the default for both; set either to
-      # redisStream to consume from / publish to a Redis instance you provide.
-      # sinkType also accepts console for local debugging.
-      ALERT_EVENT_SOURCE_TYPE: ${ALERT_EVENT_SOURCE_TYPE:-kafka}
-      ALERT_EVENT_SINK_TYPE: ${ALERT_EVENT_SINK_TYPE:-kafka}
-      # Transport for VLM-enhanced results: elastic (default) | kafka | redisStream | console
-      ALERT_VLM_SINK_TYPE: ${ALERT_VLM_SINK_TYPE:-elastic}
-      ALERT_REDIS_CONSUMER_GROUP: ${ALERT_REDIS_CONSUMER_GROUP:-alert-bridge-vlm-group}
-      # Only read when a redisStream transport is selected above.
-      #
-      # REDIS_HOST has no default on purpose. It used to default to `redis`,
-      # the bundled infra service, which meant selecting a redisStream
-      # transport and forgetting to set the host silently attached a
-      # deployment to this stack's own development Redis — a working pipeline
-      # pointed at the wrong instance, which is worse than one that does not
-      # start. Unset, the connection is refused at boot and the error names
-      # the address it tried.
-      REDIS_HOST: ${REDIS_HOST:-}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_DB: ${REDIS_DB:-0}
-      # Prefer REDIS_PASSWORD_FILE for anything but local use: it names a file
-      # (a mounted secret) that is read at connect time, so the credential does
-      # not have to live in the environment or the rendered config.
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      REDIS_PASSWORD_FILE: ${REDIS_PASSWORD_FILE:-}
-      # TLS for a customer-managed endpoint. Verification is on whenever TLS is
-      # enabled; REDIS_SSL_CA_CERTS supplies a private CA, and leaving it unset
-      # uses the image's system trust store.
-      REDIS_SSL: ${REDIS_SSL:-}
-      REDIS_SSL_CERT_REQS: ${REDIS_SSL_CERT_REQS:-required}
-      REDIS_SSL_CA_CERTS: ${REDIS_SSL_CA_CERTS:-}
-      # 0 means Alert MS never trims. The streams belong to your deployment,
-      # and a MAXLEN on every publish makes ordinary output delete your own
-      # older entries. Set a positive number to opt in.
-      REDIS_STREAM_MAXLEN: ${REDIS_STREAM_MAXLEN:-0}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
@@ -97,23 +62,12 @@ services:
     tmpfs:
       - /app/runtime:mode=1777,size=10M
     depends_on:
-      # `required: false` only lifts alert-bridge's own hard dependency on the
-      # kafka profiles, so this service can run against Redis alone. The
-      # condition is untouched: when the kafka profile is active — which is the
-      # default — startup is still gated on a healthy broker exactly as before.
-      # Note this does not by itself make the whole Alerts profile Kafka-free;
-      # peers such as perception-alerts still require kafka-topic-init-container.
       kafka:
         condition: service_healthy
-        required: false
       elasticsearch:
         condition: service_healthy
       kafka-topic-init-container:
         condition: service_completed_successfully
-        required: false
-      redis:
-        condition: service_started
-        required: false
       nvstreamer-alerts:
         condition: service_started
         required: false

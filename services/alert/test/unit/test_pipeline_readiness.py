@@ -25,12 +25,15 @@ The republish timer is here for the same reason. Kafka refreshes readiness from
 its rebalance callbacks, but Redis has no rebalance: without a timer the state
 published at startup is the only one ever published, and a broker that goes away
 afterwards is never reported.
+
+Which is why the timer is opt-in per transport rather than on for everyone.
+Republishing closes the rebalance drain budget, and that budget is meant to be
+spent once per rebalance -- so a timer on the Kafka path would quietly restore
+the per-consumer allowance it was written to remove.
 """
 
 import time
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 import enhance_alert_with_vlm as entry
 
@@ -96,12 +99,6 @@ class TestPipelineReadinessNeedsBothHalves:
     def test_neither_half_working_is_not_ready(self):
         assert entry._pipeline_ready(make_enhancer(False, make_sink(healthy=False))) is False
 
-    def test_the_public_method_and_the_publish_path_agree(self):
-        """They disagreed once already, which is how a lone pipeline came to
-        answer 200 through its whole startup."""
-        enhancer = make_enhancer(True, make_sink(healthy=False))
-        assert entry.AnomalyEnhancer.is_ready(enhancer) == entry._pipeline_ready(enhancer)
-
     def test_the_published_state_reflects_an_unwritable_sink(self):
         published = []
         enhancer = make_enhancer(True, make_sink(healthy=False))
@@ -114,17 +111,110 @@ class TestPipelineReadinessNeedsBothHalves:
         assert published == [(1, 1, 0)]
 
 
+class TestWhoNeedsAReadinessTimer:
+    """The timer is not free, so only a transport that asks for it gets one.
+
+    Republishing goes through ``_publish_assignment_state``, which closes the
+    rebalance drain budget. That budget is spent once per rebalance by design
+    and not reopened on expiry, so a timer running it between revokes of the
+    same rebalance would hand each consumer a fresh allowance -- exactly the
+    per-consumer bound it was written to replace. Kafka reports its own state
+    changes and must therefore stay off the timer entirely.
+    """
+
+    @staticmethod
+    def _pipeline(source, sink=None):
+        enhancer = MagicMock()
+        enhancer.source = source
+        enhancer.vlm_enhanced_event_sink = sink
+        return entry.AnomalyEnhancer._readiness_needs_polling(enhancer)
+
+    def test_a_source_that_reports_its_own_changes_gets_no_timer(self):
+        source = MagicMock(spec=["is_ready"])
+        assert self._pipeline(source) is False
+
+    def test_a_source_that_asks_for_one_gets_one(self):
+        source = MagicMock()
+        source.needs_readiness_polling = True
+        assert self._pipeline(source) is True
+
+    def test_a_sink_can_ask_even_when_the_source_does_not(self):
+        """Redis sink behind a Kafka source: the publish side is the half whose
+        health changes with nothing to announce it."""
+        source = MagicMock(spec=["is_ready"])
+        sink = MagicMock()
+        sink.needs_readiness_polling = True
+        assert self._pipeline(source, sink) is True
+
+    def test_no_sink_configured_asks_for_nothing(self):
+        assert self._pipeline(MagicMock(spec=["is_ready"]), None) is False
+
+    def test_the_kafka_source_does_not_ask_for_a_timer(self):
+        """Guard on the pre-existing transport: a default that flipped here
+        would put every Kafka deployment's drain budget on a 5 second reset."""
+        from mdx.source.source_kafka import SourceKafka
+
+        assert getattr(SourceKafka, "needs_readiness_polling", False) is False
+
+    def test_the_redis_source_does_ask_for_a_timer(self):
+        from mdx.source.source_redis_stream import SourceRedisStream
+
+        assert SourceRedisStream.needs_readiness_polling is True
+
+    def test_the_default_sink_does_not_ask_for_a_timer(self):
+        from mdx.sink.vlm_enhanced_sink.sink_base import VLMEnhancedSink
+
+        assert VLMEnhancedSink.needs_readiness_polling is False
+
+
+class TestOnlyAnAuthoritativeSourceStampsTheKind:
+    """Stamping rewrites where a verdict is published, so it is gated on the
+    source claiming its own kind is the authoritative one.
+
+    Redis Streams claims it: the kind comes from the configured stream. Kafka
+    does not, and must not -- its kind has always reached routing through the
+    payload, and stamping would move events in an existing deployment.
+    """
+
+    def test_the_kafka_source_does_not_claim_authority(self):
+        from mdx.source.source_kafka import SourceKafka
+
+        assert getattr(SourceKafka, "kind_is_authoritative", False) is False
+
+    def test_the_redis_source_claims_authority(self):
+        from mdx.source.source_redis_stream import SourceRedisStream
+
+        assert SourceRedisStream.kind_is_authoritative is True
+
+
 class TestReadinessRepublishTimer:
     """Redis has no rebalance callback, so this timer is the only thing that
     would report a broker lost after startup.
     """
 
     @staticmethod
-    def _enhancer():
+    def _enhancer(needs_polling=True):
         enhancer = MagicMock()
         enhancer._last_readiness_publish_at = 0.0
         enhancer._readiness_hook = None
+        enhancer._readiness_needs_polling.return_value = needs_polling
         return enhancer
+
+    def test_a_transport_that_did_not_ask_is_never_published_for(self):
+        """The Kafka path: the loop still calls this every iteration, and it has
+        to come to nothing."""
+        enhancer = self._enhancer(needs_polling=False)
+        hook = MagicMock()
+        enhancer._readiness_hook = hook
+        for _ in range(3):
+            # Past the interval each time, so nothing is being credited to the
+            # rate limit rather than to the gate.
+            enhancer._last_readiness_publish_at = (
+                time.monotonic() - entry.READINESS_REPUBLISH_SECONDS - 1
+            )
+            entry.AnomalyEnhancer._republish_readiness_periodically(enhancer)
+        enhancer._publish_assignment_state.assert_not_called()
+        hook.assert_not_called()
 
     def test_the_first_pass_publishes(self):
         enhancer = self._enhancer()

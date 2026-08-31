@@ -87,12 +87,16 @@ redis_available() {
 # Gate a redisStream test on Redis being there, and decide what its absence
 # means. Call as: require_redis "<test name>" || exit $?
 #
-# Redis is optional infrastructure, so a developer on a host without it should
-# not see red. But a suite that reports success when the transport under test
-# was never exercised proves nothing, and there was no way to demand otherwise:
-# the skip was unconditional, so a CI job where Redis silently failed to start
-# passed with every redisStream test skipped. REDIS_REQUIRED=1 turns the skip
-# into a failure, and CI sets it.
+# A suite that reports success when the transport under test was never
+# exercised proves nothing, and the skip used to be unconditional — so a run
+# where Redis failed to start passed with every redisStream test skipped and
+# nothing to distinguish it from a run that tested them.
+#
+# run_p1.sh starts a Redis, so REDIS_REQUIRED defaults to 1 there: a missing
+# broker means the container did not come up, which is a failure. SKIP_REDIS=1
+# is the way to run without it, and turns these back into skips. The default
+# here stays 0 so a test invoked directly, outside the orchestrator, behaves as
+# it always did.
 require_redis() {
     local test_name="${1:-redisStream test}"
     if redis_available; then
@@ -101,7 +105,7 @@ require_redis() {
     fi
     if [ "${REDIS_REQUIRED:-0}" = "1" ]; then
         print_status "fail" \
-            "FAIL: $test_name needs Redis on $REDIS_HOST:$REDIS_PORT and REDIS_REQUIRED=1 is set"
+            "FAIL: $test_name needs Redis on $REDIS_HOST:$REDIS_PORT and REDIS_REQUIRED=1. Run with SKIP_REDIS=1 to skip the redisStream tests instead."
         return 1
     fi
     print_status "info" \

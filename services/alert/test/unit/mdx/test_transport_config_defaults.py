@@ -40,7 +40,6 @@ import yaml
 
 from mdx.event_bridge_factory import EventBridgeFactory
 from mdx.redis_stream_broker import (
-    DEFAULT_MAXLEN,
     DEFAULT_PORT,
     RedisStreamBroker,
     resolve_redis_config,
@@ -61,8 +60,38 @@ DEPLOYMENT_CONFIGS = [
     "deploy/docker/industry-profiles/warehouse-operations/vlm-as-verifier/configs/config.yml",
 ]
 
+#: Helm configs, which cannot be parsed as YAML here for the reason above but
+#: are still checked textually for the event kinds they subscribe to.
+HELM_CONFIGS = [
+    "deploy/helm/services/alert/configs/config.yml",
+    "deploy/helm/services/alert/configs/EDGE-LOCAL-VLM-config.yml",
+]
+
 #: Same pattern env-substitute.py uses.
 PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def mapping_block(text: str, key: str) -> dict:
+    """Read the flat ``name: value`` mapping nested under ``key``.
+
+    Indentation-based and deliberately not a YAML parse: the Helm configs are Go
+    templates and will not load, but the blocks this reads contain no templating.
+    """
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != f"{key}:":
+            continue
+        indent = len(line) - len(line.lstrip())
+        entries = {}
+        for candidate in lines[index + 1:]:
+            if not candidate.strip() or candidate.lstrip().startswith("#"):
+                continue
+            if len(candidate) - len(candidate.lstrip()) <= indent:
+                break
+            name, _, value = candidate.partition(":")
+            entries[name.strip()] = value.strip().strip("'\"")
+        return entries
+    raise AssertionError(f"no '{key}:' block found")
 
 
 def render_with_unset_env(path: Path) -> str:
@@ -194,29 +223,44 @@ class TestDeploymentConfigsWithNoRedisEnvironment:
 
 
 class TestSelectingRedisFromADeploymentConfig:
-    """The same files must actually select Redis once the variables are set."""
+    """The same files must actually select Redis once an operator edits them.
+
+    The Alerts compose passes no ``REDIS_*`` variables into the container, and
+    this file is what it mounts — so the transports and the connection are
+    stated here, the same arrangement the Helm chart uses for its own config.
+
+    What the shipped file has to guarantee is that the edit is *only* the
+    selections and the connection: every stream name, consumer group and
+    per-kind route the Redis path needs must already be present, or an operator
+    following the comments gets a service that refuses to start.
+    """
 
     CONFIG = "deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml"
 
-    ENVIRONMENT = {
-        "ALERT_EVENT_SOURCE_TYPE": "redisStream",
-        "ALERT_EVENT_SINK_TYPE": "redisStream",
-        "ALERT_VLM_SINK_TYPE": "redisStream",
-        "ALERT_REDIS_CONSUMER_GROUP": "alert-bridge-vlm-group",
-        "REDIS_HOST": "redis",
-        "REDIS_PORT": "6379",
-        "REDIS_DB": "0",
-        "REDIS_STREAM_MAXLEN": "10000",
+    #: Dotted paths into the config, as an operator would edit them by hand.
+    EDITS = {
+        "event_bridge.sourceType": "redisStream",
+        "event_bridge.sinkType": "redisStream",
+        "vlm_enhanced_sink.type": "redisStream",
+        "redis.host": "redis",
+        "redis.maxlen": 10000,
     }
 
     def rendered(self):
         path = REPO_ROOT / self.CONFIG
         if not path.exists():
             pytest.skip(f"{self.CONFIG} is not present in this checkout")
-        text = PLACEHOLDER.sub(
-            lambda m: self.ENVIRONMENT.get(m.group(1), ""), path.read_text(encoding="utf-8")
-        )
-        return yaml.safe_load(text)
+        # Other sections still hold ${VAR} placeholders — the VLM endpoint, for
+        # one — so the file is rendered the way env-substitute.py renders it
+        # before the Redis edits are applied on top.
+        config = yaml.safe_load(render_with_unset_env(path))
+        for dotted, value in self.EDITS.items():
+            keys = dotted.split(".")
+            node = config
+            for key in keys[:-1]:
+                node = node.setdefault(key, {})
+            node[keys[-1]] = value
+        return config
 
     def test_the_redis_sections_are_complete_enough_to_validate(self):
         """``validate_configuration`` rejects a redisStream selection whose
@@ -232,7 +276,7 @@ class TestSelectingRedisFromADeploymentConfig:
     def test_the_vlm_sink_resolves_to_redis_streams(self):
         assert build_vlm_sink(self.rendered()) == "VLMEnhancedRedisStreamSink"
 
-    def test_the_connection_comes_from_the_environment(self):
+    def test_the_connection_is_read_from_the_file(self):
         broker = RedisStreamBroker(resolve_redis_config(self.rendered()))
         assert (broker.host, broker.port, broker.maxlen) == ("redis", 6379, 10000)
 
@@ -255,19 +299,58 @@ class TestSecureRedisFromADeploymentConfig(TestSelectingRedisFromADeploymentConf
     that only the happy configuration is tested against.
     """
 
-    ENVIRONMENT = dict(
-        TestSelectingRedisFromADeploymentConfig.ENVIRONMENT,
-        REDIS_PASSWORD_FILE="/etc/alert-bridge/redis-auth/password",
-        REDIS_SSL="true",
-        REDIS_SSL_CERT_REQS="required",
-        REDIS_SSL_CA_CERTS="/etc/alert-bridge/redis-ca/ca.crt",
+    EDITS = dict(
+        TestSelectingRedisFromADeploymentConfig.EDITS,
+        **{
+            "redis.username": "alertms",
+            "redis.password_file": "/etc/alert-bridge/redis-auth/password",
+            # No ssl_cert_reqs: verification is what enabling TLS means, and the
+            # shipped files do not write the key. Its absence here is the case
+            # under test — see test_tls_is_configured_with_verification_on.
+            "redis.ssl": True,
+            "redis.ssl_ca_certs": "/etc/alert-bridge/redis-ca/ca.crt",
+            "redis.ssl_certfile": "/run/secrets/alert-redis/client.crt",
+            "redis.ssl_keyfile": "/run/secrets/alert-redis/client.key",
+        },
     )
 
+    @pytest.fixture(autouse=True)
+    def mounted_password_secret(self, tmp_path, monkeypatch):
+        """Give the configured mount path a file that exists.
+
+        The broker reads the named secret at construction and refuses to
+        continue when a named source yields nothing, so a config that points at
+        an absent mount cannot be constructed — which is the point, but it means
+        these cases have to provide the mount the deployment would.
+        """
+        secret = tmp_path / "password"
+        secret.write_text("from-a-secret\n")
+        monkeypatch.setitem(self.EDITS, "redis.password_file", str(secret))
+
     def test_tls_is_configured_with_verification_on(self):
+        """Turning TLS on is the whole edit: verification follows from it.
+
+        The shipped files name no ``ssl_cert_reqs``, so this is what proves an
+        operator cannot end up with an encrypted connection that checks nothing
+        by simply not knowing the key exists.
+        """
+        assert "redis.ssl_cert_reqs" not in self.EDITS
         broker = RedisStreamBroker(resolve_redis_config(self.rendered()))
         assert broker.tls["ssl"] is True
         assert broker.tls["ssl_cert_reqs"] == "required"
         assert broker.tls["ssl_ca_certs"] == "/etc/alert-bridge/redis-ca/ca.crt"
+
+    def test_the_client_certificate_pair_reaches_the_broker(self):
+        """An instance with `tls-auth-clients yes` refuses a connection that
+        presents none, so TLS alone could not reach one."""
+        broker = RedisStreamBroker(resolve_redis_config(self.rendered()))
+        assert broker.tls["ssl_certfile"] == "/run/secrets/alert-redis/client.crt"
+        assert broker.tls["ssl_keyfile"] == "/run/secrets/alert-redis/client.key"
+
+    def test_the_acl_username_reaches_the_broker(self):
+        """Redis 6+ AUTH takes a username; an instance with ACL users rather
+        than a single requirepass cannot authenticate without it."""
+        assert RedisStreamBroker(resolve_redis_config(self.rendered())).username == "alertms"
 
     def test_the_password_is_read_from_the_named_file_not_the_config(self, tmp_path):
         secret = tmp_path / "password"
@@ -283,3 +366,87 @@ class TestSecureRedisFromADeploymentConfig(TestSelectingRedisFromADeploymentConf
         redis_block = self.rendered()["redis"]
         assert not (redis_block.get("password") or "")
         assert redis_block["password_file"].startswith("/")
+
+
+class TestEveryShippedProfileSubscribesToBothKinds:
+    """A profile that lists only incidents drops every alert its deployment
+    produces, silently and with no error anywhere.
+
+    The Helm edge profile shipped that way: incidents on both transports and no
+    alert stream at all, while the Docker edge profile it otherwise mirrors had
+    both. Nothing caught it because the two files are only ever read by
+    different tools.
+    """
+
+    @staticmethod
+    def _text(relative: str) -> str:
+        return (REPO_ROOT / relative).read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("relative", DEPLOYMENT_CONFIGS + HELM_CONFIGS)
+    @pytest.mark.parametrize(
+        "block,key",
+        [("kafka_source", "topics"), ("redis_source", "streams")],
+    )
+    def test_both_kinds_are_subscribed(self, relative, block, key):
+        text = self._text(relative)
+        if f"{block}:" not in text:
+            pytest.skip(f"{relative} configures no {block}")
+        kinds = mapping_block(text, key)
+        assert "incident" in kinds, f"{relative}: {block}.{key} has no incident"
+        assert "alert" in kinds, f"{relative}: {block}.{key} has no alert"
+
+    @pytest.mark.parametrize("relative", DEPLOYMENT_CONFIGS + HELM_CONFIGS)
+    def test_a_kind_does_not_change_name_between_transports(self, relative):
+        """Both transports carry the same upstream events, so a profile that
+        renames a kind on one of them is reading a different feed than it
+        looks like it is."""
+        text = self._text(relative)
+        if "kafka_source:" not in text or "redis_source:" not in text:
+            pytest.skip(f"{relative} does not configure both transports")
+        assert mapping_block(text, "topics") == mapping_block(text, "streams")
+
+
+class TestNoHelmConfigWritesTheRedisPasswordItself:
+    """Both Helm configs render into a ConfigMap, which is not encrypted and is
+    readable by anything that can read ConfigMaps in the namespace.
+
+    The password therefore reaches the pod through a mounted Secret, and the
+    inline key goes through ``vss-alert-bridge.redisPassword`` -- which renders
+    empty when a Secret is configured and otherwise refuses a plaintext password
+    unless the deployment opts in. Reading ``.Values.redis.password`` directly
+    bypasses both halves of that.
+
+    Checked textually, and on every Helm config rather than the main one,
+    because this is exactly how the edge profile broke the last two times: the
+    fix landed on ``configs/config.yml`` and the file whose own header says it is
+    "kept identical" was not touched. A test that renders is not an option here
+    -- these are Go templates and the suite has no ``helm`` binary.
+    """
+
+    @pytest.mark.parametrize("relative", HELM_CONFIGS)
+    def test_the_password_key_goes_through_the_helper(self, relative):
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        password_lines = [
+            line for line in text.splitlines()
+            if line.strip().startswith("password:")
+        ]
+        assert password_lines, f"{relative}: no redis password key at all"
+        for line in password_lines:
+            assert "vss-alert-bridge.redisPassword" in line, (
+                f"{relative}: renders {line.strip()!r} into a ConfigMap. Use "
+                f'include "vss-alert-bridge.redisPassword" so a configured '
+                f"Secret wins and a plaintext password has to be opted into."
+            )
+
+    @pytest.mark.parametrize("relative", HELM_CONFIGS)
+    def test_the_raw_value_is_not_read_anywhere_else(self, relative):
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        offenders = [
+            line for line in text.splitlines()
+            if ".password" in line
+            and "passwordSecret" not in line
+            and "password_file" not in line
+            and "vss-alert-bridge.redisPassword" not in line
+            and not line.strip().startswith("#")
+        ]
+        assert not offenders, f"{relative}: reads the password directly: {offenders}"

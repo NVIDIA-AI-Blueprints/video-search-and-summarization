@@ -56,18 +56,34 @@ eventSinkType: "kafka"
 vlmSinkType: "elastic"
 
 # Connection for the optional Redis Streams transports. Only read when a
-# redisStream transport is selected above. Alert MS does not deploy Redis —
-# point host at an instance you provide, or enable the infra redis chart.
-# Leave host "" for the release-based default (<release>-redis or redis).
+# redisStream transport is selected above. Alert MS does not deploy Redis and
+# keeps no state in it, so the endpoint has to come from whoever does.
+#
+# There is no release-based default. host used to fall back to <release>-redis,
+# which meant selecting a redisStream transport and forgetting the host attached
+# the deployment to the bundled development Redis without saying so — including
+# publishing verdicts into streams it does not own. Rendering now fails and names
+# this key instead. For the bundled instance, ask for it: useInClusterRedis.
 redis:
   host: ""
+  # Development only: point host at the in-cluster infra Redis. Its streams are
+  # not durable and not yours to keep.
+  useInClusterRedis: false
   port: 6379
   db: 0
-  # Prefer passwordSecret below: this value is rendered into a ConfigMap, which
-  # is not a secret. Kept for local and development use.
+  # ACL username, for a Redis 6+ instance that uses ACL users rather than a
+  # single requirepass. Leave "" for the default user.
+  username: ""
+  # Rendered into a ConfigMap, which is not a secret — so setting this without
+  # passwordSecret fails rendering unless allowPasswordInConfigMap says the
+  # instance is local or throwaway and that is acceptable. Use passwordSecret
+  # for everything else.
   password: ""
+  allowPasswordInConfigMap: false
   # Read the password from a mounted Secret instead. Both keys are required to
-  # take effect; the mount is added to the pod automatically.
+  # take effect; the mount is added to the pod automatically. Once set, a Secret
+  # that is missing or empty at startup fails the pod naming the path, rather
+  # than connecting unauthenticated and reporting NOAUTH later.
   #   passwordSecret: { name: my-redis-auth, key: password }
   passwordSecret: {}
   # TLS for a customer-managed endpoint. Verification is on whenever tls is
@@ -79,11 +95,37 @@ redis:
     certReqs: "required"
     # caCertSecret: { name: my-redis-ca, key: ca.crt }
     caCertSecret: {}
+    # Client certificate, for an instance with tls-auth-clients yes — which
+    # refuses a connection that presents none, so tls.enabled alone cannot
+    # reach one. certKey / keyKey name the entries inside the Secret and
+    # default to the kubernetes.io/tls pair.
+    #   clientCertSecret: { name: my-redis-client, certKey: tls.crt, keyKey: tls.key }
+    clientCertSecret: {}
   # Approximate MAXLEN cap applied when publishing. Empty or 0 means Alert MS
   # never trims — the streams belong to your deployment, and trimming on every
   # publish makes ordinary output delete your older entries. Set a positive
   # number to opt in, matching what vss-behavior-analytics and rt-vlm use.
   maxlen: 0
+  # What one unanswered Redis command costs, in seconds. Every worst case here
+  # is a multiple of it: a publish spends it per attempt, a shutdown spends it
+  # per stream it tidies up, and a readiness probe on the consumer-group
+  # rebalance path spends it inside the window the group allows a member. This
+  # was 30s, which made each of those a minutes-long stall against an
+  # unreachable instance and put one publish attempt past the 15s publish
+  # budget, so it is deliberately short — raise it only if your instance is
+  # genuinely slow, and keep it above the source's block_time (100ms) so an idle
+  # blocking read is not read as a timeout.
+  socketTimeout: 5
+  socketConnectTimeout: 5
+  # Stranded-entry recovery. An entry delivered to a consumer that then died
+  # stays in that consumer's pending list and is never redelivered, so a replica
+  # lost mid-batch strands its work without this. reclaimIntervalSeconds is how
+  # often to sweep (0 disables it); pendingMinIdleMs is how long an entry must
+  # have been idle before another consumer may claim it. Entries are acked on
+  # read, before verification, so this window does not contain a VLM call — it
+  # is what a stranded entry waits before anyone picks it up.
+  reclaimIntervalSeconds: 30
+  pendingMinIdleMs: 60000
   consumerGroup: "alert-bridge-vlm-group"
 vlmBaseUrl: ""
 vlmName: "nvidia/cosmos3-nano-reasoner"

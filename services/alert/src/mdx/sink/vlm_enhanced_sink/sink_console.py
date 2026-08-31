@@ -25,9 +25,11 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from mdx.sink.console_render import parse_redact_paths, redact
+from mdx.sink.console_render import (
+    redact, redaction_notice, resolve_max_chars, resolve_redact_paths,
+)
 
-from .sink_base import VLMEnhancedSink
+from .sink_base import VLMEnhancedSink, document_id
 
 
 class VLMEnhancedConsoleSink(VLMEnhancedSink):
@@ -49,16 +51,15 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
         )
         self._pretty = pretty
         self._max_chars = max_chars
-        self._redact_paths = parse_redact_paths(redact_paths)
+        self._redact_paths, self._redaction_mode = resolve_redact_paths(redact_paths)
         self._logger.warning(
             "Console VLM enhanced sink selected: intended for local development. "
-            "Verdicts are logged only, are not persisted, and the document is "
-            "written to the log in full -- including VLM reasoning, the video "
-            "URL and any location fields, so whoever can read these logs can "
-            "read that data%s",
-            f". Masking {self._redact_paths}" if self._redact_paths else
-            ". Redaction is off: set vlm_enhanced_sink.console.redact to mask "
-            "fields such as info.reasoning or info.videoSource",
+            "Verdicts are logged only, are not persisted, and whoever can read "
+            "these logs can read what is written to them%s",
+            redaction_notice(
+                self._redact_paths, self._redaction_mode,
+                "vlm_enhanced_sink.console.redact",
+            ),
         )
 
     @classmethod
@@ -72,7 +73,9 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
         console_cfg = sink_root.get("console") or {}
         return cls(
             pretty=bool(console_cfg.get("pretty", True)),
-            max_chars=int(console_cfg.get("max_chars", 0)),
+            max_chars=resolve_max_chars(
+                console_cfg.get("max_chars"), "vlm_enhanced_sink.console.max_chars",
+            ),
             category_mapping=category_mapping,
             alert_config_store=alert_config_store,
             redact_paths=console_cfg.get("redact"),
@@ -106,7 +109,7 @@ class VLMEnhancedConsoleSink(VLMEnhancedSink):
             "[console-sink] vlm-enhanced %s %s id=%s\n%s",
             event_kind,
             outcome,
-            document.get("id"),
+            document_id(document),
             self._render(document),
         )
 

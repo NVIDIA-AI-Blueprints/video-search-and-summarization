@@ -23,16 +23,15 @@
 # If set, components can resolve relative media paths against this base dir
 ALERT_REVIEW_MEDIA_BASE_DIR: ""
 
-# VST Configuration
+# --- VST: where the clip for an incident comes from -------------------------
 vst_config:
   # Base URL for general VST APIs already used elsewhere in the codebase
   base_url: "http://localhost:30888"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
-  segment_anchor: "end"          # enable end-anchored window
-  segment_duration_seconds: 10   # M (already used today)
-  add_overlay: false
-  # Storage service configuration (separate base URL and endpoint)
-  storage:
+  segment_anchor: "end"          # clip window anchor: start | end | middle
+  segment_duration_seconds: 10   # clip window length
+  add_overlay: false             # burn detection boxes into the clip
+  storage:                       # VST storage API; may sit behind its own ingress
     base_url: "http://localhost:30888"
     # Endpoint to fetch media file path by VST id
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
@@ -40,9 +39,8 @@ vst_config:
 # General Kafka Configuration - Message Processing
 kafka:
   bootstrap_servers: "localhost:9092"
-  group_id: 'kafka-incidents-dumper'
-           # Output topic for incidents
-  max_poll_records: 10                          # Process one record at a time (immediate processing)
+  group_id: 'kafka-incidents-dumper'   # legacy kafka.anomalyTopic path only; ignored once event_bridge.kafka_source.topics is set
+  max_poll_records: 10                 # records per poll
   auto_offset_reset: 'latest'
   enable_auto_commit: false
   poll_timeout: 100                            # Kafka consumer poll wait timeout in milliseconds
@@ -59,7 +57,8 @@ kafka:
   # where duplicates within that window are tolerated.
   batch_commit: false
 
-#VLM Configuration
+# --- VLM: the model that verifies each incident ----------------------------
+# Global defaults; any alert type can override any of them via vlm_params.
 vlm:
   base_url: "http://localhost:30082/v1"
   model: "nvidia/cosmos3-nano-reasoner"
@@ -71,66 +70,31 @@ vlm:
   # true - Download video locally, base64-encode, upload to VLM
   vlm_media_source_using_base64: false
 
-  # Response format: auto | cosmos-reason | json | other | <custom>  (default: auto)
-  #
-  # Case 1 — Auto-detect (default, no change needed):
-  #   "auto" detects from model name: cosmos-reason1/2 or cosmos3 → cosmos-reason, else → other.
-  #
-  # Case 2 — Cosmos Reason (explicit):
-  #   "cosmos-reason" handles both <answer>-tagged and bare verdict formats from any
-  #   Cosmos Reason model (CR1, CR2, or CR3). Use when model name doesn't match auto-detect.
-  #   "cr1", "cr2", and "cr3" are accepted as aliases.
-  #
-  # Case 3 — JSON output (field names configurable via json_parser):
-  #   Set response_format: "json". Prompt must ask VLM to return JSON.
-  #   All json_parser fields are optional; defaults shown below.
-  #   For nested fields use dot-notation (e.g. "hazard_detection.is_hazardous").
-  #   For non-string verdicts (boolean/integer) add verdict_mapping.
-  #
-  # Case 4 — Custom parser:
-  #   1. Create a Python module that calls register_parser("name", fn)
-  #   2. Set custom_parser_module to its dotted import path
-  #   3. Set response_format to the registered name
-  #   Example:
-  #     response_format: "xml-verdict"
-  #     custom_parser_module: "custom_parsers.xml_verdict_parser"
-  #   The module is auto-imported at startup. The parser function must accept
-  #   (text: str, json_config: Optional[Dict]) and return a VLMResponse.
-  #
+  # How the answer is parsed: auto | cosmos-reason | json | other | <custom>
+  #   auto           from the model name: cosmos-reason1/2 or cosmos3 ->
+  #                  cosmos-reason, anything else -> other
+  #   cosmos-reason  any Cosmos Reason model, tagged or bare verdicts
+  #                  (aliases: cr1, cr2, cr3)
+  #   json           field names in json_parser below; the prompt must ask for JSON
+  #   <custom>       a name registered by custom_parser_module
   response_format: "auto"
-  # custom_parser_module: "custom_parsers.my_parser"  # dotted Python module path
+  # Module calling register_parser("name", fn), auto-imported at startup; fn
+  # takes (text, json_config) and returns a VLMResponse.
+  # custom_parser_module: "custom_parsers.my_parser"
 
-  # Pluggable response parser: external parser class for custom use cases.
-  # When set, it fully replaces the default CR1/CR2 verification parsing.
-  # The class must expose parse(raw_response: str) -> dict; its output is
-  # JSON-stringified into info["vlm_response"] with info["verdict"] = "".
-  # Parser modules live outside the AB repo; AB loads the class at startup.
-  # IMPORTANT: parser classes MUST be thread-safe — Alert Bridge shares one
-  # instance across all worker threads + the async dispatcher.
-  #
-  # Output-schema contract:
-  #   * When UNSET (default) — output schema is unchanged; VLM free-form
-  #     text lands in info["reasoning"] via the built-in verification path.
-  #   * When SET               — output schema swaps: parser JSON lands in
-  #     info["vlm_response"] instead of info["reasoning"]. This is the only
-  #     way to opt into the new field name; deployments that never set this
-  #     key see zero wire change.
-  #
+  # Parser class — parse(raw_response) -> dict — replacing verification parsing
+  # outright. Its JSON lands in info["vlm_response"] with info["verdict"] = ""
+  # instead of the usual info["reasoning"], and setting this key is the only way
+  # to get that field. MUST be thread-safe: one instance serves every worker.
+  # Beats custom_parser_module on the VLM path (setting both logs a startup
+  # WARN), which then only applies to direct model_validate_text calls.
   # response_parser: "my_package.parsers.FireClassifier"
 
-  # ─ Precedence note ────────────────────────────────────────
-  # When both `custom_parser_module` and `response_parser` are set, Alert
-  # Bridge emits a startup WARN. `response_parser` always wins on the
-  # default VLM path; `custom_parser_module` is still consulted anywhere
-  # VLMResponse.model_validate_text is called directly. Prefer
-  # `response_parser` for new integrations.
-
-  # JSON parser config (only used when response_format: "json").
-  # The prompt must ask the VLM to return JSON with matching field names.
-  #
+  # For response_format: "json". All optional, defaults shown; dot-notation for
+  # nested fields, verdict_mapping for non-string verdicts.
   # json_parser:
-  #   verdict_field: "prediction_answer"                # default; or "hazard_detection.is_hazardous" for nested
-  #   reasoning_fields:                                 # first match wins
+  #   verdict_field: "prediction_answer"
+  #   reasoning_fields:                 # first match wins
   #     - "reasoning"
   #     - "thinking"
   #     - "explanation"
@@ -139,51 +103,54 @@ vlm:
   #     "true": "YES"
   #     "false": "NO"
 
-  # Media Processing Parameters Toggle
-  # When true: Alert Bridge omits these parameters, letting VLM use its server-side defaults
-  #            (e.g., VLM defaults: 4 FPS, larger pixel limits for models like CR2)
+  # true: omit the media parameters below so the VLM uses its own defaults
+  # (e.g. 4 FPS and larger pixel limits on CR2).
   use_vlm_media_defaults: false
-  # Custom media processing parameters (only used when use_vlm_media_defaults: false)
-  # CR2 recommended: 0.6 (with reasoning/think tags), 0.7 (without reasoning)
-  temperature: 0.6
-  # do_resize: when true (default) Alert Bridge sends mm_processor_kwargs.size built from
-  # min_pixels/max_pixels. When false, the size kwarg is omitted and the model uses its
-  # server-side default size — useful when the caller-supplied bounds hurt accuracy.
-  # Note: the model's per-frame token cost is much higher without size; long high-resolution
-  # clips can exceed the NIM's 1B-pixel cap and return 400.
+  temperature: 0.6                    # CR2: 0.6 with reasoning tags, 0.7 without
+  # false: omit mm_processor_kwargs.size and let the model choose — useful when
+  # the bounds below hurt accuracy, but per-frame token cost rises sharply and
+  # long HD clips can breach the NIM's 1B-pixel cap (HTTP 400).
   do_resize: true
-  # Beware that these parameters need to be set in accordance with the VLM max context window
-  min_pixels: 1568
+  min_pixels: 1568                    # keep these within the VLM's context window
   max_pixels: 345600
   num_frames: 5
   enable_sampling: false
   sampling_fps: 4
-  # Warmup tuning — override defaults for slow GPUs or large models
-  # warmup:
-  #   poll_timeout: 300       # seconds to wait for NIM readiness
-  #   poll_interval: 10       # seconds between readiness polls
-  #   inference_timeout: 120  # seconds for first (cold) inference
-  #   num_requests: 3         # number of warmup inferences to send
+  # warmup:                   # override for slow GPUs or large models
+  #   poll_timeout: 300       # wait for NIM readiness
+  #   poll_interval: 10       # between readiness polls
+  #   inference_timeout: 120  # first, cold inference
+  #   num_requests: 3         # warmup inferences to send
 
-# Redis connection shared by every Redis Streams component (the analogue of
-# kafka.bootstrap_servers). Only read when a redisStream source or sink is
-# selected; the event_bridge and vlm_enhanced_sink blocks below may override
-# any field here. Alert MS never deploys Redis itself — point this at an
-# existing instance.
+# --- Redis: connection, for Redis Streams deployments ----------------------
+# The analogue of kafka.bootstrap_servers, read only when a redisStream source
+# or sink is selected; event_bridge and vlm_enhanced_sink may override any field
+# here. Alert MS never deploys Redis — point this at an existing instance.
 # redis:
 #   host: "redis"
 #   port: 6379
 #   db: 0
-#   password: ""            # omit or leave empty when auth is disabled
-#   maxlen: 10000           # approximate MAXLEN cap applied on publish
-#   socket_timeout: 30
-#   socket_connect_timeout: 30
+#   password: ""            # omit when auth is disabled
+#   maxlen: 10000           # approximate MAXLEN cap on publish
+#   # What one unanswered command costs, and the unit of every worst case below:
+#   # a publish spends it per attempt, shutdown spends it per stream it releases,
+#   # and a readiness probe on the rebalance path spends it inside the consumer
+#   # group's session window. 5s is the default; raising it above publish_budget
+#   # means the budget no longer bounds a publish, and startup says so. Must stay
+#   # above redis_source.consumer_config.block_time.
+#   socket_timeout: 5
+#   socket_connect_timeout: 5
 #   # A redisStream sink is the payload's only destination, so a failed XADD is
-#   # retried before the payload is dropped. Kept low because the caller runs on
-#   # the consume path. Drops are counted by
+#   # retried before the payload is dropped; drops count in
 #   # alert_bridge_redis_publish_failures_total{outcome="dropped"}.
-#   publish_retries: 2      # 0 disables retrying
-#   publish_retry_backoff: 0.1   # seconds, multiplied by the attempt number
+#   publish_retries: 2           # 0 disables retrying
+#   publish_retry_backoff: 0.1   # seconds x attempt number
+#   # Wall-clock ceiling on one publish, retries included, because a retry count
+#   # alone does not bound time: each attempt can spend the whole socket timeout.
+#   # Checked between attempts, so it only bounds a publish while socket_timeout
+#   # is at or below it -- a warning says so at startup when it is not. 0 removes
+#   # the ceiling. Also bounds the XACK retry on the read path.
+#   publish_budget: 15
 
 # Event Bridge Configuration.
 # sourceType: kafka (default) | redisStream
@@ -192,8 +159,8 @@ vlm:
 # on Kafka. This sink carries validation-error responses; VLM-enhanced results
 # are published by vlm_enhanced_sink further down.
 event_bridge:
-  sourceType: "kafka"
-  sinkType: "kafka"
+  sourceType: "kafka"        # kafka | redisStream
+  sinkType: "kafka"          # kafka | redisStream | console
 
   kafka_source:
     group_id: 'alert-bridge-vlm-group'
@@ -201,38 +168,33 @@ event_bridge:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
 
-  # Redis Streams source. Payloads use the MDX envelope
-  # (key / value / headers) with protobuf or JSON in `value`, matching what
+  # MDX envelope (key/value/headers) with protobuf or JSON in `value`, as
   # vss-behavior-analytics publishes in redisStream mode.
   # redis_source:
   #   streams:
   #     incident: 'mdx-incidents'
   #     alert: 'mdx-alerts'
   #     # heartbeat: 'mdx-heartbeats'
-  #   # ONE replica per consumer group, or shard by sensorId. Dedup, the
-  #   # end-time delta filter and the rate limit are in-process and assume a
-  #   # sensorId is always handled by the same instance. Kafka guarantees that
-  #   # via partition ownership; XREADGROUP does not -- it hands each entry to
-  #   # whichever consumer asks first, so two replicas on one group split a
-  #   # sensor's cohort and duplicates reach the VLM with no error raised.
-  #   # Scaling out anyway? Give each replica its own group over disjoint
-  #   # streams, or enable alert_agent.event_filters.protect_confirmed_verdicts
-  #   # (off by default) so the ES verdict marker catches the duplicates.
+  #   # ONE replica per consumer group, or shard by sensorId. Dedup and the
+  #   # filters are in-process and assume one sensor always lands on the same
+  #   # instance; XREADGROUP hands an entry to whichever consumer asks first, so
+  #   # two replicas on one group split a sensor's cohort and duplicates reach
+  #   # the VLM silently. To scale out, give each replica its own group over
+  #   # disjoint streams, or enable
+  #   # alert_agent.event_filters.protect_confirmed_verdicts.
   #   consumer_group: 'alert-bridge-vlm-group'
   #   consumer_config:
   #     count: 10             # max entries per XREADGROUP
-  #     block_time: 100       # XREADGROUP BLOCK in ms; keeps the poll loop idle
-  #     start_id: '$'         # '$' = new entries only (matches kafka auto_offset_reset: latest)
-  #     error_backoff: 1.0    # seconds to wait before retrying an unreachable broker
+  #     block_time: 100       # XREADGROUP BLOCK, ms
+  #     start_id: '$'         # '$' = new entries only
+  #     error_backoff: 1.0    # wait before retrying an unreachable broker
 
-  # Redis Streams sink for validation-error responses.
   # redis_sink:
   #   streams:
   #     enhanced_anomaly: 'alert-bridge-enhanced-alerts'
   #     incidents: 'alert-bridge-incidents'
 
-  # Console sink options (sinkType: console). Payloads are written to the log in
-  # full; list dotted paths in `redact` to mask fields before they are logged.
+  # sinkType: console logs payloads in full; `redact` masks dotted paths first.
   # console_sink:
   #   pretty: true
   #   max_chars: 0            # 0 disables truncation
@@ -240,177 +202,148 @@ event_bridge:
   #     - info.reasoning
   #     - info.videoSource
 
+# --- Prompts: the rules that apply across all alert types ------------------
+# The prompts themselves belong to each alert type: seeded from
+# alert_type_config.json, editable at /api/v1/verification/config.
 prompt:
-  prefer_payload_prompt: false
-  override_prompts_on_start: true
+  prefer_payload_prompt: false      # prefer a prompt from the payload; inert, nothing reads it
+  override_prompts_on_start: true   # re-seed stored prompts from the file; false keeps API edits
+  # Used when an alert type has no system prompt of its own; a stored one wins.
+  # Set "" to send no system message. A key left empty (nothing after the colon)
+  # fails startup rather than being guessed at; remove it to keep this default.
   default_system_prompt: "You are a helpful assistant."
 
 # Alert Type Configuration
 alert_type_config_file: "alert_type_config.json"
 
-# Alert Agent Configuration - Processing Settings
+# --- Alert agent: concurrency, dedup, pipeline -----------------------------
 alert_agent:
-  # Number of independent pipeline processes (positive integer). The GIL is
-  # per-process, so this — not num_workers — is what lets one instance use
-  # more than ~1 core: each process runs its own consume loop, its own event
-  # loop and its own clients. Dedup stays correct without coordination because
-  # mdx-incidents is partitioned by sensorId, so a whole cohort lands on one
-  # process.
-  #
-  # Above 1 the value is validated at startup rather than adjusted: it
-  # requires pipeline_mode: event_loop, and it must not exceed the partitions
-  # on ANY ONE source topic, or startup fails. Per topic, not summed: each
-  # process runs one consumer per topic in the same group, so Kafka assigns
-  # each topic independently and a topic with fewer partitions than there are
-  # processes leaves the difference holding none of it. With N replicas the
-  # constraint is replicas x processes <= partitions, per topic.
+  # Independent pipeline processes, and the only way past ~1 core since the GIL
+  # is per-process. Above 1 requires pipeline_mode: event_loop and must not
+  # exceed the partitions of ANY ONE source topic — with N replicas,
+  # replicas x processes <= partitions, per topic — or startup fails. Dedup
+  # needs no coordination: mdx-incidents is partitioned by sensorId, so a whole
+  # cohort lands on one process.
   processes: 1
-  # The whole of startup -- topic metadata, prompt seeding, VLM warmup and
-  # every pipeline joining its group -- shares this one budget. Raise it where
-  # the default cannot be met: topics created by a Job that races this
-  # deployment, or several processes building their stores at once.
+  # One budget for all of startup: topic metadata, prompt seeding, VLM warmup,
+  # every pipeline joining its group. Raise it when topics are created by a Job
+  # racing this deployment, or when many processes build their stores at once.
   startup_timeout_seconds: 60
-  num_workers: 10                                # Number of worker threads
-  max_allowed_stream_size: 2                    # Maximum stream size in minutes
-  default_stream_interval: 1                    # Default stream interval in minutes
-  vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
+  num_workers: 10                # worker threads per process; the throughput knob in sync mode
+  max_allowed_stream_size: 2     # reject clip windows longer than this, minutes
+  default_stream_interval: 1     # clip window when the payload gives no duration, minutes
+  vst_pass_through_mode: false   # use local media files instead of a VST lookup
 
-  # In-process event filtering / dedup tuning (no external store).
+  # In-process filtering and dedup; no external store.
   event_filters:
     dedup_ttl_seconds: 300
-    # Categories listed here retain the incident end timestamp when building
-    # the dedup key. Any category not listed omits the end timestamp.
+    # Categories whose dedup key keeps the incident end timestamp. Others omit it.
     end_time_in_dedup_key_categories: []
-    # Protect confirmed VLM verdicts from being re-verified (Elasticsearch-backed).
+    # Don't re-verify an incident whose verdict is already confirmed (ES-backed).
     protect_confirmed_verdicts:
-      enabled: false      # Master switch
-      ttl_seconds: 600    # TTL for confirmed markers (10 minutes)
-      # Cooldown (s) before retrying the verdict-protection ES client after a
-      # construction failure. Fails open + retries; never a permanent disable.
-      es_retry_backoff_seconds: 30
-      # Retention reaper for expired ``ab-confirmed-verdicts`` markers.
-      retention_interval_seconds: 3600          # hourly delete-by-query pass
-      retention_requests_per_second: 50         # throttle to bound cluster impact
-    # End time delta filter: blocks incidents unless end time changed significantly.
+      enabled: false
+      ttl_seconds: 600                          # lifetime of a confirmed marker
+      es_retry_backoff_seconds: 30              # cooldown after an ES client build failure; fails open and keeps retrying
+      retention_interval_seconds: 3600          # delete-by-query pass over expired markers
+      retention_requests_per_second: 50         # throttle for that pass
+    # Block an incident unless its end time moved by at least threshold_seconds.
     end_time_delta_filter:
       enabled: false
       threshold_seconds: 5
       ttl_seconds: 3600
 
   metrics:
-    # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
-    # On-demand HTTP metrics use the separate alert_bridge_ondemand_* namespace
-    # and are aggregate-only; per_sensor_labels applies to Kafka metrics.
-    # When false (default), the *_BY_SENSOR metric variants are never observed
-    # (zero cardinality cost). When true, each distinct sensor ID mints ~12
-    # additional Prometheus series per histogram — only enable for deployments
-    # with a bounded sensor fleet and a known series budget (~10k per target).
+    # Needs PROMETHEUS_METRICS_ENABLED=true. true mints ~12 extra series per
+    # histogram per sensor, so only with a bounded fleet (~10k series/target).
+    # Applies to Kafka metrics; on-demand HTTP metrics stay aggregate-only.
     per_sensor_labels: false
-  # Pipeline execution mode: sync | thread_bridge | event_loop.
-  # An invalid value fails startup. Also accepted at async_io.pipeline_mode.
-  # event_loop runs one coroutine per message on a persistent event loop with
-  # async clients per stage (VLM: AsyncOpenAI, VST: httpx, sink/verdict:
-  # AsyncElasticsearch), so Kafka consumption stays decoupled from VLM latency.
-  # Each mode has exactly one throughput knob:
+  # sync | thread_bridge | event_loop; an invalid value fails startup, and
+  # async_io.pipeline_mode is accepted too. event_loop runs each message as a
+  # coroutine with async clients, keeping consumption decoupled from VLM
+  # latency. One throughput knob per mode:
   #   sync           num_workers
   #   thread_bridge  async_dispatch_workers
   #   event_loop     async_io.max_vlm_concurrent
   # pipeline_mode: event_loop
   async_io:
-    external_timeout_seconds: 30                 # Timeout for async-submitted VST/Elastic/dedup operations
-    # max_vlm_concurrent MUST stay at or below the benchmarked concurrency
-    # ceiling of the VLM backend (see README "VLM concurrency ceiling
-    # benchmark") — above it, requests pile onto the backend and its latency
-    # balloons instead of throughput improving.
+    external_timeout_seconds: 30   # per async VST/Elastic/dedup operation
+    # Keep at or below the VLM backend's benchmarked concurrency ceiling (README,
+    # "VLM concurrency ceiling benchmark"); past it latency balloons instead of
+    # throughput rising.
     # max_vlm_concurrent: 8
     #
-    # Derived unless set; the formulas below are the defaults, and each key is
-    # still honoured when present:
+    # Derived unless set, and still honoured when present:
     #   async_dispatch_workers       = num_workers
     #   async_dispatch_max_in_flight = 2 x async_dispatch_workers
     #   async_io.max_vst_concurrent  = async_dispatch_workers
     #   async_io.sink_warn_in_flight = async_dispatch_max_in_flight
 
-  # URL Transformation - transforms internal IPs to external for VLM/UI access
+  # Rewrite internal media IPs to externally reachable ones for the VLM and UI.
   url_transform:
     enabled: true                                # Enable URL transformation (default: true)
 
   media_download:
-    enabled: false                                # Enable direct media URL processing
-    max_media_count: 5                           # Maximum number of media URLs per request
-    timeout_seconds: 30                          # Download timeout per file
-    max_size_mb: 50                              # Maximum file size to download
-    allow_private_urls: true                     # Allow private/local URLs (development only, SSRF risk)
-    use_verdict: false                           # VLM response mode: true=verdict-based (parse structured response), false=freestyle (store raw response)
+    enabled: false               # process direct media URLs from the payload
+    max_media_count: 5           # media URLs per request
+    timeout_seconds: 30          # download timeout per file
+    max_size_mb: 50              # size limit per file
+    allow_private_urls: true     # development only — SSRF risk
+    use_verdict: false           # true parses a structured verdict; false stores the raw response
 
 
   # Enrichment Processing Configuration
   enrichment:
     enabled: false                               # Master switch for enrichment processing
 
-  # Always-on VLM alert rules — controls the POST /api/v1/realtime/always-on
-  # endpoint. When false (default), the endpoint short-circuits with
-  # 503 ALWAYS_ON_DISABLED so the feature can be rolled back without a
-  # code change. When true, the rules YAML pointed at by
-  # ALWAYS_ON_RULES_CONFIG is validated at application startup and a
-  # malformed/missing config fails app boot (instead of only surfacing
-  # the error on the first camera event).
+  # POST /api/v1/realtime/always-on. false returns 503 ALWAYS_ON_DISABLED, so
+  # the feature rolls back without a code change. true validates the rules YAML
+  # at ALWAYS_ON_RULES_CONFIG during boot, so a bad file fails startup instead
+  # of surfacing on the first camera event.
   always_on: false
 
 # RTVI VLM Configuration - Real-time VLM alert management
 # Alert Bridge calls this service to start/stop real-time RTSP analysis
 rtvi_vlm:
-  base_url: "http://localhost:8018/v1"          # RTVI VLM microservice URL (env: RTVI_VLM_BASE_URL)
-  timeout: 10                                # HTTP request timeout (seconds)
-  default_model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"  # Default VLM model id (must match what RTVI VLM has loaded — query GET /v1/models to confirm)
-  captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
-  # Stream readiness probe: after the captions ack window expires
-  # (streaming mode) the create path polls GET /streams/get-stream-info
-  # every ``stream_readiness_poll_interval`` seconds until either the
-  # stream id appears in the registry (positive readiness signal) or
-  # ``stream_readiness_max_wait`` elapses. The probe is skipped when
-  # the rule reused an already-registered stream — existence was just
-  # confirmed at resolve time.
-  # Total worst-case response latency: captions_ack_timeout +
-  # stream_readiness_max_wait (default ~4 s, down from the previous
-  # 12 s readiness window). Late caption-task failures are still
-  # caught asynchronously via the captions task done callback.
+  base_url: "http://localhost:8018/v1"       # env: RTVI_VLM_BASE_URL
+  timeout: 10                                # HTTP request timeout
+  default_model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"  # must match a model RTVI VLM has loaded (GET /v1/models)
+  captions_ack_timeout: 2.0                  # wait for the generate_captions HTTP ack
+  # After that ack, create polls GET /streams/get-stream-info until the stream
+  # id shows up or max_wait elapses — skipped when the rule reuses a registered
+  # stream. Worst-case create latency is captions_ack_timeout + max_wait.
   stream_readiness_poll_interval: 0.2
   stream_readiness_max_wait: 2.0
-  # ``stream_readiness_timeout`` is deprecated. The realtime service
-  # logs a warning and ignores it — set the two probe knobs above.
-  rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
-  pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
-  health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
-  # Rollback switch for the realtime-rules persistence + replay feature.
-  # When false, POST/DELETE on /api/v1/realtime do not write to
-  # Elasticsearch and POST /api/v1/realtime/replay returns 501.
-  # Independent of `persistence.enabled`: the global flag turns the whole
-  # persistence layer (alert configs, prompts, realtime) off, while this
-  # one only disables the realtime-rules path.
+  # stream_readiness_timeout is deprecated: warned about, then ignored.
+  rules_collection: "alert-realtime-rules"   # ES collection for durable rules
+  pending_ttl_seconds: 300                   # stale pending rules are cleaned at startup
+  health_check_interval_seconds: 30          # RTVI /ready poll; reconciles on recovery
+  # Rollback switch for realtime-rule persistence and replay: false stops
+  # POST/DELETE /api/v1/realtime writing to ES and makes replay return 501.
+  # Narrower than persistence.enabled, which disables every collection.
   enable_realtime_persistence: true
 
-  # Realtime alert consolidation — group repeated VLM positives from the same
-  # camera and alert type into a single event. Controlled per request via the
-  # `consolidate` query param on GET /api/v1/realtime/incidents (omitted/false =
-  # raw chunk-level documents; true = consolidated). The keys below only tune the grouping.
+  # Groups repeated positives from one camera and alert type into a single
+  # event. Requested per call with ?consolidate=true on
+  # GET /api/v1/realtime/incidents; these keys only tune the grouping.
   consolidation:
-    max_inter_alert_gap_seconds: 60    # a positive arriving after this gap starts a new event
-    max_event_duration_seconds: 300    # cap on a single consolidated event (null = unbounded)
-    representative: "latest"           # chunk that supplies the representative fields: latest | longest_reasoning
+    max_inter_alert_gap_seconds: 60    # a positive arriving later starts a new event
+    max_event_duration_seconds: 300    # cap per event (null = unbounded)
+    representative: "latest"           # which chunk supplies the fields: latest | longest_reasoning
 
-# Webhook Notification — fire-and-forget POST on VLM-verified incidents
-# When enabled, every successfully verified incident is POSTed to the
-# configured URL (e.g. OpenClaw).  No retry / no queue / no dead-letter.
+# --- Webhook: fire-and-forget POST on verified incidents -------------------
+# No retry, no queue, no dead-letter.
 webhook:
   openclaw:
-    enabled: false                               # Master switch (default OFF)
-    url: "http://localhost:9090/webhook/alert-notify-slack"                                      # OpenClaw webhook endpoint
-    topic: "mdx-vlm-incidents"                   # Kafka topic to consume and forward to webhook
-    group_id: "openclaw-webhook-group"            # Kafka consumer group (independent from main AB consumer)
-    timeout_seconds: 5                            # HTTP POST timeout
-    max_pending: 100                              # Max queued deliveries before dropping
+    enabled: false
+    url: "http://localhost:9090/webhook/alert-notify-slack"
+    topic: "mdx-vlm-incidents"             # Kafka topic consumed and forwarded
+    group_id: "openclaw-webhook-group"     # its own consumer group
+    timeout_seconds: 5                     # HTTP POST timeout
+    max_pending: 100                       # queued deliveries before dropping
 
+# --- HTTP API: CORS for /api/v1/... ---------------------------------------
+# Wide open below, which suits local and in-cluster use; narrow allow_origins
+# before exposing the API further.
 cors:
   enabled: true
   allow_origins: ['*']
@@ -418,29 +351,34 @@ cors:
   allow_headers: ['*']
   allow_credentials: false
 
+# --- Elasticsearch: verified results, configs, realtime rules -------------
+# One cluster for all three, so enabled: false takes out the sinks, the config
+# store and the ES-backed filters together.
 elastic:
   enabled: true
   hosts:
     - http://localhost:9200
 
-# Persistence layer — durable storage for configs and prompts
+# Durable storage for what the API writes: alert configs, prompts, realtime rules.
 persistence:
   enabled: true
-  backend: "elasticsearch"               # Only "elasticsearch" supported for now
-  index_prefix: "ab-"                    # Indices created as ab-{collection}
-  # DEV/LOCAL ONLY. When persistence.enabled is false, a non-dev deployment
-  # fails readiness. Set this true to explicitly opt a dev/local profile
-  # into the non-durable in-process alert-config store instead.
+  backend: "elasticsearch"               # only elasticsearch for now
+  index_prefix: "ab-"                    # indices are ab-{collection}
+  # DEV/LOCAL ONLY. With persistence.enabled false a non-dev deployment fails
+  # readiness; set this to opt into the non-durable in-process store instead.
   dev_allow_in_memory: false
-  # elasticsearch:                       # Optional: override hosts (defaults to elastic.hosts above)
+  # elasticsearch:                       # optional; defaults to elastic.hosts
   #   hosts:
   #     - http://localhost:9200
 
-# Sink for VLM-enhanced results. The top-level `type` selects the transport for
-# both kinds: elastic (default) | kafka | redisStream | console. One sink serves
-# incidents and alerts, so `type` is only read here — a `type` nested under
-# `incident:` or `alert:` is ignored, and the service logs a warning if it finds
-# one. The per-kind blocks below carry the routing (index, stream, topic) only.
+# --- Sinks: where verified results go -------------------------------------
+# `type` picks the transport for both kinds — elastic (default) | kafka |
+# redisStream | console — and is read at the top level only; nested under
+# `incident:` or `alert:` it is ignored with a warning. Those blocks carry
+# routing (index, stream, topic) alone.
+#
+# The commented blocks below are this same sink on the other transports. Swap
+# one in for the active block rather than adding it alongside.
 vlm_enhanced_sink:
   incident:
     elastic:
@@ -449,10 +387,9 @@ vlm_enhanced_sink:
     elastic:
       index: "mdx-vlm-alerts"
 
-# Redis Streams output. Publishes the same protobuf messages as the kafka sink
-# wrapped in the MDX envelope, so the Logstash redis_stream input decodes these
-# streams exactly as it decodes the kafka topics. Set payload_format: json to
-# publish JSON instead.
+# Redis Streams: the same protobuf in the MDX envelope, so the Logstash
+# redis_stream input decodes it exactly as it does the Kafka topics. Set
+# payload_format: json to publish JSON instead.
 # vlm_enhanced_sink:
 #   type: "redisStream"
 #   redisStream:
@@ -469,11 +406,9 @@ vlm_enhanced_sink:
 #       message_type: "alert"
 #       key_field: "sensor.id"
 
-# Log-only output for local development. Needs no broker or Elasticsearch.
-# The whole document is written to the log, including the VLM reasoning about
-# people and vehicles, the VST video URL and the GPS fix. List the dotted paths
-# to mask in `redact` when the log is collected somewhere that should not hold
-# them; the verdict stays readable either way.
+# Console: no broker or Elasticsearch needed, for local development. Logs the
+# whole document — VLM reasoning, clip URL, GPS fix — so list dotted paths in
+# `redact` where the log is collected somewhere that should not hold them.
 # vlm_enhanced_sink:
 #   type: "console"
 #   console:
@@ -484,6 +419,8 @@ vlm_enhanced_sink:
 #       - info.videoSource
 #       - info.location
 
+# Kafka: key_field is the partition key, so keep it per-sensor to preserve
+# per-sensor ordering.
 # vlm_enhanced_sink:
 #   type: "kafka"
 #   incident:
@@ -497,6 +434,7 @@ vlm_enhanced_sink:
 #       message_type: "alert"
 #       key_field: "id"
 
+# Superseded shape: an incident-only sink. Use the `incident:` block above.
 # vlm_enhanced_incident_sink:
 #   type: "kafka"
 #   kafka:
@@ -504,8 +442,9 @@ vlm_enhanced_sink:
 #     message_type: "incident"
 #     key_field: "id"
 
+# --- Logging ---------------------------------------------------------------
 logging:
   level: "DEBUG"                                # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (applies to all components)
   format: "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
-  third_party_level: "WARNING"                  # Level for urllib3/httpcore/httpx/elasticsearch, etc.
-  truncate_base64: true                         # Truncate base64 data URLs in logs to prevent long output (env: LOG_TRUNCATE_BASE64)
+  third_party_level: "WARNING"   # urllib3/httpcore/httpx/elasticsearch, etc.
+  truncate_base64: true          # shorten base64 data URLs in logs (env: LOG_TRUNCATE_BASE64)

@@ -227,14 +227,132 @@ class TestValidateConfiguration:
 
     def test_full_redis_stream_config_is_valid(self):
         config = {
+            "redis": {"host": "my-redis"},
             "event_bridge": {
                 "sourceType": "redisStream",
                 "sinkType": "redisStream",
-                "redis_source": {"streams": {"incident": "mdx-incidents"}},
+                "redis_source": {
+                    "streams": {"incident": "mdx-incidents", "alert": "mdx-alerts"},
+                    "consumer_group": "g",
+                },
                 "redis_sink": {"streams": {"incidents": "out"}},
             }
         }
         assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_a_redis_transport_without_a_host_is_rejected(self):
+        """A blank host used to mean localhost.
+
+        The source tolerates an unreachable broker by design, so a deployment
+        pointed at a customer's Redis that rendered no host polled a loopback
+        address indefinitely with nothing raised. Helm refuses to render this;
+        this is the same refusal for the Compose path, which has no such gate.
+        """
+        config = {
+            "redis": {"host": ""},
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "streams": {"incident": "mdx-incidents", "alert": "mdx-alerts"},
+                    "consumer_group": "g",
+                },
+            },
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_a_section_level_host_satisfies_the_endpoint_requirement(self):
+        """The per-section overlay is a documented way to name the connection."""
+        config = {
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "host": "source-redis",
+                    "streams": {"incident": "mdx-incidents", "alert": "mdx-alerts"},
+                    "consumer_group": "g",
+                },
+            },
+        }
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_a_redis_section_missing_its_consumer_group_is_rejected(self):
+        """Section presence was the only check, so a section holding nothing
+        usable validated and then failed in the source constructor instead —
+        reported against a transport class rather than the config file."""
+        config = {
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "streams": {"incident": "mdx-incidents", "alert": "mdx-alerts"},
+                },
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_a_redis_section_with_no_streams_is_rejected(self):
+        config = {
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {"streams": {}, "consumer_group": "g"},
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_a_blank_stream_name_is_rejected(self):
+        """What a rendered config produces for an unset variable."""
+        config = {
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "streams": {"incident": "mdx-incidents", "alert": ""},
+                    "consumer_group": "g",
+                },
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_a_source_map_naming_one_kind_is_rejected(self):
+        """The constructor rejects it too, but this is where an operator meets
+        it: reported against the config file rather than a transport class."""
+        config = {
+            "redis": {"host": "my-redis"},
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "streams": {"incident": "mdx-incidents"},
+                    "consumer_group": "g",
+                },
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_the_sink_map_is_not_held_to_the_source_s_kind_coverage(self):
+        """Its keys are output route names, not event kinds, so asking whether
+        both kinds are present would reject every valid sink config."""
+        config = {
+            "redis": {"host": "my-redis"},
+            "event_bridge": {
+                "sourceType": "kafka",
+                "sinkType": "redisStream",
+                "redis_sink": {"streams": {"incidents": "out"}},
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_two_keys_sharing_one_stream_are_rejected(self):
+        config = {
+            "event_bridge": {
+                "sourceType": "kafka",
+                "sinkType": "redisStream",
+                "redis_sink": {"streams": {"incidents": "s", "enhanced_anomaly": "s"}},
+            }
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
 
     def test_redis_source_without_its_section_is_rejected(self):
         """Unlike Kafka there is no legacy block to fall back to, so booting
@@ -269,6 +387,220 @@ class TestValidateConfiguration:
     def test_blank_transports_validate_as_kafka(self):
         config = {"event_bridge": {"sourceType": "", "sinkType": ""}}
         assert EventBridgeFactory.validate_configuration(config) is True
+
+
+class TestWhatIsJudgedBeforeAnythingStarts:
+    """Two Redis mistakes used to be caught only where the client is built.
+
+    That is inside a forked pipeline child, which starts after the API child,
+    the metrics port and the topic-metadata wait — so a mistyped port or a
+    misspelt route key crash-looped children instead of failing the container,
+    and the operator got a traceback about a class rather than the key to fix.
+
+    Both are pure predicates over config, so they belong with the rest of what
+    ``validate_configuration`` answers before anything is started.
+    """
+
+    @staticmethod
+    def _redis_source(**redis):
+        return {
+            "redis": {"host": "my-redis", **redis},
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "streams": {"incident": "mdx-incidents", "alert": "mdx-alerts"},
+                    "consumer_group": "g",
+                },
+            },
+        }
+
+    @staticmethod
+    def _redis_terminal_sink(incident_route, alert_route, **sink_root):
+        return {
+            "redis": {"host": "my-redis"},
+            "event_bridge": {"sourceType": "kafka", "sinkType": "kafka"},
+            "vlm_enhanced_sink": {
+                "type": "redisStream",
+                "incident": {"redisStream": incident_route},
+                "alert": {"redisStream": alert_route},
+                **sink_root,
+            },
+        }
+
+    @pytest.mark.parametrize("port", [0, -1, 65536, 70000, "not-a-port"])
+    def test_a_port_that_is_not_a_port_is_rejected_here(self, port):
+        assert EventBridgeFactory.validate_configuration(
+            self._redis_source(port=port)
+        ) is False
+
+    @pytest.mark.parametrize("port", [None, "", 6380, "6380"])
+    def test_a_usable_or_absent_port_passes(self, port):
+        assert EventBridgeFactory.validate_configuration(
+            self._redis_source(port=port)
+        ) is True
+
+    def test_a_terminal_route_with_no_stream_is_rejected_here(self):
+        config = self._redis_terminal_sink(
+            {"stream": "mdx-vlm-incidents"}, {"message_type": "alert"},
+        )
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_both_kinds_on_one_stream_is_rejected_here(self):
+        config = self._redis_terminal_sink(
+            {"stream": "one"}, {"stream": "one"},
+        )
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_a_terminal_sink_with_no_host_is_rejected_here(self):
+        config = self._redis_terminal_sink(
+            {"stream": "in"}, {"stream": "out"},
+        )
+        config["redis"]["host"] = ""
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_the_sink_s_own_connection_block_can_supply_the_host(self):
+        """It overrides the top-level block for this sink, so it has to be read
+        the same way here or a valid split-instance config would be refused."""
+        config = self._redis_terminal_sink(
+            {"stream": "in"}, {"stream": "out"},
+            redisStream={"host": "results-redis"},
+        )
+        config["redis"]["host"] = ""
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_a_complete_terminal_sink_passes(self):
+        config = self._redis_terminal_sink(
+            {"stream": "in"}, {"stream": "out"},
+        )
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    @pytest.mark.parametrize("sink_type", [None, "elastic", "kafka"])
+    def test_the_other_terminal_sinks_are_not_route_checked(self, sink_type):
+        """Only redisStream has streams to name. Elasticsearch is the default and
+        Kafka reuses the broker config validated with the event bridge, so
+        neither should acquire a new way to fail."""
+        config = {
+            "event_bridge": {"sourceType": "kafka", "sinkType": "kafka"},
+            "vlm_enhanced_sink": {"type": sink_type},
+        }
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    @pytest.mark.parametrize("sink_type", ["mongo", "elasticsearc", "rabbitmq"])
+    def test_a_terminal_sink_nobody_implements_is_rejected_here(self, sink_type):
+        """"Not Redis" was as far as this looked, and everything unrecognized
+        answered that: the event bridge's alias table has no Elasticsearch entry,
+        so ``None`` meant both "not Redis" and "no idea", and only the first was
+        acted on. The typo then failed in the forked child."""
+        config = {
+            "event_bridge": {"sourceType": "kafka", "sinkType": "kafka"},
+            "vlm_enhanced_sink": {"type": sink_type},
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    @pytest.mark.parametrize("typo", ["incident", "incidentss", "enhanced-anomaly"])
+    def test_a_stream_key_the_sink_does_not_read_is_rejected_here(self, typo):
+        """A reader asks for the keys it knows, so a misspelt one is
+        indistinguishable from an absent one -- and absent means "do not publish
+        that kind". The route silently disappeared while the sink reported
+        healthy and logged one line per dropped message."""
+        config = {
+            "redis": {"host": "my-redis"},
+            "event_bridge": {
+                "sourceType": "kafka",
+                "sinkType": "redisStream",
+                "redis_sink": {"streams": {"enhanced_anomaly": "a", typo: "b"}},
+            },
+        }
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    @pytest.mark.parametrize("keys", [
+        ("enhanced_anomaly", "incidents"),
+        ("enhanced_anomaly_stream", "incidents_stream"),
+        ("incidents",),
+    ])
+    def test_the_spellings_the_sink_does_read_are_accepted(self, keys):
+        """Including the legacy ``<key>_stream`` suffix, and including a config
+        that publishes one kind -- absent is a choice for this section."""
+        config = {
+            "redis": {"host": "my-redis"},
+            "event_bridge": {
+                "sourceType": "kafka",
+                "sinkType": "redisStream",
+                "redis_sink": {
+                    "streams": {key: f"stream-{i}" for i, key in enumerate(keys)},
+                },
+            },
+        }
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_a_source_key_that_names_no_kind_is_rejected_here(self):
+        config = self._redis_source()
+        config["event_bridge"]["redis_source"]["streams"]["bogus"] = "b"
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    @pytest.mark.parametrize("key", ["heartbeat", "heartbeat_stream", "anomaly"])
+    def test_the_source_keys_that_are_not_kinds_are_still_accepted(self, key):
+        """The heartbeat stream is not an event kind, and ``anomaly`` is the
+        legacy spelling of ``alert``. Neither is advertised; both work."""
+        config = self._redis_source()
+        config["event_bridge"]["redis_source"]["streams"][key] = "extra"
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+
+class TestTheWholeConnectionIsJudgedHere:
+    """Not just the address. Everything that decides where a Redis component
+    connects, or whether it will be let in, is a pure predicate over config --
+    and each one that was left to the client crash-looped a forked child on a
+    traceback instead of failing the container with the key to fix.
+    """
+
+    @staticmethod
+    def _redis(**redis):
+        return {
+            "redis": {"host": "my-redis", **redis},
+            "event_bridge": {
+                "sourceType": "redisStream",
+                "sinkType": "kafka",
+                "redis_source": {
+                    "streams": {"incident": "i", "alert": "a"},
+                    "consumer_group": "g",
+                },
+            },
+        }
+
+    @pytest.mark.parametrize("db", ["one", "3.5", -1])
+    def test_a_database_that_is_not_one_is_rejected_here(self, db):
+        """``db: "one"`` coerced to 0 connects to a database that exists,
+        accepts every command and consumes an empty stream in the wrong place --
+        which reads as "the producer published nothing"."""
+        assert EventBridgeFactory.validate_configuration(self._redis(db=db)) is False
+
+    @pytest.mark.parametrize("db", [None, "", 0, 3, "3"])
+    def test_a_usable_or_absent_database_passes(self, db):
+        assert EventBridgeFactory.validate_configuration(self._redis(db=db)) is True
+
+    def test_a_password_file_that_is_not_there_is_rejected_here(self, tmp_path):
+        """Asking for a Secret and connecting without one turns a missing mount
+        into a NOAUTH on the first command, several layers from the mount that
+        caused it -- and in a forked child, so as a crash-loop."""
+        config = self._redis(password_file=str(tmp_path / "never-mounted"))
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_a_password_file_that_is_there_passes(self, tmp_path):
+        secret = tmp_path / "redis-password"
+        secret.write_text("s3cr3t\n")
+        config = self._redis(password_file=str(secret))
+        assert EventBridgeFactory.validate_configuration(config) is True
+
+    def test_an_unset_password_env_is_rejected_here(self, monkeypatch):
+        monkeypatch.delenv("REDIS_PASSWORD_THAT_IS_NOT_SET", raising=False)
+        config = self._redis(password_env="REDIS_PASSWORD_THAT_IS_NOT_SET")
+        assert EventBridgeFactory.validate_configuration(config) is False
+
+    def test_an_instance_with_no_password_at_all_still_passes(self):
+        """The ordinary local case: no `requirepass`, nothing named."""
+        assert EventBridgeFactory.validate_configuration(self._redis()) is True
 
 
 class TestSinkBaseContract:
