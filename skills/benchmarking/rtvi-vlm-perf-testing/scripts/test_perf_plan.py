@@ -142,6 +142,16 @@ class ContainerGuardTests(unittest.TestCase):
                 [conflict], run_id, project, [f"{project}-publisher"]
             )
 
+        original = container_guard._find_records
+        container_guard._find_records = lambda *_: [conflict]
+        try:
+            with self.assertRaisesRegex(ValueError, "refusing unlabeled container"):
+                container_guard.find_owned_containers(
+                    run_id, project, (name for name in [f"{project}-publisher"])
+                )
+        finally:
+            container_guard._find_records = original
+
 
 if __name__ == "__main__":
     unittest.main()
