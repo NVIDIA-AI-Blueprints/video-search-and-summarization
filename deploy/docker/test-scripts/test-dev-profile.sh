@@ -318,6 +318,14 @@ run_dry_run_up_and_check_generated_env() {
     if [[ $((i + 1)) -lt ${#checks[@]} ]]; then
       expected="${checks[$((i+1))]}"
     fi
+    if [[ "${var}" == "DRY_RUN_OUTPUT_CONTAINS" ]]; then
+      if ! grep -Fq "${expected}" "${out_file}"; then
+        echo "FAIL: ${name} (dry-run output missing '${expected}')"
+        ((failed++)) || true
+      fi
+      i=$((i + 2))
+      continue
+    fi
     local actual
     actual="$(get_generated_env_value "${gen_env}" "${var}")"
     if [[ -z "${actual}" ]]; then
@@ -1566,7 +1574,8 @@ run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects
   "HARDWARE_PROFILE" "GB300" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
-  "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
+  "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa" \
+  "DRY_RUN_OUTPUT_CONTAINS" "vss-rt-vlm:3.3.0-26.08.2-sbsa"
 
 run_dry_run_up_and_check_generated_env "generated.env Base defaults to Nemotron 3.5 Lightning on H100" "base" \
  -i 127.0.0.1 -H H100 -d -- \
