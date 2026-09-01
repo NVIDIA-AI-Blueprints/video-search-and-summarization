@@ -20,18 +20,18 @@
       "Routes to the videos mode of the calibration skill, runs the platform preflight before upload/calibration work, and stops instead of continuing automatically if the host is not supported.",
       "Auto-detects the settings (including calibration_settings.json), alignment, and layout files when present.",
       "Asks which detector to use (resnet vs transformer) when no settings file pins one, rather than silently defaulting.",
-      "Requires confirmed linear-media staging or completed UI rectification before calibration, runs post-processing after multi-camera calibration, and confirms the resolved plan before starting calibration."
+      "Requires confirmed linear-media staging or completed UI rectification (including the UI Videos Are Rectified path) before calibration, sets the UI floor-plan scale from a measured pixels-per-metre value when needed, runs READY multi-camera VGGT first unless AMC-only was requested, mandates post-processing after VGGT before AMC starts and again after AMC, and confirms the resolved plan before starting calibration."
     ]
   },
   {
     "id": "amc-calibrate-rtsp",
     "question": "Calibrate these live RTSP camera streams.",
     "expected_skill": "vss-generate-video-calibration",
-    "ground_truth": "Routes to the RTSP mode: runs the AMC platform preflight first, confirms VIOS is reachable, then captures each stream via /v1/rtsp/capture, polls the session to completion, ingests the recorded clips, and only then runs the standard calibration tail.",
+    "ground_truth": "Routes to the RTSP mode: runs the AMC platform preflight first, confirms VIOS is reachable, starts one synchronized capture via /v1/rtsp/capture, and polls through automatic ingest until INGESTED before running the standard calibration tail.",
     "expected_behavior": [
       "Routes to the RTSP mode of the calibration skill.",
       "Runs the platform preflight before VIOS probing/capture and stops instead of continuing automatically if the host is not supported.",
-      "Uses /v1/rtsp/capture, polls the session, ingests clips, then stages or rectifies media before calibrating and post-processes the multi-camera result."
+      "Uses /v1/rtsp/capture, polls STARTING/RECORDING/STOPPING/INGESTING through automatic ingest to INGESTED without calling a manual ingest endpoint, then stages or rectifies media before calibrating; reports MODEL_MISSING without invoking VGGT, otherwise runs READY VGGT first unless AMC-only was requested, post-processes VGGT, then runs and post-processes AMC again."
     ]
   }
 ]
