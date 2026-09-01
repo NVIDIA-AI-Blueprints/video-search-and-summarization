@@ -374,15 +374,37 @@ class VlmGroup(CommandGroup):
         resolved_end: str | None = inputs.end_time
         _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
         if inputs.sensor:
-            # Path B: fetch a clip from VIOS. Let typed VIOS exceptions propagate so
-            # guarded() maps them to the correct exit codes (3/5/7).
             if "vst" not in (deployment.services or {}):
                 raise config_mod.ConfigError(
                     "--sensor requires the `vst` service in the deployment. Re-run `vss configure --base-url <URL>`."
                 )
-            media_url, resolved_start, resolved_end = _resolve_vios_clip(
-                deployment, inputs.sensor, inputs.start_time, inputs.end_time
-            )
+            try:
+                media_url, resolved_start, resolved_end = _resolve_vios_clip(
+                    deployment, inputs.sensor, inputs.start_time, inputs.end_time
+                )
+            except Exception as _vios_exc:
+                # Write a terminal record before re-raising so vss vlm get/list can
+                # report the failure. guarded() still maps the exception to the right
+                # exit code (3 backend-unreachable, 5 not-found, 7 timeout, etc.).
+                _vios_fail_input: MemoryInput = adapter.build_input(
+                    prompt=inputs.prompt,
+                    sensor=inputs.sensor,
+                    start_time=inputs.start_time,
+                    end_time=inputs.end_time,
+                    media_url=None,
+                    intent=inputs.intent,
+                    model_params=model_params,
+                )
+                _write_terminal(
+                    memory,
+                    adapter,
+                    job_id=job_id,
+                    created_at=created_at,
+                    input_data=_vios_fail_input,
+                    status="failed",
+                    message=str(_vios_exc),
+                )
+                raise
             if _is_loopback_url(media_url):
                 # The VIOS clip URL resolves to localhost — reachable from this CLI
                 # host but blocked by rt_vlm's SSRF protection (or simply unreachable

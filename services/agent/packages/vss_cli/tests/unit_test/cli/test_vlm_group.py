@@ -561,6 +561,36 @@ def test_vios_backend_error_exits_backend_unreachable(
     assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
 
 
+def test_vios_resolution_failure_writes_terminal_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIOS clip resolution fails on a persist-enabled call, a terminal record must
+    be written so vss vlm get/list can report the failure. The exception still propagates
+    (guarded() maps it to the right exit code), but persistence must not be skipped."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+
+    # BackendUnreachableError propagates out of run(); guarded() turns it into SystemExit.
+    with pytest.raises((SystemExit, BackendUnreachableError)):
+        group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record written on VIOS resolution failure"
+    assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
+
+
 def test_num_frames_in_model_params(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
