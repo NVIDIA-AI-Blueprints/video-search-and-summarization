@@ -12,7 +12,7 @@ code, pre, .font-mono {
 }
 
 /* Dark mode overrides for Kaizen UI Foundations components.
-   Tied to Kaizen/Foundations v0.600.0 — update these rules when
+   Tied to Kaizen/Foundations v0.607.4 — update these rules when
    the CDN version in _document.tsx or the @nvidia/foundations-react-core
    dependency version changes. */
 .dark .nv-button.nv-button--kind-secondary {

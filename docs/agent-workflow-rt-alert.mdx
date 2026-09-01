@@ -29,7 +29,7 @@ The following diagram illustrates the real-time alert workflow architecture:
 
 - **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs
 - **VSS Agent UI:** Web UI with chat, video upload, and different views
-- **RTVI VLM:** [Real-Time VLM Microservice ](/real-time-vlm) for vision-language model inference used by real-time alerting
+- **RTVI VLM:** [Real-Time VLM Microservice ](/vss/system-components/vision-microservices/real-time-vlm) for vision-language model inference used by real-time alerting
 - **Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
 - **NVStreamer:** Video streaming service for video playback
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
@@ -38,12 +38,12 @@ The following diagram illustrates the real-time alert workflow architecture:
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [prerequisites](/prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [prerequisites](/vss/getting-started/prerequisites) for more details.
 
 ## Deploy
 
 <Note>
-For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/quickstart#configure-ngc-access) in the Quickstart guide.
+For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/vss/getting-started/quickstart#configure-ngc-access) in the Quickstart guide.
 </Note>
 
 ### With Agent Skills
@@ -51,11 +51,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and manage the real-time alerts workflow.
-First, install the `deploy` skill as described in [Agent Skills](/agent-skills) and make it
+First, install the `deploy` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
-and must meet the [Prerequisites ](/prerequisites).
+and must meet the [Prerequisites ](/vss/getting-started/prerequisites).
 
-The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/prerequisites#development-profile-gpu-requirements).
+The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 <Note>
@@ -70,7 +70,7 @@ Deploy the VSS alerts profile in real-time mode.
 
 #### Step 2: Add a Video Stream
 
-To manage real-time alerts from your agent, install the `vss-manage-alerts` skill as described in [Agent Skills](/agent-skills).
+To manage real-time alerts from your agent, install the `vss-manage-alerts` skill as described in [Agent Skills](/vss/vision-agent/agent-skills).
 Your agent can then start, stop, and inspect alerts through VSS with natural-language prompts, without requiring manual interaction with the UI.
 
 Add a stream with the `vss-manage-video-io-storage` skill.
@@ -82,7 +82,7 @@ Add RTSP stream <rtsp stream URL> to VIOS with the sensor name warehouse_sample.
 ```
 
 <Note>
-If you do not have an RTSP stream, you can use [NVStreamer ](/vios-nvstreamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
+If you do not have an RTSP stream, you can use [NVStreamer ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
 </Note>
 
 What the agent does:
@@ -199,8 +199,8 @@ Be sure to replace the VST_PUBLIC_URL_BASE listed above with your own VST public
 
 <Note>
 - Set the NGC CLI API key, then run the deploy commands for your GPU type.
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) and [VSS-Agent-Customization-configure-vlm ](/vss-agent/configure-vlm) for all LLM and VLM (local and remote) configuration options.
-  For RTVI-VLM configuration options, see [Real-Time VLM ](/real-time-vlm).
+- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+  For RTVI-VLM configuration options, see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm).
 - For advanced settings and Agent Customization, see the deploy command help.
 </Note>
 
@@ -301,7 +301,7 @@ deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H L40S \
 <Tab title="SPARK">
 </Tab>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) for remote LLM endpoint options.
+See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
 ``bash
 export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
@@ -313,7 +313,7 @@ deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H DGX-SPARK \
 <Tab title="IGX-THOR">
 </Tab>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) for remote LLM endpoint options.
+See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
 ``bash
 export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
@@ -325,7 +325,7 @@ deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H IGX-THOR \
 <Tab title="AGX-THOR">
 </Tab>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) for remote LLM endpoint options.
+See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
 ``bash
 export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
@@ -335,8 +335,8 @@ deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H AGX-THOR \
 
 </Tab>
 <Tab title="OTHER">
-See [Local LLM and VLM deployments on OTHER hardware](/faq) and
-[Local RTVI-VLM deployments on OTHER hardware](/faq)
+See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) and
+[Local RTVI-VLM deployments on OTHER hardware](/vss/appendix/faq)
 for known limitations and configuration constraints.
 
 </Tab>
@@ -383,7 +383,7 @@ your network speed, this may take a few minutes.
 - `-e`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host.
 
 <Note>
-When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:
@@ -396,7 +396,7 @@ Once all the containers are running, you can access the agent UI at `http://<HOS
 
 #### Step 2: Add a video stream
 
-Add an RTSP stream by clicking the **+ Add RTSP** button on the **Video Management** tab in the agent UI. If you do not have an RTSP stream, you can use [NVStreamer ](/vios-nvstreamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
+Add an RTSP stream by clicking the **+ Add RTSP** button on the **Video Management** tab in the agent UI. If you do not have an RTSP stream, you can use [NVStreamer ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
 
 For this profile, use the `warehouse_sample.mp4` stream. When prompting, ensure the sensor name matches exactly what you configured for the stream (for example, `warehouse_sample`).
 
@@ -410,7 +410,7 @@ By default, this profile only supports up to one stream being processed at a tim
 
 Launch the Agent UI at `http://<HOST_IP>:7777/`.
 
-Use the [Global Chat Sidebar](/vss-ui#global-chat-sidebar) to interact with the system:
+Use the [Global Chat Sidebar](/vss/system-components/user-interface#global-chat-sidebar) to interact with the system:
 
 - **Start an RTVI real-time alert** for a stream by specifying the alert type.
    - **Sample prompt:** *Start real-time alert for boxes dropped on sensor warehouse_sample*

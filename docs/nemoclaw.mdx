@@ -27,7 +27,7 @@ There are two host-side pieces working together:
    * `deploy_nemoclaw.ipynb` chooses the agent chat model provider, pins Docker to the tested package versions, installs or reuses the pinned NemoClaw release, applies the VSS policy, installs the VSS skills and workspace docs, registers the VSS Orchestrator MCP, and opens the Agent UI.
    * `deploy_vss_orchestrator.ipynb` prepares the host for local NIM-backed profiles, starts the MCP server, deploys and manages VSS from the Agent UI, and optionally verifies sandbox-to-host reachability.
 
-   See [Setup VSS and Skills ](/nemoclaw-deploy-vss-and-skills).
+   See [Setup VSS and Skills ](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
 2. **The VSS Orchestrator MCP server** - a host process started by `deploy_vss_orchestrator.ipynb` on port `9988`. It exposes nine `vss_orchestrator__*` tools that the NemoClaw agent calls to:
 
    * Generate compose artifacts.
@@ -35,6 +35,6 @@ There are two host-side pieces working together:
    * Inspect containers.
    * Fetch logs.
 
-   See [VSS Orchestrator MCP ](/vss-orchestrator-mcp).
+   See [VSS Orchestrator MCP ](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
-For per-variable details, provider choices, and optional verification steps, see [Additional Configuration ](/nemoclaw-configuration).
+For per-variable details, provider choices, and optional verification steps, see [Additional Configuration ](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).

@@ -69,7 +69,24 @@ nat mcp client tool list --url http://localhost:9000/mcp
 
 # Get details about a specific tool
 nat mcp client tool list --url http://localhost:9000/mcp --tool my_tool_1
-``` For complete MCP client documentation including authentication, timeout configuration, reconnection settings, and troubleshooting, see: [NAT MCP Client Documentation](https://docs.nvidia.com/nemo/agent-toolkit/1.3/workflows/mcp/mcp-client.html) ## Building Your Own MCP Server To create your own MCP server that can be consumed by the VSS Agent: - [MCP Specification](https://modelcontextprotocol.io/) - [NAT as MCP Server](https://docs.nvidia.com/nemo/agent-toolkit/1.3/workflows/mcp/mcp-server.html) ## Customizing Report Generation To learn more about customizing agent report generation, see: [vss-agent-report-generation](/vss-agent/vss-agent-report-generation) ## Adding a Knowledge Layer (RAG) Opt-in. A pluggable retrieval surface registered as `_type: knowledge_retrieval`,
+```
+
+For complete MCP client documentation including authentication, timeout configuration, reconnection settings, and troubleshooting, see: [NAT MCP Client Documentation](https://docs.nvidia.com/nemo/agent-toolkit/1.3/workflows/mcp/mcp-client.html)
+
+## Building Your Own MCP Server
+
+To create your own MCP server that can be consumed by the VSS Agent:
+
+- [MCP Specification](https://modelcontextprotocol.io/)
+- [NAT as MCP Server](https://docs.nvidia.com/nemo/agent-toolkit/1.3/workflows/mcp/mcp-server.html)
+
+## Customizing Report Generation
+
+To learn more about customizing agent report generation, see [Report Generation](/vss/vision-agent/vss-agents/report-generation).
+
+## Adding a Knowledge Layer (RAG)
+
+Opt-in. A pluggable retrieval surface registered as `_type: knowledge_retrieval`,
 exposed to the LLM as a named tool. Six backends ship today — two in the default
 agent image, four behind opt-in Python extras (marked *experimental* below):
 
@@ -84,7 +101,7 @@ agent image, four behind opt-in Python extras (marked *experimental* below):
 
 `frag_api` and `es_caption` also accept `verify_ssl` and `timeout`.
 `es_caption` is already wired into the Video Summarization profile as
-`lvs_caption_retrieval` (see [VSS-Agent-Profiles](/vss-agent/VSS-Agent-Profiles)).
+`lvs_caption_retrieval` (see [VSS-Agent-Profiles](/vss/vision-agent/vss-agents/agent-profiles)).
 
 <Note>
 Filtering by stream name is not supported today; by default it searches all matching
@@ -299,9 +316,9 @@ deployment.
 
 ## Related
 
-- [configure-vlm](/vss-agent/configure-vlm) — Configure local or remote VLMs including audio-enabled VLMs
-- [Model customization overview ](/models/model-customization) — Fine-tuning and swapping embedding models (RT-CV, RT-Embedding); see also [../models/index](/models)
-- [VSS-Agent-Configuration](/vss-agent/VSS-Agent-Configuration) - Configuration reference
-- [Video-Analytics-MCP-Server](/vss-agent/Video-Analytics-MCP-Server) - Video Analytics MCP tools reference
-- [vss-agent-report-generation](/vss-agent/vss-agent-report-generation) - Customizing report generation
-- [VSS-Agent-Evaluation](/vss-agent/VSS-Agent-Evaluation) - Test and evaluate custom agent behaviors
+- [configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) — Configure local or remote VLMs including audio-enabled VLMs
+- [Model customization overview ](/vss/system-components/models/model-customization-overview) — Fine-tuning and swapping embedding models (RT-CV, RT-Embedding); see also [../models/index](/vss/system-components/models)
+- [VSS-Agent-Configuration](/vss/vision-agent/vss-agents/agent-configuration) - Configuration reference
+- [Video-Analytics-MCP-Server](/vss/vision-agent/vss-agents/video-analytics-mcp-server) - Video Analytics MCP tools reference
+- [vss-agent-report-generation](/vss/vision-agent/vss-agents/report-generation) - Customizing report generation
+- [VSS-Agent-Evaluation](/vss/vision-agent/vss-agents/agent-evaluation) - Test and evaluate custom agent behaviors

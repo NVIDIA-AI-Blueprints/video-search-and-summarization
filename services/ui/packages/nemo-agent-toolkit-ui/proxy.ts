@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { SESSION_COOKIE_NAME } from './constants/constants';
 
-export default function middleware(req: NextRequest) {
-  // Skip middleware for static files and auth routes
+export default function proxy(req: NextRequest) {
+  // Skip proxy for static files and auth routes
   if (
     req.nextUrl.pathname.startsWith('/_next/') ||
     req.nextUrl.pathname.startsWith('/api/auth/') ||
