@@ -105,6 +105,26 @@ class _IdleReleaseLLM:
         return [{"free_mib": 1024, "total_mib": 2048}]
 
 
+class _RecordingProcessor:
+    def __init__(self):
+        self.messages = None
+        self.tokenizer = SimpleNamespace(
+            encode=lambda prompt, add_special_tokens=False: list(range(len(prompt)))
+        )
+
+    def apply_chat_template(self, messages, *args, **kwargs):
+        self.messages = messages
+        content = messages[-1]["content"]
+        return "".join(
+            item["text"] if item["type"] == "text" else f"<{item['type']}>" for item in content
+        )
+
+
+class _FakeSamplingParams:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
 def _make_model(message):
     model = VllmCompatible.__new__(VllmCompatible)
     model._llm = _FailingLLM(message)
@@ -127,6 +147,9 @@ class _CompletedFuture:
     def result(self):
         return self._value
 
+    def add_done_callback(self, callback):
+        callback(self)
+
 
 async def _run_process_async_vllm(model):
     await model.process_async_vllm(
@@ -137,9 +160,13 @@ async def _run_process_async_vllm(model):
     )
 
 
-def test_qwen3vl_chat_template_disables_thinking_by_default():
+@pytest.mark.parametrize(
+    "architecture",
+    ["Qwen3VLForConditionalGeneration", "Cosmos3EdgeForConditionalGeneration"],
+)
+def test_reasoning_chat_template_disables_thinking_by_default(architecture):
     model = VllmCompatible.__new__(VllmCompatible)
-    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._model_architecture = architecture
 
     assert model._get_apply_chat_template_kwargs(VlmGenerationConfig()) == {
         "enable_thinking": False
@@ -147,6 +174,21 @@ def test_qwen3vl_chat_template_disables_thinking_by_default():
     assert model._get_apply_chat_template_kwargs(VlmGenerationConfig(enable_reasoning=True)) == {
         "enable_thinking": True
     }
+
+
+@pytest.mark.parametrize(
+    ("architecture", "expected_types"),
+    [
+        ("Cosmos3EdgeForConditionalGeneration", ["video", "text"]),
+        ("UnrelatedForConditionalGeneration", ["text", "video"]),
+    ],
+)
+def test_video_message_content_preserves_model_prompt_order(architecture, expected_types):
+    content = vllm_compatible_model._build_video_message_content(
+        "Describe the video.", "other", architecture
+    )
+
+    assert [item["type"] for item in content] == expected_types
 
 
 @pytest.mark.parametrize(
@@ -311,6 +353,69 @@ def test_optional_int_env_rejects_negative_values(monkeypatch):
         vllm_compatible_model._parse_optional_int_env("VLLM_KV_CACHE_MEMORY_BYTES")
 
 
+def test_limit_mm_per_prompt_defaults_to_existing_rtvi_shape(monkeypatch):
+    monkeypatch.delenv("VLLM_LIMIT_MM_PER_PROMPT_IMAGE", raising=False)
+    monkeypatch.delenv("VLLM_LIMIT_MM_PER_PROMPT_VIDEO", raising=False)
+    monkeypatch.delenv("VLLM_LIMIT_MM_PER_PROMPT_AUDIO", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_IMAGE", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_VIDEO", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_AUDIO", raising=False)
+    monkeypatch.delenv("NIM_MAX_IMAGES_PER_PROMPT", raising=False)
+    monkeypatch.delenv("NIM_MAX_VIDEOS_PER_PROMPT", raising=False)
+
+    assert vllm_compatible_model._get_limit_mm_per_prompt(False) == {
+        "image": 1,
+        "video": 1,
+    }
+    assert vllm_compatible_model._get_limit_mm_per_prompt(True) == {
+        "image": 1,
+        "video": 1,
+        "audio": 1,
+    }
+
+
+def test_limit_mm_per_prompt_uses_rtvi_aliases(monkeypatch):
+    monkeypatch.setenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_IMAGE", "30")
+    monkeypatch.setenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_VIDEO", "2")
+    monkeypatch.setenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_AUDIO", "3")
+
+    assert vllm_compatible_model._get_limit_mm_per_prompt(True) == {
+        "image": 30,
+        "video": 2,
+        "audio": 3,
+    }
+
+
+def test_limit_mm_per_prompt_accepts_nim_env_aliases(monkeypatch):
+    monkeypatch.setenv("NIM_MAX_IMAGES_PER_PROMPT", "30")
+    monkeypatch.setenv("NIM_MAX_VIDEOS_PER_PROMPT", "0")
+
+    assert vllm_compatible_model._get_limit_mm_per_prompt(False) == {
+        "image": 30,
+        "video": 0,
+    }
+
+
+def test_limit_mm_per_prompt_prefers_rtvi_alias_over_nim_alias(monkeypatch):
+    monkeypatch.setenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_IMAGE", "12")
+    monkeypatch.setenv("NIM_MAX_IMAGES_PER_PROMPT", "30")
+
+    assert vllm_compatible_model._get_limit_mm_per_prompt(False)["image"] == 12
+
+
+def test_limit_mm_per_prompt_rejects_invalid_values(monkeypatch):
+    monkeypatch.setenv("NIM_MAX_IMAGES_PER_PROMPT", "-1")
+
+    with pytest.raises(ValueError, match="NIM_MAX_IMAGES_PER_PROMPT"):
+        vllm_compatible_model._get_limit_mm_per_prompt(False)
+
+    monkeypatch.delenv("NIM_MAX_IMAGES_PER_PROMPT", raising=False)
+    monkeypatch.setenv("RTVI_VLLM_LIMIT_MM_PER_PROMPT_VIDEO", "not-int")
+
+    with pytest.raises(ValueError, match="VLLM_LIMIT_MM_PER_PROMPT_VIDEO"):
+        vllm_compatible_model._get_limit_mm_per_prompt(False)
+
+
 def test_rtvi_vllm_env_sanitizer_moves_compatibility_aliases(monkeypatch):
     for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
         monkeypatch.delenv(source, raising=False)
@@ -430,21 +535,25 @@ def test_evs_token_budget_honors_an_explicit_value(monkeypatch):
 def test_rtvi_vllm_env_sanitizer_unsets_blank_import_env(monkeypatch):
     monkeypatch.setenv("VLLM_CONFIGURE_LOGGING", "")
     monkeypatch.setenv("VLLM_LOGGING_LEVEL", "")
+    monkeypatch.setenv("VLLM_NVFP4_GEMM_BACKEND", "")
 
     vllm_compatible_model._sanitize_rtvi_vllm_env()
 
     assert "VLLM_CONFIGURE_LOGGING" not in vllm_compatible_model.os.environ
     assert "VLLM_LOGGING_LEVEL" not in vllm_compatible_model.os.environ
+    assert "VLLM_NVFP4_GEMM_BACKEND" not in vllm_compatible_model.os.environ
 
 
 def test_rtvi_vllm_env_sanitizer_preserves_explicit_import_env(monkeypatch):
     monkeypatch.setenv("VLLM_CONFIGURE_LOGGING", "0")
     monkeypatch.setenv("VLLM_LOGGING_LEVEL", "debug")
+    monkeypatch.setenv("VLLM_NVFP4_GEMM_BACKEND", "marlin")
 
     vllm_compatible_model._sanitize_rtvi_vllm_env()
 
     assert vllm_compatible_model.os.environ["VLLM_CONFIGURE_LOGGING"] == "0"
     assert vllm_compatible_model.os.environ["VLLM_LOGGING_LEVEL"] == "debug"
+    assert vllm_compatible_model.os.environ["VLLM_NVFP4_GEMM_BACKEND"] == "marlin"
 
 
 def test_kv_cache_dtype_override_is_forwarded_when_supported(monkeypatch):
@@ -471,6 +580,21 @@ def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
 
     assert applied is True
     assert engine_args["attention_backend"] == "TRITON_ATTN"
+
+
+def test_cosmos3_edge_defaults_to_custom_attention_backend(monkeypatch):
+    monkeypatch.delenv("VLLM_ATTENTION_BACKEND", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_ATTENTION_BACKEND", raising=False)
+    engine_args = {}
+
+    applied = vllm_compatible_model._apply_attention_backend_override(
+        engine_args,
+        {"attention_backend"},
+        "Cosmos3EdgeForConditionalGeneration",
+    )
+
+    assert applied is True
+    assert engine_args["attention_backend"] == "CUSTOM"
 
 
 def test_num_preprocess_workers_defaults_to_parallel_video_value(monkeypatch):
@@ -503,7 +627,7 @@ def test_vllm_compilation_config_accepts_cudagraph_modes(monkeypatch, value):
     monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
     monkeypatch.setenv("VLLM_CUDAGRAPH_MODE", value)
 
-    assert vllm_compatible_model._get_vllm_compilation_config() == {
+    assert vllm_compatible_model._get_vllm_compilation_config("") == {
         "mode": "VLLM_COMPILE",
         "cudagraph_mode": value.upper(),
     }
@@ -516,7 +640,19 @@ def test_vllm_compilation_config_is_opt_in(monkeypatch, value):
     if value is not None:
         monkeypatch.setenv("VLLM_CUDAGRAPH_MODE", value)
 
-    assert vllm_compatible_model._get_vllm_compilation_config() is None
+    assert vllm_compatible_model._get_vllm_compilation_config("") is None
+
+
+def test_vllm_compilation_config_defaults_edge_to_compiled_execution(monkeypatch):
+    monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
+
+    assert vllm_compatible_model._get_vllm_compilation_config(
+        "Cosmos3EdgeForConditionalGeneration"
+    ) == {
+        "mode": "VLLM_COMPILE",
+        "cudagraph_mode": "PIECEWISE",
+    }
 
 
 def test_vllm_compilation_config_rejects_unknown_cudagraph_mode(monkeypatch):
@@ -524,7 +660,7 @@ def test_vllm_compilation_config_rejects_unknown_cudagraph_mode(monkeypatch):
     monkeypatch.setenv("VLLM_CUDAGRAPH_MODE", "invalid")
 
     with pytest.raises(ValueError, match="VLLM_CUDAGRAPH_MODE"):
-        vllm_compatible_model._get_vllm_compilation_config()
+        vllm_compatible_model._get_vllm_compilation_config("")
 
 
 def test_adaptive_preprocess_is_opt_in_and_shadowed_by_default(monkeypatch):
@@ -925,6 +1061,194 @@ def test_video_tensor_is_converted_to_numpy_before_vllm_processor():
     assert converted_video.shape == (2, 4, 4, 3)
     assert converted_metadata is video_metadata
     assert model._inflight_req_ids == []
+
+
+def test_multi_image_tensors_are_converted_to_numpy_before_vllm_processor(monkeypatch):
+    monkeypatch.setenv("RTVI_VLLM_RAW_IMAGE_TENSOR_INPUT", "false")
+
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._llm = _RecordingLLM()
+    model._inflight_req_ids = ["req-1"]
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._postprocess_vllm = lambda *args, **kwargs: model._llm.llm_inputs
+
+    image_inputs = [
+        torch.ones((4, 4, 3), dtype=torch.uint8),
+        np.zeros((4, 4, 3), dtype=np.uint8),
+    ]
+    llm_inputs = {"multi_modal_data": {"image": image_inputs}}
+
+    result = asyncio.run(
+        model.process_async_vllm(
+            llm_inputs,
+            SimpleNamespace(ignore_eos=False),
+            [],
+            "req-1",
+        )
+    )
+
+    converted_images = result["multi_modal_data"]["image"]
+    assert isinstance(converted_images, list)
+    assert len(converted_images) == 2
+    assert all(isinstance(image, np.ndarray) for image in converted_images)
+    assert converted_images[0].shape == (4, 4, 3)
+    assert model._inflight_req_ids == []
+
+
+def test_multi_image_tensors_can_stay_raw_for_vllm_processor(monkeypatch):
+    monkeypatch.setenv("RTVI_VLLM_RAW_IMAGE_TENSOR_INPUT", "true")
+
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._llm = _RecordingLLM()
+    model._inflight_req_ids = ["req-1"]
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._postprocess_vllm = lambda *args, **kwargs: model._llm.llm_inputs
+
+    image_inputs = [
+        torch.ones((4, 4, 3), dtype=torch.uint8),
+        torch.zeros((4, 4, 3), dtype=torch.uint8),
+    ]
+    llm_inputs = {"multi_modal_data": {"image": image_inputs}}
+
+    result = asyncio.run(
+        model.process_async_vllm(
+            llm_inputs,
+            SimpleNamespace(ignore_eos=False),
+            [],
+            "req-1",
+        )
+    )
+
+    raw_images = result["multi_modal_data"]["image"]
+    assert raw_images is image_inputs
+    assert all(isinstance(image, torch.Tensor) for image in raw_images)
+    assert model._inflight_req_ids == []
+
+
+def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
+    monkeypatch.setattr(vllm_compatible_model, "CPU_COPY_OTHER_THREAD", False)
+    monkeypatch.setattr(vllm_compatible_model, "ADD_TIMESTAMP_TO_PROMPT", False)
+    monkeypatch.setenv("RTVI_VLLM_DEFAULT_REPETITION_PENALTY", "1.0")
+    monkeypatch.setenv("RTVI_VLLM_DEFAULT_TOP_K", "0")
+    monkeypatch.setenv("RTVI_VLLM_MULTI_IMAGE_CHUNK_INPUT", "true")
+    monkeypatch.setenv("RTVI_VLLM_NO_REPEAT_NGRAM_SIZE", "0")
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm",
+        SimpleNamespace(SamplingParams=_FakeSamplingParams),
+    )
+
+    captured = {}
+    processor = _RecordingProcessor()
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._processor = processor
+    model._system_prompt = ""
+    model._vlm_model_type = "cosmos-reason3"
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._inflight_req_ids = []
+    model._event_loop = None
+    model._use_cuda_mm_tensor_ipc = False
+    model._cuda_mm_residency_lock = threading.Lock()
+    model._multimodal_preprocess_limiter = None
+    model._adaptive_preprocess_pending_submission_ids = set()
+    model._cuda_mm_pending_submission_ids = set()
+    model._cuda_mm_resident_units_by_request = {}
+
+    async def process_async_vllm(
+        llm_inputs,
+        sampling_params,
+        frame_times,
+        request_id,
+        chunk,
+        preserve_reasoning_tags,
+        stream_id=None,
+        generation_config=None,
+    ):
+        captured["llm_inputs"] = llm_inputs
+        captured["sampling_params"] = sampling_params
+        captured["frame_times"] = frame_times
+        captured["chunk"] = chunk
+        captured["preserve_reasoning_tags"] = preserve_reasoning_tags
+        return ["ok"]
+
+    def run_coroutine_threadsafe(coro, event_loop):
+        return _CompletedFuture(asyncio.run(coro))
+
+    monkeypatch.setattr(
+        vllm_compatible_model.asyncio,
+        "run_coroutine_threadsafe",
+        run_coroutine_threadsafe,
+    )
+    model.process_async_vllm = process_async_vllm
+
+    frames = torch.stack(
+        [
+            torch.zeros((4, 4, 3), dtype=torch.uint8),
+            torch.ones((4, 4, 3), dtype=torch.uint8),
+            torch.full((4, 4, 3), 2, dtype=torch.uint8),
+        ]
+    )
+    chunk = SimpleNamespace(file="rtsp://example/stream", streamId="stream-1")
+
+    future = model.generate(
+        "Describe the time-lapsed video.",
+        [chunk],
+        [frames],
+        [[0.0, 0.5, 1.0]],
+        VlmGenerationConfig(max_new_tokens=4, temperature=0, seed=7),
+    )
+
+    assert future.result() == ["ok"]
+    content = processor.messages[-1]["content"]
+    assert [item["type"] for item in content] == ["text", "image", "image", "image"]
+    assert content[0]["text"] == "Describe the time-lapsed video."
+    assert [item["image"] for item in content[1:]] == [
+        "frame_000000.jpg",
+        "frame_000001.jpg",
+        "frame_000002.jpg",
+    ]
+
+    llm_inputs = captured["llm_inputs"]
+    sampling_params = captured["sampling_params"]
+    assert "video" not in llm_inputs["multi_modal_data"]
+    assert len(llm_inputs["multi_modal_data"]["image"]) == 3
+    assert all(isinstance(image, np.ndarray) for image in llm_inputs["multi_modal_data"]["image"])
+    assert llm_inputs["multi_modal_uuids"] == {"image": [None, None, None]}
+    assert captured["frame_times"] == [0.0, 0.5, 1.0]
+    assert sampling_params.kwargs["top_k"] == 0
+    assert sampling_params.kwargs["temperature"] == 0
+    assert sampling_params.kwargs["repetition_penalty"] == 1.0
+    assert sampling_params.kwargs["seed"] == 7
+    assert "no_repeat_ngram_size" not in sampling_params.kwargs
+
+
+def test_cap_video_frames_accepts_numpy_frame_batch():
+    frames = np.arange(5 * 2 * 2 * 3, dtype=np.uint8).reshape(5, 2, 2, 3)
+
+    capped_frames, capped_times = vllm_compatible_model._cap_video_frames(
+        frames,
+        [0.0, 0.5, 1.0, 1.5, 2.0],
+        3,
+    )
+
+    assert isinstance(capped_frames, np.ndarray)
+    assert capped_frames.shape == (3, 2, 2, 3)
+    assert capped_times == [0.0, 1.0, 2.0]
+    np.testing.assert_array_equal(capped_frames[0], frames[0])
+    np.testing.assert_array_equal(capped_frames[-1], frames[-1])
+
+
+def test_cap_video_frames_accepts_list_frame_batch():
+    frames = ["zero", "one", "two", "three", "four"]
+
+    capped_frames, capped_times = vllm_compatible_model._cap_video_frames(
+        frames,
+        [0.0, 0.5, 1.0, 1.5, 2.0],
+        3,
+    )
+
+    assert capped_frames == ["zero", "two", "four"]
+    assert capped_times == [0.0, 1.0, 2.0]
 
 
 def test_warmup_runs_video_and_text_only_paths(monkeypatch):
