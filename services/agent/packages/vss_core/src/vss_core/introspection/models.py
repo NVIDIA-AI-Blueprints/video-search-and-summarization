@@ -195,6 +195,12 @@ class IntrospectionRequest(_StrictModel):
             raise ValueError("start_time must be before or equal to end_time")
         return self
 
+    @model_validator(mode="after")
+    def _complete_child_identity(self) -> Self:
+        if self.record_id is not None and (self.job_id is None or self.record_type is None):
+            raise ValueError("child identity requires job_id, record_type, and record_id together")
+        return self
+
 
 class MemoryEvidence(_StrictModel):
     """Stable public identity for one memory record used in synthesis."""

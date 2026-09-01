@@ -189,7 +189,7 @@ def test_introspect_help_exposes_exact_options() -> None:
     (
         ("--sensor", "warehouse"),
         ("--job-id", "summary-01"),
-        ("--record-id", "event-1"),
+        ("--job-id", "summary-01", "--record-type", "event", "--record-id", "event-1"),
         ("--record-type", "event", "--sensor", "warehouse"),
         ("--group", "summary", "--sensor", "warehouse"),
         ("--start-time", "2026-08-19T20:00:00Z", "--end-time", "2026-08-19T21:00:00+00:00"),
@@ -211,6 +211,8 @@ def test_introspect_accepts_each_selector(selector: tuple[str, ...]) -> None:
         ("--query", "What happened?"),
         ("--query", "What happened?", "--group", "summary"),
         ("--query", "What happened?", "--record-type", "event"),
+        ("--query", "What happened?", "--record-id", "event-1"),
+        ("--query", "What happened?", "--job-id", "summary-01", "--record-id", "event-1"),
         ("--query", "What happened?", "--start-time", "2026-08-19T20:00:00Z"),
         ("--query", "What happened?", "--end-time", "2026-08-19T21:00:00Z"),
         (
@@ -288,8 +290,14 @@ def test_introspect_no_memory_emits_json_and_exit_five() -> None:
 
 
 @pytest.mark.parametrize(
-    ("persist_by_default", "persistence_errors", "expected_exit"),
-    ((True, [], Exit.SUCCESS), (False, [], Exit.SUCCESS), (True, ["memory offline"], Exit.PARTIAL)),
+    ("persist_by_default", "persistence_errors", "failure_kind", "timed_out", "backend_errors", "expected_exit"),
+    (
+        (True, [], None, False, [], Exit.SUCCESS),
+        (False, [], None, False, [], Exit.SUCCESS),
+        (True, ["memory offline"], None, False, [], Exit.PARTIAL),
+        (True, ["memory offline"], "timeout", True, [], Exit.TIMEOUT),
+        (True, ["memory offline"], "backend_unreachable", False, ["rt-vlm offline"], Exit.BACKEND_UNREACHABLE),
+    ),
 )
 def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     monkeypatch: pytest.MonkeyPatch,
@@ -297,6 +305,9 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     injected_memory: Memory,
     persist_by_default: bool,
     persistence_errors: list[str],
+    failure_kind: str | None,
+    timed_out: bool,
+    backend_errors: list[str],
     expected_exit: Exit,
 ) -> None:
     import vss_cli.vlm.runner as runner_mod
@@ -323,14 +334,14 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     class FakeRunner:
         def __init__(self, _deployment: Any, **kwargs: Any) -> None:
             self.persistence_errors = persistence_errors
-            self.backend_errors: list[str] = []
-            self.timed_out = False
+            self.backend_errors = backend_errors
+            self.timed_out = timed_out
             observed["runner_memory"] = kwargs["memory"]
 
     async def fake_introspect(*_args: Any, **kwargs: Any) -> IntrospectionResult:
         observed["memory_service"] = kwargs["memory"]
         assert injected_memory.service.list_jobs() == []
-        return _introspection_result()
+        return _introspection_result().model_copy(update={"failure_kind": failure_kind})
 
     monkeypatch.setattr(config_mod, "load", lambda: deployment)
     monkeypatch.setattr(introspection_mod, "OpenAIIntrospectionClient", FakeClient)

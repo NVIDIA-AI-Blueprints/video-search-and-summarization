@@ -167,12 +167,12 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
             if close_memory is not None:
                 close_memory()
 
-    if runner.persistence_errors:
-        return result, Exit.PARTIAL
     if result.failure_kind == "timeout" or runner.timed_out:
         return result, Exit.TIMEOUT
     if result.failure_kind == "backend_unreachable" or runner.backend_errors:
         return result, Exit.BACKEND_UNREACHABLE
+    if runner.persistence_errors:
+        return result, Exit.PARTIAL
     return result, Exit.NOT_FOUND if result.status == "no_memory" else Exit.SUCCESS
 
 
@@ -324,9 +324,10 @@ def introspect_memory(
             group=cast("MemoryGroup | None", group),
         )
         has_time_range = request.start_time is not None and request.end_time is not None
-        if not (request.sensor or request.job_id or request.record_id or has_time_range):
+        if not (request.sensor or request.job_id or has_time_range):
             raise ValueError(
-                "provide useful scope with --sensor, --job-id, --record-id, or both --start-time and --end-time"
+                "provide useful scope with --sensor, --job-id, or both --start-time and --end-time; "
+                "child identity requires --job-id, --record-type, and --record-id together"
             )
         result, exit_code = asyncio.run(_execute_introspection(request))
     except Exception as error:

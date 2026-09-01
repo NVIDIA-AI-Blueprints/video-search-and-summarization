@@ -297,7 +297,68 @@ def test_timeout_recovery_does_not_retry_persist_or_hang_on_cleanup(
 
     assert caught.value.result.status == "timeout"
     assert caught.value.result.record == "stale"
-    assert elapsed < 3
+    assert elapsed < 1.2
+
+
+def test_timeout_terminal_write_is_bounded_by_shared_deadline() -> None:
+    class _SlowAnalyzer(_Analyzer):
+        async def analyze(self, **kwargs: Any) -> str:
+            self.calls.append(kwargs)
+            await asyncio.sleep(2)
+            return self.answer
+
+    class _HangingTerminalStore(InMemoryStore):
+        def upsert(self, record: Any) -> Any:
+            if record.job.status == "timeout":
+                time.sleep(2)
+            return super().upsert(record)
+
+    memory = memory_mod.Memory(MemoryService(_HangingTerminalStore()), index="test-memory")
+    started = time.monotonic()
+
+    with pytest.raises(VLMJobError) as caught:
+        _run(_SlowAnalyzer(), memory=memory, timeout_seconds=1)
+
+    assert caught.value.result.status == "timeout"
+    assert caught.value.result.record == "stale"
+    assert time.monotonic() - started < 1.2
+
+
+def test_cancellation_after_submission_closes_terminal_record() -> None:
+    started = asyncio.Event()
+
+    class _CancelledAnalyzer(_Analyzer):
+        async def analyze(self, **kwargs: Any) -> str:
+            self.calls.append(kwargs)
+            started.set()
+            await asyncio.Event().wait()
+            return self.answer
+
+    memory = _memory()
+
+    async def cancel_after_submission() -> VLMJobError:
+        task = asyncio.create_task(
+            run_vlm_job(
+                VLMJobRequest(sensor="warehouse", start_time=START, end_time=END, prompt="What happened?"),
+                _deployment(),
+                analyzer=_CancelledAnalyzer(),
+                analyzer_model="test-vlm",
+                memory=memory,
+                resolve_sensor_fn=_sensor,
+                recorded_segments_fn=_segments,
+            )
+        )
+        await started.wait()
+        task.cancel()
+        with pytest.raises(VLMJobError) as caught:
+            await task
+        return caught.value
+
+    error = asyncio.run(cancel_after_submission())
+
+    assert error.result.status == "timeout"
+    assert error.result.record == "closed"
+    assert memory.service.list_jobs()[0].job.status == "timeout"
 
 
 def test_later_phases_receive_remaining_timeout_not_a_fresh_budget() -> None:

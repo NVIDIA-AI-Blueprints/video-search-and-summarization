@@ -264,7 +264,13 @@ async def test_builds_internal_parent_child_query_with_all_request_selectors() -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("identity", ({"job_id": "search-1"}, {"record_id": "event-1"}))
+@pytest.mark.parametrize(
+    "identity",
+    (
+        {"job_id": "search-1"},
+        {"job_id": "search-1", "record_type": "search_hit", "record_id": "event-1"},
+    ),
+)
 async def test_exact_identity_uses_paraphrased_question_only_as_judge_prompt(identity: dict[str, str]) -> None:
     child = _record(
         query="Describe the worker's clothing.",
@@ -518,7 +524,7 @@ async def test_all_vlm_calls_fail_but_memory_supports_one_final_synthesis() -> N
 
 @pytest.mark.asyncio
 async def test_total_workflow_timeout_is_partial_and_does_not_synthesize_after_deadline() -> None:
-    result, _, synthesizer, _ = await _run(
+    result, _, synthesizer, runner = await _run(
         runner=_Runner(delay=2),
         settings=IntrospectionSettings(timeout_seconds=1),
     )
@@ -529,6 +535,7 @@ async def test_total_workflow_timeout_is_partial_and_does_not_synthesize_after_d
     assert "failure_kind" not in result.model_dump(mode="json")
     assert any("workflow timed out after 1 seconds" in gap for gap in result.unresolved_gaps)
     assert synthesizer.calls == []
+    assert 0 < runner.calls[0]["timeout_seconds"] <= 1
 
 
 @pytest.mark.asyncio

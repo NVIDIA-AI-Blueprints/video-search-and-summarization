@@ -50,8 +50,10 @@ async def introspect(
 ) -> IntrospectionResult:
     """Answer one request with one judge, bounded inspections, and one synthesis."""
     state = _WorkflowState()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + settings.timeout_seconds
     try:
-        async with asyncio.timeout(settings.timeout_seconds):
+        async with asyncio.timeout_at(deadline):
             return await _run_workflow(
                 request,
                 memory=memory,
@@ -60,6 +62,7 @@ async def introspect(
                 vlm_runner=vlm_runner,
                 settings=settings,
                 state=state,
+                deadline=deadline,
             )
     except TimeoutError:
         state.unresolved.extend(f"{_gap_label(gap)}: not inspected before workflow timeout" for gap in state.pending)
@@ -84,8 +87,9 @@ async def _run_workflow(
     vlm_runner: IntrospectionVLMRunner,
     settings: IntrospectionSettings,
     state: _WorkflowState,
+    deadline: float,
 ) -> IntrospectionResult:
-    identity_scoped = request.job_id is not None or request.record_id is not None
+    identity_scoped = request.job_id is not None
     query = MemoryQuery(
         # Identity selectors choose the evidence; the natural-language question
         # remains the judge/synthesis prompt and must not filter that evidence.
@@ -161,6 +165,7 @@ async def _run_workflow(
                 end_time=gap.end_time,
                 prompt=gap.question,
                 intent="introspection",
+                timeout_seconds=max(0.0, deadline - asyncio.get_running_loop().time()),
             )
             state.vlm_evidence.append(evidence)
         except Exception as error:

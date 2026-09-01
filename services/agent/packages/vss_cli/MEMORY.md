@@ -61,8 +61,10 @@ relevance before recency, while queries without text remain newest-first.
 
 `memory introspect` performs bounded, memory-first question answering and emits
 exactly one JSON object to stdout (compact by default, indented with `--pretty`).
-The query must be scoped by `--sensor`, `--job-id`, `--record-id`, or a complete
-`--start-time`/`--end-time` range. Time bounds accept ISO-8601 UTC instants only.
+The query must be scoped by `--sensor`, `--job-id`, or a complete
+`--start-time`/`--end-time` range. A child lookup requires its full public
+identity: `--job-id`, `--record-type`, and `--record-id`. Time bounds accept
+ISO-8601 UTC instants only.
 `--record-type event|search_hit|incident` and `--group summary|search|alert`
 refine a useful scope but do not establish one by themselves.
 

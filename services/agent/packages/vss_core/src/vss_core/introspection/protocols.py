@@ -41,6 +41,7 @@ class IntrospectionVLMRunner(Protocol):
         end_time: str,
         prompt: str,
         intent: str,
+        timeout_seconds: float | None = None,
     ) -> VLMEvidence: ...
 
 

@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 import secrets
+import threading
 import time
 from typing import TYPE_CHECKING
 from typing import Any
@@ -35,8 +37,7 @@ if TYPE_CHECKING:
     from vss_core.vlm import VLMAnalyzer
 
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-_TERMINAL_WRITE_ATTEMPTS = 3
-_TERMINAL_WRITE_BACKOFF_SECONDS = 0.5
+_TERMINAL_WRITE_RESERVE_SECONDS = 1.0
 _CLEANUP_TIMEOUT_SECONDS = 1.0
 
 
@@ -147,6 +148,7 @@ class IntrospectionVLMJobRunner:
         end_time: str,
         prompt: str,
         intent: str,
+        timeout_seconds: float | None = None,
     ) -> VLMEvidence:
         from vss_core.introspection import VLMEvidence
 
@@ -159,6 +161,9 @@ class IntrospectionVLMJobRunner:
             prompt=prompt,
             intent="introspection",
         )
+        effective_timeout = float(self._timeout_seconds)
+        if timeout_seconds is not None:
+            effective_timeout = min(effective_timeout, timeout_seconds)
         try:
             result = await run_vlm_job(
                 request,
@@ -166,7 +171,7 @@ class IntrospectionVLMJobRunner:
                 analyzer=self._analyzer,
                 analyzer_model=self._analyzer_model,
                 memory=self._memory,
-                timeout_seconds=self._timeout_seconds,
+                timeout_seconds=effective_timeout,
                 resolve_sensor_fn=self._resolve_sensor_fn,
                 recorded_segments_fn=self._recorded_segments_fn,
             )
@@ -237,7 +242,7 @@ async def run_vlm_job(
     analyzer: VLMAnalyzer | None = None,
     analyzer_model: str | None = None,
     memory: Any | None = None,
-    timeout_seconds: int = 180,
+    timeout_seconds: float = 180,
     resolve_sensor_fn: Callable[..., Awaitable[SensorRef]] | None = None,
     recorded_segments_fn: Callable[..., Awaitable[list[tuple[str, str]]]] | None = None,
 ) -> VLMJobResult:
@@ -247,13 +252,15 @@ async def run_vlm_job(
     from vss_core.vios import resolve_sensor
     from vss_core.vios import resolve_window
 
-    if timeout_seconds < 1:
-        raise ValueError("timeout_seconds must be >= 1")
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be > 0")
     resolver = resolve_sensor_fn or resolve_sensor
     segments_reader = recorded_segments_fn or recorded_segments
     vst_url = str(deployment.base_url).rstrip("/")
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_seconds
+    terminal_write_reserve = min(_TERMINAL_WRITE_RESERVE_SECONDS, timeout_seconds / 4)
+    work_deadline = deadline - terminal_write_reserve
 
     def remaining_seconds() -> float:
         left = deadline - loop.time()
@@ -272,27 +279,46 @@ async def run_vlm_job(
     adapter = VLMAdapter()
     persistence_error: str | None = None
 
-    def close(status: Literal["failed", "partial", "timeout"], detail: str) -> Literal["absent", "closed", "stale"]:
+    async def close(
+        status: Literal["failed", "partial", "timeout"],
+        detail: str,
+    ) -> Literal["absent", "closed", "stale"]:
         if memory is None or job_id is None or created_at is None or input_data is None:
             return "absent"
-        attempts = _TERMINAL_WRITE_ATTEMPTS
-        backoff_seconds = _TERMINAL_WRITE_BACKOFF_SECONDS
-        # Past the shared deadline, persistence is one best-effort write. The
-        # usual retry/sleep would return after the documented maximum.
-        if deadline - loop.time() <= 0:
-            attempts = 1
-            backoff_seconds = 0
-        closed = mark_terminal(
-            memory,
-            adapter,
-            job_id=job_id,
-            created_at=created_at,
-            input_data=input_data,
-            status=status,
-            message=detail,
-            attempts=attempts,
-            backoff_seconds=backoff_seconds,
-        )
+        write_finished: asyncio.Future[bool] = loop.create_future()
+
+        def write() -> None:
+            closed = mark_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status=status,
+                message=detail,
+                attempts=1,
+                backoff_seconds=0,
+            )
+
+            def report() -> None:
+                if not write_finished.done():
+                    write_finished.set_result(closed)
+
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(report)
+
+        # A daemon thread prevents a store's normal request timeout from extending
+        # the CLI's end-to-end deadline. The write may finish in the background,
+        # but the caller waits only for the reserved part of the shared budget.
+        threading.Thread(target=write, name="vss-vlm-terminal-write", daemon=True).start()
+        write_timeout = min(terminal_write_reserve, max(0.0, deadline - loop.time()))
+        if write_timeout <= 0:
+            return "stale"
+        try:
+            async with asyncio.timeout(write_timeout):
+                closed = await asyncio.shield(write_finished)
+        except TimeoutError:
+            return "stale"
         return "closed" if closed else "stale"
 
     def timeout_result(*, record: Literal["absent", "closed", "stale"]) -> VLMJobResult:
@@ -306,13 +332,13 @@ async def run_vlm_job(
             model=model or "vlm",
             persisted=record == "closed",
             record=record,
-            error=f"VLM job timed out after {timeout_seconds}s",
+            error=f"VLM job timed out after {timeout_seconds:g}s",
             persistence_error=persistence_error,
         )
 
     try:
         try:
-            async with asyncio.timeout(timeout_seconds):
+            async with asyncio.timeout_at(work_deadline):
                 sensor = await resolver(vst_url, request.sensor, timeout_seconds=remaining_seconds())
                 segments = await segments_reader(vst_url, sensor.stream_id, timeout_seconds=remaining_seconds())
                 if not segments:
@@ -378,7 +404,7 @@ async def run_vlm_job(
                         persisted = True
                     except Exception as error:
                         persistence_error = str(error)
-                        success_record = close("partial", f"completion persistence failed: {error}")
+                        success_record = await close("partial", f"completion persistence failed: {error}")
                 final_status: Literal["completed", "partial"] = "partial" if persistence_error else "completed"
                 return VLMJobResult(
                     job_id=job_id,
@@ -393,12 +419,18 @@ async def run_vlm_job(
                     persistence_error=persistence_error,
                 )
         except TimeoutError as error:
-            record = close("timeout", f"VLM job timed out after {timeout_seconds}s")
+            record = await close("timeout", f"VLM job timed out after {timeout_seconds:g}s")
+            raise VLMJobError(timeout_result(record=record), error) from error
+        except asyncio.CancelledError as error:
+            # An enclosing introspection deadline can cancel this runner after
+            # the submitted record is written. Close it within this runner's
+            # remaining budget before propagating a terminal timeout result.
+            record = await close("timeout", f"VLM job timed out after {timeout_seconds:g}s")
             raise VLMJobError(timeout_result(record=record), error) from error
         except Exception as error:
             if job_id is None or sensor is None or start_time is None or end_time is None:
                 raise
-            record = close("failed", str(error))
+            record = await close("failed", str(error))
             result = VLMJobResult(
                 job_id=job_id,
                 status="failed",
@@ -417,11 +449,13 @@ async def run_vlm_job(
         if owns_analyzer and analyzer is not None:
             close_analyzer = getattr(analyzer, "aclose", None)
             if close_analyzer is not None:
-                try:
-                    async with asyncio.timeout(_CLEANUP_TIMEOUT_SECONDS):
-                        await close_analyzer()
-                except Exception:
-                    pass
+                cleanup_timeout = min(_CLEANUP_TIMEOUT_SECONDS, max(0.0, deadline - loop.time()))
+                if cleanup_timeout > 0:
+                    try:
+                        async with asyncio.timeout(cleanup_timeout):
+                            await close_analyzer()
+                    except Exception:
+                        pass
 
 
 __all__ = [
