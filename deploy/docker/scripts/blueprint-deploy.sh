@@ -798,9 +798,11 @@ function process_args() {
         elif contains_element "${_p_arg}" "bp_wh" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"; then
           bp_profile="${_p_arg}"
           if [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; then
+            # bp_wh_auto_calib has one stack, so the profile decides the mode. The
+            # launchable still passes -m 2d/3d/mv3dt alongside it, so override with a
+            # warning rather than rejecting the combination.
             if contains_element "mode" "${options_provided[@]}" && [[ "${mode}" != "auto-calibration" ]]; then
-              echo "[ERROR] -m ${mode} conflicts with -p bp_wh_auto_calib (MODE=auto-calibration)"
-              ((_all_good++))
+              echo "[WARN] -m ${mode} ignored; -p bp_wh_auto_calib always deploys MODE=auto-calibration."
             fi
             mode="auto-calibration"
           fi
