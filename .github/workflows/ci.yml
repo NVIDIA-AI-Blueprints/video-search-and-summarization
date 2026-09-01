@@ -1488,6 +1488,7 @@ jobs:
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
           python3 .github/scripts/test_cancel_stale_pr_ci.py
+          python3 .github/scripts/test_cancel_downstream_pipeline.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py
@@ -1641,3 +1642,10 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400"  # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+      - name: Cancel downstream if this GitHub job was cancelled
+        if: cancelled()
+        env:
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+        run: python3 .github/scripts/cancel_downstream_pipeline.py

@@ -137,6 +137,13 @@ jobs:
           MAX_POLL_DURATION_SECONDS: "2400"
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
+      - name: Cancel downstream if this GitHub job was cancelled
+        if: cancelled() && steps.pr.outputs.skip != 'true'
+        env:
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+        run: python3 .github/scripts/cancel_downstream_pipeline.py
+
       # Unconditional, so every path that created the check also resolves it.
       - name: Complete OSRB check
         if: always()
