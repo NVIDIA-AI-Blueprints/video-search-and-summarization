@@ -490,6 +490,20 @@ function contains_element() {
   return 1
 }
 
+# Auto-calibration's compose profile list has no sdr-controller, so the warehouse SDRC
+# routing overrides must fall back to the direct VST defaults in services/vios/vst.env.
+# Commented here rather than in overrides.env so other warehouse profiles keep SDRC.
+function disable_sdrc_routing_in_env() {
+  local _generated_env="${1}"
+  local _key
+  for _key in VST_USE_SDRC STREAM_PROCESSOR_MODULE_ENDPOINT VST_NGINX_MODE; do
+    if grep -qE "^${_key}=" "${_generated_env}"; then
+      sed -i -E "s/^(${_key}=.*)/# \1/" "${_generated_env}"
+      echo "[INFO] Commented ${_key} for auto-calibration (direct VST mode from services/vios/vst.env)"
+    fi
+  done
+}
+
 # Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env (DGX-SPARK or --use-sbsa-images).
 function apply_sbsa_image_tags_to_env() {
   local _generated_env="${1}"
@@ -1009,6 +1023,11 @@ function state_up() {
     fi
   }
   ensure_generated_env_trailing_newline
+
+  if [[ "${deployment}" == "warehouse" ]] \
+    && { [[ "${bp_profile}" == "bp_wh_auto_calib" ]] || [[ "${mode}" == "auto-calibration" ]]; }; then
+    disable_sdrc_routing_in_env "${_generated_env}"
+  fi
 
   # Append compose-wide defaults for variables not already defined in the profile
   local _compose_defaults="${deployment_directory}/services/vios/compose-defaults.env"
