@@ -127,7 +127,7 @@ The search profile uses 2 base GPUs: GPU 0 is shared by RTVI-CV and VIOS Stream 
 - **Remote VLM:** 2 GPUs -- 2 base with LLM shared (VLM offloaded).
 - **Remote LLM + VLM:** 2 GPUs -- base services only.
 
-For each layout below, add the shown values to `deploy/docker/developer-profiles/dev-profile-search/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-search/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
 
 ```bash
 PROFILE=search
