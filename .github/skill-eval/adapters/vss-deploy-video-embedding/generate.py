@@ -3,44 +3,38 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-deploy-video-embedding skill.
 
-The vss-deploy-video-embedding skill brings up the VSS Video Embedding
-microservice (legacy name RT-Embed, Compose service `rtvi-embed`) as a
-standalone Docker Compose deployment. Unlike skills that probe an
-existing VSS deployment, this trial *is* the deploy — it runs from a
-bare Brev L40S instance and stands the service up itself. No
-`/vss-deploy-profile` prerequisite is required; the spec explicitly
-forbids invoking it.
+Supports two spec shapes:
 
-## Platform
+1. **Standalone deploy** (`standalone_deploy.json`) — a single
+   `expects` entry that brings up the RT-Embed microservice via Docker
+   Compose from a bare instance. Emits a flat `base/<platform>/` task.
 
-L40S only — the spec's `resources.platforms` declares L40S with mode
-`standalone`. The skill's `rtvi-embed` service is a single GPU
-microservice; fanning out across more expensive hardware would just burn
-budget without exercising new code paths.
+2. **Routing / knowledge** (`byom_routing.json`, or any multi-expects
+   spec with `gpu_count: 0`) — multiple `expects` entries that test
+   skill selection and knowledge without deploying anything. Emits a
+   step-chain layout `base/<platform>/step-<k>/`.
 
-## Spec shape
+The adapter auto-detects the layout from the spec's `expects` length and
+`resources.platforms[<platform>].gpu_count`.
 
-`skills/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
-single `expects` entry (one bring-up query + 9 checks). The adapter
-therefore emits a flat `base/<platform_short>/` task directory rather
-than a step-chain.
+## Directory layout (single-step)
 
-## Directory layout
+    <output>/base/<platform>/
+        task.toml, instruction.md, tests/, solution/, skills/, environment/
 
-    .github/skill-eval/datasets/vss-deploy-video-embedding/base/l40s/
-        task.toml
-        instruction.md
-        tests/test.sh
-        tests/generic_judge.py
-        tests/standalone_deploy.json
-        solution/solve.sh
-        skills/vss-deploy-video-embedding/    (full skill copy)
-        environment/Dockerfile                 (FROM scratch; BrevEnvironment takes over)
+## Directory layout (multi-step)
+
+    <output>/base/<platform>/step-1/
+        task.toml, instruction.md, tests/, solution/, skills/, environment/
+    <output>/base/<platform>/step-2/
+        ...
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-video-embedding/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-video-embedding \\
-        --skill-dir skills/vss-deploy-video-embedding
+        --skill-dir skills/vss-deploy-video-embedding \\
+        --spec skills/vss-deploy-video-embedding/evals/byom_routing.json \\
+        --platform RTXPRO6000BW
 """
 
 from __future__ import annotations
@@ -254,10 +248,9 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 def generate_task(
     platform: str, spec: dict, output_root: Path, skill_dir: Path
 ) -> None:
-    """Emit one Harbor task directory.
-
-    The spec has a single `expects` entry, so this collapses to a flat
-    `base/<platform_short>/` (no step-<k>/ subdirs)."""
+    """Emit one Harbor task directory per entry in spec['expects'] — i.e.
+    step-<k>/ subdirs under `base/<platform_short>/` per AGENTS.md § 4.
+    Single-step specs collapse to a flat `base/<platform_short>/`."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
     spec_name = (
@@ -267,106 +260,136 @@ def generate_task(
     spec = _render_spec(spec, platform)
     expects = spec.get("expects") or []
 
-    if len(expects) != 1:
-        print(
-            f"ERROR: vss-deploy-video-embedding adapter expects exactly one "
-            f"`expects` entry in {spec_name}; got {len(expects)}. "
-            "Switch to a step-chain layout if multi-step.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Detect the spec's gpu_count to decide whether this is a deploy
+    # trial (gpu_count >= 1, standalone bring-up) or a routing /
+    # knowledge trial (gpu_count == 0, no Docker / GPU work).
+    spec_platforms = (spec.get("resources") or {}).get("platforms") or {}
+    spec_gpu_count = (spec_platforms.get(platform) or {}).get("gpu_count")
+    if spec_gpu_count is None:
+        spec_gpu_count = 1  # safe default for existing standalone_deploy spec
+    is_deploy = spec_gpu_count >= 1
 
-    expect = expects[0]
-    step_dir = output_root / "base" / platform_short
-    step_dir.mkdir(parents=True, exist_ok=True)
+    for idx, expect in enumerate(expects, 1):
+        step_dir = output_root / "base" / platform_short
+        if len(expects) > 1:
+            step_dir = step_dir / f"step-{idx}"
+        step_dir.mkdir(parents=True, exist_ok=True)
 
-    # instruction.md — single-step query + environment notes. Do NOT
-    # leak the verifier's `checks[]` into the instruction; the verifier
-    # evaluates those independently from the spec shipped in tests/.
-    lines = [
-        PREAMBLE,
-        "",
-        f"Use the `/vss-deploy-video-embedding` skill on this bare `{platform}` host "
-        "to bring up the RT-Embed microservice standalone via Docker Compose. "
-        "Do not run `/vss-deploy-profile` or `scripts/dev-profile.sh`.",
-        "",
-        "## Query",
-        "",
-        expect.get("query", ""),
-        "",
-        "Run autonomously without prompting for confirmation.",
-        "",
-    ]
-    (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
+        # instruction.md — ONE step's query + environment notes ONLY.
+        # Never leak the verifier's `checks[]` into the instruction the
+        # agent sees — they live in the spec, are copied into tests/, and
+        # the verifier evaluates them independently.
+        if is_deploy:
+            lines = [
+                PREAMBLE,
+                "",
+                f"Use the `/vss-deploy-video-embedding` skill on this bare `{platform}` host "
+                "to bring up the RT-Embed microservice standalone via Docker Compose. "
+                "Do not run `/vss-deploy-profile` or `scripts/dev-profile.sh`.",
+                "",
+                f"## Query {idx} of {len(expects)}",
+                "",
+                expect.get("query", ""),
+                "",
+                "Run autonomously without prompting for confirmation.",
+                "",
+            ]
+        else:
+            # Non-deploy (routing / knowledge) spec — no Docker, no GPU.
+            lines = [
+                PREAMBLE,
+                "",
+                f"## Query {idx} of {len(expects)}",
+                "",
+                expect.get("query", ""),
+                "",
+                "Run autonomously without prompting for confirmation.",
+                "",
+            ]
+        (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
-    meta_lines = [
-        "[task]",
-        f'name = "nvidia-vss/vss-deploy-video-embedding-standalone-{platform_short}"',
-        f'description = "Bring up RT-Embed (rtvi-embed) standalone via Docker Compose on {platform}"',
-        f'keywords = ["vss-deploy-video-embedding", "rtvi-embed", "standalone", "{platform}"]',
-        "",
-        "[agent]",
-        "timeout_sec = 600.0",
-        "",
-        "[environment]",
-        "# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent",
-        "# can invoke /vss-deploy-video-embedding via the skill.",
-        'skills_dir = "/skills"',
-        "",
-        "[verifier.env]",
-        'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
-        'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        # ANTHROPIC_MODEL gives the verifier's judge model cascade
-        # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working fallback
-        # when JUDGE_MODEL is unset.
-        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
-        "",
-        "[metadata]",
-        'skill = "vss-deploy-video-embedding"',
-        # The trial IS the deploy; it brings up rtvi-embed standalone
-        # from a bare instance, not against an existing VSS profile.
-        f'platform = "{platform}"',
-        f'gpu_type = "{pspec["gpu_type"]}"',
-        f'brev_search = "{pspec["brev_search"]}"',
-        f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
-        f"check_count = {len(expect.get('checks') or [])}",
-        "",
-    ]
-    (step_dir / "task.toml").write_text("\n".join(meta_lines))
+        step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        task_kind = "standalone" if is_deploy else "routing"
+        meta_lines = [
+            "[task]",
+            f'name = "nvidia-vss/vss-deploy-video-embedding-{task_kind}-{platform_short}{step_suffix}"',
+            f'description = "Video embedding {task_kind} query {idx}/{len(expects)} on {platform}"',
+            f'keywords = ["vss-deploy-video-embedding", "rtvi-embed", "{task_kind}", "{platform}"]',
+            "",
+            "[agent]",
+            "timeout_sec = 600.0",
+            "",
+            "[environment]",
+            "# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent",
+            "# can invoke /vss-deploy-video-embedding via the skill.",
+            'skills_dir = "/skills"',
+            "",
+            "[verifier.env]",
+            'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
+            'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
+            # ANTHROPIC_MODEL gives the verifier's judge model cascade
+            # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working fallback
+            # when JUDGE_MODEL is unset.
+            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            "",
+            "[metadata]",
+            'skill = "vss-deploy-video-embedding"',
+            f'platform = "{platform}"',
+            f'gpu_type = "{pspec["gpu_type"]}"',
+            f'brev_search = "{pspec["brev_search"]}"',
+            f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
+            f"gpu_count = {spec_gpu_count}",
+            f"step_index = {idx}",
+            f"step_count = {len(expects)}",
+            f"check_count = {len(expect.get('checks') or [])}",
+            "",
+        ]
+        (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
-    # environment/ placeholder (not used with BrevEnvironment)
-    env_dir = step_dir / "environment"
-    env_dir.mkdir(exist_ok=True)
-    (env_dir / "Dockerfile").write_text("FROM scratch\n")
+        # environment/ placeholder (not used with BrevEnvironment)
+        env_dir = step_dir / "environment"
+        env_dir.mkdir(exist_ok=True)
+        (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
-    # tests/ — wrapper + generic judge + spec
-    tests_dir = step_dir / "tests"
-    tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
-    if GENERIC_JUDGE.exists():
-        shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-    spec_src = skill_dir / "evals" / spec_name
-    if not spec_src.exists():
-        legacy = skill_dir / "eval" / spec_name
-        if legacy.exists():
-            spec_src = legacy
-    if spec_src.exists():
-        shutil.copy(spec_src, tests_dir / spec_name)
-    else:
-        (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # tests/ — wrapper + generic judge + spec
+        tests_dir = step_dir / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        if GENERIC_JUDGE.exists():
+            shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        spec_src = skill_dir / "evals" / spec_name
+        if not spec_src.exists():
+            legacy = skill_dir / "eval" / spec_name
+            if legacy.exists():
+                spec_src = legacy
+        if spec_src.exists():
+            shutil.copy(spec_src, tests_dir / spec_name)
+        else:
+            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
 
-    # solution/
-    solution_dir = step_dir / "solution"
-    solution_dir.mkdir(exist_ok=True)
-    (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
+        # solution/
+        solution_dir = step_dir / "solution"
+        solution_dir.mkdir(exist_ok=True)
+        if is_deploy:
+            (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
+        else:
+            # Non-deploy (routing / knowledge) specs have no deploy step;
+            # the oracle defers to the verifier.
+            (solution_dir / "solve.sh").write_text(
+                "#!/bin/bash\n"
+                f"# Gold solution: vss-deploy-video-embedding routing query on {platform}\n"
+                "# Routing / knowledge spec — no deployment required.\n"
+                "# The verifier's LLM judge evaluates the agent's response.\n"
+                "echo 'Routing query — verifier will judge the response.'\n"
+            )
 
-    # skills/vss-deploy-video-embedding/ — full copy so the agent has the
-    # whole reference set available at runtime.
-    if skill_dir and skill_dir.exists():
-        skill_dest = step_dir / "skills" / "vss-deploy-video-embedding"
-        if skill_dest.exists():
-            shutil.rmtree(skill_dest)
-        shutil.copytree(skill_dir, skill_dest)
+        # skills/vss-deploy-video-embedding/ — full copy so the agent has the
+        # whole reference set available at runtime.
+        if skill_dir and skill_dir.exists():
+            skill_dest = step_dir / "skills" / "vss-deploy-video-embedding"
+            if skill_dest.exists():
+                shutil.rmtree(skill_dest)
+            shutil.copytree(skill_dir, skill_dest)
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,8 @@ description: >
   RT-Embed Video Embedding microservice. Covers Docker Compose bring-up,
   GPU and storage prerequisites, the `/v1` REST API (file uploads,
   text and video embeddings, live RTSP streams, health and metrics),
-  Redis/Kafka/OTel integration, common failure modes, and teardown.
+  Redis/Kafka/OTel integration, bring-your-own-model (BYOM) integration
+  such as VideoPrism, common failure modes, and teardown.
   Do not use for RT-CV, RT-VLM, VSS Agent, or general VSS deployment work
   that does not include RT-Embed.
 license: Apache-2.0
@@ -23,9 +24,10 @@ Use this skill when you need to:
 - Generate text or video embeddings against the Cosmos-Embed1-448p model.
 - Embed an uploaded file, an HTTP/S3/file/data URL, or a live RTSP stream.
 - Wire the service into a VSS deployment alongside Redis, Kafka, and OpenTelemetry.
+- Add, wire, or validate a custom/BYOM embedding backend such as VideoPrism.
 - Triage readiness, model-download, GPU, or stream-reconnection failures.
 
-**Trigger phrases:** `vss-deploy-video-embedding`, `RT-Embed`, `rtvi-embed`, `video embedding service`, `Cosmos-Embed1`, `embed live stream`, `embed video file`, `generate video embeddings`, `text embedding for video search`.
+**Trigger phrases:** `vss-deploy-video-embedding`, `RT-Embed`, `rtvi-embed`, `video embedding service`, `Cosmos-Embed1`, `embed live stream`, `embed video file`, `generate video embeddings`, `text embedding for video search`, `RT-Embed BYOM`, `VideoPrism embed`, `custom embed model`, `MODEL_IMPLEMENTATION_PATH`, `MODEL_REPOSITORY_SCRIPT_PATH`, `bring your own embedding model`.
 
 **Do not use this skill** for RT-CV, RT-VLM, VSS Agent, or general VSS
 deployment work unless the request deploys, operates, or integrates RT-Embed.
@@ -213,6 +215,18 @@ If `RTVI_EMBED_LOG_DIR` is bound to a host directory, log files are also availab
 
 `references/integrate-vss-deploy-video-embedding.md` documents the full integration contract.
 
+## BYOM And VideoPrism
+
+Use the BYOM path when the request adds or validates a custom RT-Embed model
+implementation instead of deploying the default Cosmos-Embed1 backend. The
+custom model loader is configured with `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`,
+and `MODEL_REPOSITORY_SCRIPT_PATH`; the implementation path must contain the
+`inference.py` wrapper loaded by RT-Embed.
+
+For the VideoPrism checklist, model contract, Docker/Helm overrides, and runtime
+validation steps, read
+[`references/videoprism-byom.md`](references/videoprism-byom.md).
+
 ## Error Handling
 
 API failures return JSON with `code` and `message` fields:
@@ -274,4 +288,5 @@ Full steps and cache warnings: [Tear Down](references/deploy-vss-deploy-video-em
 | [references/integrate-vss-deploy-video-embedding.md](references/integrate-vss-deploy-video-embedding.md) | Integration reference: peers, inputs/outputs, env vars, network, example Compose snippet. |
 | [references/rest-api.md](references/rest-api.md) | Full REST endpoint catalog with worked `curl` examples for file uploads, video/text embeddings, live streams, and health/metrics. |
 | [references/environment.md](references/environment.md) | Complete environment-variable matrix, including host-to-container renames and secret-sensitive variables. |
+| [references/videoprism-byom.md](references/videoprism-byom.md) | BYOM reference: VideoPrism/custom model contract, path overrides, Docker/Helm wiring, and validation checklist. |
 | [references/troubleshooting.md](references/troubleshooting.md) | Operational diagnostics for startup, model/cache, runtime, and observability issues. |

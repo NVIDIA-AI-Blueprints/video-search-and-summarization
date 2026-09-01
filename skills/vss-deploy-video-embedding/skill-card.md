@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when deploying, operating, or integrating the VSS 3.3.0 GA RT-Embed Video Embedding microservice. <br>
+Use this skill when deploying, operating, or integrating the VSS 3.3.0 GA RT-Embed Video Embedding microservice, including custom BYOM embedding backends such as VideoPrism. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying, operating, or integrating the VSS Video Embedding (RT-Embed) microservice to generate text and video embeddings using the Cosmos-Embed1-448p model for video search and summarization workflows. <br>
+Developers and engineers deploying, operating, or integrating the VSS Video Embedding (RT-Embed) microservice to generate text and video embeddings using Cosmos-Embed1-448p or a custom BYOM backend such as VideoPrism for video search and summarization workflows. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -24,11 +24,18 @@ Do not include secrets in prompts/logs/output; use least-privilege credentials; 
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
+Risk: BYOM wrappers can fail at startup if required `BaseVlmModel` abstract methods are missing or model paths point to the wrong implementation. <br>
+Mitigation: Follow the VideoPrism BYOM checklist, validate `/v1/models`, and run focused unit/API checks before deployment. <br>
+
+Risk: Video-only embedding models may not support text-to-video search semantics. <br>
+Mitigation: Require a compatible text encoder in the same embedding space or return a clear 4xx text-endpoint error. <br>
+
 ## Reference(s): <br>
 - [Deployment Reference](references/deploy-vss-deploy-video-embedding.md) <br>
 - [Integration Reference](references/integrate-vss-deploy-video-embedding.md) <br>
 - [REST API Reference](references/rest-api.md) <br>
 - [Environment Variable Matrix](references/environment.md) <br>
+- [VideoPrism BYOM Reference](references/videoprism-byom.md) <br>
 - [Troubleshooting Guide](references/troubleshooting.md) <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
@@ -47,7 +54,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 2 evaluation tasks (2 positive skill-activation cases) in NVSkills-Eval external profile. <br>
+Evaluated against standalone RT-Embed deployment and BYOM routing tasks in NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
