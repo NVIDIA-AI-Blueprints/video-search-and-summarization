@@ -248,7 +248,7 @@ uv run --isolated --no-project --python 3.12 \
   --with nbformat --with nbclient --with ipykernel -- \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
-    --require-output "Sandbox '<build-name>' ready."
+    --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready."
 ```
 
 ### Leave `VSS_PUBLIC_URL` unset on a Compose build
