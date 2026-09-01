@@ -108,14 +108,21 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      in-cluster VLM) plus Kafka/Elasticsearch/VST endpoint values. Full block:
      `warehouse-<mode>-app/README.md` §Alerts — layer it in during step 6.
    - **Stream count.** Ask if not given; it sizes the `NUM_STREAMS` cap in step 5.
-4. **Ask whether the install layers any values file(s) that customize `bp-configurator.env`**
-   (extra env vars, different defaults) — don't assume none exist just because the user didn't
-   mention one. If they're unsure, ask them to check for any `-f`/`--set` on `bp-configurator.env`
-   in their existing `helm upgrade --install` command. State the outcome back to them either way:
-   - **Yes, a values file exists** → note its path; it gets passed to the script via `-f` in the
-     next step.
+4. **Ask whether the install customizes `bp-configurator.env`** (extra env vars, different
+   defaults) — don't assume none exist just because the user didn't mention one. If they're
+   unsure, ask them to check their existing `helm upgrade --install` command for anything touching
+   `bp-configurator.env`, file-based or inline. State the outcome back to them either way:
+   - **Values file** (`-f my-values.yaml`) → note its path. It gets passed to the script via `-f`
+     in the next step *and* to `helm` itself in step 7 — the script's output only carries
+     `bp-configurator.env`, so anything else in that file (storage class, ingress, alerts flags)
+     still needs `helm` to see the original file directly. See
+     [`references/streams.md`](references/streams.md#if-your-install-customizes-bp-configuratorenv).
+   - **Inline** (`--set`/`--set-json` on `bp-configurator.env`) → the script only reads YAML files,
+     it can't consume a `--set` string. Have them write the equivalent into a small values file
+     (or `helm get values` an existing release and trim it down) and treat it as the values-file
+     case above — don't just drop the inline override on the floor because it doesn't fit `-f`.
    - **No customizations** → say so explicitly (e.g. "no custom `bp-configurator.env` overrides,
-     so `-f` isn't needed here") and proceed without it.
+     so nothing extra is needed here") and proceed without any of the above.
 5. **Run the stream-cap script** from the repo root:
    ```bash
    python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
@@ -135,8 +142,11 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
 6. **Prepare the rest of the values** — secrets, storage class, either ingress/`externalHost` or
    the NodePort values file per the choice made in step 2, and — if Alerts was enabled in step 3 —
    the four-flag Alerts values block from `warehouse-<mode>-app/README.md` §Alerts (Kafka/
-   Elasticsearch/VST endpoints included). See [`references/streams.md`](references/streams.md) for
-   the full `helm upgrade --install` command with the generated file layered in via `-f`.
+   Elasticsearch/VST endpoints included). If step 4 found a customizing values file, it goes here
+   too (`-f my-values.yaml`) — passing it only to the script in step 5 covers `bp-configurator.env`
+   but drops everything else in that file from the install. See
+   [`references/streams.md`](references/streams.md) for the full `helm upgrade --install` command
+   with the generated file layered in last via `-f`.
 7. **Install/upgrade**, chaining the generated file after any other `-f`/`--set` overrides so it
    wins on `bp-configurator.env`. The base command is the same either way; only the
    ingress-vs-NodePort overrides differ:
