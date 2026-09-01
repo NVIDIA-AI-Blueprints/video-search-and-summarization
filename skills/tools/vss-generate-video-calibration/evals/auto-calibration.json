@@ -24,7 +24,7 @@
       ]
     },
     {
-      "query": "Plan only; do not download from HuggingFace, run docker commands, restart containers, or modify files. The user asks for AMC with VGGT model refinement, but this automated check does not provide a real HF token or license-gated model access. Explain the VGGT staging requirements and then continue with the normal non-VGGT AMC deployment path.",
+      "query": "Plan only; do not download from HuggingFace, run docker commands, restart containers, or modify files. The user asks for AMC with independent VGGT calibration, but this automated check does not provide a real HF token or license-gated model access. Explain the VGGT staging requirements and then continue with the normal non-VGGT AMC deployment path.",
       "checks": [
         "The skill loaded `references/deploy-auto-calibration-service.md` and referenced its Step 2 VGGT path.",
         "The plan states VGGT requires accepted HuggingFace model access and a real HF read token, without printing or persisting a token.",
@@ -34,12 +34,12 @@
       ]
     },
     {
-      "query": "Plan only; do not run commands, start containers, call AMC APIs, download data, or modify files. The user asks to launch AMC if needed and run the bundled sample calibration test. The automated check does not provide the sample zip, so describe the exact end-to-end sample workflow and prerequisites without claiming the zip exists. Include: use the AMC sample-dataset workflow; check whether AMC is already ready; use the deploy workflow only if AMC is not ready, while still running the AMC platform preflight before sample upload/calibration; if preflight fails, stop and request existing/generated calibration artifacts or a supported calibration host; require sample zip at assets/sdg_08_2_sample_data_010926.zip; extract idempotently into assets/.cache/sdg_08_2_sample_data_010926/; confirm GET /v1/ready returns code == 0 before uploads; upload exactly four sorted cam_*.mp4 files, then alignment_data.json, then layout.png, then GT.zip before project verification; verify project_state == READY before calibration; start calibration with detector_type resnet for the sample; poll get_project_info until project_state == COMPLETED; fetch evaluation_statistics; and say the final report after execution will include project_id, UI URL, and sample metrics. Do not write helper scripts into the repo and do not print secrets.",
+      "query": "Plan only; do not run commands, start containers, call AMC APIs, download data, or modify files. The user asks to launch AMC if needed and run the bundled sample calibration test. The automated check does not provide the sample zip, so describe the exact end-to-end sample workflow and prerequisites without claiming the zip exists. Include: use the AMC sample-dataset workflow; check whether AMC is already ready; use the deploy workflow only if AMC is not ready, while still running the AMC platform preflight before sample upload/calibration; if preflight fails, stop and request existing/generated calibration artifacts or a supported calibration host; require sample zip at assets/sdg_08_2_sample_data_010926.zip; extract idempotently into assets/.cache/sdg_08_2_sample_data_010926/; confirm GET /v1/ready returns code == 0 before uploads; upload exactly four sorted cam_*.mp4 files, then alignment_data.json, then layout.png, then GT.zip; stage confirmed-linear sample media with POST /v1/linear_media and require rectification_state == COMPLETED; verify project_state == READY before calibration; start calibration with detector_type resnet for the sample; poll AMC completion; post-process the multi-camera project until postprocess_state == COMPLETED; fetch evaluation_statistics; and say the final report after execution will include project_id, UI URL, and sample metrics. Do not write helper scripts into the repo and do not print secrets.",
       "checks": [
         "The plan uses the AMC sample-dataset workflow, checks whether AMC is already ready, and uses the deploy workflow only when deployment is needed while still including the shared platform preflight and failure path.",
         "The plan requires the sample zip or an explicitly obtained sample zip before the sample run and extracts it idempotently before upload.",
         "The plan confirms /v1/ready returns code == 0 before uploads, then uploads four sorted cam_*.mp4 files plus alignment_data.json, layout.png, and GT.zip before project verification.",
-        "The plan verifies project_state == READY before calibration, starts sample calibration with detector_type=resnet, polls until COMPLETED, and fetches evaluation statistics when the workflow is executed.",
+        "The plan stages confirmed-linear sample media and requires rectification_state == COMPLETED, verifies project_state == READY before calibration, starts sample calibration with detector_type=resnet, polls AMC completion, post-processes until postprocess_state == COMPLETED, and fetches evaluation statistics when the workflow is executed.",
         "The plan says the final report after execution includes project ID, UI URL, and sample metrics, and does not print bearer tokens, NGC keys, HuggingFace tokens, or other secret values."
       ]
     },
@@ -49,7 +49,7 @@
         "The plan routes local MP4 calibration through the vss-generate-video-calibration videos workflow instead of inventing camera calibration files.",
         "The plan includes the AMC platform preflight before upload/calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
         "The plan creates the AMC project only after preflight/readiness pass, uploads local cam_*.mp4 files sorted by name, and captures the returned project_id.",
-        "The plan uploads alignment_data.json and layout.png plus optional GT.zip/focal lengths, verifies project_state == READY, starts calibration, polls until COMPLETED, and fetches evaluation statistics when ground truth is present."
+        "The plan uploads alignment_data.json and layout.png plus optional GT.zip/focal lengths, explicitly stages confirmed linear media or completes UI rectification before verification, verifies project_state == READY, starts calibration, polls AMC completion, post-processes the multi-camera project until postprocess_state == COMPLETED, and fetches evaluation statistics when ground truth is present."
       ]
     },
     {
@@ -58,7 +58,7 @@
         "The plan uses the AMC RTSP calibration workflow through vss-generate-video-calibration, not the local-video or sample workflow.",
         "The plan includes the AMC platform preflight before VIOS probing, capture, upload, or calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
         "The plan checks VIOS availability and VIOS_BASE_URL before capture and routes to vss-manage-video-io-storage only if VIOS needs to be brought up or repaired.",
-        "The plan preserves the ordered RTSP stream list, captures clips before ingesting them, uploads/verifies alignment and layout assets, verifies project_state == READY, starts calibration, polls until COMPLETED, and preserves AMC error output on failure."
+        "The plan preserves the ordered RTSP stream list, captures clips before ingesting them, uploads/verifies alignment and layout assets, explicitly stages confirmed linear media or completes UI rectification before verification, verifies project_state == READY, starts calibration, polls AMC completion, post-processes the multi-camera project until postprocess_state == COMPLETED, and preserves AMC error output on failure."
       ]
     }
   ]

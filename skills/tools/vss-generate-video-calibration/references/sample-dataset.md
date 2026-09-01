@@ -258,9 +258,10 @@ with open(gt_zip, "rb") as f:
 print(f"[5] Uploaded GT zip")
 
 # Shared Calibration Tail — see references/calibration-tail.md for the snippet
-# (verify_project → calibrate → poll → fetch evaluation_statistics)
+# (stage linear media → verify_project → calibrate → post-process → fetch evaluation_statistics)
 # Note: detector_type is hard-coded to "resnet" for the sample dataset.
 DETECTOR_TYPE = "resnet"
+MEDIA_MODE = "linear"  # bundled sample is confirmed already-linear media
 # Run the snippet from references/calibration-tail.md here.
 # Then fetch the evaluation statistics:
 r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
@@ -294,10 +295,12 @@ The microservice exposes an interactive OpenAPI UI at **`http://<HOST_IP>:<MS_PO
    | 3 | `POST /v1/upload_alignment/{project_id}` | `alignment_file`: `alignment_data/alignment_data.json` |
    | 4 | `POST /v1/upload_layout/{project_id}` | `layout_file`: `alignment_data/layout.png` |
    | 5 | `POST /v1/upload_gt_file/{project_id}` | `gt_file`: `GT.zip` |
-   | 6 | `POST /v1/verify_project/{project_id}` | — (expect `project_state: READY`) |
-   | 7 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` |
-   | 8 | `GET /v1/get_project_info/{project_id}` | Refresh every ~10 s until `project_state` = `COMPLETED` |
-   | 9 | `GET /v1/result/{project_id}/evaluation_statistics` | Read L2 distance + reprojection error |
+   | 6 | `POST /v1/linear_media/{project_id}` | only for confirmed linear bundled media; expect `rectification_state: COMPLETED` |
+   | 7 | `POST /v1/verify_project/{project_id}` | — (expect `project_state: READY`) |
+   | 8 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` |
+   | 9 | `GET /v1/get_project_info/{project_id}` | Refresh every ~10 s until AMC calibration completes |
+   | 10 | `POST /v1/postprocess/{project_id}` | multi-camera only; poll `postprocess_state` until `COMPLETED` |
+   | 11 | `GET /v1/result/{project_id}/evaluation_statistics` | Read L2 distance + reprojection error |
 
 This is the same sequence the Python script runs, just executed manually.
 

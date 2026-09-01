@@ -10,7 +10,7 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 - **AMC piggybacks on the `warehouse-operations` industry profile.** Warehouse calibration variants load the env automatically; running the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list requires the same env to be present.
 - **Default ports**: MS container at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**) published on `${VSS_AUTO_CALIBRATION_HOST_PORT}` (default **8010**); UI container port `5000` published on `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` (default `5000`).
 - **VIOS auto-wired.** When deployed with the warehouse auto-calibration variant, `VIOS_BASE_URL` is fetched from `${VST_INTERNAL_URL}`. No manual VIOS config is needed when VST runs in the same compose deployment.
-- **Optional VGGT model.** AMC works without VGGT, but model-based refinement needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
+- **Optional VGGT model.** AMC works without VGGT, but independent VGGT calibration needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
 
 ## What gets deployed
 
@@ -105,7 +105,7 @@ printenv NGC_CLI_API_KEY | docker login nvcr.io --username '$oauthtoken' --passw
 
 ### Step 2 — (Optional) Stage the VGGT model
 
-Skip this step unless the user explicitly asks for VGGT-refined output. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
+Skip this step unless the user explicitly asks for independent VGGT calibration. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
 
 **2a. Accept the model license** (one-time, manual): visit https://huggingface.co/facebook/VGGT-1B-Commercial and click "Agree and access repository".
 

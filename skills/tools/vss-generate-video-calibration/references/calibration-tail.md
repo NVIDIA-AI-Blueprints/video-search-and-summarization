@@ -1,6 +1,6 @@
 ## Shared Calibration Tail (Python)
 
-The verify → calibrate → poll → results sequence is identical across all
+The stage-linear-media → verify → calibrate → post-process → results sequence is identical across all
 three input modes (videos, RTSP, sample-dataset). The mode-specific
 references stop after their last upload step and reference this snippet.
 
@@ -12,10 +12,27 @@ import os
 import time
 from urllib.parse import urlparse
 
-# Verify the project before calibration
+# Stage source media before verification. Set MEDIA_MODE=linear only after
+# confirming every input is already linear/pinhole. For distorted media, set
+# MEDIA_MODE=rectified, complete/review/commit AMC UI Rectification, then
+# continue only when rectification_state is COMPLETED.
+media_mode = os.environ.get("MEDIA_MODE", globals().get("MEDIA_MODE", "")).strip().lower()
+info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
+if info.get("rectification_state") != "COMPLETED":
+    if media_mode == "linear":
+        staged = s.post(f"{BASE_URL}/linear_media/{project_id}")
+        staged.raise_for_status()
+        if staged.json().get("rectification_state") != "COMPLETED":
+            raise RuntimeError("Linear-media staging did not complete")
+    elif media_mode == "rectified":
+        raise RuntimeError("Complete and commit AMC UI Rectification, then re-run after rectification_state is COMPLETED")
+    else:
+        raise RuntimeError("Set MEDIA_MODE=linear for confirmed linear media, or MEDIA_MODE=rectified for AMC UI Rectification")
+
+# Verify the project after linear media is ready
 s.post(f"{BASE_URL}/verify_project/{project_id}").raise_for_status()
 
-# Step B — Start calibration (detector_type is a /calibrate argument; not consumed by /v1/config)
+# Step C — Start AMC calibration (detector_type is a /calibrate argument; not consumed by /v1/config)
 s.post(f"{BASE_URL}/calibrate/{project_id}",
        json={"detector_type": DETECTOR_TYPE}).raise_for_status()
 
@@ -29,7 +46,7 @@ print(f"    Detector: {DETECTOR_TYPE}")
 print(f"    UI:       http://{_host}:{_ui_port}")
 print(f"    Logs:     GET {BASE_URL}/amc/calibrate/{project_id}/log   (Swagger UI: {_root}/docs)")
 
-# Step C — Poll until COMPLETED (10–60 min typical). Poll every 10s, and print a
+# Step D — Poll until COMPLETED (10–60 min typical). Poll every 10s, and print a
 # heartbeat at least once a minute so a long RUNNING state still shows progress.
 start, last_state, last_beat = time.time(), "", 0.0
 while time.time() - start < 5400:
@@ -58,7 +75,23 @@ else:
         f"inspect GET {BASE_URL}/amc/calibrate/{project_id}/log or the UI at http://{_host}:{_ui_port}"
     )
 
-# Step D — Results + review
+# Step E — Layout post-processing (required for multi-camera success)
+project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
+if len(project.get("video_files", [])) > 1:
+    post = s.post(f"{BASE_URL}/postprocess/{project_id}")
+    post.raise_for_status()
+    post_start = time.time()
+    while time.time() - post_start < 1800:
+        post_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("postprocess_state")
+        if post_state == "COMPLETED":
+            break
+        if post_state == "ERROR":
+            raise RuntimeError(f"Layout post-processing failed for project {project_id}")
+        time.sleep(10)
+    else:
+        raise RuntimeError("Layout post-processing still running after 30 min")
+
+# Results + review
 print("\n=== Calibration complete ===")
 print(f"Project:  {project_id}")
 print(f"Detector: {DETECTOR_TYPE}")
