@@ -537,7 +537,15 @@ resolve_sparse4d_engine_file() {
         fi
     fi
 
-    sed -i "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml"
+    # config.yaml is bind-mounted as a single file, so plain `sed -i` fails with
+    # "Device or resource busy" (it renames a temp file over the mount point).
+    # Rewrite the existing inode in place instead: write the edited content to
+    # a temp file, then stream it back into the original path.
+    local tmp_config_yaml
+    tmp_config_yaml="$(mktemp)"
+    sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "$tmp_config_yaml"
+    cat "$tmp_config_yaml" > "$config_yaml"
+    rm -f "$tmp_config_yaml"
     echo "##### Updated Sparse4D engine_file -> ${engine_file} #####"
 }
 
