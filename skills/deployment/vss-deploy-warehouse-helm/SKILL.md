@@ -118,9 +118,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      still needs `helm` to see the original file directly. See
      [`references/streams.md`](references/streams.md#if-your-install-customizes-bp-configuratorenv).
    - **Inline** (`--set`/`--set-json` on `bp-configurator.env`) → the script only reads YAML files,
-     it can't consume a `--set` string. Move it into a values file first — write it by hand, or
-     `helm get values` an existing release and trim it down — then treat it as the values-file
-     case above.
+     it can't consume a `--set` string. Move it into a values file first: `helm get values`
+     an existing release and use that `bp-configurator.env` block as-is — don't trim it to just
+     the changed entries, since `deep_merge` replaces the whole list and would drop the rest of
+     the defaults. Then treat it as the values-file case above.
    - **No customizations** → say so explicitly (e.g. "no custom `bp-configurator.env` overrides,
      so nothing extra is needed here") and proceed without any of the above.
 5. **Run the stream-cap script** from the repo root:
