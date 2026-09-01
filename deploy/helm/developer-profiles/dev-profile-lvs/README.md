@@ -32,7 +32,7 @@ Switch to **external-service mode** only when the model endpoints already run ou
 
 ## Performance profile (`values-perf.yaml`, opt-in)
 
-`values-perf.yaml` runs the LVS profile with its highest-performance model configuration for dedicated-GPU deployments: the `nemotron-3-nano` (30B) LLM with reasoning disabled and the integrated Cosmos VLM quantized to the precision that matches the GPU (FP8 or NVFP4). Apply it explicitly on top of the base values:
+`values-perf.yaml` runs the LVS profile with its highest-performance model configuration for dedicated-GPU deployments: the `nemotron-35-lightning-30b-a3b` (30B) LLM with reasoning disabled and the integrated Cosmos VLM quantized to the precision that matches the GPU (FP8 or NVFP4). Apply it explicitly on top of the base values:
 
 ```bash
 helm upgrade --install vss . -f values-lvs.yaml -f values-perf.yaml -n vss --create-namespace
@@ -42,17 +42,15 @@ The overlay switches the LVS profile to:
 
 | Component | With `values-perf.yaml` |
 |-----------|--------------------------|
-| LLM | **`nemotron-3-nano`** (30B), reasoning disabled (`NIM_PASSTHROUGH_ARGS=--default-chat-template-kwargs {"enable_thinking":false}`); auto-sizes its own KV/concurrency per GPU. The NIMCache pins one profile — `nims.nemotron3.modelPrecision`, TP = the requested GPU count — so only that profile is cached, not every precision variant. |
+| LLM | **`nemotron-35-lightning-30b-a3b`** (30B), reasoning disabled (`NIM_PASSTHROUGH_ARGS=--default-chat-template-kwargs {"enable_thinking":false}`); auto-sizes its own KV/concurrency per GPU. The engine profile is pinned per platform by `nims.gpuType` (`NIM_MODEL_PROFILE`: INT4 on H100/L40S, NVFP4 on Blackwell), so only that profile is served. |
 | VLM | integrated Cosmos Reason3 Nano, precision selected by `nims.gpuType`: **FP8** on `H100`/`L40S`, **NVFP4** on `RTXPRO6000BW` |
 
-The overlay defaults to `nims.gpuType: H100` with **FP8** for both the LLM (`nims.nemotron3.modelPrecision`) and VLM. For **Blackwell (`RTXPRO6000BW`)**, override the platform, the LLM precision, and the VLM precision strings to **NVFP4** — the render-time guard (`templates/validate-vlm-precision.yaml`) fails `helm template`/`install` if any of them disagree with `nims.gpuType`:
+The overlay defaults to `nims.gpuType: H100`. The LLM engine profile follows `nims.gpuType` automatically; only the VLM precision strings need overriding. For **Blackwell (`RTXPRO6000BW`)**, set the platform and the VLM precision strings to **NVFP4** — the render-time guard (`templates/validate-vlm-precision.yaml`) fails `helm template`/`install` if they disagree with `nims.gpuType`:
 
 ```yaml
 # values-perf-blackwell.yaml — apply after values-perf.yaml
 nims:
   gpuType: RTXPRO6000BW
-  nemotron3:
-    modelPrecision: "nvfp4"
 global:
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix"
 rtvi:
@@ -275,7 +273,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
 | **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
 | **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
-| **`vss-summarization.llmService`** | **`nemotron-3.5-lightning-30b-a3b`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** as **`http://<release>-<value>:8000/v1`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. Keep it aligned with the enabled LLM NIM. |
+| **`vss-summarization.llmService`** | **`nemotron-35-lightning-30b-a3b`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** as **`http://<release>-<value>:8000/v1`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. Keep it aligned with the enabled LLM NIM. |
 | **`vss-summarization.vlmService`** | **`vss-rtvi-vlm`** | Service segment used to build **`VIA_VLM_ENDPOINT`** when **`global.vlmBaseUrl`** and **`vss-summarization.vlmBaseUrl`** are empty. Default LVS points this at RT-VLM, not a Cosmos NIM service. |
 | **`vss-summarization.llmBaseUrl`** | **`""`** | Optional **LVS-only** override of **`global.llmBaseUrl`**. |
 | **`vss-summarization.vlmBaseUrl`** | **`""`** | Optional **LVS-only** override of **`global.vlmBaseUrl`**. |
@@ -390,7 +388,7 @@ Run the port-forwards in separate terminals:
 ```bash
 kubectl port-forward -n <NAMESPACE> svc/vss-summarization 38111:38111
 kubectl port-forward -n <NAMESPACE> svc/vss-rtvi-vlm 8018:8000
-kubectl port-forward -n <NAMESPACE> svc/nemotron-3.5-lightning-30b-a3b 30081:8000
+kubectl port-forward -n <NAMESPACE> svc/nemotron-35-lightning-30b-a3b 30081:8000
 ```
 
 Then validate:

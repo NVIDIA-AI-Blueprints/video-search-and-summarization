@@ -149,7 +149,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vssIngress.phoenixPort`** | `6006` | Backend **`Service`** port for Phoenix when the Phoenix subchart is enabled. |
 | **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
 | **`agent.vss-agent.enabled`** | `true` | Set **`false`** to disable the **vss-agent** deployment only. |
-| **`agent.vss-agent.mountConfigEdge`** / **`mountEvalOutput`** | `true` / `true` | Parent **ConfigMap** includes **`config_edge.yml`** when the file exists; **`/vss-agent/eval-output`** emptyDir when **`mountEvalOutput`** is **`true`**. Agent YAML lives at **`configs/vss-agent/config.yml`** (flat path, no profile subfolders). |
+| **`agent.vss-agent.mountConfigEdge`** / **`mountEvalOutput`** | `false` / `true` | Parent **ConfigMap** includes **`config_edge.yml`** when the file exists; **`/vss-agent/eval-output`** emptyDir when **`mountEvalOutput`** is **`true`**. Agent YAML lives at **`configs/vss-agent/config.yml`** (flat path, no profile subfolders). |
 | **`agent.vss-agent.llmName`** | NGC model id (e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`**) | NGC catalog id for the LLM; must match the model deployed under **`nims`**. |
 | **`agent.vss-agent.vlmName`** | RT-VLM model id (e.g. **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`**) | Must match the model advertised by **`vss-rtvi-vlm`** `/v1/models`. |
 | **`agent.vss-agent.evalLlmJudgeName`** | `""` | Optional eval judge model id. When empty, the **vss-agent** subchart defaults to **`llmName`**. |

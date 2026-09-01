@@ -41,7 +41,7 @@ ES_PORT=9200
 LVS_DATABASE_BACKEND=vector_db
 
 # LLM Configuration
-LVS_LLM_MODEL_NAME=meta/llama-3.1-70b-instruct
+LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 LVS_LLM_BASE_URL=http://localhost:9233/v1
 NVIDIA_API_KEY=nvapi-xxxxx
 
