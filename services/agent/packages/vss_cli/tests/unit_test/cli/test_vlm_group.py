@@ -490,7 +490,9 @@ def test_run_file_source_uses_base64(
 
     captured: dict[str, Any] = {}
 
-    def _capture(_url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any) -> httpx.Response:
+    def _capture(
+        _url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any
+    ) -> httpx.Response:
         if content is not None:
             captured["json"] = _json.loads(b"".join(content))
         else:
@@ -700,8 +702,11 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
 
         yield _FakeStream()
 
-    def _fake_vlm_post(url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any) -> httpx.Response:
+    def _fake_vlm_post(
+        url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any
+    ) -> httpx.Response:
         import json as _json
+
         if content is not None:
             vlm_captured["json"] = _json.loads(b"".join(content))
         else:
@@ -722,9 +727,7 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
 
     # The VLM request must carry a data: URI, not the loopback URL.
     video_part = vlm_captured["json"]["messages"][0]["content"][0]["video_url"]["url"]
-    assert video_part.startswith("data:video/mp4;base64,"), (
-        f"expected base64 data URI, got {video_part[:60]!r}"
-    )
+    assert video_part.startswith("data:video/mp4;base64,"), f"expected base64 data URI, got {video_part[:60]!r}"
     assert _b64.b64decode(video_part.split(",", 1)[1]) == clip_bytes
 
     # The loopback URL must not be stored in the memory record.

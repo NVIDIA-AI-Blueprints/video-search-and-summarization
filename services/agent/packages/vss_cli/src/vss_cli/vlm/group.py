@@ -295,10 +295,15 @@ def _iter_base64_json(
     sentinel = f"__b64_{secrets.token_hex(8)}__"
     payload: dict[str, Any] = {
         "model": model,
-        "messages": [{"role": "user", "content": [
-            {"type": "video_url", "video_url": {"url": sentinel}},
-            {"type": "text", "text": prompt},
-        ]}],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video_url", "video_url": {"url": sentinel}},
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
         "num_frames_per_second_or_fixed_frames_chunk": num_frames,
     }
     if max_tokens is not None:
@@ -407,13 +412,16 @@ class VlmGroup(CommandGroup):
                         model_params=model_params,
                     )
                     _write_terminal(
-                        memory, adapter, job_id=job_id, created_at=created_at,
-                        input_data=clip_input, status="timeout", message=detail,
+                        memory,
+                        adapter,
+                        job_id=job_id,
+                        created_at=created_at,
+                        input_data=clip_input,
+                        status="timeout",
+                        message=detail,
                     )
                     click.echo(f"vss: {detail} (job {job_id})", err=True)
-                    return Result(
-                        body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id
-                    )
+                    return Result(body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id)
                 except Exception as exc:
                     # httpx.HTTPError (network/protocol failure) or OSError
                     # during the write — both signal VIOS is unreachable, not a
@@ -431,8 +439,13 @@ class VlmGroup(CommandGroup):
                         model_params=model_params,
                     )
                     _write_terminal(
-                        memory, adapter, job_id=job_id, created_at=created_at,
-                        input_data=clip_input, status="failed", message=detail,
+                        memory,
+                        adapter,
+                        job_id=job_id,
+                        created_at=created_at,
+                        input_data=clip_input,
+                        status="failed",
+                        message=detail,
                     )
                     click.echo(f"vss: {detail}", err=True)
                     return Result(
