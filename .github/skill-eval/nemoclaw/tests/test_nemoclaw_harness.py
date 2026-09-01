@@ -186,14 +186,20 @@ class NotebookRunnerTests(unittest.TestCase):
             )
         return namespace
 
-    def test_relay_observability_is_opt_in(self) -> None:
-        # The plugin records the agent's final message in its session-close
-        # summary whatever the capture flags say, so it must not default on.
-        self.assertIs(self._settings_namespace({})["RELAY_OBSERVABILITY"], False)
+    def test_relay_observability_is_on_by_default(self) -> None:
+        # Telemetry ships with the sandbox; the final-message caveat is stated
+        # at the setting rather than gated behind an opt-in.
+        self.assertIs(self._settings_namespace({})["RELAY_OBSERVABILITY"], True)
 
-    def test_relay_observability_switches_on_from_the_environment(self) -> None:
-        namespace = self._settings_namespace({"RELAY_OBSERVABILITY": "true"})
-        self.assertIs(namespace["RELAY_OBSERVABILITY"], True)
+    def test_relay_observability_switches_off_from_the_environment(self) -> None:
+        # The escape hatch is the half that has to keep working.
+        self.assertIs(
+            self._settings_namespace({"RELAY_OBSERVABILITY": "false"})["RELAY_OBSERVABILITY"],
+            False,
+        )
+
+    def test_relay_release_pins_plugin_and_binding(self) -> None:
+        namespace = self._settings_namespace({})
         # One pinned release drives both the plugin and its native binding.
         self.assertEqual(
             namespace["RELAY_PLUGIN_PACKAGE"], "npm:nemo-relay-openclaw@0.7.3"
