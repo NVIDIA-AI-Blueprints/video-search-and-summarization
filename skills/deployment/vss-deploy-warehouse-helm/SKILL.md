@@ -94,7 +94,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      don't guess:
      - `2d` — 2D object detection & tracking.
      - `3d` — standalone RTVI-CV-3D / multi-camera 3D tracking on calibrated inputs.
-     - `mv3dt` — Multi-View 3D Tracking warehouse profile.
+     - `mv3dt` — Multi-View 3D Tracking warehouse profile. Also needs
+       `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.maxExpectedSensors` set to the effective stream
+       count in step 6/7 (default `4`) — it's BEV fusion's own camera-count setting, separate from
+       `NUM_STREAMS`/`syncFileCount`, and the stream-cap script doesn't touch it.
    - **Alerts.** Not a fourth mode — an optional overlay, off by default, and only available on
      `2d` (`warehouse-2d-app` is the only chart with `vss-alert-bridge`/`agent`/`vss-agent-ui` as
      dependencies; `3d` and `mv3dt` don't have them). If the user is on `3d`/`mv3dt` and asks for
@@ -138,14 +141,17 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    - Without `--hardware-profile`, it runs `nvidia-smi` on GPU index 0 and maps the name to a
      `HARDWARE_PROFILE` using the same table as [`vss-deploy-profile`'s warehouse
      reference](../vss-deploy-profile/references/warehouse.md#supported-hardware). If detection
-     fails or the GPU isn't in that table, pass `--hardware-profile` explicitly.
+     fails or the GPU isn't in that table, pass `--hardware-profile` explicitly. `IGX-THOR`/
+     `DGX-SPARK` edge devices aren't supported by this Helm path.
    - It prints the effective (possibly capped) stream count and the `syncFileCount` value to keep
      in step (see [`references/streams.md`](references/streams.md) for why).
    - It never lowers the request silently without saying so — a cap is always logged to stderr.
 6. **Prepare the rest of the values** — secrets, storage class, either ingress/`externalHost` or
    the NodePort values file per the choice made in step 2, and — if Alerts was enabled in step 3 —
    the four-flag Alerts values block from `warehouse-2d-app/README.md` §Alerts (Kafka/
-   Elasticsearch/VST endpoints included). If step 4 found a customizing values file, it goes here
+   Elasticsearch/VST endpoints included). On `mv3dt`, also add
+   `--set rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.maxExpectedSensors=<effective-streams>` (same
+   value as `syncFileCount` from step 5). If step 4 found a customizing values file, it goes here
    too (`-f my-values.yaml`) — passing it only to the script in step 5 covers `bp-configurator.env`
    but drops everything else in that file from the install. See
    [`references/streams.md`](references/streams.md) for the full `helm upgrade --install` command

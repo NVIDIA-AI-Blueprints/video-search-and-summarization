@@ -68,10 +68,12 @@ helm upgrade --install wh <chart-dir> -n <namespace> \
 If the customization is inline (`--set`/`--set-json` on `bp-configurator.env`), the script can't
 read it — it only takes YAML files. Move it into a values file first. If a release is already
 installed, `helm get values wh -n <namespace> -o yaml` only returns what was explicitly set, not
-the full merged list — use `helm get values wh -n <namespace> -a -o yaml > my-values.yaml` instead
-and keep its `bp-configurator` block untrimmed — verify it wrote something first (`>` truncates on
-a failed `helm get values` too), and delete `my-values.yaml` once you're done, since `-a` dumps the
-release's full computed values, secrets included. Then use the values-file case above.
+the full merged list — use `helm get values wh -n <namespace> -a -o yaml > /tmp/my-values.yaml`
+instead (outside the repo checkout, so it can't get committed) and keep its `bp-configurator` block
+untrimmed. Verify it wrote something first — `>` truncates on a failed `helm get values` too. `-a`
+dumps the release's full computed values, secrets included: don't print/paste its contents, and
+`rm /tmp/my-values.yaml` as soon as you've pulled the `bp-configurator` block into the real values
+file used below. Then use the values-file case above.
 
 ## Without the skill
 
@@ -103,6 +105,6 @@ Canonical source: `deploy/docker/industry-profiles/warehouse-operations/blueprin
 for the `nvidia-smi` name → `HARDWARE_PROFILE` table. `compute_stream_cap.py` reads the YAML file
 directly rather than duplicating the table, so it can't drift from what Compose enforces.
 
-A `HARDWARE_PROFILE` (or a GPU `nvidia-smi` name) with no tuned section in `blueprint_config.yml`
-gets **no cap applied** — the script warns on stderr and passes the requested count through
-unchanged, matching Compose's own fallback behavior for untuned profiles.
+A known `HARDWARE_PROFILE` with no tuned section gets **no cap applied** — a warning, requested
+count passed through unchanged. An unrecognized `nvidia-smi` name is different: hard error, exits
+asking for `--hardware-profile` explicitly, not a warning.
