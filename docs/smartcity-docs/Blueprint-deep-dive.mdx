@@ -5,31 +5,31 @@ position: 1
 ---
 ## Introduction
 
-Smart City Blueprint is an application of the VSS 3.X framework to address video analytics for traffic analytics and smart city use cases at scale. It is designed to monitor traffic in a city and generate valuable real time insights to aid traffic engineering efforts. The blueprint consumes video input from multiple traffic cameras, detects vehicles and analyzes this metadata to produce alerts, metrics and reports that can be critical to traffic management in cities. The list of functionality supported include:
+Smart City Blueprint is an application of the VSS 3.3 framework to address video analytics for traffic analytics and smart city use cases at scale. It is designed to monitor traffic in a city and generate valuable real time insights to aid traffic engineering efforts. The blueprint consumes video input from multiple traffic cameras, detects vehicles and analyzes this metadata to produce alerts, metrics and reports that can be critical to traffic management in cities. The list of functionality supported includes:
 
 * Live camera views from traffic cameras
 
-* metrics:
+* Metrics:
    * Road segment speeds
    * Directional speeds
    * Flowrate
 
-* alerts detection including support for collisions, stalled vehicles and wrong way driving: specifically, the blueprint leverages two level architecture for alerts, whereby CV (computer vision) and behavior analytics is used in combination with vision language models to simultaneously support scale and accuracy.
+* Alert detection including support for collisions, stalled vehicles and wrong way driving. The blueprint uses a two-level architecture for alerts, in which CV (computer vision) and behavior analytics are combined with vision language models to support scale and accuracy simultaneously.
 
-* alert report generated using agents
+* Alert reports generated using agents
 
-* natural language based user interface driven using agents to query the system
+* A natural language user interface, driven by agents, for querying the system
 
 ## Microservice Based architecture
 
-The Smart City Blueprint uses the canonical VSS 3.0 architecture based on microservices integrated using message bus in combination with agents to facilitate user requests and interaction. The high-level architecture is shown in the figure below.
+The Smart City Blueprint uses the canonical VSS 3.3 architecture: microservices integrated over a message bus, combined with agents that serve user requests and interaction. The high-level architecture is shown in the figure below.
 
-![Smart City Blueprint Architecture](/assets/images/scbp/SCBP-ArchDeepDive.jpeg)
+![Smart City Blueprint architecture, showing the real-time streaming path and the agentic path](/assets/images/scbp/SCBP-ArchDeepDive.jpeg)
 
-At a high level, the blueprint architecture can be divided into realtime streaming component and agentic component. The realtime streaming component is responsible for ingesting camera feeds and processing then through a combination of computer vision, streaming analytics and vision language models (VLMs) based techniques. The agentic component is responsible for interpreting and executing user requests exposed through a UI.
+At a high level, the blueprint architecture divides into a realtime streaming component and an agentic component. The realtime streaming component ingests camera feeds and processes them through a combination of computer vision, streaming analytics and vision language model (VLM) based techniques. The agentic component interprets and executes user requests exposed through a UI.
 
-The microservices are deployed as containers using either Docker Compose.
-In line with the overall VSS design, the Smart City Blueprint provide a granular, flexible and scalable architecture using which various adaptations for bespoke traffic and smart city use cases through choice of relevant microservices, appropriate configuration, prompt tuning, model fine tuning and replacement.
+The microservices are deployed as containers using Docker Compose.
+In line with the overall VSS design, the Smart City Blueprint provides a granular, flexible and scalable architecture that supports bespoke traffic and smart city use cases through the choice of relevant microservices, appropriate configuration, prompt tuning, and model fine tuning or replacement.
 
 The various microservices used are now reviewed along with the salient configuration details appropriate for the blueprint.
 
@@ -41,12 +41,12 @@ This RTVI CV microservice takes streaming video inputs, performs inference and t
 
 The RTVI CV microservice supports two models out of the box for object detection used in the smart city blueprint: [RT-DETR](https://docs.nvidia.com/tao/tao-toolkit/6.25.11/text/cv_finetuning/pytorch/object_detection/rt_detr.html) and [Mask Grounding DINO](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/mask_grounding_dino):
 
-* RT-DETR is vision transformer based, and as part of the blueprint, a fine tuned checkpoint of the model for traffic use cases is being released. Further fine-tuning of the model can be performed using the recipe above.
+* RT-DETR is vision transformer based. The blueprint ships a checkpoint of the model fine tuned for traffic use cases. Further fine-tuning can be performed using the recipe in [Model Fine Tuning](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/model-fine-tuning).
 
-* Mask Grounding DINO (mG-DINO) is an open world detection model available through NVIDIA TAO, that can be further fine tuned based on the recipe above.
+* Mask Grounding DINO (mG-DINO) is an open world detection model available through NVIDIA TAO, which can also be fine tuned using that recipe.
 
-Note that RT-DETR has lower computational requirements than mG-DINO, and hence a larger stream count is supported.
-Refer to steps under [Install Smart City Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#install-smart-city-blueprint) for details on how to switch models, and configure various parameters such as precision, frequency of running detection and prompting.
+RT-DETR has lower computational requirements than mG-DINO, so it supports a larger stream count; it is the model the Smart City overlay selects by default (`MODEL_NAME_2D=RTDETR`).
+Refer to [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#deployment-options) for how to switch models, and to the RTVI CV microservice documentation for parameters such as precision, detection frequency and prompting.
 
 ### Tracking
 
@@ -90,17 +90,17 @@ Configuration of the microservice for Smart City Blueprint are listed below:
 
 ## Video IO & Storage Microservice
 
-Video IO & Storage (VIOS) microservice available as part of VSS 3.0 enables camera discovery, video ingestion, streaming, storage and replay. The Smart City Blueprint uses VIOS for interfacing with city/traffic cameras at scale, thereby providing a dependable, standardized mechanism by which downstream microservices can consume the camera streams.
+The Video IO & Storage (VIOS) microservice, available as part of VSS 3.3, enables camera discovery, video ingestion, streaming, storage and replay. The Smart City Blueprint uses VIOS for interfacing with city/traffic cameras at scale, thereby providing a dependable, standardized mechanism by which downstream microservices can consume the camera streams.
 
-View the [Video IO & Storage (VIOS) microservice docs](/vss/system-components/middleware/video-io-storage-vios) page for more details. There are various configuration options available for the VIOS microservice, some of which have been tuned for the Smart City blueprint. Configurations you may want to modify are listed below:
+View the [Video IO & Storage (VIOS) microservice docs](/vss/system-components/middleware/video-io-storage-vios) page for more details. There are various configuration options available for the VIOS microservice, some of which have been tuned for the Smart City blueprint. Configurations you may want to modify are listed below. All paths are relative to the repository root.
 
-* In `vst/smc/vst/configs/vst_config.json` you can modify the `always_recording` value under `data` to enable/disable default recording state for all streams added. By default, this is enabled and will record all streams added.
+* In `deploy/docker/services/vios/configs/vst_config.json` you can modify the `always_recording` value under `data` to enable/disable the default recording state for all streams added. By default, this is enabled and will record all streams added.
 
-* In `vst/smc/vst/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust maximum space video recordings will take up. By default, this is set to 1TB. To estimate how much storage you can check the [Storage Calculation](/vss/system-components/middleware/video-io-storage-vios/vios-microservices) section of the VIOS docs.
+* In `deploy/docker/services/vios/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust the maximum space video recordings will take up. The shipped default is `100000`, that is 100 GB, which sits comfortably inside the 1 TB minimum disk in the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites). Raise it only after confirming the disk can hold the new value alongside container images and Elasticsearch indices. To estimate how much you need, see the [Storage Calculation](/vss/system-components/middleware/video-io-storage-vios/vios-microservices) section of the VIOS docs.
 
-* In `vst/smc/vst/configs/rtsp_streams.json` you can enable/disable automatically adding streams from NVStreamer. By default, this is enabled and will add the first 100 streams available in your NVStreamer instance.
+* In `deploy/docker/services/vios/configs/rtsp_streams.json` you can enable/disable automatically adding streams from NVStreamer. By default, this is enabled and will add the first 100 streams available in your NVStreamer instance.
 
-* In `vst/smc/vst/.env` you can modify ports of the various internal VIOS services if needed.
+* In `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env` you can modify the host-published ports of the various VIOS services if they collide with something else on your host.
 
 ## Agents
 
@@ -140,15 +140,17 @@ The agent is configured through a YAML file that defines the general settings, f
 * **General**: Frontend settings (FastAPI), object stores, telemetry, and health endpoints
 * **Function Groups**: MCP client connections to Video Analytics and Video Storage microservices
 * **Functions**: Individual tool definitions for video understanding, report generation, chart creation, sensor operations, and sub-agents
-* **LLMs**: Configuration for primary reasoning LLM (NVIDIA Nemotron 3.5 Lightning 30B A3B - `nvidia/nemotron-3.5-lightning-30b-a3b`) and VLM (NVIDIA Cosmos3 Nano Reasoner - `nvidia/cosmos3-nano-reasoner`)
+* **LLMs**: Configuration for the primary reasoning LLM and the VLM, both referenced through the `LLM_NAME` and `VLM_NAME` environment variables rather than hard-coded model IDs
 * **Workflow**: Top-level agent orchestration with routing logic, retry settings, and iteration limits
 
 **Models Used**
 
-* **Primary LLM**: NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`) - Used for natural language understanding, query routing, and orchestrating sub-agents
-* **Vision Language Model (VLM)**: NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) - Used for video understanding and analyzing traffic incidents from video segments
+These are the values the profile sets for `LLM_NAME` and `VLM_NAME`. Because the config references the variables, overriding either variable changes the model the agent uses without editing the YAML.
 
-The configuration file can be found under `deployments/smartcities/vss-agent/configs/config.yml` once you download the resource from NGC.
+* **Primary LLM**: NVIDIA Nemotron 3.5 Lightning (`nvidia/nemotron-3.5-lightning-30b-a3b`) - Used for natural language understanding, query routing, and orchestrating sub-agents. It runs as a local NIM, reachable on the Compose network as `http://vss-llm-nim:8000` and published on host port `30081`.
+* **Vision Language Model (VLM)**: NVIDIA Cosmos3 Nano Reasoner (`nim_nvidia_cosmos3-nano-reasoner_bf16-final`) - Used for video understanding and analyzing traffic incidents from video segments. It is served through RT-VLM on host port `8018`.
+
+The configuration file is at `deploy/docker/industry-profiles/smartcities/vss-agent/configs/config.yml` in the blueprint repository.
 
 The configuration relies on several environment variables that must be set during deployment.
 For the complete explanation of the agent configuration YAML file and environment variables, please refer to: [VSS Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
