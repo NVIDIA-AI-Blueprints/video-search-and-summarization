@@ -336,9 +336,9 @@ Expected result:
 Run focused checks:
 
 ```bash
-python3 -m pytest services/rtvi/rt-embed/tests/rtvi_embed/test_rtvi_embed_server.py -q
-python3 -m pytest services/rtvi/rt-embed/tests/rtvi_embed/test_rtvi_embed_stream_handler.py -q
-python3 -m pytest services/rtvi/rt-embed/tests/rtvi_embed/test_create_triton_model_repo.py -q
+python3 -m pytest "${REPO_ROOT}/services/rtvi/rt-embed/tests/rtvi_embed/test_rtvi_embed_server.py" -q
+python3 -m pytest "${REPO_ROOT}/services/rtvi/rt-embed/tests/rtvi_embed/test_rtvi_embed_stream_handler.py" -q
+python3 -m pytest "${REPO_ROOT}/services/rtvi/rt-embed/tests/rtvi_embed/test_create_triton_model_repo.py" -q
 ```
 
 If the BYOM wrapper adds new behavior, add tests for:
