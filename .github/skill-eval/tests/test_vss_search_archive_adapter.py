@@ -12,7 +12,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ADAPTER_PATH = REPO_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
-SPEC_PATH = REPO_ROOT / "skills/operation/vss-search-archive/evals/search.json"
+SPEC_PATH = REPO_ROOT / "skills/operations/vss-search-archive/evals/search.json"
 
 
 def _load_adapter():

@@ -24,9 +24,9 @@ by default (RTXPRO6000BW).  Override with ``--platform``.
         tests/<spec>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/operation/vss-generate-video-report/
+        skills/operations/vss-generate-video-report/
         skills/deployment/vss-deploy-profile/
-        skills/operation/vss-manage-video-io-storage/
+        skills/operations/vss-manage-video-io-storage/
         environment/Dockerfile
 
 ``<profile>`` comes from ``spec.profile`` (here: ``base``).
@@ -34,10 +34,10 @@ by default (RTXPRO6000BW).  Override with ``--platform``.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-generate-video-report/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-generate-video-report \\
-        --skill-dir skills/operation/vss-generate-video-report \\
+        --skill-dir skills/operations/vss-generate-video-report \\
         --deploy-skill-dir skills/deployment/vss-deploy-profile \\
-        --video-io-skill-dir skills/operation/vss-manage-video-io-storage \\
-        --spec skills/operation/vss-generate-video-report/evals/base_profile_report.json
+        --video-io-skill-dir skills/operations/vss-manage-video-io-storage \\
+        --spec skills/operations/vss-generate-video-report/evals/base_profile_report.json
 """
 from __future__ import annotations
 
@@ -287,7 +287,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--skill-dir", required=True,
-        help="Path to skills/operation/vss-generate-video-report",
+        help="Path to skills/operations/vss-generate-video-report",
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
@@ -295,14 +295,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-        help="Path to skills/operation/vss-manage-video-io-storage (optional — spec env references VIOS video upload)",
+        help="Path to skills/operations/vss-manage-video-io-storage (optional — spec env references VIOS video upload)",
     )
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument(
         "--query-analytics-skill-dir", default=None,
-        help="Path to skills/operation/vss-query-analytics (optional — spec steps 5-7 use /vss-query-analytics)",
+        help="Path to skills/operations/vss-query-analytics (optional — spec steps 5-7 use /vss-query-analytics)",
     )
     parser.add_argument(
         "--spec", default=None,

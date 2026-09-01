@@ -14,15 +14,15 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EVAL_SPEC = REPO_ROOT / "skills/operation/vss-summarize-video/evals/lvs_profile_summarize.json"
+EVAL_SPEC = REPO_ROOT / "skills/operations/vss-summarize-video/evals/lvs_profile_summarize.json"
 ADAPTER = REPO_ROOT / ".github/skill-eval/adapters/vss-summarize-video/generate.py"
-SUMMARIZE_SKILL = REPO_ROOT / "skills/operation/vss-summarize-video/SKILL.md"
+SUMMARIZE_SKILL = REPO_ROOT / "skills/operations/vss-summarize-video/SKILL.md"
 SUMMARIZE_REFERENCES = (
-    REPO_ROOT / "skills/operation/vss-summarize-video/references/end-to-end-example.md",
-    REPO_ROOT / "skills/operation/vss-summarize-video/references/hitl-prompts.md",
-    REPO_ROOT / "skills/operation/vss-summarize-video/references/video-summarization-api.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/end-to-end-example.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/hitl-prompts.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/video-summarization-api.md",
 )
-CLI_REFERENCE = REPO_ROOT / "skills/operation/vss-summarize-video/references/cli_usage.md"
+CLI_REFERENCE = REPO_ROOT / "skills/operations/vss-summarize-video/references/cli_usage.md"
 #: The direct-API filter, for the paths that still call LVS by hand (the API
 #: reference and the approved VLM fallback).
 LVS_RESPONSE_FILTER = """{
@@ -39,8 +39,8 @@ CLI_RESPONSE_FILTER = """{
 }"""
 #: Documents that describe the ordered workflow, which now runs through the CLI.
 CLI_WORKFLOW_REFERENCES = (
-    REPO_ROOT / "skills/operation/vss-summarize-video/references/end-to-end-example.md",
-    REPO_ROOT / "skills/operation/vss-summarize-video/references/hitl-prompts.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/end-to-end-example.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/hitl-prompts.md",
 )
 
 
@@ -262,7 +262,7 @@ def test_live_lvs_calls_use_runtime_openapi_contract() -> None:
     summarize_skill_text = SUMMARIZE_SKILL.read_text()
     summarize_skill = " ".join(summarize_skill_text.split())
     api_reference = (
-        REPO_ROOT / "skills/operation/vss-summarize-video/references/video-summarization-api.md"
+        REPO_ROOT / "skills/operations/vss-summarize-video/references/video-summarization-api.md"
     ).read_text()
     normalized_reference = " ".join(api_reference.split())
 

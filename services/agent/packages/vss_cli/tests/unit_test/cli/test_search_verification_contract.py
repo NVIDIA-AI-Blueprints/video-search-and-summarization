@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
-SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operation" / "vss-search-archive"
-ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operation" / "vss-ask-video"
+SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
+ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-ask-video"
 SEARCH_ADAPTER = REPOSITORY_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
 
 
@@ -385,7 +385,7 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
             "--deploy-skill-dir",
             str(REPOSITORY_ROOT / "skills/deployment/vss-deploy-profile"),
             "--video-io-skill-dir",
-            str(REPOSITORY_ROOT / "skills/operation/vss-manage-video-io-storage"),
+            str(REPOSITORY_ROOT / "skills/operations/vss-manage-video-io-storage"),
             "--ask-video-skill-dir",
             str(ASK_VIDEO_SKILL),
             "--spec",

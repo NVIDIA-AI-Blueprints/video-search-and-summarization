@@ -34,9 +34,9 @@ Directory layout (one platform × mode per directory):
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
         --output-dir "$SCRATCH/datasets/vss-manage-alerts" \\
-        --skill-dir   skills/operation/vss-manage-alerts \\
+        --skill-dir   skills/operations/vss-manage-alerts \\
         --deploy-skill-dir skills/deployment/vss-deploy-profile \\
-        --spec        skills/operation/vss-manage-alerts/evals/alerts_vlm_real_time.json
+        --spec        skills/operations/vss-manage-alerts/evals/alerts_vlm_real_time.json
 """
 from __future__ import annotations
 
@@ -400,7 +400,7 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help='Dataset output root (e.g. "$SCRATCH/datasets/vss-manage-alerts")')
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/operation/vss-manage-alerts")
+                        help="Path to skills/operations/vss-manage-alerts")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/deployment/vss-deploy-profile (included so agent can diagnose issues)")
     parser.add_argument("--spec", default=None,

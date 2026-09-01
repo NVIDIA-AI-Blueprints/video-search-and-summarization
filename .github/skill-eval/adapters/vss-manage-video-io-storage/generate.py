@@ -5,7 +5,7 @@
 
 The vss-manage-video-io-storage skill exercises VIOS (VST) API calls — upload video, extract
 snapshot URL, extract clip URL, etc. The current spec
-([`skills/operation/vss-manage-video-io-storage/evals/vios_ops.json`]) **omits the `profile` field
+([`skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`]) **omits the `profile` field
 by design** — the agent is expected to stand VIOS up standalone via the
 skill's bundled `references/deploy-vios-service.md` runbook before
 exercising the API. Per `.github/skill-eval/AGENTS.md` § 2, an absent
@@ -52,7 +52,7 @@ refactor that motivated this docstring rewrite).
         tests/test.sh
         tests/vios_ops.json               (copied from skill)
         solution/solve.sh
-        skills/operation/vss-manage-video-io-storage/                (full skill copy)
+        skills/operations/vss-manage-video-io-storage/                (full skill copy)
         environment/Dockerfile            (FROM scratch; BrevEnvironment takes over)
 
 One task per platform. All platforms share the same verifier — only
@@ -62,7 +62,7 @@ matching the deploy-adapter convention.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-manage-video-io-storage \\
-        --skill-dir skills/operation/vss-manage-video-io-storage \\
+        --skill-dir skills/operations/vss-manage-video-io-storage \\
         --deploy-skill-dir skills/deployment/vss-deploy-profile \\
         --video-url https://videos.pexels.com/video-files/6079421/6079421-sd_640_360_24fps.mp4
 """
@@ -296,7 +296,7 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root (e.g. .github/skill-eval/datasets/vss-manage-video-io-storage)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/operation/vss-manage-video-io-storage")
+                        help="Path to skills/operations/vss-manage-video-io-storage")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/deployment/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--spec", default=None,

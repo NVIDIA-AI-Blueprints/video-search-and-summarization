@@ -423,7 +423,7 @@ def main() -> None:
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/deployment/vss-deploy-detection-tracking-3d")
     parser.add_argument("--calibration-skill-dir", default=None,
-                        help="Path to skills/operation/vss-generate-video-calibration "
+                        help="Path to skills/tools/vss-generate-video-calibration "
                              "(included for calibration-chain spec)")
     parser.add_argument(
         "--spec",

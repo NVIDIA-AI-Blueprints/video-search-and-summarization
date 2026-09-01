@@ -94,8 +94,8 @@ This skill deploys one container. Hand off instead when the request is:
 
 - **The full stack** (UI, agent, perception, storage) — [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md). Do not run both in parallel; it owns behavior-analytics as part of the profile.
 - **Producing the frames this service consumes** — detection/tracking is upstream: [`vss-deploy-detection-tracking-2d`](../vss-deploy-detection-tracking-2d/SKILL.md) or [`-3d`](../vss-deploy-detection-tracking-3d/SKILL.md). This service analyses `mdx-raw`; it does not create it.
-- **Generating a calibration file** — [`vss-generate-video-calibration`](../../operation/vss-generate-video-calibration/SKILL.md). This skill only *mounts* one.
-- **Reading the output** — incidents, metrics and sensor queries are [`vss-query-analytics`](../../operation/vss-query-analytics/SKILL.md); alert workflows and verification verdicts are [`vss-manage-alerts`](../../operation/vss-manage-alerts/SKILL.md).
+- **Generating a calibration file** — [`vss-generate-video-calibration`](../../tools/vss-generate-video-calibration/SKILL.md). This skill only *mounts* one.
+- **Reading the output** — incidents, metrics and sensor queries are [`vss-query-analytics`](../../operations/vss-query-analytics/SKILL.md); alert workflows and verification verdicts are [`vss-manage-alerts`](../../operations/vss-manage-alerts/SKILL.md).
 - **The REST API in front of the data** — that is a different service: [`vss-setup-video-analytics-api`](../vss-setup-video-analytics-api/SKILL.md). Behavior-analytics itself exposes no HTTP endpoint.
 
 ## Prerequisites

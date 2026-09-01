@@ -116,7 +116,7 @@ class SearchRuntime:
     def raw_index(self) -> str | None:
         """Alias for :attr:`frames_index`.
 
-        The host-CLI RUNTIME_JSON contract (skills/operation/vss-search-archive) exposes
+        The host-CLI RUNTIME_JSON contract (skills/operations/vss-search-archive) exposes
         this value under the key ``raw_index`` (the index family is
         ``mdx-raw-*``), so callers routinely reach for ``runtime.raw_index``.
         Keep both names valid rather than making one an AttributeError trap.

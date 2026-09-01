@@ -32,11 +32,11 @@ query.
         tests/<spec>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/operation/vss-search-archive/  (full skill copy)
+        skills/operations/vss-search-archive/  (full skill copy)
         skills/deployment/vss-deploy-profile/        (for prerequisite diagnostics)
-        skills/operation/vss-manage-video-io-storage/          (the search spec's first checks reference VIOS
+        skills/operations/vss-manage-video-io-storage/          (the search spec's first checks reference VIOS
                                as the canonical source-list lookup)
-        skills/operation/vss-ask-video/              (confirmed search-result verification)
+        skills/operations/vss-ask-video/              (confirmed search-result verification)
         environment/Dockerfile  (FROM scratch; BrevEnvironment takes over)
 
 `<profile>` comes from `spec.profile` (here: `search`). `<k>` is the
@@ -46,10 +46,10 @@ subdir.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-search-archive/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-search-archive \\
-        --skill-dir skills/operation/vss-search-archive \\
+        --skill-dir skills/operations/vss-search-archive \\
         --deploy-skill-dir skills/deployment/vss-deploy-profile \\
-        --video-io-skill-dir skills/operation/vss-manage-video-io-storage \\
-        --ask-video-skill-dir skills/operation/vss-ask-video
+        --video-io-skill-dir skills/operations/vss-manage-video-io-storage \\
+        --ask-video-skill-dir skills/operations/vss-ask-video
 """
 from __future__ import annotations
 
@@ -503,13 +503,13 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root (e.g. .github/skill-eval/datasets/vss-search-archive)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/operation/vss-search-archive")
+                        help="Path to skills/operations/vss-search-archive")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/deployment/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-                        help="Path to skills/operation/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
+                        help="Path to skills/operations/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
     parser.add_argument("--ask-video-skill-dir", default=None,
-                        help="Path to skills/operation/vss-ask-video (optional — required by the confirmed verification step)")
+                        help="Path to skills/operations/vss-ask-video (optional — required by the confirmed verification step)")
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
