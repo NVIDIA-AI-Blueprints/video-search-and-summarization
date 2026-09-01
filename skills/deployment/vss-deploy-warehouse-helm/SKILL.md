@@ -38,7 +38,7 @@ Compose would apply and writing it into a Helm values-override file before insta
 
 | Script | Purpose | Arguments |
 |---|---|---|
-| [`../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`](../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py) | Detect GPU (or take an explicit `HARDWARE_PROFILE`), read `max_streams_supported` from `blueprint_config.yml`, cap the requested stream count, and write a `bp-configurator.env`-patched values-override YAML. Pass any values file(s) your install already uses via `-f` so custom `bp-configurator.env` entries in them aren't dropped. | `--mode {2d,3d,mv3dt} --num-streams N [--hardware-profile P] [--gpu-index I] [-f VALUES]... [-o FILE]` |
+| [`../../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`](../../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py) | Detect GPU (or take an explicit `HARDWARE_PROFILE`), read `max_streams_supported` from `blueprint_config.yml`, cap the requested stream count, and write a `bp-configurator.env`-patched values-override YAML. Pass any values file(s) your install already uses via `-f` so custom `bp-configurator.env` entries in them aren't dropped. | `--mode {2d,3d,mv3dt} --num-streams N [--hardware-profile P] [--gpu-index I] [-f VALUES]... [-o FILE]` |
 
 This script has no skill/agent dependency — a user who doesn't want to use this skill can run it
 directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass the generated file to

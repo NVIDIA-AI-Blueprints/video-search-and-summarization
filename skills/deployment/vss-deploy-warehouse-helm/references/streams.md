@@ -28,10 +28,10 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
   --set global.storageClass=<STORAGE_CLASS> \
   --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana \
-  --set vios.vss-vios-nvstreamer.syncFileCount=8 \
+  --set vios.vss-vios-nvstreamer.syncFileCount=<N> \
   -f values-stream-cap.generated.yaml
-# both syncFileCount and the generated file above must use the *effective* (possibly
-# capped) count printed in step 1, not necessarily the --num-streams you requested
+# <N> is the effective (possibly capped) count printed in step 1, not necessarily
+# the --num-streams you requested
 ```
 
 The non-streams overrides above (`global.vssIngress.enabled`, `externalHost`, `storageClass`,
@@ -79,8 +79,12 @@ python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_strea
   --mode 3d --num-streams 15 --hardware-profile H100 -o values-streams.yaml
 helm upgrade --install wh .../warehouse-3d-app -n <namespace> ... -f values-streams.yaml
 ```
-(`...` stands for any other `-f`/`--set` your install needs — put them *before* the generated
-`-f values-streams.yaml`, not after, or they can clobber the `bp-configurator.env` it just set.)
+(`...` stands for any other `-f` your install needs — put those files *before* the generated
+`-f values-streams.yaml`, not after, or they can clobber the `bp-configurator.env` it just set.
+This doesn't apply to `--set`: Helm always applies `--set` after every `-f` file regardless of
+where it sits on the command line, so a `--set` touching `bp-configurator.env` will clobber the
+generated file no matter its position — convert it to a values file first, per the "if your
+install customizes `bp-configurator.env`" section above.)
 
 ## Re-running after a hardware or stream-count change
 
