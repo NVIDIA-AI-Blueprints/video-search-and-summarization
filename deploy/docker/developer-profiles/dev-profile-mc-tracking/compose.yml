@@ -254,7 +254,6 @@ services:
       - KAFKA_PRODUCER_TOPIC=${KAFKA_PRODUCER_TOPIC:-mdx-compressed-embeddings}
       - REDIS_CONSUMER_SERVER=${REDIS_CONSUMER_SERVER:-redis:6379}
       - REDIS_CONSUMER_TOPIC=${REDIS_CONSUMER_TOPIC:-mdx-raw}
-      # same as payloadkey in deepstream/configs/ds-redis-config.txt 
       - REDIS_CONSUMER_PAYLOAD_KEY=${REDIS_CONSUMER_PAYLOAD_KEY:-value}
       - REDIS_PRODUCER_SERVER=${REDIS_PRODUCER_SERVER:-redis:6379}
       - REDIS_PRODUCER_TOPIC=${REDIS_PRODUCER_TOPIC:-mdx-compressed-embeddings}
