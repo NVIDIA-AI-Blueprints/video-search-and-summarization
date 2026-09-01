@@ -86,6 +86,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | I want to… | Use this skill |
 |---|---|
 | Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) |
+| Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](operations/vss-ask-video/SKILL.md) |
@@ -118,6 +119,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence
