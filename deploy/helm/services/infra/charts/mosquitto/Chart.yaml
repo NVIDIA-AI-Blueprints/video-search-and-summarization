@@ -15,7 +15,7 @@
 
 apiVersion: v2
 name: mosquitto
-description: Eclipse Mosquitto MQTT broker for mc-tracking cross-camera messaging
+description: Eclipse Mosquitto MQTT broker for MV3DT cross-camera messaging
 type: application
 version: 3.3.0
 appVersion: "2"

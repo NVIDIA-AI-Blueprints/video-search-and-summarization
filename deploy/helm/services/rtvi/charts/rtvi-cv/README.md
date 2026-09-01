@@ -33,7 +33,7 @@ re-fetches each artifact once. To inspect what a volume holds:
 grep . /opt/storage/.*.done
 ```
 
-`standalone-mc-tracking` keeps its dedicated `ds-start-mc-tracking.sh` and calls the same
+`standalone-mv3dt` keeps its dedicated `ds-start-mv3dt.sh` and calls the same
 download phase before MQTT generation.
 
 For standalone warehouse deployment instructions, see

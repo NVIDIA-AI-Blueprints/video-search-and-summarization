@@ -57,10 +57,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
-Managed-image resolution for the mc-tracking BEV fusion container.
+Managed-image resolution for the MV3DT BEV fusion container.
 Mirrors the shared managed-image channel used by Docker Compose:
 - Default repository/tag come from values (ghcr.io/.../vss-rt-cv-mv3dt-bev-fusion:develop-latest).
-  Image name stays vss-rt-cv-mv3dt-bev-fusion until a renamed build is published.
 - global.container_prefix overrides the repository prefix (uses image basename).
 - global.container_tag overrides the tag.
 This lets QA switch to a promoted NGC staging drop by setting the two globals
@@ -68,7 +67,7 @@ without editing this subchart.
 */}}
 {{- define "vss-rtvi-cv.fusionImage" -}}
 {{- $global := .Values.global | default dict -}}
-{{- $fusion := ((.Values.standaloneWarehouse | default dict).mcTracking | default dict).fusion | default dict -}}
+{{- $fusion := ((.Values.standaloneWarehouse | default dict).mv3dt | default dict).fusion | default dict -}}
 {{- $img := $fusion.image | default dict -}}
 {{- $repository := $img.repository -}}
 {{- $prefix := index $global "container_prefix" | default "" -}}
@@ -80,17 +79,16 @@ without editing this subchart.
 {{- end -}}
 
 {{/*
-Managed-image resolution for the mc-tracking config-init container.
+Managed-image resolution for the MV3DT config-init container.
 Same contract as vss-rtvi-cv.fusionImage, for the init container that generates
 camInfo and the pub/sub topology from calibration:
 - Default repository/tag come from values (ghcr.io/.../vss-rt-cv-mv3dt-config-init:develop-latest).
-  Image name stays vss-rt-cv-mv3dt-config-init until a renamed build is published.
 - global.container_prefix overrides the repository prefix (uses image basename).
 - global.container_tag overrides the tag.
 */}}
 {{- define "vss-rtvi-cv.configInitImage" -}}
 {{- $global := .Values.global | default dict -}}
-{{- $dynamic := ((.Values.standaloneWarehouse | default dict).mcTracking | default dict).dynamicCameraConfig | default dict -}}
+{{- $dynamic := ((.Values.standaloneWarehouse | default dict).mv3dt | default dict).dynamicCameraConfig | default dict -}}
 {{- $img := ($dynamic.configInit | default dict).image | default dict -}}
 {{- $repository := $img.repository -}}
 {{- $prefix := index $global "container_prefix" | default "" -}}
@@ -124,12 +122,12 @@ camInfo and the pub/sub topology from calibration:
 {{- end }}
 {{- end }}
 
-{{- define "vss-rtvi-cv.mcTrackingMqttHost" -}}
-{{- $mcTracking := .Values.standaloneWarehouse.mcTracking | default dict -}}
-{{- if $mcTracking.mqttHost -}}
-{{- $mcTracking.mqttHost -}}
-{{- else if $mcTracking.mqttServiceName -}}
-{{- $mcTracking.mqttServiceName -}}
+{{- define "vss-rtvi-cv.mv3dtMqttHost" -}}
+{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
+{{- if $mv3dt.mqttHost -}}
+{{- $mv3dt.mqttHost -}}
+{{- else if $mv3dt.mqttServiceName -}}
+{{- $mv3dt.mqttServiceName -}}
 {{- else -}}
 {{- $global := .Values.global | default dict -}}
 {{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
@@ -141,10 +139,10 @@ camInfo and the pub/sub topology from calibration:
 {{- end -}}
 {{- end }}
 
-{{- define "vss-rtvi-cv.mcTrackingRedisHost" -}}
-{{- $mcTracking := .Values.standaloneWarehouse.mcTracking | default dict -}}
-{{- if $mcTracking.redisHost -}}
-{{- $mcTracking.redisHost -}}
+{{- define "vss-rtvi-cv.mv3dtRedisHost" -}}
+{{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
+{{- if $mv3dt.redisHost -}}
+{{- $mv3dt.redisHost -}}
 {{- else -}}
 {{- $global := .Values.global | default dict -}}
 {{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}

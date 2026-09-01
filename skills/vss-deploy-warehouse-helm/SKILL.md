@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-warehouse-helm
-description: Use when the user asks to deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MC-Tracking) on Kubernetes via Helm — as opposed to Docker Compose, which is covered by vss-deploy-profile's warehouse reference. Handles GPU-aware NUM_STREAMS capping so the deployment matches what the perception pipeline can actually sustain.
+description: Use when the user asks to deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm — as opposed to Docker Compose, which is covered by vss-deploy-profile's warehouse reference. Handles GPU-aware NUM_STREAMS capping so the deployment matches what the perception pipeline can actually sustain.
 license: Apache-2.0
 metadata:
   version: "1.0.0"
@@ -33,13 +33,13 @@ The Helm charts don't do this — `bp-configurator.env` ships a fixed `NUM_STREA
 than the GPU can sustain gets no protection. This skill closes that gap by computing the same cap
 Compose would apply and writing it into a Helm values-override file before install. Chart
 locations: `deploy/helm/industry-profiles/warehouse-operations/warehouse-{2d,3d}-app`, or
-`deploy/helm/developer-profiles/dev-profile-mc-tracking` for `mc-tracking`.
+`deploy/helm/developer-profiles/dev-profile-mc-tracking` for `mv3dt`.
 
 ## Available Scripts
 
 | Script | Purpose | Arguments |
 |---|---|---|
-| [`../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`](../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py) | Detect GPU (or take an explicit `HARDWARE_PROFILE`), read `max_streams_supported` from `blueprint_config.yml`, cap the requested stream count, and write a `bp-configurator.env`-patched values-override YAML. Pass any values file(s) your install already uses via `-f` so custom `bp-configurator.env` entries in them aren't dropped. | `--mode {2d,3d,mc-tracking} --num-streams N [--hardware-profile P] [--gpu-index I] [-f VALUES]... [-o FILE]` |
+| [`../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`](../../deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py) | Detect GPU (or take an explicit `HARDWARE_PROFILE`), read `max_streams_supported` from `blueprint_config.yml`, cap the requested stream count, and write a `bp-configurator.env`-patched values-override YAML. Pass any values file(s) your install already uses via `-f` so custom `bp-configurator.env` entries in them aren't dropped. | `--mode {2d,3d,mv3dt} --num-streams N [--hardware-profile P] [--gpu-index I] [-f VALUES]... [-o FILE]` |
 
 This script has no skill/agent dependency — a user who doesn't want to use this skill can run it
 directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass the generated file to
@@ -47,7 +47,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
 
 ## Instructions
 
-1. **Determine mode** (`2d` / `3d` / `mc-tracking`) and the desired stream count from the user's request.
+1. **Determine mode** (`2d` / `3d` / `mv3dt`) and the desired stream count from the user's request.
 2. **Run the stream-cap script** from the repo root:
    ```bash
    python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
@@ -78,7 +78,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      ...  # secrets/ingress overrides, see references/streams.md
    ```
    `<chart-dir>` is `deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app` for
-   `2d`/`3d`, or `deploy/helm/developer-profiles/dev-profile-mc-tracking` for `mc-tracking`.
+   `2d`/`3d`, or `deploy/helm/developer-profiles/dev-profile-mc-tracking` for `mv3dt`.
 5. **Re-run the script whenever `NUM_STREAMS` or the target GPU changes** — the values-override
    file isn't tracked automatically; re-generate and re-`helm upgrade` after a hardware change.
 

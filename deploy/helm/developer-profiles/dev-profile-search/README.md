@@ -32,7 +32,7 @@ Search selects `DS_MODEL_FAMILY=rtdetr-warehouse`,
 `DS_VISION_ENCODER=true`, and `DS_TRACKER_REID=true`. Its model download Job
 writes one completion marker per destination artifact, and the RTVI CV pod
 waits for both each marker and its artifact before starting. Standalone
-warehouse and mc-tracking startup scripts remain separate.
+warehouse and MV3DT startup scripts remain separate.
 
 ## GPU Requirements
 

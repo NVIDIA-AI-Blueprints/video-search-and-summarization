@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Warehouse 2D/3D use the shared ds-start.sh (same contract as Compose / alerts / search).
-# mc-tracking keeps a dedicated startup script ConfigMap.
+# MV3DT keeps a dedicated startup script ConfigMap.
 
 {{- if and .Values.enabled (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d")) }}
 apiVersion: v1

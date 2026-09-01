@@ -52,7 +52,7 @@ spec:
     requests:
       storage: {{ include "vss-rtvi-cv.effectiveSearchModelsStorage" . }}
 {{- end }}
-{{- if and .Values.enabled (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d") (eq .Values.profileMode "standalone-mc-tracking")) }}
+{{- if and .Values.enabled (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d") (eq .Values.profileMode "standalone-mv3dt")) }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

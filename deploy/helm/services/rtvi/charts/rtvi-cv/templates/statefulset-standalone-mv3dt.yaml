@@ -13,18 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Warehouse mc-tracking standalone: RT-DETR + NvMultiObjectTracker + bundled configs + NGC file sources.
+# Warehouse MV3DT standalone: RT-DETR + NvMultiObjectTracker + bundled configs + NGC file sources.
 
-{{- if and .Values.enabled (eq .Values.profileMode "standalone-mc-tracking") }}
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
 {{- $sw := .Values.standaloneWarehouse }}
-{{- $mcTracking := $sw.mcTracking | default dict }}
+{{- $mv3dt := $sw.mv3dt | default dict }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: {{ include "vss-rtvi-cv.fullname" . }}
   labels:
     {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
-    vss-rtvi-cv.profileMode: standalone-mc-tracking
+    vss-rtvi-cv.profileMode: standalone-mv3dt
 spec:
   serviceName: {{ include "vss-rtvi-cv.headlessServiceName" . }}
   replicas: {{ .Values.replicas }}
@@ -36,7 +36,7 @@ spec:
       labels:
         {{- include "vss-rtvi-cv.selectorLabels" . | nindent 8 }}
       annotations:
-        vss-rtvi-cv.profileMode: standalone-mc-tracking
+        vss-rtvi-cv.profileMode: standalone-mv3dt
     spec:
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -100,7 +100,7 @@ spec:
             - name: models
               mountPath: /models-data
         {{- end }}
-        - name: ensure-mc-tracking-engine-dirs
+        - name: ensure-mv3dt-engine-dirs
           image: docker.io/library/busybox:1.37.0
           command:
             - sh
@@ -109,7 +109,7 @@ spec:
               set -e
               mkdir -p /opt/storage/BodyPose3DNet
               chmod 0777 /opt/storage /opt/storage/BodyPose3DNet
-              echo "[INFO] mc-tracking engine directories ready."
+              echo "[INFO] MV3DT engine directories ready."
           volumeMounts:
             - name: models
               mountPath: /opt/storage
@@ -134,25 +134,25 @@ spec:
               done
               echo "Kafka is ready."
         {{- end }}
-        {{- if ($mcTracking.dynamicCameraConfig | default dict).enabled }}
-        - name: mc-tracking-config-init
+        {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+        - name: mv3dt-config-init
           image: {{ include "vss-rtvi-cv.configInitImage" . }}
-          imagePullPolicy: {{ $mcTracking.dynamicCameraConfig.configInit.image.pullPolicy | default "IfNotPresent" }}
+          imagePullPolicy: {{ $mv3dt.dynamicCameraConfig.configInit.image.pullPolicy | default "IfNotPresent" }}
           env:
             - name: CALIBRATION_API_URL
-              value: {{ $mcTracking.dynamicCameraConfig.calibrationApiUrl | quote }}
+              value: {{ $mv3dt.dynamicCameraConfig.calibrationApiUrl | quote }}
             - name: CAM_INFO_OUTPUT_DIR
               value: /tmp/camInfo
             - name: PUB_SUB_OUTPUT_DIR
               value: /tmp/generated
             - name: CALIBRATION_WAIT_TIMEOUT
-              value: {{ $mcTracking.dynamicCameraConfig.waitTimeoutSeconds | default 3600 | quote }}
+              value: {{ $mv3dt.dynamicCameraConfig.waitTimeoutSeconds | default 3600 | quote }}
             - name: MQTT_HOST
-              value: {{ include "vss-rtvi-cv.mcTrackingMqttHost" . | quote }}
+              value: {{ include "vss-rtvi-cv.mv3dtMqttHost" . | quote }}
             - name: MQTT_PORT
-              value: {{ $mcTracking.mqttPort | default "1883" | quote }}
+              value: {{ $mv3dt.mqttPort | default "1883" | quote }}
           volumeMounts:
-            - name: mc-tracking-caminfo
+            - name: mv3dt-caminfo
               mountPath: /tmp/camInfo
             - name: generated
               mountPath: /tmp/generated
@@ -166,7 +166,7 @@ spec:
           workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
           command:
             - bash
-            - /startup-script/ds-start-mc-tracking.sh
+            - /startup-script/ds-start-mv3dt.sh
           {{- if .Values.httpPort }}
           ports:
             - name: http
@@ -194,29 +194,29 @@ spec:
           {{- end }}
           env:
             - name: INSTANCE_ID
-              value: {{ $mcTracking.instanceId | default "0" | quote }}
+              value: {{ $mv3dt.instanceId | default "0" | quote }}
             - name: DS_HTTP_PORT
               value: {{ .Values.httpPort | quote }}
             - name: BATCH_SIZE
-              value: {{ $mcTracking.batchSize | default "4" | quote }}
+              value: {{ $mv3dt.batchSize | default "4" | quote }}
             - name: MAX_BATCH_SIZE
-              value: {{ $mcTracking.maxBatchSize | default "4" | quote }}
+              value: {{ $mv3dt.maxBatchSize | default "4" | quote }}
             - name: MQTT_HOST
-              value: {{ include "vss-rtvi-cv.mcTrackingMqttHost" . | quote }}
+              value: {{ include "vss-rtvi-cv.mv3dtMqttHost" . | quote }}
             - name: MQTT_PORT
-              value: {{ $mcTracking.mqttPort | default "1883" | quote }}
+              value: {{ $mv3dt.mqttPort | default "1883" | quote }}
             - name: STREAM_TYPE
               value: {{ $sw.streamType | default "kafka" | quote }}
             - name: KAFKA_BOOTSTRAP
               value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
             - name: REDIS_HOST
-              value: {{ include "vss-rtvi-cv.mcTrackingRedisHost" . | quote }}
+              value: {{ include "vss-rtvi-cv.mv3dtRedisHost" . | quote }}
             - name: REDIS_PORT
-              value: {{ $mcTracking.redisPort | default "6379" | quote }}
+              value: {{ $mv3dt.redisPort | default "6379" | quote }}
             - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
-              value: {{ $mcTracking.deepstreamEnableSensorIdExtraction | default "0" | quote }}
-            - name: MC_TRACKING_DYNAMIC_CAMERA_CONFIG
-              value: {{ ($mcTracking.dynamicCameraConfig | default dict).enabled | default false | quote }}
+              value: {{ $mv3dt.deepstreamEnableSensorIdExtraction | default "0" | quote }}
+            - name: MV3DT_DYNAMIC_CAMERA_CONFIG
+              value: {{ ($mv3dt.dynamicCameraConfig | default dict).enabled | default false | quote }}
             - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
               value: {{ .Values.gstEnableCustomParserModifications | quote }}
             - name: OTEL_SDK_DISABLED
@@ -257,10 +257,10 @@ spec:
             - name: startup-script
               mountPath: /startup-script
               readOnly: true
-            - name: mc-tracking-cfg
+            - name: mv3dt-cfg
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
               readOnly: true
-            - name: mc-tracking-caminfo
+            - name: mv3dt-caminfo
               mountPath: /tmp/camInfo
               readOnly: true
             - name: generated
@@ -274,19 +274,19 @@ spec:
           emptyDir: {}
         - name: startup-script
           configMap:
-            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mc-tracking-start
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-start
             defaultMode: 493
-        - name: mc-tracking-cfg
+        - name: mv3dt-cfg
           configMap:
-            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mc-tracking
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt
             defaultMode: 420
-        {{- if ($mcTracking.dynamicCameraConfig | default dict).enabled }}
-        - name: mc-tracking-caminfo
+        {{- if ($mv3dt.dynamicCameraConfig | default dict).enabled }}
+        - name: mv3dt-caminfo
           emptyDir: {}
         {{- else }}
-        - name: mc-tracking-caminfo
+        - name: mv3dt-caminfo
           configMap:
-            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mc-tracking-caminfo
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-caminfo
             defaultMode: 420
         {{- end }}
 {{- end }}

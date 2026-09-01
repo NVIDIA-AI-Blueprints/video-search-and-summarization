@@ -58,8 +58,8 @@ k8s-workload-rtvi-cv:
   enable: true
   WDM_CLUSTER_TYPE: k8s
   WDM_WL_OBJECT_NAME: vss-rtvi-cv
-  WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-mc-tracking-cg
-  WDM_REDIS_CACHE_OBJECT: rtvi-cv-mc-tracking-data
+  WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-mv3dt-cg
+  WDM_REDIS_CACHE_OBJECT: rtvi-cv-mv3dt-data
   WDM_XDS_USE_POD_DNS: true
   WDM_XDS_USE_IP_ADDRESS: false
   WDM_REDIS_MSG_KEY: vst.event
