@@ -144,12 +144,40 @@ docker compose -f compose.yml \
   up -d
 ```
 
-**Environment-variable overrides:** The following `ini` snippets are values to set in `deploy/docker/developer-profiles/dev-profile-search/overrides.env`.
+**Environment-variable overrides:** Update existing values in `deploy/docker/developer-profiles/dev-profile-search/overrides.env` in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
-**Service-address overrides (all hardware profiles):**
+**Host-path and service-address overrides (all hardware profiles):**
 
+- `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
+- `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
 - `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+
+
+Set these required placeholder values in the existing assignments:
+
+```ini
+VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
+VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+HOST_IP=<reachable-host-ip-or-name>
+```
+
+**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+
+```bash
+VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/analytics_cache" \
+  "$VSS_DATA_DIR/data_log/calibration_toolkit" \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/agent_eval/dataset" \
+  "$VSS_DATA_DIR/agent_eval/results"
+chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+```
 
 
 <Tabs>
@@ -195,7 +223,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -216,7 +244,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -267,7 +295,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -288,7 +316,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -339,7 +367,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -360,7 +388,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -409,7 +437,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -430,17 +458,19 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
 </Tab>
+</Tabs>
+</Tab>
 <Tab title="OTHER">
 See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
 
-</Tab>
+<Tabs>
 <Tab title="Default">
 3 GPUs. LLM shares a base GPU; VLM gets a dedicated GPU.
 
@@ -483,7 +513,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
@@ -504,7 +534,7 @@ VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
 VLM_NAME=<vlm-model-id-from-v1-models>
-VLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
 VLM_PORT=30082
 RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
