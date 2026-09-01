@@ -44,7 +44,7 @@ Person (class 0) and Forklift (class 1) — no other classes are tracked by this
 
 ## Hardware profiles
 
-Valid `HARDWARE_PROFILE` values: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`.
+Valid `HARDWARE_PROFILE` values: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`.
 
 - `PERCEPTION_TAG="3.3.0-26.07.2"` by default; switch to the `-sbsa-` variant for DGX Spark / IGX Thor / SBSA platforms (commented alternative in `.env`).
 - `RT_CV_DEVICE_ID` (perception/BEV-fusion GPU) defaults unscoped (`'0'`) — this profile isn't expected to run concurrently with another profile on the same host, so no reserved/shared-device-id bookkeeping is needed. NVStreamer itself needs no GPU (per `services/nvstreamer/base.yml`'s design) and carries no device reservation.

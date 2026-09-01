@@ -210,6 +210,10 @@ RTXPRO6000BW:
   mc-tracking:
     max_streams_supported: 39
 
+RTXPRO6000BW-SE:
+  mc-tracking:
+    max_streams_supported: 39
+
 RTXPRO4500BW:
   mc-tracking:
     max_streams_supported: 8
