@@ -20,7 +20,7 @@ python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_strea
 # 2. Chart dependencies
 helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app
 
-# 3. Install/upgrade — layer the generated file after any other overrides
+# 3. Install/upgrade — layer the generated file after every other -f/--set override
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
   -n <namespace> --create-namespace \
   --set global.vssIngress.enabled=true \
@@ -28,8 +28,8 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
   --set global.storageClass=<STORAGE_CLASS> \
   --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana \
-  -f values-stream-cap.generated.yaml \
-  --set vios.vss-vios-nvstreamer.syncFileCount=8    # match the effective count from step 1
+  --set vios.vss-vios-nvstreamer.syncFileCount=8 \
+  -f values-stream-cap.generated.yaml    # last: match the effective count from step 1
 ```
 
 The non-streams overrides above (`global.vssIngress.enabled`, `externalHost`, `storageClass`,
@@ -60,8 +60,10 @@ The script has no agent dependency. Run it directly and hand the output file to 
 ```bash
 python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
   --mode 3d --num-streams 15 --hardware-profile H100 -o values-streams.yaml
-helm upgrade --install wh .../warehouse-3d-app -n <namespace> -f values-streams.yaml ...
+helm upgrade --install wh .../warehouse-3d-app -n <namespace> ... -f values-streams.yaml
 ```
+(`...` stands for any other `-f`/`--set` your install needs — put them *before* the generated
+`-f values-streams.yaml`, not after, or they can clobber the `bp-configurator.env` it just set.)
 
 ## Re-running after a hardware or stream-count change
 

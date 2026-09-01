@@ -149,19 +149,21 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      --set global.vssIngress.enabled=true \
      --set global.externalHost=<NODE_IP> \
      --set global.storageClass=<STORAGE_CLASS> \
-     -f values-stream-cap.generated.yaml \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
-     ...  # remaining secrets/URL overrides, see references/streams.md
+     ...  # remaining secrets/URL overrides, see references/streams.md \
+     -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
 
    # NodePort:
    helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app \
      -n <namespace> --create-namespace \
      -f deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app/values-nodeport.yaml \
-     -f values-stream-cap.generated.yaml \
-     --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams>
+     --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
+     -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
    ```
-   The stream-cap file (`-f values-stream-cap.generated.yaml`) must come after `values-nodeport.yaml`
-   so it still wins on `bp-configurator.env` — Helm's later `-f` wins per top-level key.
+   `-f values-stream-cap.generated.yaml` has to be the last `-f`/`--set` in the command, full stop
+   — it's what makes it win on `bp-configurator.env` (Helm merges `-f`/`--set` in the order given,
+   later wins per top-level key). That includes coming after `values-nodeport.yaml` in the NodePort
+   case and after every other secrets/ingress/alerts override in both.
 8. **Post-install validation** — confirm pods actually come up before declaring success; see
    `warehouse-<mode>-app/README.md` §Post-install validation.
 9. **Re-run the script whenever `NUM_STREAMS` or the target GPU changes** — the values-override
