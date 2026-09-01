@@ -103,6 +103,16 @@ class ShouldCancelTest(unittest.TestCase):
             )
         )
 
+    def test_closed_pr_does_not_cancel_tag_cleanup(self):
+        self.assertFalse(
+            module.should_cancel_run(
+                run=run() | {"name": "Cleanup PR Tags"},
+                matches_source=True,
+                closed=True,
+                this_run_id=99,
+            )
+        )
+
     def test_does_not_cancel_self(self):
         self.assertFalse(
             module.should_cancel_run(
@@ -178,13 +188,101 @@ class ListActiveRunsTest(unittest.TestCase):
         self.assertTrue(any("status=requested" in path for path in calls))
 
 
+class ClosedPrCoverageTest(unittest.TestCase):
+    def test_run_belongs_to_pr_via_pull_requests_field(self):
+        sonar = {
+            "id": 8,
+            "name": "SonarQube Analysis",
+            "status": "in_progress",
+            "head_branch": "feat/foo",
+            "pull_requests": [{"number": 1900}],
+        }
+        self.assertTrue(module.run_belongs_to_pr(sonar, 1900))
+        self.assertFalse(module.run_belongs_to_pr(sonar, 1))
+
+    def test_run_belongs_to_pr_after_close_empties_pull_requests(self):
+        # The shape the close path actually sees: GitHub drops the PR
+        # association the moment the PR closes.
+        sonar = {
+            "id": 8,
+            "name": "SonarQube Analysis",
+            "status": "in_progress",
+            "head_branch": "feat/foo",
+            "head_sha": "a" * 40,
+            "pull_requests": [],
+        }
+        self.assertFalse(module.run_belongs_to_pr(sonar, 1900))
+        self.assertTrue(
+            module.run_belongs_to_pr(sonar, 1900, source_branch="feat/foo")
+        )
+        self.assertTrue(
+            module.run_belongs_to_pr(sonar, 1900, source_sha="a" * 40)
+        )
+        self.assertFalse(
+            module.run_belongs_to_pr(sonar, 1900, source_branch="feat/other")
+        )
+
+    def test_closed_collects_native_pr_event_runs(self):
+        def get(_method: str, _repo: str, path: str):
+            if "event=pull_request&" in path and "status=in_progress" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 8,
+                            "name": "SonarQube Analysis",
+                            "status": "in_progress",
+                            "head_branch": "feat/foo",
+                            "pull_requests": [],
+                        },
+                        {
+                            "id": 9,
+                            "name": "SonarQube Analysis",
+                            "status": "in_progress",
+                            "head_branch": "feat/other",
+                            "pull_requests": [],
+                        },
+                    ]
+                }
+            if "branch=pull-request%2F42" in path and "status=in_progress" in path:
+                return {
+                    "workflow_runs": [
+                        {
+                            "id": 3,
+                            "name": "CI",
+                            "status": "in_progress",
+                            "head_branch": "pull-request/42",
+                        }
+                    ]
+                }
+            return {"workflow_runs": []}
+
+        runs = module.collect_runs_to_consider(
+            "owner/repo", 42, True, get, source_branch="feat/foo"
+        )
+        self.assertEqual(sorted(run["id"] for run in runs), [3, 8])
+
+    def test_open_pr_does_not_scan_native_pr_events(self):
+        calls: list[str] = []
+
+        def get(_method: str, _repo: str, path: str):
+            calls.append(path)
+            return {"workflow_runs": []}
+
+        module.collect_runs_to_consider("owner/repo", 42, False, get)
+        self.assertFalse(any("event=pull_request" in path for path in calls))
+
+
 class WorkflowTest(unittest.TestCase):
-    def test_pull_request_target_does_not_checkout_the_pr_head(self):
+    def test_pull_request_fires_for_main_and_develop(self):
         text = WORKFLOW.read_text()
-        self.assertIn("pull_request_target:", text)
+        self.assertIn("pull_request:", text)
+        self.assertNotIn("pull_request_target:", text)
         self.assertIn("persist-credentials: false", text)
         self.assertNotIn("ref: ${{ github.event.pull_request.head", text)
+        self.assertIn("- main", text)
+        self.assertIn("- develop", text)
         self.assertIn("actions: write", text)
+        self.assertIn("SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}", text)
 
     def test_ci_runs_these_tests(self):
         ci = (Path(__file__).resolve().parent.parent / "workflows" / "ci.yml").read_text()
