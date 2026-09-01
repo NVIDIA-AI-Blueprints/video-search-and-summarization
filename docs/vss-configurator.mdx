@@ -250,7 +250,7 @@ This value becomes available as `${max_streams_supported}` in variable expressio
 To add a new hardware profile (e.g. a new GPU), add a profile block with `max_streams_supported` for each mode; the profile automatically inherits all commons rules unless `use_commons` is set to `false`.
 
 <Note>
-Refer to [RT-DETR Real-Time Performance](/models/rt-detr) for 2D profile, 2D profile with Agents, and [Sparse4D Real-Time Performance](/models/sparse4d#real-time-inference-throughput-latency) for 3D profile for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used.
+Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2d-warehouse-detection) for 2D profile, 2D profile with Agents, and [Sparse4D Real-Time Performance](/vss/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput-latency) for 3D profile for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used.
 </Note>
 
 ##### Hardware Profiles Reference
@@ -307,7 +307,7 @@ Variables are evaluated top-to-bottom, so later ones can reference earlier ones.
 **Required:** No
 **Purpose:** Define config file modifications
 
-See [Operation Types Reference](/vss-configurator#operation-types-reference) for details.
+See [Operation Types Reference](/vss/system-components/configuration/vss-configurator#operation-types-reference) for details.
 
 **prerequisites**
 

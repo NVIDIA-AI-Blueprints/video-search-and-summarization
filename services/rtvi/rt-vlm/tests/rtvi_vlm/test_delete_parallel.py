@@ -564,21 +564,23 @@ def test_safe_rmtree_submits_to_cleanup_executor(stream_handler, tmp_path):
 def test_cleanup_asset_offloads_rmtree_to_executor(monkeypatch, tmp_path):
     """AssetManager.cleanup_asset(executor=...) must submit rmtree and
     return immediately, leaving actual deletion to the executor."""
-    from utils.asset_manager import AssetManager
+    from utils.asset_manager import Asset, AssetManager
 
     asset_root = tmp_path / "assets"
     asset_root.mkdir()
 
     mgr = AssetManager(str(asset_root))
 
-    asset = SimpleNamespace(
-        use_count=0,
+    asset = Asset(
+        asset_id="aid-1",
+        path=str(tmp_path / "doomed" / "video.mp4"),
+        purpose="vision",
+        media_type="video",
         asset_dir=str(tmp_path / "doomed"),
-        camera_id=None,
     )
     (tmp_path / "doomed").mkdir()
     aid = "aid-1"
-    mgr._asset_map[aid] = asset
+    mgr._publish_asset(asset)
 
     submitted = []
 

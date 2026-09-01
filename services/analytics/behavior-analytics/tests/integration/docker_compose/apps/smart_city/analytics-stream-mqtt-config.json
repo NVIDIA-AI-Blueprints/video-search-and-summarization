@@ -1,6 +1,6 @@
 {
 	"mqtt": {
-		"host": "localhost",
+		"host": "mosquitto",
 		"port": 1883,
 		"clientId": "mdx-smart-city-app",
 		"keepAliveSec": 60,

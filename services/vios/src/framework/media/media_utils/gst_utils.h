@@ -132,6 +132,8 @@ public:
     bool            m_isError = false;
 
     void pollBusMessages();
+    /* Where the pipeline has reached, in nanoseconds, or -1 when it cannot say. */
+    gint64 queryPipelinePositionNs();
 };
 
 class GstkeyframeParser : public GstNvElements

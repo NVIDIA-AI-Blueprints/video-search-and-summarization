@@ -12,7 +12,7 @@ import {
 import { FC, memo, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'next-i18next/pages';
 
 import {
   fixMalformedHtml,

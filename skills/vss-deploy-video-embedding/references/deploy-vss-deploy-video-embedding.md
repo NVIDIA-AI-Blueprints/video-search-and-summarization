@@ -81,6 +81,53 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 - Disk space sufficient for the Hugging Face cache, NGC model cache, and Triton model repository volumes.
 - Network reachability to `ghcr.io` for the container image, `huggingface.co` for the default model, `prod.api.nvidia.com` when using NGC-hosted models or assets, and any enabled peer services (Redis, Kafka).
 
+## Standalone Quick Start
+
+Work from the standalone RT-Embed service directory:
+
+```bash
+cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
+```
+
+Do not use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone
+deployment.
+
+Set a minimal standalone environment before `docker compose up`. If `sudo -n
+chown` fails, stop before starting the container and ask the host owner to run
+the printed command.
+
+```bash
+export RTVI_EMBED_PORT=8017
+export VSS_DATA_DIR="${VSS_DATA_DIR:-$(pwd)/.standalone-data}"
+export NGC_API_KEY="<your-ngc-api-key>"
+export HF_TOKEN="${HF_TOKEN:-}"  # optional, but recommended to avoid HF 429s
+export MESSAGE_BUS=
+export ERROR_BUS=
+export ENABLE_REDIS_ERROR_MESSAGES=false
+
+# Prepare the VST clip-storage host directory used by the compose bind mount.
+CLIP_STORAGE_DIR="${VSS_DATA_DIR}/data_log/vst/clip_storage"
+mkdir -p "$CLIP_STORAGE_DIR"
+if ! sudo -n chown -R 1001:1001 "$CLIP_STORAGE_DIR"; then
+  echo "ERROR: passwordless sudo is unavailable for host-path ownership." >&2
+  echo "Ask the host owner to run: sudo chown -R 1001:1001 \"$CLIP_STORAGE_DIR\"" >&2
+  echo "Do not work around this with chmod 777 or world-writable permissions." >&2
+  return 1 2>/dev/null || exit 1
+fi
+```
+
+This avoids mounting `/data_log/vst/clip_storage` from filesystem root when
+`VSS_DATA_DIR` is unset, and prevents startup stalls from missing Kafka/Redis
+peers in standalone mode.
+
+```bash
+docker compose -f rtvi-embed-docker-compose.yml \
+  --profile rtvi-embed up -d rtvi-embed
+```
+
+If Docker requires elevated privileges, use `sudo -n docker compose ...` and
+fail fast if `sudo -n` reports that a password is required.
+
 ## Dry Run
 
 ```bash

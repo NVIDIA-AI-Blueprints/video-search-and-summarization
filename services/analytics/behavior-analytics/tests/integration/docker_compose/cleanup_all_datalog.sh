@@ -55,11 +55,3 @@ fi
 if [[ -d "$MDX_DATA_DIR/data_log/redis/log" ]]; then
     run_rm -rf $MDX_DATA_DIR/data_log/redis/log/*
 fi
-
-if [[ -d "$MDX_DATA_DIR/data_log/emqx/data" ]]; then
-    run_rm -rf $MDX_DATA_DIR/data_log/emqx/data/*
-fi
-
-if [[ -d "$MDX_DATA_DIR/data_log/emqx/log" ]]; then
-    run_rm -rf $MDX_DATA_DIR/data_log/emqx/log/*
-fi

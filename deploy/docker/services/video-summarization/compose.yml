@@ -123,40 +123,16 @@ services:
       start_period: 120s
     restart: always
     depends_on:
-      nvidia-nemotron-nano-9b-v2:
-        condition: service_healthy
-        required: false
       nvidia-nemotron-nano-9b-v2-fp8:
-        condition: service_healthy
-        required: false
-      nemotron-3-nano:
         condition: service_healthy
         required: false
       nemotron-3.5-lightning-30b-a3b:
         condition: service_healthy
         required: false
-      llama-3.3-nemotron-super-49b-v1.5:
-        condition: service_healthy
-        required: false
-      gpt-oss-20b:
-        condition: service_healthy
-        required: false
-      nvidia-nemotron-nano-9b-v2-shared-gpu:
-        condition: service_healthy
-        required: false
       nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
         condition: service_healthy
         required: false
-      nemotron-3-nano-shared-gpu:
-        condition: service_healthy
-        required: false
       nemotron-3.5-lightning-30b-a3b-shared-gpu:
-        condition: service_healthy
-        required: false
-      llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
-        condition: service_healthy
-        required: false
-      gpt-oss-20b-shared-gpu:
         condition: service_healthy
         required: false
       cosmos-reason1-7b:
