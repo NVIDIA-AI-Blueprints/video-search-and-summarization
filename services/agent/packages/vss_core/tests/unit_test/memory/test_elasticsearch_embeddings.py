@@ -475,3 +475,20 @@ def test_semantic_search_created_at_range_and_dimension_validation() -> None:
     } in filters
     with pytest.raises(ConfigurationError, match="query embedding has 2 dimensions"):
         backend.semantic_search(MemoryQuery(text="summary"), [0.1, 0.2], 5)
+
+
+def test_mapping_for_accepts_elasticsearch_client_response_objects() -> None:
+    from vss_core.memory.backends.elasticsearch_embeddings import _mapping_for
+
+    class _ClientResponse:
+        def __init__(self, body: dict[str, Any]) -> None:
+            self.body = body
+
+    mapping = {
+        "dynamic": "strict",
+        "_meta": {"model": MODEL},
+        "properties": {"vector": {"type": "dense_vector", "dims": 3}},
+    }
+    body = {INDEX: {"mappings": mapping}}
+    assert _mapping_for(_ClientResponse(body), INDEX) == mapping
+    assert _mapping_for(body, INDEX) == mapping

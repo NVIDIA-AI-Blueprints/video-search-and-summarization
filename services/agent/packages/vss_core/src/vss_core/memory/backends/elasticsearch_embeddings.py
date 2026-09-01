@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from typing import Literal
@@ -397,15 +398,17 @@ class ElasticsearchEmbeddingStore:
         except (ESConnectionError, ESTransportError) as error:
             raise BackendUnreachableError("elasticsearch", "embedding index validation failed", cause=error) from error
         mapping = _mapping_for(response, self._index)
-        vector = mapping.get("properties", {}).get("vector")
+        properties = mapping.get("properties")
+        vector = properties.get("vector") if isinstance(properties, Mapping) else None
         metadata = mapping.get("_meta")
         expected_meta = self.mapping["_meta"]
         if (
-            not isinstance(vector, dict)
+            not isinstance(vector, Mapping)
             or vector.get("type") != "dense_vector"
             or vector.get("dims") != self._provider.dimensions
             or vector.get("similarity") != SIMILARITY
-            or metadata != expected_meta
+            or not isinstance(metadata, Mapping)
+            or any(metadata.get(key) != value for key, value in expected_meta.items())
         ):
             raise ConfigurationError(
                 f"companion embedding index {self._index!r} has an incompatible mapping; "
@@ -493,14 +496,21 @@ class ElasticsearchEmbeddingStore:
         return self._authoritative_store.upsert(updated)
 
 
+def _as_mapping(value: Any) -> Mapping[str, Any] | None:
+    return value if isinstance(value, Mapping) else None
+
+
 def _mapping_for(response: Any, index: str) -> dict[str, Any]:
-    if not isinstance(response, dict):
+    """Extract mappings from the Elasticsearch client or a raw dict body."""
+    payload = getattr(response, "body", response)
+    root = _as_mapping(payload)
+    if root is None:
         return {}
-    entry = response.get(index)
-    if not isinstance(entry, dict):
+    entry = _as_mapping(root.get(index))
+    if entry is None:
         return {}
-    mapping = entry.get("mappings")
-    return mapping if isinstance(mapping, dict) else {}
+    mapping = _as_mapping(entry.get("mappings"))
+    return dict(mapping) if mapping is not None else {}
 
 
 def _is_already_exists(error: BadRequestError) -> bool:
