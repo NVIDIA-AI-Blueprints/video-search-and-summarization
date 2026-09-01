@@ -39,37 +39,33 @@ stream-cap layer.
 
 ## If your install customizes `bp-configurator.env`
 
-The script builds its output by reading the chart's `values.yaml` and patching `NUM_STREAMS` /
-`HARDWARE_PROFILE` into that env list. Skip the steps below and the generated file — built from
-chart defaults only, then layered last — silently replaces your customized `bp-configurator.env`
-with the defaults, since Helm replaces list-typed values wholesale rather than merging them
-entry-by-entry. Which steps apply depends on how the customization is set:
+The script patches `NUM_STREAMS`/`HARDWARE_PROFILE` into the chart's own `bp-configurator.env`
+list. Skip what's below and its output — built from chart defaults, then layered last — overwrites
+whatever you had there, since Helm replaces list-typed values wholesale instead of merging entries.
 
-**Values file (`-f my-values.yaml`).** Pass that same file to the *script* with `-f`/`--values` so
-it merges your customizations in before patching:
+If the customization is in a values file (`-f my-values.yaml`), pass that file to the script too,
+via `-f`/`--values`, so it merges your customizations in before patching:
 
 ```bash
 python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
   --mode 2d --num-streams 8 -f my-values.yaml -o values-stream-cap.generated.yaml
 ```
 
-That only handles `bp-configurator.env` — the script's output contains nothing else. If
-`my-values.yaml` also sets unrelated things (storage class, ingress, monitoring, alerts flags),
-still pass it to `helm` too, generated file layered after it so it wins only on
+That covers `bp-configurator.env` only — the script's output has nothing else in it. If
+`my-values.yaml` also sets other things (storage class, ingress, monitoring, alerts flags), still
+pass it to `helm` directly, with the generated file layered after it so it only overrides
 `bp-configurator.env`:
 
 ```bash
 helm upgrade --install wh <chart-dir> -n <namespace> \
   -f my-values.yaml \
-  -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env, leaves the rest of my-values.yaml intact
+  -f values-stream-cap.generated.yaml   # wins on bp-configurator.env only, rest of my-values.yaml stays
 ```
 
-**Inline (`--set`/`--set-json` touching `bp-configurator.env`).** The script only reads YAML
-files, not `--set` strings, so there's no direct way to feed it an inline override. Write the
-equivalent into a small values file and use that instead — either by hand, or by dumping the
-current release's values if one is already installed (`helm get values wh -n <namespace> -o yaml >
-my-values.yaml`, then trim to just the `bp-configurator` block) — and follow the values-file path
-above.
+If the customization is inline (`--set`/`--set-json` on `bp-configurator.env`), the script can't
+read it — it only takes YAML files. Move it into a values file first: write it by hand, or if a
+release is already installed, `helm get values wh -n <namespace> -o yaml > my-values.yaml` and trim
+it down to the `bp-configurator` block. Then use the values-file case above.
 
 ## Without the skill
 
