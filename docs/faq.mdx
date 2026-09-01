@@ -116,10 +116,10 @@ How does a remote `nim` VLM access videos?
 
 ### How does a remote `nim` VLM access videos?
 
-When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs elsewhere and must connect back to your host on **port 30888** to fetch videos. The VLM must be able to reach that port on:
+When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs elsewhere and must connect back to your host on **port 30888** to fetch videos. In the selected profile's `developer-profiles/dev-profile-<profile>/overrides.env`, set an address the VLM can reach:
 
-- The **external IP** passed via `-e`, if you provide one when running the agent workflow, or
-- Otherwise, the **internal host IP** you pass via `-i` or the auto-derived internal host IP.
+- `HOST_IP` to the hostname or IP address through which clients can reach VSS on the host.
+- `EXTERNAL_IP` to the public hostname or IP address when the VLM connects from outside the host network (for example, a cloud VM's public address). It defaults to `${HOST_IP}` for local-network deployments.
 
 Ensure your network and firewall allow the `nim` VLM to access port 30888 on the appropriate IP from where the VLM runs.
 
