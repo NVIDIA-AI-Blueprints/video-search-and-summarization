@@ -200,9 +200,10 @@ def main() -> None:
         f"with NUM_STREAMS={effective} (README.md: 'Keep in step with bp-configurator NUM_STREAMS')",
         file=sys.stderr,
     )
+    values_flags = "".join(f"-f {v} " for v in args.values)
     print(
         f"\nhelm upgrade --install <release> {chart_dir} -n <namespace> "
-        f"-f {args.output} --set vios.vss-vios-nvstreamer.syncFileCount={effective} ..."
+        f"{values_flags}-f {args.output} --set vios.vss-vios-nvstreamer.syncFileCount={effective} ..."
     )
 
 
