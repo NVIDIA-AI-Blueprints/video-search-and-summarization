@@ -181,9 +181,6 @@ def trigger_pipeline(
         token,
         data=payload,
     )
-    pipeline_id = str(response.get("id") or "")
-    if pipeline_id:
-        persist_handoff(pipeline_id=pipeline_id)
     return response
 
 
@@ -417,9 +414,15 @@ def new_correlation_id() -> str:
 
 
 def handoff_path() -> str:
-    return os.environ.get("DOWNSTREAM_HANDOFF_PATH", DEFAULT_HANDOFF_PATH).strip() or (
-        DEFAULT_HANDOFF_PATH
-    )
+    override = os.environ.get("DOWNSTREAM_HANDOFF_PATH", "").strip()
+    if override:
+        return override
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip()
+    if run_id:
+        suffix = f"{run_id}-{attempt}" if attempt else run_id
+        return f".ci/downstream-pipeline-{suffix}.json"
+    return DEFAULT_HANDOFF_PATH
 
 
 def persist_handoff(**fields: object) -> None:

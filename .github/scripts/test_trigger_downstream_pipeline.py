@@ -158,6 +158,32 @@ class ExtraPipelineVariablesTest(unittest.TestCase):
                 {"project_id": "4", "pipeline_id": "88"},
             )
 
+    def test_handoff_path_keys_by_github_run_so_runners_do_not_reuse_a_file(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_RUN_ID": "77",
+                "GITHUB_RUN_ATTEMPT": "2",
+                "DOWNSTREAM_HANDOFF_PATH": "",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                module.handoff_path(),
+                ".ci/downstream-pipeline-77-2.json",
+            )
+
+    def test_handoff_path_override_still_wins(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DOWNSTREAM_HANDOFF_PATH": "/tmp/explicit.json",
+                "GITHUB_RUN_ID": "77",
+            },
+            clear=False,
+        ):
+            self.assertEqual(module.handoff_path(), "/tmp/explicit.json")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
