@@ -69,12 +69,9 @@ If the customization is inline (`--set`/`--set-json` on `bp-configurator.env`), 
 read it — it only takes YAML files. Move it into a values file first. If a release is already
 installed, `helm get values wh -n <namespace> -o yaml` only returns what was explicitly set, not
 the full merged list — use `helm get values wh -n <namespace> -a -o yaml > my-values.yaml` instead
-and keep its `bp-configurator` block untrimmed. Check the command actually succeeded before
-trusting the file: `>` truncates `my-values.yaml` even if `helm get values` errors out (e.g. wrong
-release/namespace), so a failed run can silently leave you with an empty file. `-a` also dumps the
-release's full computed values, which can include secrets from other overrides — treat the file as
-sensitive and delete it once you've pulled the `bp-configurator` block out. Then use the
-values-file case above.
+and keep its `bp-configurator` block untrimmed — verify it wrote something first (`>` truncates on
+a failed `helm get values` too), and delete `my-values.yaml` once you're done, since `-a` dumps the
+release's full computed values, secrets included. Then use the values-file case above.
 
 ## Without the skill
 
