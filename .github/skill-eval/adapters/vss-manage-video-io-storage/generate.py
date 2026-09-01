@@ -52,7 +52,7 @@ refactor that motivated this docstring rewrite).
         tests/test.sh
         tests/vios_ops.json               (copied from skill)
         solution/solve.sh
-        skills/operations/vss-manage-video-io-storage/                (full skill copy)
+        skills/vss-manage-video-io-storage/                (full skill copy)
         environment/Dockerfile            (FROM scratch; BrevEnvironment takes over)
 
 One task per platform. All platforms share the same verifier — only

@@ -32,8 +32,8 @@ with ``--platform``.
             tests/query_analytics.json
             tests/generic_judge.py
             solution/solve.sh
-            skills/operations/vss-query-analytics/
-            skills/deployment/vss-deploy-profile/
+            skills/vss-query-analytics/
+            skills/vss-deploy-profile/
             environment/Dockerfile
 
 ``<profile>`` comes from ``spec.profile`` (here: ``alerts``).

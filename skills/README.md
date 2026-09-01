@@ -1,6 +1,6 @@
 # VSS Skills
 
-Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Each subdirectory under `skills/` is a self-contained skill following the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter.
+Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Skills are grouped by what they do — `deployment/` stands a stack up, `operations/` drives a running one, `tools/` and `benchmarking/` hold standalone utilities, and `vss-build-vision-ai` sits at the top level as the entry point that composes the rest. Each skill directory is self-contained and follows the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter. A skill's name is its directory's leaf name; the category is repository organisation and does not appear in the installed path.
 
 > **New here? Read [Orientation](#orientation-how-vss-fits-together) first, then [Which skill do I need?](#which-skill-do-i-need).** Those two sections are the fastest path from a user request to the right skill.
 
@@ -189,7 +189,7 @@ The agent will read the frontmatter of each `SKILL.md`, create the symlinks, and
 
 To install skills individually, paste the following prompt:
 
-> Install only `skills/<name>/` for this host the same way.
+> Install only `skills/<category>/<name>/` for this host the same way.
 
 ### Update
 

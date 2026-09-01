@@ -38,8 +38,8 @@ whatever it needs:
             tests/generic_judge.py
             tests/auto-calibration.json
             solution/solve.sh
-            skills/tools/vss-generate-video-calibration/   (full skill copy)
-            skills/deployment/vss-deploy-profile/               (optional, for agent debug)
+            skills/vss-generate-video-calibration/   (full skill copy)
+            skills/vss-deploy-profile/               (optional, for agent debug)
             environment/Dockerfile
         step-2/
             ...

@@ -30,10 +30,10 @@ is never a Compose profile.
         tests/generic_judge.py
         solution/solve.sh
         skills/vss-build-vision-ai/   (full skill copy)
-        skills/deployment/vss-deploy-dense-captioning/   (bundled for dense-captioning checks)
-        skills/deployment/vss-deploy-detection-tracking-2d/ (bundled for RT-CV checks)
-        skills/deployment/vss-deploy-video-embedding/   (bundled for RT-Embed checks)
-        skills/operations/vss-summarize-video/      (bundled for LVS summarize API checks)
+        skills/vss-deploy-dense-captioning/   (bundled for dense-captioning checks)
+        skills/vss-deploy-detection-tracking-2d/ (bundled for RT-CV checks)
+        skills/vss-deploy-video-embedding/   (bundled for RT-Embed checks)
+        skills/vss-summarize-video/      (bundled for LVS summarize API checks)
         environment/Dockerfile           (FROM scratch; BrevEnvironment takes over)
 
 Usage from the repository root:

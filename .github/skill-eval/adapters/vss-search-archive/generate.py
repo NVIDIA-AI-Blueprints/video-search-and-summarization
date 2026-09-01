@@ -32,11 +32,11 @@ query.
         tests/<spec>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/operations/vss-search-archive/  (full skill copy)
-        skills/deployment/vss-deploy-profile/        (for prerequisite diagnostics)
-        skills/operations/vss-manage-video-io-storage/          (the search spec's first checks reference VIOS
+        skills/vss-search-archive/  (full skill copy)
+        skills/vss-deploy-profile/        (for prerequisite diagnostics)
+        skills/vss-manage-video-io-storage/          (the search spec's first checks reference VIOS
                                as the canonical source-list lookup)
-        skills/operations/vss-ask-video/              (confirmed search-result verification)
+        skills/vss-ask-video/              (confirmed search-result verification)
         environment/Dockerfile  (FROM scratch; BrevEnvironment takes over)
 
 `<profile>` comes from `spec.profile` (here: `search`). `<k>` is the

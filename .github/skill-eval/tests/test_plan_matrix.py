@@ -148,6 +148,65 @@ class RunsOnLabels(unittest.TestCase):
             self.assertTrue(labels[2].startswith("gpu-"), platform)
 
 
+class EvalScope(unittest.TestCase):
+    """Which skills skill-eval covers, asserted against the real tree.
+
+    RealSpecCorpus below derives its corpus from EVAL_SKILL_ROOTS, so it cannot
+    notice a root being typo'd or dropped — the corpus just shrinks and every
+    assertion still holds. These tests pin the roots to the tree instead.
+    """
+
+    def test_every_covered_root_exists_and_contributes_a_skill(self):
+        skills_root = plan_matrix.REPO_ROOT / "skills"
+        discovered = plan_matrix.discover_skills()
+        for root in plan_matrix.EVAL_SKILL_ROOTS:
+            self.assertTrue((skills_root / root).is_dir(),
+                            f"EVAL_SKILL_ROOTS names {root!r}, which is not a dir")
+            owned = [n for n, d in discovered.items()
+                     if root in d.relative_to(skills_root).parts or d.name == root]
+            self.assertTrue(owned, f"covered root {root!r} contributed no skill")
+
+    def test_a_named_root_is_itself_a_skill_dir(self):
+        for name in plan_matrix.EVAL_SKILL_NAMES:
+            self.assertTrue(
+                (plan_matrix.REPO_ROOT / "skills" / name / "SKILL.md").is_file(),
+                f"{name!r} is in EVAL_SKILL_NAMES but is not a skill dir")
+
+    def test_a_category_root_holds_no_skill_md_of_its_own(self):
+        for cat in plan_matrix.EVAL_SKILL_CATEGORIES:
+            self.assertFalse(
+                (plan_matrix.REPO_ROOT / "skills" / cat / "SKILL.md").is_file(),
+                f"{cat!r} is a category but has its own SKILL.md")
+
+    def test_a_nested_file_attributes_to_its_leaf_never_the_category(self):
+        skills = plan_matrix.discover_skills()
+        self.assertEqual(
+            plan_matrix.skill_for_file(
+                "skills/operations/vss-ask-video/references/x.md", skills),
+            "vss-ask-video")
+        self.assertEqual(
+            plan_matrix.skill_for_file("skills/vss-build-vision-ai/SKILL.md", skills),
+            "vss-build-vision-ai")
+
+    def test_uncovered_categories_attribute_to_nothing(self):
+        skills = plan_matrix.discover_skills()
+        for path in ("skills/deployment/vss-deploy-profile/evals/base.json",
+                     "skills/tools/vss-generate-video-calibration/SKILL.md",
+                     "skills/benchmarking/benchmark-video-summarization/scripts/x.py"):
+            self.assertIsNone(plan_matrix.skill_for_file(path, skills), path)
+            self.assertEqual(plan_matrix.build_matrix([path]), [], path)
+
+    def test_an_undiscovered_skill_under_a_category_still_names_the_leaf(self):
+        """The fallback path: a skill dir in the diff but not yet on disk."""
+        skills = plan_matrix.discover_skills()
+        self.assertEqual(
+            plan_matrix.skill_for_file("skills/operations/vss-brand-new/SKILL.md", skills),
+            "vss-brand-new")
+        # ...but a bare category file names no skill, and neither does a bare root.
+        self.assertIsNone(plan_matrix.skill_for_file("skills/operations/README.md", skills))
+        self.assertIsNone(plan_matrix.skill_for_file("skills/deployment/vss-new/SKILL.md", skills))
+
+
 class RealSpecCorpus(unittest.TestCase):
     """Every spec in skills/ must yield a well-formed label set.
 

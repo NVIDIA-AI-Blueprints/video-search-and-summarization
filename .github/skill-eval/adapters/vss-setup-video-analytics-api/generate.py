@@ -30,7 +30,7 @@ Directory layout (one spec → one task per platform key):
         tests/<spec_stem>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/deployment/vss-setup-video-analytics-api/
+        skills/vss-setup-video-analytics-api/
         environment/Dockerfile
 
 Usage from the repository root:

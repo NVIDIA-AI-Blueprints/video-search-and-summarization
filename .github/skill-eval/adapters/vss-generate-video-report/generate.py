@@ -24,9 +24,9 @@ by default (RTXPRO6000BW).  Override with ``--platform``.
         tests/<spec>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/operations/vss-generate-video-report/
-        skills/deployment/vss-deploy-profile/
-        skills/operations/vss-manage-video-io-storage/
+        skills/vss-generate-video-report/
+        skills/vss-deploy-profile/
+        skills/vss-manage-video-io-storage/
         environment/Dockerfile
 
 ``<profile>`` comes from ``spec.profile`` (here: ``base``).

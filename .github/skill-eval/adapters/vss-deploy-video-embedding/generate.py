@@ -34,7 +34,7 @@ than a step-chain.
         tests/generic_judge.py
         tests/standalone_deploy.json
         solution/solve.sh
-        skills/deployment/vss-deploy-video-embedding/    (full skill copy)
+        skills/vss-deploy-video-embedding/    (full skill copy)
         environment/Dockerfile                 (FROM scratch; BrevEnvironment takes over)
 
 Usage from the repository root:
@@ -360,7 +360,7 @@ def generate_task(
     solution_dir.mkdir(exist_ok=True)
     (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-    # skills/deployment/vss-deploy-video-embedding/ — full copy so the agent has the
+    # skills/vss-deploy-video-embedding/ — full copy so the agent has the
     # whole reference set available at runtime.
     if skill_dir and skill_dir.exists():
         skill_dest = step_dir / "skills" / "vss-deploy-video-embedding"

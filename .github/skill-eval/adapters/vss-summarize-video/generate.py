@@ -25,8 +25,8 @@ this in `resources.platforms`.
         tests/<spec>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/operations/vss-summarize-video/
-        skills/operations/vss-manage-video-io-storage/       (when listed in spec["skills"])
+        skills/vss-summarize-video/
+        skills/vss-manage-video-io-storage/       (when listed in spec["skills"])
         environment/Dockerfile        (FROM scratch; BrevEnvironment takes over)
 
 `<profile>` comes from `spec.profile` (here: `lvs`). `<k>` is the

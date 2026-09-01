@@ -569,7 +569,7 @@ def generate_task(
         generate_solve_script(profile, platform),
     )
 
-    # -- skills/deployment/vss-deploy-profile/ --
+    # -- skills/vss-deploy-profile/ --
     if skill_dir and skill_dir.exists():
         skill_dest = task_dir / "skills" / "vss-deploy-profile"
         if skill_dest.exists():
