@@ -44,11 +44,11 @@ Run (requires no GStreamer, torch, cupy, pyds, or grpc):
 
 from __future__ import annotations
 
-from collections import deque
 import importlib.util
-from pathlib import Path
 import sys
 import types
+from collections import deque
+from pathlib import Path
 
 import pytest
 
@@ -95,14 +95,18 @@ class BusWatchRegistry:
     def pin(self, bus) -> None:
         key = id(bus)
         if key in self.active_buses:
-            raise AssertionError("add_signal_watch() called twice on the same bus without removal")
+            raise AssertionError(
+                "add_signal_watch() called twice on the same bus without removal"
+            )
         self.active_buses[key] = bus
         self.add_count += 1
 
     def unpin(self, bus) -> None:
         key = id(bus)
         if key not in self.active_buses:
-            raise AssertionError("remove_signal_watch() called for a bus that is not (or no longer) watched")
+            raise AssertionError(
+                "remove_signal_watch() called for a bus that is not (or no longer) watched"
+            )
         del self.active_buses[key]
         self.removed_log.append(bus)
         self.remove_count += 1
@@ -189,7 +193,9 @@ class FakePad(_SignalObject):
 
     def remove_probe(self, probe_id) -> None:
         if probe_id not in self._probes:
-            raise AssertionError(f"remove_probe() called for unknown probe id {probe_id}")
+            raise AssertionError(
+                f"remove_probe() called for unknown probe id {probe_id}"
+            )
         del self._probes[probe_id]
 
     def query_caps(self, _intersection):
@@ -318,7 +324,9 @@ class FakePipeline(FakeElement):
 
     def _fire_parsebin_pad_added(self) -> None:
         self._pad_added_fired = True
-        parsebin = next((c for c in self.children if c._factory_name == "parsebin"), None)
+        parsebin = next(
+            (c for c in self.children if c._factory_name == "parsebin"), None
+        )
         if parsebin is None:
             return
         pad = parsebin.get_static_pad("src")
@@ -543,19 +551,23 @@ def _stub_if_missing(names: dict[str, types.ModuleType]) -> None:
     for name in names:
         try:
             __import__(name)
+        except ImportError:
+            parts = name.split(".")
+            for i in range(len(parts)):
+                subname = ".".join(parts[: i + 1])
+                if subname not in sys.modules:
+                    sys.modules[subname] = names[subname]
+            # Wire the submodule attributes on the parent modules.
+            for i in range(1, len(parts)):
+                parent_name = ".".join(parts[:i])
+                child_name = parts[i]
+                setattr(
+                    sys.modules[parent_name],
+                    child_name,
+                    names[".".join(parts[: i + 1])],
+                )
+        else:
             continue
-        except Exception:
-            pass
-        parts = name.split(".")
-        for i in range(len(parts)):
-            subname = ".".join(parts[: i + 1])
-            if subname not in sys.modules:
-                sys.modules[subname] = names[subname]
-        # Wire the submodule attributes on the parent modules.
-        for i in range(1, len(parts)):
-            parent_name = ".".join(parts[:i])
-            child_name = parts[i]
-            setattr(sys.modules[parent_name], child_name, names[".".join(parts[: i + 1])])
 
 
 def _install_third_party_stubs() -> None:
@@ -601,7 +613,13 @@ def _install_third_party_stubs() -> None:
     _stub_if_missing({"cupy": cupy_mod, "cupy.cuda": cupy_cuda})
 
     pyds_mod = types.ModuleType("pyds")
-    pyds_mod.get_nvds_buf_surface_gpu = lambda *_args, **_kwargs: (None, None, None, None, None)
+    pyds_mod.get_nvds_buf_surface_gpu = lambda *_args, **_kwargs: (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
     pyds_mod.configure_source_for_ntp_sync = lambda *_args, **_kwargs: None
     _stub_if_missing({"pyds": pyds_mod})
 
@@ -662,19 +680,31 @@ class FakeFrameSelector:
         return True
 
 
-@pytest.fixture(scope="session")
+def _restore_import_state(saved_modules, saved_path):
+    """Restore import state after installing fake runtime dependencies."""
+    # Restore replaced modules and remove every module introduced by the fake
+    # runtime. This must happen per test module: other rt-vlm tests may run in the
+    # same pytest process and must never observe incomplete fake dependencies.
+    # Restoring at module teardown avoids reloading C extensions between tests.
+    for name in list(sys.modules):
+        if name not in saved_modules:
+            sys.modules.pop(name, None)
+    for name, module in saved_modules.items():
+        sys.modules[name] = module
+    sys.path[:] = saved_path
+
+
+@pytest.fixture(scope="module")
 def vffg():
     """Load video_file_frame_getter.py against the fake GStreamer."""
-    saved_gi = _install_fake_gi()
-    _install_third_party_stubs()
-    module = _load_module_under_test()
-    yield module
-    for name, saved in saved_gi.items():
-        if saved is None:
-            sys.modules.pop(name, None)
-        else:
-            sys.modules[name] = saved
-    sys.modules.pop("vffg_fdleak_under_test", None)
+    saved_modules = dict(sys.modules)
+    saved_path = list(sys.path)
+    try:
+        _install_fake_gi()
+        _install_third_party_stubs()
+        yield _load_module_under_test()
+    finally:
+        _restore_import_state(saved_modules, saved_path)
 
 
 @pytest.fixture(autouse=True)
@@ -782,7 +812,10 @@ def test_multi_cycle_alternating_codecs_never_grows(fgetter, decode, vffg):
         # The flat bookkeeping lists must not accumulate stale entries that
         # pin old pipelines' elements.
         if baseline is None:
-            baseline = (len(fgetter._gst_signal_handler_ids), len(fgetter._gst_pad_probe_ids))
+            baseline = (
+                len(fgetter._gst_signal_handler_ids),
+                len(fgetter._gst_pad_probe_ids),
+            )
         else:
             assert len(fgetter._gst_signal_handler_ids) <= baseline[0], (
                 f"cycle {index}: signal handler list grew to "
@@ -807,7 +840,11 @@ def test_cached_decodebin_handlers_reconnected_exactly_once(fgetter, decode):
     # The replacement path disconnects ALL handlers, including the cached
     # decoder's, and clears the signal-key set.
     assert live_handler_count(h264_db) == 0
-    assert ("h264", FRAME_WIDTH, FRAME_HEIGHT) not in fgetter._vdecodebin_cache_signal_keys
+    assert (
+        "h264",
+        FRAME_WIDTH,
+        FRAME_HEIGHT,
+    ) not in fgetter._vdecodebin_cache_signal_keys
 
     decode(fgetter, "f3.mp4", "h264", "video/x-h264")
     # Re-entering the pipeline reconnects exactly once — not zero, not four.
