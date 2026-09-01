@@ -40,11 +40,11 @@ import os
 import secrets
 import tempfile
 import time
-import urllib.parse
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import Literal
+import urllib.parse
 
 import click
 from pydantic import BaseModel
@@ -258,8 +258,14 @@ def _build_vlm_request(
     """Build an OpenAI-compatible /v1/chat/completions payload."""
     if use_base64:
         try:
+            # Read in chunks that are multiples of 3 bytes so each chunk encodes
+            # to valid base64 without intra-chunk padding.  This keeps only one
+            # 192 KB raw chunk in memory at a time instead of the whole file.
+            b64_parts: list[str] = []
             with open(media_url, "rb") as fh:
-                b64 = base64.b64encode(fh.read()).decode()
+                while chunk := fh.read(3 * 65536):
+                    b64_parts.append(base64.b64encode(chunk).decode())
+            b64 = "".join(b64_parts)
         except OSError as exc:
             raise InvalidInput(f"cannot read local file {media_url!r}: {exc}") from exc
         video_content: dict[str, Any] = {
