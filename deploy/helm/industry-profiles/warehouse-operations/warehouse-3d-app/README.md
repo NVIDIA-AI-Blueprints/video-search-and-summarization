@@ -40,7 +40,7 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
   ```bash
   helm repo add containeroo https://charts.containeroo.ch
   helm repo update
-  helm upgrade --namespace default --install \
+  helm upgrade --namespace local-path-storage --create-namespace --install \
     local-path-provisioner-default containeroo/local-path-provisioner --version '0.0.32'
   ```
 
@@ -52,6 +52,23 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
   ```
 
   Replace `local-path` with your StorageClass name if it differs.
+
+  `local-path` binds each PV to whichever node claims it first — on a multi-node cluster this
+  can strand VST's several PVCs on different nodes and leave `vss-vios-nvstreamer` permanently
+  unschedulable. On multi-node clusters, prefer a shared StorageClass instead, e.g.
+  [nfs-subdir-external-provisioner](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner)
+  (needs an existing NFS server):
+
+  ```bash
+  helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+  helm repo update
+  helm upgrade --namespace nfs-provisioner --create-namespace --install \
+    nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+    --set nfs.server=<NFS_SERVER_IP> \
+    --set nfs.path=<NFS_EXPORT_PATH>
+  ```
+
+  Creates a StorageClass named `nfs-client` by default.
 
 - **Helm 3.x** and **kubectl**
 

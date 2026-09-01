@@ -65,10 +65,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      snippet from `warehouse-<mode>-app/README.md` §Prerequisites (bare-metal option) — or ask
      what StorageClass they intend to use if they already have one in mind. Multi-node cluster:
      `local-path`'s node affinity can strand `vss-vios-nvstreamer`'s PVCs across different nodes
-     (`didn't match PersistentVolume's node affinity`) — use a shared StorageClass via
-     `vios.vstStorage.{vstData,vstVideo,streamerVideos}.storageClass` instead of
-     `global.storageClass` if the user has one; this repo has no install snippet for one, so say
-     so if they don't.
+     (`didn't match PersistentVolume's node affinity`) — relay the same section's
+     `nfs-subdir-external-provisioner` snippet instead, and set
+     `vios.vstStorage.{vstData,vstVideo,streamerVideos}.storageClass=nfs-client` (or
+     `global.storageClass`) rather than `local-path`.
    - No `nvidia.com/gpu` allocatable → relay the NVIDIA GPU Operator install steps from
      §Prerequisites (links to the GPU Operator getting-started guide) and the recommended driver
      versions listed there.
