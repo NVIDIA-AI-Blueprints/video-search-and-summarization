@@ -21,6 +21,9 @@ differs. Source ingestion and deletion remain Agent-backed.
   exec`, a pod shell, or a globally installed `vss` as a substitute.
 - Never call Elasticsearch, RTVI-CV, RTVI-Embed, storage-ms, or VST directly
   for a mutation. Upload and delete through the Agent lifecycle.
+- Never upload via the deprecated single-step `PUT /api/v1/videos-for-search/{filename}`,
+  even as a fallback — it bypasses the Agent lifecycle. Uploads use only the
+  three-step workflow in [source lifecycle](references/source_lifecycle.md).
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect
@@ -103,7 +106,7 @@ index inventory is a snapshot.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 
-   Preserve both the matched source's `.sensorId` and `.name`. The required
+   Preserve both the matched source's `.sensor_id` and `.name` (the CLI's listing rows are snake_case). The required
    `--video-source` value depends on the search path, not the source type:
    `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
    name. The CLI matches this value literally and does no name↔ID conversion.

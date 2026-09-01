@@ -589,7 +589,60 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
 
             # Format results for display
             if result_count > 0:
-                header = f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
+                # Similarity is retrieval evidence, not proof of visual presence:
+                # nearest-neighbor search returns the closest segments even when the
+                # queried object never appears. Only a confirmed critic verdict
+                # justifies asserting a match, and only for the rows that carry it.
+                verdicts = [getattr(getattr(r, "critic_result", None), "result", None) for r in final_results]
+                n_confirmed = verdicts.count("confirmed")
+                n_rejected = verdicts.count("rejected")
+                n_unverified = result_count - n_confirmed - n_rejected
+                if n_confirmed == result_count:
+                    header = f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
+                elif n_confirmed > 0:
+                    parts = [f"{n_confirmed} visually confirmed match{'es' if n_confirmed != 1 else ''}"]
+                    if n_rejected:
+                        parts.append(f"{n_rejected} rejected by the critic (retrieved but visually refuted)")
+                    if n_unverified:
+                        parts.append(
+                            f"{n_unverified} unverified candidate{'s' if n_unverified != 1 else ''} (similarity only)"
+                        )
+                    header = (
+                        f"Found {result_count} result{'s' if result_count != 1 else ''}: "
+                        + ", ".join(parts)
+                        + "\n\nNote: only rows with a 'confirmed' critic verdict are matches; "
+                        "rejected rows were visually refuted and unverified rows are similarity "
+                        "candidates, not sightings — see the Critic column per row."
+                    )
+                elif n_rejected == result_count:
+                    header = (
+                        f"Found {result_count} retrieval result{'s' if result_count != 1 else ''}, "
+                        "ALL rejected by the critic (retrieved by similarity but visually "
+                        "refuted) — no matches\n\n"
+                        "Note: these rows are refuted evidence, not candidates; do not report "
+                        "them as possible sightings."
+                    )
+                elif n_rejected > 0:
+                    # Zero confirmed, mixed rejected + unverified: only the
+                    # unverified rows are candidates; refuted rows are never
+                    # counted inside a candidate total.
+                    header = (
+                        f"Found {result_count} retrieval result{'s' if result_count != 1 else ''}: "
+                        f"{n_rejected} rejected by the critic (retrieved but visually refuted), "
+                        f"{n_unverified} unverified candidate{'s' if n_unverified != 1 else ''} "
+                        "(similarity only) — no confirmed matches\n\n"
+                        "Note: rejected rows are refuted evidence, not candidates; unverified "
+                        "rows indicate resemblance, not confirmed presence. Report nothing here "
+                        "as a sighting."
+                    )
+                else:
+                    header = (
+                        f"Found {result_count} candidate match{'es' if result_count != 1 else ''} "
+                        "(similarity-based retrieval; none visually confirmed)\n\n"
+                        "Note: similarity scores indicate resemblance, not confirmed presence. "
+                        "Report these as candidates, not as sightings, unless a critic verdict "
+                        "is 'confirmed'."
+                    )
                 results_summary_table = _results_summary_table(final_results)
                 summary = header + "\n\n" + results_summary_table
                 search_result_json = json.dumps(search_dict, indent=2)

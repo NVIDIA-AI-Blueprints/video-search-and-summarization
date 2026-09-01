@@ -140,9 +140,36 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     deployment_checks = spec["expects"][0]["checks"]
     ingestion_checks = spec["expects"][1]["checks"]
 
-    assert len(spec["expects"]) == 9
+    assert len(spec["expects"]) == 11
     assert spec["expects"][0]["scenario"] == "deploy-search-profile"
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
+    assert spec["expects"][9]["scenario"] == "in-product-agent-action-query"
+    assert spec["expects"][10]["scenario"] == "in-product-agent-absent-object-probe"
+
+    # The in-product agent scenarios pin the vss-agent container to this
+    # checkout's own content-addressed candidate image so the leg tests the
+    # PR's agent code, then restore it. They must never fall back to another
+    # tag, must scope the recreate to the one service, and must keep the
+    # similarity-is-not-presence contract.
+    action_query = spec["expects"][9]["query"]
+    assert "tree-$(git rev-parse HEAD:services/agent)" in action_query
+    assert "--no-deps" in action_query
+    assert "fail rather than falling back" in action_query
+    # VSS_AGENT_VERSION alone is masked by containers.env's VSS_CONTAINER_TAG,
+    # and a baked resolved.yml ignores env interpolation entirely — so the pin
+    # is mechanism-agnostic (env var or image-only override) but must always be
+    # PROVEN via docker inspect.
+    assert "VSS_CONTAINER_TAG" in action_query
+    assert "compose override file" in action_query
+    assert "docker inspect vss-agent" in action_query
+    probe = spec["expects"][10]
+    # The probe establishes its own pin (no handoff: the runner may skip a
+    # successor on exhausted leg time, so each step's harness verifier
+    # restores unconditionally after judging).
+    assert "establishes its own pin" in probe["query"]
+    assert "restor" in probe["query"]
+    assert any("not as sightings" in check for check in probe["checks"])
+    assert any("proof of visual presence" in check for check in probe["checks"])
     assert "vss-ask-video" in spec["skills"]
     assert "--extra cli vss search run" in serialized
     assert "verification.result" in serialized
@@ -198,9 +225,13 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     verification = verification_steps[0]
     assert "Yes, verify this one result now" in verification["query"]
     assert any(
-        "at most one additional request only to repair malformed structured output" in check
+        "at most one additional request only to repair malformed structured output or to recover" in check
         for check in verification["checks"]
     )
+    # Technical-recovery retries (URL -> base64 after an SSRF/auth rejection) are
+    # sanctioned; semantic-verdict retries never are.
+    assert any("never retried a semantic verdict" in check for check in verification["checks"])
+    assert "implementation-neutral" in verification["query"]
     assert "ask_video_skill_dir" in adapter
     assert '(ask_video_skill_dir, "vss-ask-video")' in adapter
 

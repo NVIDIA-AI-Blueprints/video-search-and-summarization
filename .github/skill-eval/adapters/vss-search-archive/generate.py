@@ -196,6 +196,34 @@ VERIFICATION_PREAMBLE = (
     "evidence. Keep the final response implementation-neutral."
 )
 
+IN_PRODUCT_AGENT_PREAMBLE = (
+    PREAMBLE
+    + " The search profile and evaluation fixtures were prepared by the preceding steps. This step"
+    " verifies the IN-PRODUCT agent path (POST /generate), not the host CLI, and it must run the"
+    " checkout's own agent code. You are authorized, for this step only, to pin and recreate the"
+    " single vss-agent container and nothing else: compute TAG=\"tree-$(git rev-parse"
+    " HEAD:services/agent)\" from the checkout; wait bounded (up to 5 minutes) for"
+    " ghcr.io/nvidia-ai-blueprints/vss/vss-agent:$TAG to become pullable and fail with diagnostics"
+    " rather than falling back to any other tag; read the deployment's compose file and env-file"
+    " list from the running container's com.docker.compose.* labels; if the environment_file label"
+    " is absent, fall back to the deployment profile's documented env-file set and say so"
+    " explicitly — never silently guess; record the pre-pin image first"
+    " (docker inspect vss-agent --format '{{.Config.Image}}' > /tmp/vss-prepin-image.txt) so the"
+    " harness cleanup can verify its restore against the exact original; recreate"
+    " pinned to that image using whichever mechanism the deployment's compose files honor:"
+    " VSS_AGENT_IMAGE plus VSS_CONTAINER_TAG=$TAG in the invocation environment when the compose file"
+    " interpolates them (VSS_CONTAINER_TAG has precedence; VSS_AGENT_VERSION alone is masked by"
+    " containers.env), or a minimal additional compose override file setting only the vss-agent image"
+    " when the resolved file has the image hardcoded — always up -d --force-recreate --no-deps"
+    " vss-agent; then PROVE the pin took: docker inspect vss-agent --format '{{.Config.Image}}' must"
+    " end with :$TAG, and fail the step if it does not. Wait for the agent health check before"
+    " probing. Do not redeploy the profile, do not touch any other service, and do not ingest"
+    " anything. There is NO pin handoff between steps: each in-product step establishes (or"
+    " re-establishes) its own pin, and the step's harness verifier restores the original image"
+    " unconditionally afterward — so if the agent itself recreated vss-agent and finishes early,"
+    " it may leave the pin for the verifier, but must never assume a later step inherits it."
+)
+
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     PREAMBLE
     + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
@@ -214,8 +242,273 @@ KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
-def generate_test_script(step: int, spec_name: str) -> str:
-    """Wrapper that invokes the generic judge for one step's checks."""
+# Deterministic, harness-executed restoration of the vss-agent image after the
+# in-product candidate-pin steps. The verifier phase runs even when the agent
+# times out or is terminated, so this cannot be skipped by a dying agent
+# session. Best-effort by design (`|| true`): a restore failure must not mask
+# the step's real verdict, and the environment provider wipes the docker
+# runtime before the next spec's first trial regardless.
+_RESTORE_AGENT_IMAGE_SNIPPET = (
+    "# Harness-owned cleanup: if the agent container is running a content-\n"
+    "# addressed candidate image (tree-<sha>), recreate it from the deployment's\n"
+    "# own compose coordinates so the pin never outlives this step.\n"
+    'CURRENT_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
+    "# Consume the agent-written pre-pin record UNCONDITIONALLY, pinned or not:\n"
+    "# deleting it on every verifier run means any record read below was written\n"
+    "# during THIS step — staleness across steps or trials is structurally\n"
+    "# impossible, not merely unlikely.\n"
+    'PREPIN_RECORD=""\n'
+    "if [[ -f /tmp/vss-prepin-image.txt ]]; then\n"
+    "  PREPIN_RECORD=\"$(head -c 300 /tmp/vss-prepin-image.txt | tr -d '[:space:]')\"\n"
+    "  rm -f /tmp/vss-prepin-image.txt 2>/dev/null || true\n"
+    "fi\n"
+    'if [[ "$CURRENT_IMAGE" == *":tree-"* ]]; then\n'
+    '  echo "verifier cleanup: vss-agent is pinned to $CURRENT_IMAGE — restoring"\n'
+    '  COMPOSE_FILES="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.config_files"}}\' 2>/dev/null || true)"\n'
+    '  COMPOSE_WD="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.working_dir"}}\' 2>/dev/null || true)"\n'
+    '  ENV_FILES="$(docker inspect vss-agent --format \'{{index .Config.Labels "com.docker.compose.project.environment_file"}}\' 2>/dev/null || true)"\n'
+    '  if [[ -n "$COMPOSE_FILES" && -n "$COMPOSE_WD" ]]; then\n'
+    "    # Exclude any compose file that itself pins a candidate image: when the\n"
+    "    # pin used an override FILE, that file is in the pinned container's own\n"
+    "    # config_files label, and passing it back would faithfully recreate the\n"
+    "    # pin. A file mentioning a tree- tag is part of the pin, not the base\n"
+    "    # deployment.\n"
+    "    FARGS=(); PIN_OVERRIDES=(); IFS=',' read -ra CF <<< \"$COMPOSE_FILES\"\n"
+    "    for f in \"${CF[@]}\"; do\n"
+    "      # Compose labels may record paths relative to the project working\n"
+    "      # dir; resolve them there, not against this verifier's cwd, or a\n"
+    "      # relative override silently survives the exclusion and re-arms the\n"
+    "      # pin when the restore cds into COMPOSE_WD.\n"
+    '      fp="$f"; [[ "$fp" != /* ]] && fp="$COMPOSE_WD/$fp"\n'
+    '      if [[ -f "$fp" ]] && grep -q ":tree-" "$fp" 2>/dev/null; then\n'
+    '        echo "verifier cleanup: excluding pin override $fp from restore"\n'
+    '        PIN_OVERRIDES+=("$fp")\n'
+    "        continue\n"
+    "      fi\n"
+    '      FARGS+=(-f "$f")\n'
+    "    done\n"
+    '    if [[ ${#FARGS[@]} -eq 0 ]]; then\n'
+    '      echo "VERIFIER-RESTORE-FAILED: no base compose files left after excluding pin overrides"\n'
+    '      mkdir -p /logs/verifier 2>/dev/null || true\n'
+    '      echo "no base compose files" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "      RESTORE_FAILED=1\n"
+    "    fi\n"
+    "    EARGS=(); if [[ -n \"$ENV_FILES\" ]]; then IFS=',' read -ra EF <<< \"$ENV_FILES\"; for f in \"${EF[@]}\"; do EARGS+=(--env-file \"$f\"); done; fi\n"
+    "    # The restore target is whatever the base compose coordinates resolve to\n"
+    "    # in this verifier's environment — the same resolution the restore `up`\n"
+    "    # below performs. Computing it up front lets the post-restore check\n"
+    "    # demand the EXACT pre-pin image, not merely any non-candidate image.\n"
+    "    EXPECTED_IMAGE=\"$(cd \"$COMPOSE_WD\" && docker compose \"${EARGS[@]}\" \"${FARGS[@]}\" config vss-agent 2>/dev/null | awk '$1==\"image:\"{print $2; exit}')\"\n"
+    "    # If the base coordinates themselves resolve to a candidate, the pin\n"
+    "    # leaked into them (e.g. a tag written into an env-file): a candidate\n"
+    "    # is never an acceptable restore target, so discard the resolution and\n"
+    "    # let the loop below fail loudly instead of ratifying the leak.\n"
+    '    if [[ "$EXPECTED_IMAGE" == *":tree-"* ]]; then\n'
+    '      echo "verifier cleanup: compose-resolved image $EXPECTED_IMAGE is itself a candidate — pin leaked into base coordinates; discarding"\n'
+    '      EXPECTED_IMAGE=""\n'
+    "    fi\n"
+    "    # Prefer the pre-pin record consumed above: it is the image that was\n"
+    "    # ACTUALLY deployed before this step's pin, not a re-resolution, and\n"
+    "    # unconditional consumption guarantees it was written during this step.\n"
+    "    # Trust it only when it is plausibly a base image (non-empty, not a\n"
+    "    # candidate tag): a wrong record can only zero this step's own reward,\n"
+    "    # so recording honestly is incentive-compatible.\n"
+    '    if [[ -n "$PREPIN_RECORD" && "$PREPIN_RECORD" != *":tree-"* ]]; then\n'
+    '      if [[ -n "$EXPECTED_IMAGE" && "$EXPECTED_IMAGE" != "$PREPIN_RECORD" ]]; then\n'
+    '        echo "verifier cleanup: pre-pin record $PREPIN_RECORD overrides compose-resolved $EXPECTED_IMAGE"\n'
+    "      fi\n"
+    '      EXPECTED_IMAGE="$PREPIN_RECORD"\n'
+    "    fi\n"
+    "    # Verified restore with one bounded retry. Never fails the verifier —\n"
+    "    # masking the step's real verdict would trade one integrity problem for\n"
+    "    # another — but a failed restore is loud: a machine-greppable marker on\n"
+    "    # stdout plus a breadcrumb in the verifier artifacts. The environment\n"
+    "    # provider's docker wipe before the next spec is the terminal backstop.\n"
+    "    for RESTORE_ATTEMPT in 1 2; do\n"
+    '      (cd "$COMPOSE_WD" && docker compose "${EARGS[@]}" "${FARGS[@]}" up -d --force-recreate --no-deps vss-agent) || true\n'
+    "      sleep 5\n"
+    '      POST_IMAGE="$(docker inspect vss-agent --format {{.Config.Image}} 2>/dev/null || true)"\n'
+    "      RESTORE_OK=0\n"
+    "      # Success REQUIRES a known target and an exact match. When neither\n"
+    "      # the pre-pin record nor compose resolution produced a target, the\n"
+    "      # restore cannot be verified, and an unverifiable restore is a failed\n"
+    "      # restore: the reward is invalidated (verdict preserved) rather than\n"
+    "      # accepting whatever non-candidate image happens to be running.\n"
+    '      if [[ -n "$EXPECTED_IMAGE" && "$POST_IMAGE" == "$EXPECTED_IMAGE" ]]; then\n'
+    "        RESTORE_OK=1\n"
+    "      fi\n"
+    "      # Structural invariant: cleanup NEVER reports success while the\n"
+    "      # container is on a candidate image, whatever the branches above said.\n"
+    '      [[ "$POST_IMAGE" == *":tree-"* ]] && RESTORE_OK=0\n'
+    '      if [[ "$RESTORE_OK" == "1" ]]; then\n'
+    '        echo "verifier cleanup: restored vss-agent to $POST_IMAGE (attempt $RESTORE_ATTEMPT, expected ${EXPECTED_IMAGE:-unresolved})"\n'
+    "        # tidy the now-inert pin override files off the shared box\n"
+    '        for po in "${PIN_OVERRIDES[@]:-}"; do [[ -n "$po" ]] && rm -f "$po" 2>/dev/null || true; done\n'
+    "        break\n"
+    "      fi\n"
+    "      if [[ $RESTORE_ATTEMPT -eq 2 ]]; then\n"
+    '        echo "VERIFIER-RESTORE-FAILED: vss-agent on $POST_IMAGE after 2 attempts (expected ${EXPECTED_IMAGE:-unresolvable})"\n'
+    '        mkdir -p /logs/verifier 2>/dev/null || true\n'
+    '        echo "wrong image after restore: $POST_IMAGE (expected ${EXPECTED_IMAGE:-unresolvable})" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "        RESTORE_FAILED=1\n"
+    "      fi\n"
+    "    done\n"
+    "  else\n"
+    '    echo "VERIFIER-RESTORE-FAILED: compose labels missing on vss-agent; cannot restore"\n'
+    '    mkdir -p /logs/verifier 2>/dev/null || true\n'
+    '    echo "compose labels missing" > /logs/verifier/restore-failed.marker 2>/dev/null || true\n'
+    "    RESTORE_FAILED=1\n"
+    "  fi\n"
+    "fi\n"
+)
+
+# A step that leaves the deployment on the candidate image is not a passing
+# step, even if its probe succeeded: green must mean "behavior correct AND
+# environment left clean". The pre-cleanup verdict is preserved in the
+# artifacts (reward-before-cleanup.txt and the details file) so the true
+# measurement is never lost — only the recorded score is invalidated.
+_REWARD_INVALIDATION_SNIPPET = (
+    'if [[ "$RESTORE_FAILED" == "1" ]]; then\n'
+    "  cp /logs/verifier/reward.txt /logs/verifier/reward-before-cleanup.txt 2>/dev/null || true\n"
+    '  echo "0.0" > /logs/verifier/reward.txt 2>/dev/null || true\n'
+    '  echo "VERIFIER-RESTORE-FAILED: reward invalidated to 0.0 (pre-cleanup verdict preserved in reward-before-cleanup.txt)"\n'
+    "fi\n"
+)
+
+_IN_PRODUCT_SCENARIOS = (
+    "in-product-agent-action-query",
+    "in-product-agent-absent-object-probe",
+)
+
+
+def generate_test_script(step: int, spec_name: str, scenario: str = "") -> str:
+    """Wrapper that invokes the generic judge for one step's checks.
+
+    The in-product steps' verifiers additionally perform deterministic image
+    restoration from an EXIT trap after judging, so even an interrupted
+    verifier cannot strand the pin (see _RESTORE_AGENT_IMAGE_SNIPPET); the
+    action step restores only when the pin should not survive, i.e. its
+    successor will re-establish it anyway, so a conditional is unnecessary
+    there — restoration on the terminal step plus the provider's docker wipe
+    covers every path a model-driven step cannot.
+    """
+    if scenario == "in-product-agent-absent-object-probe":
+        # Terminal step: judge FIRST so the verdict is persisted to reward.txt
+        # (generic_judge always exits 0; the reward file alone carries the
+        # score), then perform the unconditional harness-owned restoration.
+        # A restoration that exhausts its retries HARD-FAILS this verifier's
+        # exit code: the verdict is already safe on disk, and a stranded pin
+        # must be an error the harness surfaces, never a silent artifact.
+        return (
+            "#!/bin/bash\n"
+            f"# vss-search-archive verifier (step {step}): generic LLM-as-judge first\n"
+            "# (verdict persisted), then unconditional verified image restoration;\n"
+            "# exits nonzero if restoration ultimately fails. Restoration runs from\n"
+            "# an EXIT trap so an interrupted verifier still cannot strand the pin\n"
+            "# (only SIGKILL skips it, and the provider's docker wipe covers that).\n"
+            "set -uo pipefail\n"
+            "\n"
+            "RESTORE_FAILED=0\n"
+            "CLEANUP_RAN=0\n"
+            "cleanup() {\n"
+            "  # Critical section: once cleanup starts, catchable signals are\n"
+            "  # ignored so an interrupt cannot abandon the restore or the reward\n"
+            "  # invalidation partway (SIGKILL remains covered structurally).\n"
+            "  trap '' TERM INT HUP\n"
+            '  [[ "$CLEANUP_RAN" == "1" ]] && return 0\n'
+            "  CLEANUP_RAN=1\n"
+            + _RESTORE_AGENT_IMAGE_SNIPPET
+            + _REWARD_INVALIDATION_SNIPPET +
+            "}\n"
+            "finish() {\n"
+            "  st=$?\n"
+            "  cleanup\n"
+            '  if [[ "$RESTORE_FAILED" == "1" && "$st" -eq 0 ]]; then exit 1; fi\n'
+            '  exit "$st"\n'
+            "}\n"
+            "trap finish EXIT\n"
+            "trap 'exit 143' TERM INT HUP\n"
+            "# Traps are installed before ANY other work (even pip) so no pre-trap\n"
+            "# window exists for a catchable signal. SIGKILL cannot be observed by\n"
+            "# any process; it is covered structurally because the stranded-pin\n"
+            "# harm window is empty by construction, case by case:\n"
+            "#  - the action step's verifier is killed: the only later consumer is\n"
+            "#    the probe step, which NEVER inherits a pin — its first act is to\n"
+            "#    re-establish its own pin to the same candidate image, and its own\n"
+            "#    verifier restores unconditionally afterward;\n"
+            "#  - the probe step is skipped or its verifier is killed: the spec is\n"
+            "#    over, nothing else in this spec touches the deployment, and the\n"
+            "#    environment provider wipes the docker runtime before the next\n"
+            "#    spec's first trial.\n"
+            "# So no same-spec consumer can ever observe a stale pin, and no\n"
+            "# cross-spec consumer exists after the wipe.\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+            "\n"
+            'python3 "$TEST_DIR/generic_judge.py" \\\n'
+            f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+            "\n"
+            "exit 0\n"
+        )
+    if scenario == "in-product-agent-action-query":
+        # Pinning step: judge FIRST (verdict persisted to reward.txt), then
+        # restore UNCONDITIONALLY. There is no pin handoff: the runner may
+        # decline to start the successor on an exhausted leg-time reserve, so
+        # a pin must never outlive its own step's verifier. The probe step
+        # re-establishes its own pin (its query is self-sufficient by design).
+        return (
+            "#!/bin/bash\n"
+            f"# vss-search-archive verifier (step {step}): generic LLM-as-judge first\n"
+            "# (verdict persisted), then unconditional verified image restoration;\n"
+            "# exits nonzero if restoration ultimately fails. Restoration runs from\n"
+            "# an EXIT trap so an interrupted verifier still cannot strand the pin\n"
+            "# (only SIGKILL skips it, and the provider's docker wipe covers that).\n"
+            "set -uo pipefail\n"
+            "\n"
+            "RESTORE_FAILED=0\n"
+            "CLEANUP_RAN=0\n"
+            "cleanup() {\n"
+            "  # Critical section: once cleanup starts, catchable signals are\n"
+            "  # ignored so an interrupt cannot abandon the restore or the reward\n"
+            "  # invalidation partway (SIGKILL remains covered structurally).\n"
+            "  trap '' TERM INT HUP\n"
+            '  [[ "$CLEANUP_RAN" == "1" ]] && return 0\n'
+            "  CLEANUP_RAN=1\n"
+            + _RESTORE_AGENT_IMAGE_SNIPPET
+            + _REWARD_INVALIDATION_SNIPPET +
+            "}\n"
+            "finish() {\n"
+            "  st=$?\n"
+            "  cleanup\n"
+            '  if [[ "$RESTORE_FAILED" == "1" && "$st" -eq 0 ]]; then exit 1; fi\n'
+            '  exit "$st"\n'
+            "}\n"
+            "trap finish EXIT\n"
+            "trap 'exit 143' TERM INT HUP\n"
+            "# Traps are installed before ANY other work (even pip) so no pre-trap\n"
+            "# window exists for a catchable signal. SIGKILL cannot be observed by\n"
+            "# any process; it is covered structurally because the stranded-pin\n"
+            "# harm window is empty by construction, case by case:\n"
+            "#  - the action step's verifier is killed: the only later consumer is\n"
+            "#    the probe step, which NEVER inherits a pin — its first act is to\n"
+            "#    re-establish its own pin to the same candidate image, and its own\n"
+            "#    verifier restores unconditionally afterward;\n"
+            "#  - the probe step is skipped or its verifier is killed: the spec is\n"
+            "#    over, nothing else in this spec touches the deployment, and the\n"
+            "#    environment provider wipes the docker runtime before the next\n"
+            "#    spec's first trial.\n"
+            "# So no same-spec consumer can ever observe a stale pin, and no\n"
+            "# cross-spec consumer exists after the wipe.\n"
+            "\n"
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+            "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+            "\n"
+            'python3 "$TEST_DIR/generic_judge.py" \\\n'
+            f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+            "\n"
+            "exit 0\n"
+        )
     return (
         "#!/bin/bash\n"
         f"# vss-search-archive verifier (step {step}): delegates to the generic\n"
@@ -387,6 +680,11 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
         elif expect.get("scenario") == "confirmed-search-result-verification":
             preamble = VERIFICATION_PREAMBLE
+        elif expect.get("scenario") in (
+            "in-product-agent-action-query",
+            "in-product-agent-absent-object-probe",
+        ):
+            preamble = IN_PRODUCT_AGENT_PREAMBLE
         else:
             preamble = OPERATION_PREAMBLE
         lines = [
@@ -443,6 +741,14 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
+        # The in-product agent steps include a bounded registry wait, a container
+        # recreate, and a health start_period of up to 4 minutes, which cannot fit
+        # the standard budget. Mutate after building the template so the timeout
+        # meta-test's AST contract (exact ["[agent]", base-timeout, ""] constants)
+        # holds for the template itself.
+        if expect.get("scenario", "").startswith("in-product-agent-"):
+            meta_lines[meta_lines.index("timeout_sec = 600.0")] = "timeout_sec = 1500.0"
+
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         # environment/
@@ -453,7 +759,9 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # tests/
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(idx, spec_name, expect.get("scenario", ""))
+        )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2) + "\n")
