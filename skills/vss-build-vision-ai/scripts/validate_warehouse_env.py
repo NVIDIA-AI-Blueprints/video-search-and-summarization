@@ -17,6 +17,7 @@ shell environment outranks --env-file in Compose interpolation.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -118,11 +119,81 @@ def strip_value(value: str) -> str:
     return value.strip()
 
 
-def parse_env(path: Path) -> dict[str, str]:
-    """Minimal dotenv parse. No shell, no interpolation, last assignment wins."""
-    values: dict[str, str] = {}
+REF_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def split_ref(inner: str) -> tuple[str, str, str]:
+    """Split a `${...}` body into (name, separator, default)."""
+    match = REF_NAME.match(inner)
+    if not match:
+        return inner, "", ""
+    name = match.group(0)
+    rest = inner[len(name):]
+    for sep in (":-", ":?", "-"):
+        if rest.startswith(sep):
+            return name, sep, rest[len(sep):]
+    return name, "", ""
+
+
+def expand_value(value: str, lookup, _depth: int = 0) -> str:
+    """Expand `${VAR}` / `${VAR:-default}` / `${VAR-default}`, defaults nesting.
+
+    `containers.env` layers tags through nested fallbacks, e.g.
+    `VSS_RT_CV_TAG="${VSS_RT_CV_TAG:-${VSS_CONTAINER_TAG:-3.3.0-26.07.2}}"`.
+    Leaving that literal makes a value-level check (such as the DGX-SPARK `sbsa`
+    rule) test the fallback *expression* instead of the tag Compose resolves, so
+    a build that selects an SBSA image through `VSS_CONTAINER_TAG` is rejected.
+
+    A reference that cannot be resolved is preserved verbatim so callers can tell
+    "resolved to something" from "still unknown". `$${...}` is a container-shell
+    escape, not Compose interpolation, and is left alone.
+    """
+    if _depth > 16 or "${" not in value:
+        return value
+    out: list[str] = []
+    i, n = 0, len(value)
+    while i < n:
+        if value.startswith("$${", i):
+            out.append("$${")
+            i += 3
+            continue
+        if value.startswith("${", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if value[j] == "{":
+                    depth += 1
+                elif value[j] == "}":
+                    depth -= 1
+                j += 1
+            if depth:  # unbalanced -- keep the remainder literal
+                out.append(value[i:])
+                break
+            name, sep, default = split_ref(value[i + 2:j - 1])
+            got = lookup(name)
+            if sep == ":-":
+                use_default = not got
+            elif sep == "-":
+                use_default = got is None
+            else:
+                use_default = False
+            if use_default:
+                out.append(expand_value(default, lookup, _depth + 1))
+            elif got is not None:
+                out.append(expand_value(got, lookup, _depth + 1))
+            else:
+                out.append(value[i:j])  # unset and no default -- leave verbatim
+            i = j
+            continue
+        out.append(value[i])
+        i += 1
+    return "".join(out)
+
+
+def parse_env_pairs(path: Path) -> list[tuple[str, str]]:
+    """Minimal dotenv parse, in file order. No shell. Interpolation is deferred."""
+    pairs: list[tuple[str, str]] = []
     if not path.is_file():
-        return values
+        return pairs
     for raw in path.read_text(errors="replace").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -130,21 +201,42 @@ def parse_env(path: Path) -> dict[str, str]:
         match = ASSIGN.match(line)
         if not match:
             continue
-        key, value = match.group(1), match.group(2).strip()
-        value = strip_value(value)
-        values[key] = value
-    return values
+        pairs.append((match.group(1), strip_value(match.group(2).strip())))
+    return pairs
+
+
+def parse_env(path: Path) -> dict[str, str]:
+    """Last assignment wins, values unexpanded."""
+    return dict(parse_env_pairs(path))
 
 
 def layered_env(repo: Path, foundation_dir: Path, build_dir: Path) -> dict[str, str]:
+    """Merge the four env layers, expanding each value as the layer is read.
+
+    Compose expands an env file as it reads it, so a later layer's `${X:-...}`
+    sees the earlier layer's `X` and a self-referential default such as
+    `VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"` terminates on the
+    literal. The real shell environment outranks `--env-file`, so it is consulted
+    before the fallback.
+    """
     merged: dict[str, str] = {}
+
+    def lookup(name: str) -> str | None:
+        # Shell environment outranks --env-file in Compose interpolation, so a
+        # `${VSS_CONTAINER_TAG:-...}` fallback picks up an exported tag ahead of
+        # the value an earlier layer wrote.
+        if name in os.environ:
+            return os.environ[name]
+        return merged.get(name)
+
     for path in (
         repo / "deploy/docker/containers.env",
         foundation_dir / ".env",
         foundation_dir / "overrides.env",
         build_dir / "override.env",
     ):
-        merged.update(parse_env(path))
+        for key, value in parse_env_pairs(path):
+            merged[key] = expand_value(value, lookup)
     return merged
 
 
@@ -204,12 +296,23 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
             "(blueprint_config.yml rejects it)"
         )
 
-    # 4. DGX-SPARK needs an sbsa perception image.
-    if hw == "DGX-SPARK" and "sbsa" not in env.get("VSS_RT_CV_TAG", ""):
-        errors.append(
-            "HARDWARE_PROFILE=DGX-SPARK requires VSS_RT_CV_TAG to contain 'sbsa'; "
-            f"got {env.get('VSS_RT_CV_TAG', '')!r}"
-        )
+    # 4. DGX-SPARK needs an sbsa perception image. The tag is layered through
+    #    nested fallbacks in containers.env, so judge the expanded value; if a
+    #    reference survived expansion the tag is genuinely indeterminate here and
+    #    a hard error would block a build Compose resolves correctly.
+    if hw == "DGX-SPARK":
+        rt_cv_tag = env.get("VSS_RT_CV_TAG", "")
+        if "${" in rt_cv_tag:
+            warnings.append(
+                "HARDWARE_PROFILE=DGX-SPARK requires an 'sbsa' perception image, but "
+                f"VSS_RT_CV_TAG could not be resolved here (got {rt_cv_tag!r}); "
+                "confirm the resolved tag in resolved.yml"
+            )
+        elif "sbsa" not in rt_cv_tag:
+            errors.append(
+                "HARDWARE_PROFILE=DGX-SPARK requires VSS_RT_CV_TAG to contain 'sbsa'; "
+                f"got {rt_cv_tag!r}"
+            )
 
     # 5. Dataset <-> variant <-> stream count.
     dataset = env.get("SAMPLE_VIDEO_DATASET", "")

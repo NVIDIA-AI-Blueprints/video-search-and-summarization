@@ -19,7 +19,9 @@ This file is self-contained for warehouse. It carries the env layers, build
 artifacts and resolve pipeline below, and shares the rest of the skill's
 machinery by reference: [`../prerequisites.md`](../prerequisites.md),
 [`../credentials.md`](../credentials.md), [`../ngc.md`](../ngc.md),
-[`../data-directory.md`](../data-directory.md),
+[`../data-directory.md`](../data-directory.md) (**including its
+[Warehouse app data](../data-directory.md#warehouse-app-data--check-never-create)
+section — a blocking gate this profile cannot deploy without**),
 [`../readiness.md`](../readiness.md) and [`../teardown.md`](../teardown.md) all
 apply unchanged.
 
@@ -54,7 +56,7 @@ in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
 | `3d` | `bp_wh_kafka` | `…_WH_KAFKA_3D` | `…_WH_KAFKA_3D_MINIMAL` |
 | `3d` | `bp_wh_redis` | `…_WH_REDIS_3D` | `…_WH_REDIS_3D_MINIMAL` |
 
-Extended adds ELK, `vss-video-analytics-api-<mode>`, `vss-haproxy-ingress`,
+Extended adds ELK, `vss-video-analytics-api`, `vss-haproxy-ingress`,
 `import-calibration-output-container-<mode>`, and monitoring (`dcgm-exporter`,
 `prometheus`, `grafana`, `node-exporter`, `cadvisor`). Minimal lists carry none
 of these.
@@ -75,7 +77,7 @@ of these.
 | Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` |
 | ELK | `kafka`, `kafka-topic-init-container`, `redis`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`, `kibana-init-container-<mode>` |
 | VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sensor-bp-wait-bp-configurator` |
-| Video Analytics API | `vss-video-analytics-api-<mode>`, `import-calibration-output-container-<mode>` |
+| Video Analytics API | `vss-video-analytics-api`, `import-calibration-output-container-<mode>` |
 | Ingress | `vss-haproxy-ingress` |
 | Monitoring | `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` — observational, so nothing else requires them. `GRAFANA_HOST_PORT` defaults to `35000` → container `3000`, with no HAProxy route. `node-exporter` and `cadvisor` set no `container_name` and appear as `<project>-node-exporter-1` / `-cadvisor-1` |
 | Agent / RT-VLM / LLM NIM | `bp_wh` only: `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix`, `alert-bridge`, `rtvi-vlm`, `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
@@ -335,6 +337,15 @@ Nothing listens on `8001` — there is no VST MCP container.
 > identical ACL. `EXTERNAL_IP` defaults to `${HOST_IP}`; set it to the
 > browser-reachable name. On Brev the ingress, agent and UI additionally need
 > `https`/`wss` on the secure-link domain ([`../brev.md`](../brev.md)).
+
+## Working-tree side effects
+
+A warehouse deploy **modifies checked-in files in the repo tree**. Several config
+JSONs are bind-mounted read-write (only `models-download.json` is `:ro`), and
+`bp-configurator-<mode>` rewrites several in place on first boot — it logs
+`Created backup: …` and `Successfully wrote JSON file`, leaving both a
+`*.backup_<timestamp>.json` and a reformatted original. After a deploy, `git status`
+shows several config files nobody edited.
 
 ## Stock readiness checks
 
