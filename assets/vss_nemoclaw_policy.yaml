@@ -178,6 +178,11 @@ network_policies:
     name: vss-backend-readwrite
     # Keep this scoped to Docker bridge CIDRs used by supported OpenShell /
     # NemoClaw drivers. Do not use the full 172.16.0.0/12 private range.
+    # These four are the fallback for a hand-applied policy, which has nothing
+    # to detect from. Section 3.2 of `deploy_nemoclaw.ipynb` replaces every
+    # allowed_ips list below with the subnets the sandbox container is actually
+    # attached to (`orchestrator_mcp_helper.sandbox_host_cidrs`), and keeps
+    # these when the sandbox or Docker cannot be inspected.
     endpoints:
       - host: host.openshell.internal
         port: 8000
@@ -185,6 +190,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 30888
@@ -192,6 +198,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 5601
@@ -199,6 +206,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 9200
@@ -206,6 +214,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 8081
@@ -213,6 +222,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 9080
@@ -220,6 +230,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 9988
@@ -227,6 +238,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 18789
@@ -234,6 +246,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       # HAProxy single-origin ingress (HAPROXY_HOST_PORT, default 7777). Every
       # other entry here is one backend's own host port; this one fronts them
@@ -246,6 +259,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
       # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
@@ -256,6 +270,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 5000
@@ -263,6 +278,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 6006
@@ -270,6 +286,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 8001
@@ -277,6 +294,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 8010
@@ -284,6 +302,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 8017
@@ -291,6 +310,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 8018
@@ -298,6 +318,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 9092
@@ -305,6 +326,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 9901
@@ -312,6 +334,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 31000
@@ -319,6 +342,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 38111
@@ -326,6 +350,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
       - host: host.openshell.internal
         port: 38112
@@ -333,6 +358,7 @@ network_policies:
         allowed_ips:
           - 172.17.0.0/16
           - 172.18.0.0/16
+          - 172.19.0.0/16
           - 172.20.0.0/16
     binaries:
       - { path: /usr/bin/curl }

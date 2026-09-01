@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import ipaddress
 import json
 import os
 import re
@@ -53,6 +54,55 @@ def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
     )
     names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     return names[0] if names else None
+
+
+def sandbox_host_cidrs(sandbox_name: str) -> list[str]:
+    """Return the IPv4 subnets of the Docker networks *sandbox_name* is attached to.
+
+    ``host.openshell.internal`` resolves to the gateway of each of those
+    networks, so they are the ranges an egress ``allowed_ips`` entry has to
+    cover. Returns an empty list when the sandbox does not exist yet or Docker cannot
+    be inspected, so a caller can fall back to whatever the policy declares.
+    """
+    container = resolve_openshell_gateway_container(sandbox_name)
+    if container is None:
+        return []
+    try:
+        attached = json.loads(
+            subprocess.run(
+                ["docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", container],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            or "{}"
+        )
+        if not attached:
+            return []
+        inspected = json.loads(
+            subprocess.run(
+                ["docker", "network", "inspect", *sorted(attached)],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            or "[]"
+        )
+    except (subprocess.CalledProcessError, json.JSONDecodeError, OSError):
+        return []
+
+    subnets = set()
+    for network in inspected:
+        for config in (network.get("IPAM") or {}).get("Config") or []:
+            # Parsed rather than string-matched: the result is written into a
+            # policy file, and IPv6 ranges are not what allowed_ips carries.
+            try:
+                subnet = ipaddress.ip_network(config.get("Subnet", ""), strict=False)
+            except ValueError:
+                continue
+            if subnet.version == 4:
+                subnets.add(subnet)
+    return [str(subnet) for subnet in sorted(subnets)]
 
 
 def tool_call(

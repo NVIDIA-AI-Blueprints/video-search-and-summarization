@@ -222,7 +222,7 @@ Set the environment, then run the notebook:
 | Variable | Value for a build | Why |
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
-| `VSS_PUBLIC_URL` | `http://host.openshell.internal:${HAPROXY_HOST_PORT}` | written into the sandbox's `ENV.md`, so the in-sandbox agent knows which origin to `vss configure` against. `host.openshell.internal` is how the sandbox addresses this host — never `localhost` and never a literal IP |
+| `VSS_PUBLIC_URL` | **leave unset** for a Compose build | Kubernetes-only, and setting it breaks a Compose build — see [Leave `VSS_PUBLIC_URL` unset](#leave-vss_public_url-unset-on-a-compose-build) below |
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
@@ -233,7 +233,6 @@ Set the environment, then run the notebook:
 REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
-export VSS_PUBLIC_URL="http://host.openshell.internal:${HAPROXY_HOST_PORT:-7777}"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
 
@@ -251,6 +250,34 @@ uv run --isolated --no-project --python 3.12 \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
     --require-output "Sandbox '<build-name>' ready."
 ```
+
+### Leave `VSS_PUBLIC_URL` unset on a Compose build
+
+This skill deploys Docker Compose, and **`VSS_PUBLIC_URL` is a Kubernetes
+setting**. Leaving it empty is not an omission — it is the value that means
+"Compose". The sandbox's `ENV.md` already ships
+`export HOST_IP=host.openshell.internal` for exactly this case, because a Compose
+build publishes each service on a host port, and `vss-backend-readwrite`
+allowlists those ports. Kubernetes publishes nothing on host ports, which is why
+it alone needs an Ingress origin.
+
+Setting it to the build's own origin does not merely add a redundant entry, it
+**fails the harness step**. The notebook renders that value into the
+`vss-k8s-ingress` policy entry, so `http://host.openshell.internal:7777`
+duplicates the `host.openshell.internal:7777` that `vss-backend-readwrite`
+already carries — with different metadata — and the gateway rejects the whole
+policy update:
+
+```text
+network endpoint ambiguity validation failed: network policies
+'vss-backend-readwrite' endpoint[8] (host.openshell.internal:7777) and
+'vss-k8s-ingress' endpoint[0] (host.openshell.internal:7777) overlap on
+port(s) 7777 with conflicting metadata
+```
+
+The sandbox is left onboarded but with **no VSS egress at all**, since the add is
+atomic — the failure looks like a harness problem and is really this variable.
+Set it only for a Kubernetes deployment, to that cluster's Ingress origin.
 
 Run **only** `deploy_nemoclaw.ipynb`. Its companion,
 `deploy_vss_orchestrator.ipynb`, exists so the sandbox can deploy and manage VSS
