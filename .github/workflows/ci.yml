@@ -1477,6 +1477,7 @@ jobs:
       - name: Unit-test the build change detection
         run: |
           python3 .github/scripts/test_detect_changed_images.py
+          python3 .github/scripts/test_detect_sonarqube_projects.py
           python3 .github/scripts/test_container_build_plan.py
 
       - name: Unit-test the downstream GHCR candidate reporter

@@ -59,7 +59,8 @@ enum ConsumerType
 {
     encoder = 0,
     compositor = 1,
-    webrtcConsumer = 2
+    webrtcConsumer = 2,
+    dashConsumer = 3
 };
 
 typedef enum

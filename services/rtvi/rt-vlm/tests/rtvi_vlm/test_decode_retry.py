@@ -95,6 +95,14 @@ class EmptyFrameGetter(FlakyFrameGetter):
         return [], [], [], None
 
 
+class UnderfilledFixedFrameGetter(FlakyFrameGetter):
+    def get_frames(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            return ["frame"], [1.234], [], None
+        return ["frame"] * 30, [float(i) for i in range(30)], [], None
+
+
 def _install_fake_frame_selector(monkeypatch):
     fake_frame_getter_module = types.ModuleType("vlm_pipeline.video_file_frame_getter")
     fake_frame_getter_module.DefaultFrameSelector = FakeDefaultFrameSelector
@@ -110,6 +118,9 @@ def _make_decoder():
     decoder._nfrms = 1
     decoder._use_fps_for_chunking = False
     decoder._minframes = 1
+    decoder._width = 0
+    decoder._height = 0
+    decoder._enable_jpeg_tensors = False
     decoder._file_thread_pool = ImmediateExecutor()
     decoder._fgetters = []
     decoder._fgetter_handoff_lock = threading.Lock()
@@ -121,6 +132,7 @@ def _make_live_decoder():
     decoder._nfrms = 3
     decoder._use_fps_for_chunking = True
     decoder._live_stream_handle_info = {}
+    decoder._live_stream_handle_info_lock = threading.Lock()
     decoder._final_output_queue = CaptureQueue()
     decoder._width = 608
     decoder._height = 320
@@ -250,6 +262,36 @@ def test_decode_chunk_retries_and_fails_empty_frame_extraction(monkeypatch):
     assert fgetter.calls == 2
     assert fgetter.destroyed == 2
     assert fgetter.flushed == 0
+    assert decoder._fgetters == [fgetter]
+
+
+@pytest.mark.no_gpu
+def test_decode_chunk_retries_underfilled_strict_fixed_frame_chunk(monkeypatch):
+    _install_fake_frame_selector(monkeypatch)
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *args, **kwargs: object())
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "end_range", lambda *args, **kwargs: None)
+    monkeypatch.setenv("RTVI_DECODE_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE", "true")
+
+    decoder = _make_decoder()
+    fgetter = UnderfilledFixedFrameGetter()
+    chunk = ChunkInfo(file="video.mp4", end_pts=1000000000)
+    vlm_query = _make_vlm_query()
+    vlm_query.num_frames_per_second_or_fixed_frames_chunk = 30
+
+    result = decoder._decode_chunk(
+        fgetter,
+        chunk,
+        vlm_query,
+        video_codec="HEVC",
+        request_id="test-request",
+    )
+
+    assert len(result["frames"]) == 30
+    assert result["error"] is None
+    assert result["decode_retry_count"] == 1
+    assert fgetter.calls == 2
+    assert fgetter.destroyed == 1
     assert decoder._fgetters == [fgetter]
 
 
@@ -515,7 +557,7 @@ def test_bcd_file_transition_rebuild_preserves_current_decode_cache(monkeypatch)
     next_file = "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
     assert fgetter._last_stream_id != next_file
 
-    def fake_pipeline_teardown():
+    def fake_pipeline_teardown(*args, **kwargs):
         # Model a late callback from the old pipeline while it is being
         # destroyed. It must be dropped instead of polluting the new chunk.
         fgetter._append_file_frame_to_cache("late-old-frame", 1.0)
@@ -557,6 +599,49 @@ def test_decode_chunk_reuses_decoder_after_clean_success_by_default(monkeypatch)
     assert fgetter.destroyed == 0
     assert fgetter.flushed == 0
     assert decoder._fgetters == [fgetter]
+
+
+@pytest.mark.no_gpu
+def test_fast_image_decode_rejects_underfilled_fixed_frame_chunk(monkeypatch):
+    _install_fake_frame_selector(monkeypatch)
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *args, **kwargs: object())
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "end_range", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        vlm_pipeline_module,
+        "_try_decode_image_asset_chunk",
+        lambda *args, **kwargs: (torch.zeros((2, 2, 2, 3)), [0.0, 0.0], [], None),
+    )
+    monkeypatch.setenv("RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE", "true")
+
+    decoder = _make_decoder()
+    fgetter = CleanFrameGetter()
+    query = _make_vlm_query()
+    query.num_frames_per_second_or_fixed_frames_chunk = 3
+    chunk = ChunkInfo(file="first.jpg;second.jpg", end_pts=1_000_000_000)
+
+    result = decoder._decode_chunk(
+        fgetter,
+        chunk,
+        query,
+        video_codec=None,
+        request_id="test-request",
+    )
+
+    assert result["error"] == "Decode error: decoded 2 frame(s), required at least 3"
+    assert fgetter.calls == 0
+    assert decoder._fgetters == [fgetter]
+
+
+@pytest.mark.no_gpu
+def test_vlm_queue_maxsize_env_override(monkeypatch):
+    monkeypatch.setenv("RTVI_VLM_QUEUE_MAXSIZE", "2")
+    assert vlm_pipeline_module._vlm_queue_maxsize(num_gpus=8) == 2
+
+
+@pytest.mark.no_gpu
+def test_vlm_queue_maxsize_invalid_env_uses_default(monkeypatch):
+    monkeypatch.setenv("RTVI_VLM_QUEUE_MAXSIZE", "not-an-int")
+    assert vlm_pipeline_module._vlm_queue_maxsize(num_gpus=2) == 256
 
 
 @pytest.mark.no_gpu

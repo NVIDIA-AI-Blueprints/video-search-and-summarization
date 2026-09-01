@@ -17,7 +17,7 @@
 import React from 'react';
 import { StreamType } from 'vst-streaming-lib';
 import VideoPlayer from '../../components/videoPlayer/VideoPlayer';
-import { Sensor } from '../../interfaces/interfaces';
+import { Sensor, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 
 const VSTStreamManager: React.FC<{
     sensor?: Sensor;
@@ -25,7 +25,8 @@ const VSTStreamManager: React.FC<{
     onWebRTCStatsUpdate?: (stats: RTCStatsReport) => void;
     sensors?: Sensor[];
     onClose?: () => void;
-}> = ({ sensor, streamType, onWebRTCStatsUpdate, sensors, onClose }) => {
+    protocol?: LiveDeliveryProtocol;
+}> = ({ sensor, streamType, onWebRTCStatsUpdate, sensors, onClose, protocol }) => {
     const videoElementId = streamType !== StreamType.VideoWall ? `video-${streamType}-${sensor?.streamId}` : 'video-wall-streaming';
 
     return (
@@ -37,6 +38,7 @@ const VSTStreamManager: React.FC<{
                     videoElementId={videoElementId}
                     onWebRTCStatsUpdate={onWebRTCStatsUpdate}
                     onClose={onClose}
+                    protocol={protocol}
                 />
             )}
             {streamType !== StreamType.VideoWall && sensor && (
@@ -46,6 +48,7 @@ const VSTStreamManager: React.FC<{
                     videoElementId={videoElementId}
                     onWebRTCStatsUpdate={onWebRTCStatsUpdate}
                     onClose={onClose}
+                    protocol={protocol}
                 />
             )}
         </div>

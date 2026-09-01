@@ -1025,8 +1025,8 @@ class TestOverridesEnvLayering:
         )
         overrides = _env_text(
             "LLM_MODE=local_shared",
-            "LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2",
-            "LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2",
+            "LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b",
+            "LLM_NAME_SLUG=nemotron-3.5-lightning-30b-a3b",
             "VLM_MODE=local",
             "VLM_NAME=nvidia/cosmos3-nano-reasoner",
             "VLM_NAME_SLUG=cosmos3-reasoner",
@@ -1042,10 +1042,10 @@ class TestOverridesEnvLayering:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["LLM_NAME_SLUG"] == "nvidia-nemotron-nano-9b-v2"
+        assert resolved["LLM_NAME_SLUG"] == "nemotron-3.5-lightning-30b-a3b"
         assert resolved["VLM_NAME_SLUG"] == "cosmos3-reasoner"
         assert resolved["COMPOSE_PROFILES"] == (
-            "bp_developer_search_2d,llm_local_shared_nvidia-nemotron-nano-9b-v2,vlm_local_cosmos3-reasoner"
+            "bp_developer_search_2d,llm_local_shared_nemotron-3.5-lightning-30b-a3b,vlm_local_cosmos3-reasoner"
         )
 
     def test_overrides_env_wins_over_dotenv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
