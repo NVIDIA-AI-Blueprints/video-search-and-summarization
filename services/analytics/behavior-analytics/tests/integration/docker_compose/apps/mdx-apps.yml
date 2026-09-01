@@ -17,7 +17,6 @@ services:
 
   analytics-stream-playback:
     image: ${BEHAVIOR_ANALYTICS_IMAGE:-vss-behavior-analytics:latest}
-    network_mode: "host"
     volumes:
       - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-$STREAMING_SERVICE-config.json:/resources/analytics-stream-config.json
       - $MDX_DATA_DIR/playback/${APP_NAME}${APP_MODE}_playback_data.txt:/opt/mdx/playback/playback_data.txt
@@ -28,7 +27,6 @@ services:
 
   analytics-stream:
     image: ${BEHAVIOR_ANALYTICS_IMAGE:-vss-behavior-analytics:latest}
-    network_mode: "host"
     volumes:
       - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-$STREAMING_SERVICE-config.json:/resources/analytics-stream-config.json
       - $MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/calibration.json:/resources/calibration.json
@@ -36,5 +34,5 @@ services:
     container_name: mdx-analytics
     command: python3 apps/${APP_DIR}/main_${APP_DIR}${APP_MODE}_app.py --config /resources/analytics-stream-config.json --calibration /resources/calibration.json
     depends_on:
-      kafka-topic-init-container:
+      broker-health-check:
         condition: service_completed_successfully

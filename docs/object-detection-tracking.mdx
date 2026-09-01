@@ -8,7 +8,7 @@ position: 1
 The **Real Time Video Intelligence CV Microservice** leverages [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to generate metadata for each stream that downstream microservices can use to generate spatial metrics and alerts.
 
 The microservice features [rtvi-cv-app](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-core/containers/vss-rt-cv), a DeepStream pipeline that builds on the built-in [deepstream-test5 app](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) in the DeepStream SDK.
-This RTVI-CV app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/Protobuf-Schema).
+This RTVI-CV app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/vss/system-components/middleware/nvschema/protobuf-schema).
 
 The Real Time Video Intelligence CV Microservice supports both 2D single-camera detection models (RT-DETR, Grounding DINO) for object detection and classification, as well as 3D multi-camera model (Sparse4D) for birds-eye-view detection and tracking. All the models are integrated within DeepStream pipelines, providing a complete streaming analytics solution for AI-based video understanding.
 
@@ -29,7 +29,7 @@ The Real Time Video Intelligence Microservice follows a modular, pipeline-based 
 
 ## Docker Compose Architecture
 
-VSS Docker Compose stacks build on a shared **RTVI-CV perception** service. In your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository, the base definition lives at `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`. Industry profiles and developer profiles **extend** that service with `extends` and add profile-specific volumes, environment variables, dependencies, and startup behavior. The MV3DT pipeline uses a parallel base file and an additional BEV measurement fusion service — see [MV3DT Compose Architecture](/object-detection-tracking#mv3dt-compose-architecture) below for details.
+VSS Docker Compose stacks build on a shared **RTVI-CV perception** service. In your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository, the base definition lives at `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`. Industry profiles and developer profiles **extend** that service with `extends` and add profile-specific volumes, environment variables, dependencies, and startup behavior. The MV3DT pipeline uses a parallel base file and an additional BEV measurement fusion service — see [MV3DT Compose Architecture](/vss/system-components/vision-microservices/object-detection-and-tracking#mv3dt-compose-architecture) below for details.
 
 **Layering model:** `compose.yaml` defines `perception` → each profile service (`perception-2d`, `perception-3d`, `perception-alerts`, `perception-2d-fusion`, …) uses `extends:` that base and adds mounts and environment overrides.
 
@@ -50,8 +50,8 @@ Each deployment profile declares its own service name, `extends` the base `perce
 
 | Service name | Compose file | Customization (summary) |
 | --- | --- | --- |
-| `perception-2d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml` | Warehouse 2D (RT-DETR): `DS_MODEL_FAMILY=rtdetr-warehouse`; mounts DeepStream configs and `$VSS_DATA_DIR/models/mtmc/` at `/opt/storage/` for ONNX and TensorRT engines. See [warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR). |
-| `perception-3d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` | Warehouse 3D (Sparse4D): `DS_MODEL_FAMILY=sparse4d-warehouse`; named volume `perception-3d` at `/opt/storage/`, Sparse4D ONNX/anchor mounts, `ds-configurator` integration. See [warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D). |
+| `perception-2d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml` | Warehouse 2D (RT-DETR): `DS_MODEL_FAMILY=rtdetr-warehouse`; mounts DeepStream configs and `$VSS_DATA_DIR/models/mtmc/` at `/opt/storage/` for ONNX and TensorRT engines. See [warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr). |
+| `perception-3d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` | Warehouse 3D (Sparse4D): `DS_MODEL_FAMILY=sparse4d-warehouse`; named volume `perception-3d` at `/opt/storage/`, Sparse4D ONNX/anchor mounts, `ds-configurator` integration. See [warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d). |
 | `perception-alerts` | `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml` | Alerts developer profile: `DS_MODEL_FAMILY=rtdetr-gdino`; mounts `$VSS_DATA_DIR/models/` and `$VSS_APPS_DIR/engines/`; config staging under `mounted-configs/`; integrates with RTVI-VLM and Kafka topic init. |
 | `perception-2d-fusion` | `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` | Search developer profile: `DS_MODEL_FAMILY=rtdetr-warehouse` with ReID enabled; `perception-2d-init` downloads vision-encoder assets; custom `ds-search-start.sh` command; read-only config staging copied at startup. |
 
@@ -70,7 +70,7 @@ The MV3DT pipeline does not extend the default `perception` service in `compose.
 
 | Service name | Compose file | Customization (summary) |
 | --- | --- | --- |
-| `vss-rtvi-cv-mv3dt` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Warehouse MV3DT (RT-DETR + MV3DT): extends `perception` from the MV3DT base; mounts MV3DT-specific models, per-camera calibration, and DeepStream configs into the container; uses MQTT for vision-neighbor tracklet exchange. See [warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT). |
+| `vss-rtvi-cv-mv3dt` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Warehouse MV3DT (RT-DETR + MV3DT): extends `perception` from the MV3DT base; mounts MV3DT-specific models, per-camera calibration, and DeepStream configs into the container; uses MQTT for vision-neighbor tracklet exchange. See [warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt). |
 | `vss-rtvi-cv-bev-fusion` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Warehouse MV3DT BEV fusion: extends `measurement-fusion` from the MV3DT base. `vss-rtvi-cv-mv3dt` emits per-sensor 3D measurements that are already in BEV coordinates and share a globally consistent ID across sensors; this service merges the per-sensor measurements that share the same object ID into a single fused 3D measurement per object. |
 
 Open `warehouse-mv3dt-app.yml` directly to see the full volume list, `profiles` activation, and service dependencies — note that, unlike the other perception extensions, the MV3DT perception service additionally depends on `mosquitto` (the MQTT broker used for vision-neighbor tracklet exchange between cameras). Compose file layout and image tags can change between VSS releases—use the files from the same tag or branch as your deployment package.
@@ -87,7 +87,7 @@ Open `warehouse-mv3dt-app.yml` directly to see the full volume list, `profiles` 
 
 ## Data Ingestion Formats Supported
 
-The following guidance applies to **Real Time Video Intelligence (RTVI)** data paths. **RTVI-CV** (this microservice) is configured through NVIDIA DeepStream like the other RTVI services. **Real-Time Embedding** and **Real-Time VLM** also rely on DeepStream-accelerated decode and streaming internally; they do not ship the same open C-level application customization guide as RTVI-CV here—use [Real-Time Embedding ](/real-time-embedding) and [Real-Time VLM ](/real-time-vlm) for their APIs, compose settings, and RTSP-related environment variables.
+The following guidance applies to **Real Time Video Intelligence (RTVI)** data paths. **RTVI-CV** (this microservice) is configured through NVIDIA DeepStream like the other RTVI services. **Real-Time Embedding** and **Real-Time VLM** also rely on DeepStream-accelerated decode and streaming internally; they do not ship the same open C-level application customization guide as RTVI-CV here—use [Real-Time Embedding ](/vss/system-components/vision-microservices/video-embedding-generation) and [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) for their APIs, compose settings, and RTSP-related environment variables.
 
 ### Streaming protocols
 
@@ -95,8 +95,8 @@ Reference VSS / RTVI deployments are configured for **RTSP** live ingest and for
 
 #### Supported out of the box (reference blueprint)
 
-* **RTSP** is the primary live-ingest protocol used across the reference stack: RTVI-CV (DeepStream), [Real-Time Embedding ](/real-time-embedding), and [Real-Time VLM ](/real-time-vlm) document RTSP URLs for live streams, and [Video IO & Storage (VIOS) ](/vss-vios) / [NVStreamer ](/vios-nvstreamer) serve test and demo content over RTSP. For DeepStream source configuration, see the [DeepStream reference application — Source group](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_deepstream.html#source-group).
-* **File-based video** (for example MP4 and other common multimedia container formats) is supported where each microservice documents file or URL inputs for batch or offline processing. Codec and multimedia container format considerations for DeepStream-backed paths are summarized under [File-based video and codecs](/object-detection-tracking#file-based-video-and-codecs).
+* **RTSP** is the primary live-ingest protocol used across the reference stack: RTVI-CV (DeepStream), [Real-Time Embedding ](/vss/system-components/vision-microservices/video-embedding-generation), and [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) document RTSP URLs for live streams, and [Video IO & Storage (VIOS) ](/vss/system-components/middleware/video-io-storage-vios) / [NVStreamer ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer) serve test and demo content over RTSP. For DeepStream source configuration, see the [DeepStream reference application — Source group](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_deepstream.html#source-group).
+* **File-based video** (for example MP4 and other common multimedia container formats) is supported where each microservice documents file or URL inputs for batch or offline processing. Codec and multimedia container format considerations for DeepStream-backed paths are summarized under [File-based video and codecs](/vss/system-components/vision-microservices/object-detection-and-tracking#file-based-video-and-codecs).
 
 For additional streaming protocols (such as HLS and RTMP), see `Supporting additional streaming protocols`_.
 
@@ -113,7 +113,7 @@ Use the upstream plugin documentation when choosing elements and properties:
 
 When you need a non-reference protocol or a custom source graph:
 
-* **RTVI-CV** — Application-level customization (rebuild the DeepStream sample app, add or link GStreamer elements, and redeploy the container) is described under [Application Customization](/object-detection-tracking#application-customization).
+* **RTVI-CV** — Application-level customization (rebuild the DeepStream sample app, add or link GStreamer elements, and redeploy the container) is described under [Application Customization](/vss/system-components/vision-microservices/object-detection-and-tracking#application-customization).
 * **Real-Time Embedding** and **Real-Time VLM** — For HLS, RTMP, or other GStreamer-supported sources, plan on **modifying or rebuilding the service image** and its internal pipeline, or **terminating to RTSP** with your own gateway. Model and deployment tuning for Embedding is under *Customizations* on the Embedding page; VLM documents RTSP-related environment variables with its deployment settings.
 
 Use the [DeepStream SDK Developer Guide](https://docs.nvidia.com/metropolis/deepstream/dev-guide/index.html) for pipeline and plugin details, and validate latency, reconnect behavior, codecs, and dependencies on your DeepStream and driver versions.
@@ -124,9 +124,9 @@ For RTVI microservices built on **DeepStream**, elementary streams are supported
 
 Those codecs are usually wrapped in common **multimedia container formats** such as MP4, MKV, and others. In general, multimedia container formats that **GStreamer** can autodetect and demux—typically via `decodebin` or an equivalent bin in your pipeline—work with the DeepStream SDK **as long as the underlying video codec is one DeepStream supports** and the rest of the pipeline matches your deployment.
 
-Per-microservice APIs and compose profiles still define what each service accepts (file paths, URLs, RTSP-only live endpoints, and so on). See [Real-Time Embedding ](/real-time-embedding), [Real-Time VLM ](/real-time-vlm), and this Object Detection and Tracking guide for the inputs each exposes.
+Per-microservice APIs and compose profiles still define what each service accepts (file paths, URLs, RTSP-only live endpoints, and so on). See [Real-Time Embedding ](/vss/system-components/vision-microservices/video-embedding-generation), [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm), and this Object Detection and Tracking guide for the inputs each exposes.
 
-For live streaming protocols (RTSP versus optional HLS/RTMP via custom work), see [Streaming protocols](/object-detection-tracking#streaming-protocols).
+For live streaming protocols (RTSP versus optional HLS/RTMP via custom work), see [Streaming protocols](/vss/system-components/vision-microservices/object-detection-and-tracking#streaming-protocols).
 
 ### Models Supported
 
@@ -150,7 +150,7 @@ The Real Time Video Intelligence CV Microservice supports both 2D single-camera 
 
 The **Real Time Video Intelligence CV (RTVI-CV) Microservice** exposes a REST API for stream management, health checks, metrics, and AI/ML operations.
 
-For complete API documentation, including all endpoints, request/response schemas, and interactive examples, see the [Object Detection and Tracking API Reference ](/object-detection-tracking-api).
+For complete API documentation, including all endpoints, request/response schemas, and interactive examples, see the [Object Detection and Tracking API Reference ](/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference/api-reference).
 
 **API categories:**
 
@@ -164,12 +164,12 @@ For complete API documentation, including all endpoints, request/response schema
 All endpoints are prefixed with `/api/v1`. Base URL: `http://<host>:9000`.
 
 <Note>
-RTVI-CV exposes its REST API under the `/api/v1` prefix on port `9000`, which differs from the other Real-Time Video Intelligence services ([Real-Time VLM ](/real-time-vlm) and [Real-Time Embedding ](/real-time-embedding)), which serve under the `/v1` prefix. This is an architectural difference, not an inconsistency to reconcile in a client: RTVI-CV is built on the **DeepStream SDK's built-in REST server**, which defines the `/api/v1` route layout and the default port `9000`, whereas the other services are FastAPI applications. When building a client that talks to multiple services, prefix RTVI-CV requests with `/api/v1` and the FastAPI-based services with `/v1`.
+RTVI-CV exposes its REST API under the `/api/v1` prefix on port `9000`, which differs from the other Real-Time Video Intelligence services ([Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) and [Real-Time Embedding ](/vss/system-components/vision-microservices/video-embedding-generation)), which serve under the `/v1` prefix. This is an architectural difference, not an inconsistency to reconcile in a client: RTVI-CV is built on the **DeepStream SDK's built-in REST server**, which defines the `/api/v1` route layout and the default port `9000`, whereas the other services are FastAPI applications. When building a client that talks to multiple services, prefix RTVI-CV requests with `/api/v1` and the FastAPI-based services with `/v1`.
 </Note>
 
 ## ReID and Embeddings (REST API and Config Reference)
 
-For an end-to-end guide to fine-tuning **RADIO-CLIP** (and SigLIP 2) with TAO and swapping ONNX or TensorRT artifacts into this microservice, see [Model customization overview ](/models/model-customization) and [RADIO-CLIP object embeddings ](/models/clip-object-embeddings).
+For an end-to-end guide to fine-tuning **RADIO-CLIP** (and SigLIP 2) with TAO and swapping ONNX or TensorRT artifacts into this microservice, see [Model customization overview ](/vss/system-components/models/model-customization-overview) and [RADIO-CLIP object embeddings ](/vss/system-components/models/siglip-2-object-embeddings).
 
 This section describes deployment, features, configuration, and REST APIs for text embeddings, object embeddings (vision encoder), adding video streams by URL, and attaching timestamps from the API payload.
 
@@ -205,7 +205,7 @@ Both models below are exported as **combined CLIP-style ONNX** files containing 
 2. **Object embeddings** using RADIO-CLIP / SigLIP2 (vision encoder plugin with TensorRT).
 3. **Combined ONNX model support** -- a single ONNX file serves both image and text embeddings; the plugins automatically extract the relevant subgraph.
 4. **Add file video URL via curl**, including support for **creation time** of the file URL (see stream add API and streammux config below).
-5. **Smart embedding inference** -- tracker-aware embedding cache that skips redundant vision encoder inference for already-tracked objects, with optional OFA-based motion prediction (see [Smart Embedding Inference](/object-detection-tracking#smart-embedding-inference) below).
+5. **Smart embedding inference** -- tracker-aware embedding cache that skips redundant vision encoder inference for already-tracked objects, with optional OFA-based motion prediction (see [Smart Embedding Inference](/vss/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-inference) below).
 
 ### Text embedder (config)
 
@@ -358,7 +358,7 @@ skip-interval=3
 
 #### Smart embedding properties
 
-The following properties control smart inference and OFA prediction. See [Smart Embedding Inference](/object-detection-tracking#smart-embedding-inference) for detailed usage.
+The following properties control smart inference and OFA prediction. See [Smart Embedding Inference](/vss/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-inference) for detailed usage.
 
 | Property | Description |
 | --- | --- |
@@ -517,8 +517,8 @@ echo performance > /sys/class/devfreq/8188050000.vic/governor
 
 **1. Blueprint Deployment**
 
-For warehouse deployment, refer [Warehouse Quickstart Guide ](/warehouse-docs/warehouse-toc)
-For alerts developer profile deployment, refer [Alerts Developer Profile Quickstart Guide ](/agent-workflow-alert-verification)
+For warehouse deployment, refer [Warehouse Quickstart Guide ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint)
+For alerts developer profile deployment, refer [Alerts Developer Profile Quickstart Guide ](/vss/vision-agent/agent-workflows/alert-verification)
 
 **2. Verify Deployment**
 
@@ -571,7 +571,7 @@ volumes:
   - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
 ```
 
-ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/mtmc/` on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` to paths under `/opt/storage/`. See [2D Single Camera Detection and Tracking (RT-DETR) ](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR) for details.
+ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/mtmc/` on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` to paths under `/opt/storage/`. See [2D Single Camera Detection and Tracking (RT-DETR) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr) for details.
 
 **Warehouse 3D Blueprint** — `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` (`perception-3d` service, `volumes:` section):
 
@@ -581,7 +581,7 @@ volumes:
   - perception-3d:/opt/storage
 ```
 
-The `perception-3d` named Docker volume persists engine files at `/opt/storage/`. The default `engine_file` path is `/opt/storage/model.engine` in `config.yaml`. See [3D Multi Camera Detection and Tracking (Sparse4D) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) for details.
+The `perception-3d` named Docker volume persists engine files at `/opt/storage/`. The default `engine_file` path is `/opt/storage/model.engine` in `config.yaml`. See [3D Multi Camera Detection and Tracking (Sparse4D) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) for details.
 
 **Warehouse MV3DT Blueprint** — `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` (`vss-rtvi-cv-mv3dt` service, `volumes:` section):
 
@@ -592,7 +592,7 @@ volumes:
   - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
 ```
 
-ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/mtmc/` (RT-DETR detector) and `$VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/` (MV3DT pose-estimation model) on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` and `onnxFile` and `modelEngineFile` in the `PoseEstimator` block of `ds-mv3dt-tracker-config.yml` to paths under `/opt/storage/`. See [3D Multi Camera Detection and Tracking (MV3DT) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT) for details.
+ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/mtmc/` (RT-DETR detector) and `$VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/` (MV3DT pose-estimation model) on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` and `onnxFile` and `modelEngineFile` in the `PoseEstimator` block of `ds-mv3dt-tracker-config.yml` to paths under `/opt/storage/`. See [3D Multi Camera Detection and Tracking (MV3DT) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt) for details.
 
 **Custom models and pre-built engines:**
 
@@ -706,7 +706,7 @@ The diagram below shows the RTVI-CV pipeline used for the Sparse4D variant.
 
 The Sparse4D RTVI-CV Pipeline has several key configuration options:
 
-* **Inference Configuration**: To configure model inference parameters, calibration settings, preprocessing properties, instance bank properties, decoder properties, and debugging options, refer to the [Inference Configuration File section](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#inference-configuration-file).
+* **Inference Configuration**: To configure model inference parameters, calibration settings, preprocessing properties, instance bank properties, decoder properties, and debugging options, refer to the [Inference Configuration File section](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#inference-configuration-file).
 
 * **DeepStream Configuration**: To change input source type, number of channels, stream multiplexing, and message broker settings, refer to:
 
@@ -714,11 +714,11 @@ The Sparse4D RTVI-CV Pipeline has several key configuration options:
   * RTVI-CV microservice API for dynamic configuration
   * [DeepStream SDK Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) for complete configuration options
 
-* **Preprocessing**: To configure preprocessing operations such as resizing, scaling, cropping, format conversion, and normalization, refer to the [DeepStream Preprocessing Plugin Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvdspreprocess.html) and the [Preprocess Plugin Configuration File section](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#preprocess-plugin-configuration-file).
+* **Preprocessing**: To configure preprocessing operations such as resizing, scaling, cropping, format conversion, and normalization, refer to the [DeepStream Preprocessing Plugin Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvdspreprocess.html) and the [Preprocess Plugin Configuration File section](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#preprocess-plugin-configuration-file).
 
 * **Message Broker**: To change Message Broker parameters, refer to the [Gst-nvmsgbroker](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvmsgbroker.html)
 
-* **Runtime Configuration**: For common configuration adjustments such as modifying the number of input streams or integrating a new Sparse4D model checkpoint, refer to the [Modifying the Number of Input Streams](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#modifying-the-number-of-input-streams) and [Integrating a Sparse4D Model Checkpoint](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#integrating-a-sparse4d-model-checkpoint) sections in the [3D Multi Camera Detection and Tracking (Sparse4D) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) documentation.
+* **Runtime Configuration**: For common configuration adjustments such as modifying the number of input streams or integrating a new Sparse4D model checkpoint, refer to the [Modifying the Number of Input Streams](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#modifying-the-number-of-input-streams) and [Integrating a Sparse4D Model Checkpoint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint) sections in the [3D Multi Camera Detection and Tracking (Sparse4D) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) documentation.
 
 ### MV3DT RTVI-CV Pipeline
 
@@ -734,23 +734,23 @@ The diagram below shows the RTVI-CV pipeline used for the MV3DT variant.
 
 The MV3DT RTVI-CV Pipeline has several key configuration options:
 
-* **Inference Configuration**: To configure RT-DETR model inference parameters, and class filtering parameters, refer to the [Inference Configuration File](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#inference-configuration-file) section.
+* **Inference Configuration**: To configure RT-DETR model inference parameters, and class filtering parameters, refer to the [Inference Configuration File](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#inference-configuration-file) section.
 
-* **DeepStream Configuration**: To change input source type, number of input streams, stream multiplexing, and message broker settings, refer to the [DeepStream Configuration File](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#deepstream-configuration-file) section, as well as:
+* **DeepStream Configuration**: To change input source type, number of input streams, stream multiplexing, and message broker settings, refer to the [DeepStream Configuration File](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#deepstream-configuration-file) section, as well as:
 
   * [Source Group](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_deepstream.html#source-group) for offline configuration
   * RTVI-CV microservice API for dynamic configuration
   * [DeepStream SDK Documentation](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) for complete configuration options
 
-* **Tracker Configuration**: To configure the SV3DT and MV3DT modules (object model projection, pose estimation, multi-view association, and MQTT communicator), refer to the [Tracker Configuration File](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#tracker-configuration-file) section and the [DeepStream MV3DT Documentation](https://docs.nvidia.com/metropolis/deepstream/9.0/text/DS_MV3DT.html).
+* **Tracker Configuration**: To configure the SV3DT and MV3DT modules (object model projection, pose estimation, multi-view association, and MQTT communicator), refer to the [Tracker Configuration File](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#tracker-configuration-file) section and the [DeepStream MV3DT Documentation](https://docs.nvidia.com/metropolis/deepstream/9.0/text/DS_MV3DT.html).
 
-* **MQTT Publish/Subscribe Configuration**: To declare which cameras share tracklets with each other, refer to the [MQTT Publish/Subscribe Configuration File](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#mqtt-publish-subscribe-configuration-file) section.
+* **MQTT Publish/Subscribe Configuration**: To declare which cameras share tracklets with each other, refer to the [MQTT Publish/Subscribe Configuration File](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#mqtt-publish-subscribe-configuration-file) section.
 
-* **Camera Information Files**: To provide per-camera 3x4 projection matrices and per-class object model dimensions, refer to the [Camera Information Files](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#camera-information-files) section.
+* **Camera Information Files**: To provide per-camera 3x4 projection matrices and per-class object model dimensions, refer to the [Camera Information Files](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#camera-information-files) section.
 
-* **Message Broker**: To change Kafka or Redis message broker parameters, refer to the [Gst-nvmsgbroker](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvmsgbroker.html) and the [Kafka Configuration File](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#kafka-configuration-file) section.
+* **Message Broker**: To change Kafka or Redis message broker parameters, refer to the [Gst-nvmsgbroker](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvmsgbroker.html) and the [Kafka Configuration File](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#kafka-configuration-file) section.
 
-* **Common Configuration Adjustments**: For common configuration adjustments such as modifying the number of input streams, running on a custom dataset, or integrating a new RT-DETR model checkpoint, refer to the [Modifying the Number of Input Streams](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#modifying-the-number-of-input-streams), [Running on a Custom Dataset](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#running-on-a-custom-dataset), and [Integrating a New RT-DETR Model](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#integrating-a-new-rt-detr-model) sections in the [3D Multi Camera Detection and Tracking (MV3DT) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT) documentation.
+* **Common Configuration Adjustments**: For common configuration adjustments such as modifying the number of input streams, running on a custom dataset, or integrating a new RT-DETR model checkpoint, refer to the [Modifying the Number of Input Streams](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#modifying-the-number-of-input-streams), [Running on a Custom Dataset](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#running-on-a-custom-dataset), and [Integrating a New RT-DETR Model](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#integrating-a-new-rt-detr-model) sections in the [3D Multi Camera Detection and Tracking (MV3DT) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt) documentation.
 
 ## Implementation Details
 
@@ -782,7 +782,7 @@ comp-id=perception-app
 
 ### Message Formats
 
-Detection and tracking metadata is serialized as Protocol Buffer messages using the `Frame` message type defined in the [Protobuf Schema ](/Protobuf-Schema).
+Detection and tracking metadata is serialized as Protocol Buffer messages using the `Frame` message type defined in the [Protobuf Schema ](/vss/system-components/middleware/nvschema/protobuf-schema).
 
 **Message Header:**
 
@@ -815,7 +815,7 @@ Detection and tracking metadata is serialized as Protocol Buffer messages using 
 
 ## Environment Variables Reference
 
-The table below consolidates the environment variables that configure RTVI-CV across the Docker Compose profiles and the standalone container, in the same style as the [Real-Time VLM ](/real-time-vlm) reference. It covers DeepStream model configuration, GPU / device, Kafka, and OpenTelemetry settings. Values shown as `Empty` are unset by default; `Profile-specific` values are set automatically by the reference blueprints. GPU device selection uses the Docker `--gpus` flag (see `Standalone Microservice Deployment and Testing`_), not an environment variable. For the detailed, in-context settings see `Kafka Configuration`_, `Message Broker Customization`_, `DeepStream Configuration Files`_, and `OpenTelemetry Support`_.
+The table below consolidates the environment variables that configure RTVI-CV across the Docker Compose profiles and the standalone container, in the same style as the [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) reference. It covers DeepStream model configuration, GPU / device, Kafka, and OpenTelemetry settings. Values shown as `Empty` are unset by default; `Profile-specific` values are set automatically by the reference blueprints. GPU device selection uses the Docker `--gpus` flag (see `Standalone Microservice Deployment and Testing`_), not an environment variable. For the detailed, in-context settings see `Kafka Configuration`_, `Message Broker Customization`_, `DeepStream Configuration Files`_, and `OpenTelemetry Support`_.
 
 <Note>
 Redis message-broker settings are configured through the DeepStream application configuration files (`msg-broker-proto-lib`, `msg-broker-config`), not environment variables — see `Message Broker Customization`_.
@@ -865,25 +865,25 @@ Note: Few config parameters are updated dynamically based on the model name and 
 
 **Configuration Location:** `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/`
 
-The Search Developer Profile follows the same configuration structure as the Warehouse 2D Blueprint. Please refer to the [Warehouse 2D Blueprint ](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR) documentation for configurations.
+The Search Developer Profile follows the same configuration structure as the Warehouse 2D Blueprint. Please refer to the [Warehouse 2D Blueprint ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr) documentation for configurations.
 
 ### Warehouse 2D Blueprint
 
 **Configuration Location:** `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/`
 
-Please refer to the [Warehouse 2D Blueprint ](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR) documentation for configurations.
+Please refer to the [Warehouse 2D Blueprint ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr) documentation for configurations.
 
 ### Warehouse 3D Blueprint
 
 **Configuration Location:** `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/`
 
-Please refer to the [Warehouse 3D Blueprint ](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) documentation for configurations.
+Please refer to the [Warehouse 3D Blueprint ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) documentation for configurations.
 
 ### Warehouse MV3DT Blueprint
 
 **Configuration Location:** `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/`
 
-Please refer to the [Warehouse MV3DT Blueprint ](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT) documentation for configurations.
+Please refer to the [Warehouse MV3DT Blueprint ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt) documentation for configurations.
 
 ## Customization of Microservice
 
@@ -911,7 +911,7 @@ Update the PGIE configuration file ([nvinfer](https://docs.nvidia.com/metropolis
 
 For integrating custom model architectures (beyond RT-DETR and Grounding DINO), you will need to export your model to ONNX format, configure the DeepStream nvinfer plugin with appropriate preprocessing and parsing parameters, and potentially implement custom bounding box parsers. Refer to the [DeepStream nvinfer Plugin Guide](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvinfer.html) for detailed integration steps.
 
-For 3D object detection models, refer to the [Integrating a Sparse4D Model Checkpoint](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D#integrating-a-sparse4d-model-checkpoint) section in the [3D Multi Camera Detection and Tracking (Sparse4D) ](/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D) documentation.
+For 3D object detection models, refer to the [Integrating a Sparse4D Model Checkpoint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint) section in the [3D Multi Camera Detection and Tracking (Sparse4D) ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) documentation.
 
 ### Tracker Customization
 
@@ -1086,8 +1086,8 @@ You can deploy and test RTVI-CV outside a full Metropolis blueprint in two ways:
 
 | Method | When to use |
 | --- | --- |
-| [Docker deployment](/object-detection-tracking#docker-deployment) | Run the RTVI-CV container on a GPU host. Reference configs are packaged inside the image, and a persistent `/opt/storage` directory holds models and TensorRT engines. Use for local development, custom ONNX models, and step-by-step config changes. **MV3DT is supported in this mode only in the current release.** |
-| [Standalone Helm chart deployment](/object-detection-tracking#standalone-helm-chart-deployment-warehouse) | Install the `vss-rtvi-cv` Helm subchart on Kubernetes with `standalone-2d` or `standalone-3d` profile modes. Use for warehouse 2D/3D perception with file sources from the NGC `vss-warehouse-app-data` bundle on a PVC (no Kafka or Redis). |
+| [Docker deployment](/vss/system-components/vision-microservices/object-detection-and-tracking#docker-deployment) | Run the RTVI-CV container on a GPU host. Reference configs are packaged inside the image, and a persistent `/opt/storage` directory holds models and TensorRT engines. Use for local development, custom ONNX models, and step-by-step config changes. **MV3DT is supported in this mode only in the current release.** |
+| [Standalone Helm chart deployment](/vss/system-components/vision-microservices/object-detection-and-tracking#standalone-helm-chart-deployment-warehouse) | Install the `vss-rtvi-cv` Helm subchart on Kubernetes with `standalone-2d` or `standalone-3d` profile modes. Use for warehouse 2D/3D perception with file sources from the NGC `vss-warehouse-app-data` bundle on a PVC (no Kafka or Redis). |
 
 ### Docker deployment
 
@@ -1117,7 +1117,7 @@ No separate download or bind-mount is required — the configs are already prese
 | `smartcities/gdino/` | Alerts Profile open-vocabulary detection (Grounding DINO) — main pipeline config, Triton nvinferserver config, Kafka broker config |
 
 <Note>
-**MV3DT** does not ship reference configs in the in-container `reference-configs` directory. Use the configs under `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/` in your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository as reference. See the [Warehouse MV3DT Configurations section](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#configurations) for the full list of configuration files (`ds-main-config-mv3dt.txt`, `ds-pgie-config.yml`, `ds-mv3dt-tracker-config.yml`, `pub_sub_info_config.yml`, `ds-kafka-config.txt`, per-camera `camInfo/<sensor_id>.yml`, etc.).
+**MV3DT** does not ship reference configs in the in-container `reference-configs` directory. Use the configs under `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/` in your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository as reference. See the [Warehouse MV3DT Configurations section](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#configurations) for the full list of configuration files (`ds-main-config-mv3dt.txt`, `ds-pgie-config.yml`, `ds-mv3dt-tracker-config.yml`, `pub_sub_info_config.yml`, `ds-kafka-config.txt`, per-camera `camInfo/<sensor_id>.yml`, etc.).
 </Note>
 
 #### Start the Docker Container
@@ -1197,7 +1197,7 @@ Use the NGC CLI to download models, or place your own custom ONNX exports in `/o
 Most models require no additional setup beyond placing the model and updating configs. **Sparse4D** and **Grounding DINO** are exceptions — they require extra steps before running.
 
 <Note>
-If you are running **Warehouse 2D**, **Warehouse MV3DT**, or **Smart City RT-DETR**, skip this step and proceed to [Step 3: Update Configuration](/object-detection-tracking#step-3-update-configuration).
+If you are running **Warehouse 2D**, **Warehouse MV3DT**, or **Smart City RT-DETR**, skip this step and proceed to [Step 3: Update Configuration](/vss/system-components/vision-microservices/object-detection-and-tracking#step-3-update-configuration).
 </Note>
 
 **Sparse4D (Warehouse 3D)**
@@ -1294,7 +1294,7 @@ The `model-engine-file` name typically encodes the batch size (e.g. `_b4_gpu0_fp
 </Note>
 
 <Note>
-**MV3DT-specific configs.** The provided `camInfo/` and `pub_sub_info_config.yml` are calibrated for the bundled sample dataset. When bringing your own cameras, regenerate both files from your `calibration.json` using the two utility scripts under `tools/rtvi-cv-mv3dt-utils` — `generate_cam_info_configs.py` (produces one `<sensor_id>.yml` per camera) and `generate_pub_sub_configs.py` (produces a vision-neighbor publish/subscribe graph). See [Running on a Custom Dataset](/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT#running-on-a-custom-dataset) for the full command-line options.
+**MV3DT-specific configs.** The provided `camInfo/` and `pub_sub_info_config.yml` are calibrated for the bundled sample dataset. When bringing your own cameras, regenerate both files from your `calibration.json` using the two utility scripts under `tools/rtvi-cv-mv3dt-utils` — `generate_cam_info_configs.py` (produces one `<sensor_id>.yml` per camera) and `generate_pub_sub_configs.py` (produces a vision-neighbor publish/subscribe graph). See [Running on a Custom Dataset](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#running-on-a-custom-dataset) for the full command-line options.
 </Note>
 
 #### Step 4: Run the Application
@@ -1350,7 +1350,7 @@ The `camera_url` can be a local file path (`file:///opt/storage/videos/sample.mp
 **MV3DT only:** all input streams must be time-synchronized across cameras. MV3DT fuses per-sensor measurements by timestamp, so unsynchronized streams (drifting timestamps, or different frame rates) will cause cross-camera tracklet matching, ID adoption and BEV fusion to break down. For this reason, local file paths (`file:///...`) are **not** supported as `camera_url` for MV3DT — use synchronized RTSP sources instead.
 </Info>
 
-For the complete stream management API, see the [API Reference ](/object-detection-tracking-api).
+For the complete stream management API, see the [API Reference ](/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference/api-reference).
 
 **Use static sources instead:**
 
@@ -1622,7 +1622,7 @@ For 24 streams, set `sub-batches` to 8:8:8.
   DeepStream application configuration so that inference runs on every alternate frame. The
   tracker maintains object continuity on the skipped frames. This halves the inference load and
   allows a 30 FPS input stream to be processed without frame drops. See
-  [Platform Limitations](/performance-rt-cv#platform-limitations) for the platforms where this is
+  [Platform Limitations](/vss/appendix/performance/microservices/rt-cv-performance#platform-limitations) for the platforms where this is
   required.
 
   ```ini
