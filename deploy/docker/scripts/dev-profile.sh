@@ -1726,10 +1726,13 @@ function state_up() {
   # Compose ranks the exported shell value above every --env-file, so the SBSA
   # variant has to be selected here, once containers.env has resolved the channel.
   # GB300 needs it because the generic ARM64 image omits the DeepStream runtime.
+  # VSS_RT_VLM_SBSA_TAG pins a specific build, e.g. 3.3.0-26.08.2-sbsa; that one
+  # is an NGC coordinate, so pin VSS_RT_VLM_IMAGE to the NGC repository with it
+  # rather than leaving the image on the GHCR default, which has no such tag.
   if [[ "${hardware_profile}" == "GB300" ]] && [[ "${VSS_RT_VLM_TAG}" != *sbsa* ]]; then
-    export VSS_RT_VLM_TAG="${VSS_RT_VLM_TAG}-sbsa"
+    export VSS_RT_VLM_TAG="${VSS_RT_VLM_SBSA_TAG:-${VSS_RT_VLM_TAG}-sbsa}"
     set_env_var "VSS_RT_VLM_TAG" "${VSS_RT_VLM_TAG}"
-    echo "[INFO] Selected SBSA RT-VLM image for GB300: ${VSS_RT_VLM_TAG}"
+    echo "[INFO] Selected SBSA RT-VLM image for GB300: ${VSS_RT_VLM_IMAGE}:${VSS_RT_VLM_TAG}"
   fi
 
   # -f disables Compose's default file discovery, so the base file must be named
