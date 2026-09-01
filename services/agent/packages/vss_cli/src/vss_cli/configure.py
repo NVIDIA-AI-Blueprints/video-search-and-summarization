@@ -312,14 +312,29 @@ def _check_embedding_backend(
     help="Whether persisted jobs write compact Markdown notes by default.",
 )
 @click.option("--embeddings/--no-embeddings", "embeddings_enabled", default=None, help="Enable derived embeddings.")
-@click.option("--embedding-provider", default=None, help="Embedding provider (openai_compatible only).")
+@click.option(
+    "--embedding-provider",
+    type=click.Choice(["openclaw_gateway", "openai_compatible"]),
+    default=None,
+    help="Embedding endpoint profile.",
+)
 @click.option("--embedding-endpoint", default=None, help="OpenAI-compatible embedding base URL.")
-@click.option("--embedding-model", default=None, help="Static embedding model identifier.")
-@click.option("--embedding-dimensions", type=int, default=None, help="Embedding vector dimensions.")
+@click.option("--embedding-model", default=None, help="OpenClaw agent target or custom embedding model.")
+@click.option("--embedding-dimensions", type=int, default=None, help="Expected embedding vector dimensions.")
 @click.option("--embedding-index", default=None, help="Companion Elasticsearch vector index.")
-@click.option("--embedding-timeout", type=float, default=None, help="Embedding request timeout in seconds.")
+@click.option(
+    "--embedding-timeout-seconds",
+    "--embedding-timeout",
+    "embedding_timeout_seconds",
+    type=float,
+    default=None,
+    help="Embedding request timeout in seconds.",
+)
 @click.option("--embedding-batch-size", type=int, default=None, help="Maximum passage embeddings per request.")
 @click.option("--embedding-api-key-env", default=None, help="Environment variable containing a Bearer token.")
+@click.option("--no-embedding-auth", is_flag=True, help="Do not send a Bearer token to the embedding endpoint.")
+@click.option("--embedding-query-input-type", default=None, help="Optional input_type for query embeddings.")
+@click.option("--embedding-document-input-type", default=None, help="Optional input_type for document embeddings.")
 @click.option(
     "--retrieval-mode",
     type=click.Choice(["keyword", "semantic", "hybrid"]),
@@ -345,9 +360,12 @@ def configure_memory(
     embedding_model: str | None,
     embedding_dimensions: int | None,
     embedding_index: str | None,
-    embedding_timeout: float | None,
+    embedding_timeout_seconds: float | None,
     embedding_batch_size: int | None,
     embedding_api_key_env: str | None,
+    no_embedding_auth: bool,
+    embedding_query_input_type: str | None,
+    embedding_document_input_type: str | None,
     retrieval_mode: str | None,
     semantic_candidate_count: int | None,
     rrf_rank_constant: int | None,
@@ -360,6 +378,20 @@ def configure_memory(
     current_markdown = current.markdown
     current_embeddings = current.embeddings
     current_retrieval = current.retrieval
+    if embedding_api_key_env is not None and no_embedding_auth:
+        _memory_config_error("cannot combine `--embedding-api-key-env` with `--no-embedding-auth`")
+    requested_provider = embedding_provider
+    if embeddings_enabled is True and requested_provider is None:
+        requested_provider = "openclaw_gateway"
+    if requested_provider is not None and (
+        requested_provider != current_embeddings.provider or embeddings_enabled is True
+    ):
+        embedding_base = config_mod.EmbeddingConfig.for_provider(
+            requested_provider,
+            enabled=current_embeddings.enabled if embeddings_enabled is None else embeddings_enabled,
+        )
+    else:
+        embedding_base = current_embeddings
     candidate = config_mod.MemoryConfig(
         enabled=current.enabled if enabled is None else enabled,
         backend=current.backend if backend is None else backend,
@@ -375,15 +407,27 @@ def configure_memory(
         ),
         introspection=current.introspection,
         embeddings=config_mod.EmbeddingConfig(
-            enabled=current_embeddings.enabled if embeddings_enabled is None else embeddings_enabled,
-            provider=current_embeddings.provider if embedding_provider is None else embedding_provider,
-            endpoint=current_embeddings.endpoint if embedding_endpoint is None else embedding_endpoint,
-            model=current_embeddings.model if embedding_model is None else embedding_model,
-            dimensions=current_embeddings.dimensions if embedding_dimensions is None else embedding_dimensions,
-            index=current_embeddings.index if embedding_index is None else embedding_index,
-            timeout_seconds=current_embeddings.timeout_seconds if embedding_timeout is None else embedding_timeout,
-            batch_size=current_embeddings.batch_size if embedding_batch_size is None else embedding_batch_size,
-            api_key_env=current_embeddings.api_key_env if embedding_api_key_env is None else embedding_api_key_env,
+            enabled=embedding_base.enabled if embeddings_enabled is None else embeddings_enabled,
+            provider=embedding_base.provider if embedding_provider is None else embedding_provider,
+            endpoint=embedding_base.endpoint if embedding_endpoint is None else embedding_endpoint,
+            model=embedding_base.model if embedding_model is None else embedding_model,
+            dimensions=embedding_base.dimensions if embedding_dimensions is None else embedding_dimensions,
+            index=embedding_base.index if embedding_index is None else embedding_index,
+            timeout_seconds=embedding_base.timeout_seconds
+            if embedding_timeout_seconds is None
+            else embedding_timeout_seconds,
+            batch_size=embedding_base.batch_size if embedding_batch_size is None else embedding_batch_size,
+            api_key_env=None
+            if no_embedding_auth
+            else embedding_base.api_key_env
+            if embedding_api_key_env is None
+            else embedding_api_key_env,
+            query_input_type=embedding_base.query_input_type
+            if embedding_query_input_type is None
+            else embedding_query_input_type,
+            document_input_type=embedding_base.document_input_type
+            if embedding_document_input_type is None
+            else embedding_document_input_type,
         ),
         retrieval=config_mod.RetrievalConfig(
             mode=current_retrieval.mode if retrieval_mode is None else retrieval_mode,

@@ -291,21 +291,42 @@ class EmbeddingConfig:
     """Static configuration for derived memory embeddings."""
 
     enabled: bool = False
-    provider: str = "openai_compatible"
-    endpoint: str | None = None
-    model: str = "nvidia/llama-nemotron-embed-300m-v2"
-    dimensions: int = 768
+    provider: str = "openclaw_gateway"
+    endpoint: str | None = "http://127.0.0.1:18789/v1"
+    model: str | None = "openclaw/default"
+    dimensions: int | None = None
     index: str = "vss-memory-embeddings-v1"
     timeout_seconds: float = 30.0
     batch_size: int = 16
-    api_key_env: str | None = None
+    api_key_env: str | None = "OPENCLAW_GATEWAY_TOKEN"
+    query_input_type: str | None = None
+    document_input_type: str | None = None
+
+    @classmethod
+    def for_provider(cls, provider: str, *, enabled: bool = False) -> EmbeddingConfig:
+        """Return clean profile defaults without retaining another provider's settings."""
+        if provider == "openclaw_gateway":
+            return cls(enabled=enabled)
+        if provider == "openai_compatible":
+            return cls(
+                enabled=enabled,
+                provider=provider,
+                endpoint=None,
+                model=None,
+                api_key_env=None,
+            )
+        raise ConfigError(
+            f"unsupported embedding provider {provider!r}; choose one of: openclaw_gateway, openai_compatible"
+        )
 
     def validate(self) -> EmbeddingConfig:
-        if self.provider != "openai_compatible":
+        if self.provider not in {"openclaw_gateway", "openai_compatible"}:
             raise ConfigError(
-                f"unsupported embedding provider {self.provider!r}; configure `--embedding-provider openai_compatible`"
+                f"unsupported embedding provider {self.provider!r}; choose one of: openclaw_gateway, openai_compatible"
             )
-        if isinstance(self.dimensions, bool) or not isinstance(self.dimensions, int) or self.dimensions <= 0:
+        if self.dimensions is not None and (
+            isinstance(self.dimensions, bool) or not isinstance(self.dimensions, int) or self.dimensions <= 0
+        ):
             raise ConfigError("embedding dimensions must be a positive integer")
         if isinstance(self.batch_size, bool) or not isinstance(self.batch_size, int) or not 1 <= self.batch_size <= 128:
             raise ConfigError("embedding batch size must be between 1 and 128")
@@ -315,16 +336,20 @@ class EmbeddingConfig:
             or not 0 < self.timeout_seconds <= 300
         ):
             raise ConfigError("embedding timeout must be greater than zero and no greater than 300 seconds")
-        if not isinstance(self.model, str) or not self.model.strip():
+        if self.model is not None and (not isinstance(self.model, str) or not self.model.strip()):
             raise ConfigError("embedding model must be a non-empty string")
         validate_memory_index(self.index)
         if self.api_key_env is not None and (
             not self.api_key_env or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.api_key_env)
         ):
             raise ConfigError("embedding API-key environment variable must be a valid environment variable name")
-        if self.enabled:
-            if not self.endpoint:
-                raise ConfigError("enabled embeddings require `--embedding-endpoint http[s]://host[/v1]`")
+        for name, value in (
+            ("query", self.query_input_type),
+            ("document", self.document_input_type),
+        ):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ConfigError(f"embedding {name} input type must be a non-empty string or null")
+        if self.endpoint is not None:
             parsed = urlsplit(self.endpoint)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise ConfigError("embedding endpoint must be an absolute HTTP or HTTPS URL")
@@ -332,6 +357,13 @@ class EmbeddingConfig:
                 raise ConfigError(
                     "embedding endpoint must not contain embedded credentials; use `--embedding-api-key-env`"
                 )
+        if self.enabled and (not self.endpoint or not self.model):
+            if self.provider == "openai_compatible":
+                raise ConfigError(
+                    "enabled openai_compatible embeddings require explicit "
+                    "`--embedding-endpoint` and `--embedding-model`"
+                )
+            raise ConfigError("enabled embeddings require an endpoint and model target")
         return self
 
     def to_json(self) -> dict[str, Any]:
@@ -346,6 +378,8 @@ class EmbeddingConfig:
             "timeout_seconds": self.timeout_seconds,
             "batch_size": self.batch_size,
             "api_key_env": self.api_key_env,
+            "query_input_type": self.query_input_type,
+            "document_input_type": self.document_input_type,
         }
 
     @classmethod
@@ -356,28 +390,35 @@ class EmbeddingConfig:
             "api_key_env",
             "batch_size",
             "dimensions",
+            "document_input_type",
             "enabled",
             "endpoint",
             "index",
             "model",
             "provider",
+            "query_input_type",
             "timeout_seconds",
         }
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'memory.embeddings' contains unknown fields: {', '.join(unknown)}")
-        defaults = cls()
+        raw_provider = raw.get("provider", cls().provider)
+        if not isinstance(raw_provider, str):
+            raise ConfigError("config 'memory.embeddings.provider' must be a string")
+        defaults = cls.for_provider(raw_provider)
         values = {name: raw.get(name, getattr(defaults, name)) for name in expected}
         if not isinstance(values["enabled"], bool):
             raise ConfigError("config 'memory.embeddings.enabled' must be true or false")
-        for name in ("provider", "model", "index"):
+        for name in ("provider", "index"):
             if not isinstance(values[name], str):
                 raise ConfigError(f"config 'memory.embeddings.{name}' must be a string")
-        for name in ("endpoint", "api_key_env"):
+        for name in ("endpoint", "model", "api_key_env", "query_input_type", "document_input_type"):
             if values[name] is not None and not isinstance(values[name], str):
                 raise ConfigError(f"config 'memory.embeddings.{name}' must be a string or null")
-        if isinstance(values["dimensions"], bool) or not isinstance(values["dimensions"], int):
-            raise ConfigError("config 'memory.embeddings.dimensions' must be an integer")
+        if values["dimensions"] is not None and (
+            isinstance(values["dimensions"], bool) or not isinstance(values["dimensions"], int)
+        ):
+            raise ConfigError("config 'memory.embeddings.dimensions' must be an integer or null")
         if isinstance(values["batch_size"], bool) or not isinstance(values["batch_size"], int):
             raise ConfigError("config 'memory.embeddings.batch_size' must be an integer")
         if isinstance(values["timeout_seconds"], bool) or not isinstance(values["timeout_seconds"], int | float):
