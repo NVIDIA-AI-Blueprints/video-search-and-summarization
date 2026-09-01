@@ -249,12 +249,16 @@ export MODEL_IMPLEMENTATION_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/vi
 export MODEL_REPOSITORY_SCRIPT_PATH="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism/create_triton_model_repo.py"
 ```
 
-If testing source before it is baked into the image, mount the source tree so the
-in-container implementation path exists:
+If testing source before it is baked into the image, create a Compose override
+that mounts the source tree so the in-container implementation path exists:
 
-```yaml
-volumes:
-  - ${REPO_ROOT}/services/rtvi/rt-embed/src:/opt/nvidia/rtvi/rtvi:ro
+```bash
+cat >/tmp/rtvi-embed-byom.override.yml <<'EOF'
+services:
+  rtvi-embed:
+    volumes:
+      - ${REPO_ROOT}/services/rtvi/rt-embed/src:/opt/nvidia/rtvi/rtvi:ro
+EOF
 ```
 
 Then run:
@@ -262,6 +266,7 @@ Then run:
 ```bash
 cd "${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-embed"
 docker compose -f rtvi-embed-docker-compose.yml \
+  -f /tmp/rtvi-embed-byom.override.yml \
   --profile rtvi-embed up -d rtvi-embed
 ```
 
