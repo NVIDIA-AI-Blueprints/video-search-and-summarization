@@ -35,6 +35,12 @@ service:
 # pod's resource request exposed (runtime default).
 gpuDeviceId: ""
 
+# Optional Kubernetes MIG resource replacement. Set this to the resource name
+# advertised by the NVIDIA device plugin (for example, nvidia.com/mig-3g.40gb).
+# The default remains one nvidia.com/gpu. A MIG deployment requests one slice
+# per pod and relies on the device plugin to set NVIDIA_VISIBLE_DEVICES.
+# gpuResourceName: "nvidia.com/mig-3g.40gb"
+
 # Stream-affinity routing via a HAProxy stick table keyed on an HTTP header.
 # When enabled, the rendered Service carries `haproxy.org/*` annotations
 # that ask a HAProxy Ingress controller to record, on the first request for
@@ -159,6 +165,9 @@ hfTokenSecret:
   name: ""
   key: "HF_TOKEN"
 resources:
+  # gpuResourceName replaces the default GPU resource in both limits and
+  # requests while preserving any CPU or memory resources set here. See
+  # overrides_rtvi_embed_mig.yaml for a complete MIG example.
   limits:
     nvidia.com/gpu: 1
 podSecurityContext:

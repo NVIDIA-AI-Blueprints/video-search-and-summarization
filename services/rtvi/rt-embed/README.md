@@ -102,6 +102,75 @@ curl -fsS "http://localhost:${BACKEND_PORT}/v1/ready" && echo "Service is ready"
 
 The APIs are available at `http://<host_ip>:<BACKEND_PORT>/docs`.
 
+## Optional: Run RT-Embed on an NVIDIA MIG slice
+
+MIG is optional. Existing Docker Compose and Helm deployments continue to use their
+default full-GPU configuration without changes. Before using MIG, configure the
+GPU and NVIDIA Container Toolkit or Kubernetes device plugin on the host, then
+obtain the slice UUID or resource name from `nvidia-smi -L` or `kubectl describe
+node <node-name>`. The selected slice must have sufficient memory for the model.
+
+MIG availability, the supported profile geometries, and valid co-placement
+combinations are defined by the GPU and its driver. Consult NVIDIA's
+[Supported MIG Profiles](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html)
+before partitioning a GPU; do not infer a profile name or instance count from a
+different platform.
+
+### VSS Docker Compose profiles
+
+For the VSS deployment Compose manifest at
+`deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`, set both
+variables to the same MIG UUID reported by `nvidia-smi -L` in the active
+deployment override or shell environment. Current drivers may report a compact
+`MIG-<uuid>` value; older drivers report `MIG-GPU-<gpu-uuid>/<gi>/<ci>`.
+
+```bash
+RT_EMBED_DEVICE_ID="MIG-<uuid-from-nvidia-smi-L>"
+RTVI_EMBED_NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
+```
+
+`RT_EMBED_DEVICE_ID` assigns the MIG device to the container.
+`RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` exposes that same device to CUDA and the
+embedding service. Inside the container it is CUDA device `0`. Do not set these
+MIG values for a normal full-GPU deployment.
+
+For a multi-instance deployment, run isolated Compose projects or service
+instances and give each service a different MIG UUID. Do not assign multiple MIG
+UUIDs to one single-GPU RT-Embed service.
+
+### Standalone Docker Compose
+
+The standalone Compose file under `services/rtvi/rt-embed/docker/` uses its
+existing `NVIDIA_VISIBLE_DEVICES` setting. Set it to the MIG UUID in that stack's
+`.env` file:
+
+```bash
+NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
+```
+
+### Standalone Helm chart
+
+The Kubernetes NVIDIA device plugin assigns the device. Do not set a MIG UUID in
+`NVIDIA_VISIBLE_DEVICES`. Configure the resource name advertised by the plugin
+instead. For a device plugin using the `mixed` MIG strategy, an example is:
+
+```yaml
+gpuResourceName: "nvidia.com/mig-3g.40gb"
+```
+
+The repository provides `overrides_rtvi_embed_mig.yaml` as a complete example.
+Install it after the normal standalone override:
+
+```bash
+helm upgrade --install vss-rtvi-embed . \
+  -n vss-rtvi \
+  -f overrides_rtvi_embed.yaml \
+  -f overrides_rtvi_embed_mig.yaml
+```
+
+The MIG resource replaces the chart's default `nvidia.com/gpu: 1` request; the
+chart does not request a full GPU and a MIG slice together.
+
 ### 3. (Optional) Enable monitoring
 
 To start the Prometheus + Jaeger + OpenTelemetry stack alongside the service, set `ENABLE_OTEL_MONITORING=true` in your `.env` and run:
@@ -412,7 +481,7 @@ ASSET_STORAGE_DIR=/path/to/assets           # Host path for uploaded files
 EXAMPLE_STREAMS_DIR=/path/to/sample-videos  # Host path for example streams
 
 # GPU Configuration
-NVIDIA_VISIBLE_DEVICES=0                    # Use specific GPUs (default: all)
+NVIDIA_VISIBLE_DEVICES=0                    # GPU index, UUID, or MIG UUID (default: all)
 VLM_BATCH_SIZE=128                          # Override automatic batch size
 
 # Logging
@@ -497,7 +566,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `VLM_BATCH_SIZE` | Inference batch size | Auto-calculated | No |
 | `NUM_VLM_PROCS` | Number of inference processes | `10` | No |
 | `NUM_GPUS` | Number of GPUs to use | Auto-detected | No |
-| `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
+| `NVIDIA_VISIBLE_DEVICES` | GPU index, UUID, or MIG UUID exposed to the container | `all` | No |
 | `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. | - | No |
