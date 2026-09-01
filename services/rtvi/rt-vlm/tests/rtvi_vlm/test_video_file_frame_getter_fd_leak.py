@@ -56,6 +56,25 @@ RT_VLM_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = RT_VLM_ROOT / "src"
 MODULE_FILE = SRC_DIR / "vlm_pipeline" / "video_file_frame_getter.py"
 
+_FAKE_MODULE_NAMES = {
+    "gi",
+    "gi.repository",
+    "torch",
+    "torch.nn",
+    "torch.nn.functional",
+    "torch.cuda",
+    "cupy",
+    "cupy.cuda",
+    "pyds",
+    "grpc",
+    "pymediainfo",
+    "torchvision",
+    "torchvision.transforms",
+    "torchvision.transforms.v2",
+    "vffg_fdleak_under_test",
+}
+_MISSING = object()
+
 # Codec/resolution values shared by the tests.
 FRAME_WIDTH = 1280
 FRAME_HEIGHT = 720
@@ -680,31 +699,54 @@ class FakeFrameSelector:
         return True
 
 
-def _restore_import_state(saved_modules, saved_path):
+def _save_import_state():
+    """Snapshot only module entries and parent attributes this test can touch."""
+    saved_modules = {
+        name: sys.modules.get(name, _MISSING) for name in _FAKE_MODULE_NAMES
+    }
+    saved_parent_attrs = {}
+    for name in _FAKE_MODULE_NAMES:
+        if "." not in name:
+            continue
+        parent_name, child_name = name.rsplit(".", 1)
+        parent = sys.modules.get(parent_name)
+        if parent is not None:
+            saved_parent_attrs[(parent, child_name)] = (
+                child_name in vars(parent),
+                getattr(parent, child_name, None),
+            )
+    return saved_modules, saved_parent_attrs
+
+
+def _restore_import_state(saved_modules, saved_parent_attrs, src_path_was_present):
     """Restore import state after installing fake runtime dependencies."""
-    # Restore replaced modules and remove every module introduced by the fake
-    # runtime. This must happen per test module: other rt-vlm tests may run in the
-    # same pytest process and must never observe incomplete fake dependencies.
-    # Restoring at module teardown avoids reloading C extensions between tests.
-    for name in list(sys.modules):
-        if name not in saved_modules:
-            sys.modules.pop(name, None)
+    # Restore only the fake modules and package attributes this test can touch.
+    # Never roll back unrelated modules imported lazily by other fixtures.
     for name, module in saved_modules.items():
-        sys.modules[name] = module
-    sys.path[:] = saved_path
+        if module is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+    for (parent, child_name), (existed, value) in saved_parent_attrs.items():
+        if existed:
+            setattr(parent, child_name, value)
+        else:
+            vars(parent).pop(child_name, None)
+    if not src_path_was_present and str(SRC_DIR) in sys.path:
+        sys.path.remove(str(SRC_DIR))
 
 
 @pytest.fixture(scope="module")
 def vffg():
     """Load video_file_frame_getter.py against the fake GStreamer."""
-    saved_modules = dict(sys.modules)
-    saved_path = list(sys.path)
+    saved_modules, saved_parent_attrs = _save_import_state()
+    src_path_was_present = str(SRC_DIR) in sys.path
     try:
         _install_fake_gi()
         _install_third_party_stubs()
         yield _load_module_under_test()
     finally:
-        _restore_import_state(saved_modules, saved_path)
+        _restore_import_state(saved_modules, saved_parent_attrs, src_path_was_present)
 
 
 @pytest.fixture(autouse=True)
@@ -864,3 +906,18 @@ def test_nulling_bus_before_disconnect_silently_leaks_watch(fgetter, decode, vff
     assert bus in registry
     assert bus not in registry.removed_log
     assert registry.fd_count == 2
+
+
+def test_import_cleanup_preserves_unrelated_modules():
+    """Cleanup must not remove modules imported by other pytest fixtures."""
+    saved_modules, saved_parent_attrs = _save_import_state()
+    unrelated_name = "unrelated_lazy_module"
+    unrelated = types.ModuleType(unrelated_name)
+    sys.modules[unrelated_name] = unrelated
+    try:
+        _restore_import_state(
+            saved_modules, saved_parent_attrs, src_path_was_present=True
+        )
+        assert sys.modules[unrelated_name] is unrelated
+    finally:
+        sys.modules.pop(unrelated_name, None)
