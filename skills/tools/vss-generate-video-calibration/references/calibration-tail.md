@@ -17,6 +17,15 @@ from urllib.parse import urlparse
 # MEDIA_MODE=rectified, complete/review/commit AMC UI Rectification, then
 # continue only when rectification_state is COMPLETED.
 media_mode = os.environ.get("MEDIA_MODE", globals().get("MEDIA_MODE", "")).strip().lower()
+if not media_mode:
+    try:
+        choice = input("Are all source videos already linear/pinhole? [y/N] ").strip().lower()
+    except EOFError as exc:
+        raise RuntimeError(
+            "Choose MEDIA_MODE=linear only for confirmed linear media, or "
+            "MEDIA_MODE=rectified after AMC UI Rectification is committed."
+        ) from exc
+    media_mode = "linear" if choice in {"y", "yes"} else "rectified"
 info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
 if info.get("rectification_state") != "COMPLETED":
     if media_mode == "linear":
@@ -26,8 +35,6 @@ if info.get("rectification_state") != "COMPLETED":
             raise RuntimeError("Linear-media staging did not complete")
     elif media_mode == "rectified":
         raise RuntimeError("Complete and commit AMC UI Rectification, then re-run after rectification_state is COMPLETED")
-    else:
-        raise RuntimeError("Set MEDIA_MODE=linear for confirmed linear media, or MEDIA_MODE=rectified for AMC UI Rectification")
 
 # Verify the project after linear media is ready
 s.post(f"{BASE_URL}/verify_project/{project_id}").raise_for_status()
