@@ -17,6 +17,7 @@ while its variables are fetched is skipped so discovery can still reach
 this run's pipeline. Transient 5xx or connection errors while listing
 pipelines or reading their variables are retried; they do not abort the
 search on the first blip, and they do not count as a successful miss.
+Listing paginates so a busy shared ref is not truncated at 20 pipelines.
 """
 from __future__ import annotations
 
