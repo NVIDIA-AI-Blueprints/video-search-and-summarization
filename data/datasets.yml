@@ -1,0 +1,152 @@
+# =============================================================================
+#  Dataset registry — single source of truth for both MV3DT deployments.
+#
+#  Consumed by setup-data.sh, which materializes each dataset into BOTH layouts:
+#
+#    standalone (component)   $VSS_REPO/standalone/datasets/<alias>/
+#    blueprint  (WHBP)        $VSS_REPO/deploy/docker/industry-profiles/
+#                               warehouse-operations/warehouse-mv3dt-app/
+#                               calibration/sample-data/<name>/
+#
+#  The two deployments disagree on dataset naming — standalone uses the short
+#  <alias>, the blueprint uses the long <name>. That mapping lives here and
+#  nowhere else.
+#
+#  MV3DT only. The 2d and 3d perception modes, and the datasets that exist just
+#  to feed them, are deliberately out of scope.
+#
+#  See DEPLOY.md for the full procedure.
+# =============================================================================
+
+version: 1
+
+# Path tokens usable in the fields below. setup-data.sh resolves them:
+#   ${APP_DATA}     $VSS_REPO/data/vss-warehouse-app-data        (NGC package)
+#   ${CUSTOM_DATA}  $VSS_REPO/data/vss-mv3dt-custom-datasets     (netapp share)
+#   ${STANDALONE}   $VSS_REPO/standalone                          (testbed clone)
+# `calibration: whbp` means the calibration already ships in the repo, under
+# warehouse-mv3dt-app/calibration/sample-data/<name>/.
+
+defaults:
+  # Object-model priors passed to generate_cam_info_configs.py, as
+  # "<classID> <height_m> <radius_m>" triples. 
+  # Warehouse RT-DETR classes:
+  # 0-2 person/humanoid, 3 cart, 4 box, 5 forklift.
+  # Forklift tuned on MTMC/BEV metrics against the nvwh_145cam ground truth
+  # (mv3dt utils/mtmc_eval_trajdumps.py, zd=2 m), scored through the aggregation
+  # bev-fusion actually runs — strict visibility gate, then a size-weighted mean.
+  # Scoring under a different aggregation than the deployment answers a question
+  # nobody asked; utils/rescore-sweep.sh replays the recorded per-sensor dumps
+  # through any of them, so switching costs seconds rather than a re-run.
+  # Height and radius interact, and sweeping them one at a time hid it: at
+  # r=0.85 raising the height from 2.70 to 2.80 makes things worse, while at
+  # r>=1.00 the 2.75-2.85 band beats 2.70 by about 3 HOTA. What the sweep
+  # resolves is that band, not a point inside it: 2.75/1.00 tops the table at
+  # 19.91 but 2.80/1.15 (19.75), 2.85/1.00 (19.05) and 2.80/1.00 (18.33) are one
+  # blob once their spread is taken into account. 2.75 is chosen on a trend
+  # rather than on that ranking — across the band DetA and MOTA both fall
+  # monotonically with height (at r=1.00: DetA 21.0, 20.9, 19.5, 16.3 and MOTA
+  # 11.9, 10.3, 7.5, -2.0 for h=2.75 to 2.90), while AssA drifts the other way
+  # just enough to keep HOTA flat. Several points in the band are single runs.
+  # Beware the shape: 2.70 -> 2.75 at r=1.00 jumps 16.06 -> 19.91, four points
+  # for five centimetres, and then wanders inside one point across the next ten.
+  # A step followed by a plateau is not what a physical optimum looks like, so
+  # something discrete is likely flipping there and the choice may be brittle in
+  # a way these metrics do not show. Against
+  # the old 2.70/0.85 the whole gain is association — AssA 13.5 -> 18.9, IDF1
+  # 18.2 -> 22.0 — while detection barely moves and the fused position sits
+  # ~0.6 m from ground truth either way. 2.90 collapses at every radius tried.
+  # The mechanism is the gate: at r=0.85 the projected hull is small enough to
+  # sit inside the detection box almost always, so visibility pins at 1.0 (median
+  # 1.000, 57% of views >= 0.99) and the gate cannot separate anything. A radius
+  # at or above 1.00 de-saturates it (median 0.80 at 1.15) and it starts doing
+  # work. Person needs no such correction — at r=0.30 its visibility already
+  # spreads properly (median 0.81, 15% saturated), so tune the two classes
+  # independently. The ranking survives `nearest` and `mean` aggregation too, so
+  # it is a real tracker gain that the gate amplifies rather than manufactures.
+  # Person stays at 1.60, which beats every fitted value on every metric and is
+  # likely the authored asset height; its radius has never been swept.
+  # Restart the stack between runs the way utils/sweep-priors.sh does. Replicate
+  # spread is not one number and quoting a single noise floor flatters the
+  # result: sd over three or four runs of one config ranges from 0.08 to 1.91
+  # HOTA, and it is the middle of the plateau that is worst (2.80/1.00 at 1.91,
+  # 2.75/1.15 at 1.11) while the two best configs happen to be tight (0.35 and
+  # 0.20). One config also drifted 0.7 between sessions. So a gap of a point
+  # inside the plateau means nothing, and only the ~3-point step out of it does
+  # — which the Person class supports as a control: its prior never moved and it
+  # held between 12.2 and 13.4 across all 41 runs.
+  # Override for a sweep with CLASS_SPECS=... ./setup-data.sh sync <dataset>.
+  class_specs: "0 1.60 0.3,1 1.60 0.3,2 1.60 0.3,3 0.48 0.3,4 0.2 0.52,5 2.75 1.00"
+  # MQTT pub/sub neighbour graph. Sparse beats the dense all-to-all fallback
+  # once camera counts grow. Forms: top_N:<K> | overlap_threshold:<T>
+  neighbor_criteria: "overlap_threshold:1e-6"
+
+datasets:
+
+  # ---------------------------------------------------------------------------
+  #  Ships in the NGC app-data package (nvidia/vss-warehouse/vss-warehouse-app-data)
+  # ---------------------------------------------------------------------------
+
+  - name: warehouse-4cams-20mx20m-synthetic
+    alias: 4cam
+    cameras: 4
+    origin: ngc
+    videos: ${APP_DATA}/videos/warehouse-4cams-20mx20m-synthetic
+    calibration: whbp
+    map: ${CUSTOM_DATA}/warehouse-4cams-20mx20m-synthetic/map.png
+    notes: >
+      The default MV3DT dataset, and the only one that works well with the
+      shipped tracker config. Its calibration is committed in this repo and its
+      videos ship in the NGC package, so a fresh machine needs neither GitLab nor
+      netapp for it — only the map is fetched from the share. The share also
+      carries archival copies of this dataset's videos and calibration for
+      completeness; they are NOT read by setup-data.sh, so editing them changes
+      nothing. The sources are the two paths above.
+
+  # ---------------------------------------------------------------------------
+  #  From the netapp share (//netapp-hq/handheld/ds_track)
+  # ---------------------------------------------------------------------------
+
+  - name: Simple_Warehouse_Synthetic_040424
+    alias: 12cam
+    cameras: 12
+    origin: netapp
+    videos: ${CUSTOM_DATA}/Simple_Warehouse_Synthetic_040424/videos
+    calibration: ${CUSTOM_DATA}/Simple_Warehouse_Synthetic_040424/calibration.json
+    map: ${CUSTOM_DATA}/Simple_Warehouse_Synthetic_040424/map.png
+    tracker_config: ${STANDALONE}/datasets/12cam/configs/ds-mv3dt-tracker-config.yml
+    notes: >
+      Runs without the tuned tracker config, but accuracy is poor with the
+      default — pass tracker_config. The clips must stay B-frame-free: perception
+      decodes with low-latency-mode=1 and does not reorder frames, so an IBBBP
+      source judders. Use the shipped -bf 0 re-encode as-is.
+
+  - name: MTMC_Warehouse_Synthetic_012424_28cam
+    alias: 28cam
+    cameras: 28
+    origin: netapp
+    videos: ${CUSTOM_DATA}/MTMC_Warehouse_Synthetic_012424_28cam/videos
+    calibration: ${CUSTOM_DATA}/MTMC_Warehouse_Synthetic_012424_28cam/calibration.json
+    map: ${CUSTOM_DATA}/MTMC_Warehouse_Synthetic_012424_28cam/map.png
+    notes: >
+      No tracker or pgie override — uses the sample configs, so the RT-DETR
+      engine is rebuilt at batch 28 on first run (budget a long wait). Most
+      likely run to be GPU-bound; throttle with the testbed's pipeline0
+      (STREAM_FPS) if it cannot hold 30 FPS.
+
+  - name: nv-warehouse-145cams
+    alias: 145cam
+    cameras: 145
+    subset: true
+    origin: netapp
+    videos: ${CUSTOM_DATA}/nv-warehouse-145cams/videos
+    calibration: ${CUSTOM_DATA}/nv-warehouse-145cams/calibration.json
+    map: ${CUSTOM_DATA}/nv-warehouse-145cams/map.png
+    notes: >
+      Calibration declares 145 sensors but only a handful of clips are normally
+      staged. subset:true makes setup-data.sh restrict the calibration it stages
+      to the sensors that actually have a matching .mp4 — without it camInfo
+      covers cameras that never produce frames and the tracker dies seconds into
+      the run, and the blueprint's behaviour analytics imports 137 sensors that
+      can never report. The full 145-sensor original stays here in the asset
+      tree, which is why it is the registry source rather than the repo copy.

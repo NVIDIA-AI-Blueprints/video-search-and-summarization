@@ -1,0 +1,15 @@
+# Everything under data/ is local assets — models, videos, extracted packages —
+# and must never be committed. The shared deployment layer is the exception:
+# these files are how every machine gets set up the same way, so they are
+# tracked.
+#
+# Negation only works while the parent directory itself is not excluded, which
+# is why these are listed individually rather than via a directory rule.
+*
+!.gitignore
+!DEPLOY.md
+!datasets.yml
+!common.sh
+!setup-data.sh
+!launch-deployment.sh
+!build-fusion.sh
