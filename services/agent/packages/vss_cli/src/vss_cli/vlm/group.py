@@ -109,6 +109,17 @@ def _is_loopback_url(url: str) -> bool:
     return host in ("localhost", "127.0.0.1", "::1") or host.startswith("127.")
 
 
+def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
+    """Map a VIOS/backend exception to (exit_code, status_string) without importing vss_core at module scope."""
+    by_name: dict[str, tuple[Exit, str]] = {
+        "VIOSInvalidInputError": (Exit.INVALID_INPUT, "failed"),
+        "VIOSNotFoundError": (Exit.NOT_FOUND, "failed"),
+        "VIOSTimeoutError": (Exit.TIMEOUT, "timeout"),
+        "BackendUnreachableError": (Exit.BACKEND_UNREACHABLE, "failed"),
+    }
+    return by_name.get(type(exc).__name__, (Exit.BACKEND_UNREACHABLE, "failed"))
+
+
 def _extract_answer(completion: dict[str, Any]) -> str:
     """Pull the text answer out of an OpenAI-style completion."""
     try:
@@ -383,9 +394,7 @@ class VlmGroup(CommandGroup):
                     deployment, inputs.sensor, inputs.start_time, inputs.end_time
                 )
             except Exception as _vios_exc:
-                # Write a terminal record before re-raising so vss vlm get/list can
-                # report the failure. guarded() still maps the exception to the right
-                # exit code (3 backend-unreachable, 5 not-found, 7 timeout, etc.).
+                _vios_code, _vios_status = _vios_exit_for(_vios_exc)
                 _vios_fail_input: MemoryInput = adapter.build_input(
                     prompt=inputs.prompt,
                     sensor=inputs.sensor,
@@ -401,10 +410,16 @@ class VlmGroup(CommandGroup):
                     job_id=job_id,
                     created_at=created_at,
                     input_data=_vios_fail_input,
-                    status="failed",
+                    status=_vios_status,
                     message=str(_vios_exc),
                 )
-                raise
+                click.echo(f"vss: {_vios_exc}", err=True)
+                return Result(
+                    body={"job_id": job_id, "status": _vios_status, "error": str(_vios_exc)},
+                    extra={"marker": {"status": _vios_status, "persisted": False}},
+                    exit=_vios_code,
+                    job_id=job_id,
+                )
             if _is_loopback_url(media_url):
                 # The VIOS clip URL resolves to localhost — reachable from this CLI
                 # host but blocked by rt_vlm's SSRF protection (or simply unreachable
@@ -443,7 +458,12 @@ class VlmGroup(CommandGroup):
                         message=detail,
                     )
                     click.echo(f"vss: {detail} (job {job_id})", err=True)
-                    return Result(body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id)
+                    return Result(
+                        body={"job_id": job_id, "status": "timeout"},
+                        extra={"marker": {"status": "timeout", "persisted": False}},
+                        exit=Exit.TIMEOUT,
+                        job_id=job_id,
+                    )
                 except Exception as exc:
                     # httpx.HTTPError (network/protocol failure) or OSError
                     # during the write — both signal VIOS is unreachable, not a
@@ -472,6 +492,7 @@ class VlmGroup(CommandGroup):
                     click.echo(f"vss: {detail}", err=True)
                     return Result(
                         body={"job_id": job_id, "status": "failed", "error": detail},
+                        extra={"marker": {"status": "failed", "persisted": False}},
                         exit=Exit.BACKEND_UNREACHABLE,
                         job_id=job_id,
                     )
@@ -560,7 +581,12 @@ class VlmGroup(CommandGroup):
                 message=detail,
             )
             click.echo(f"vss: {detail} (job {job_id})", err=True)
-            return Result(body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id)
+            return Result(
+                body={"job_id": job_id, "status": "timeout"},
+                extra={"marker": {"status": "timeout", "persisted": False}},
+                exit=Exit.TIMEOUT,
+                job_id=job_id,
+            )
         except httpx.HTTPError as exc:
             detail = str(exc)
             _write_terminal(
@@ -575,6 +601,7 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: RT-VLM unreachable at {vlm_url}: {exc}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
+                extra={"marker": {"status": "failed", "persisted": False}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
@@ -599,7 +626,12 @@ class VlmGroup(CommandGroup):
             )
             code = Exit.BACKEND_UNREACHABLE if response.status_code >= 500 else Exit.INVALID_INPUT
             click.echo(f"vss: VLM backend error {detail}: {response.text[:500]}", err=True)
-            return Result(body={"job_id": job_id, "status": "failed", "error": detail}, exit=code, job_id=job_id)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "error": detail},
+                extra={"marker": {"status": "failed", "persisted": False}},
+                exit=code,
+                job_id=job_id,
+            )
 
         try:
             completion = response.json()
@@ -617,6 +649,7 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: {detail}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
+                extra={"marker": {"status": "failed", "persisted": False}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
@@ -637,6 +670,26 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: {detail}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
+                extra={"marker": {"status": "failed", "persisted": False}},
+                exit=Exit.BACKEND_UNREACHABLE,
+                job_id=job_id,
+            )
+
+        if not answer.strip():
+            detail = "VLM returned an empty answer"
+            _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="failed",
+                message=detail,
+            )
+            click.echo(f"vss: {detail}", err=True)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "error": detail},
+                extra={"marker": {"status": "failed", "persisted": False}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
@@ -653,7 +706,12 @@ class VlmGroup(CommandGroup):
         # Point call: write the terminal record once.
         if memory is None:
             body["persisted"] = False
-            return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+            return Result(
+                body=body,
+                extra={"marker": {"status": "completed", "persisted": False}},
+                exit=Exit.SUCCESS,
+                job_id=job_id,
+            )
 
         output = adapter.build_output(
             answer=answer,
@@ -679,11 +737,21 @@ class VlmGroup(CommandGroup):
         if persist_error:
             body["persisted"] = False
             body["persist_error"] = persist_error
-            return Result(body=body, exit=Exit.PARTIAL, job_id=job_id)
+            return Result(
+                body=body,
+                extra={"marker": {"status": "completed", "persisted": False}},
+                exit=Exit.PARTIAL,
+                job_id=job_id,
+            )
 
         body["persisted"] = True
         body["memory_index"] = memory.index
-        return Result(body=body, exit=Exit.SUCCESS, job_id=job_id)
+        return Result(
+            body=body,
+            extra={"marker": {"status": "completed", "persisted": True}},
+            exit=Exit.SUCCESS,
+            job_id=job_id,
+        )
 
 
 def _write_terminal(

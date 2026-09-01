@@ -386,10 +386,15 @@ def test_cli_run_success(
     )
     assert result.exit_code == 0, result.output
     # The framework emits the body then a completion marker on separate lines.
-    body = json.loads(result.output.splitlines()[0])
+    lines = result.output.splitlines()
+    body = json.loads(lines[0])
     assert body["answer"] == answer
     assert body["status"] == "completed"
     assert body["persisted"] is False
+    marker = json.loads(lines[1])
+    assert marker["event"] == "vss_job_completed"
+    assert marker["status"] == "completed"
+    assert marker["persisted"] is False
 
 
 def test_cli_intent_stored_in_body(
@@ -582,9 +587,12 @@ def test_vios_resolution_failure_writes_terminal_record(
     ctx = Context(deployment=configured, memory=store)
     group = VlmGroup()
 
-    # BackendUnreachableError propagates out of run(); guarded() turns it into SystemExit.
-    with pytest.raises((SystemExit, BackendUnreachableError)):
-        group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.body["status"] == "failed"
+    assert result.extra["marker"]["status"] == "failed"
+    assert result.extra["marker"]["persisted"] is False
 
     jobs = store.service.list_jobs()
     assert jobs, "expected a terminal record written on VIOS resolution failure"
@@ -857,3 +865,57 @@ def test_is_loopback_url() -> None:
     assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://vst-host/clip.mp4")
     assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")
+
+
+def test_run_empty_answer_exits_backend_unreachable(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty or whitespace-only VLM answer must return BACKEND_UNREACHABLE with failed marker."""
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(""))))
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.body["status"] == "failed"
+    assert "empty" in result.body.get("error", "").lower()
+    assert result.extra["marker"]["status"] == "failed"
+    assert result.extra["marker"]["persisted"] is False
+
+
+def test_vios_resolution_failure_returns_marker(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CLI output for a VIOS resolution failure must include a body line and a vss_job_failed marker."""
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "cam1", "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker JSON lines, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["status"] == "failed"
+    assert marker["persisted"] is False
