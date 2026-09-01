@@ -141,37 +141,107 @@ index, document id, model, dimensions, and content hash — never vector values.
 Markdown notes are untouched by this: they carry no vectors and no embedding
 references.
 
-Enable the capability once:
+### Default: reuse the OpenClaw Gateway
+
+VSS does not start OpenClaw, install an embedding model, or load model weights.
+The [OpenClaw Gateway](https://github.com/openclaw/openclaw/blob/main/docs/gateway/index.md)
+must already be running, and its OpenAI-compatible HTTP surface must be enabled.
+The current OpenClaw prerequisite is:
+
+```json
+{
+  "gateway": {
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  }
+}
+```
+
+Export the Gateway bearer token by name; never put its value in VSS
+configuration or a command-line endpoint:
+
+```bash
+export OPENCLAW_GATEWAY_TOKEN="<gateway token>"
+```
+
+Smoke-test the Gateway before configuring VSS:
+
+```bash
+curl -sS http://127.0.0.1:18789/v1/embeddings \
+  -H "Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openclaw/default",
+    "input": ["VSS embedding readiness probe"]
+  }'
+```
+
+Then enable semantic memory with the default profile:
+
+```console
+vss configure memory --embeddings
+```
+
+This resolves to:
+
+```text
+provider: openclaw_gateway
+endpoint: http://127.0.0.1:18789/v1
+model: openclaw/default
+api_key_env: OPENCLAW_GATEWAY_TOKEN
+```
+
+`openclaw/default` is an OpenClaw agent target, not a raw model identifier.
+OpenClaw chooses the embedding provider and model configured for that agent.
+VSS receives vectors over HTTP and stores them, but never downloads or imports
+the model runtime.
+
+If dimensions are omitted, configuration sends one probe and records the
+returned vector length. `--embedding-dimensions INTEGER` sets an expected
+length explicitly and permits offline configuration; the live check and every
+later response still validate it. The default companion index is
+`vss-memory-embeddings-v1`.
+
+### Custom OpenAI-compatible endpoints
+
+A custom endpoint and model must be explicit:
 
 ```console
 vss configure memory \
-  --enable \
-  --backend elasticsearch \
-  --index vss-memory \
   --embeddings \
   --embedding-provider openai_compatible \
-  --embedding-endpoint http://embedding-service:8000/v1 \
-  --embedding-model nvidia/llama-nemotron-embed-300m-v2 \
-  --embedding-dimensions 768 \
-  --embedding-index vss-memory-embeddings-v1 \
-  --embedding-timeout 30 \
-  --embedding-batch-size 16 \
-  --retrieval-mode hybrid \
-  --semantic-candidate-count 50 \
-  --rrf-rank-constant 60
+  --embedding-endpoint https://embedding.example.com/v1 \
+  --embedding-model example-embedding-model \
+  --embedding-api-key-env EXAMPLE_EMBEDDING_TOKEN
 ```
 
-Only the endpoint has to be given: the model, dimensions, companion index, and
-retrieval mode shown above are the defaults. The endpoint is required whenever
-embeddings are enabled and must carry no credentials — name an environment
-variable holding a Bearer token with `--embedding-api-key-env`. The companion
-index must differ from the authoritative one. `--embedding-timeout` (30
-seconds), `--embedding-batch-size` (16), `--semantic-candidate-count` (50), and
-`--rrf-rank-constant` (60) complete the static policy.
+Authentication is optional for a trusted local endpoint:
 
-The CLI never loads an embedding model. It posts to an OpenAI-compatible
-`/embeddings` endpoint, so CPU or GPU execution is a property of that
-endpoint's deployment and not a CLI flag or a host requirement.
+```console
+vss configure memory \
+  --embeddings \
+  --embedding-provider openai_compatible \
+  --embedding-endpoint http://127.0.0.1:9000/v1 \
+  --embedding-model local-custom-model \
+  --no-embedding-auth
+```
+
+Only OpenAI-compatible `/v1/embeddings` is supported. VSS sends only `model`
+and `input` by default. Use `--embedding-query-input-type` and
+`--embedding-document-input-type` only when the custom service requires those
+extensions. Expected dimensions are not sent as a request parameter.
+
+Endpoint URLs must be absolute HTTP(S) URLs and cannot contain usernames or
+passwords. `--embedding-api-key-env` stores only an environment-variable name;
+VSS resolves its value at request time and never prints or persists it.
+`--embedding-timeout-seconds` (30 seconds), `--embedding-batch-size` (16),
+`--semantic-candidate-count` (50), and `--rrf-rank-constant` (60) complete the
+static policy. The companion index must differ from authoritative memory.
 
 Validate the wiring without writing records:
 
@@ -179,11 +249,12 @@ Validate the wiring without writing records:
 vss configure memory check
 ```
 
-With embeddings enabled this also embeds one probe string, reports the model
-and the dimensions actually returned, and inspects the companion mapping. A
-missing companion index is reported as missing — it is created lazily on the
-first embedding write or backfill. An incompatible one is a configuration
-error.
+With embeddings enabled this also embeds one probe string, reports the
+configured target, any resolved model identity returned by the endpoint, and
+the vector dimensions. It distinguishes missing credentials, authentication
+failures, endpoint failures, malformed responses, and dimension mismatches
+without exposing a token. A missing companion index is created lazily on the
+first embedding write or backfill.
 
 Retrieval mode applies only to text queries:
 
@@ -203,10 +274,12 @@ evidence, so the question is never embedded and never filters it. An
 introspection scoped by `--sensor` or a time window sends its question through
 the configured retrieval mode.
 
-Recall degrades rather than fails. `--mode semantic` or `--mode hybrid` with
-embeddings disabled warns on stderr and answers from keyword retrieval. A
-provider or companion-index failure during a query also falls back to keyword
-retrieval, logging the failure kind without backend detail.
+Recall degrades rather than fails under the existing retrieval contract.
+`--mode semantic` or `--mode hybrid` with embeddings disabled warns on stderr
+and answers from keyword retrieval. A provider or companion-index failure
+during a query also falls back to keyword retrieval and emits a diagnostic that
+the semantic leg was unavailable; it does not present the result as successful
+semantic retrieval. Backend details and credentials are not logged.
 
 Records written before embeddings were enabled are indexed by a backfill:
 
@@ -223,10 +296,22 @@ calls or writes. Any failure exits 6 with those counts still on stdout. Only
 re-running is cheap: an unchanged record keeps its vector when the model and
 dimensions still match.
 
-Changing the model or the dimensions is not an in-place edit. Point
-`--embedding-index` at a new versioned index and backfill it; a write to an
-index whose mapping disagrees with the configured model or dimensions is
-rejected.
+The companion mapping binds the index to the VSS embedding schema, provider
+profile, configured model target, expected dimensions, canonical searchable
+text version, cosine similarity, and a credential-free hash of the endpoint.
+Changing any part of that vector-space identity is not an in-place edit. Point
+`--embedding-index` at a fresh versioned index and run:
+
+```console
+vss memory embeddings backfill
+```
+
+VSS never deletes or recreates an incompatible index. OpenClaw may change the
+provider behind `openclaw/default` without changing the target string. A
+same-dimension change hidden behind that alias cannot always be detected.
+After changing OpenClaw's embedding provider or model, rerun
+`vss configure memory --embeddings` with a fresh `--embedding-index`, then
+backfill it.
 
 ## Optional OpenClaw Markdown cache
 

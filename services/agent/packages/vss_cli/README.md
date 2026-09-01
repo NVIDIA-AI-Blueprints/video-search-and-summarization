@@ -85,10 +85,12 @@ hybrid ranking — keyword and semantic results fused client-side. Elasticsearch
 canonical memory stays authoritative; its records only gain
 `output.embedding` references to the companion documents.
 
-The CLI loads no model. It calls an OpenAI-compatible `/embeddings` endpoint,
-so CPU or GPU execution is decided by that endpoint's deployment, not here. The
-defaults (`nvidia/llama-nemotron-embed-300m-v2`, 768 dimensions), the exact
-flags, and the backfill are in [MEMORY.md](MEMORY.md).
+The CLI loads no model. By default it reuses the already-running OpenClaw
+Gateway at `http://127.0.0.1:18789/v1` with target `openclaw/default`;
+explicit custom OpenAI-compatible endpoints remain supported. OpenClaw or the
+custom service owns model selection and execution. Gateway prerequisites,
+security guidance, exact flags, and backfill details are in
+[MEMORY.md](MEMORY.md).
 
 ## Extending it
 

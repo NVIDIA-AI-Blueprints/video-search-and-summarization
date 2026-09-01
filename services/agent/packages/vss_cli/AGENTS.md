@@ -99,7 +99,7 @@ vss vlm get --job-id <id>
 ```
 
 If a preflight fails, report its error and stop. Do not fall back to calling
-Elasticsearch, the embedding NIM, or the agent API directly — a hand-built query
+Elasticsearch, the embedding service, or the agent API directly — a hand-built query
 that returns *something* is worse than a clean failure, because nothing
 downstream can tell it was improvised.
 
@@ -120,9 +120,10 @@ by `--job-id` or `--record-id`.
 
 Canonical Elasticsearch memory remains authoritative. Vectors live in a
 versioned companion index, and authoritative records carry only
-`output.embedding` references to it. The CLI runs no model — the embedding
-endpoint's deployment decides CPU or GPU. Policy, defaults, and the backfill
-contract are in [MEMORY.md](MEMORY.md).
+`output.embedding` references to it. The CLI runs no model — by default it
+reuses the OpenClaw Gateway's `openclaw/default` target, while an explicitly
+configured OpenAI-compatible service can be used instead. Policy, prerequisites,
+and the backfill contract are in [MEMORY.md](MEMORY.md).
 
 ## Rules
 
