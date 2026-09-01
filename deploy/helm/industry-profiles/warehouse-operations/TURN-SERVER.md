@@ -17,8 +17,8 @@ See the License for the specific language governing permissions and limitations 
 
 # TURN Server Prerequisite (Warehouse Apps)
 
-Both Warehouse Apps profiles (`warehouse-2d-app`, `warehouse-3d-app`) and the
-`dev-profile-mc-tracking` developer profile use VIOS/VST for live/recorded camera playback in the web UI, over
+All three Warehouse Apps profiles (`warehouse-2d-app`, `warehouse-3d-app`,
+`warehouse-mv3dt-app`) use VIOS/VST for live/recorded camera playback in the web UI, over
 WebRTC. WebRTC only works without a relay when the browser and the cluster are on the same
 network. Anywhere else — different networks, NAT, a firewall blocking direct UDP — it needs
 a TURN server, or playback silently fails. Background:
