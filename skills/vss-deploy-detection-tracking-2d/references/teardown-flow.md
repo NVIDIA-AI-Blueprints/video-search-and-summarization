@@ -35,7 +35,7 @@ Otherwise, present the matched containers as a small table and proceed to T2.
 
 ## Step T2 — Select Which Container to Stop
 
-If multiple match, use `AskQuestion` with one option per container plus an "all" option:
+If multiple match, use `AskUserQuestion` with one option per container plus an "all" option:
 
 ```json
 {
@@ -52,7 +52,7 @@ If multiple match, use `AskQuestion` with one option per container plus an "all"
 }
 ```
 
-Single-container case: skip `AskQuestion` and confirm `Will stop: <name>.`
+Single-container case: skip `AskUserQuestion` and confirm `Will stop: <name>.`
 
 ## Step T3 — Choose Stop Method
 

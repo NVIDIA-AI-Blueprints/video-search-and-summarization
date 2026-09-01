@@ -6,7 +6,7 @@
 #   • Local video file/directory  → replaces resolved `usecases.<X>.videos`
 #
 # This YAML never auto-deploys — it only pre-fills the *Recommended* choice
-# in `AskQuestion` blocks and supplies fall-back values when the user
+# in `AskUserQuestion` blocks and supplies fall-back values when the user
 # accepts the defaults.
 #
 # Path resolution

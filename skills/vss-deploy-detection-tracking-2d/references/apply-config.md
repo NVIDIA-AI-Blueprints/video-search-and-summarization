@@ -36,7 +36,7 @@ docker exec "$CONTAINER" /tmp/scripts/apply_config.sh \
 
 **Output markers to parse:**
 - `RESOLVE_OK: <label>=<path>` — 4.a found the asset
-- `RESOLVE_AMBIGUOUS: <label> count=<N>` — ambiguity → the skill must drive an `AskQuestion`, then re-run with `--onnx` / `--videos` flag
+- `RESOLVE_AMBIGUOUS: <label> count=<N>` — ambiguity → the skill must drive an `AskUserQuestion`, then re-run with `--onnx` / `--videos` flag
 - `ENGINE_PRELAUNCH: HIT_EXACT|HIT_COMPAT|MISS` — 4.f result
 - `CONFIG_APPLY_OK usecase=<uc> batch=<N> sink=<sink>` — all sub-steps done
 
@@ -369,7 +369,7 @@ NGC directory names change per version — discover them at runtime. The one-lin
 
 ```bash
 # resolve_or_ask <label> <find-expression...>  -> prints the chosen path on stdout;
-# drives an AskQuestion (via the agent) on ambiguity.
+# drives an AskUserQuestion (via the agent) on ambiguity.
 resolve_or_ask() {
     local label="$1"; shift
     mapfile -t CANDS < <(find "$@" 2>/dev/null | sort)
@@ -377,7 +377,7 @@ resolve_or_ask() {
         0)  echo "ERROR: no match for $label under '$*'" >&2; return 2 ;;
         1)  echo "Using $label: $(basename "${CANDS[0]}") (${CANDS[0]})" >&2
             printf '%s\n' "${CANDS[0]}" ;;
-        *)  # Agent should replace this branch with an AskQuestion covering CANDS[@]
+        *)  # Agent should replace this branch with an AskUserQuestion covering CANDS[@]
             echo "AMBIGUOUS: $label — $(printf '%d candidates' "${#CANDS[@]}")" >&2
             printf '  [%d] %s\n' "${!CANDS[@]}" "${CANDS[@]}" >&2
             return 3 ;;
@@ -443,11 +443,11 @@ SMC_VIDEOS=$(resolve_or_ask 'smartcity videos dir' \
     <(find_video_dirs "$RESOURCES"))
 ```
 
-> **If the same use case needs to disambiguate multiple ONNXs** (e.g. both RT-DETR and GDINO models live under `$RESOURCES` because both NGC models were pulled), the user's pick in the `AskQuestion` drives which ONNX the skill uses. Print the chosen basename + path on one line, the decision landmark on the next — the terminal output is the contract that a user can audit after the fact.
+> **If the same use case needs to disambiguate multiple ONNXs** (e.g. both RT-DETR and GDINO models live under `$RESOURCES` because both NGC models were pulled), the user's pick in the `AskUserQuestion` drives which ONNX the skill uses. Print the chosen basename + path on one line, the decision landmark on the next — the terminal output is the contract that a user can audit after the fact.
 
 ### Ambiguity handling (non-negotiable)
 
-If any `resolve_or_ask` call returns `3` (multiple candidates), the agent MUST pause and drive an `AskQuestion`:
+If any `resolve_or_ask` call returns `3` (multiple candidates), the agent MUST pause and drive an `AskUserQuestion`:
 
 ```json
 {
@@ -722,7 +722,7 @@ Set `FORCE_ENGINE_REBUILD=1` in the environment (or pass `--force` to either set
 
 ```bash
 # The ONNX paths were already resolved in Step 4.a (resolve_or_ask, with
-# AskQuestion fallback on multi-candidate). Just reuse the variables —
+# AskUserQuestion fallback on multi-candidate). Just reuse the variables —
 # do NOT re-scan with `find ... | head -n1` (that silently picks one
 # when the user has multiple NGC resource versions unpacked).
 

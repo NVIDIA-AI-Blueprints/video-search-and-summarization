@@ -29,7 +29,7 @@ done
 
 A container that's been "Up" for many hours can silently lose its CUDA / NVML handle after a host driver service restart, NVIDIA Container Toolkit re-init, or cgroup remount. `docker ps` still shows the container as healthy and mounts look fine, but `nvidia-smi` fails inside it with `Failed to initialize NVML: Unknown Error`. If the agent picks **Reuse** in this state, the perception app crashes at `Cuda failure: status=100` / `NvBufSurfaceGetDeviceInfoImpl: Error: Failed to get GPU info` ~30 s into Step 5 — long after the decision window has closed.
 
-**Run the probe before the AskQuestion fires** (only when an existing matching container is found):
+**Run the probe before the AskUserQuestion fires** (only when an existing matching container is found):
 
 ```bash
 bash $SKILL_DIR/scripts/check_container_gpu.sh --container <NAME>
@@ -37,13 +37,13 @@ bash $SKILL_DIR/scripts/check_container_gpu.sh --container <NAME>
 
 | Probe exit | Meaning | Agent action |
 |------------|---------|--------------|
-| `0` (`GPU_OK`)    | GPU visible inside the container — CUDA / NVML healthy. | Proceed to the normal AskQuestion (`Reuse / Restart / Parallel`). The probe's stdout line is a one-liner you can fold into the Step 3 box description. |
-| `2` (`GPU_STALE`) | NVML init failed inside the container. Stale GPU handle. | **Hide the "Reuse" option** from the AskQuestion. Present only `Restart fresh / New parallel container`, with the description noting "existing container has lost GPU access (stale NVML); reuse is not viable". |
+| `0` (`GPU_OK`)    | GPU visible inside the container — CUDA / NVML healthy. | Proceed to the normal AskUserQuestion (`Reuse / Restart / Parallel`). The probe's stdout line is a one-liner you can fold into the Step 3 box description. |
+| `2` (`GPU_STALE`) | NVML init failed inside the container. Stale GPU handle. | **Hide the "Reuse" option** from the AskUserQuestion. Present only `Restart fresh / New parallel container`, with the description noting "existing container has lost GPU access (stale NVML); reuse is not viable". |
 | `1`               | Wrong args / container not running — should not happen at this point. | Treat as a hard error; surface the script's stderr and stop. |
 
 The probe runs in ~0.5 s on a healthy container and is read-only (`nvidia-smi -L` only — no CUDA work submitted), so adding it to the reuse path costs almost nothing on the happy path and saves a wasted ~30 s app launch on the unhappy one.
 
-## AskQuestion — all required mounts present
+## AskUserQuestion — all required mounts present
 
 ```json
 {
@@ -61,7 +61,7 @@ The probe runs in ~0.5 s on a healthy container and is read-only (`nvidia-smi -L
 }
 ```
 
-## AskQuestion — missing mounts (reuse not viable)
+## AskUserQuestion — missing mounts (reuse not viable)
 
 ```json
 {

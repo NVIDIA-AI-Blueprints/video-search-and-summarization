@@ -73,9 +73,9 @@ or switch to a local path.
 
 ---
 
-## Step 4 — Source selection (3-question AskQuestion driven by YAML defaults)
+## Step 4 — Source selection (3-question AskUserQuestion driven by YAML defaults)
 
-The skill drives **one** `AskQuestion` block with exactly three questions:
+The skill drives **one** `AskUserQuestion` block with exactly three questions:
 **docker image**, **model**, **videos**. Each option carries the resolved
 NGC ref + in-resource path inline (read from
 [`deploy-defaults.yml`](../assets/deploy-defaults.yml)) so the user never has to
@@ -135,7 +135,7 @@ the videos). Either way, each option carries its own NGC ref so the user
 sees the source of truth per asset.
 
 If the user picks `custom` (or `rtsp` for videos), the agent collects the
-path / URL list in chat as a free-form follow-up — no extra `AskQuestion`.
+path / URL list in chat as a free-form follow-up — no extra `AskUserQuestion`.
 
 ### Refs / paths collection
 
@@ -175,7 +175,7 @@ If the user mentioned a **specific ONNX filename** or **specific videos
 directory name** in their initial request (e.g. `"use model
 rtdetr_warehouse_v1.0.1.fp16.onnx with videos nv-warehouse-4cams"`), save
 those as **hints** so Step 1.g can pre-select the matching candidate inside
-an `AskQuestion` picker — not to silently auto-pick it.
+an `AskUserQuestion` picker — not to silently auto-pick it.
 
 ```bash
 # Optional — empty if the user didn't mention a specific name.
@@ -198,7 +198,7 @@ Hints **never** replace the dynamic-discovery pass. Every deploy:
 2. **Decide** — apply the dispatch rules below. Most cases are
    auto-decided (1 candidate, hint uniquely matches, 0 candidates → hard
    error). Only truly ambiguous cases (>1 candidates, no hint) produce an
-   `AskQuestion` picker.
+   `AskUserQuestion` picker.
 3. **Tell the user** — print `✔ <role>: <filename>` with the concrete
    committed choice, plus any selection context (`1 of 1 found`,
    `matched query hint`, `selected from 3 candidates`). The user sees
@@ -371,8 +371,8 @@ E.g. `model:ngc:$DEFAULT_MODEL_NGC_REF` (resolved from YAML at runtime).
 |---|---|
 | Exactly 1 model artifact | Auto-use. Print `    ✔ model: <filename> (1 of 1 found)`. No prompt. |
 | >1 model artifacts, `MODEL_NAME_HINT` uniquely matches one | Auto-select the hint match. Print `    ✔ model: <filename> (matched query hint)`. No prompt. |
-| >1 model artifacts, hint matches none / no hint | `AskQuestion` picker with one option per candidate. Committed choice feeds Step 4.a. This is the only case that prompts. |
-| 0 model artifacts | `✖ <ref> does not contain any model files (*.onnx/*.engine/*.etlt).` → `AskQuestion`: (a) retry with another NGC ref, (b) switch to a local model path, (c) abort. Re-enter Refs / paths collection for this asset only — other roles stay resolved. |
+| >1 model artifacts, hint matches none / no hint | `AskUserQuestion` picker with one option per candidate. Committed choice feeds Step 4.a. This is the only case that prompts. |
+| 0 model artifacts | `✖ <ref> does not contain any model files (*.onnx/*.engine/*.etlt).` → `AskUserQuestion`: (a) retry with another NGC ref, (b) switch to a local model path, (c) abort. Re-enter Refs / paths collection for this asset only — other roles stay resolved. |
 | Extras present (e.g. videos in a model-role resource) | Silently ignored — not this entry's role. |
 
 #### Role = `videos`
@@ -383,7 +383,7 @@ E.g. `videos:ngc:$DEFAULT_VIDEOS_NGC_REF` (resolved from YAML at runtime).
 |---|---|
 | Exactly 1 video directory | Auto-use. Print `    ✔ videos: <dirname> (1 of 1 found, N .mp4 files)`. No prompt. |
 | >1 video directories, `VIDEOS_DIR_HINT` uniquely matches one basename | Auto-select the hint match. Print `    ✔ videos: <dirname> (matched query hint)`. No prompt. |
-| >1 video directories, hint matches none / no hint | `AskQuestion` picker with one option per candidate (dir name + file count). For `warehouse-3d`, post-check the chosen dir's `.mp4` stems against `sensors[].id` in `calibration.json` and warn on mismatch. This is the only case that prompts. |
+| >1 video directories, hint matches none / no hint | `AskUserQuestion` picker with one option per candidate (dir name + file count). For `warehouse-3d`, post-check the chosen dir's `.mp4` stems against `sensors[].id` in `calibration.json` and warn on mismatch. This is the only case that prompts. |
 | 0 video directories | `✖ <ref> does not contain any directories with .mp4/.mkv files.` → retry-ref / switch-to-local / abort. |
 | Extras present (e.g. an ONNX inside a videos-role resource) | Ignored — not this entry's role. |
 
@@ -451,7 +451,7 @@ of the NGC decision — add them per `platforms.md` as usual.
 ## Edge cases
 
 - **User changes their mind mid-flow.** If scan reveals a missing asset
-  (Step 1.g second/third row), treat the follow-up AskQuestion answer as a
+  (Step 1.g second/third row), treat the follow-up AskUserQuestion answer as a
   partial Step 4 re-run for that asset only. Don't re-ask for the assets
   that already resolved.
 - **User pastes a path that doesn't exist.** `stage_local()` returns

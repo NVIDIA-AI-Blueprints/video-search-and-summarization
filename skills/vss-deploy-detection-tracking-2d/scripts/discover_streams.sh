@@ -11,7 +11,7 @@
 # Scans $RESOURCES for any directory that contains .mp4/.mkv files (NO
 # hardcoded NGC subdirectory names like 'nv-warehouse-4cams' or 'smc-app').
 # Emits RESOLVE_OK / RESOLVE_AMBIGUOUS on stderr so the calling skill can
-# drive an AskQuestion when multiple video directories exist. Once a
+# drive an AskUserQuestion when multiple video directories exist. Once a
 # directory is chosen, lists .mp4 files in stable (sorted) order and cycles
 # them to produce exactly N (id, url) pairs (cycled entries get a `_<i>`
 # suffix to avoid REST-add duplicate-id errors).
@@ -86,7 +86,7 @@ case "$FORMAT" in env|json|lines) ;; *) die "Invalid --format: $FORMAT (env|json
 #   0  → die (exit 2) — no videos at all
 #   1  → use it (RESOLVE_OK)
 #   >1 → emit RESOLVE_AMBIGUOUS with a numbered list on stderr and exit 3.
-#        The caller (rtvicv-deploy skill) must drive an AskQuestion, then
+#        The caller (rtvicv-deploy skill) must drive an AskUserQuestion, then
 #        re-invoke with --videos-dir <chosen>.
 if [[ -z "$VIDEOS_DIR" ]]; then
     require_dir "$RESOURCES"
@@ -157,7 +157,7 @@ done
 # ── Warn if cycling occurred ────────────────────────────────────
 # Cycling is permitted for every use case (including warehouse-3d, where
 # the agent has already confirmed the user's intent via Step 2's
-# "Warehouse-3d batch > calibrated cameras" AskQuestion before reaching
+# "Warehouse-3d batch > calibrated cameras" AskUserQuestion before reaching
 # this script).
 if (( BATCH > orig_count )) && (( WARN_CYCLE == 1 )); then
     echo "WARN: BATCH=$BATCH > videos=$orig_count — cycled ids get '_<i>' suffix starting at stream $((orig_count+1))" >&2
