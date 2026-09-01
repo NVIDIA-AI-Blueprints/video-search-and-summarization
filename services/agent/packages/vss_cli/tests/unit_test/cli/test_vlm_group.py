@@ -482,14 +482,19 @@ def test_run_file_source_uses_base64(
     tmp_path: Path,
 ) -> None:
     """--file implies base64 encoding; payload must carry data: URI."""
+    import json as _json
+
     video_bytes = b"\x00\x01\x02video"
     video_file = tmp_path / "clip.mp4"
     video_file.write_bytes(video_bytes)
 
     captured: dict[str, Any] = {}
 
-    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
-        captured["json"] = json
+    def _capture(_url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any) -> httpx.Response:
+        if content is not None:
+            captured["json"] = _json.loads(b"".join(content))
+        else:
+            captured["json"] = json
         return httpx.Response(200, json=_completion())
 
     monkeypatch.setattr(httpx, "post", _capture)
@@ -692,8 +697,12 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
 
         yield _FakeStream()
 
-    def _fake_vlm_post(url: str, *, json: Any, **_kw: Any) -> httpx.Response:
-        vlm_captured["json"] = json
+    def _fake_vlm_post(url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any) -> httpx.Response:
+        import json as _json
+        if content is not None:
+            vlm_captured["json"] = _json.loads(b"".join(content))
+        else:
+            vlm_captured["json"] = json
         return httpx.Response(200, json=_completion("loopback works"))
 
     monkeypatch.setattr(httpx, "stream", _fake_stream)

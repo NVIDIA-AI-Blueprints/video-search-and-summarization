@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json as _json_mod
 import os
 import secrets
 import tempfile
@@ -252,36 +253,16 @@ def _build_vlm_request(
     model: str,
     max_tokens: int | None,
     temperature: float | None,
-    use_base64: bool,
     num_frames: int,
 ) -> dict[str, Any]:
-    """Build an OpenAI-compatible /v1/chat/completions payload."""
-    if use_base64:
-        try:
-            # Read in chunks that are multiples of 3 bytes so each chunk encodes
-            # to valid base64 without intra-chunk padding.  This keeps only one
-            # 192 KB raw chunk in memory at a time instead of the whole file.
-            b64_parts: list[str] = []
-            with open(media_url, "rb") as fh:
-                while chunk := fh.read(3 * 65536):
-                    b64_parts.append(base64.b64encode(chunk).decode())
-            b64 = "".join(b64_parts)
-        except OSError as exc:
-            raise InvalidInput(f"cannot read local file {media_url!r}: {exc}") from exc
-        video_content: dict[str, Any] = {
-            "type": "video_url",
-            "video_url": {"url": f"data:video/mp4;base64,{b64}"},
-        }
-    else:
-        video_content = {"type": "video_url", "video_url": {"url": media_url}}
-
+    """Build an OpenAI-compatible /v1/chat/completions payload for a URL source."""
     request: dict[str, Any] = {
         "model": model,
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    video_content,
+                    {"type": "video_url", "video_url": {"url": media_url}},
                     {"type": "text", "text": prompt},
                 ],
             }
@@ -293,6 +274,51 @@ def _build_vlm_request(
     if temperature is not None:
         request["temperature"] = temperature
     return request
+
+
+def _iter_base64_json(
+    *,
+    prompt: str,
+    file_path: str,
+    model: str,
+    max_tokens: int | None,
+    temperature: float | None,
+    num_frames: int,
+) -> Any:
+    """Yield the VLM request body as a JSON byte stream, reading the file in 192 KB chunks.
+
+    At most one raw chunk (~192 KB) and its base64 encoding (~256 KB) live in memory
+    at a time.  The previous list-then-join approach kept the entire encoded payload in
+    memory simultaneously with the joined string, the data-URI f-string, and the
+    json.dumps output -- typically 4-5x the encoded file size.
+    """
+    sentinel = f"__b64_{secrets.token_hex(8)}__"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": [
+            {"type": "video_url", "video_url": {"url": sentinel}},
+            {"type": "text", "text": prompt},
+        ]}],
+        "num_frames_per_second_or_fixed_frames_chunk": num_frames,
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if temperature is not None:
+        payload["temperature"] = temperature
+
+    raw = _json_mod.dumps(payload)
+    # json.dumps quotes the sentinel; partition on the quoted form.
+    sentinel_quoted = _json_mod.dumps(sentinel)  # e.g. '"__b64_abc123__"'
+    pre, _, post = raw.partition(sentinel_quoted)
+
+    try:
+        with open(file_path, "rb") as fh:
+            yield (pre + '"data:video/mp4;base64,').encode()
+            while chunk := fh.read(3 * 65536):
+                yield base64.b64encode(chunk)
+            yield ('"' + post).encode()
+    except OSError as exc:
+        raise InvalidInput(f"cannot read local file {file_path!r}: {exc}") from exc
 
 
 class VlmGroup(CommandGroup):
@@ -356,10 +382,10 @@ class VlmGroup(CommandGroup):
                 # The VIOS clip URL resolves to localhost — reachable from this CLI
                 # host but blocked by rt_vlm's SSRF protection (or simply unreachable
                 # from inside the VLM container in Docker deployments). Stream the
-                # clip to a temp file so _build_vlm_request can base64-encode it
-                # without double-materialising the raw bytes in memory.
+                # clip to a temp file and send it inline as base64.
                 tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=".mp4")
                 os.close(tmp_fd)
+                _download_ok = False
                 try:
                     with httpx.stream("GET", media_url, timeout=float(inputs.timeout)) as clip_resp:
                         if clip_resp.status_code >= 400:
@@ -370,10 +396,8 @@ class VlmGroup(CommandGroup):
                             for chunk in clip_resp.iter_bytes(chunk_size=65536):
                                 f.write(chunk)
                     media_url = _loopback_tmp
+                    _download_ok = True
                 except httpx.TimeoutException:
-                    with contextlib.suppress(OSError):
-                        os.unlink(_loopback_tmp)
-                    _loopback_tmp = None
                     detail = f"VIOS clip download timed out after {inputs.timeout}s"
                     # VIOS resolution succeeded; resolved_start/resolved_end are available.
                     clip_input: MemoryInput = adapter.build_input(
@@ -394,17 +418,40 @@ class VlmGroup(CommandGroup):
                         body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id
                     )
                 except InvalidInput:
-                    with contextlib.suppress(OSError):
-                        os.unlink(_loopback_tmp)
-                    _loopback_tmp = None
                     raise
-                except httpx.HTTPError as exc:
-                    with contextlib.suppress(OSError):
-                        os.unlink(_loopback_tmp)
-                    _loopback_tmp = None
-                    raise InvalidInput(
-                        f"cannot fetch VIOS clip for base64 fallback (loopback URL {media_url!r}): {exc}"
-                    ) from exc
+                except Exception as exc:
+                    # httpx.HTTPError (network/protocol failure) or OSError
+                    # during the write — both signal VIOS is unreachable, not a
+                    # caller mistake. Write a terminal record and exit as
+                    # BACKEND_UNREACHABLE (3) so callers/retries treat this
+                    # correctly instead of seeing an invalid-input (2) exit.
+                    detail = f"cannot fetch VIOS clip for loopback base64 fallback: {exc}"
+                    clip_input = adapter.build_input(
+                        prompt=inputs.prompt,
+                        sensor=inputs.sensor,
+                        start_time=resolved_start,
+                        end_time=resolved_end,
+                        media_url=None,
+                        intent=inputs.intent,
+                        model_params=model_params,
+                    )
+                    _write_terminal(
+                        memory, adapter, job_id=job_id, created_at=created_at,
+                        input_data=clip_input, status="failed", message=detail,
+                    )
+                    click.echo(f"vss: {detail}", err=True)
+                    return Result(
+                        body={"job_id": job_id, "status": "failed", "error": detail},
+                        exit=Exit.BACKEND_UNREACHABLE,
+                        job_id=job_id,
+                    )
+                finally:
+                    # Clean up the temp file if the download failed.  On success
+                    # (_download_ok=True) the file is kept for the VLM call below.
+                    if not _download_ok:
+                        with contextlib.suppress(OSError):
+                            os.unlink(_loopback_tmp)
+                        _loopback_tmp = None
         elif inputs.file:
             # Path A (file): local file path read and sent as base64-encoded bytes.
             media_url = inputs.file
@@ -417,37 +464,60 @@ class VlmGroup(CommandGroup):
         # content is machine-specific bytes, not a retrievable URL handle.
         _use_base64_effective = options.use_base64 or bool(inputs.file) or _loopback_tmp is not None
 
-        input_data: MemoryInput = adapter.build_input(
-            prompt=inputs.prompt,
-            sensor=inputs.sensor,
-            start_time=resolved_start,
-            end_time=resolved_end,
-            media_url=media_url if (not inputs.sensor and not _use_base64_effective) else None,
-            intent=inputs.intent,
-            model_params=model_params,
-        )
-
-        # Build the VLM request payload. Wrap in try/finally so the loopback temp
-        # file is always deleted even if _build_vlm_request raises (e.g. OSError).
+        # Wrap everything that references _loopback_tmp in try/finally so the
+        # temp file is deleted even if adapter.build_input or the VLM call raises.
         try:
-            request_payload = _build_vlm_request(
+            input_data: MemoryInput = adapter.build_input(
                 prompt=inputs.prompt,
-                media_url=media_url,
-                model=model,
-                max_tokens=inputs.max_tokens,
-                temperature=inputs.temperature,
-                use_base64=_use_base64_effective,
-                num_frames=inputs.num_frames,
+                sensor=inputs.sensor,
+                start_time=resolved_start,
+                end_time=resolved_end,
+                media_url=media_url if (not inputs.sensor and not _use_base64_effective) else None,
+                intent=inputs.intent,
+                model_params=model_params,
             )
-        finally:
-            if _loopback_tmp is not None:
-                with contextlib.suppress(OSError):
-                    os.unlink(_loopback_tmp)
-                _loopback_tmp = None
 
-        vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
-        try:
-            response = httpx.post(vlm_url, json=request_payload, timeout=float(inputs.timeout))
+            vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
+            if _use_base64_effective:
+                # Stream the JSON body chunk-by-chunk from the file.  This keeps only
+                # one 192 KB raw chunk in memory at a time instead of the entire encoded
+                # payload, the joined string, the data-URI f-string, and the json.dumps
+                # output that the list-then-join approach created simultaneously.
+                file_to_read = _loopback_tmp if _loopback_tmp is not None else media_url
+                # Pre-validate readability before giving the file to httpx.  If
+                # the open() fails inside the content generator, httpx wraps the
+                # OSError as httpx.WriteError (an httpx.HTTPError subclass) and
+                # the caller sees BACKEND_UNREACHABLE instead of INVALID_INPUT.
+                try:
+                    open(file_to_read, "rb").close()
+                except OSError as exc:
+                    raise InvalidInput(f"cannot read local file {file_to_read!r}: {exc}") from exc
+                response = httpx.post(
+                    vlm_url,
+                    content=_iter_base64_json(
+                        prompt=inputs.prompt,
+                        file_path=file_to_read,
+                        model=model,
+                        max_tokens=inputs.max_tokens,
+                        temperature=inputs.temperature,
+                        num_frames=inputs.num_frames,
+                    ),
+                    headers={"Content-Type": "application/json"},
+                    timeout=float(inputs.timeout),
+                )
+            else:
+                response = httpx.post(
+                    vlm_url,
+                    json=_build_vlm_request(
+                        prompt=inputs.prompt,
+                        media_url=media_url,
+                        model=model,
+                        max_tokens=inputs.max_tokens,
+                        temperature=inputs.temperature,
+                        num_frames=inputs.num_frames,
+                    ),
+                    timeout=float(inputs.timeout),
+                )
         except httpx.TimeoutException:
             detail = f"VLM call timed out after {inputs.timeout}s"
             _write_terminal(
@@ -478,6 +548,13 @@ class VlmGroup(CommandGroup):
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
+        finally:
+            # Guarantee temp file deletion whether the VLM call succeeded, failed,
+            # or raised — including if adapter.build_input raised before the call.
+            if _loopback_tmp is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(_loopback_tmp)
+                _loopback_tmp = None
 
         if response.status_code >= 400:
             detail = f"HTTP {response.status_code}"
