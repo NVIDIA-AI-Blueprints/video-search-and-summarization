@@ -44,5 +44,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_CLOSED: ${{ github.event.action == 'closed' }}
         run: python3 .github/scripts/cancel_stale_pr_ci.py

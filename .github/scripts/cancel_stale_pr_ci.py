@@ -169,12 +169,30 @@ def list_active_runs_for_event(
     return _collect_status_pages(repo, f"event={quoted}", get)
 
 
-def run_belongs_to_pr(run: dict[str, Any], pr_number: int) -> bool:
+def run_belongs_to_pr(
+    run: dict[str, Any],
+    pr_number: int,
+    source_branch: str = "",
+    source_sha: str = "",
+) -> bool:
+    """Attribute a run to a PR using keys that survive the PR closing.
+
+    GitHub empties ``pull_requests`` as soon as the PR closes, which is
+    exactly when the close path runs, so it cannot be the only key. The
+    ``pull-request/<N>`` fallback never matches a native ``pull_request``
+    run either — that run's ``head_branch`` is the contributor branch. The
+    source branch and head SHA carried by the close event are what remain.
+    """
     for pr in run.get("pull_requests") or []:
         number = pr.get("number") if isinstance(pr, dict) else None
         if number == pr_number or str(number) == str(pr_number):
             return True
-    return str(run.get("head_branch") or "") == f"pull-request/{pr_number}"
+    head_branch = str(run.get("head_branch") or "")
+    if head_branch == f"pull-request/{pr_number}":
+        return True
+    if source_branch and head_branch == source_branch:
+        return True
+    return bool(source_sha) and str(run.get("head_sha") or "") == source_sha
 
 
 def collect_runs_to_consider(
@@ -182,11 +200,16 @@ def collect_runs_to_consider(
     pr_number: int,
     closed: bool,
     get: Callable[..., Any] = github,
+    *,
+    source_branch: str = "",
+    source_sha: str = "",
 ) -> list[dict[str, Any]]:
     """Mirror-branch runs always; on close, also native PR-event runs.
 
-    SonarQube and other optional checks use ``pull_request`` / 
+    SonarQube and other optional checks use ``pull_request`` /
     ``pull_request_target`` on the contributor branch, not ``pull-request/N``.
+    ``source_branch`` / ``source_sha`` come from the close event; they are the
+    only attribution left once GitHub has emptied ``pull_requests``.
     """
     branch = f"pull-request/{pr_number}"
     seen: set[int] = set()
@@ -203,7 +226,9 @@ def collect_runs_to_consider(
             run_id = run.get("id")
             if not isinstance(run_id, int) or run_id in seen:
                 continue
-            if not run_belongs_to_pr(run, pr_number):
+            if not run_belongs_to_pr(
+                run, pr_number, source_branch=source_branch, source_sha=source_sha
+            ):
                 continue
             seen.add(run_id)
             runs.append(run)
@@ -310,7 +335,14 @@ def main() -> int:
 
     cancelled = 0
     pr_id = int(pr_number)
-    for run in collect_runs_to_consider(repo, pr_id, closed):
+    source_branch = os.environ.get("SOURCE_BRANCH", "").strip()
+    for run in collect_runs_to_consider(
+        repo,
+        pr_id,
+        closed,
+        source_branch=source_branch,
+        source_sha=source_sha,
+    ):
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue

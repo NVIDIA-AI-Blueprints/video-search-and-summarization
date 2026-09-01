@@ -200,6 +200,28 @@ class ClosedPrCoverageTest(unittest.TestCase):
         self.assertTrue(module.run_belongs_to_pr(sonar, 1900))
         self.assertFalse(module.run_belongs_to_pr(sonar, 1))
 
+    def test_run_belongs_to_pr_after_close_empties_pull_requests(self):
+        # The shape the close path actually sees: GitHub drops the PR
+        # association the moment the PR closes.
+        sonar = {
+            "id": 8,
+            "name": "SonarQube Analysis",
+            "status": "in_progress",
+            "head_branch": "feat/foo",
+            "head_sha": "a" * 40,
+            "pull_requests": [],
+        }
+        self.assertFalse(module.run_belongs_to_pr(sonar, 1900))
+        self.assertTrue(
+            module.run_belongs_to_pr(sonar, 1900, source_branch="feat/foo")
+        )
+        self.assertTrue(
+            module.run_belongs_to_pr(sonar, 1900, source_sha="a" * 40)
+        )
+        self.assertFalse(
+            module.run_belongs_to_pr(sonar, 1900, source_branch="feat/other")
+        )
+
     def test_closed_collects_native_pr_event_runs(self):
         def get(_method: str, _repo: str, path: str):
             if "event=pull_request&" in path and "status=in_progress" in path:
@@ -210,14 +232,14 @@ class ClosedPrCoverageTest(unittest.TestCase):
                             "name": "SonarQube Analysis",
                             "status": "in_progress",
                             "head_branch": "feat/foo",
-                            "pull_requests": [{"number": 42}],
+                            "pull_requests": [],
                         },
                         {
                             "id": 9,
                             "name": "SonarQube Analysis",
                             "status": "in_progress",
                             "head_branch": "feat/other",
-                            "pull_requests": [{"number": 7}],
+                            "pull_requests": [],
                         },
                     ]
                 }
@@ -234,7 +256,9 @@ class ClosedPrCoverageTest(unittest.TestCase):
                 }
             return {"workflow_runs": []}
 
-        runs = module.collect_runs_to_consider("owner/repo", 42, True, get)
+        runs = module.collect_runs_to_consider(
+            "owner/repo", 42, True, get, source_branch="feat/foo"
+        )
         self.assertEqual(sorted(run["id"] for run in runs), [3, 8])
 
     def test_open_pr_does_not_scan_native_pr_events(self):
@@ -255,6 +279,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("persist-credentials: false", text)
         self.assertNotIn("ref: ${{ github.event.pull_request.head", text)
         self.assertIn("actions: write", text)
+        self.assertIn("SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}", text)
 
     def test_ci_runs_these_tests(self):
         ci = (Path(__file__).resolve().parent.parent / "workflows" / "ci.yml").read_text()

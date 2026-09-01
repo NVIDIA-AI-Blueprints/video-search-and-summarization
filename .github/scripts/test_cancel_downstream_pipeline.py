@@ -505,8 +505,7 @@ class SearchFallbackTest(unittest.TestCase):
                 open_func=open_func,
             ),
             [11],
-            )
-
+        )
 
     def test_empty_retry_after_transient_still_fails_cleanup(self):
         class JsonResponse:
@@ -586,8 +585,7 @@ class SearchFallbackTest(unittest.TestCase):
                 open_func=open_func,
             ),
             [],
-            )
-
+        )
 
     def test_paginates_past_the_first_twenty_on_a_busy_ref(self):
         class JsonResponse:

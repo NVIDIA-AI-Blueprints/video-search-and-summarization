@@ -425,10 +425,11 @@ def handoff_path() -> str:
 def persist_handoff(**fields: object) -> None:
     """Record GitLab trigger identity on disk for a cancelled cleanup step.
 
-    GitHub only publishes ``GITHUB_OUTPUT`` when the step finishes. The
-    pipeline id is written the instant GitLab returns it. ``ref`` /
-    ``commit_sha`` / ``trigger_started_at`` are written *before* POST so
-    cleanup can still find the pipeline if cancel lands in the HTTP window.
+    GitHub only publishes ``GITHUB_OUTPUT`` when the step finishes, so the
+    ids go to disk instead. ``ref`` / ``correlation_id`` /
+    ``trigger_started_at`` are written *before* POST so cleanup can still
+    find the pipeline if cancel lands in the HTTP window; ``pipeline_id``
+    is written the instant GitLab returns it.
     """
     path = Path(handoff_path())
     payload: dict[str, str] = {}
@@ -554,8 +555,6 @@ def main() -> int:
         persist_handoff(
             project_id=project_id,
             ref=ref,
-            commit_sha=commit_sha,
-            variable_name=variable_name,
             correlation_id=correlation_id,
             trigger_started_at=datetime.now(timezone.utc).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
@@ -622,9 +621,11 @@ def main() -> int:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))
 
-        # Remaining identifiers for the poll step. pipeline_id / project_id
-        # were already flushed above, immediately after GitLab created the
-        # pipeline, so a cancel during this summary still has a handoff file.
+        # Remaining identifiers for the poll step. Ordering these writes
+        # buys nothing on cancel: GitHub only publishes a step's outputs
+        # once the step completes. What covers a cancel during this summary
+        # is the fsynced handoff file, written right after GitLab created
+        # the pipeline.
         write_output("pipeline_sha", pipeline_sha)
         write_output("pipeline_created_at", pipeline_created_at)
         return 0
