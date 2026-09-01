@@ -163,8 +163,9 @@ if sudo -n true 2>/dev/null; then
     bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" --env-file "$CLEAN_ENV"
 else
   echo "sudo needs a password — run this once and confirm, then resume:"
-  echo "  sudo env VSS_DATA_DIR=$DATA VSS_APPS_DIR=$APPS \\"
-  echo "    bash $REPO/deploy/docker/scripts/cleanup_all_datalog.sh --env-file $CLEAN_ENV"
+  printf '  sudo env VSS_DATA_DIR=%q VSS_APPS_DIR=%q \\\n' "$DATA" "$APPS"
+  printf '    bash %q --env-file %q\n' \
+    "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" "$CLEAN_ENV"
 fi
 ```
 
