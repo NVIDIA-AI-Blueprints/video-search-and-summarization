@@ -18,7 +18,7 @@ The Cosmos3 Reasoner NIM requires a **Personal API Key** (`NGC_CLI_API_KEY`).
 Legacy NGC API keys will fail authentication.
 </Info>
 
-- **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
 - **Different local model:** For a local VLM, configure RT-VLM rather than selecting a standalone NIM Compose profile. Set `VLM_NAME`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` together in the selected profile `overrides.env`.
 
@@ -71,7 +71,7 @@ It is also recommended to review the different parameters described in the [quic
 
 For every configuration below, save the shown values in
 `deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then validate and
-start the profile with the native Docker Compose command in [Quickstart](/quickstart).
+start the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
 
 ## Managed remote VLMs
 
