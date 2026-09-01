@@ -21,6 +21,7 @@ const Database = require('./Database');
 const IndexNotFoundError = require('../Errors/IndexNotFoundError');
 const InvalidInputError = require('../Errors/InvalidInputError');
 const InternalServerError = require('../Errors/InternalServerError');
+const Utils = require('./Utils');
 const {Client} = require('@elastic/elasticsearch');
 const { errors: elasticErrors } = require('@elastic/elasticsearch');
 
@@ -247,6 +248,32 @@ class Elasticsearch extends Database{
                 errorMessage = `Error checking ingest pipeline '${pipelineId}': ${error.toString()}`;
             }
             throw new InternalServerError(errorMessage);
+        }
+    }
+
+    /**
+     * Waits until an Elasticsearch ingest pipeline is available.
+     * @public
+     * @static
+     * @async
+     * @param {Object} client - Elasticsearch client
+     * @param {string} pipelineId - Ingest pipeline ID to wait for
+     * @param {Object} [options={}] - Pipeline readiness options
+     * @param {number} [options.retryIntervalMs=1000] - Delay between readiness checks
+     * @returns {Promise<void>} Resolves once the pipeline exists
+     */
+    static async waitForIngestPipeline(client, pipelineId, {retryIntervalMs = 1000} = {}) {
+        console.info(JSON.stringify({ message: '[ELASTICSEARCH] Waiting for ingest pipeline.', pipelineId }));
+
+        while (true) {
+            try {
+                await this.checkIngestPipelineExists(client, pipelineId);
+                console.info(JSON.stringify({ message: '[ELASTICSEARCH] Ingest pipeline is present.', pipelineId }));
+                return;
+            } catch (error) {
+                console.info(JSON.stringify({ message: '[ELASTICSEARCH] Ingest pipeline is not present.', pipelineId, error: error.message }));
+                await Utils.sleep(retryIntervalMs);
+            }
         }
     }
 }

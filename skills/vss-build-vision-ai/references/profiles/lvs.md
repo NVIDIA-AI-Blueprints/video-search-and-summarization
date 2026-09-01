@@ -13,7 +13,7 @@ Authoritative source:
 `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`.
 
 ```text
-kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
+kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
 ## Capability owners present
@@ -23,7 +23,7 @@ kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elastic
 | LVS | `lvs-server` |
 | RT-VLM | `rtvi-vlm` |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-lvs` |
-| VIOS | `nvstreamer-lvs`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
+| VIOS | `nvstreamer-lvs`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
 | Agent | `vss-agent`, `vss-ui`, `phoenix` |
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |

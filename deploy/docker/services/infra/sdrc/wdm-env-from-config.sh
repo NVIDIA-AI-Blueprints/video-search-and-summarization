@@ -1,7 +1,7 @@
 #!/bin/sh
 # Reads compose/config.yml (mounted at /config.yml), writes /env/wdm.env for sdr-envoy-proxy
 # and wait-for-redis (WDM_WL_REDIS_* from first enable:true workload), and
-# /env/docker-workload-containers.txt for wait-for-docker-workloads (all docker-type workloads).
+# /env/docker-workload-containers.txt lists all docker-type workloads.
 # Also writes /env/config.yml: a copy of /config.yml with ${HOST_IP} expanded,
 # for sdr-controller to mount (sdr-mw-l does not expand env vars when loading YAML).
 set -e

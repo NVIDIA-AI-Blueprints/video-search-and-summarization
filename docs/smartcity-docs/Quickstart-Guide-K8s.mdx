@@ -18,7 +18,7 @@ The high-level diagram illustrates the components of the Smart City Blueprint. T
 
 Before you begin, ensure all prerequisites are met:
 
-- Review the [Prerequisites](/smartcity-docs/Prerequisites) page for complete requirements
+- Review the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites) page for complete requirements
 - Ensure you have installed all **Common Prerequisites** and **Kubernetes-Specific Prerequisites**
 - Verify you have a Kubernetes cluster with GPU-enabled nodes
 - Confirm sufficient GPU resources are available (see Hardware Profiles below)
@@ -27,7 +27,7 @@ Before you begin, ensure all prerequisites are met:
 
 The Smart City Blueprint on Kubernetes includes all available features in a single unified deployment:
 
-- CV-based object detection and tracking using the RTDETR model via the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/object-detection-tracking)
+- CV-based object detection and tracking using the RTDETR model via the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking)
 - VLM-based verification for enhanced alert accuracy
 - Agents and Agent UI for natural language interaction with the system
 - Integration options:
@@ -590,7 +590,7 @@ Initialization of some components might take a while, especially the first time 
 
 2. Check to make sure streams were properly added to VST. Navigate to the VST UI (see endpoint below) and check the Dashboard to confirm your streams are in a healthy state.
 
-3. Check RTVI CV FPS to make sure the [RTVI CV microservice ](/object-detection-tracking) is running properly:
+3. Check RTVI CV FPS to make sure the [RTVI CV microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly:
 
   ```bash
   kubectl logs -f statefulsets/perception-app
@@ -636,7 +636,7 @@ Replace `<HOST-IP>` with the external IP of one of your Kubernetes nodes or the 
 ### Add Streams (Optional)
 
 <Note>
-To scale beyond the default stream count, refer to the [Kubernetes Stream Upload](/smartcity-docs/Scaling#kubernetes-stream-upload) section.
+To scale beyond the default stream count, refer to the [Kubernetes Stream Upload](./Scaling.mdx#kubernetes-stream-upload) section.
 </Note>
 
 Run the provided `/helper-scripts/nvstreamer_upload.py` script to help **upload** streams to NVStreamer:

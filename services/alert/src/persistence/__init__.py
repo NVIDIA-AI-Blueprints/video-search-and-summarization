@@ -22,6 +22,7 @@ from persistence.exceptions import (
     DocumentNotFoundError,
     PersistenceConfigError,
     PersistenceError,
+    PersistenceUnavailableError,
 )
 from persistence.factory import create_persistence_store
 
@@ -33,6 +34,7 @@ __all__ = [
     "PersistenceConfig",
     "PersistenceConfigError",
     "PersistenceError",
+    "PersistenceUnavailableError",
     "PersistenceStore",
     "create_persistence_store",
 ]

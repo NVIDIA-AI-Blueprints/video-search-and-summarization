@@ -27,11 +27,33 @@ function getTests(c) {
     const P = c.PLACE;
     const F = c.FROM_TS;
     const T = c.TO_TS;
+    const expectedVlmAlertTypes = new Set([
+        'Load Quality Violation',
+        'Near Miss Violation',
+        'Pathway Obstruction Violation',
+        'PPE Violation'
+    ]);
 
     return [
         { name: 'GET /incidents (sensorId+timestamps)', path: `/incidents?${qs({ sensorId: S, fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, validate: (b) => (Array.isArray(JSON.parse(b).incidents) ? null : 'missing incidents array') },
         { name: 'GET /incidents (place only)', path: `/incidents?${qs({ place: P })}`, method: 'GET', expectedStatus: 200 },
         { name: 'GET /incidents (no sensorId/place) returns 200', path: `/incidents?${qs({ fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, validate: (b) => (Array.isArray(JSON.parse(b).incidents) ? null : 'missing incidents array') },
+        {
+            name: 'GET /incidents (VLM verified alert types)',
+            path: `/incidents?${qs({ place: P, fromTimestamp: F, toTimestamp: T, vlmVerified: true, maxResultSize: 10000 })}`,
+            method: 'GET',
+            expectedStatus: 200,
+            validate: (b) => {
+                const { incidents } = JSON.parse(b);
+                if (!Array.isArray(incidents)) return 'missing incidents array';
+                const alertTypes = new Set(incidents.map(({ category, info }) => (info && info.alertCategory) || category));
+                if (alertTypes.size !== 4) return `expected 4 unique alert types, got ${alertTypes.size}`;
+                const unexpectedAlertTypes = [...alertTypes].filter((alertType) => !expectedVlmAlertTypes.has(alertType));
+                if (unexpectedAlertTypes.length > 0) return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}`;
+                const missingAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => !alertTypes.has(alertType));
+                return missingAlertTypes.length === 0 ? null : `missing alert types: ${missingAlertTypes.join(', ')}`;
+            },
+        },
         { name: 'GET /incidents/severe (sensorId+timestamps)', path: `/incidents/severe?${qs({ sensorId: S, fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, skipOpenApiValidation: true },
         { name: 'GET /incidents/severe (no sensorId/place) -> 400', path: '/incidents/severe', method: 'GET', expectedStatus: 400 },
     ];

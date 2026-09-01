@@ -16,7 +16,7 @@ interface FilterDialogProps {
   streams: StreamInfo[];
   filterParams: any;
   setFilterParams: (params: any) => void;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   /** Ref to the trigger (Filter button) for positioning when using portal; ensures popover appears above Chat sidebar. */
   triggerRef?: React.RefObject<HTMLDivElement | null>;
   /** When true, filter inputs are disabled (e.g. when Chat sidebar is open or query is running). */

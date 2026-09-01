@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 
 jest.mock('@nvidia/foundations-react-core', () => {
@@ -105,8 +105,31 @@ jest.mock('../../lib-src/hooks/useAutoRefresh', () => ({
 }));
 
 jest.mock('../../lib-src/components/CreateAlertRulesView', () => ({
-  CreateAlertRulesView: () => <div data-testid="create-alert-rules-view-stub" />,
+  CreateAlertRulesView: ({
+    activeKind,
+    onActiveKindChange,
+    enableRealtimeAlerts,
+    enableCvAlertsVerification,
+  }: {
+    activeKind: string;
+    onActiveKindChange: (kind: string) => void;
+    enableRealtimeAlerts: boolean;
+    enableCvAlertsVerification: boolean;
+  }) => (
+    <div
+      data-testid="create-alert-rules-view-stub"
+      data-kind={activeKind}
+      data-realtime-enabled={String(enableRealtimeAlerts)}
+      data-cv-enabled={String(enableCvAlertsVerification)}
+    >
+      <button onClick={() => onActiveKindChange('verification')}>Select verification</button>
+    </div>
+  ),
   triggerRealtimeAddDraft: jest.fn(() => false),
+}));
+
+jest.mock('../../lib-src/components/CvAlertsVerificationTab', () => ({
+  triggerVerificationAddDraft: jest.fn(() => false),
 }));
 
 /** jest.setup.js replaces sessionStorage with jest.fn() — wire a real in-memory store. */
@@ -170,5 +193,87 @@ describe('AlertsComponent sub-views', () => {
     expect(screen.getByTestId('create-alert-rules-view-stub')).toBeInTheDocument();
     const managePanel = document.getElementById('alerts-panel-create');
     expect(managePanel).toBeInTheDocument();
+  });
+
+  it('restores and persists the selected Manage Alerts kind', async () => {
+    sessionStorage.setItem('alertsTabView', JSON.stringify('create'));
+    sessionStorage.setItem('alertsTabRulesKind', JSON.stringify('verification'));
+
+    render(
+      <AlertsComponent
+        theme="light"
+        isActive
+        alertsData={{
+          systemStatus: 'active',
+          apiUrl: 'http://alerts.example',
+          vstApiUrl: 'http://vst.example',
+          alertsApiUrl: 'http://bridge.example/api/v1',
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('create-alert-rules-view-stub')).toHaveAttribute(
+        'data-kind',
+        'verification',
+      ),
+    );
+    fireEvent.click(screen.getByText('Select verification'));
+    await waitFor(() =>
+      expect(sessionStorage.setItem).toHaveBeenCalledWith(
+        'alertsTabRulesKind',
+        JSON.stringify('verification'),
+      ),
+    );
+  });
+
+  it('falls back to CV verification when real-time rules are disabled', async () => {
+    sessionStorage.setItem('alertsTabView', JSON.stringify('create'));
+    sessionStorage.setItem('alertsTabRulesKind', JSON.stringify('real-time'));
+
+    render(
+      <AlertsComponent
+        theme="light"
+        isActive
+        alertsData={{
+          systemStatus: 'active',
+          apiUrl: 'http://alerts.example',
+          alertsApiUrl: 'http://bridge.example/api/v1',
+          enableRealtimeAlerts: false,
+          enableCvAlertsVerification: true,
+        }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('create-alert-rules-view-stub')).toHaveAttribute(
+        'data-kind',
+        'verification',
+      ),
+    );
+    expect(screen.getByTestId('create-alert-rules-view-stub')).toHaveAttribute(
+      'data-realtime-enabled',
+      'false',
+    );
+  });
+
+  it('does not mount Manage Alerts when both rule kinds are disabled', () => {
+    sessionStorage.setItem('alertsTabView', JSON.stringify('create'));
+
+    render(
+      <AlertsComponent
+        theme="light"
+        isActive
+        alertsData={{
+          systemStatus: 'active',
+          apiUrl: 'http://alerts.example',
+          enableRealtimeAlerts: false,
+          enableCvAlertsVerification: false,
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId('create-alert-rules-view-stub')).not.toBeInTheDocument();
+    expect(document.getElementById('alerts-panel-create')).not.toBeInTheDocument();
   });
 });

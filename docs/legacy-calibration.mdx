@@ -394,7 +394,7 @@ Tripwires/Directions are not used by the Multi-Camera Tracking reference app. Fo
 
 ### Validation
 
-The validation step / logic is similar to the [validation step in GIS calibration](/legacy-calibration#validation). Instead of projecting the trajectory onto a satellite map, it will project the trajectory onto the floor plan map.
+The validation step / logic is similar to the [validation step in GIS calibration](/vss/system-components/calibration/legacy-camera-calibration#validation). Instead of projecting the trajectory onto a satellite map, it will project the trajectory onto the floor plan map.
 
 #### Validate the Images
 
@@ -457,7 +457,7 @@ you can use more than 4 anchor points to generate the homography matrix. You can
 
 </Note>
 
-	 The reprojection error only reflects if the anchor points "agree" with each other and it doesn't reflect right or wrong of the calibration. In this cartesian calibration, if only 4 anchor points are used, the reprojection error will always be small. To actually validate the calibration and have a sense of if the calibration works, user should check if the warped image makes sense, described in the [validation section](/legacy-calibration#validation) below.
+	 The reprojection error only reflects if the anchor points "agree" with each other and it doesn't reflect right or wrong of the calibration. In this cartesian calibration, if only 4 anchor points are used, the reprojection error will always be small. To actually validate the calibration and have a sense of if the calibration works, user should check if the warped image makes sense, described in the [validation section](/vss/system-components/calibration/legacy-camera-calibration#validation) below.
 
 #### Add Region of Interest (ROI)
 
@@ -516,7 +516,7 @@ Example 2:
 
 #### Validate the Images
 
-The functionality of the validation tool is the same as the other calibration type and for the validate steps please refer to the [validation step in GIS calibration](/legacy-calibration#validation) or [validation step in Multi-Camera Tracking calibration](/legacy-calibration#validation).
+The functionality of the validation tool is the same as the other calibration type and for the validate steps please refer to the [validation step in GIS calibration](/vss/system-components/calibration/legacy-camera-calibration#validation) or [validation step in Multi-Camera Tracking calibration](/vss/system-components/calibration/legacy-camera-calibration#validation).
 
 Validating Cartesian calibration can be challenging due to a fundamental difference in its validation logic compared to GIS and Multi-Camera Tracking calibrations. In the latter two, a world map is available for reference, whereas in Cartesian calibration, the "world map" is the warped image generated from the calibration process itself. Consequently, any point selected from the image view will always correspond to the same location on the warped image. For instance, if you select the corner of a wall in the image view, the projected point on the warped image will also appear at the corner of the wall.
 

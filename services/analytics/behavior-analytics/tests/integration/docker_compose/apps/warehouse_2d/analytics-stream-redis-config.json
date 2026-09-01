@@ -1,6 +1,6 @@
 {
 	"redisStream": {
-		"host": "localhost",
+		"host": "redis",
 		"port": 6379,
 		"consumer": {
 			"readCount": 1000,
