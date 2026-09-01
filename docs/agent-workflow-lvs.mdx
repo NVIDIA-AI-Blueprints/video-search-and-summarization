@@ -56,12 +56,12 @@ The following diagram illustrates the video summarization architecture:
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [prerequisites](/prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [prerequisites](/vss/getting-started/prerequisites) for more details.
 
 ## Deploy
 
 <Note>
-For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/quickstart#configure-ngc-access) in the Quickstart guide.
+For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/vss/getting-started/quickstart#configure-ngc-access) in the Quickstart guide.
 </Note>
 
 ### With Agent Skills
@@ -69,11 +69,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and operate the video summarization workflow.
-First, install the `vss-deploy-profile` skill as described in [Agent Skills](/agent-skills) and make it
+First, install the `vss-deploy-profile` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
-and must meet the [Prerequisites ](/prerequisites).
+and must meet the [Prerequisites ](/vss/getting-started/prerequisites).
 
-The `vss-deploy-profile` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/prerequisites#development-profile-gpu-requirements).
+The `vss-deploy-profile` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 **Deploy prompt structure**
@@ -92,7 +92,7 @@ What the agent does:
 
 #### Step 2: Upload a Video
 
-To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/agent-skills).
+To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/vss/vision-agent/agent-skills).
 Your agent can then upload videos, summarize them, and generate reports through VSS with natural-language prompts, without requiring manual interaction with the UI.
 
 Upload a video through the `vss-manage-video-io-storage` skill.
@@ -148,7 +148,7 @@ What the agent does:
 5. Returns the rendered report.
 
 <Note>
-Stream summary and Q&A are experimental and are not available through Agent Skills. Use the deployed VSS Agent chat UI instead, as described in [Step 4: Summarize and query a live stream](/agent-workflow-lvs#step-4-summarize-and-query-a-live-stream) in the manual flow below.
+Stream summary and Q&A are experimental and are not available through Agent Skills. Use the deployed VSS Agent chat UI instead, as described in [Step 4: Summarize and query a live stream](/vss/vision-agent/agent-workflows/video-summarization#step-4-summarize-and-query-a-live-stream) in the manual flow below.
 </Note>
 
 ### Manually
@@ -157,7 +157,7 @@ Stream summary and Q&A are experimental and are not available through Agent Skil
 
 <Note>
 - Set the NGC CLI API key, then run the deploy commands for your GPU type.
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) and [VSS-Agent-Customization-configure-vlm ](/vss-agent/configure-vlm) for all LLM and VLM (local and remote) configuration options.
+- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For advanced settings and Agent Customization, see the deploy command help.
 </Note>
 
@@ -297,7 +297,7 @@ deploy/docker/scripts/dev-profile.sh up -p lvs -H L40S \
 
 </Tab>
 <Tab title="OTHER">
-See [Local LLM and VLM deployments on OTHER hardware](/faq) for known limitations and constraints.
+See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
 
 </Tab>
 <Tab title="Shared GPU">
@@ -362,7 +362,7 @@ your network speed, this may take a few minutes.
 - `-e`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host.
 
 <Note>
-When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:
@@ -581,7 +581,7 @@ curl http://${HOST_IP}:8018/v1/models | jq
 The response should show `"audio_support": true` and the
 Nemotron-3-Nano-Omni model ID.
 
-For full RTVI-VLM environment variable reference, see [Real-Time VLM Microservice](/real-time-vlm).
+For full RTVI-VLM environment variable reference, see [Real-Time VLM Microservice](/vss/system-components/vision-microservices/real-time-vlm).
 
 ## Next steps
 
@@ -596,13 +596,13 @@ Additionally, you can dive deeper into the agent tools for video management, rep
 
 For known issues and limitations, see:
 
-- [vss-agent/VSS-Agent-Known-Issues](/vss-agent/VSS-Agent-Known-Issues) - VSS Agent known issues and limitations
-- [Known Issues](/vss-ui#known-issues) - VSS Agent UI known issues
+- [vss-agent/VSS-Agent-Known-Issues](/vss/vision-agent/vss-agents/agent-known-issues) - VSS Agent known issues and limitations
+- [Known Issues](/vss/system-components/user-interface#known-issues) - VSS Agent UI known issues
 
 ## Troubleshooting
 
 When encountering issues with the Video Summarization workflow:
 
-1. **View container logs** - See [Viewing Container Logs](/vss-agent/vss-agent-Observability#viewing-container-logs) for instructions on viewing and analyzing container logs
-2. **Navigate the Phoenix UI** - See [Navigating the Phoenix UI](/vss-agent/vss-agent-Observability#navigating-the-phoenix-ui) for step-by-step guidance on viewing traces and debugging agent workflows
-3. **Check known issues** - Review [vss-agent/VSS-Agent-Known-Issues](/vss-agent/VSS-Agent-Known-Issues) (agent) and [Known Issues](/vss-ui#known-issues) (UI) for documented limitations and workarounds
+1. **View container logs** - See [Viewing Container Logs](/vss/vision-agent/vss-agents/observability#viewing-container-logs) for instructions on viewing and analyzing container logs
+2. **Navigate the Phoenix UI** - See [Navigating the Phoenix UI](/vss/vision-agent/vss-agents/observability#navigating-the-phoenix-ui) for step-by-step guidance on viewing traces and debugging agent workflows
+3. **Check known issues** - Review [vss-agent/VSS-Agent-Known-Issues](/vss/vision-agent/vss-agents/agent-known-issues) (agent) and [Known Issues](/vss/system-components/user-interface#known-issues) (UI) for documented limitations and workarounds

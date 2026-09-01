@@ -1,6 +1,6 @@
 {
 	"kafka": {
-		"brokers": "localhost:9092",
+		"brokers": "kafka:29092",
 		"topics": [
 			{
 				"name": "raw",

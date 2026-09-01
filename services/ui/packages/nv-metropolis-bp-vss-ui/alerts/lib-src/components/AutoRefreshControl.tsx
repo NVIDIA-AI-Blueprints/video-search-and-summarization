@@ -204,7 +204,7 @@ type IntervalBlockProps = Readonly<{
   settingsLocked: boolean;
   interval: number;
   inputDisabled: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   onValueChange: (val: string) => void;
 }>;
 

@@ -8,7 +8,7 @@ position: 3
 This page documents the Alerting Service as it is configured for the
 Warehouse Blueprint. For the full microservice reference
 (deployment, APIs, scaling, observability), see
-[../alert-verification-service](/alert-verification-service).
+[../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice).
 </Note>
 
 ## Overview
@@ -28,7 +28,7 @@ operating modes:
   every chunk that the VLM classifies as a violation.
 
 Both modes share the same Alert Bridge (output normalization + delivery)
-and the same prompt-tuning workflow described on page [Prompt Tuning](/warehouse-docs/alerting-service#prompt-tuning).
+and the same prompt-tuning workflow described on page [Prompt Tuning](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#prompt-tuning).
 
 The five reference use cases shipped with the Warehouse Blueprint are:
 
@@ -1296,7 +1296,7 @@ flattened into this `info` block automatically — adding e.g. a
 `info.confidence` appear on every emitted event.
 
 For the full request / response shapes and a deep dive into the
-underlying APIs, see [../alert-verification-service](/alert-verification-service).
+underlying APIs, see [../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice).
 
 ## Prompt Tuning
 
@@ -1333,7 +1333,7 @@ case description, instead of writing them by hand.
   else — unauthorized entry, smoking detection, ladder safety,
   hot-work checks — needs a new prompt.
 * **Output format alignment.** Whatever you produce must parse against
-  one of the formats documented in [Alert Bridge](/warehouse-docs/alerting-service#alert-bridge).
+  one of the formats documented in [Alert Bridge](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge).
   An LLM-authored prompt that asks for the wrong output shape is
   worse than no prompt at all — every event will land with
   `verdict = verification-failed`.
@@ -1345,10 +1345,10 @@ Authoring a new alert prompt is a four-step loop:
 1. **Define the use case.** Write a short brief: what counts as a
    violation, what does *not*, and what edge cases exist.
 2. **Pick the output format.** Choose from
-   [Alert Bridge](/warehouse-docs/alerting-service#alert-bridge) —
-   [Format 1 — Cosmos Reason (think + verdict)](/warehouse-docs/alerting-service#format-1-cosmos-reason-think-verdict) for simple
+   [Alert Bridge](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge) —
+   [Format 1 — Cosmos Reason (think + verdict)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#format-1-cosmos-reason-think-verdict) for simple
    verdict-only flows, or
-   [Format 2 — JSON object](/warehouse-docs/alerting-service#format-2-json-object) (recommended) for
+   [Format 2 — JSON object](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#format-2-json-object) (recommended) for
    real-time alerts that need a `video_description` to ride along.
 3. **Generate the prompt with an LLM.** Hand the use case brief, the
    output format, and the closest reference prompt to a reasoning
@@ -1402,7 +1402,7 @@ will produce a usable first draft.
 **(a) The use case brief** — your answers from Step 1.
 
 **(b) The output contract** — copy verbatim from
-[Alert Bridge](/warehouse-docs/alerting-service#alert-bridge). For a real-time JSON prompt:
+[Alert Bridge](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge). For a real-time JSON prompt:
 
 ```text
 The Alert Bridge expects this exact JSON shape after any
@@ -1534,10 +1534,10 @@ prompt has all of these pieces:
   "expert-inspector" prompt strategy with strict classification
   tables and JSON output. The closest external reference for the
   Step-3 LLM-authoring workflow.
-* [../alert-verification-service](/alert-verification-service) — full Alerts Microservice
+* [../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice) — full Alerts Microservice
   reference (deployment, APIs, concurrency, observability).
-* [../agent-workflow-alert-verification](/agent-workflow-alert-verification) — Alert Verification
+* [../agent-workflow-alert-verification](/vss/vision-agent/agent-workflows/alert-verification) — Alert Verification
   agent workflow.
-* [../agent-workflow-rt-alert](/agent-workflow-rt-alert) — Real-Time Alert agent workflow.
-* [../NvSchema](/NvSchema) — `nv.Incident` and `nv.Behavior` schemas.
-* [../real-time-vlm](/real-time-vlm) — RTVI VLM microservice.
+* [../agent-workflow-rt-alert](/vss/vision-agent/agent-workflows/real-time-alerts) — Real-Time Alert agent workflow.
+* [../NvSchema](/vss/system-components/middleware/nvschema) — `nv.Incident` and `nv.Behavior` schemas.
+* [../real-time-vlm](/vss/system-components/vision-microservices/real-time-vlm) — RTVI VLM microservice.
