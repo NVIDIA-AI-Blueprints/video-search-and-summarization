@@ -490,7 +490,8 @@ start_rtdetr_gdino()
 }
 
 resolve_sparse4d_engine_file() {
-    local config_yaml="${SPARSE4D_CONFIG_PATH:-/opt/data/ds-configurator/}config.yaml"
+    local source_config_dir="${SPARSE4D_CONFIG_PATH:-/opt/data/ds-configurator/}"
+    local config_yaml="${source_config_dir}config.yaml"
     if [[ ! -f "$config_yaml" ]]; then
         echo "WARNING: Sparse4D config.yaml not found at ${config_yaml}; skipping engine_file patch." >&2
         return
@@ -537,16 +538,27 @@ resolve_sparse4d_engine_file() {
         fi
     fi
 
-    # config.yaml is bind-mounted as a single file, so plain `sed -i` fails with
-    # "Device or resource busy" (it renames a temp file over the mount point).
-    # Rewrite the existing inode in place instead: write the edited content to
-    # a temp file, then stream it back into the original path.
-    local tmp_config_yaml
-    tmp_config_yaml="$(mktemp)"
-    sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "$tmp_config_yaml"
-    cat "$tmp_config_yaml" > "$config_yaml"
-    rm -f "$tmp_config_yaml"
-    echo "##### Updated Sparse4D engine_file -> ${engine_file} #####"
+    # config.yaml is never writable in place: Docker bind-mounts it as a single
+    # file (sed -i's rename-over-mountpoint fails with "Device or resource
+    # busy") and the Helm chart mounts it from a ConfigMap with readOnly: true
+    # (fails with "Read-only file system"). Stage a patched copy in the
+    # writable engine dir instead, and repoint SPARSE4D_CONFIG_PATH there so
+    # sparse4d_setup.sh (run right after this function) picks it up.
+    local staged_config_dir="${SPARSE4D_ENGINE_PATH:-/opt/storage/sparse4d/}resolved-config/"
+    mkdir -p "$staged_config_dir"
+    sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "${staged_config_dir}config.yaml"
+
+    # Carry along any sibling files (e.g. calibration.json) config.yaml is
+    # normally staged next to, so consumers of SPARSE4D_CONFIG_PATH still find them.
+    local sibling
+    for sibling in "${source_config_dir}"*; do
+        [[ -f "$sibling" ]] || continue
+        [[ "$(basename "$sibling")" == "config.yaml" ]] && continue
+        cp -f "$sibling" "$staged_config_dir"
+    done
+
+    export SPARSE4D_CONFIG_PATH="$staged_config_dir"
+    echo "##### Updated Sparse4D engine_file -> ${engine_file} (staged at ${staged_config_dir}config.yaml) #####"
 }
 
 start_sparse4d_warehouse()
