@@ -538,7 +538,7 @@ function usage() {
   echo "  --llm                            LLM model name."
   echo "                                   • One of (local):"
   echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b (default)"
-  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 (edge: DGX-SPARK / AGX-THOR / IGX-THOR)"
+  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 (11.7 GB; for GPUs below the default's 32 GB floor)"
   echo "                                   • When --use-remote-llm is passed, any model name can be passed"
   echo "  --llm-device-id                  LLM device ID."
   echo "                                   • Not allowed when --use-remote-llm is passed"
