@@ -95,9 +95,11 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      - `2d` — 2D object detection & tracking.
      - `3d` — standalone RTVI-CV-3D / multi-camera 3D tracking on calibrated inputs.
      - `mv3dt` — Multi-View 3D Tracking warehouse profile.
-   - **Alerts.** Not a fourth mode — an optional overlay on any of the three apps
-     (`vss-alert-bridge` + `agent` + `vss-agent-ui` + `rtvi.vss-rtvi-vlm`), off by default. Ask the
-     user whether they want it, and explain the tradeoff first rather than enabling or skipping it
+   - **Alerts.** Not a fourth mode — an optional overlay, off by default, and only available on
+     `2d` (`warehouse-2d-app` is the only chart with `vss-alert-bridge`/`agent`/`vss-agent-ui` as
+     dependencies; `3d` and `mv3dt` don't have them). If the user is on `3d`/`mv3dt` and asks for
+     Alerts, say it's not available there instead of trying to enable it. On `2d`, ask the user
+     whether they want it, and explain the tradeoff first rather than enabling or skipping it
      for them: without Alerts they get the raw RT-CV detection/tracking stream; with it, detections
      also pass through a behavior-analytics stage and a VLM verification step (RT-VLM) before
      anything is surfaced as an incident, queryable through the agent/agent UI. That verification
@@ -106,7 +108,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      (`vss-alert-bridge.enabled`, `agent.enabled`, `vss-agent-ui.enabled`,
      `rtvi.vss-rtvi-vlm.enabled` — swap the last for an external `vlmBaseUrl` if not using the
      in-cluster VLM) plus Kafka/Elasticsearch/VST endpoint values. Full block:
-     `warehouse-<mode>-app/README.md` §Alerts — layer it in during step 6.
+     `warehouse-2d-app/README.md` §Alerts — layer it in during step 6.
    - **Stream count.** Ask if not given; it sizes the `NUM_STREAMS` cap in step 5.
 4. **Ask whether the install customizes `bp-configurator.env`** (extra env vars, different
    defaults) — don't assume none exist just because the user didn't mention one. If they're
@@ -141,7 +143,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    - It never lowers the request silently without saying so — a cap is always logged to stderr.
 6. **Prepare the rest of the values** — secrets, storage class, either ingress/`externalHost` or
    the NodePort values file per the choice made in step 2, and — if Alerts was enabled in step 3 —
-   the four-flag Alerts values block from `warehouse-<mode>-app/README.md` §Alerts (Kafka/
+   the four-flag Alerts values block from `warehouse-2d-app/README.md` §Alerts (Kafka/
    Elasticsearch/VST endpoints included). If step 4 found a customizing values file, it goes here
    too (`-f my-values.yaml`) — passing it only to the script in step 5 covers `bp-configurator.env`
    but drops everything else in that file from the install. See
