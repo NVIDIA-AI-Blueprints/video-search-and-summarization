@@ -94,12 +94,17 @@ Perform this on the machine where you intend to deploy the agent.
 </Note>
 
 ```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.2.1
 git lfs install
 git lfs pull
 ```
+
+<Note>
+The native Docker Compose workflow below requires the `develop` branch. The
+latest release tag, `v3.2.1`, does not contain `deploy/docker/containers.env` or
+the per-profile `overrides.env` templates used by these commands.
+</Note>
 
 ## Deploy
 
