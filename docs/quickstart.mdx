@@ -123,7 +123,7 @@ export HF_TOKEN='<hf-token>'
 
 Select a hardware tab, then a deployment mode. **Shared GPU** runs the LLM and VLM NIMs on the same GPU; **Dedicated GPU** assigns each model its own GPU (via `LLM_DEVICE_ID` and `VLM_DEVICE_ID`).
 
-For each layout below, add the shown values to `deploy/docker/developer-profiles/dev-profile-base/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-base/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
 
 ```bash
 PROFILE=base
