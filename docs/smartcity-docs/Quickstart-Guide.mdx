@@ -39,8 +39,7 @@ The Smart City Blueprint provides a unified deployment profile that includes all
 
 This section provides details of supported stream count for each model deployment configuration per supported GPU. The goal is to enable the user to scope the supported workload ensuring optimal operation of the blueprint, while taking into account resource availability based on GPUs available at their disposal.
 
-| GPU Type | Number of Streams (RTDETR) | Number of Streams (GDINO) | Number of GPUs | Number of GPUs | Number of GPUs |
-|  |  |  | Local VLM+LLM (dedicated GPU each) (default) | Local VLM+LLM (shared GPU) | Remote VLM+LLM |
+| GPU Type | Number of Streams (RTDETR) | Number of Streams (GDINO) | Number of GPUs<br />Local VLM+LLM (dedicated GPU each) (default) | Number of GPUs<br />Local VLM+LLM (shared GPU) | Number of GPUs<br />Remote VLM+LLM |
 | --- | --- | --- | --- | --- | --- |
 | H100 | 30 | 12 | 3 | 2 | 1 |
 | L40S | 30 | 6 | 3 | NA | 1 |
