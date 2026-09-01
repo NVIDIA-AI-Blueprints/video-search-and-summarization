@@ -273,11 +273,14 @@ class ClosedPrCoverageTest(unittest.TestCase):
 
 
 class WorkflowTest(unittest.TestCase):
-    def test_pull_request_target_does_not_checkout_the_pr_head(self):
+    def test_pull_request_fires_for_main_and_develop(self):
         text = WORKFLOW.read_text()
-        self.assertIn("pull_request_target:", text)
+        self.assertIn("pull_request:", text)
+        self.assertNotIn("pull_request_target:", text)
         self.assertIn("persist-credentials: false", text)
         self.assertNotIn("ref: ${{ github.event.pull_request.head", text)
+        self.assertIn("- main", text)
+        self.assertIn("- develop", text)
         self.assertIn("actions: write", text)
         self.assertIn("SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}", text)
 
