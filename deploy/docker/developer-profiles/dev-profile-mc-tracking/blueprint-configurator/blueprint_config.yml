@@ -66,7 +66,7 @@ commons:
       - variable: STREAM_TYPE
         allowed_values: ["kafka", "redis"]
 
-      # This profile has no VSS Agent, LLM NIM, or VLM NIM services (MCT-FND-006).
+      # This profile has no VSS Agent, LLM NIM, or VLM NIM services.
       - variable: LLM_MODE
         required: false
         allowed_values: ["none"]
