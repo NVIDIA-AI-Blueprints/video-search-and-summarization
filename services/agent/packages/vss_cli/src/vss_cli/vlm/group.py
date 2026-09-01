@@ -386,8 +386,31 @@ class VlmGroup(CommandGroup):
         _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
         if inputs.sensor:
             if "vst" not in (deployment.services or {}):
-                raise config_mod.ConfigError(
+                # Post-mint: the job id is already public, so this must write its
+                # terminal record and report through a Result (body + marker).
+                detail = (
                     "--sensor requires the `vst` service in the deployment. Re-run `vss configure --base-url <URL>`."
+                )
+                _vst_persisted = _persist_failure(
+                    memory,
+                    adapter,
+                    job_id=job_id,
+                    created_at=created_at,
+                    prompt=inputs.prompt,
+                    sensor=inputs.sensor,
+                    start_time=inputs.start_time,
+                    end_time=inputs.end_time,
+                    intent=inputs.intent,
+                    model_params=model_params,
+                    status="failed",
+                    message=detail,
+                )
+                click.echo(f"vss: {detail}", err=True)
+                return Result(
+                    body={"job_id": job_id, "status": "failed", "error": detail},
+                    extra={"marker": {"status": "failed", "persisted": _vst_persisted}},
+                    exit=Exit.CONFIGURATION,
+                    job_id=job_id,
                 )
             try:
                 media_url, resolved_start, resolved_end = _resolve_vios_clip(
@@ -395,28 +418,24 @@ class VlmGroup(CommandGroup):
                 )
             except Exception as _vios_exc:
                 _vios_code, _vios_status = _vios_exit_for(_vios_exc)
-                _vios_fail_input: MemoryInput = adapter.build_input(
-                    prompt=inputs.prompt,
-                    sensor=inputs.sensor,
-                    start_time=inputs.start_time,
-                    end_time=inputs.end_time,
-                    media_url=None,
-                    intent=inputs.intent,
-                    model_params=model_params,
-                )
-                _write_terminal(
+                _vios_persisted = _persist_failure(
                     memory,
                     adapter,
                     job_id=job_id,
                     created_at=created_at,
-                    input_data=_vios_fail_input,
+                    prompt=inputs.prompt,
+                    sensor=inputs.sensor,
+                    start_time=inputs.start_time,
+                    end_time=inputs.end_time,
+                    intent=inputs.intent,
+                    model_params=model_params,
                     status=_vios_status,
                     message=str(_vios_exc),
                 )
                 click.echo(f"vss: {_vios_exc}", err=True)
                 return Result(
                     body={"job_id": job_id, "status": _vios_status, "error": str(_vios_exc)},
-                    extra={"marker": {"status": _vios_status, "persisted": False}},
+                    extra={"marker": {"status": _vios_status, "persisted": _vios_persisted}},
                     exit=_vios_code,
                     job_id=job_id,
                 )
@@ -448,7 +467,7 @@ class VlmGroup(CommandGroup):
                         intent=inputs.intent,
                         model_params=model_params,
                     )
-                    _write_terminal(
+                    _persisted = _write_terminal(
                         memory,
                         adapter,
                         job_id=job_id,
@@ -460,7 +479,7 @@ class VlmGroup(CommandGroup):
                     click.echo(f"vss: {detail} (job {job_id})", err=True)
                     return Result(
                         body={"job_id": job_id, "status": "timeout"},
-                        extra={"marker": {"status": "timeout", "persisted": False}},
+                        extra={"marker": {"status": "timeout", "persisted": _persisted}},
                         exit=Exit.TIMEOUT,
                         job_id=job_id,
                     )
@@ -480,7 +499,7 @@ class VlmGroup(CommandGroup):
                         intent=inputs.intent,
                         model_params=model_params,
                     )
-                    _write_terminal(
+                    _persisted = _write_terminal(
                         memory,
                         adapter,
                         job_id=job_id,
@@ -492,7 +511,7 @@ class VlmGroup(CommandGroup):
                     click.echo(f"vss: {detail}", err=True)
                     return Result(
                         body={"job_id": job_id, "status": "failed", "error": detail},
-                        extra={"marker": {"status": "failed", "persisted": False}},
+                        extra={"marker": {"status": "failed", "persisted": _persisted}},
                         exit=Exit.BACKEND_UNREACHABLE,
                         job_id=job_id,
                     )
@@ -569,9 +588,31 @@ class VlmGroup(CommandGroup):
                     ),
                     timeout=float(inputs.timeout),
                 )
+        except InvalidInput as exc:
+            # Raised by the pre-send readability check and by _iter_base64_json
+            # while httpx consumes the body. Both happen after the job id is
+            # minted, so they report through a Result rather than propagating to
+            # guarded(), which would exit without emitting a marker.
+            detail = str(exc)
+            _persisted = _write_terminal(
+                memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status="failed",
+                message=detail,
+            )
+            click.echo(f"vss: {detail}", err=True)
+            return Result(
+                body={"job_id": job_id, "status": "failed", "error": detail},
+                extra={"marker": {"status": "failed", "persisted": _persisted}},
+                exit=Exit.INVALID_INPUT,
+                job_id=job_id,
+            )
         except httpx.TimeoutException:
             detail = f"VLM call timed out after {inputs.timeout}s"
-            _write_terminal(
+            _persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
@@ -583,13 +624,13 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: {detail} (job {job_id})", err=True)
             return Result(
                 body={"job_id": job_id, "status": "timeout"},
-                extra={"marker": {"status": "timeout", "persisted": False}},
+                extra={"marker": {"status": "timeout", "persisted": _persisted}},
                 exit=Exit.TIMEOUT,
                 job_id=job_id,
             )
         except httpx.HTTPError as exc:
             detail = str(exc)
-            _write_terminal(
+            _persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
@@ -601,7 +642,7 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: RT-VLM unreachable at {vlm_url}: {exc}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": False}},
+                extra={"marker": {"status": "failed", "persisted": _persisted}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
@@ -615,7 +656,7 @@ class VlmGroup(CommandGroup):
 
         if response.status_code >= 400:
             detail = f"HTTP {response.status_code}"
-            _write_terminal(
+            _persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
@@ -628,7 +669,7 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: VLM backend error {detail}: {response.text[:500]}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": False}},
+                extra={"marker": {"status": "failed", "persisted": _persisted}},
                 exit=code,
                 job_id=job_id,
             )
@@ -637,7 +678,7 @@ class VlmGroup(CommandGroup):
             completion = response.json()
         except ValueError:
             detail = "VLM response was not valid JSON"
-            _write_terminal(
+            _persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
@@ -649,7 +690,7 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: {detail}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": False}},
+                extra={"marker": {"status": "failed", "persisted": _persisted}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
@@ -658,7 +699,7 @@ class VlmGroup(CommandGroup):
             answer = _extract_answer(completion)
         except ValueError as exc:
             detail = str(exc)
-            _write_terminal(
+            _persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
@@ -670,14 +711,14 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: {detail}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": False}},
+                extra={"marker": {"status": "failed", "persisted": _persisted}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
 
         if not answer.strip():
             detail = "VLM returned an empty answer"
-            _write_terminal(
+            _persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
@@ -689,7 +730,7 @@ class VlmGroup(CommandGroup):
             click.echo(f"vss: {detail}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": False}},
+                extra={"marker": {"status": "failed", "persisted": _persisted}},
                 exit=Exit.BACKEND_UNREACHABLE,
                 job_id=job_id,
             )
@@ -763,10 +804,16 @@ def _write_terminal(
     input_data: Any,
     status: str,
     message: str,
-) -> None:
-    """Best-effort terminal write on failure paths."""
+) -> bool:
+    """Best-effort terminal write on failure paths.
+
+    Returns True only when the record was durably written, so the caller's
+    marker can report ``persisted`` truthfully. Hardcoding ``persisted: false``
+    on a write that actually succeeded tells callers the job is unretrievable
+    when ``vss vlm get/list`` can in fact return it.
+    """
     if memory is None:
-        return
+        return False
     from vss_core.memory.models import MemoryError
 
     record = adapter.terminal_record(
@@ -776,8 +823,61 @@ def _write_terminal(
         input_data=input_data,
         error=MemoryError(code=status, message=message),
     )
-    with contextlib.suppress(Exception):
+    try:
         memory.service.upsert(record)
+    except Exception:
+        return False
+    return True
+
+
+def _persist_failure(
+    memory: Any,
+    adapter: Any,
+    *,
+    job_id: str,
+    created_at: str,
+    prompt: str,
+    sensor: str | None,
+    start_time: str | None,
+    end_time: str | None,
+    intent: str,
+    model_params: dict[str, Any],
+    status: str,
+    message: str,
+) -> bool:
+    """Write the terminal record for a post-mint failure; report whether it landed.
+
+    Every post-mint outcome owes the caller a durable record: the job id is
+    already public, so a failure that skips this leaves ``vss vlm get/list``
+    unable to retrieve an invocation the CLI just reported.
+
+    The requested window may be exactly what the backend rejected, in which case
+    ``build_input`` parses it again and raises (``fromisoformat`` on a malformed
+    ``--start-time``). Retry without the window rather than lose the record.
+    """
+    for _start, _end in ((start_time, end_time), (None, None)):
+        try:
+            input_data = adapter.build_input(
+                prompt=prompt,
+                sensor=sensor,
+                start_time=_start,
+                end_time=_end,
+                media_url=None,
+                intent=intent,
+                model_params=model_params,
+            )
+        except Exception:
+            continue
+        return _write_terminal(
+            memory,
+            adapter,
+            job_id=job_id,
+            created_at=created_at,
+            input_data=input_data,
+            status=status,
+            message=message,
+        )
+    return False
 
 
 VLM = VlmGroup()

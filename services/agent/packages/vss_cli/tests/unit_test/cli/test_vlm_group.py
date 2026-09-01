@@ -592,7 +592,8 @@ def test_vios_resolution_failure_writes_terminal_record(
     assert result.exit == Exit.BACKEND_UNREACHABLE
     assert result.body["status"] == "failed"
     assert result.extra["marker"]["status"] == "failed"
-    assert result.extra["marker"]["persisted"] is False
+    # Memory is enabled and the record lands, so the marker must say so.
+    assert result.extra["marker"]["persisted"] is True
 
     jobs = store.service.list_jobs()
     assert jobs, "expected a terminal record written on VIOS resolution failure"
@@ -795,7 +796,7 @@ def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
     @contextlib.contextmanager
     def _timeout_stream(*_a: Any, **_kw: Any):
         raise httpx.TimeoutException("timed out")
-        yield  # make it a generator  # noqa: unreachable
+        yield  # unreachable, but required to make this a generator
 
     monkeypatch.setattr(httpx, "stream", _timeout_stream)
 
@@ -837,7 +838,7 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
     def _error_stream(*_a: Any, **_kw: Any):
         resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", loopback_url))
         resp.raise_for_status()
-        yield resp  # noqa: unreachable
+        yield resp  # unreachable, but required to make this a generator
 
     monkeypatch.setattr(httpx, "stream", _error_stream)
 
@@ -886,7 +887,7 @@ def test_run_empty_answer_exits_backend_unreachable(
     assert result.body["status"] == "failed"
     assert "empty" in result.body.get("error", "").lower()
     assert result.extra["marker"]["status"] == "failed"
-    assert result.extra["marker"]["persisted"] is False
+    assert result.extra["marker"]["persisted"] is True
 
 
 def test_vios_resolution_failure_returns_marker(
@@ -919,3 +920,269 @@ def test_vios_resolution_failure_returns_marker(
     assert marker["event"] == "vss_job_failed"
     assert marker["status"] == "failed"
     assert marker["persisted"] is False
+
+
+def test_vios_failure_with_malformed_timestamp_still_returns_marker(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When build_input raises (e.g. datetime.fromisoformat on a bad --start-time), the
+    original VIOS error must still surface with the correct exit code and marker rather
+    than being swallowed by the build_input exception."""
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_core.vios.client import VIOSNotFoundError
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    def _raise_not_found(*_args: Any, **_kwargs: Any) -> None:
+        raise VIOSNotFoundError("sensor 'bad-sensor' not found")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_not_found)
+
+    # Simulate adapter.build_input raising on a malformed timestamp by patching it.
+    from vss_cli.vlm import memory_adapter as mem_adapter_mod
+
+    def _raise_on_build(*_args: Any, **_kwargs: Any) -> None:
+        raise ValueError("invalid isoformat string: 'not-a-date'")
+
+    monkeypatch.setattr(mem_adapter_mod.VlmAdapter, "build_input", _raise_on_build)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "bad-sensor", "--start-time", "not-a-date", "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["status"] == "failed"
+    assert marker["persisted"] is False
+    assert result.exit_code == Exit.NOT_FOUND
+
+
+def test_unreadable_file_returns_marker_not_bare_exit(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An unreadable --file is caught after the job id is minted, so it must report a
+    body + marker with exit 2 rather than propagating to guarded() and exiting silently."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--file", str(tmp_path / "missing.mp4"), "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    assert body["job_id"]
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["status"] == "failed"
+    assert marker["persisted"] is False
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_sensor_without_vst_service_returns_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """--sensor against a deployment with no vst service is a post-mint failure, so it
+    must emit a body + marker with the configuration exit code, not a bare raise."""
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["m"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(deployment)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "cam1", "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    assert body["job_id"]
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["persisted"] is False
+    assert result.exit_code == Exit.CONFIGURATION
+
+
+def test_vios_failure_with_malformed_timestamp_still_persists_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed --start-time makes build_input raise on the requested bounds. The
+    terminal record must still be written (retried without the window) so the failed
+    job stays retrievable through vss vlm get/list."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm import memory_adapter as mem_adapter_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core.vios.client import VIOSNotFoundError
+
+    def _raise_not_found(*_args: Any, **_kwargs: Any) -> None:
+        raise VIOSNotFoundError("sensor 'cam1' not found")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_not_found)
+
+    # Reject the malformed bound the way datetime.fromisoformat would, but accept
+    # the retry that omits the window.
+    real_build_input = mem_adapter_mod.VlmAdapter.build_input
+
+    def _picky_build_input(**kwargs: Any) -> Any:
+        if kwargs.get("start_time") == "not-a-date":
+            raise ValueError("invalid isoformat string: 'not-a-date'")
+        return real_build_input(**kwargs)
+
+    monkeypatch.setattr(mem_adapter_mod.VlmAdapter, "build_input", staticmethod(_picky_build_input))
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", start_time="not-a-date"), ctx)
+
+    assert result.exit == Exit.NOT_FOUND
+    assert result.body["status"] == "failed"
+    # The record survived the malformed bound via the no-window retry.
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record despite the malformed --start-time"
+    assert jobs[-1].job.status == "failed"
+    # ...and the marker says so rather than claiming the write was lost.
+    assert result.extra["marker"]["persisted"] is True
+
+
+def test_failure_marker_reports_persisted_true_when_record_written(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When memory is enabled and the terminal record is written, the marker must report
+    persisted=true. Hardcoding false tells callers the job is gone when get/list has it."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record"
+    assert result.extra["marker"]["persisted"] is True, "marker must not contradict memory"
+
+
+def test_failure_marker_reports_persisted_false_without_memory(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With --no-persist there is no record, so the marker must still report false."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    ctx = Context(deployment=configured, memory=None)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.extra["marker"]["persisted"] is False
+
+
+def test_sensor_without_vst_service_persists_terminal_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment exposing rt_vlm but not vst mints a job id, so the failure must be
+    written to memory. Returning without persisting leaves `vss vlm get/list` unable to
+    retrieve an invocation the CLI just reported as a failed job."""
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["m"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    config_mod.save(deployment)
+
+    store = _in_memory(deployment)
+    ctx = Context(deployment=deployment, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.CONFIGURATION
+    assert result.body["status"] == "failed"
+
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record when vst is missing from the deployment"
+    assert jobs[-1].job.job_id == result.job_id
+    assert jobs[-1].job.status == "failed"
+    # ...and the marker must agree that the record is retrievable.
+    assert result.extra["marker"]["persisted"] is True
+
+
+def test_sensor_without_vst_persists_despite_malformed_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The missing-vst path must survive an unparseable --start-time the same way the
+    VIOS path does: retry without the window so the record still lands."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import memory_adapter as mem_adapter_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["m"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    config_mod.save(deployment)
+
+    real_build_input = mem_adapter_mod.VlmAdapter.build_input
+
+    def _picky_build_input(**kwargs: Any) -> Any:
+        if kwargs.get("start_time") == "not-a-date":
+            raise ValueError("invalid isoformat string: 'not-a-date'")
+        return real_build_input(**kwargs)
+
+    monkeypatch.setattr(mem_adapter_mod.VlmAdapter, "build_input", staticmethod(_picky_build_input))
+
+    store = _in_memory(deployment)
+    ctx = Context(deployment=deployment, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", start_time="not-a-date"), ctx)
+
+    assert result.exit == Exit.CONFIGURATION
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record despite the malformed --start-time"
+    assert result.extra["marker"]["persisted"] is True
