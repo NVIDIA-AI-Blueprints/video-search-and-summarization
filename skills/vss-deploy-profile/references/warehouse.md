@@ -66,7 +66,7 @@ One-shot init containers also appear in these lists and exit `0` when done: `sdr
 
 ### Warehouse Auto-Calibration (select with `BP_PROFILE=bp_wh_auto_calib`)
 
-Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Set `BP_PROFILE=bp_wh_auto_calib`, choose `MODE=2d` or `3d`, and select the matching `COMPOSE_PROFILES_WH_AUTO_CALIB_*` service list. This variant skips broker health check. It is the only warehouse variant that starts `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
+Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Set `BP_PROFILE=bp_wh_auto_calib` and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` (one shared list; not `_2D` / `_3D` / `_MV3DT` suffixes). `MODE` does not select a different auto-calib compose list. This variant skips broker health check. It is the only warehouse variant that starts `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
 
 | Container | Purpose |
 |---|---|
@@ -74,7 +74,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | `vss-configurator` | Blueprint configurator |
 | `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration (`VSS_AUTO_CALIBRATION_HOST_PORT` 8010 / UI 5000) |
 | VST stack (subset) + `redis` + `vss-turnserver` | Stream management for calibration |
-| `vss-haproxy-ingress` | Included in all three `COMPOSE_PROFILES_WH_AUTO_CALIB_*` lists, though the auto-calibration UI has no ingress route — reach it on port 5000 |
+| `vss-haproxy-ingress` | Included in `COMPOSE_PROFILES_WH_AUTO_CALIB`, though the auto-calibration UI has no ingress route — reach it on port 5000 |
 
 ### Agent + UI (only when `BP_PROFILE=bp_wh`)
 
@@ -881,7 +881,7 @@ suffix for extended. There is no `MINIMAL_PROFILE` variable in the deployed env 
   | You have… | Deployment selector | What it does |
   |---|---|---|
   | **Video files on disk** | `COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
-  | **Live RTSP streams** (or want to use nvstreamer) | `BP_PROFILE=bp_wh_auto_calib`, plus `MODE` and the matching `COMPOSE_PROFILES_WH_AUTO_CALIB_*` list | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
+  | **Live RTSP streams** (or want to use nvstreamer) | `BP_PROFILE=bp_wh_auto_calib` and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
 
   Deploy the chosen calibration variant first, then generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`).
 
@@ -1117,7 +1117,7 @@ Under the profile-inversion model, `COMPOSE_PROFILES` is an explicit list of ser
 | `bp_wh_redis` | `2d` | `COMPOSE_PROFILES_WH_REDIS_2D` | `COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL` |
 | `bp_wh_kafka` | `3d` | `COMPOSE_PROFILES_WH_KAFKA_3D` | `COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL` |
 | `bp_wh_redis` | `3d` | `COMPOSE_PROFILES_WH_REDIS_3D` | `COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL` |
-| `bp_wh_auto_calib` | `2d` / `3d` | `COMPOSE_PROFILES_WH_AUTO_CALIB_2D` / `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` | not applicable; these lists are already minimal by composition |
+| `bp_wh_auto_calib` | any (`MODE` does not change this list) | `COMPOSE_PROFILES_WH_AUTO_CALIB` | not applicable; this list is already minimal by composition |
 
 ```ini
 # generated.env examples
@@ -1127,8 +1127,8 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}
 # BP_PROFILE=bp_wh_kafka, MODE=3d, minimal
 # COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL}
 
-# BP_PROFILE=bp_wh_auto_calib, MODE=3d
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}
+# BP_PROFILE=bp_wh_auto_calib
+# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
 ```
 
 Do not invoke `blueprint-deploy.sh` from this skill. `overrides.env` remains unchanged as the reusable template; `generated.env` is the active per-deployment file.
@@ -1219,7 +1219,7 @@ Two paths are available to generate calibration files depending on your video so
 | Path | Deployment selector | When to use |
 |---|---|---|
 | **Standalone Auto-Calibration** | `COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui` | You have video files on disk and want to upload them directly to the calibration UI. No nvstreamer or VST stack needed. |
-| **Warehouse Auto-Calibration** (`BP_PROFILE=bp_wh_auto_calib`) | Select `COMPOSE_PROFILES_WH_AUTO_CALIB_2D` or `_3D` to match `MODE` | You want to calibrate against live RTSP streams served by nvstreamer (using the warehouse dataset and VST stack). |
+| **Warehouse Auto-Calibration** (`BP_PROFILE=bp_wh_auto_calib`) | `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` | You want to calibrate against live RTSP streams served by nvstreamer (using the warehouse dataset and VST stack). |
 
 Both paths deploy `vss-auto-calibration` + `vss-auto-calibration-ui` and produce calibration JSON files consumable by behavior-analytics.
 

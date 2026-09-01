@@ -103,11 +103,11 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 | `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
 | VST stack (subset) | Stream management for calibration |
 
-Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list and the `COMPOSE_PROFILES_WH_AUTO_CALIB_*` warehouse lists start the auto-calibration containers. Regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
+Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list and `COMPOSE_PROFILES_WH_AUTO_CALIB` start the auto-calibration containers. Regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
 
 > **2D:** Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; remove those fields before redeploying. They are not required for 2D calibration.
 
-> **3D:** Generated calibration files must include a populated `sensors[].group` object on every camera sensor. Run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use the standalone AMC service list to upload videos directly, or set `BP_PROFILE=bp_wh_auto_calib` and select `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
+> **3D:** Generated calibration files must include a populated `sensors[].group` object on every camera sensor. Run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use the standalone AMC service list to upload videos directly, or set `BP_PROFILE=bp_wh_auto_calib` and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
 
 ### Extended Kafka/Redis service lists (non-`_MINIMAL`, any mode) — add
 

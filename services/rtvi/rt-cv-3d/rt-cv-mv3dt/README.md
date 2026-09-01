@@ -89,9 +89,9 @@ can try RT-CV-3D on without your own footage. It consists of:
       Camera.mp4  Camera_01.mp4  Camera_02.mp4  Camera_03.mp4
   ```
 - **`calibration.json`** and the **BEV map `Top.png`** (in this repo, under
-  `deploy/.../warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`):
-  - [`calibration.json`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
-  - [`images/Top.png`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
+  `deploy/.../warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`):
+  - [`calibration.json`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
+  - [`images/Top.png`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
 
 To test with the sample dataset, set **`VIDEO_DIR`** to the absolute path of the sample videos
 directory and **`NUM_CAMS=4`** in [docker/.env](docker/.env), then continue with
@@ -441,7 +441,7 @@ The script warns if the projected reference points don't land on the map, which 
 
 > **Sample dataset.** Build the `BEV_DATASET_PATH` directory from the files shipped in this repo:
 > ```bash
-> SAMPLE_DATA=../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic
+> SAMPLE_DATA=../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic
 > mkdir -p bev-dataset
 > cp "$SAMPLE_DATA/images/Top.png" bev-dataset/map.png
 > ./scripts/generate-transforms.sh "$SAMPLE_DATA/calibration.json" bev-dataset/map.png

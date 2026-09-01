@@ -76,13 +76,13 @@ commons:
         allowed_values: ["none"]
 
       # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
-      - variable: PERCEPTION_TAG
+      - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
           equals: "DGX-SPARK"
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, PERCEPTION_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       - variable: SAMPLE_VIDEO_DATASET
         when_equals: "nv-warehouse-4cams"

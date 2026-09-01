@@ -19,7 +19,7 @@ Container names are the actual `container_name:` keys in `deploy/docker/develope
 |---|---|---|---|
 | Perception (RT-DETR + tracker) | `vss-rtvi-cv-mc-tracking` | 9000 | DeepStream pipeline; extends the shared `rtvi-cv-mv3dt` base (`services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) |
 | BEV Fusion | `vss-rtvi-cv-bev-fusion-mc-tracking` | — | Cross-camera measurement fusion into a shared BEV coordinate frame; extends the same shared base's `measurement-fusion` |
-| bp-configurator (+ init) | `vss-configurator-mc-tracking`, `vss-configurator-mc-tracking-init` | — | Dynamic per-deploy config generation (camera list, DS main config, vst-config.json) — extends the centralized `bp-configurator-base` |
+| bp-configurator | `vss-configurator-mc-tracking` | — | Dynamic per-deploy config generation (camera list, DS main config, vst-config.json) — extends the centralized `bp-configurator-base`. There is no `vss-configurator-mc-tracking-init` container. |
 | nvstreamer | `vss-vios-nvstreamer-mc-tracking` | 31000 | Sample-video RTSP source / upload UI |
 | sensor-ms | `vss-vios-sensor` | 30000 | Camera/sensor registration (VMS); shared block `sensor-ms-mc-tracking` in `services/vios/initiator/` |
 | streamprocessing-ms | `vss-vios-streamprocessing` | 30001, 30554–30564 | Re-transcodes/relays camera streams; shared block `streamprocessing-ms-mc-tracking` in `services/vios/streamprocessing/` |
@@ -42,7 +42,7 @@ Container names are the actual `container_name:` keys in `deploy/docker/develope
 
 Valid `HARDWARE_PROFILE` values: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`.
 
-- `PERCEPTION_TAG="3.3.0-26.07.2"` by default; switch to the `-sbsa-` variant for DGX Spark / IGX Thor / SBSA platforms (commented alternative in `.env`).
+- Perception image is `${VSS_RT_CV_IMAGE}:${VSS_RT_CV_TAG}` from `containers.env` (default tag `3.3.0-26.07.2`). `PERCEPTION_TAG` does not select the pull. For DGX Spark / IGX Thor / SBSA set `VSS_RT_CV_TAG="develop-latest-sbsa"` in `generated.env` (commented example in `.env`).
 - `RT_CV_DEVICE_ID` (perception/BEV-fusion GPU) defaults unscoped (`'0'`) — this profile isn't expected to run concurrently with another profile on the same host, so no reserved/shared-device-id bookkeeping is needed. NVStreamer itself needs no GPU (per `services/nvstreamer/base.yml`'s design) and carries no device reservation.
 
 ## Hard rules
@@ -67,7 +67,7 @@ Set `VSS_APPS_DIR` (repo's `deploy/docker` path) and `VSS_DATA_DIR` (data direct
 
 ## Deploy
 
-Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-tracking`, or run directly:
+Do **not** use the umbrella Steps 1c–5b `resolved.yml` dry-run/`-f resolved.yml up` path for this profile. `mc-tracking` deploys with the direct `docker compose -f compose.yml` commands below (`SKILL.md`: not `dev-profile.sh`). Still copy `overrides.env` → `generated.env` and edit `generated.env` as in step 2:
 
 1. **Sample video data**
 
@@ -171,7 +171,11 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
 > **When `STREAM_TYPE` differs from the previous deploy (or you're unsure), do a proper project-scoped cleanup instead of the file-scoped `down` below** — it only tears down the *currently selected* `COMPOSE_PROFILES` variant, so a broker from the other variant (e.g. `kafka`) can be left running:
 >
 > ```bash
-> docker compose -p "${COMPOSE_PROJECT_NAME:-vss}" down -v --remove-orphans
+> docker compose -f compose.yml \
+>   --env-file containers.env \
+>   --env-file developer-profiles/dev-profile-mc-tracking/.env \
+>   --env-file developer-profiles/dev-profile-mc-tracking/generated.env \
+>   -p "${COMPOSE_PROJECT_NAME:-vss}" down -v --remove-orphans
 > ```
 
 4. **Stop the stack**
@@ -199,15 +203,16 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
    To reset `data_log` volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed:
 
    ```bash
+   cd deploy/docker
    PROFILE_DIR="developer-profiles/dev-profile-mc-tracking"
    ENV_FILE="$PROFILE_DIR/generated.env"
    [ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/overrides.env"
-   bash scripts/cleanup_all_datalog.sh -e "$ENV_FILE"
+   bash scripts/cleanup_all_datalog.sh --env-file "$ENV_FILE"
    ```
 
    This deletes calibration output and VST/nvstreamer runtime data by default — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` (sample media).
 
-   Prefer `generated.env` (created by this skill's Step 1c) over the checked-in `overrides.env`, which still has `VSS_DATA_DIR` set to a `/path/to/...` placeholder unless you edited it directly for a manual deploy. If `cleanup_all_datalog.sh` is pointed at a file where `VSS_DATA_DIR` doesn't resolve to a real directory, it now exits with `Error: VSS data dir '...' not found` (verified) rather than silently skipping the `data_log` cleanup. The explicitly selected `-e` file's `VSS_DATA_DIR`/`VSS_APPS_DIR` always wins, even if the invoking shell already has either exported for another deployment.
+   Prefer `generated.env` (from copying `overrides.env`) over the checked-in `overrides.env`, which still has `VSS_DATA_DIR` set to a `/path/to/...` placeholder unless you edited it directly for a manual deploy. If `cleanup_all_datalog.sh` is pointed at a file where `VSS_DATA_DIR` doesn't resolve to a real directory, it now exits with `Error: VSS data dir '...' not found` (verified) rather than silently skipping the `data_log` cleanup. The explicitly selected `-e` file's `VSS_DATA_DIR`/`VSS_APPS_DIR` always wins, even if the invoking shell already has either exported for another deployment.
 
 ## Debugging
 
