@@ -93,7 +93,10 @@ class TestProtobufAnomaliesToJsonStringList:
         result = protobuf_anomalies_to_json_string_list(batch, "incident")
 
         assert len(result) == 3
-        assert {json.loads(r)["sensorId"] for r in result} == {"cam-1", "cam-2", "cam-3"}
+        assert {json.loads(js)["sensorId"] for js, _ in result} == {"cam-1", "cam-2", "cam-3"}
+        # Each decoded string stays paired with the record it came from, so a
+        # caller can read that record's headers without a positional zip.
+        assert [src[0] for _, src in result] == [b"k1", b"k2", b"k3"]
 
     def test_tuples_without_timestamp_are_accepted(self):
         """Older broker paths emit ``(key, value)`` with no timestamp element."""
