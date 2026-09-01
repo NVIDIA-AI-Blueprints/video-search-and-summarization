@@ -81,6 +81,8 @@ FUSION_METHODS       = ("average", "gated_weighted")
 # Needs TargetManagement.outputVisibility: 1 upstream, or the value is pinned 
 # to 1.0 and the gate is a no-op.
 VISIBILITY_MIN       = float(os.environ.get("VISIBILITY_MIN",     "0.3"))
+if not 0.0 <= VISIBILITY_MIN <= 1.0:
+    raise ValueError("VISIBILITY_MIN must be a finite value between 0 and 1")
 
 # --- Fusion timing ----------------------------------------------------------
 # Max time a bucket waits for missing sensors before flushing with whatever it has.

@@ -117,6 +117,14 @@ def generate_cam_info_files(
         K, Rt = sensor.get("intrinsicMatrix"), sensor.get("extrinsicMatrix")
         if not isinstance(sensor_id, str) or not sensor_id:
             raise ValueError("Encountered camera sensor with missing/invalid 'id'.")
+        # The id becomes a filename below, so it must be a single path component.
+        # Rejecting separators and traversal here keeps every write inside
+        # output_dir and fails before any work is done. ".." needs its own case:
+        # Path("..").name is "..", so the name comparison alone lets it through.
+        if sensor_id in {".", ".."} or Path(sensor_id).name != sensor_id:
+            raise ValueError(
+                f"Sensor id {sensor_id!r} is not a valid filename component."
+            )
         if camera_matrix is None and (K is None or Rt is None):
             raise ValueError(f"Sensor '{sensor_id}' is missing 'cameraMatrix'.")
 
@@ -125,7 +133,6 @@ def generate_cam_info_files(
         # reprs a scalar as "np.float64(1.0)".
         if K is not None and Rt is not None:
             P = np.array(K, dtype=float) @ np.array(Rt, dtype=float)
-            P /= P[-1, -1]
             flattened_projection = [_format_number(v) for v in P.ravel().tolist()]
         else:
             flattened_projection = _flatten_camera_matrix(camera_matrix, sensor_id)

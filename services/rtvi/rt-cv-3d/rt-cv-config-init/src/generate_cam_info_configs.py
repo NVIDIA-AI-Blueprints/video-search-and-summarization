@@ -133,7 +133,6 @@ def generate_cam_info_files(
         # reprs a scalar as "np.float64(1.0)".
         if K is not None and Rt is not None:
             P = np.array(K, dtype=float) @ np.array(Rt, dtype=float)
-            P /= P[-1, -1]
             flattened_projection = [_format_number(v) for v in P.ravel().tolist()]
         else:
             flattened_projection = _flatten_camera_matrix(camera_matrix, sensor_id)
