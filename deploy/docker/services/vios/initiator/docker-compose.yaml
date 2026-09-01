@@ -34,6 +34,13 @@ services:
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
     environment:
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      # Optional credential override for mms-type adaptors (milestone_onvif,
+      # milestone_soap). A non-empty value wins over the matching field in
+      # configs/adaptor_config.json; leave blank to let the JSON be authoritative.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -82,6 +89,13 @@ services:
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
     environment:
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      # Optional credential override for mms-type adaptors (milestone_onvif,
+      # milestone_soap). A non-empty value wins over the matching field in
+      # configs/adaptor_config.json; leave blank to let the JSON be authoritative.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -132,6 +146,13 @@ services:
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
     environment:
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      # Optional credential override for mms-type adaptors (milestone_onvif,
+      # milestone_soap). A non-empty value wins over the matching field in
+      # configs/adaptor_config.json; leave blank to let the JSON be authoritative.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -179,6 +200,13 @@ services:
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
     environment:
       - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      # Optional credential override for mms-type adaptors (milestone_onvif,
+      # milestone_soap). A non-empty value wins over the matching field in
+      # configs/adaptor_config.json; leave blank to let the JSON be authoritative.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false

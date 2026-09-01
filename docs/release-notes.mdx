@@ -27,8 +27,8 @@ documents the developer profiles.
 ### Key Features and Enhancements
 
 - **Source code released** for all microservices and agent workflows on GitHub.
-- **Agent Skills** ([Agent Skills](/agent-skills)) (*Early Access*) are now available for agent-driven deployment
-  and operations with support for [multiple agent harnesses](/agent-harnesses). Skills are provided for:
+- **Agent Skills** ([Agent Skills](/vss/vision-agent/agent-skills)) (*Early Access*) are now available for agent-driven deployment
+  and operations with support for [multiple agent harnesses](/vss/vision-agent/agent-harnesses). Skills are provided for:
 
   - Profile deployment.
   - Agent workflow use cases such as video summarization, search, and report generation.
@@ -40,9 +40,9 @@ documents the developer profiles.
 - Added a Real-time Computer Vision 3D (RT-CV-3D) microservice with support for **MV3DT-based 3D multi-camera detection and tracking**, and integrated it into a new Warehouse Blueprint application.
 - Added the **Automatic Calibration** microservice for automated camera position and orientation calibration.
 - **NemoClaw + VSS** (*Early Access*): The `deploy_nemoclaw_vss.ipynb` notebook for deploying and
-  operating VSS from the [NemoClaw ](/nemoclaw) / OpenClaw chat UI, bundled with the
-  VSS OpenClaw plugin, VSS [Agent Skills](/agent-skills), a VSS policy preset, and
-  the host-side [VSS Orchestrator MCP server ](/vss-orchestrator-mcp).
+  operating VSS from the [NemoClaw ](/vss/vision-agent/agent-harnesses/nemoclaw) / OpenClaw chat UI, bundled with the
+  VSS OpenClaw plugin, VSS [Agent Skills](/vss/vision-agent/agent-skills), a VSS policy preset, and
+  the host-side [VSS Orchestrator MCP server ](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
 ### Agent Workflows
 
@@ -164,10 +164,10 @@ documents the developer profiles.
 - Added top-view image visualization on Thor and Spark platforms, and improved 3D bounding-box visualization by using individual camera timestamps when present.
 - Models - Core AI models for perception and analytics:
 
-  - [RT-DETR - 2D Warehouse Model v1.0.2 ](/models/rt-detr) - Model for 2D Single-Camera Object Detection.
-  - [Sparse4D - 3D Warehouse Model v2.2 ](/models/sparse4d) - Model for 3D Multi-Camera Object Detection and Tracking.
+  - [RT-DETR - 2D Warehouse Model v1.0.2 ](/vss/system-components/models/rt-detr-2d-warehouse-detection) - Model for 2D Single-Camera Object Detection.
+  - [Sparse4D - 3D Warehouse Model v2.2 ](/vss/system-components/models/sparse4d-3d-multi-camera) - Model for 3D Multi-Camera Object Detection and Tracking.
 
-See [Warehouse Known Limitations ](/warehouse-docs/Known-Limitations) for current warehouse profile constraints and workarounds.
+See [Warehouse Known Limitations ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
 </Tab>
 </Tabs>
 
@@ -517,7 +517,7 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
   (BEV) outputs across cameras with overlapping fields of view. It
   ships as two container images, `vss-rt-cv` (Perception) and
   `vss-rt-cv-mv3dt-bev-fusion` (BEV Fusion). See
-  [Object Detection and Tracking ](/object-detection-tracking).
+  [Object Detection and Tracking ](/vss/system-components/vision-microservices/object-detection-and-tracking).
 * **Shared RTVI-CV REST API surface** — built on the same RTVI-CV
   codebase as the RT-CV microservice, the Perception microservice
   exposes the same core REST API for stream management (dynamic
@@ -526,11 +526,11 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
   monitoring.
 * **Docker Compose deployment** — RT-CV-3D is released with a
   Docker Compose deployment and its source code, deployed through
-  the [Warehouse Blueprint MV3DT profile ](/warehouse-docs/MV3DT-profile).
+  the [Warehouse Blueprint MV3DT profile ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile).
 * **Agent Skills added** — new VSS Agent Skills let a coding agent
   deploy and operate the RT-CV-3D perception and tracking stack
   end to end, and generate the camera calibration it needs. See the
-  [Agent Skills walkthrough](/warehouse-docs/MV3DT-profile#agent-skills-walkthrough).
+  [Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
 
 * [RT-DETR](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/rtdetr_2d_warehouse?version=deployable_rn50_v1.0.2):
   Real-Time Detection Transformer object detection model optimized
@@ -540,7 +540,7 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
 
 * Standalone launch of the RT-CV-3D microservice is not yet
   supported. Deploy RT-CV-3D through the Warehouse Blueprint MV3DT
-  profile or the [Agent Skills](/warehouse-docs/MV3DT-profile#agent-skills-walkthrough).
+  profile or the [Agent Skills](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
   Standalone launch will be supported in a future release.
 * A Helm chart is not yet available. Helm support will be added in
   a future release.

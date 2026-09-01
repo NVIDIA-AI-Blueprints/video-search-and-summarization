@@ -608,6 +608,7 @@ jobs:
     name: Test (behavior analytics)
     needs: prepare-source
     runs-on: ubuntu-latest
+    if: needs.prepare-source.outputs.build-behavior-analytics == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     timeout-minutes: 30
     defaults:
       run:
@@ -658,6 +659,7 @@ jobs:
     name: Test (video analytics API)
     needs: prepare-source
     runs-on: ubuntu-latest
+    if: needs.prepare-source.outputs.build-video-analytics-api == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     timeout-minutes: 30
     defaults:
       run:
@@ -919,6 +921,7 @@ jobs:
     name: Integration (video analytics API)
     needs: prepare-source
     runs-on: ubuntu-latest
+    if: needs.prepare-source.outputs.build-video-analytics-api == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "300"
@@ -1474,6 +1477,7 @@ jobs:
       - name: Unit-test the build change detection
         run: |
           python3 .github/scripts/test_detect_changed_images.py
+          python3 .github/scripts/test_detect_sonarqube_projects.py
           python3 .github/scripts/test_container_build_plan.py
 
       - name: Unit-test the downstream GHCR candidate reporter

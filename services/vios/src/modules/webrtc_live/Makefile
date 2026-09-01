@@ -22,7 +22,8 @@ CPP = c++
 OBJS := $(SRCS:.cpp=.o)
 
 CPPFLAGS += -I $(TOP)/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/abseil-cpp \
-			-I $(TOP)/src/framework/web/http_server
+			-I $(TOP)/src/framework/web/http_server \
+			-I $(TOP)/src/framework/media/dash
 LDFLAGS := -ljsoncpp -rdynamic -shared
 
 all: $(TARGET)

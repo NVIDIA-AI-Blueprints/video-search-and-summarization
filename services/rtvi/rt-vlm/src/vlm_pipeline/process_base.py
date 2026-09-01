@@ -64,6 +64,7 @@ if _USE_CUDA_MM_TENSOR_IPC:
 
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 _FALSE_ENV_VALUES = {"0", "false", "no", "off", ""}
+QUEUE_DECODED_FRAMES_ON_GPU_ENV = "RTVI_QUEUE_DECODED_FRAMES_ON_GPU"
 
 
 def _parse_bool_env(name: str, default: bool = False) -> bool:
@@ -82,10 +83,14 @@ def _parse_bool_env(name: str, default: bool = False) -> bool:
 
 
 def _move_cuda_frames_to_cpu(value):
+    """Prepare decoded frame tensors for the downstream process queue."""
     if isinstance(value, torch.Tensor):
-        if value.is_cuda and not _USE_CUDA_MM_TENSOR_IPC:
-            return value.detach().cpu()
-        return value
+        if value.is_cuda and (
+            _USE_CUDA_MM_TENSOR_IPC or _parse_bool_env(QUEUE_DECODED_FRAMES_ON_GPU_ENV)
+        ):
+            return value.detach()
+        cpu_value = value.detach().cpu() if value.is_cuda else value
+        return cpu_value
     if isinstance(value, list):
         return [_move_cuda_frames_to_cpu(item) for item in value]
     if isinstance(value, tuple):

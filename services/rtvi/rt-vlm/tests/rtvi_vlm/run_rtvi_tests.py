@@ -191,6 +191,7 @@ def main():
             "test_vlm_pipeline_live_subscribers.py",
             "test_vllm_qwen3_cache_reuse_patch.py",
             "test_delete_parallel.py",
+            "test_vlm_ipc_frame_copy.py",
         ]
         unit_paths = [os.path.join(os.path.dirname(__file__), test) for test in unit_tests]
         results["unit"] = run_pytest(
