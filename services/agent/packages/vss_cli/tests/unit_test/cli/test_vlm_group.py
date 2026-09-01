@@ -653,3 +653,80 @@ def test_run_file_source_does_not_persist_local_path(
     result2 = group2.run("", VlmInput(prompt="What?", media_url=str(video_file)), ctx2)
     assert result2.exit == Exit.SUCCESS
     _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
+
+
+def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIOS resolves --sensor to a loopback URL, the CLI must stream it to a temp
+    file (no double-materialisation of raw bytes) and send the clip inline as base64."""
+    import base64 as _b64
+    import contextlib
+
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    clip_bytes = b"\x00\x01\x02loopback-clip"
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/url"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_a, **_kw: (loopback_url, None, None),
+    )
+
+    streamed_urls: list[str] = []
+    vlm_captured: dict[str, Any] = {}
+
+    @contextlib.contextmanager
+    def _fake_stream(method: str, url: str, *, timeout: Any = None, **_kw: Any):
+        streamed_urls.append(url)
+
+        class _FakeStream:
+            status_code = 200
+
+            def iter_bytes(self, chunk_size: int = 8192):
+                yield clip_bytes
+
+        yield _FakeStream()
+
+    def _fake_vlm_post(url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        vlm_captured["json"] = json
+        return httpx.Response(200, json=_completion("loopback works"))
+
+    monkeypatch.setattr(httpx, "stream", _fake_stream)
+    monkeypatch.setattr(httpx, "post", _fake_vlm_post)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.SUCCESS, f"expected SUCCESS, got {result.exit}: {result.body}"
+    assert result.body.get("answer") == "loopback works"
+    assert streamed_urls == [loopback_url], "expected exactly one stream call for the loopback clip"
+
+    # The VLM request must carry a data: URI, not the loopback URL.
+    video_part = vlm_captured["json"]["messages"][0]["content"][0]["video_url"]["url"]
+    assert video_part.startswith("data:video/mp4;base64,"), (
+        f"expected base64 data URI, got {video_part[:60]!r}"
+    )
+    assert _b64.b64decode(video_part.split(",", 1)[1]) == clip_bytes
+
+    # The loopback URL must not be stored in the memory record.
+    _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor loopback fallback")
+
+
+def test_is_loopback_url() -> None:
+    """_is_loopback_url must match localhost / 127.x.x.x / ::1 and reject routable hosts."""
+    from vss_cli.vlm.group import _is_loopback_url
+
+    assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
+    assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
+    assert _is_loopback_url("http://127.1.2.3:8080/")
+    assert _is_loopback_url("http://[::1]/clip.mp4")
+    assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
+    assert not _is_loopback_url("http://vst-host/clip.mp4")
+    assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")

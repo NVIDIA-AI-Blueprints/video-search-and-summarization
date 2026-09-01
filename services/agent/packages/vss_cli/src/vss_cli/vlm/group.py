@@ -36,8 +36,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import os
 import secrets
+import tempfile
 import time
+import urllib.parse
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
@@ -86,6 +89,23 @@ def _default_model(deployment: config_mod.Deployment) -> str:
         f"deployment at {deployment.base_url} reports no RT-VLM model, so --model cannot be defaulted. "
         f"Pass --model explicitly, or re-run `vss configure --base-url {deployment.base_url}`."
     )
+
+
+def _is_loopback_url(url: str) -> bool:
+    """True when the URL's host is a loopback address that a remote service cannot reach.
+
+    VIOS on Docker resolves clip URLs using the HAProxy-facing hostname, which is
+    often ``localhost`` or ``127.0.0.1`` from the CLI's perspective.  That URL is
+    reachable from the CLI host but not from inside the rt_vlm container; sending it
+    as ``video_url`` triggers SSRF protection (or a silent fetch failure), returning
+    an error or an empty answer.  Detecting this early lets the CLI fall back to
+    fetching the clip itself and inlining it as base64 before the VLM call.
+    """
+    try:
+        host = urllib.parse.urlparse(url).hostname or ""
+    except Exception:
+        return False
+    return host in ("localhost", "127.0.0.1", "::1") or host.startswith("127.")
 
 
 def _extract_answer(completion: dict[str, Any]) -> str:
@@ -298,6 +318,7 @@ class VlmGroup(CommandGroup):
         media_url: str
         resolved_start: str | None = inputs.start_time
         resolved_end: str | None = inputs.end_time
+        _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
         if inputs.sensor:
             # Path B: fetch a clip from VIOS. Let typed VIOS exceptions propagate so
             # guarded() maps them to the correct exit codes (3/5/7).
@@ -308,6 +329,41 @@ class VlmGroup(CommandGroup):
             media_url, resolved_start, resolved_end = _resolve_vios_clip(
                 deployment, inputs.sensor, inputs.start_time, inputs.end_time
             )
+            if _is_loopback_url(media_url):
+                # The VIOS clip URL resolves to localhost — reachable from this CLI
+                # host but blocked by rt_vlm's SSRF protection (or simply unreachable
+                # from inside the VLM container in Docker deployments). Stream the
+                # clip to a temp file so _build_vlm_request can base64-encode it
+                # without double-materialising the raw bytes in memory.
+                tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=".mp4")
+                os.close(tmp_fd)
+                try:
+                    with httpx.stream("GET", media_url, timeout=float(inputs.timeout)) as clip_resp:
+                        if clip_resp.status_code >= 400:
+                            raise InvalidInput(
+                                f"VIOS clip fetch failed for loopback base64 fallback: HTTP {clip_resp.status_code}"
+                            )
+                        with open(_loopback_tmp, "wb") as f:
+                            for chunk in clip_resp.iter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                    media_url = _loopback_tmp
+                except httpx.TimeoutException:
+                    with contextlib.suppress(OSError):
+                        os.unlink(_loopback_tmp)
+                    _loopback_tmp = None
+                    raise  # guarded() maps TimeoutException → Exit.TIMEOUT
+                except InvalidInput:
+                    with contextlib.suppress(OSError):
+                        os.unlink(_loopback_tmp)
+                    _loopback_tmp = None
+                    raise
+                except httpx.HTTPError as exc:
+                    with contextlib.suppress(OSError):
+                        os.unlink(_loopback_tmp)
+                    _loopback_tmp = None
+                    raise InvalidInput(
+                        f"cannot fetch VIOS clip for base64 fallback (loopback URL {media_url!r}): {exc}"
+                    ) from exc
         elif inputs.file:
             # Path A (file): local file path read and sent as base64-encoded bytes.
             media_url = inputs.file
@@ -328,10 +384,10 @@ class VlmGroup(CommandGroup):
         if inputs.temperature is not None:
             model_params["temperature"] = inputs.temperature
 
-        # True for both --file and "--media-url <path> --use-base64": the content
-        # was read from a local file, so the path is machine-specific and must
-        # not be stored as a retrievable memory handle.
-        _use_base64_effective = options.use_base64 or bool(inputs.file)
+        # True for --file, "--media-url <path> --use-base64", or the loopback
+        # SSRF fallback where the clip was streamed to a temp file: the video
+        # content is machine-specific bytes, not a retrievable URL handle.
+        _use_base64_effective = options.use_base64 or bool(inputs.file) or _loopback_tmp is not None
 
         input_data: MemoryInput = adapter.build_input(
             prompt=inputs.prompt,
@@ -355,6 +411,11 @@ class VlmGroup(CommandGroup):
             use_base64=_use_base64_effective,
             num_frames=inputs.num_frames,
         )
+        # Temp file has been read; discard it before the network call.
+        if _loopback_tmp is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(_loopback_tmp)
+            _loopback_tmp = None
 
         vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
         try:
