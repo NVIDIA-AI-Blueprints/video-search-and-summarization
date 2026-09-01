@@ -1,0 +1,52 @@
+/* SPDX-License-Identifier: MIT */
+:root { color-scheme: dark; }
+
+html, body, #__next { height: 100%; margin: 0; }
+
+body {
+  background: #0f1115;
+  color: #e8eaed;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.vss-shell { display: flex; flex-direction: column; height: 100%; }
+
+.vss-shell-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #2c2f36;
+  flex: 0 0 auto;
+}
+.vss-shell-note { color: #9aa0a6; font-size: 13px; margin-right: auto; }
+.vss-shell-bar button {
+  background: transparent;
+  border: 1px solid #2c2f36;
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.vss-shell-body { flex: 1 1 auto; display: flex; min-height: 0; }
+.vss-shell-main { flex: 1 1 auto; min-width: 0; }
+.vss-shell-side {
+  flex: 0 0 380px;
+  border-left: 1px solid #2c2f36;
+  min-width: 0;
+}
+
+.vss-shell-foot {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-top: 1px solid #2c2f36;
+  color: #9aa0a6;
+  font-size: 12px;
+}
+
+@media (max-width: 820px) {
+  .vss-shell-body { flex-direction: column; }
+  .vss-shell-side { flex: 1 1 auto; border-left: none; border-top: 1px solid #2c2f36; }
+}

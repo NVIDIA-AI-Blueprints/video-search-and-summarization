@@ -26,7 +26,8 @@
     "next-runtime-env": "^1.3.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "rsuite": "^6.0.0"
+    "rsuite": "^6.0.0",
+    "@nv-metropolis-bp-vss-ui/chat": "*"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.1.4",

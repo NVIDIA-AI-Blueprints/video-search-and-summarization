@@ -5,6 +5,7 @@ import { appWithTranslation } from 'next-i18next';
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { APPLICATION_TITLE } from '../constants/constants';
+import '@nv-metropolis-bp-vss-ui/chat/styles';
 import '../styles/globals.css';
 import 'rsuite/dist/rsuite.min.css';
 import '../styles/rsuite-custom.css';

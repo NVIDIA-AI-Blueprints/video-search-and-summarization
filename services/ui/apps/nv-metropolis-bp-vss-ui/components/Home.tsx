@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { env } from 'next-runtime-env';
 import type { ChatSidebarControlHandlers } from '@nemo-agent-toolkit/ui';
+import type { ChatSidebarControlHandlers as VssChatSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/chat';
 import { RuntimeConfigProvider } from '@nemo-agent-toolkit/ui';
 import type { 
   AlertsSidebarControlHandlers,
@@ -92,6 +93,122 @@ interface TabConfig {
 
 // Dynamic component imports based on configuration
 // These are loaded at runtime only if the corresponding tab is enabled
+// Replacement chat surface. Rendered instead of the toolkit's chat when
+// NEXT_PUBLIC_USE_VSS_CHAT is 'true', so the two can be compared in place
+// before the toolkit dependency is dropped for licensing reasons.
+const VssChatPanel = dynamic(
+  () => import('@nv-metropolis-bp-vss-ui/chat').then((mod) => mod.ChatPanel),
+  { ssr: false },
+);
+
+/**
+ * Point a VSS media URL at this app's proxy.
+ *
+ * The search CLI stamps every hit's media URL with the origin it was configured
+ * with (`vss configure --base-url`), which here is the host-local ingress. A
+ * browser resolving `http://localhost:7777/...` hits the user's own machine, so
+ * thumbnails and clips silently fail to load. Only the path matters — the proxy
+ * knows where the ingress actually is.
+ */
+const proxyMediaUrl = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !/^https?:\/\//.test(value)) return value;
+  try {
+    const { pathname, search } = new URL(value);
+    return `/api/proxy${pathname}${search}`;
+  } catch {
+    return value;
+  }
+};
+
+/** Rewrite every *_url field on each search hit. */
+const withProxiedMedia = (hits: Array<Record<string, unknown>>) =>
+  hits.map((hit) => {
+    const next: Record<string, unknown> = { ...hit };
+    for (const key of Object.keys(next)) {
+      if (key.endsWith('_url')) next[key] = proxyMediaUrl(next[key]);
+    }
+    return next;
+  });
+
+const readEnv = (key: string) => env(key) || process.env[key] || '';
+
+const vssChatEnabled = () => readEnv('NEXT_PUBLIC_USE_VSS_CHAT') === 'true';
+
+/**
+ * Chat endpoint + title for a surface.
+ *
+ * The URL is this app's own proxy rather than the configured backend: the panel
+ * fetches from the browser, and the agent adapter listens on a host-private
+ * port a browser cannot reach. pages/api/vss-chat.ts resolves the real target
+ * server-side from the same NEXT_PUBLIC_* values as before.
+ */
+type ChatSurface = 'main' | 'sidebar';
+
+/**
+ * Read a chat setting for one surface.
+ *
+ * The two surfaces are configured independently: the sidebar overrides a main
+ * variable by re-declaring it under `NEXT_PUBLIC_SIDEBAR_CHAT_`, falling back
+ * to the main value when it does not. This deployment relies on it — the
+ * sidebar chat has its own agent-parameter fields (search source type, critic
+ * toggle) that the chat tab does not, and reading only the main variables
+ * silently drops them.
+ *
+ * Same resolution order as `utils/tabChatEnv.ts`, which the toolkit path uses.
+ */
+const surfaceEnv = (surface: ChatSurface, mainKey: string): string => {
+  const suffix = mainKey.replace(/^NEXT_PUBLIC_/, '');
+  if (surface === 'sidebar') {
+    const scoped = readEnv(`NEXT_PUBLIC_SIDEBAR_CHAT_${suffix}`);
+    if (scoped) return scoped;
+  }
+  return readEnv(mainKey);
+};
+
+const surfaceFlag = (surface: ChatSurface, mainKey: string, fallback: boolean) => {
+  const value = surfaceEnv(surface, mainKey);
+  return value === '' ? fallback : value === 'true';
+};
+
+const vssChatConfig = (surface: ChatSurface) => ({
+  url: `/api/vss-chat?surface=${surface}`,
+  title: surfaceEnv(surface, 'NEXT_PUBLIC_WORKFLOW') || 'Chat',
+  // Upload talks to the agent API directly rather than through /api/vss-chat:
+  // it is a chunked, multi-minute transfer to VST, not a chat turn.
+  uploadUrlBase: surfaceEnv(surface, 'NEXT_PUBLIC_AGENT_API_URL_BASE'),
+});
+
+/**
+ * Feature switches for the replacement chat, read from the same
+ * NEXT_PUBLIC_CHAT_* variables the toolkit chat bar used.
+ *
+ * Reading the toolkit's own variables is the point: a deployment that already
+ * turned message copy off keeps it off after the swap, with nothing to migrate.
+ */
+const vssChatFeatures = (surface: ChatSurface) => ({
+  chatHistory: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON', true),
+  intermediateSteps: surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS', true),
+  messageCopy: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED', false),
+  messageEdit: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED', false),
+  messageSpeaker: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED', false),
+  inputMic: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED', false),
+  uploadFile: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE', true),
+  uploadFileMetadata: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED', false),
+  themeToggle: surfaceFlag(surface, 'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON', false),
+});
+
+const vssChatUploadConfig = (surface: ChatSurface) => ({
+  customAgentParamsJson: surfaceEnv(surface, 'NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON'),
+  uploadConfigTemplateJson: surfaceEnv(
+    surface,
+    'NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON',
+  ),
+  uploadHiddenMessageTemplate: surfaceEnv(
+    surface,
+    'NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE',
+  ),
+});
+
 const dynamicComponents = {
   NemoAgentToolkitApp: dynamic(() => 
     import('@nemo-agent-toolkit/ui').then(mod => mod.NemoAgentToolkitApp).catch((error) => {
@@ -321,6 +438,10 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
   // State for holding mode-specific control handlers
   const [chatControlHandlers, setChatControlHandlers] = useState<ChatSidebarControlHandlers | null>(null);
+  // The replacement chat's controls have their own shape; kept separate so the
+  // toolkit path is untouched when NEXT_PUBLIC_USE_VSS_CHAT is unset.
+  const [vssChatControlHandlers, setVssChatControlHandlers] =
+    useState<VssChatSidebarControlHandlers | null>(null);
   const [alertsControlHandlers, setAlertsControlHandlers] = useState<AlertsSidebarControlHandlers | null>(null);
   const [searchControlHandlers, setSearchControlHandlers] = useState<SearchSidebarControlHandlers | null>(null);
   const [dashboardControlHandlers, setDashboardControlHandlers] = useState<DashboardSidebarControlHandlers | null>(null);
@@ -339,6 +460,25 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = React.useState(false);
 
   const sidebarApi = useAppChatSidebar();
+
+  // Read once. These come from env, which cannot change at runtime, and a fresh
+  // object each render would give ChatPanel a new `features` identity — which
+  // is the prop its per-message memo compares on, so every message in the
+  // thread would re-render on every Home render.
+  const vssMainChatFeatures = useMemo(() => vssChatFeatures('main'), []);
+  const vssSidebarChatFeatures = useMemo(() => vssChatFeatures('sidebar'), []);
+  const vssMainChatExtraConfig = useMemo(() => vssChatUploadConfig('main'), []);
+  const vssSidebarChatExtraConfig = useMemo(() => vssChatUploadConfig('sidebar'), []);
+  const vssMainChatEndpoint = useMemo(() => {
+    const { url, uploadUrlBase } = vssChatConfig('main');
+    return { url, uploadUrlBase };
+  }, []);
+  const vssMainChatTitle = useMemo(() => vssChatConfig('main').title, []);
+  const vssSidebarChatEndpoint = useMemo(() => {
+    const { url, uploadUrlBase } = vssChatConfig('sidebar');
+    return { url, uploadUrlBase };
+  }, []);
+  const vssSidebarChatTitle = useMemo(() => vssChatConfig('sidebar').title, []);
 
   const sidebarRuntimeConfig = useMemo(
     () => ({
@@ -502,7 +642,59 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   }, [visibleTabs, setActiveTab]);
 
   const renderAppSidebarChat = React.useCallback(
-    () => (
+    () =>
+      vssChatEnabled() ? (
+        // The bridge callbacks are what feed answers to the search/alerts tabs
+        // and clear stale results on submit, so they are preserved verbatim.
+        <VssChatPanel
+          endpoint={vssSidebarChatEndpoint}
+          title={vssSidebarChatTitle}
+          theme={theme === 'dark' ? 'dark' : 'light'}
+          onThemeChange={handleThemeChange}
+          isActive={activeTab !== 'chat'}
+          features={vssSidebarChatFeatures}
+          {...vssSidebarChatExtraConfig}
+          // Separates this panel's conversations from the chat tab's, the same
+          // job the toolkit's storageKeyPrefix did.
+          storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
+          onAnswerComplete={handleSidebarAnswerComplete}
+          onSubmitMessageReady={handleSidebarSubmitMessageReady}
+          onMessageSubmitted={handleSidebarMessageSubmitted}
+          onAddQueryContextReady={(addItem: (item: QueryDataContext) => void) => {
+            appSidebarAddQueryContextRef.current = addItem;
+          }}
+          onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
+          onAnswer={(answer: string, conversationId: string) => {
+            // Feature tabs still receive the prose answer.
+            handleSidebarAnswerCompleteWithContent(answer);
+            // Search results reach the Search tab out of band. The existing
+            // pipeline expects the whole Search API payload embedded in the
+            // reply text, which would mean the model transcribing every hit
+            // (DECISIONS.md 2.5). Instead the adapter keeps the last result and
+            // the payload is handed over directly, in the shape the tab's
+            // parser already understands.
+            void (async () => {
+              try {
+                // Scoped to this conversation: the adapter's store is
+                // process-wide, so an unscoped read can return another
+                // conversation's media.
+                const r = await fetch(
+                  `/api/vss-chat?surface=sidebar&conversation=${encodeURIComponent(conversationId)}`,
+                );
+                if (!r.ok) return;
+                const last = await r.json();
+                if (!last?.data?.length) return;
+                handleSidebarAnswerCompleteWithContent(
+                  JSON.stringify({ data: withProxiedMedia(last.data) }),
+                );
+              } catch {
+                // Non-fatal: the chat answer has already been delivered.
+              }
+            })();
+          }}
+          onSubmit={() => handleSidebarMessageSubmitted()}
+        />
+      ) : (
       <RuntimeConfigProvider value={sidebarRuntimeConfig}>
         <SidebarNemoAgentToolkitApp
           theme={theme}
@@ -522,7 +714,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
         />
       </RuntimeConfigProvider>
-    ),
+      ),
     [
       theme,
       handleThemeChange,
@@ -534,6 +726,10 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       handleSidebarSubmitMessageReady,
       handleSidebarMessageSubmitted,
       handleSidebarChatVideoUploadComplete,
+      vssSidebarChatFeatures,
+      vssSidebarChatExtraConfig,
+      vssSidebarChatEndpoint,
+      vssSidebarChatTitle,
     ],
   );
 
@@ -542,6 +738,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     chatHandlersSetRef.current = true;
     setChatControlHandlers(handlers);
   }, []);
+
+  const vssChatControlsReadyCallback = React.useCallback(
+    (handlers: VssChatSidebarControlHandlers) => setVssChatControlHandlers(handlers),
+    [],
+  );
 
   const alertsControlsReadyCallback = React.useCallback((handlers: AlertsSidebarControlHandlers) => {
     alertsHandlersSetRef.current = true;
@@ -589,6 +790,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     if (activeTab !== 'chat') {
       setChatControlHandlers(null);
       chatHandlersSetRef.current = false;
+      // The replacement chat's controls need clearing on the same edge; the
+      // panel stays mounted when the tab is hidden, so it never stops
+      // reporting them on its own and they would leak into the next tab's
+      // MODE CONTROLS section.
+      setVssChatControlHandlers(null);
     }
     if (activeTab !== 'alerts') {
       setAlertsControlHandlers(null);
@@ -634,6 +840,29 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     }
 
     // Main Chat tab: use default env (no RuntimeConfigProvider = getWorkflowName() reads NEXT_PUBLIC_WORKFLOW)
+    if (componentName === 'NemoAgentToolkitApp' && vssChatEnabled()) {
+      return (
+        <div
+          key={tabConfig.id}
+          className="absolute inset-0 flex flex-col overflow-hidden"
+          style={{ display: isActive ? 'flex' : 'none' }}
+        >
+          <VssChatPanel
+            endpoint={vssMainChatEndpoint}
+            title={vssMainChatTitle}
+            theme={theme === 'dark' ? 'dark' : 'light'}
+            onThemeChange={handleThemeChange}
+            isActive={isActive}
+            features={vssMainChatFeatures}
+            {...vssMainChatExtraConfig}
+            // The chat tab renders its conversation list in the app's left
+            // sidebar, which is what renderControlsInLeftSidebar did before.
+            onControlsReady={isActive ? vssChatControlsReadyCallback : undefined}
+          />
+        </div>
+      );
+    }
+
     if (componentName === 'NemoAgentToolkitApp') {
       return (
         <div 
@@ -876,6 +1105,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
             {/* Mode-Specific Controls Section */}
             <ModeControlsSection 
               chatHandlers={chatControlHandlers}
+              vssChatHandlers={vssChatControlHandlers}
               alertsHandlers={alertsControlHandlers}
               searchHandlers={searchControlHandlers}
               dashboardHandlers={dashboardControlHandlers}
