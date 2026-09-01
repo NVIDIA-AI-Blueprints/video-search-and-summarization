@@ -63,7 +63,7 @@ ENV PIP_RETRIES=5
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN uv pip install \
+RUN UV_LOCK_TIMEOUT=1000 uv pip install \
     "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@3.1.0" \
     "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@3.1.0#subdirectory=packages/vss_ctx_rag_arango" \
     --extra-index-url https://pypi.nvidia.com/ \
