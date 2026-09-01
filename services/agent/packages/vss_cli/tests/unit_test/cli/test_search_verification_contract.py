@@ -131,7 +131,9 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert "The caller owns verdict validation and any fallback" in normalized
     assert "do not rerun search, resolve a sensor, broaden the clip, or choose another interval" in normalized
     assert "Hot conversation context -> answer directly" in normalized
-    assert "Explicit stored summary/result -> `vss memory get` or `vss memory query`" in normalized
+    assert (
+        "Explicit stored summary/result -> `vss memory get`, `vss summarize get`, or `vss memory query`" in normalized
+    )
     assert "General video question where past memory may exist -> `vss memory introspect`" in normalized
     assert "Exact sensor/time or explicit fresh visual verification -> `vss vlm run`" in normalized
     assert "`introspect` returns `no_memory` -> conditional `vss vlm run`" in normalized
@@ -161,6 +163,10 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert any(
         "Runs one vss vlm run" in behavior
         for behavior in evals_by_id["ask-video-no-memory-with-window"]["expected_behavior"]
+    )
+    assert any(
+        "vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ" in behavior
+        for behavior in evals_by_id["ask-video-memory-get"]["expected_behavior"]
     )
 
 

@@ -20,7 +20,7 @@
     {
       "query": "Read the stored VSS summary with job id sum-01JXYZ.",
       "checks": [
-        "The trajectory uses the project-local CLI bootstrap from root AGENTS.md and runs vss memory get --job-id sum-01JXYZ.",
+        "The trajectory uses the project-local CLI bootstrap from root AGENTS.md and runs vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ.",
         "It does not run memory introspect, vss vlm run, or direct chat/completions."
       ]
     },

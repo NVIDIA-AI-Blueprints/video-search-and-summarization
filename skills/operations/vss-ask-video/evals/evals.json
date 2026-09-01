@@ -22,9 +22,9 @@
     "id": "ask-video-memory-get",
     "question": "Show me the stored summary from job sum-01JXYZ.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Read the exact stored parent with vss memory get.",
+    "ground_truth": "Read the exact stored parent with vss memory get or vss summarize get.",
     "expected_behavior": [
-      "Runs vss memory get --job-id sum-01JXYZ.",
+      "Runs vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ.",
       "Does not invoke memory introspect, vss vlm run, or direct chat/completions."
     ]
   },

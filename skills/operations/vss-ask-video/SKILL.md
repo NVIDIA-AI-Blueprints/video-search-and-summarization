@@ -58,9 +58,10 @@ Apply these routes in order:
 1. **Hot conversation context -> answer directly.** If current messages or
    current-turn tool output already contain the answer, answer from that
    evidence. Do not query memory or run a model.
-2. **Explicit stored summary/result -> `vss memory get` or `vss memory query`.**
-   For a known `job_id`, use `get`. To find or list stored results by text,
-   sensor, type, status, or time, use `query`.
+2. **Explicit stored summary/result -> `vss memory get`, `vss summarize get`,
+   or `vss memory query`.** For a known `job_id`, read the stored parent with
+   `vss memory get` or, for a summarize job, `vss summarize get`. To find or
+   list stored results by text, sensor, type, status, or time, use `query`.
 3. **General video question where past memory may exist -> `vss memory
    introspect`.** Use this for a substantive question about prior video analysis
    when hot context does not answer it and the user did not request one exact
@@ -93,6 +94,8 @@ For an explicit stored parent:
 
 ```bash
 vss memory get --job-id '<job-id>'
+# summarize jobs may also use:
+vss summarize get --job-id '<job-id>'
 ```
 
 For a known child, add both `--record-type event|search_hit|incident` and
@@ -176,7 +179,8 @@ If `vss vlm run` exits non-zero, stop and report the error:
   aisle at 10:14 UTC." User: "When did the forklift cross?" -> answer `10:14
   UTC` directly; run no command.
 - **Explicit stored parent:** "Show me the summary from job `sum-01JXYZ`." ->
-  `vss memory get --job-id sum-01JXYZ`.
+  `vss memory get --job-id sum-01JXYZ` or `vss summarize get --job-id
+  sum-01JXYZ`.
 - **Stored-result discovery:** "Find stored search results about forklifts on
   `dock_cam`." -> `vss memory query --query 'forklifts' --sensor-id dock_cam`.
 - **General memory-aware question:** "Was anyone missing PPE on
