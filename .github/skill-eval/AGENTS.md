@@ -399,10 +399,13 @@ The canonical harbor command is in § Harbor invocation.
    **The box's docker runtime is reset for you at the *start* of each spec,
    not on exit.** On a spec's first trial — a single-step spec, or `step-1`
    of a multi-step one — `BrevEnvironment.start()` (the env provider, before
-   the agent runs) wipes the docker runtime to a clean slate: it force-removes
+   the agent runs) wipes the docker runtime before repo cleanup, then repeats
+   the verified reset, host-data purge, and repo sync at agent handoff. It
+   force-removes
    **all** containers, **all** user-defined networks, and **all** volumes
    (images are preserved — re-pulling them is slow). So a spec always begins
-   from a deterministic, leak-free runtime regardless of what the previous
+   from a deterministic, leak-free runtime even if a cancelled predecessor
+   recreates containers during repo sync, and regardless of what the previous
    spec left — a leftover container from a *different* compose project used to
    port-conflict the new deploy (observed: a stuck `phoenix` + missing init
    containers because a prior base-profile deploy still held the ports).
