@@ -61,6 +61,9 @@ do not duplicate full workflows from this top-level file.
 
 Selection rules:
 
+- If asked which skill handles default Cosmos-Embed1 RT-Embed deployment,
+  answer: use `vss-deploy-video-embedding`; this is the default deployment path,
+  not the BYOM/custom-model path.
 - For normal RT-Embed or Cosmos-Embed1 deployment, use the deployment reference.
   In the answer, explicitly say that this is the default RT-Embed deployment
   path. Also explicitly distinguish it from BYOM/custom model integration:

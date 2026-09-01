@@ -24,7 +24,7 @@
       ]
     },
     {
-      "query": "I only need to deploy RT-Embed with the default Cosmos-Embed1 model. Which skill should handle it? Do not deploy anything.",
+      "query": "I only need to deploy RT-Embed with the default Cosmos-Embed1 model. Which skill should handle it, and is this the default deployment path or the BYOM/custom-model path? Do not deploy anything.",
       "checks": [
         "The agent routes standard default Cosmos-Embed1 deployment to `vss-deploy-video-embedding`, using the default deployment path, not the BYOM path.",
         "The answer explains that `vss-deploy-video-embedding` distinguishes custom BYOM integration from normal default RT-Embed operation.",
