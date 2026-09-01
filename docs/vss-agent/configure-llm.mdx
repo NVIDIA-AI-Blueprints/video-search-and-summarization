@@ -13,9 +13,9 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 - **Default model:** The local default is profile-specific. The Base, Live Video Search, and Search profiles use `nvidia/nemotron-3.5-lightning-30b-a3b`; the Alerts profile uses `nvidia/nvidia-nemotron-nano-9b-v2`. Each profile's `overrides.env` includes the matching `LLM_NAME` and `LLM_NAME_SLUG`.
 
-- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `user-overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
-- **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile `overrides.env` to use one of the supported local models:
+- **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile `user-overrides.env` to use one of the supported local models:
 
   | `LLM_NAME` | `LLM_NAME_SLUG` |
   | --- | --- |
@@ -54,9 +54,16 @@ It is also recommended to review the different parameters described in the [quic
    ```
 
 
+Create the user-managed file from the checked-in template before modifying it:
+
+```bash
+cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
+  deploy/docker/developer-profiles/dev-profile-base/user-overrides.env
+```
+
 For every configuration below, save the shown values in
-`deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then validate and
-start the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
+`deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, then validate and start
+the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
 
 ## Managed remote LLMs
 
@@ -67,7 +74,7 @@ start the profile with the native Docker Compose command in [Quickstart](/vss/ge
 2. Deploy the agent workflow and point it to the cloud-managed remote NIM for the LLM:
 
    ```ini
-      # developer-profiles/dev-profile-base/overrides.env
+      # developer-profiles/dev-profile-base/user-overrides.env
       LLM_MODE=remote
       LLM_NAME_SLUG=none
       LLM_BASE_URL=https://integrate.api.nvidia.com
@@ -88,7 +95,7 @@ start the profile with the native Docker Compose command in [Quickstart](/vss/ge
    For instance, to configure both the LLM and VLM in remote mode, you can use a combined command like the following:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=remote
    LLM_NAME_SLUG=none
    LLM_BASE_URL=https://integrate.api.nvidia.com
@@ -117,7 +124,7 @@ You can adapt these instructions and combinations as shown in the following sect
 3. Deploy the agent workflow and point it to the chosen model name:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=remote
    LLM_NAME_SLUG=none
    LLM_BASE_URL=https://api.openai.com
@@ -191,7 +198,7 @@ This error indicates that your GPU does not have sufficient VRAM to run the sele
 4. Start the VSS agent workflow and point it to the remote LLM NIM container:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=remote
    LLM_NAME_SLUG=none
    LLM_BASE_URL=http://<remote-host>:30081
@@ -241,7 +248,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 3. Start the VSS agent workflow and point it to the remote vLLM model:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=remote
    LLM_NAME_SLUG=none
    LLM_BASE_URL=http://<remote-host>:30081

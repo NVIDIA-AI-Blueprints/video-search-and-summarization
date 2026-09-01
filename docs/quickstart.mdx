@@ -109,7 +109,7 @@ git lfs pull
 - Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
 - Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
-- For advanced settings and Agent Customization, edit the profile `overrides.env`.
+- For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
 ```bash
@@ -123,24 +123,32 @@ export HF_TOKEN='<hf-token>'
 
 Select a hardware tab, then a deployment mode. **Shared GPU** runs the LLM and VLM NIMs on the same GPU; **Dedicated GPU** assigns each model its own GPU (via `LLM_DEVICE_ID` and `VLM_DEVICE_ID`).
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-base/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+
+```bash
+PROFILE=base
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
+```
+
+For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
 
 ```bash
 PROFILE=base
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   config --quiet
 
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   up -d
 ```
 
-**Environment-variable overrides:** Update existing values in `deploy/docker/developer-profiles/dev-profile-base/overrides.env` in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+**Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
 **Host-path and service-address overrides (all hardware profiles):**
 
@@ -579,7 +587,7 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 </Note>
 
 <Note>
-**Switch Agent Workflows:** In the Docker Compose commands, use the matching `developer-profiles/dev-profile-<profile>/.env` and `developer-profiles/dev-profile-<profile>/overrides.env` files. For the Alerts profile, set `MODE` in `developer-profiles/dev-profile-alerts/overrides.env` to the workflow mode:
+**Switch Agent Workflows:** In the Docker Compose commands, use the matching `developer-profiles/dev-profile-<profile>/.env` and `developer-profiles/dev-profile-<profile>/user-overrides.env` files. For the Alerts profile, set `MODE` in `developer-profiles/dev-profile-alerts/user-overrides.env` to the workflow mode:
 
 - `base`: Base vision agent (this quickstart)
 - `lvs`: [Video Summarization Workflow](/vss/vision-agent/agent-workflows/video-summarization#step-1-deploy-the-agent)

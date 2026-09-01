@@ -18,9 +18,9 @@ The Cosmos3 Reasoner NIM requires a **Personal API Key** (`NGC_CLI_API_KEY`).
 Legacy NGC API keys will fail authentication.
 </Info>
 
-- **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile `user-overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
-- **Different local model:** For a local VLM, configure RT-VLM rather than selecting a standalone NIM Compose profile. Set `VLM_NAME`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` together in the selected profile `overrides.env`.
+- **Different local model:** For a local VLM, configure RT-VLM rather than selecting a standalone NIM Compose profile. Set `VLM_NAME`, `VLM_NAME_SLUG=none`, `VLM_MODEL_TYPE=rtvi`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` together in the selected profile `user-overrides.env`.
 
   The supported model selections map to the following RT-VLM values:
 
@@ -69,9 +69,16 @@ It is also recommended to review the different parameters described in the [quic
    ```
 
 
+Create the user-managed file from the checked-in template before modifying it:
+
+```bash
+cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
+  deploy/docker/developer-profiles/dev-profile-base/user-overrides.env
+```
+
 For every configuration below, save the shown values in
-`deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then validate and
-start the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
+`deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, then validate and start
+the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
 
 ## Managed remote VLMs
 
@@ -84,7 +91,7 @@ start the profile with the native Docker Compose command in [Quickstart](/vss/ge
 3. Deploy the agent workflow and point it to the chosen model name. Set `VLM_MODEL_TYPE=openai`:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=local
    LLM_DEVICE_ID=0
    VLM_MODE=remote
@@ -118,13 +125,13 @@ Examples of compatible openAI models:
    ```bash
    cp ./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml /path/to/config_reka.yml
    # Edit /path/to/config_reka.yml for the Reka VLM settings.
-   Set `VSS_AGENT_CONFIG_FILE=/path/to/config_reka.yml` in `overrides.env`.
+   Set `VSS_AGENT_CONFIG_FILE=/path/to/config_reka.yml` in `user-overrides.env`.
    ```
 
 4. Deploy the blueprint and point it to the chosen model name. Set `VLM_MODEL_TYPE=reka`:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=local
    LLM_DEVICE_ID=0
    VLM_MODE=remote
@@ -176,7 +183,7 @@ You may assign multiple GPUs using --gpus 'device=1,2,3' etc.
 4. Start the VSS agent workflow and point it to the remote VLM NIM container:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=local
    LLM_DEVICE_ID=0
    VLM_MODE=remote
@@ -230,7 +237,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 3. Start the VSS agent workflow and point it to the remote vLLM model:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    LLM_MODE=local
    LLM_DEVICE_ID=0
    VLM_MODE=remote
@@ -260,14 +267,14 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 - **Remote VLM only:** VSS does not bundle Omni weights when `VLM_MODE=remote`. Serve the model yourself (step 3).
 - **Enable audio:** Set `ENABLE_AUDIO=true` in the profile `.env`. Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM_NAME`.
 - **Non-Omni VLMs:** Cosmos and other VLMs ignore the audio track even with `ENABLE_AUDIO=true`; the agent logs a warning and falls back to JPEG frame sampling.
-- **Step order:** Run steps 1–3 in order. Video Q&A with audio needs the vLLM server (step 3) running. Deployed VSS in step 1 before vLLM was up? Finish step 3, then update `VLM_NAME` in `overrides.env` and recreate `vss-agent` (see step 3).
+- **Step order:** Run steps 1–3 in order. Video Q&A with audio needs the vLLM server (step 3) running. Deployed VSS in step 1 before vLLM was up? Finish step 3, then update `VLM_NAME` in `user-overrides.env` and recreate `vss-agent` (see step 3).
 </Note>
 
 1. **Deploy the VSS blueprint** (local LLM, remote VLM)
 
    Complete [prerequisites](/vss/getting-started/prerequisites) and the [quickstart](/vss/getting-started/quickstart) **base** profile deploy flow. Use **remote VLM** layout.
 
-   **Profile settings** (in `developer-profiles/dev-profile-base/overrides.env`):
+   **Profile settings** (in `developer-profiles/dev-profile-base/user-overrides.env`):
 
    - `ENABLE_AUDIO=true` in `deploy/docker/developer-profiles/dev-profile-base/.env`
    - `VLM_BASE_URL` → vLLM host from step 3; use `http://` with **no** trailing `/v1` (for example `http://<VLM_HOST>:30082`)
@@ -276,7 +283,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
    **Configure** (`HARDWARE_PROFILE`, `HOST_IP`, and `EXTERNAL_IP`; see the Quickstart tab-set for your GPU):
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    HARDWARE_PROFILE=<YOUR_GPU>
    HOST_IP=<HOST_IP>
    EXTERNAL_IP=<EXTERNAL_IP>
@@ -295,7 +302,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
    RTVI_VLM_MODEL_PATH=none
    ```
 
-   **Verify** `deploy/docker/developer-profiles/dev-profile-base/overrides.env` contains:
+   **Verify** `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env` contains:
 
    - `VLM_MODE=remote`
    - `VLM_BASE_URL`
@@ -345,7 +352,7 @@ A mismatch between `VLM_NAME` and the `id` from `/v1/models` produces **HTTP 404
    curl -s "http://${VLM_HOST}:30082/v1/models"
    ```
 
-   **If step 1 ran before vLLM was ready** — set `VLM_NAME` in `overrides.env` to the returned `id`, then recreate `vss-agent`:
+   **If step 1 ran before vLLM was ready** — set `VLM_NAME` in `user-overrides.env` to the returned `id`, then recreate `vss-agent`:
 
    ```bash
    cd /path/to/video-search-and-summarization/deploy/docker
@@ -353,7 +360,7 @@ A mismatch between `VLM_NAME` and the `id` from `/v1/models` produces **HTTP 404
    docker compose -f compose.yml \
      --env-file containers.env \
      --env-file developer-profiles/dev-profile-base/.env \
-     --env-file developer-profiles/dev-profile-base/overrides.env \
+     --env-file developer-profiles/dev-profile-base/user-overrides.env \
      up -d --force-recreate vss-agent
    ```
 

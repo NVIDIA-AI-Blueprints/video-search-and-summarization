@@ -83,7 +83,7 @@ For instructions on downloading the deployment package, see [Download the Deploy
   ```
 
 - Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
-- For advanced settings and Agent Customization, edit the profile `overrides.env`.
+- For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 
   ```bash
   # View all available options
@@ -127,24 +127,32 @@ The search profile uses 2 base GPUs: GPU 0 is shared by RTVI-CV and VIOS Stream 
 - **Remote VLM:** 2 GPUs -- 2 base with LLM shared (VLM offloaded).
 - **Remote LLM + VLM:** 2 GPUs -- base services only.
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-search/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+
+```bash
+PROFILE=search
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
+```
+
+For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-search/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
 
 ```bash
 PROFILE=search
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   config --quiet
 
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   up -d
 ```
 
-**Environment-variable overrides:** Update existing values in `deploy/docker/developer-profiles/dev-profile-search/overrides.env` in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+**Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-search/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
 **Host-path and service-address overrides (all hardware profiles):**
 
