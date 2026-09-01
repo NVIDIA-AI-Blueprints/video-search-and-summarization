@@ -170,6 +170,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app \
      -n <namespace> --create-namespace \
      -f deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app/values-nodeport.yaml \
+     --set global.storageClass=<STORAGE_CLASS> \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
    ```
