@@ -2,12 +2,12 @@
 
 Profile: `mc-tracking` | Blueprint: `dev_profile_mc_tracking` | Mode: `mc-tracking`
 
-Multi-camera 3D person/forklift tracking with BEV (bird's-eye-view) fusion, calibration import, and behavior analytics, packaged as a standalone developer profile — its own compose file, env files, camera config, calibration assets, and DeepStream/SDR-controller configs all live under `developer-profiles/dev-profile-mc-tracking/`.
+Multi-camera 3D tracking with BEV (bird's-eye-view) fusion, calibration import, and behavior analytics, packaged as a standalone developer profile — its own compose file, env files, camera config, calibration assets, and DeepStream/SDR-controller configs all live under `developer-profiles/dev-profile-mc-tracking/`.
 
 ## What's different from `base` / `search` / `lvs` / `alerts`
 
 - **No VSS Agent, agent UI, LLM NIM, or VLM NIM.** This profile is perception + tracking + analytics only — there's no conversational/report-generation layer.
-- **No Cosmos Embed / RT-VLM.** Detection is RT-DETR (Person = class 0, Forklift = class 1) feeding a multi-camera tracker and BEV fusion, not an embedding or captioning pipeline.
+- **No Cosmos Embed / RT-VLM.** Detection is RT-DETR feeding a multi-camera tracker and BEV fusion, not an embedding or captioning pipeline.
 - **Uses the full VIOS stack** (`sensor-ms`, `streamprocessing-ms`, `nvstreamer`, `vst-ingress`) plus `bp-configurator` (dynamic per-camera config generation) and `sdr-controller` (SDR/WDM: provisions camera streams onto the perception pod at runtime).
 - **Two message-broker variants** (`STREAM_TYPE=kafka` or `redis`) and **minimal variants** — see `COMPOSE_PROFILES_MC_TRACKING_*` in `overrides.env`.
 
@@ -26,17 +26,13 @@ Container names are the actual `container_name:` keys in `deploy/docker/develope
 | VST ingress | `vss-vios-ingress` | 30888 | Video storage/ingest |
 | sdr-controller | `sdr-controller` | 5003 (control), 10000 (proxy), 8011 | Provisions/deprovisions camera streams on `vss-rtvi-cv-mc-tracking` and `vss-vios-streamprocessing` at runtime |
 | Behavior Analytics | `vss-behavior-analytics-mc-tracking` | — | Tracks → zone/behavior events |
-| Video Analytics API | `vss-video-analytics-api-mc-tracking` | 8081 | REST API over analytics/incidents |
+| Video Analytics API | `vss-video-analytics-api` | 8081 | REST API over analytics/incidents |
 | Calibration import | `vss-import-calibration-output-mc-tracking` | — | One-shot: imports `calibration/sample-data/.../calibration.json` into Video Analytics API |
 | Elasticsearch + Logstash + Kibana (+ init) | `elasticsearch`, `logstash`, `kibana`, `vss-kibana-init-mc-tracking` | 9200, 5601 | Analytics index + dashboards |
 | Kafka **or** Redis | `kafka` / `redis` | 9092 / 6379 | Message bus (pick one via `STREAM_TYPE`) |
 | Mosquitto | `mosquitto` | 1883 | Cross-camera MQTT (tracker pub/sub) |
 | HAProxy ingress, TURN server | `vss-haproxy-ingress`, `vss-turnserver` | 7777, 3478 | Browser-facing ingress / WebRTC relay |
 | DCGM/Prometheus/Grafana/node-exporter/cAdvisor | — | 9400, 9090, 35000, 19100, 18080 | Optional monitoring stack |
-
-## Detection classes
-
-Person (class 0) and Forklift (class 1) — no other classes are tracked by this profile.
 
 ## Sample dataset
 
@@ -188,7 +184,7 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
      down -v --remove-orphans
    ```
 
-   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, not a Docker volume, so it survives `down -v` intact (including `sdr-controller`'s stale provisioning state, see [Debugging](#debugging)). Clear it with step 5's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, not a Docker volume, so it survives `down -v` intact (including `sdr-controller`'s stale provisioning state, see [Debugging](#debugging)). Clear it with step 5's `cleanup_all_datalog.sh`, or manually: `rm -rf "$VSS_DATA_DIR/data_log/redis/data"/*`.
 
    For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
 
@@ -228,4 +224,4 @@ Perception/provisioning failures in this profile are almost always one of the is
   **Fix: tear down cleanly, don't patch a running system.** `docker exec redis redis-cli DEL vss-rtvi-cv-mc-tracking rtvi-cv-mc-tracking-data vss-rtvi-cv-mc-tracking-pod && docker restart sdr-controller` looks like the targeted fix but is **unreliable in practice** (verified) — restarting only `sdr-controller` leaves it waiting fresh on the `vst.event` Redis stream, but `bp-configurator` already sent its one-shot sensor config *before* the restart and won't resend it just because `sdr-controller` came back, so the new `sdr-controller` process never receives it and the stack stays stuck. Instead, tear down fully (`down -v --remove-orphans`) and clear `$VSS_DATA_DIR/data_log/redis/data/*` (via `cleanup_all_datalog.sh`, step 5) *before* redeploying — this was verified to reliably fix it, the partial restart was not. Confirm with `docker logs vss-rtvi-cv-mc-tracking | grep 'Active sources'` (should read 4, not 0).
 - **Shell-exported vars silently override `generated.env`** — if `VSS_RT_CV_TAG`/`VSS_RT_CV_IMAGE` (perception), `VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE/TAG` (BEV fusion), or `NGC_CLI_API_KEY` were ever `source`d into the current shell (e.g. from an earlier `source .env`), Compose gives OS env vars precedence over `--env-file`, and a stray literal-quote-baked value produces `invalid reference format` on `up -d`. `env | grep -E "VSS_RT_CV_TAG|VSS_RT_CV_IMAGE|VSS_RT_CV_MV3DT_BEV_FUSION|NGC_CLI_API_KEY"` and `unset` anything present before redeploying.
 
-For a clean, known-good reset covering the Kibana/ES version mismatch and stale provisioning state at once: `docker compose ... down -v --rmi all` (wipes Postgres + images, forcing a rebuild of the pinned Elasticsearch version) + `rm -rf $VSS_DATA_DIR/data_log/redis/data/*` (wipes Redis — a bind mount, not touched by `-v`) + `docker volume ls -q -f dangling=true -f label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss} | xargs -r docker volume rm` (general hygiene, scoped to this project's volumes — an unscoped `dangling=true` filter would also delete dangling volumes from unrelated stopped containers/apps on the host), then redeploy. This does not fix `EACCES`/permission-denied issues (those need the `chmod` commands above) — expect the first `up` after a `-v --rmi all` teardown to take several minutes longer than an ordinary redeploy since it also forces a rebuild of any locally-built images (Elasticsearch, init containers).
+For a clean, known-good reset covering the Kibana/ES version mismatch and stale provisioning state at once: `docker compose ... down -v --rmi all` (wipes Postgres + images, forcing a rebuild of the pinned Elasticsearch version) + `rm -rf "$VSS_DATA_DIR/data_log/redis/data"/*` (wipes Redis — a bind mount, not touched by `-v`) + `docker volume ls -q -f dangling=true -f label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-vss} | xargs -r docker volume rm` (general hygiene, scoped to this project's volumes — an unscoped `dangling=true` filter would also delete dangling volumes from unrelated stopped containers/apps on the host), then redeploy. This does not fix `EACCES`/permission-denied issues (those need the `chmod` commands above) — expect the first `up` after a `-v --rmi all` teardown to take several minutes longer than an ordinary redeploy since it also forces a rebuild of any locally-built images (Elasticsearch, init containers).
