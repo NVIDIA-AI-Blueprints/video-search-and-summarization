@@ -337,7 +337,18 @@ class ElasticClient:
     ) -> Optional[Dict[str, Any]]:
         """Async mirror of ``get_document``."""
         try:
-            result = await self._get_async_client().get(index=index, id=doc_id)
+            # ignore_status, so a miss returns a response instead of raising.
+            # The lookup asks whether a document exists and "no" is a normal
+            # answer -- the confirmed-verdict check asks it for every alert. The
+            # client's own span is marked an error when the call raises, which
+            # happened before the handler below could classify it, so every
+            # alert trace carried an error it had already handled.
+            result = await self._get_async_client().options(
+                ignore_status=404
+            ).get(index=index, id=doc_id)
+            if not result.get("found", False):
+                logger.debug("Document not found (index=%s doc_id=%s)", index, doc_id)
+                return None
             logger.info(
                 "Retrieved document from Elasticsearch (index=%s doc_id=%s)",
                 index,
@@ -483,7 +494,18 @@ class ElasticClient:
             Document source dict, or None if not found.
         """
         try:
-            result = self.client.get(index=index, id=doc_id)  # type: ignore[attr-defined]
+            # ignore_status, so a miss returns a response instead of raising.
+            # The lookup asks whether a document exists and "no" is a normal
+            # answer -- the confirmed-verdict check asks it for every alert. The
+            # client's own span is marked an error when the call raises, which
+            # happened before the handler below could classify it, so every
+            # alert trace carried an error it had already handled.
+            result = self.client.options(  # type: ignore[attr-defined]
+                ignore_status=404
+            ).get(index=index, id=doc_id)
+            if not result.get("found", False):
+                logger.debug("Document not found (index=%s doc_id=%s)", index, doc_id)
+                return None
             logger.info(
                 "Retrieved document from Elasticsearch (index=%s doc_id=%s)",
                 index,
@@ -524,7 +546,13 @@ class ElasticClient:
             None if not found.
         """
         try:
-            result = self.client.get(index=index, id=doc_id)  # type: ignore[attr-defined]
+            # ignore_status, for the same reason as ``get_document``.
+            result = self.client.options(  # type: ignore[attr-defined]
+                ignore_status=404
+            ).get(index=index, id=doc_id)
+            if not result.get("found", False):
+                logger.debug("Document not found (index=%s doc_id=%s)", index, doc_id)
+                return None
             return {
                 "source": result["_source"],
                 "seq_no": result.get("_seq_no"),
