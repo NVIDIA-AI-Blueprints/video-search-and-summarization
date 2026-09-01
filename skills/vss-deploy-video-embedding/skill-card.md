@@ -54,7 +54,7 @@ Mitigation: Require a compatible text encoder in the same embedding space or ret
 
 
 ## Evaluation Tasks: <br>
-Evaluated against standalone RT-Embed deployment and BYOM routing tasks in NVSkills-Eval external profile. <br>
+Evaluated against standalone RT-Embed deployment, BYOM routing, and BYOM custom-model workflow tasks in NVSkills-Eval external profile. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
