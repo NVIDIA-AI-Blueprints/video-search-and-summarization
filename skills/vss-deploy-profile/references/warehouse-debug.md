@@ -152,7 +152,7 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 |---|---|
 | `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**; its self-named `rtvi-vlm` profile is included in `COMPOSE_PROFILES_WH_2D`. Warehouse uses RTVI VLM instead of the standalone VLM NIM path, so keep `VLM_MODE=none` and `VLM_NAME_SLUG=none`. `vss-agent` connects to RTVI VLM directly |
 | `vss-alert-bridge` | Drives realtime VLM alerts (POST/DELETE `/api/v1/realtime`) |
-| LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nvidia-nemotron-nano-9b-v2`) | LLM inference — only when `LLM_MODE=local` |
+| LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nemotron-3.5-lightning-30b-a3b`) | LLM inference — only when `LLM_MODE=local` |
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
@@ -654,7 +654,7 @@ docker logs --tail 50 vss-alert-bridge 2>&1 | grep -E "ERROR|error|fail"      | 
 docker logs --tail 50 vss-agent        2>&1 | grep -E "ERROR|error|fail"      | tail -20
 docker logs --tail 50 vss-agent-ui     2>&1 | grep -E "ERROR|error|fail"      | tail -20
 docker logs --tail 50 vss-haproxy-ingress 2>&1 | grep -E "ERROR|error|fail"   | tail -20
-# LLM NIM container name = LLM_NAME_SLUG from .env (e.g. nvidia-nemotron-nano-9b-v2)
+# LLM NIM container name = LLM_NAME_SLUG from .env (e.g. nemotron-3.5-lightning-30b-a3b)
 # Warehouse industry-profile compose commands read from .env directly
 # Prefer generated.env after a deployment; fall back to overrides.env on a fresh checkout.
 ENV_FILE="$REPO/deploy/docker/industry-profiles/warehouse-operations/generated.env"

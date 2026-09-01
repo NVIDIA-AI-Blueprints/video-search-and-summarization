@@ -63,7 +63,7 @@ all of the following before `docker compose up`:
 
 1. Identify the endpoint URL and model name. If the user gave them in
    their prompt (e.g. *"deploy with remote LLM at
-   `http://launchpad:11571` serving `nvidia/nvidia-nemotron-nano-9b-v2`"*),
+   `http://launchpad:11571` serving `nvidia/nemotron-3.5-lightning-30b-a3b`"*),
    use those values directly. Strip any trailing `/v1` (see callout below).
 2. If the user said "remote" without providing a URL or model, **stop and
    ask the user** for:
