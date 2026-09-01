@@ -489,6 +489,58 @@ start_rtdetr_gdino()
         --show-sensor-id
 }
 
+resolve_sparse4d_engine_file() {
+    local config_yaml="${SPARSE4D_CONFIG_PATH:-/opt/data/ds-configurator/}config.yaml"
+    if [[ ! -f "$config_yaml" ]]; then
+        echo "WARNING: Sparse4D config.yaml not found at ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local onnx_model_name
+    onnx_model_name=$(awk -F: '/^[[:space:]]*onnx_file[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    if [[ -z "$onnx_model_name" ]]; then
+        echo "WARNING: onnx_file not set in ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local num_sensors
+    num_sensors=$(awk -F: '/^[[:space:]]*num_sensors[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    num_sensors="${num_sensors:-1}"
+
+    local engine_dir stem engine_file
+    engine_dir="$(dirname "$onnx_model_name")"
+    stem="$(basename "$onnx_model_name" .onnx)"
+    engine_file="${engine_dir}/${stem}_b${num_sensors}.engine"
+
+    # Handle following cases to update the engine_file variable:
+    # 1. if engine does not exist check for higher batch size engine file, if yes then update the engine_file variable
+    if [[ ! -f "$engine_file" ]]; then
+        # TensorRT dynamic shapes let a b<M> engine (M > num_sensors) serve a
+        # b<num_sensors> request; reuse the smallest such M instead of rebuilding.
+        local best_batch="" best_engine="" cand cand_batch
+        shopt -s nullglob
+        for cand in "${engine_dir}/${stem}_b"*".engine"; do
+            cand_batch="$(basename "$cand" .engine)"
+            cand_batch="${cand_batch##*_b}"
+            [[ "$cand_batch" =~ ^[0-9]+$ ]] || continue
+            (( cand_batch > num_sensors )) || continue
+            if [[ -z "$best_batch" || "$cand_batch" -lt "$best_batch" ]]; then
+                best_batch="$cand_batch"
+                best_engine="$cand"
+            fi
+        done
+        shopt -u nullglob
+
+        if [[ -n "$best_engine" ]]; then
+            echo "##### Sparse4D engine cache hit (compatible): reusing b${best_batch} engine -> ${best_engine} #####"
+            engine_file="$best_engine"
+        fi
+    fi
+
+    sed -i "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml"
+    echo "##### Updated Sparse4D engine_file -> ${engine_file} #####"
+}
+
 start_sparse4d_warehouse()
 {
     echo "##### Sparse4D Warehouse models will be used. #####"
@@ -499,6 +551,8 @@ start_sparse4d_warehouse()
     fi
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$CUSTOM_LIB_PATH"
     export LD_PRELOAD="${LD_PRELOAD:-}:$CUSTOM_PRELOAD_LIB"
+
+    resolve_sparse4d_engine_file
 
     bash sparse4d_setup.sh
     cd "$DS_APP_DIR"
