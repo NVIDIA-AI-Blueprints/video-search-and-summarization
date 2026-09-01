@@ -241,8 +241,10 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
     provider: OpenAICompatibleEmbeddingProvider | None = None
     companion: ElasticsearchEmbeddingStore | None = None
     try:
-        # Validation guarantees an endpoint whenever embeddings are enabled.
+        # Normal CLI configuration resolves dimensions before saving. A
+        # hand-written configuration can still discover them on first use.
         assert embedding_config.endpoint is not None
+        assert embedding_config.model is not None
         provider = OpenAICompatibleEmbeddingProvider(
             endpoint=embedding_config.endpoint,
             model=embedding_config.model,
@@ -250,7 +252,11 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
             timeout_seconds=embedding_config.timeout_seconds,
             batch_size=embedding_config.batch_size,
             api_key_env=embedding_config.api_key_env,
+            query_input_type=embedding_config.query_input_type,
+            document_input_type=embedding_config.document_input_type,
         )
+        if embedding_config.dimensions is None:
+            provider.embed_query("VSS memory embedding dimension discovery")
         companion = ElasticsearchEmbeddingStore(
             endpoint=endpoint,
             index=embedding_config.index,

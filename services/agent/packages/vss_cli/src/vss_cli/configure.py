@@ -19,6 +19,7 @@ error inside a search.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 import json
@@ -179,6 +180,20 @@ def _memory_backend_error(message: str) -> NoReturn:
     raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
 
 
+def _embedding_probe_error(error: BaseException) -> NoReturn:
+    message = str(error)
+    if "environment variable" in message or "authentication failed" in message or "authorization failed" in message:
+        click.echo(f"vss configure memory: embedding credential error: {message}", err=True)
+        raise SystemExit(int(Exit.CONFIGURATION))
+    if "dimension" in message:
+        click.echo(f"vss configure memory: embedding dimension error: {message}", err=True)
+        raise SystemExit(int(Exit.CONFIGURATION))
+    if "response" in message or "JSON" in message:
+        click.echo(f"vss configure memory: malformed embedding response: {message}", err=True)
+        raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
+    _memory_backend_error(message)
+
+
 def _load_memory_deployment() -> config_mod.Deployment:
     try:
         return config_mod.load()
@@ -224,6 +239,31 @@ def _check_memory_backend(
     return f"Elasticsearch reachable at {endpoint}; authoritative index={memory_config.index}"
 
 
+def _probe_embedding(embedding: config_mod.EmbeddingConfig) -> tuple[int, str | None]:
+    from vss_core.memory import EmbeddingProviderError
+    from vss_core.memory import OpenAICompatibleEmbeddingProvider
+
+    assert embedding.endpoint is not None
+    assert embedding.model is not None
+    provider = OpenAICompatibleEmbeddingProvider(
+        endpoint=embedding.endpoint,
+        model=embedding.model,
+        dimensions=embedding.dimensions,
+        timeout_seconds=embedding.timeout_seconds,
+        batch_size=embedding.batch_size,
+        api_key_env=embedding.api_key_env,
+        query_input_type=embedding.query_input_type,
+        document_input_type=embedding.document_input_type,
+    )
+    try:
+        vector = provider.embed_query("VSS memory embedding health check")
+    except EmbeddingProviderError as error:
+        _embedding_probe_error(error)
+    finally:
+        provider.close()
+    return len(vector), provider.resolved_model
+
+
 def _check_embedding_backend(
     deployment: config_mod.Deployment,
     memory_config: config_mod.MemoryConfig,
@@ -231,29 +271,13 @@ def _check_embedding_backend(
     """Probe one embedding and inspect the companion mapping without mutation."""
     import httpx
 
-    from vss_core.memory import EmbeddingProviderError
-    from vss_core.memory import OpenAICompatibleEmbeddingProvider
-
     embedding = memory_config.embeddings
-    provider = OpenAICompatibleEmbeddingProvider(
-        endpoint=embedding.endpoint or "",
-        model=embedding.model,
-        dimensions=embedding.dimensions,
-        timeout_seconds=embedding.timeout_seconds,
-        batch_size=embedding.batch_size,
-        api_key_env=embedding.api_key_env,
+    dimensions, resolved_model = _probe_embedding(embedding)
+    resolved_detail = f"; resolved_model={resolved_model}" if resolved_model is not None else ""
+    probe_detail = (
+        f"Embedding endpoint reachable; provider={embedding.provider}; target={embedding.model}; "
+        f"dimensions={dimensions}{resolved_detail}"
     )
-    try:
-        vector = provider.embed_query("VSS memory embedding health check")
-    except EmbeddingProviderError as error:
-        _memory_backend_error(str(error))
-    finally:
-        provider.close()
-    if len(vector) != embedding.dimensions:
-        _memory_backend_error(
-            f"embedding probe returned {len(vector)} dimensions; configured dimensions are {embedding.dimensions}"
-        )
-    probe_detail = f"Embedding endpoint reachable; model={embedding.model}; dimensions={len(vector)}"
 
     endpoint = deployment.endpoint_or_none("elasticsearch")
     if not endpoint:
@@ -281,11 +305,11 @@ def _check_embedding_backend(
     if (
         not isinstance(vector_mapping, dict)
         or vector_mapping.get("type") != "dense_vector"
-        or vector_mapping.get("dims") != embedding.dimensions
+        or vector_mapping.get("dims") != dimensions
         or vector_mapping.get("similarity") != "cosine"
         or not isinstance(metadata, dict)
         or metadata.get("model") != embedding.model
-        or metadata.get("dimensions") != embedding.dimensions
+        or metadata.get("dimensions") != dimensions
     ):
         _memory_config_error(
             f"companion embedding index {embedding.index!r} has an incompatible vector mapping; "
@@ -439,6 +463,14 @@ def configure_memory(
     )
     try:
         candidate.validate()
+        if candidate.embeddings.enabled and candidate.embeddings.dimensions is None:
+            dimensions, resolved_model = _probe_embedding(candidate.embeddings)
+            candidate = replace(
+                candidate,
+                embeddings=replace(candidate.embeddings, dimensions=dimensions),
+            )
+            resolved_detail = f" (endpoint reported {resolved_model})" if resolved_model is not None else ""
+            click.echo(f"discovered embedding dimensions: {dimensions}{resolved_detail}", err=True)
         path = config_mod.save(
             config_mod.Deployment(
                 base_url=deployment.base_url,
