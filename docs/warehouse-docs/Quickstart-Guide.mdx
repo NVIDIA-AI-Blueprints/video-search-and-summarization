@@ -561,7 +561,7 @@ that the deployment is serving data.
 ### How the Skill Configures and Runs the Deployment
 
 For the Warehouse Blueprint, `vss-deploy-profile` loads
-`skills/vss-deploy-profile/references/warehouse.md` in the VSS Blueprint repository
+`skills/deployment/vss-deploy-profile/references/warehouse.md` in the VSS Blueprint repository
 as its per-profile playbook. That reference owns the warehouse-specific decisions the
 Skill makes on the operator's behalf:
 
@@ -595,7 +595,7 @@ Skill makes on the operator's behalf:
 
 For warehouse-specific debugging prompts such as "warehouse FPS low", "BEV out of
 sync", or "perception not starting", the Skill loads the companion
-`skills/vss-deploy-profile/references/warehouse-debug.md` reference.
+`skills/deployment/vss-deploy-profile/references/warehouse-debug.md` reference.
 
 After a `git pull` of the VSS Blueprint repository, symlinked Skills automatically
 point at the updated content. If new Skills were added, ask the coding agent:

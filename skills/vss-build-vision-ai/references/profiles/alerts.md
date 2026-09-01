@@ -79,5 +79,5 @@ probe `http://${HOST_IP}:8018/v1/health/ready`.
 - `deploy/docker/services/agent/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
-- `skills/vss-manage-alerts/references/integrate-alerts.md`
-- `skills/vss-setup-behavior-analytics/references/configuration.md`
+- `skills/operations/vss-manage-alerts/references/integrate-alerts.md`
+- `skills/deployment/vss-setup-behavior-analytics/references/configuration.md`

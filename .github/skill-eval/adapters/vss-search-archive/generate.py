@@ -46,10 +46,10 @@ subdir.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-search-archive/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-search-archive \\
-        --skill-dir skills/vss-search-archive \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
-        --video-io-skill-dir skills/vss-manage-video-io-storage \\
-        --ask-video-skill-dir skills/vss-ask-video
+        --skill-dir skills/operations/vss-search-archive \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --video-io-skill-dir skills/operations/vss-manage-video-io-storage \\
+        --ask-video-skill-dir skills/operations/vss-ask-video
 """
 from __future__ import annotations
 
@@ -214,6 +214,23 @@ KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
+def _peer_skill_dir(skill_dir: Path, name: str) -> Path | None:
+    """Resolve a peer skill by its leaf directory name.
+
+    A skill lives at either skills/<name>/ or skills/<category>/<name>/, and a
+    peer may sit in a different category than the caller — so look beside the
+    caller first, then across the categories one level up.
+    """
+    beside = skill_dir.parent / name
+    if beside.is_dir():
+        return beside
+    for category in sorted(skill_dir.parent.parent.glob("*")):
+        nested = category / name
+        if nested.is_dir():
+            return nested
+    return None
+
+
 def generate_test_script(step: int, spec_name: str) -> str:
     """Wrapper that invokes the generic judge for one step's checks."""
     return (
@@ -486,13 +503,13 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root (e.g. .github/skill-eval/datasets/vss-search-archive)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-search-archive")
+                        help="Path to skills/operations/vss-search-archive")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
+                        help="Path to skills/deployment/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-                        help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
+                        help="Path to skills/operations/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
     parser.add_argument("--ask-video-skill-dir", default=None,
-                        help="Path to skills/vss-ask-video (optional — required by the confirmed verification step)")
+                        help="Path to skills/operations/vss-ask-video (optional — required by the confirmed verification step)")
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
@@ -507,9 +524,10 @@ def main() -> None:
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
     ask_video_skill_dir = (
-        Path(args.ask_video_skill_dir) if args.ask_video_skill_dir else skill_dir.parent / "vss-ask-video"
+        Path(args.ask_video_skill_dir) if args.ask_video_skill_dir
+        else _peer_skill_dir(skill_dir, "vss-ask-video")
     )
-    if not ask_video_skill_dir.is_dir():
+    if ask_video_skill_dir is None or not ask_video_skill_dir.is_dir():
         print(f"ask-video skill not found: {ask_video_skill_dir}", file=sys.stderr)
         sys.exit(1)
     if args.spec:

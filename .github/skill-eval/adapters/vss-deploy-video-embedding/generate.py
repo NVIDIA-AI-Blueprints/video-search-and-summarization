@@ -20,7 +20,7 @@ budget without exercising new code paths.
 
 ## Spec shape
 
-`skills/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
+`skills/deployment/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
 single `expects` entry (one bring-up query + 9 checks). The adapter
 therefore emits a flat `base/<platform_short>/` task directory rather
 than a step-chain.
@@ -40,7 +40,7 @@ than a step-chain.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-video-embedding/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-video-embedding \\
-        --skill-dir skills/vss-deploy-video-embedding
+        --skill-dir skills/deployment/vss-deploy-video-embedding
 """
 
 from __future__ import annotations
@@ -422,7 +422,7 @@ def main() -> None:
         "(e.g. .github/skill-eval/datasets/vss-deploy-video-embedding)",
     )
     parser.add_argument(
-        "--skill-dir", required=True, help="Path to skills/vss-deploy-video-embedding"
+        "--skill-dir", required=True, help="Path to skills/deployment/vss-deploy-video-embedding"
     )
     parser.add_argument(
         "--spec",
