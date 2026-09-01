@@ -19,6 +19,7 @@ from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
 
+from ..embeddings import CANONICAL_SEARCHABLE_TEXT_VERSION
 from ..embeddings import SIMILARITY
 from ..embeddings import EmbeddingProvider
 from ..embeddings import canonical_searchable_text
@@ -76,6 +77,8 @@ class ElasticsearchEmbeddingStore:
         index: str,
         provider: EmbeddingProvider,
         authoritative_store: MemoryStore,
+        provider_name: str = "openai_compatible",
+        embedding_endpoint_identity: str | None = None,
         client: Elasticsearch | None = None,
         request_timeout: int = 30,
     ) -> None:
@@ -87,6 +90,8 @@ class ElasticsearchEmbeddingStore:
             raise ConfigurationError("embedding dimensions must be positive")
         self._index = index
         self._provider = provider
+        self._provider_name = provider_name
+        self._embedding_endpoint_identity = embedding_endpoint_identity
         self._authoritative_store = authoritative_store
         self._owned = client is None
         self._client = client or Elasticsearch(endpoint, request_timeout=request_timeout)
@@ -101,17 +106,23 @@ class ElasticsearchEmbeddingStore:
         return {
             "dynamic": "strict",
             "_meta": {
-                "model": self._provider.model,
-                "dimensions": self._provider.dimensions,
                 "schema": EMBEDDING_SCHEMA,
                 "implementation_version": IMPLEMENTATION_VERSION,
+                "provider": self._provider_name,
+                "model_target": self._provider.model,
+                "dimensions": self._provider.dimensions,
+                "canonical_text_version": CANONICAL_SEARCHABLE_TEXT_VERSION,
+                "similarity": SIMILARITY,
+                "endpoint_identity": self._embedding_endpoint_identity,
             },
             "properties": {
                 "storage_id": {"type": "keyword"},
                 "schema": {"type": "keyword"},
                 "content_hash": {"type": "keyword"},
                 "model": {"type": "keyword"},
+                "provider": {"type": "keyword"},
                 "dimensions": {"type": "integer"},
+                "canonical_text_version": {"type": "integer"},
                 "content": {"type": "text"},
                 "vector": {
                     "type": "dense_vector",
@@ -157,7 +168,9 @@ class ElasticsearchEmbeddingStore:
             existing is not None
             and existing.get("content_hash") == digest
             and existing.get("model") == self._provider.model
+            and existing.get("provider") == self._provider_name
             and existing.get("dimensions") == self._provider.dimensions
+            and existing.get("canonical_text_version") == CANONICAL_SEARCHABLE_TEXT_VERSION
         )
         metadata = self._document(record, text=text, digest=digest)
         try:
@@ -217,7 +230,9 @@ class ElasticsearchEmbeddingStore:
                     existing is not None
                     and existing.get("content_hash") == digest
                     and existing.get("model") == self._provider.model
+                    and existing.get("provider") == self._provider_name
                     and existing.get("dimensions") == self._provider.dimensions
+                    and existing.get("canonical_text_version") == CANONICAL_SEARCHABLE_TEXT_VERSION
                 )
                 metadata = self._document(record, text=text, digest=digest)
                 if reusable:
@@ -411,8 +426,9 @@ class ElasticsearchEmbeddingStore:
             or any(metadata.get(key) != value for key, value in expected_meta.items())
         ):
             raise ConfigurationError(
-                f"companion embedding index {self._index!r} has an incompatible mapping; "
-                "configure a new versioned embedding index and backfill it"
+                f"Embedding index {self._index!r} was created for a different model, provider, "
+                "vector dimension, or canonical text version. Configure a new `--embedding-index` "
+                "and run `vss memory embeddings backfill`."
             )
 
     def _get_metadata(self, doc_id: str) -> dict[str, Any] | None:
@@ -444,7 +460,9 @@ class ElasticsearchEmbeddingStore:
             "schema": EMBEDDING_SCHEMA,
             "content_hash": digest,
             "model": self._provider.model,
+            "provider": self._provider_name,
             "dimensions": self._provider.dimensions,
+            "canonical_text_version": CANONICAL_SEARCHABLE_TEXT_VERSION,
             "content": text,
             "job_id": record.job.job_id,
             "group": record.job.group,
@@ -481,6 +499,7 @@ class ElasticsearchEmbeddingStore:
                     doc_ids=[doc_id],
                     kind="text",
                     info={
+                        "provider": self._provider_name,
                         "model": self._provider.model,
                         "dimensions": self._provider.dimensions,
                         "content_hash": content_hash(record),

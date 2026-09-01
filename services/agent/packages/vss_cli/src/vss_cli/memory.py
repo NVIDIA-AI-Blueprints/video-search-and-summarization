@@ -227,6 +227,7 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
     from vss_core.memory import EmbeddingBackfillService
     from vss_core.memory import MemoryService
     from vss_core.memory import OpenAICompatibleEmbeddingProvider
+    from vss_core.memory import embedding_endpoint_identity
     from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
 
     authoritative = ElasticsearchMemoryStore(endpoint=endpoint, index=memory_config.index)
@@ -262,6 +263,8 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
             index=embedding_config.index,
             provider=provider,
             authoritative_store=authoritative,
+            provider_name=embedding_config.provider,
+            embedding_endpoint_identity=embedding_endpoint_identity(embedding_config.endpoint),
         )
         retrieval = memory_config.retrieval
         service = MemoryService(

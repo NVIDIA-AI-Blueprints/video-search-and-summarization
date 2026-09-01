@@ -22,6 +22,7 @@ from .models import UnifiedMemoryRecord
 DOCUMENT_INPUT_TYPE = "passage"
 QUERY_INPUT_TYPE = "query"
 SIMILARITY = "cosine"
+CANONICAL_SEARCHABLE_TEXT_VERSION = 1
 _SEARCHABLE_CONTEXT_KEYS = ("description", "category", "kind", "original_query", "search_mode")
 _ELIGIBLE_STATUSES = frozenset({"completed", "partial"})
 
@@ -118,6 +119,18 @@ def _embeddings_url(endpoint: str) -> str:
     if not path.endswith("/embeddings"):
         path = f"{path}/embeddings"
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
+
+
+def embedding_endpoint_identity(endpoint: str) -> str:
+    """Hash a normalized endpoint without userinfo, query parameters, or fragments."""
+    parsed = urlsplit(_embeddings_url(endpoint))
+    hostname = parsed.hostname or ""
+    port = parsed.port
+    default_port = (parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443)
+    normalized_host = f"[{hostname.lower()}]" if ":" in hostname else hostname.lower()
+    authority = normalized_host if port is None or default_port else f"{normalized_host}:{port}"
+    normalized = urlunsplit((parsed.scheme.lower(), authority, parsed.path, "", ""))
+    return f"sha256:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()}"
 
 
 class OpenAICompatibleEmbeddingProvider:
@@ -263,6 +276,7 @@ class OpenAICompatibleEmbeddingProvider:
 
 
 __all__ = [
+    "CANONICAL_SEARCHABLE_TEXT_VERSION",
     "DOCUMENT_INPUT_TYPE",
     "QUERY_INPUT_TYPE",
     "SIMILARITY",
@@ -271,5 +285,6 @@ __all__ = [
     "OpenAICompatibleEmbeddingProvider",
     "canonical_searchable_text",
     "content_hash",
+    "embedding_endpoint_identity",
     "is_embedding_eligible",
 ]

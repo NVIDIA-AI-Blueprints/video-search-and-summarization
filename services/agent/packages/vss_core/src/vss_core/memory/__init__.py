@@ -48,6 +48,7 @@ __all__ = [
     "build_memory_service",
     "canonical_searchable_text",
     "content_hash",
+    "embedding_endpoint_identity",
     "get_adapter",
     "is_embedding_eligible",
     "register_adapter",
@@ -70,6 +71,7 @@ _LAZY_EXPORTS = {
     "OpenAICompatibleEmbeddingProvider": ".embeddings",
     "canonical_searchable_text": ".embeddings",
     "content_hash": ".embeddings",
+    "embedding_endpoint_identity": ".embeddings",
     "is_embedding_eligible": ".embeddings",
     "MemoryStore": ".store",
     "MemoryQuery": ".store",
@@ -109,6 +111,7 @@ if TYPE_CHECKING:
     from .embeddings import OpenAICompatibleEmbeddingProvider
     from .embeddings import canonical_searchable_text
     from .embeddings import content_hash
+    from .embeddings import embedding_endpoint_identity
     from .embeddings import is_embedding_eligible
     from .models import SCHEMA_ID
     from .models import JobInfo

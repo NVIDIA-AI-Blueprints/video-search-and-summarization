@@ -271,6 +271,12 @@ def _check_embedding_backend(
     """Probe one embedding and inspect the companion mapping without mutation."""
     import httpx
 
+    from vss_core.memory.backends.elasticsearch_embeddings import EMBEDDING_SCHEMA
+    from vss_core.memory.backends.elasticsearch_embeddings import IMPLEMENTATION_VERSION
+    from vss_core.memory.embeddings import CANONICAL_SEARCHABLE_TEXT_VERSION
+    from vss_core.memory.embeddings import SIMILARITY
+    from vss_core.memory.embeddings import embedding_endpoint_identity
+
     embedding = memory_config.embeddings
     dimensions, resolved_model = _probe_embedding(embedding)
     resolved_detail = f"; resolved_model={resolved_model}" if resolved_model is not None else ""
@@ -302,18 +308,29 @@ def _check_embedding_backend(
     properties = mappings.get("properties") if isinstance(mappings, dict) else None
     vector_mapping = properties.get("vector") if isinstance(properties, dict) else None
     metadata = mappings.get("_meta") if isinstance(mappings, dict) else None
+    assert embedding.endpoint is not None
+    expected_metadata = {
+        "schema": EMBEDDING_SCHEMA,
+        "implementation_version": IMPLEMENTATION_VERSION,
+        "provider": embedding.provider,
+        "model_target": embedding.model,
+        "dimensions": dimensions,
+        "canonical_text_version": CANONICAL_SEARCHABLE_TEXT_VERSION,
+        "similarity": SIMILARITY,
+        "endpoint_identity": embedding_endpoint_identity(embedding.endpoint),
+    }
     if (
         not isinstance(vector_mapping, dict)
         or vector_mapping.get("type") != "dense_vector"
         or vector_mapping.get("dims") != dimensions
         or vector_mapping.get("similarity") != "cosine"
         or not isinstance(metadata, dict)
-        or metadata.get("model") != embedding.model
-        or metadata.get("dimensions") != dimensions
+        or any(metadata.get(key) != value for key, value in expected_metadata.items())
     ):
         _memory_config_error(
-            f"companion embedding index {embedding.index!r} has an incompatible vector mapping; "
-            "configure a new versioned embedding index and backfill it"
+            f"Embedding index {embedding.index!r} was created for a different model, provider, "
+            "vector dimension, or canonical text version. Configure a new `--embedding-index` "
+            "and run `vss memory embeddings backfill`."
         )
     return probe_detail, f"Companion embedding index mapping is compatible: {embedding.index}"
 
