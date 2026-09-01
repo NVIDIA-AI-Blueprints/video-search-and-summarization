@@ -81,10 +81,10 @@ helm upgrade --install wh .../warehouse-3d-app -n <namespace> ... -f values-stre
 ```
 (`...` stands for any other `-f` your install needs — put those files *before* the generated
 `-f values-streams.yaml`, not after, or they can clobber the `bp-configurator.env` it just set.
-This doesn't apply to `--set`: Helm always applies `--set` after every `-f` file regardless of
-where it sits on the command line, so a `--set` touching `bp-configurator.env` will clobber the
-generated file no matter its position — convert it to a values file first, per the "if your
-install customizes `bp-configurator.env`" section above.)
+`--set` is different: Helm always applies it after every `-f` file no matter where it sits on
+the command line, so a `--set` on `bp-configurator.env` clobbers the generated file regardless
+of position — convert it to a values file first, per "if your install customizes
+`bp-configurator.env`" above.)
 
 ## Re-running after a hardware or stream-count change
 
