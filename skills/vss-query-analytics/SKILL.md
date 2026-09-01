@@ -17,7 +17,7 @@ Answer read-only analytics questions (incidents, metrics, sensor data) by routin
 - Active VSS **alerts** (or other VA-MCP) deployment reachable either on Docker
   (`$HOST_IP:9901`) or through the public Ingress
   (`${VSS_PUBLIC_URL}/va-mcp`). Follow
-  [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+  [`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md).
 - `curl` and `jq` on the agent host.
 
 ## Instructions

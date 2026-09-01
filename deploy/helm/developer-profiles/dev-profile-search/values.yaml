@@ -36,10 +36,16 @@ global:
 
   # rtviInternalIngress lives under `global` so the agent sub-chart's env-var
   # templates (rendered via `tpl` in the agent context) can read it — only
-  # `global.*` propagates across sub-charts. When enabled, this drives:
-  # (a) templates/rtvi-internal-ingress.yaml renders the Ingress object;
-  # (b) RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT env vars below get rewritten
-  # to go through the controller Service instead of the rtvi ClusterIPs.
+  # `global.*` propagates across sub-charts. It now does one thing: point the
+  # agent's RTVI_*_BASE_URL / COSMOS_EMBED_ENDPOINT at the ingress controller
+  # Service instead of the rtvi ClusterIPs, so RT-CV / RT-Embed calls are
+  # stuck to one replica per stream (HAProxy stick table on x-stream-id).
+  #
+  # It no longer renders an Ingress of its own. /rtvi-cv and /rtvi-embed are
+  # published by templates/vss-ingress.yaml like every other route, on a
+  # host-less rule so an in-cluster caller matches whatever Host it sends; the
+  # affinity annotations live on the rtvi Services themselves
+  # (rtvi.vss-rtvi-cv.streamAffinity, rtvi.vss-rtvi-embed.streamAffinity).
   #
   # PREREQUISITE — the HAProxy Technologies kubernetes-ingress controller
   # must already be installed in the cluster. The IngressClass `haproxy` is
@@ -59,9 +65,9 @@ global:
   # name or namespace.
   rtviInternalIngress:
     enabled: false
-    className: haproxy
-    host: ''
-    hashHeader: x-stream-id
+    # Canonical mounts, from the shared route table. Changing either here
+    # without changing the table would send the agent to a path the ingress
+    # does not publish.
     rtviCvPath: /rtvi-cv
     rtviEmbedPath: /rtvi-embed
     # In-cluster DNS short name of the HAProxy ingress controller Service:
@@ -69,47 +75,50 @@ global:
     # domain (haproxy-kubernetes-ingress.haproxy-controller.svc.cluster.local).
     controllerService: "haproxy-kubernetes-ingress.haproxy-controller"
     controllerPort: 80
-    annotations: {}
-    tls: []
-ingress:
+# Helm-managed Ingress. The routes come from the canonical table in
+# deploy/helm/services/common: every backend is mounted at its own name —
+# /rtvi-vlm, /rtvi-cv, /rtvi-embed, /elasticsearch, /vst, /phoenix — the same
+# paths the Docker edge publishes and `vss configure` records, on every
+# developer profile. A service this profile does not deploy is not mounted.
+#
+# `ingress:` is the former name of this block. Keys still read from it: enabled,
+# className, hosts.*, annotations, tls — each wins over its counterpart below.
+# Its removed cliRoutes.* keys are ignored; Elasticsearch and the RTVI mounts
+# are no longer toggled. Set one block or the other, not both.
+vssIngress:
   enabled: true
-  className: haproxy
+  ingressClassName: haproxy
   annotations: {}
-  # Service port numbers for vss-agent-ui / vss-agent (same pattern as dev-profile-alerts vssIngress).
+  # Backend ports for the canonical route table. Phoenix takes its port from
+  # infra.phoenix.port and VIOS from vios.vss-vios-ingress, so neither is
+  # repeated here.
   vssUiPort: 3000
   vssAgentPort: 8000
+  vaMcpPort: 9901
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
+  elasticsearchPort: 9200
+  rtviEmbedPort: 8000
+  rtviCvPort: 9000
+  # RT-VLM's cluster Service port. Not 8018 — that is the Compose
+  # host-published port and has no meaning in Kubernetes.
+  rtviVlmPort: 8000
   hosts:
     main: ''
     streamer: ''
     kibana: ''
     phoenix: ''
   tls: []
-  # Edge routes `vss configure` probes, mirroring the four the Docker edge
-  # exposes (deploy/docker/services/infra/haproxy/haproxy.cfg.template) so the
-  # same paths resolve on Compose and Kubernetes. Each mount carries whatever
-  # the service itself serves: /elasticsearch/_cat/..., /rtvi-embed/v1/...,
-  # /rtvi-cv/api/v1/..., /rtvi-vlm/v1/... .
-  #
-  # Off by default. Enabling this publishes Elasticsearch on the public origin
-  # with no per-path guard, because an Ingress annotation cannot express one.
-  # The Docker edge is not a read-only baseline either: its deny rules stop
-  # PUT/DELETE, cluster-admin paths and the two-segment mutating operations, but
-  # POST is allowed, so /_bulk, /_reindex and /<index>/_doc still reach ES
-  # there. Enable only where a writable Elasticsearch is acceptable, or front it
-  # with your own guard.
-  #
-  # /rtvi-embed and /rtvi-cv are skipped while global.rtviInternalIngress is
-  # enabled -- that Ingress already publishes both paths. /rtvi-vlm is not one
-  # of them, so it follows cliRoutes.enabled alone.
-  cliRoutes:
-    enabled: false
-    elasticsearchPort: 9200
-    rtviEmbedPort: 8000
-    rtviCvPort: 9000
-    # RT-VLM's cluster Service port. Not 8018 -- that is the Compose
-    # host-published port and has no meaning in Kubernetes.
-    rtviVlmPort: 8000
+  # Rendered for continuity with earlier releases, but inert: this controller
+  # reads timeout-client and timeout-tunnel only from its own ConfigMap, never
+  # from an Ingress annotation. Raising them is a cluster-wide controller
+  # setting, outside this chart. Server-side timeouts do work per backend and
+  # are set on the Services that need them (vss-rtvi-cv, vss-rtvi-embed,
+  # vss-rtvi-vlm, vss-agent). Set timeoutServer only to impose an ingress-wide
+  # floor on every backend as well.
+  timeoutClient: "3600s"
+  timeoutTunnel: "3600s"
+  timeoutServer: ""
 
 sharedStorage:
   streamerVideos:
@@ -339,6 +348,10 @@ rtvi:
   vss-rtvi-embed:
     enabled: true
     replicas: 1
+    # rtvi-embed accepts a per-chart pull-secret list; retain the profile-wide
+    # NGC secret here as an explicit safeguard for private managed images.
+    imagePullSecrets:
+      - name: ngc-docker-reg-secret
     # Shared managed-image channel. Global container_prefix/container_tag values
     # select a promoted image without changing this profile.
     # SBSA/DGX-Spark shares the GHCR repository but needs its separate build
@@ -429,6 +442,9 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
+    # Long generations outlast the controller default; this backend carries its
+    # own server timeout instead of the ingress imposing one on every route.
+    ingressTimeoutServer: "3600s"
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
     sharedNimPort: "8000"
     waitForKafka:
@@ -655,13 +671,20 @@ agent:
   enabled: true
   vss-agent:
     enabled: true
+    # Search / summarization runs outlast the controller default; this backend
+    # carries its own server timeout instead of the ingress imposing one on
+    # every route.
+    ingressTimeoutServer: "3600s"
     # externalHost / useReleaseNamePrefix: inherit chart `global.*` (set at install with `--set global.externalHost=…`).
     global:
       imagePullPolicy: IfNotPresent
     profile: search
     replicas: 1
     rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
-    llmName: nvidia/nvidia-nemotron-nano-9b-v2
+    llmName: nvidia/nemotron-3.5-lightning-30b-a3b
+    # In-cluster LLM NIM Service name; feeds LLM_BASE_URL / EVAL_LLM_JUDGE_BASE_URL below.
+    # Keep in sync with the enabled nims.* model (nims.nemotron35).
+    llmServiceName: "nemotron-3.5-lightning-30b-a3b"
     # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
     # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
     # not the cosmos3-reasoner NIM id.
@@ -674,7 +697,7 @@ agent:
     rtviVlmBaseUrl: ''
     llmBaseUrl: ''
     vlmBaseUrl: ''
-    evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
+    evalLlmJudgeName: nvidia/nemotron-3.5-lightning-30b-a3b
     evalLlmJudgeBaseUrl: ''
     phoenixEndpoint: ''
     vstExternalUrl: ''
@@ -696,9 +719,9 @@ agent:
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
-    # When true: public URL env vars use http://<mainHost> where mainHost matches templates/ingress.yaml (default: vss-search.<global.externalHost|.nip.io). Override hostname here when you set ingress.hosts.main — must stay in sync.
+    # When true: public URL env vars use http://<mainHost> where mainHost matches templates/vss-ingress.yaml (default: vss-search.<global.externalHost|.nip.io). Override hostname here when you set vssIngress.hosts.main — must stay in sync.
     vstPublicBaseUseNipIo: true
-    # Hostname only (no scheme), same semantics as ingress.hosts.main; empty → printf "vss-search.%s.nip.io" $ip with $ip = global.externalHost | default "127.0.0.1" (see templates/ingress.yaml).
+    # Hostname only (no scheme), same semantics as vssIngress.hosts.main; empty → printf "vss-search.%s.nip.io" $ip with $ip = global.externalHost | default "127.0.0.1" (see templates/vss-ingress.yaml).
     vstPublicIngressHost: ''
     serviceAccount:
       create: true
@@ -775,7 +798,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       # VLM endpoint (vss-rtvi-vlm) for the critic and video_understanding. Consumed by the rtvi_vlm agent profile.
       - name: RTVI_VLM_BASE_URL
         value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
@@ -786,13 +809,13 @@ agent:
       - name: VST_INTERNAL_URL
         value: '{{- if (trim (.Values.vstInternalUrl | default "")) }}{{ trim .Values.vstInternalUrl }}{{- else }}http://vss-vios-ingress:30888{{- end }}'
       - name: LLM_NAME
-        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nemotron-3.5-lightning-30b-a3b") }}'
       - name: VLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix") }}'
       - name: EVAL_LLM_JUDGE_NAME
-        value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nemotron-3.5-lightning-30b-a3b") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
       - name: VSS_AGENT_REPORTS_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ if .Values.reportsBaseUrl }}{{ printf "%s" .Values.reportsBaseUrl }}{{ else if and $useNip (ne $nipBase "") }}{{ printf "%s/static/" $nipBase }}{{ else if ne $globalBase "" }}{{ printf "%s/static/" $globalBase }}{{ else }}{{ printf "%s/static/" $vssAgentHttp }}{{ end }}'
       - name: VSS_AGENT_EXTERNAL_URL
@@ -949,8 +972,10 @@ nims:
     pullSecretName: ngc-nim-docker-reg-secret
     authSecretName: ngc-api
     storageClass: ""
+  # Nemotron Nano 9B v2: superseded by nemotron35 below. Set enabled: true (and
+  # flip nemotron35 off, plus agent.vss-agent.llmName/llmServiceName) to go back.
   nemotron:
-    enabled: true
+    enabled: false
     image:
       repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
       tag: '1'
@@ -975,6 +1000,33 @@ nims:
         effect: NoSchedule
     env:
       CUDA_VISIBLE_DEVICES: '0'
+  # Nemotron 3.5 Lightning 30B A3B — search profile LLM (matches base/LVS).
+  # The subchart takes no env map; NIM runtime env comes from the
+  # nims gpuProfiles.<gpuType>.nemotron35 ConfigMap (see helm/services/nims/values.yaml).
+  nemotron35:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b
+      tag: '2.0.9-variant'
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: '1'
+      requests:
+        nvidia.com/gpu: '1'
+    storage:
+      pvc:
+        storageClass: ''
+        size: 100Gi
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
   cosmos3:
     # Disabled: the VLM (used by the critic and video_understanding) is served by
     # rtvi.vss-rtvi-vlm (in-pod Cosmos3 checkpoint). Set true only to bypass RTVI and

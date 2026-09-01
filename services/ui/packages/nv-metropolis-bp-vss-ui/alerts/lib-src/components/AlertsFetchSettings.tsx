@@ -13,7 +13,7 @@ const CUSTOM_SELECT_VALUE = '-1';
 /* ------------------------------------------------------------------ */
 
 interface CustomNumericFieldProps {
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   min: number;
   max: number;
   value: string;

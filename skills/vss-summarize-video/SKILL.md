@@ -41,8 +41,9 @@ Load these files only as directed:
   before executing the recorded-video workflow. It contains the exact
   readiness, VIOS preparation, single-run summarize, and VLM fallback commands.
 - [`references/cli_usage.md`](references/cli_usage.md): load before Stage 4.
-  `vss summarize run` issues the summarize request and persists the result;
-  this reference has its flags, exit codes, output shape, and read verbs.
+  `vss summarize run` issues the summarize request and applies the operator's
+  configured memory policy; this reference has its flags, exit codes, output
+  shape, and read verbs.
 - [`references/video-summarization-api.md`](references/video-summarization-api.md):
   load before constructing a live LVS operation **by hand** — a direct API
   question, or the approved VLM fallback. Follow its **Runtime OpenAPI
@@ -58,8 +59,8 @@ Load these files only as directed:
 - [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md)
   and `assets/video-summarization.env.example`: use when configuring the
   service environment.
-- [`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md):
-  Kubernetes `VSS_PUBLIC_URL` contract and LVS Exact `/v1` routes.
+- [`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md):
+  Kubernetes `VSS_PUBLIC_URL` contract and the `/lvs` mount.
 - [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md): load
   when asked about LVS's own container image, GPU/CPU/storage sizing, or
   deployment contract as a peer service (heavier than
@@ -92,7 +93,7 @@ Load these files only as directed:
 ## Prerequisites
 
 - VSS `lvs` profile reachable either on Docker (`$HOST_IP:38111`) or through
-  the public Ingress (`VSS_PUBLIC_URL` with Exact `/v1/ready`).
+  the public Ingress at `${VSS_PUBLIC_URL}/lvs`.
 - `curl` and `jq` on the agent host.
 - Network reachability from the LVS service to the final VIOS clip URL (Docker:
   from `vss-lvs`; Kubernetes: deploy must mint a URL the LVS pod can fetch).
@@ -138,7 +139,7 @@ private addresses.
 ## Endpoint resolution (Kubernetes vs Docker)
 
 Resolve endpoints once before probing. Follow
-[`../vss-build-vision-agent/references/deployment_resolution.md`](../vss-build-vision-agent/references/deployment_resolution.md).
+[`../vss-build-vision-ai/references/deployment_resolution.md`](../vss-build-vision-ai/references/deployment_resolution.md).
 
 ```bash
 # Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public origin.
@@ -150,13 +151,14 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
   # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
-  # Origin only — skill appends /v1/ready and /v1/summarize. Never …/v1 here.
-  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
+  # The /lvs mount, not the origin — skill appends /v1/ready and /v1/summarize,
+  # and the gateway strips /lvs before the backend sees them.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
-  # Exact /v1/models and /v1/chat/completions → RT-VLM (not Prefix /v1).
-  VLM="${VSS_PUBLIC_URL}"
+  # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
+  VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
@@ -179,7 +181,7 @@ schema (that path is Agent on stock Ingress).
 | Service | Base URL |
 |---|---|
 | LVS | `${VIDEO_SUMMARIZATION_URL}` (K8s: `${VSS_PUBLIC_URL}`; Docker: `http://${HOST_IP}:38111`) |
-| VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: public origin; Docker: `:8018`) |
+| VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: the `/rtvi-vlm` mount; Docker: `:8018`) |
 | VIOS | `${VST_API_BASE}` |
 
 Strip a trailing `/v1` from the VLM base because this skill appends it. Do not
@@ -227,8 +229,8 @@ run through the CLI:
 
 - **Docker:** honor `${VLM_NAME}` only if it matches an id from LVS `GET /models`;
   otherwise use the sole advertised LVS id.
-- **Kubernetes:** LVS `/models` is not on Ingress. Prefer `${VLM_NAME}` when set;
-  otherwise take the sole id from Exact `GET ${VLM}/v1/models` (RT-VLM). If
+- **Kubernetes:** prefer `${VLM_NAME}` when set; otherwise take the sole id from
+  `GET ${LVS_BACKEND_URL}/models` (LVS) or `GET ${VLM}/v1/models` (RT-VLM). If
   multiple ids exist and no valid preference selects one, report them and stop.
 
 A non-200 LVS readiness result after warmup is the only unavailability signal.
@@ -290,16 +292,20 @@ specific settings.
 ### Stage 4: Submit Once Through the CLI
 
 Load the CLI reference. `vss summarize run` issues the summarize request on both
-Docker and Kubernetes, and persists the result to unified memory. Do not build a
-`/v1/summarize` payload by hand, and do not fetch `/openapi.json` to construct
-one — the CLI owns the request shape, and `vss configure` owns the endpoint.
+Docker and Kubernetes, and persists only when static memory policy enables it.
+Do not build a `/v1/summarize` payload by hand, and do not fetch
+`/openapi.json` to construct one — the CLI owns the request shape,
+`vss configure` owns the endpoint, and `vss configure memory` owns persistence.
 
 Use the invocation in the end-to-end reference. It passes the fresh VIOS URL
 from Stage 2, the exact HITL values from Stage 3, `--chunk-duration 10`, and
 `--seed 1`; repeat `--event` per event and add `--object-of-interest` only when
 the caller provided objects. Pass no endpoint flag.
 
-Persistence is on by default and needs two values:
+Do not pass `--persist` or `--memory-index`; those per-request controls do not
+exist. The standard workflow also does not pass `--no-persist`, so the
+operator's configured persistence default applies. When persistence is enabled,
+the record needs two values:
 
 - `--video-id`, required alongside `--url`. Use the recording's VIOS **sensor**
   id — from `sensor/list`, or from the `sensorId` an upload returns — never the
@@ -324,12 +330,12 @@ code, is what says whether a job was created.
 
 | exit | meaning | action |
 |---|---|---|
-| 0 | summarized and persisted | present the result |
+| 0 | summarized; persistence followed configured policy | present the result and report `persisted` truthfully |
 | 2 | a flag the CLI refused, before anything was submitted | fix the call, then run once |
 | 2 | LVS rejected the request it was sent; the marker names a job closed as failed | report the failure with that `job_id` |
 | 3 | LVS unreachable or returned 5xx | report it with the marker's `job_id` |
-| 4 | nothing configured, or `lvs`/`elasticsearch` not routed | no job, no marker — `vss configure`, then run once |
-| 6 | summary produced, persistence failed | present the summary; report it unpersisted |
+| 4 | deployment configuration is missing, or an explicit Markdown note lacks static sink configuration | no job, no marker — run the remediation command from stderr |
+| 6 | summary produced; Elasticsearch or Markdown cache write failed | present the summary; report ES and Markdown outcomes separately |
 | 7 | timed out | reconcile with `vss summarize get --job-id`; do not re-run |
 
 Exits 6 and 7 both mean the summarization already happened. Never repeat the run
@@ -341,15 +347,15 @@ request. Once a job exists, every outcome names its `job_id`; use it rather than
 re-running. A call refused before a job exists names
 nothing, which is why empty stdout is the test.
 
-The marker's `persist` object is the report on the write: `status` is `complete`
-with the index it landed in and how many events went with it, and exit 6 says the
-summary survived but the write did not. Alongside it on every marker, `record`
-says what the `job_id` is worth to a later read — `closed`, `absent` when nothing
-was persisted, or `stale` when the record still reads `submitted` and `status`
-would therefore call the job running. Do not read the record back to confirm
-it, and never read Elasticsearch directly — recalling memory is a separate
-skill's job. The one read that belongs here is reconciling an exit 7, whose
-outcome is genuinely unknown until `vss summarize get --job-id <job_id>` answers.
+The completion marker's `persisted` boolean is the authoritative Elasticsearch
+outcome. The result body includes `persist` only when persistence was attempted
+and reports its index and event count; optional Markdown status is separate
+under `memory_note`. `record` says what the `job_id` is worth to a later read:
+`closed`, `absent` when policy skipped persistence, or `stale` when a submitted
+record could not be closed. Do not read the record back to confirm it, and never
+read Elasticsearch directly — recalling memory is a separate skill's job. The
+one read that belongs here is reconciling an exit 7, whose outcome is genuinely
+unknown until `vss summarize get --job-id <job_id>` answers.
 
 If `video_summary` and `events` are empty, inspect the same payload's
 `summary.usage.total_chunks_processed`. A positive integer confirms processing;
@@ -388,9 +394,10 @@ JSON string in `summary.choices[0].message.content` while preserving
 service order. Preserve every returned field and the full `description`; use a
 per-event list if a table would truncate text.
 
-Close with the job's identity: the `job_id` and whether the record persisted.
-State the summary is unpersisted whenever `persist.status` is not `complete`,
-including the exit-6 case, instead of implying it was stored.
+Close with the job's identity: the `job_id`, the completion marker's
+`persisted` value, and any separate `memory_note` result. An absent `persist`
+object with `persisted=false` means static policy chose stdout-only execution,
+not a failure.
 
 For VLM, render `choices[0].message.content` verbatim. For Cosmos output, omit
 the `<think>...</think>` block and show the answer. Do not add emojis or
@@ -404,12 +411,12 @@ re-voice either backend's content.
 | Readiness stdout is empty | Use the HTTP status; a 200 body may be empty. |
 | Summary and events are empty | Inspect saved `summary.usage.total_chunks_processed`; do not retry. |
 | `vss` not found | Keep `--extra cli` and verify `VSS_REPO_ROOT`; never install globally. |
-| Run exits 4 | `vss configure --base-url <ingress origin>`; `:38111` routes no memory. |
-| Run exits 6 | Persistence failed. Present the summary; do not re-run the job. |
+| Run exits 4 | Follow stderr: configure the deployment, or configure the Markdown sink requested explicitly. |
+| Run exits 6 | A post-operation memory write failed. Present the summary and separate ES/Markdown status; do not re-run. |
 | Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 | K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |
-| K8s `/models` 404 / HTML | Expected — use Exact `/v1/models` (RT-VLM) or `VLM_NAME`. |
+| K8s `/models` 404 / HTML | Probing the bare origin — use `${LVS_BACKEND_URL}/models` or `${VLM}/v1/models`. |
 
 Use the debugging reference for deeper diagnostics and the deployment
 reference for logs or configuration. The LVS image is a multi-arch manifest, so
@@ -419,9 +426,10 @@ reference for logs or configuration. The LVS image is a multi-arch manifest, so
 
 For direct API questions such as models, readiness, recommended configuration,
 metrics, schemas, or 422 responses, use the API reference instead of the
-recorded-video workflow. On Kubernetes, only Exact `/v1/ready` and
-`/v1/summarize` are public for LVS; other LVS admin routes need Docker
-`:38111` or a chart change. For deployment, restart, teardown, backend
+recorded-video workflow. `/lvs` is a Prefix mount, so everything LVS serves is
+public under it on Kubernetes — `/lvs/v1/ready`, `/lvs/v1/summarize`,
+`/lvs/models`, `/lvs/metrics` — where the previous Exact-path Ingress published
+only readiness and summarize. For deployment, restart, teardown, backend
 selection, or service logs, prefer `vss-deploy-profile` and use the deployment
 reference.
 

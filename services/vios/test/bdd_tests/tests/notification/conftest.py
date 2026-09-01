@@ -1,23 +1,27 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Fixtures for webhook notification BDD tests."""
+"""Fixtures and shared steps for webhook notification BDD tests."""
 
 from __future__ import annotations
 
 import logging
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pytest
 import requests
+from pytest_bdd import given, when
 
 from .webhook_test_utils import CapturedWebhookRequest, WebhookReceiver
 
 logger = logging.getLogger(__name__)
 
 TEST_PREFIX = "bdd-webhook-"
+
+STATIC_VIDEO = Path(__file__).resolve().parent.parent.parent / "data" / "test_video.mp4"
 
 
 @dataclass
@@ -90,6 +94,73 @@ def webhook_receiver(
     logger.info("Webhook receiver listening at http://%s:%d", receiver.host, receiver.port)
     yield receiver
     receiver.stop()
+
+
+# Steps shared by every webhook feature in this package.
+
+
+@given("the webhook receiver is running")
+def webhook_receiver_is_running(
+    context: WebhookTestContext, webhook_receiver: WebhookReceiver
+) -> None:
+    context.receiver_cursor = webhook_receiver.next_sequence()
+
+
+@given("the static webhook test video is available")
+def static_video_is_available() -> None:
+    assert STATIC_VIDEO.is_file(), f"Static test video not found: {STATIC_VIDEO}"
+    assert STATIC_VIDEO.stat().st_size > 0, f"Static test video is empty: {STATIC_VIDEO}"
+
+
+@when("I upload a uniquely named file sensor for webhook testing")
+def upload_file_sensor(
+    context: WebhookTestContext,
+    api_config: Dict[str, Any],
+    notification_test_params: Dict[str, Any],
+) -> None:
+    response = requests.put(
+        f"{api_config['base_url']}/vst/api/v1/storage/file/{context.filename}",
+        params={
+            "sensorId": context.sensor_id,
+            "timestamp": notification_test_params["upload_timestamp"],
+        },
+        data=STATIC_VIDEO.read_bytes(),
+        headers={"Content-Type": "application/octet-stream"},
+        timeout=notification_test_params["upload_timeout_sec"],
+        verify=api_config.get("verify_ssl", False),
+    )
+    context.sensor_created = response.status_code in (200, 201)
+    context.expected_camera_type = "file"
+    context.expected_camera_names = [Path(context.filename).stem]
+
+    assert response.status_code in (200, 201), (
+        f"File-sensor upload failed: HTTP {response.status_code}: {response.text[:500]}"
+    )
+    body = response.json()
+    assert body.get("sensorId") == context.sensor_id, (
+        f"Upload returned unexpected sensorId: {body!r}"
+    )
+    assert body.get("streamId") == context.sensor_id, (
+        f"First file upload should use sensorId as streamId: {body!r}"
+    )
+
+
+@when("I delete the uploaded webhook test sensor")
+@when("I delete the added RTSP webhook test sensor")
+def delete_webhook_test_sensor(
+    context: WebhookTestContext,
+    api_config: Dict[str, Any],
+    notification_test_params: Dict[str, Any],
+) -> None:
+    response = requests.delete(
+        f"{api_config['base_url']}/vst/api/v1/sensor/{context.sensor_id}",
+        timeout=notification_test_params["api_timeout_sec"],
+        verify=api_config.get("verify_ssl", False),
+    )
+    context.sensor_deleted = response.status_code in (200, 204)
+    assert response.status_code in (200, 204), (
+        f"File-sensor delete failed: HTTP {response.status_code}: {response.text[:500]}"
+    )
 
 
 @pytest.fixture(scope="function", autouse=True)

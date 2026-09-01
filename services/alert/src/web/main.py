@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import os
 import time
-from typing import Optional
+from typing import Iterator, Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -23,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from metrics import PROMETHEUS_ENABLED
+from persistence.exceptions import PersistenceUnavailableError
 from utils import fleet_state
 import logging
 from datetime import datetime
@@ -77,6 +79,124 @@ logger = logging.getLogger(__name__)
 # report NOT ready rather than admitting traffic to a broken subsystem.
 _startup_ready: bool = False
 _startup_error: str = "startup has not completed"
+_alert_config_init_task: Optional[asyncio.Task[None]] = None
+
+_ALERT_CONFIG_INIT_RETRY_BASE_SECONDS = 1.0
+_ALERT_CONFIG_INIT_RETRY_MAX_SECONDS = 8.0
+_RETRYABLE_ES_STATUS_CODES = frozenset({429, 502, 503, 504})
+
+# Imported defensively: the transport package is a dependency of the
+# Elasticsearch client rather than a direct one, so its absence must not stop
+# the service booting -- it only narrows what can be recognised as transient.
+try:  # pragma: no cover - exercised by whichever client version is installed
+    from elastic_transport import (
+        ConnectionError as _ElasticTransportConnectionError,
+        ConnectionTimeout as _ElasticTransportConnectionTimeout,
+    )
+
+    # Both, because ConnectionTimeout is a sibling of ConnectionError rather
+    # than a subclass -- they share only TransportError, which is too broad to
+    # match on: SerializationError sits under it too, and a payload that will
+    # not parse is not going to parse on the next attempt either.
+    _ELASTIC_TRANSPORT_CONNECTION_ERRORS = (
+        _ElasticTransportConnectionError,
+        _ElasticTransportConnectionTimeout,
+    )
+except ImportError:  # pragma: no cover
+    _ELASTIC_TRANSPORT_CONNECTION_ERRORS = ()
+
+
+def _exception_chain(exc: BaseException) -> Iterator[BaseException]:
+    """Yield an exception and its explicit/implicit causes once each."""
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_retryable_alert_config_init_error(exc: BaseException) -> bool:
+    """Whether alert-config initialisation failed for a transient ES reason.
+
+    Persistence wraps Elasticsearch exceptions at multiple layers, so inspect
+    the complete cause chain instead of depending on the outer exception type.
+    HTTP 4xx errors other than throttling and configuration failures remain
+    fail-fast.
+    """
+    for error in _exception_chain(exc):
+        # The store refuses to build when the backend does not answer its
+        # health check. That is the ordinary state of a dependency still
+        # starting up, and it carries no HTTP status to read, so it has to be
+        # named explicitly or it reads as permanent.
+        if isinstance(error, PersistenceUnavailableError):
+            return True
+
+        meta = getattr(error, "meta", None)
+        status = getattr(meta, "status", None)
+        if status is None:
+            status = getattr(error, "status_code", None)
+        if status is not None:
+            return status in _RETRYABLE_ES_STATUS_CODES
+
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            return True
+
+        # elastic-transport connection errors do not inherit Python's
+        # ConnectionError on every supported client version, so they are
+        # matched on their own base class rather than by name. Matching names
+        # missed every subclass that carries a different one -- TlsError is a
+        # transport ConnectionError raised while a TLS listener is still
+        # coming up, which is precisely a backend that is not ready yet, and
+        # it was being classified as permanent.
+        if _ELASTIC_TRANSPORT_CONNECTION_ERRORS and isinstance(
+            error, _ELASTIC_TRANSPORT_CONNECTION_ERRORS
+        ):
+            return True
+
+    return False
+
+
+async def _initialise_alert_config_service() -> None:
+    """Build and hydrate the alert-config service, retrying transient ES errors."""
+    from .api.alert_config_routes import _get_service
+
+    global _startup_ready, _startup_error
+    delay = _ALERT_CONFIG_INIT_RETRY_BASE_SECONDS
+    attempt = 1
+    while True:
+        try:
+            # Off the event loop: this does synchronous Elasticsearch work --
+            # two pings and a hydrating search -- and on a backend that
+            # is not answering, each is capped only by the client's request
+            # timeout, so seconds each. Run inline it
+            # would stall /health, /ready and every other route for exactly
+            # as long as the retry it is trying to survive, which is the
+            # endpoint everything else gates on.
+            await asyncio.to_thread(_get_service)
+            _startup_ready = True
+            _startup_error = ""
+            logger.info("Alert config service eagerly initialised; service is ready")
+            return
+        except Exception as exc:
+            _startup_ready = False
+            _startup_error = f"alert-config store initialisation failed: {exc}"
+            if not _is_retryable_alert_config_init_error(exc):
+                logger.error(
+                    "Alert config store initialisation failed permanently: %s", exc,
+                )
+                return
+
+            logger.warning(
+                "Transient Elasticsearch failure initialising the alert-config "
+                "store (attempt %d); retrying in %.1fs: %s",
+                attempt,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _ALERT_CONFIG_INIT_RETRY_MAX_SECONDS)
+            attempt += 1
 
 # Custom exception handler for validation errors
 @app.exception_handler(RequestValidationError)
@@ -151,32 +271,31 @@ async def startup_event():
     # no-op and the endpoint returns 503 ALWAYS_ON_DISABLED.
     validate_always_on_config_at_startup()
 
-    # Eagerly build + hydrate the alert-config store and gate readiness on
-    # it. A failure here is NOT swallowed: the store build enforces the
-    # persistence gate and confirms ES is reachable, so if it raises
-    # the service marks itself NOT ready and ``/health`` returns 503. This
-    # prevents a pod from admitting traffic while a mandatory subsystem
-    # (durable, ES-backed config storage) is unusable.
-    global _startup_ready, _startup_error
-    try:
-        from .api.alert_config_routes import _get_service
-        _get_service()
-        _startup_ready = True
-        _startup_error = ""
-        logger.info("Alert config service eagerly initialised; service is ready")
-    except Exception as e:
-        _startup_ready = False
-        _startup_error = f"alert-config store initialisation failed: {e}"
-        logger.error(
-            "Alert config store initialisation failed at startup; service will "
-            "report NOT ready until this is resolved: %s", e,
-        )
+    # Start alert-config hydration without delaying the HTTP server. A newly
+    # created ES index can briefly reject searches while its primary shard is
+    # allocated, so the retained task retries only transient failures and
+    # changes readiness to 200 as soon as hydration succeeds.
+    global _startup_ready, _startup_error, _alert_config_init_task
+    _startup_ready = False
+    _startup_error = "alert-config store initialisation is in progress"
+    _alert_config_init_task = asyncio.create_task(
+        _initialise_alert_config_service(),
+        name="alert-config-initialisation",
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Stop background services when FastAPI shuts down."""
+    global _alert_config_init_task
     logger.info("Shutting down FastAPI application")
+    if _alert_config_init_task is not None and not _alert_config_init_task.done():
+        _alert_config_init_task.cancel()
+        try:
+            await _alert_config_init_task
+        except asyncio.CancelledError:
+            pass
+    _alert_config_init_task = None
 
 _NOT_READY = "not_ready"
 
@@ -330,4 +449,4 @@ async def metrics():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -97,6 +97,7 @@ event_bridge:
 prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
+  default_system_prompt: "You are a helpful assistant."
 
 alert_type_config_file: "alert_type_config.json"
 
@@ -165,6 +166,9 @@ alert_agent:
     use_verdict: false
   enrichment:
     enabled: false
+  # Intentional deployment-specific behavior: Helm keeps this disabled for the
+  # dev alerts real-time profile, while Docker Compose sets
+  # ALERT_AGENT_ALWAYS_ON=true. This difference is expected; do not align them.
   always_on: false
   # OpenTelemetry tracing. On Kubernetes the switch is tracing.enabled in
   # values.yaml -- there is no host env var to set; the chart renders

@@ -1,21 +1,4 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
  * Compilation:
  *
  * g++ -O3 -Wall -shared -std=c++11 -I/opt/nvidia/deepstream/deepstream-9.1/sources/includes/ -fPIC $(python3 -m pybind11 --includes) gst_video_sei_meta_binding.cpp -o gst_video_sei_meta$(python3-config --extension-suffix)  $(pkg-config --cflags --libs gstreamer-1.0) -L/opt/nvidia/deepstream/deepstream-9.1/lib/ -lgstnvdsseimeta
@@ -81,7 +64,8 @@ PYBIND11_MODULE(gst_video_sei_meta, m) {
         [](py::object buffer) {
             uintptr_t buffer_ptr = py::cast<uintptr_t>(buffer);
             GstBuffer* gst_buffer = reinterpret_cast<GstBuffer*>(buffer_ptr);
-            GstVideoSEIMeta* meta = gst_buffer_add_video_sei_meta(gst_buffer);
+            GstVideoSEIMeta* meta = reinterpret_cast<GstVideoSEIMeta*>(
+                gst_buffer_add_meta(gst_buffer, GST_VIDEO_SEI_META_INFO, nullptr));
 
             // Check for NULL return (can happen if buffer is invalid or read-only)
             if (meta == nullptr) {
@@ -95,7 +79,8 @@ PYBIND11_MODULE(gst_video_sei_meta, m) {
         [](py::object buffer) -> py::object {
             uintptr_t buffer_ptr = py::cast<uintptr_t>(buffer);
             GstBuffer* gst_buffer = reinterpret_cast<GstBuffer*>(buffer_ptr);
-            GstVideoSEIMeta* meta = gst_buffer_get_video_sei_meta(gst_buffer);
+            GstVideoSEIMeta* meta = reinterpret_cast<GstVideoSEIMeta*>(
+                gst_buffer_get_meta(gst_buffer, GST_VIDEO_SEI_META_API_TYPE));
 
             // Return None if metadata not found (instead of crashing on NULL)
             if (meta == nullptr) {

@@ -1,12 +1,9 @@
 # AGENTS.md
 
-How to drive a VSS deployment from this repository, and where the per-area
-guides are. **This is the single place the CLI bootstrap is written down** — a
-skill that needs VSS should link here rather than restate it. Instructions that
-live in one skill are invisible to the next and drift the moment the CLI moves.
+How to drive a VSS deployment from this repository, VSS CLI is the recommended approach to interact with a deployed VSS blueprint.
 
 **Looking for a capability rather than the CLI?** [`skills/`](skills/) holds the
-operational skills — deploy a profile, build a vision stack, search the archive,
+build, deploy and operational skills — deploy a profile, build a vision stack, search the archive,
 ask about a video, manage alerts, generate a report. [`skills/README.md`](skills/README.md)
 lists them; each `SKILL.md` says when to use it and when not to.
 
@@ -15,11 +12,6 @@ Human contributor guidance — licensing, DCO, file headers — is in
 [README.md](README.md). Neither is repeated here.
 
 ## The `vss` CLI
-
-The host-side entry point to a **deployed** VSS stack. It runs beside the
-deployment, not inside it: no NAT, no torch, no GPU, no agent framework. One
-process per call — JSON on stdout, diagnostics on stderr, a typed exit code.
-That is the whole contract; there is no SDK, server, or session to manage.
 
 ### Setup
 
@@ -36,19 +28,17 @@ environment to the CLI's runtime — 256 MB with no `nvidia-nat` — where the
 default group pulls the agent stack and 630 MB you have no use for.
 
 Use that checkout's `vss` — not one from `PATH`, and not through `docker exec`
-or `kubectl exec`. It is a client that reaches the deployment over the ingress,
-and a binary of unknown provenance cannot be attributed to the code under test.
-The skill evals reject a globally installed one outright.
+or `kubectl exec`.
 
 ### No deployment yet?
 
 The CLI talks to a **running** stack; it does not stand one up. If there is
 nothing to configure against:
 
-[`/vss-build-vision-agent`](skills/vss-build-vision-agent/SKILL.md) takes the
+[`/vss-build-vision-ai`](skills/vss-build-vision-ai/SKILL.md) takes the
 capabilities you name — dense captioning, detection, search, alerting,
 summarization — and composes, configures and deploys a stack for them, stock or
-a custom combination.
+a custom combination. OR an industry profile, such as warehouse.
 
 Then `vss configure --base-url <origin>` against what came up.
 
@@ -75,47 +65,6 @@ reads no process env for endpoints by design, so the same input behaves the same
 way on any host. A command that exits 4 saying a service is missing is fixed by
 `vss configure`, not by a flag.
 
-### What is available here
-
-A deployment rarely runs everything. `vss configure check` reports which groups
-it can actually serve, so you learn it before you try rather than from a failed
-run:
-
-```
-commands:
-  search         unavailable  needs elasticsearch, rt_embed, rtvi_cv
-  vios           available    vst
-```
-
-| Group | For | Verbs |
-|-------|-----|-------|
-| `vss search` | fused archive search over ES + the embedding NIM | `run`, `status`, `get`, `list` |
-| `vss summarize` | VLM summarization of stored video | `run`, `status`, `get`, `list` |
-| `vss vios` | media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
-| `vss configure` | resolve and record a deployment | `show`, `check` |
-
-`search` and `summarize` are **job groups**: `run` mints a `job_id` and the
-result stays retrievable by it. `vios` is not — it resolves handles and mints
-URLs, so it has no job verbs and its `list` lists *sensors*, not jobs.
-
-### Exit codes — branch on these, not on stdout
-
-| Code | Meaning | What to do |
-|------|---------|-----------|
-| 0 | Success | Parse stdout |
-| 1 | Unexpected error | Report it; do not retry blindly |
-| 2 | Invalid input | You asked for something impossible — fix the arguments |
-| 3 | Backend unreachable | VSS or one of its services is down |
-| 4 | Configuration | Run `vss configure --base-url <origin>` |
-| 5 | Not found | The handle does not exist |
-| 6 | Partial | Some results are missing; the payload says which |
-| 7 | Timeout | Bounded wait expired; a `job_id` may be resumable |
-
-**A non-zero exit always writes a diagnostic to stderr.** A non-zero exit with
-no message is a bug worth reporting — not a reason to improvise a substitute
-query. Improvising around a silent failure is how agents answer from data they
-invented.
-
 **An empty result is not a failure.** `{"count": 0}` at exit 0 means the
 deployment genuinely has nothing matching; a backend problem exits 3. Never
 treat the two as the same.
@@ -136,6 +85,11 @@ pipefail`, or capture and check before piping.
 6. Do not wrap commands in your own retry or timeout loops. Bounded waits are
    the CLI's job; a second layer hides which one gave up.
 7. Cite the handle you were given — `media_url`, `job_id` — not one you rebuilt.
+8. `run` blocks until the job finishes — synchronous by design. Background it
+   for a long summarization: the record is written before the model call, so
+   `vss summarize status --job-id <id>` answers while the run is still in
+   flight, and `get` returns the summary once it lands. `vss summarize list`
+   finds the id, which `run` itself only prints when it exits.
 
 Per-command detail — sensor addressing, `--type`, window rules, what `vios`
 covers and what it does not — is in
@@ -152,14 +106,5 @@ than carrying its own copy.
 | Area | Read when you are… | Guide |
 |------|--------------------|-------|
 | `vss` CLI internals | changing the CLI or its library | [`services/agent/packages/vss_cli/AGENTS.md`](services/agent/packages/vss_cli/AGENTS.md) |
-| VSS Agent service | working on the agent: tools, workflows, the NAT stack | [`services/agent/AGENTS.md`](services/agent/AGENTS.md) |
 | Video Analytics API | working on the analytics service | [`services/analytics/video-analytics-api/AGENTS.md`](services/analytics/video-analytics-api/AGENTS.md) |
-| Skill evaluation | writing or debugging a skill eval | [`.github/skill-eval/AGENTS.md`](.github/skill-eval/AGENTS.md) |
-| Helm sync | changing the Helm chart mirror | [`.github/helm-sync/AGENTS.md`](.github/helm-sync/AGENTS.md) |
 
-## Two things that apply everywhere
-
-- **Sign your commits.** `git commit -s`; DCO is enforced and unsigned commits
-  are rejected.
-- **Branch as `<type>/<name>`** matching your commit's conventional-commit type
-  (`feat/`, `fix/`, `docs/`, `refactor/`, `test/`).

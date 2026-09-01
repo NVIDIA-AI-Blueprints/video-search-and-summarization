@@ -21,12 +21,26 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-rtvi-cv
     app.kubernetes.io/instance: {{ .Release.Name }}
-  {{- if .Values.streamAffinity.enabled }}
+  {{- if or .Values.streamAffinity.enabled .Values.ingressTimeoutServer }}
   annotations:
-    haproxy.org/load-balance: {{ printf "hdr(%s)" .Values.streamAffinity.hashHeader | quote }}
-    haproxy.org/hash-type: "consistent"
+  {{- if .Values.streamAffinity.enabled }}
+    # Stick-table stream affinity: the first request for a hashHeader value is
+    # balanced normally (controller default round-robin) and the chosen server
+    # is recorded in the table; every later request carrying the same value is
+    # routed to that server until the entry idles out. Requests without the
+    # header are balanced without sticking — no uuid fallback is needed (under
+    # the former hdr-hash balancing, header-less requests all hashed to one
+    # replica; under stick-tables they simply round-robin).
     haproxy.org/backend-config-snippet: |
-      http-request set-header {{ .Values.streamAffinity.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.streamAffinity.hashHeader }}) -m found }
+      stick-table type string len 64 size {{ .Values.streamAffinity.tableSize }} expire {{ .Values.streamAffinity.tableExpire }}
+      stick on req.hdr({{ .Values.streamAffinity.hashHeader }}) if { req.hdr({{ .Values.streamAffinity.hashHeader }}) -m found }
+  {{- end }}
+  {{- with .Values.ingressTimeoutServer }}
+    # Server-side timeout for this backend. Set here rather than on the Ingress
+    # so a long embedding call does not raise the ceiling for every other route
+    # sharing the origin.
+    haproxy.org/timeout-server: {{ . | quote }}
+  {{- end }}
   {{- end }}
 spec:
   type: {{ .Values.service.type | default "ClusterIP" }}

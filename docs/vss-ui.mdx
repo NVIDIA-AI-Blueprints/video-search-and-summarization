@@ -123,7 +123,7 @@ The settings dialog allows you to configure:
 
 The Chat Sidebar integrates with different tabs: Example flows are:
 
-* In the Search Tab, when the sidebar is open, manual search controls are disabled. Queries submitted through the sidebar trigger an agentic search, and matching video results populate the Search Tab's content area. Use the **"+ Chat"** button on video cards to attach clip context to the sidebar input (see [+ Chat Button](/vss-ui#chat-button)).
+* In the Search Tab, when the sidebar is open, manual search controls are disabled. Queries submitted through the sidebar trigger an agentic search, and matching video results populate the Search Tab's content area. Use the **"+ Chat"** button on video cards to attach clip context to the sidebar input (see [+ Chat Button](/vss/system-components/user-interface#chat-button)).
 * In the Alerts Tab, use the **"Generate Report"** button in an expanded alert row to send alert metadata to the Chat Sidebar for AI-powered analysis.
 * Video/Sensor related context can be added to the chat input by clicking the **"+ Chat"** button on video/sensor cards in the Search Tab, Video Management Tab.
 
@@ -333,7 +333,7 @@ Click ▼ or ⓘ to expand a row and view its Metadata section.
 
 **Available actions in expanded rows:**
 
-* **Generate Report** — Sends alert metadata to the [Global Chat Sidebar](/vss-ui#global-chat-sidebar) for AI-powered analysis (available when a report prompt template is configured). The Chat Sidebar opens automatically with the alert context pre-filled, allowing follow-up questions about the incident.
+* **Generate Report** — Sends alert metadata to the [Global Chat Sidebar](/vss/system-components/user-interface#global-chat-sidebar) for AI-powered analysis (available when a report prompt template is configured). The Chat Sidebar opens automatically with the alert context pre-filled, allowing follow-up questions about the incident.
 * **Copy Report Prompt** — Copies a formatted template with metadata for AI analysis to clipboard
 * **Copy Metadata** — Copies the complete JSON metadata for debugging or sharing
 
@@ -593,7 +593,7 @@ Each video card displays:
 | Time Range | Start time / End time of the clip in `HH:mm:ss` format. If timestamps are invalid or missing, displays `--:--:--` |
 | Info Icon ⓘ | Hover to see video description (if available) |
 | Similarity Score | Cosine similarity value (-1.00 - 1.00) indicating relevance. Displayed when available from search results |
-| **+ Chat** button | Adds this video clip as sensor context to the Chat Sidebar input (see [+ Chat Button](/vss-ui#chat-button) below) |
+| **+ Chat** button | Adds this video clip as sensor context to the Chat Sidebar input (see [+ Chat Button](/vss/system-components/user-interface#chat-button) below) |
 
 ##### \+ Chat Button
 
@@ -640,7 +640,7 @@ Click the play button or thumbnail to open the video playback modal with:
 
 ![VSS Reference User Interface - Search Tab Overview with Open Chat Sidebar](/assets/images/vss-ui/search-mode/search-main-with-open-chat-sidebar.png)
 
-The Search Tab includes the [Global Chat Sidebar](/vss-ui#global-chat-sidebar) on the right side, providing direct access to the Vision Agent without leaving the search interface. Refer to the Global Chat Sidebar section for full feature details (video upload, chat controls, settings, etc.).
+The Search Tab includes the [Global Chat Sidebar](/vss/system-components/user-interface#global-chat-sidebar) on the right side, providing direct access to the Vision Agent without leaving the search interface. Refer to the Global Chat Sidebar section for full feature details (video upload, chat controls, settings, etc.).
 
 **Toggle:**
 
@@ -678,7 +678,7 @@ At the bottom of the agent's response in the Chat Sidebar, a **"See all results 
 
 ##### Critic Verification
 
-When the [Critic Agent](/agent-workflow-search#critic-agent-overview) is enabled and has run for a search request, search result cards display verification details for each evaluated clip. The Critic Agent uses a VLM (Vision Language Model) to verify whether each search result actually matches the user's query.
+When the [Critic Agent](/vss/vision-agent/agent-workflows/search#critic-agent-overview) is enabled and has run for a search request, search result cards display verification details for each evaluated clip. The Critic Agent uses a VLM (Vision Language Model) to verify whether each search result actually matches the user's query.
 
 Users can toggle the critic agent on or off per query using the **Enable Critic** toggle in the Chat Sidebar settings.
 
@@ -711,7 +711,7 @@ When critic results are present, search results are automatically re-sorted by v
 Within each verdict group, results are ordered by descending similarity score. When the critic agent did not run for the request, results retain their original similarity ordering.
 
 <Note>
-The Critic Agent is enabled by default. To disable it across the entire deployment, set `ENABLE_CRITIC=false` before deploying. See [Critic Agent Overview](/agent-workflow-search#critic-agent-overview) for more details.
+The Critic Agent is enabled by default. To disable it across the entire deployment, set `ENABLE_CRITIC=false` before deploying. See [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview) for more details.
 </Note>
 
 #### Search by Image
@@ -876,13 +876,15 @@ The upload dialog allows you to select video files and optionally configure them
 
 **File Configuration:**
 
-Each file in the upload list can be expanded (click the chevron icon) to configure optional fields if system-level configuration is enabled.
+Each file in the upload list can be expanded (click the chevron icon) to rename the file and to configure optional fields if system-level configuration is enabled.
 
-**Note:** Configuration fields are optional and only appear if `NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON` is configured. Common field types include boolean toggles, text inputs, number inputs, and select dropdowns. The available fields depend entirely on your system's deployment configuration.
+**Renaming:** The expanded row always shows a required **Filename** field, pre-filled with the selected file's name. Edit it to upload the video under a different name without going back and re-selecting the file. Filenames cannot be empty or contain spaces; spaces in the original name are removed automatically. The collapsed row shows the name the file will be uploaded under, so you can confirm a rename at a glance (hover it to see the original name).
+
+**Note:** Configuration fields are optional and only appear if `NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON` is configured. Common field types include boolean toggles, text inputs, number inputs, and select dropdowns. The available fields depend entirely on your system's deployment configuration. Renaming does not depend on this setting.
 
 **File Management:**
 
-Each file in the list shows the video icon, filename, file size in MB, expand/collapse button (chevron icon) to show/hide configuration fields, and remove button (X icon) to remove file from upload queue.
+Each file in the list shows the video icon, upload filename, file size in MB, expand/collapse button (chevron icon) to show/hide the filename field and configuration fields, and remove button (X icon) to remove file from upload queue.
 
 Click "Upload (N)" button to start uploading all files, or "Cancel" to close the dialog without uploading.
 

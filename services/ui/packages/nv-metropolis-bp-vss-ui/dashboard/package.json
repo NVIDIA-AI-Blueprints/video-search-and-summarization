@@ -25,19 +25,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nvidia/foundations-react-core": "0.600.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@nvidia/foundations-react-core": "0.607.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@swc/cli": "^0.8.0",
-    "@swc/core": "^1.13.19",
-    "@types/react": "18.0.28",
-    "@types/react-dom": "18.0.11",
-    "typescript": "4.9.5"
+    "@swc/cli": "^0.8.1",
+    "@swc/core": "^1.16.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "typescript": "5.9.3"
   },
   "peerDependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   }
 }

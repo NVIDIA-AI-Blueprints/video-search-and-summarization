@@ -34,6 +34,8 @@ import math
 import os
 import re
 import sys
+
+import redact_secrets
 from pathlib import Path
 
 TRACE_URLS_NAME = "trace-urls.tsv"
@@ -650,6 +652,14 @@ def main(argv: list[str] | None = None) -> int:
                          "use instead of parsing the rendered Markdown")
     args = ap.parse_args(argv)
 
+    # Redact the tree BEFORE reading it: this render is what the PR comment
+    # is posted from, during the agent step — the workflow's pack-step scan
+    # runs later and cannot protect the comment. Scanner failure propagates:
+    # skills_eval_agent fail-closes a leg whose report crashes, and an
+    # unscanned tree must read as BLOCKED, not as green.
+    for line in redact_secrets.redact_tree(args.results_root):
+        print(f"redact_secrets: {line}", file=sys.stderr)
+
     leg = collect_leg(args.results_root)
     if not leg["trials"]:
         print("no trials under results root", file=sys.stderr)
@@ -667,11 +677,19 @@ def main(argv: list[str] | None = None) -> int:
     body = render_comment(leg, spec_path=args.spec_path, platform=args.platform,
                           head_sha=args.head_sha, spec_sha=args.spec_sha,
                           declared=declared)
+    # Both writes leave the runner for GitHub (comment body, artifact
+    # summary). The results tree was already TruffleHog-redacted above; this
+    # covers what rendering itself could reintroduce. The summary is scrubbed
+    # as a STRUCTURE before serialization — json.dumps escapes quotes,
+    # backslashes and non-ASCII, after which an env value no longer occurs
+    # literally in the document and substring replacement would miss it.
+    body = redact_secrets.redact_text(body)
     if args.summary_json:
         args.summary_json.parent.mkdir(parents=True, exist_ok=True)
         args.summary_json.write_text(json.dumps(
-            leg_summary(leg, declared=declared, spec_path=args.spec_path,
-                        platform=args.platform), indent=2, default=str))
+            redact_secrets.redact_obj(
+                leg_summary(leg, declared=declared, spec_path=args.spec_path,
+                            platform=args.platform)), indent=2, default=str))
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(body)

@@ -7,6 +7,7 @@ module.exports = {
     '^@nemo-agent-toolkit/ui$': '<rootDir>/__mocks__/@nemo-agent-toolkit-ui.js',
     '^@nemo-agent-toolkit/ui/server$': '<rootDir>/__mocks__/@nemo-agent-toolkit-ui-server.js',
     '^next-i18next$': '<rootDir>/__mocks__/next-i18next.js',
+    '^next-i18next/pages$': '<rootDir>/__mocks__/next-i18next.js',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },
   testMatch: [

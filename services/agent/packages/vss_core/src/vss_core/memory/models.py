@@ -29,8 +29,8 @@ from vss_core._foundation.time import datetime_to_iso8601
 
 SCHEMA_ID: Literal["nv.vss.memory/1.0"] = "nv.vss.memory/1.0"
 
-MemoryGroup = Literal["summary", "search", "alert", "media", "vlm"]
-KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "media", "vlm"})
+MemoryGroup = Literal["summary", "search", "alert", "vlm"]
+KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "vlm"})
 
 RecordType = Literal["event", "search_hit", "incident"]
 KNOWN_RECORD_TYPES: frozenset[str] = frozenset({"event", "search_hit", "incident"})
@@ -253,21 +253,6 @@ class MemoryOutput(BaseModel):
             return payload
         return value
 
-    @field_validator("ext", mode="after")
-    @classmethod
-    def _reject_nested_collections(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        """Placeholder for nested-collection rejection.
-
-        Parent/child writers already omit ``events`` / ``results`` /
-        ``incidents`` from ``output.ext``. A hard reject here would break
-        develop's summarize CLI, which still nests ``events`` via the
-        transitional :class:`~vss_core.memory.summary_adapter.SummaryAdapter`.
-        The follow-up command-group PR migrates summarize to
-        ``terminal_bundle`` and restores the hard reject against
-        :data:`FORBIDDEN_EXT_COLLECTIONS`.
-        """
-        return value
-
 
 class MemoryError(BaseModel):
     """Structured error payload for failed/partial/timeout records."""
@@ -303,6 +288,18 @@ class UnifiedMemoryRecord(BaseModel):
         return cleaned
 
 
+def forbidden_ext_collections(record: UnifiedMemoryRecord) -> list[str]:
+    """Child-owned collection keys wrongly nested in ``record.output.ext``.
+
+    Checked when a record is written, never when one is read: documents
+    persisted before children existed nest ``events`` here, and a read that
+    rejected them would make every stored job unreadable after an upgrade.
+    """
+    if record.output is None or not record.output.ext:
+        return []
+    return sorted(FORBIDDEN_EXT_COLLECTIONS.intersection(record.output.ext))
+
+
 __all__ = [
     "FORBIDDEN_EXT_COLLECTIONS",
     "KNOWN_GROUPS",
@@ -325,4 +322,5 @@ __all__ = [
     "TimeWindow",
     "TimestampPoint",
     "UnifiedMemoryRecord",
+    "forbidden_ext_collections",
 ]

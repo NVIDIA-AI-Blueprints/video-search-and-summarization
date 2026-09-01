@@ -4,7 +4,7 @@ Use the search agent's source endpoints so VST, VIOS, and Elasticsearch remain
 consistent. Never replace these operations with direct backend mutations.
 
 These Agent-backed mutations are the full-stack path. For a headless
-`vss-build-vision-agent` deployment with no Agent tier, provision the source
+`vss-build-vision-ai` deployment with no Agent tier, provision the source
 through `vss-manage-video-io-storage`'s
 [direct register-and-fan-out workflow](../../vss-manage-video-io-storage/references/provision-vios-source.md),
 then return here for search. Do not apply the Agent endpoint recipes below to
@@ -30,7 +30,6 @@ the backends' own service, model, and index inventory:
 : "${VSS_ORIGIN:?set the deployment origin}"
 : "${VSS_REPO_ROOT:?set the validated checkout}"
 VSS_ORIGIN="${VSS_ORIGIN%/}"
-AGENT_URL="${VSS_ORIGIN}"
 
 VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
 "${VSS[@]}" search run --help >/dev/null || exit 1
@@ -194,7 +193,7 @@ for SENSOR_TO_DELETE in "${SENSORS_TO_DELETE[@]}"; do
   test -n "${SENSOR_TO_DELETE}" || exit 1
   DELETE_TIMEOUT=$(readiness_timeout 300) || exit 1
   curl -fsS --connect-timeout 5 --max-time "${DELETE_TIMEOUT}" -X DELETE \
-    "${AGENT_URL%/}/api/v1/videos/${SENSOR_TO_DELETE}" |
+    "${VSS_ORIGIN%/}/api/v1/videos/${SENSOR_TO_DELETE}" |
     jq -e '.status == "success"' >/dev/null || exit 1
 done
 
@@ -253,7 +252,7 @@ test -s "${SAMPLE_DIR}/sample-warehouse-ladder.mp4" || exit 1
 ```
 
 ```bash
-: "${AGENT_URL:?resolve the selected search agent}"
+: "${VSS_ORIGIN:?resolve the selected search agent}"
 : "${FILE_PATH:?set the local media path}"
 test -r "${FILE_PATH}" || exit 1
 SOURCE_FILENAME=$(basename -- "${FILE_PATH}")
@@ -264,7 +263,7 @@ RTVI_CV_LOG_SINCE="${RTVI_CV_LOG_SINCE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 UPLOAD_REQUEST=$(jq -cn --arg filename "${UPLOAD_FILENAME}" '{filename: $filename}')
 UPLOAD_REQUEST_TIMEOUT=$(readiness_timeout 30) || exit 1
 UPLOAD_URL_RESPONSE=$(curl -sfS --max-time "${UPLOAD_REQUEST_TIMEOUT}" -X POST \
-  "${AGENT_URL}/api/v1/videos" \
+  "${VSS_ORIGIN}/api/v1/videos" \
   -H "Content-Type: application/json" -d "${UPLOAD_REQUEST}")
 UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" |
   jq -er '.url | select(type == "string" and length > 0)') || exit 1
@@ -288,7 +287,7 @@ COMPLETE_TIMEOUT=$(readiness_timeout 900) || exit 1
 COMPLETE_RESPONSE=$(printf '%s' "${UPLOAD_RESPONSE}" |
   jq --arg filename "${UPLOAD_FILENAME}" '. + {filename: $filename}' |
   curl -sfS --connect-timeout 10 --max-time "${COMPLETE_TIMEOUT}" -X POST \
-    "${AGENT_URL}/api/v1/videos/${SENSOR}/complete" \
+    "${VSS_ORIGIN}/api/v1/videos/${SENSOR}/complete" \
     -H "Content-Type: application/json" -d @-)
 printf '%s' "${COMPLETE_RESPONSE}" | jq -e . >/dev/null || exit 1
 printf '%s' "${COMPLETE_RESPONSE}" |
@@ -403,7 +402,7 @@ direct index-level validation or create a port-forward.
 Register the exact RTSP URL through the selected search agent:
 
 ```bash
-curl -sfS -X POST "${AGENT_URL}/api/v1/rtsp-streams/add" \
+curl -sfS -X POST "${VSS_ORIGIN}/api/v1/rtsp-streams/add" \
   -H "Content-Type: application/json" \
   -d '{
     "sensorUrl": "rtsp://<host>:<port>/<path>",
@@ -453,7 +452,7 @@ delete_index_count() {
 
 DELETE_TIMEOUT=$(delete_timeout 60) || exit 1
 DELETE_RESPONSE=$(curl -sfS --max-time "${DELETE_TIMEOUT}" -X DELETE \
-  "${AGENT_URL%/}/api/v1/videos/${SAVED_SENSOR_ID}") || exit 1
+  "${VSS_ORIGIN%/}/api/v1/videos/${SAVED_SENSOR_ID}") || exit 1
 printf '%s' "${DELETE_RESPONSE}" | jq -e '.status == "success"' >/dev/null || exit 1
 
 # Last-known state, so an expiry can say what is still present rather than

@@ -131,4 +131,6 @@ nodePort: {{ .nodePort | int }}
   value: {{ required "service.controller.port is required" .Values.service.controller.port | quote }}
 - name: WDM_CLUSTER_TYPE
   value: {{ required "runtimeEnv.WDM_CLUSTER_TYPE is required" (get $env "WDM_CLUSTER_TYPE") | quote }}
+- name: WDM_XDS_GRPC_ADS_ENABLED
+  value: {{ get $env "WDM_XDS_GRPC_ADS_ENABLED" | default "true" | quote }}
 {{- end -}}

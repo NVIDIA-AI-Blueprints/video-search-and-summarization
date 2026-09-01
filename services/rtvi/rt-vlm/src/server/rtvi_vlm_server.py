@@ -399,6 +399,19 @@ async def _delete_live_streams_batch_impl(
         len(deleted),
         len(errors),
     )
+    if request.blocking and not errors:
+        try:
+            released = await loop.run_in_executor(
+                executor,
+                stream_handler.release_idle_vlm_resources,
+            )
+            logger.info("Blocking batch delete idle VLM resource release: %s", released)
+        except Exception as ex:
+            logger.error(
+                "Blocking batch delete idle VLM resource release failed: %s",
+                ex,
+                exc_info=True,
+            )
     return DeleteLiveStreamsResponse(deleted=deleted, errors=errors)
 
 
@@ -529,10 +542,9 @@ class RTVIServer:
         # Build VlmQuery for the text-only request
         from api_models.captions import ResponseFormat, ResponseType
 
-        response_format = ResponseFormat(type=ResponseType.TEXT)
-        if request_body.response_format:
-            if request_body.response_format.get("type") == "json_object":
-                response_format = ResponseFormat(type=ResponseType.JSON_OBJECT)
+        response_format = ResponseFormat.model_validate(
+            request_body.response_format or {"type": ResponseType.TEXT}
+        )
 
         # Truncate prompt to fit VlmQuery.prompt max_length (5000 chars).
         # For text-only, the actual messages go via chat_messages — prompt is metadata only.
@@ -894,7 +906,7 @@ class RTVIServer:
             creation_time=None,
         )
 
-        self._asset_manager._asset_map[file_id] = asset
+        self._asset_manager._publish_asset(asset)
         return file_id, len(media_data), file_path
 
     async def _register_data_url_asset(
@@ -1068,7 +1080,7 @@ class RTVIServer:
             )
             raise
 
-    def _build_vlm_query_from_cv_metadata(self, asset_id, metadata):
+    def _build_vlm_query_from_cv_metadata(self, asset_id, metadata, is_live=True):
         """Build VlmQuery from CV StreamMetadata for auto-inference."""
 
         if not metadata.prompt:
@@ -1079,7 +1091,7 @@ class RTVIServer:
             "id": [asset_id],
             "prompt": metadata.prompt,
             "model": model_name,
-            "stream": True,  # live streams always require streaming output
+            "stream": is_live,
             "chunk_duration": (
                 metadata.chunk_duration if metadata.chunk_duration is not None else 10
             ),
@@ -1181,6 +1193,7 @@ class RTVIServer:
                 purpose="vision",
                 media_type="video",
                 creation_time=value.creation_time,
+                file_id=value.camera_id,
                 sensor_name=value.camera_id,
                 camera_id=value.camera_id,
             )
@@ -1196,7 +1209,7 @@ class RTVIServer:
                 purpose="vision",
                 media_type="video",
                 creation_time=value.creation_time,
-                file_id=None,
+                file_id=value.camera_id,
                 url_headers=url_headers,
                 sensor_name=value.camera_id,
                 camera_id=value.camera_id,
@@ -2224,10 +2237,9 @@ class RTVIServer:
         )
         async def delete_live_stream(
             stream_id: Annotated[
-                UUID, Path(description="Unique identifier for the live stream to be deleted.")
+                str, Path(description="Unique identifier for the live stream to be deleted.")
             ],
         ):
-            stream_id = str(stream_id)
             logger.info("Received delete live stream request for %s", stream_id)
 
             asset = self._asset_manager.get_asset(stream_id)
@@ -2405,7 +2417,10 @@ class RTVIServer:
                 value.camera_url,
             )
 
-            if self._is_vios_file_sensor(request, value.camera_url, value.camera_type):
+            is_vios_file_sensor = self._is_vios_file_sensor(
+                request, value.camera_url, value.camera_type
+            )
+            if is_vios_file_sensor:
                 video_id = await self._add_vios_file_sensor_asset(
                     value,
                     url_headers=_headers.url_headers if _headers else None,
@@ -2416,12 +2431,14 @@ class RTVIServer:
                     video_id,
                 )
             else:
-                # Add stream via existing asset manager with camera_id tracking
+                # Reuse camera_id as the internal stream/asset id so downstream
+                # correlation stays consistent with the caller-supplied id.
                 video_id = self._asset_manager.add_live_stream(
                     url=value.camera_url,
                     description=value.camera_name or value.camera_id,
                     camera_id=value.camera_id,
                     sensor_name=value.camera_id,
+                    stream_id=value.camera_id,
                 )
 
                 logger.info(
@@ -2435,7 +2452,9 @@ class RTVIServer:
             # If metadata has inference params, start VLM processing
             if value.metadata and value.metadata.has_inference_params:
                 try:
-                    query = self._build_vlm_query_from_cv_metadata(video_id, value.metadata)
+                    query = self._build_vlm_query_from_cv_metadata(
+                        video_id, value.metadata, is_live=not is_vios_file_sensor
+                    )
                     logger.info(
                         "Starting VLM inference for CV stream camera_id=%s, asset_id=%s",
                         value.camera_id,
@@ -2985,7 +3004,7 @@ class RTVIServer:
         )
         async def stop_live_stream(
             stream_id: Annotated[
-                UUID,
+                str,
                 Path(
                     description="Unique identifier for the live stream for which VLM processing is to be stopped."  # noqa: E501
                 ),
@@ -3000,7 +3019,6 @@ class RTVIServer:
                 ),
             ] = None,
         ):
-            stream_id = str(stream_id)
             logger.info("Received stop live stream VLM request for %s", stream_id)
 
             asset = self._asset_manager.get_asset(stream_id)
@@ -3225,10 +3243,9 @@ class RTVIServer:
                     pass
 
             # Handle response_format
-            response_format = ResponseFormat(type=ResponseType.TEXT)
-            if request_body.response_format:
-                if request_body.response_format.get("type") == "json_object":
-                    response_format = ResponseFormat(type=ResponseType.JSON_OBJECT)
+            response_format = ResponseFormat.model_validate(
+                request_body.response_format or {"type": ResponseType.TEXT}
+            )
 
             # Convert to VlmQuery format
             # Only include optional fields if they are not None to avoid Pydantic validation errors

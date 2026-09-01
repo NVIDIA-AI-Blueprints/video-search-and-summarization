@@ -23,8 +23,10 @@ import math
 import os
 import random
 import re
+import shutil
 import string
 import threading
+import time
 import traceback
 import uuid
 from typing import List, Optional
@@ -55,8 +57,10 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_MAX_NUM_BATCHED_TOKENS": "RTVI_VLLM_MAX_NUM_BATCHED_TOKENS",
     "VLLM_ENABLE_PREFIX_CACHING": "RTVI_VLLM_ENABLE_PREFIX_CACHING",
     "VLLM_ENFORCE_EAGER": "RTVI_VLLM_ENFORCE_EAGER",
+    "VLLM_CUDAGRAPH_MODE": "RTVI_VLLM_CUDAGRAPH_MODE",
     "VLLM_DISABLE_MM_PREPROCESSOR_CACHE": "RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
     "VLLM_MM_PROCESSOR_CACHE_GB": "RTVI_VLLM_MM_PROCESSOR_CACHE_GB",
+    "VLLM_MM_PROCESSOR_CACHE_TYPE": "RTVI_VLLM_MM_PROCESSOR_CACHE_TYPE",
     "VLLM_MM_ENCODER_ATTN_BACKEND": "RTVI_VLLM_MM_ENCODER_ATTN_BACKEND",
     "VLLM_MM_TENSOR_IPC": "RTVI_VLLM_MM_TENSOR_IPC",
     "VLLM_MULTIMODAL_TENSOR_IPC": "RTVI_VLLM_MULTIMODAL_TENSOR_IPC",
@@ -64,16 +68,27 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_IGNORE_EOS": "RTVI_VLLM_IGNORE_EOS",
     "VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES": "RTVI_VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES",
     "VLLM_ATTENTION_BACKEND": "RTVI_VLLM_ATTENTION_BACKEND",
+    "VLLM_DEFAULT_REPETITION_PENALTY": "RTVI_VLLM_DEFAULT_REPETITION_PENALTY",
+    "VLLM_DEFAULT_TOP_K": "RTVI_VLLM_DEFAULT_TOP_K",
     "VLLM_KV_CACHE_DTYPE": "RTVI_VLLM_KV_CACHE_DTYPE",
     "VLLM_KV_CACHE_MEMORY_BYTES": "RTVI_VLLM_KV_CACHE_MEMORY_BYTES",
+    "VLLM_LIMIT_MM_PER_PROMPT_IMAGE": "RTVI_VLLM_LIMIT_MM_PER_PROMPT_IMAGE",
+    "VLLM_LIMIT_MM_PER_PROMPT_VIDEO": "RTVI_VLLM_LIMIT_MM_PER_PROMPT_VIDEO",
+    "VLLM_LIMIT_MM_PER_PROMPT_AUDIO": "RTVI_VLLM_LIMIT_MM_PER_PROMPT_AUDIO",
     "VLLM_MAX_NUM_SEQS": "RTVI_VLLM_MAX_NUM_SEQS",
+    "VLLM_MULTI_IMAGE_CHUNK_INPUT": "RTVI_VLLM_MULTI_IMAGE_CHUNK_INPUT",
+    "VLLM_NO_REPEAT_NGRAM_SIZE": "RTVI_VLLM_NO_REPEAT_NGRAM_SIZE",
     "VLLM_NUM_SCHEDULER_STEPS": "RTVI_VLLM_NUM_SCHEDULER_STEPS",
     "VLLM_NUM_PREPROCESS_WORKERS": "RTVI_VLLM_NUM_PREPROCESS_WORKERS",
     "VLLM_EVS_SIMILARITY_THRESHOLD": "RTVI_VLLM_EVS_SIMILARITY_THRESHOLD",
+    "VLLM_RAW_IMAGE_TENSOR_INPUT": "RTVI_VLLM_RAW_IMAGE_TENSOR_INPUT",
     "VLLM_ROOT": "RTVI_VLLM_ROOT",
 }
 
 _DEFAULT_VLLM_NUM_PREPROCESS_WORKERS = 16
+_VLLM_CUDAGRAPH_MODES = frozenset(
+    {"NONE", "PIECEWISE", "FULL", "FULL_DECODE_ONLY", "FULL_AND_PIECEWISE"}
+)
 # Legacy admission serializes frontend preprocessing so transient allocations do not overlap.
 _LEGACY_MAX_CONCURRENT_CUDA_MM_PREPROCESS = 1
 # Keep at most one c128 2K-equivalent wave of CUDA-IPC multimodal inputs resident
@@ -85,6 +100,7 @@ _CUDA_MM_2K_REFERENCE_FRAMES = 10
 _BLANK_DEFAULT_VLLM_IMPORT_ENV_VARS = (
     "VLLM_CONFIGURE_LOGGING",
     "VLLM_LOGGING_LEVEL",
+    "VLLM_NVFP4_GEMM_BACKEND",
 )
 
 
@@ -141,6 +157,81 @@ def _parse_int_env(name: str, default: int) -> int:
         raise ValueError(f"Invalid value for {name}: '{value}' is not a valid integer")
 
 
+def _parse_nonnegative_int_env(name: str, default: int) -> int:
+    parsed = _parse_int_env(name, default)
+    if parsed < 0:
+        raise ValueError(f"Invalid value for {name}: '{parsed}' must be greater than or equal to 0")
+    return parsed
+
+
+def _parse_mm_limit_env(name: str, nim_alias: str, default: int) -> int:
+    """Parse a vLLM multimodal limit, accepting NIM's equivalent env name."""
+    if (_get_rtvi_vllm_env(name, "") or "").strip():
+        return _parse_nonnegative_int_env(name, default)
+
+    nim_value = os.environ.get(nim_alias, "") or ""
+    if not nim_value.strip():
+        return default
+    try:
+        parsed = int(nim_value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid value for {nim_alias}: '{nim_value}' is not a valid integer"
+        ) from exc
+    if parsed < 0:
+        raise ValueError(
+            f"Invalid value for {nim_alias}: '{parsed}' must be greater than or equal to 0"
+        )
+    return parsed
+
+
+def _get_limit_mm_per_prompt(vlm_supports_audio: bool) -> dict[str, int]:
+    """Build vLLM multimodal count limits while preserving RTVI defaults."""
+    limit_mm_per_prompt = {
+        "image": _parse_mm_limit_env(
+            "VLLM_LIMIT_MM_PER_PROMPT_IMAGE", "NIM_MAX_IMAGES_PER_PROMPT", 1
+        ),
+        "video": _parse_mm_limit_env(
+            "VLLM_LIMIT_MM_PER_PROMPT_VIDEO", "NIM_MAX_VIDEOS_PER_PROMPT", 1
+        ),
+    }
+    if vlm_supports_audio:
+        limit_mm_per_prompt["audio"] = _parse_nonnegative_int_env(
+            "VLLM_LIMIT_MM_PER_PROMPT_AUDIO", 1
+        )
+    return limit_mm_per_prompt
+
+
+def _get_default_top_k() -> int:
+    """Service-level default top-k for requests that use RTVI's config default."""
+    return _parse_nonnegative_int_env("VLLM_DEFAULT_TOP_K", VlmGenerationConfig.top_k)
+
+
+def _get_default_repetition_penalty() -> float:
+    """Service-level default repetition penalty for RTVI-defaulted requests."""
+    return _parse_float_env(
+        "VLLM_DEFAULT_REPETITION_PENALTY",
+        VlmGenerationConfig.repetition_penalty,
+    )
+
+
+def _get_no_repeat_ngram_size() -> int:
+    """CR2/CR3 no-repeat-ngram default; set 0 to match vanilla vLLM/NIM."""
+    return _parse_nonnegative_int_env("VLLM_NO_REPEAT_NGRAM_SIZE", 3)
+
+
+def _resolve_sampling_top_k(config: VlmGenerationConfig) -> int:
+    if config.top_k == VlmGenerationConfig.top_k:
+        return _get_default_top_k()
+    return int(config.top_k)
+
+
+def _resolve_repetition_penalty(config: VlmGenerationConfig) -> float:
+    if config.repetition_penalty == VlmGenerationConfig.repetition_penalty:
+        return _get_default_repetition_penalty()
+    return float(config.repetition_penalty)
+
+
 def _parse_optional_int_env(name: str) -> int | None:
     value = _get_rtvi_vllm_env(name, "") or ""
     if not value.strip():
@@ -165,6 +256,28 @@ def _get_num_preprocess_workers() -> int:
             f"'{num_workers}' must be greater than or equal to 1"
         )
     return num_workers
+
+
+def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] | None:
+    raw_mode = (_get_rtvi_vllm_env("VLLM_CUDAGRAPH_MODE", "") or "").strip()
+    if not raw_mode:
+        if _is_cosmos3_edge_arch(model_architecture):
+            return {
+                "mode": "VLLM_COMPILE",
+                "cudagraph_mode": "PIECEWISE",
+            }
+        return None
+    cudagraph_mode = raw_mode.upper()
+    if cudagraph_mode not in _VLLM_CUDAGRAPH_MODES:
+        supported = ", ".join(sorted(_VLLM_CUDAGRAPH_MODES))
+        raise ValueError(
+            f"Invalid value for VLLM_CUDAGRAPH_MODE: '{raw_mode}'; " f"expected one of: {supported}"
+        )
+    config: dict[str, object] = {
+        "mode": "VLLM_COMPILE",
+        "cudagraph_mode": cudagraph_mode,
+    }
+    return config
 
 
 def _get_adaptive_preprocess_config() -> AdaptivePreprocessConfig:
@@ -258,10 +371,14 @@ def _apply_kv_cache_dtype_override(
 def _apply_attention_backend_override(
     engine_args_kwargs: dict[str, object],
     supported_params: set[str],
+    model_architecture: str = "",
 ) -> bool:
     attention_backend = (_get_rtvi_vllm_env("VLLM_ATTENTION_BACKEND", "") or "").strip()
     if not attention_backend:
-        return False
+        if not _is_cosmos3_edge_arch(model_architecture):
+            return False
+        attention_backend = "CUSTOM"
+        logger.info("Defaulting Cosmos3 Edge attention backend to %s", attention_backend)
     if "attention_backend" not in supported_params:
         logger.warning(
             "VLLM_ATTENTION_BACKEND=%s ignored; installed vLLM does not support "
@@ -322,6 +439,18 @@ def _get_mm_processor_cache_gb() -> float:
     return _parse_float_env("VLLM_MM_INPUT_CACHE_GIB", 1.0)
 
 
+def _get_mm_processor_cache_type() -> str:
+    cache_type = (
+        (_get_rtvi_vllm_env("VLLM_MM_PROCESSOR_CACHE_TYPE", "shm") or "shm").strip().lower()
+    )
+    if cache_type not in {"lru", "shm"}:
+        raise ValueError(
+            "Invalid value for VLLM_MM_PROCESSOR_CACHE_TYPE: "
+            f"'{cache_type}' must be 'lru' or 'shm'"
+        )
+    return cache_type
+
+
 CPU_COPY_OTHER_THREAD = True
 
 # Fallback edges for a request that supplies only one half of `size`, per the
@@ -375,11 +504,25 @@ def _cap_video_frames(images, video_frames_times, max_frames: int):
     if len(images) <= 1 or len(images) <= max_frames:
         return images, video_frames_times
 
-    indices = torch.linspace(0, len(images) - 1, max_frames).long()
-    capped_images = images[indices]
+    if isinstance(images, torch.Tensor):
+        indices = torch.linspace(0, len(images) - 1, max_frames).long()
+        capped_images = images[indices]
+        index_list = indices.tolist()
+    else:
+        indices = numpy.linspace(0, len(images) - 1, max_frames).astype(int)
+        index_list = indices.tolist()
+        capped_images = (
+            [images[index] for index in index_list] if isinstance(images, list) else images[indices]
+        )
     if video_frames_times is not None:
-        video_frames_times = [video_frames_times[i] for i in indices.tolist()]
+        video_frames_times = [video_frames_times[i] for i in index_list]
     return capped_images, video_frames_times
+
+
+def _frame_batch_as_numpy(images):
+    if isinstance(images, torch.Tensor):
+        return images.cpu().numpy()
+    return numpy.asarray(images)
 
 
 def _merge_mm_processor_kwargs(base: dict, requested: dict | None) -> dict:
@@ -434,6 +577,13 @@ def _evs_session_cache_stream_id(cache_key):
 _NEMOTRON_OMNI_ARCHS = frozenset({"NemotronH_Nano_VL_V2", "NemotronH_Nano_Omni_Reasoning_V3"})
 
 
+def _use_raw_image_tensor_input(model_architecture: str | None) -> bool:
+    return (
+        _parse_bool_env("VLLM_RAW_IMAGE_TENSOR_INPUT", False)
+        and model_architecture not in _NEMOTRON_OMNI_ARCHS
+    )
+
+
 _QWEN35_ARCHS = frozenset(
     {
         "Qwen3_5ForConditionalGeneration",
@@ -447,6 +597,11 @@ _QWEN3VL_ARCHS = frozenset(
     }
 )
 _COSMOS3_DIFFUSERS_ARCHS = frozenset({"Cosmos3ForConditionalGeneration"})
+_COSMOS3_EDGE_ARCHS = frozenset(
+    {
+        "Cosmos3EdgeForConditionalGeneration",
+    }
+)
 
 # Synthetic source_fps for absolute-timestamp video metadata: 1000 makes
 # round(t * fps) / fps reconstruct the real timestamp (ms resolution).
@@ -477,12 +632,20 @@ def _build_evs_sampling_kwargs(max_tokens, generation_config):
             return generation_config.get(name, default)
         return getattr(generation_config, name, default)
 
+    top_k = int(_gc("top_k", VlmGenerationConfig.top_k))
+    if top_k == VlmGenerationConfig.top_k:
+        top_k = _get_default_top_k()
+
+    repetition_penalty = float(_gc("repetition_penalty", VlmGenerationConfig.repetition_penalty))
+    if repetition_penalty == VlmGenerationConfig.repetition_penalty:
+        repetition_penalty = _get_default_repetition_penalty()
+
     kwargs = dict(
         max_tokens=max_tokens,
         temperature=float(_gc("temperature", 0.4)),
         top_p=float(_gc("top_p", 0.8)),
-        top_k=int(_gc("top_k", 20)),
-        repetition_penalty=float(_gc("repetition_penalty", 1.1)),
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
         seed=_gc("seed", 1),
     )
 
@@ -503,16 +666,56 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
     kwargs = {
         "temperature": config.temperature,
         "top_p": config.top_p,
-        "top_k": int(config.top_k),
+        "top_k": _resolve_sampling_top_k(config),
         "max_tokens": config.max_new_tokens,
-        "repetition_penalty": config.repetition_penalty,
+        "repetition_penalty": _resolve_repetition_penalty(config),
+        "seed": config.seed,
     }
     if config.min_tokens is not None:
         kwargs["min_tokens"] = config.min_tokens
+    response_format = config.response_format or {}
+    response_type = response_format.get("type")
+    is_structured_output = response_type in {"json_object", "json_schema"}
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-    if env_ignore_eos or config.ignore_eos is not None:
+    if is_structured_output:
+        kwargs["ignore_eos"] = False
+    elif env_ignore_eos or config.ignore_eos is not None:
         kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
+    if response_type == "json_object":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        kwargs["structured_outputs"] = StructuredOutputsParams(json_object=True)
+    elif response_type == "json_schema":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        json_schema = response_format["json_schema"]
+        kwargs["structured_outputs"] = StructuredOutputsParams(
+            json=json_schema["schema"],
+        )
     return kwargs
+
+
+def _configure_structured_outputs(engine_args_kwargs: dict, supported_params: set[str]) -> None:
+    if "structured_outputs_config" not in supported_params:
+        return
+
+    from vllm.config import StructuredOutputsConfig
+
+    engine_args_kwargs["structured_outputs_config"] = StructuredOutputsConfig(
+        backend="xgrammar",
+        disable_fallback=True,
+        disable_any_whitespace=True,
+    )
+
+
+def _set_cosmos_no_repeat_ngram_size(sampling_params, model_type: str) -> None:
+    no_repeat_ngram_size = _get_no_repeat_ngram_size()
+    if (
+        no_repeat_ngram_size
+        and model_type in ("cosmos-reason2", "cosmos-reason3")
+        and not getattr(sampling_params, "structured_outputs", None)
+    ):
+        sampling_params.no_repeat_ngram_size = no_repeat_ngram_size
 
 
 # Absolute video metadata changes the temporal positions seen by the model. Keep
@@ -633,8 +836,30 @@ def _is_cosmos3_diffusers_shim_arch(model_architecture: str) -> bool:
     return model_architecture in _COSMOS3_DIFFUSERS_ARCHS
 
 
+def _is_cosmos3_edge_arch(model_architecture: str) -> bool:
+    return model_architecture in _COSMOS3_EDGE_ARCHS
+
+
+def _build_video_message_content(query_text, vlm_model_type, model_architecture):
+    text = {"type": "text", "text": query_text}
+    video = {"type": "video", "video": "sample.mp4"}
+    if (
+        vlm_model_type in ("cosmos-reason2", "cosmos-reason3")
+        or model_architecture in _QWEN3VL_ARCHS
+        or _is_cosmos3_edge_arch(model_architecture)
+    ):
+        return [video, text]
+    return [text, video]
+
+
+def _uses_cosmos3_vllm_plugin(model_architecture: str) -> bool:
+    return _is_cosmos3_diffusers_shim_arch(model_architecture) or _is_cosmos3_edge_arch(
+        model_architecture
+    )
+
+
 def _maybe_register_cosmos3_vllm_shim(model_architecture: str) -> bool:
-    if not _is_cosmos3_diffusers_shim_arch(model_architecture):
+    if not _uses_cosmos3_vllm_plugin(model_architecture):
         return False
 
     os.environ.setdefault("VLLM_USE_DEEP_GEMM", "0")
@@ -644,13 +869,13 @@ def _maybe_register_cosmos3_vllm_shim(model_architecture: str) -> bool:
         vllm_cosmos3.register()
     except Exception as exc:
         raise RuntimeError(
-            "Cosmos3 diffusers checkpoints require the vllm_cosmos3 shim package. "
+            "Cosmos3 checkpoints require the vllm_cosmos3 shim package. "
             "Ensure the RTVI VLM image includes src/vllm_cosmos3 from the Cosmos3 "
             "vLLM shim layer."
         ) from exc
 
     logger.info(
-        "Enabled Cosmos3 vLLM diffusers shim for architecture %s",
+        "Enabled Cosmos3 vLLM plugin for architecture %s",
         model_architecture,
     )
     return True
@@ -658,14 +883,244 @@ def _maybe_register_cosmos3_vllm_shim(model_architecture: str) -> bool:
 
 def _get_vlm_trust_remote_code(model_architecture: str) -> bool:
     trust_remote_code = _parse_bool_env("VLM_TRUST_REMOTE_CODE", False)
-    if _is_cosmos3_diffusers_shim_arch(model_architecture):
+    if _uses_cosmos3_vllm_plugin(model_architecture):
         if not trust_remote_code:
             logger.info(
-                "Enabling trust_remote_code for Cosmos3 diffusers shim architecture %s",
+                "Enabling trust_remote_code for Cosmos3 architecture %s",
                 model_architecture,
             )
         return True
     return trust_remote_code
+
+
+def _cosmos3_edge_cache_module_name(model_path: str) -> str:
+    model_dir_name = os.path.basename(os.path.normpath(model_path))
+    return model_dir_name.replace("-", "_hyphen_").replace(".", "_dot_")
+
+
+def _clear_cosmos3_edge_transformers_module_cache(model_path: str) -> None:
+    try:
+        from transformers.dynamic_module_utils import HF_MODULES_CACHE
+    except Exception:
+        return
+
+    module_dir = os.path.join(
+        HF_MODULES_CACHE,
+        "transformers_modules",
+        _cosmos3_edge_cache_module_name(model_path),
+    )
+    if os.path.isdir(module_dir):
+        shutil.rmtree(module_dir)
+        logger.info("Cleared cached Cosmos3-Edge remote-code module at %s", module_dir)
+
+
+def _patch_cosmos3_edge_modeling_file(model_path: str, model_architecture: str) -> None:
+    if not _is_cosmos3_edge_arch(model_architecture):
+        return
+
+    modeling_path = os.path.join(model_path, "modeling_nemotron_siglip2_h.py")
+    try:
+        with open(modeling_path, encoding="utf-8") as modeling_file:
+            modeling_source = modeling_file.read()
+    except FileNotFoundError:
+        return
+
+    updated_source = modeling_source
+    patch_descriptions = []
+
+    fallback_marker = "def _rtvi_cosmos3_edge_rmsnorm_fn"
+    old_source = """try:
+    #from mamba_ssm.ops.triton.layernorm_gated import RMSNorm as RMSNormGated
+    from mamba_ssm.ops.triton.layernorm_gated import rmsnorm_fn
+except ImportError:
+    raise ImportError("mamba-ssm is required by the Mamba model but cannot be imported")
+"""
+    new_source = """try:
+    #from mamba_ssm.ops.triton.layernorm_gated import RMSNorm as RMSNormGated
+    from mamba_ssm.ops.triton.layernorm_gated import rmsnorm_fn
+except ImportError:
+    def _rtvi_cosmos3_edge_rmsnorm_fn(
+        x,
+        weight,
+        bias=None,
+        z=None,
+        eps=1e-5,
+        group_size=None,
+        norm_before_gate=False,
+    ):
+        dtype = x.dtype
+        hidden_states = x.float()
+        gate = None if z is None else torch.nn.functional.silu(z.float())
+        if gate is not None and not norm_before_gate:
+            hidden_states = hidden_states * gate
+
+        if group_size:
+            original_shape = hidden_states.shape
+            hidden_states = hidden_states.reshape(*original_shape[:-1], -1, group_size)
+            variance = hidden_states.pow(2).mean(dim=-1, keepdim=True)
+            hidden_states = hidden_states * torch.rsqrt(variance + eps)
+            hidden_states = hidden_states.reshape(original_shape)
+        else:
+            variance = hidden_states.pow(2).mean(dim=-1, keepdim=True)
+            hidden_states = hidden_states * torch.rsqrt(variance + eps)
+
+        if gate is not None and norm_before_gate:
+            hidden_states = hidden_states * gate
+        hidden_states = hidden_states * weight.float()
+        if bias is not None:
+            hidden_states = hidden_states + bias.float()
+        return hidden_states.to(dtype)
+
+    rmsnorm_fn = _rtvi_cosmos3_edge_rmsnorm_fn
+"""
+    if fallback_marker not in updated_source and old_source in updated_source:
+        updated_source = updated_source.replace(old_source, new_source, 1)
+        patch_descriptions.append("pure-Torch RMSNorm fallback")
+    elif fallback_marker not in updated_source:
+        logger.warning(
+            "Could not patch Cosmos3-Edge modeling.py; mamba RMSNorm import marker was not found"
+        )
+
+    mamba_mask_marker = "RTVI_COSMOS3_EDGE_MAMBA_MASK_PATCH"
+    old_mamba_mask_source = '''    def _update_mamba_mask(self, attention_mask, cache_position):
+        """
+        No need for zeroing states when
+            1. Cached forward
+            2. Attending to all inputs
+        """
+        mamba_mask = attention_mask
+        if cache_position[0] > 0 or (attention_mask is not None and torch.all(attention_mask == 1)):
+            mamba_mask = None
+        return mamba_mask
+'''
+    new_mamba_mask_source = '''    def _update_mamba_mask(self, attention_mask, cache_position):
+        """
+        No need for zeroing states when
+            1. Cached forward
+            2. Attending to all inputs
+        """
+        # RTVI_COSMOS3_EDGE_MAMBA_MASK_PATCH: vLLM's non-eager compile path
+        # fullgraph-traces this method. Avoid the data-dependent tensor branch
+        # when no mamba mask is needed, and avoid graph-breaking control flow
+        # during TorchDynamo capture.
+        if attention_mask is None:
+            return None
+        if torch.compiler.is_compiling():
+            return attention_mask
+        if cache_position[0] > 0 or torch.all(attention_mask == 1):
+            return None
+        return attention_mask
+'''
+    if mamba_mask_marker not in updated_source and old_mamba_mask_source in updated_source:
+        updated_source = updated_source.replace(
+            old_mamba_mask_source,
+            new_mamba_mask_source,
+            1,
+        )
+        patch_descriptions.append("TorchDynamo-safe mamba mask")
+    elif mamba_mask_marker not in updated_source:
+        logger.warning("Could not patch Cosmos3-Edge modeling.py; mamba mask marker was not found")
+
+    default_stream_marker = "RTVI_COSMOS3_EDGE_DEFAULT_STREAM_PATCH"
+    old_default_stream_source = (
+        "        with torch.cuda.stream(torch.cuda.default_stream(hidden_states.device)):\n"
+    )
+    new_default_stream_source = (
+        "        # RTVI_COSMOS3_EDGE_DEFAULT_STREAM_PATCH: the default CUDA stream\n"
+        "        # context manager returns a Stream object that TorchDynamo cannot\n"
+        "        # fullgraph trace. Keep the block structure without entering the\n"
+        "        # explicit default-stream context.\n"
+        "        if True:\n"
+    )
+    if default_stream_marker not in updated_source and old_default_stream_source in updated_source:
+        updated_source = updated_source.replace(
+            old_default_stream_source,
+            new_default_stream_source,
+            1,
+        )
+        patch_descriptions.append("TorchDynamo-safe default stream block")
+    elif default_stream_marker not in updated_source:
+        logger.warning(
+            "Could not patch Cosmos3-Edge modeling.py; default stream marker was not found"
+        )
+
+    if updated_source == modeling_source:
+        return
+
+    tmp_path = modeling_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as modeling_file:
+        modeling_file.write(updated_source)
+    os.replace(tmp_path, modeling_path)
+    _clear_cosmos3_edge_transformers_module_cache(model_path)
+    logger.info(
+        "Patched Cosmos3-Edge modeling.py with %s",
+        " and ".join(patch_descriptions),
+    )
+
+
+def _prepare_cosmos3_edge_weight_layout(model_path: str, model_architecture: str) -> None:
+    if not _is_cosmos3_edge_arch(model_architecture):
+        return
+
+    index_path = os.path.join(model_path, "model.safetensors.index.json")
+    backup_path = os.path.join(model_path, "model.safetensors.index.cosmos3_edge_original.json")
+    if not os.path.exists(index_path):
+        return
+
+    if not os.path.exists(backup_path):
+        with open(index_path, "rb") as index_file:
+            index_data = index_file.read()
+        backup_tmp_path = backup_path + ".tmp"
+        with open(backup_tmp_path, "wb") as backup_file:
+            backup_file.write(index_data)
+        os.replace(backup_tmp_path, backup_path)
+
+    with open(backup_path, encoding="utf-8") as index_file:
+        index_json = json.load(index_file)
+
+    shard_rewrite = {
+        "transformer/diffusion_pytorch_model-00001-of-00002.safetensors": (
+            "diffusion_pytorch_model-00001-of-00002.safetensors"
+        ),
+        "transformer/diffusion_pytorch_model-00002-of-00002.safetensors": (
+            "diffusion_pytorch_model-00002-of-00002.safetensors"
+        ),
+        "vision_encoder/model.safetensors": "model.safetensors",
+    }
+    for weight_name, shard_name in list(index_json.get("weight_map", {}).items()):
+        index_json["weight_map"][weight_name] = shard_rewrite.get(shard_name, shard_name)
+
+    index_tmp_path = index_path + ".tmp"
+    with open(index_tmp_path, "w", encoding="utf-8") as index_file:
+        json.dump(index_json, index_file, indent=2, sort_keys=True)
+        index_file.write("\n")
+    os.replace(index_tmp_path, index_path)
+
+    links = {
+        "diffusion_pytorch_model-00001-of-00002.safetensors": (
+            "transformer/diffusion_pytorch_model-00001-of-00002.safetensors"
+        ),
+        "diffusion_pytorch_model-00002-of-00002.safetensors": (
+            "transformer/diffusion_pytorch_model-00002-of-00002.safetensors"
+        ),
+        "model.safetensors": "vision_encoder/model.safetensors",
+    }
+    for link_name, target_name in links.items():
+        link_path = os.path.join(model_path, link_name)
+        target_path = os.path.join(model_path, target_name)
+        if not os.path.exists(target_path):
+            logger.warning("Cosmos3-Edge weight target missing: %s", target_path)
+            continue
+        if os.path.lexists(link_path):
+            if os.path.islink(link_path) and os.readlink(link_path) == target_name:
+                continue
+            if os.path.islink(link_path):
+                os.unlink(link_path)
+            else:
+                continue
+        os.symlink(target_name, link_path)
+
+    logger.info("Prepared Cosmos3-Edge root safetensors layout for vLLM")
 
 
 def _is_nvfp4_quantized(model_config: dict) -> bool:
@@ -807,6 +1262,18 @@ def _normalize_qwen3vl_tokenizer_config(model_path: str) -> None:
         logger.exception("Failed to normalize tokenizer_config at %s", cfg_path)
 
 
+def _empty_vllm_worker_cuda_cache(_worker):
+    """Release cached CUDA blocks in each vLLM worker process."""
+    torch.cuda.synchronize()
+    torch.cuda.ipc_collect()
+    torch.cuda.empty_cache()
+    free_bytes, total_bytes = torch.cuda.mem_get_info()
+    return {
+        "free_mib": free_bytes // (1024 * 1024),
+        "total_mib": total_bytes // (1024 * 1024),
+    }
+
+
 class VllmCompatible(BaseVlmModel):
     def _initialize_model(self, vlm_model_type="", **kwargs):
         """Initialize the VllmCompatible model"""
@@ -893,6 +1360,8 @@ class VllmCompatible(BaseVlmModel):
         self._model_name = "vllm-compatible"
         model_lock_path = self.model_path + "/.lock"
         with FileLock(model_lock_path):
+            _prepare_cosmos3_edge_weight_layout(self.model_path, self._model_architecture)
+            _patch_cosmos3_edge_modeling_file(self.model_path, self._model_architecture)
             logger.info("Initializing VllmCompatible model from: %s", self.model_path)
             gpu_memory_utilization_env = _get_rtvi_vllm_env("VLLM_GPU_MEMORY_UTILIZATION", "0.7")
             if not gpu_memory_utilization_env.strip():
@@ -925,11 +1394,7 @@ class VllmCompatible(BaseVlmModel):
                     os.environ.get("VLM_MODEL_SUPPORTS_AUDIO", "false").lower() == "true"
                 )
 
-                limit_mm_per_prompt = {"image": 1, "video": 1}
-
-                # Add audio limit if VLM model supports native audio processing
-                if vlm_supports_audio:
-                    limit_mm_per_prompt["audio"] = 1
+                limit_mm_per_prompt = _get_limit_mm_per_prompt(vlm_supports_audio)
 
                 import inspect
 
@@ -969,7 +1434,9 @@ class VllmCompatible(BaseVlmModel):
                 _apply_attention_backend_override(
                     engine_args_kwargs,
                     _engine_supported_params,
+                    self._model_architecture,
                 )
+                _configure_structured_outputs(engine_args_kwargs, _engine_supported_params)
 
                 if "enable_prefix_caching" in _engine_supported_params:
                     prefix_caching_env = _get_rtvi_vllm_env(
@@ -987,6 +1454,10 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["disable_mm_preprocessor_cache"] = disable_mm_cache
                 if "mm_processor_cache_gb" in _engine_supported_params:
                     engine_args_kwargs["mm_processor_cache_gb"] = _get_mm_processor_cache_gb()
+                if "mm_processor_cache_type" in _engine_supported_params:
+                    cache_type = _get_mm_processor_cache_type()
+                    engine_args_kwargs["mm_processor_cache_type"] = cache_type
+                    logger.info("VLLM MM processor cache type: %s", cache_type)
 
                 mm_tensor_ipc = (_get_rtvi_vllm_env("VLLM_MM_TENSOR_IPC", "") or "").strip()
                 if mm_tensor_ipc:
@@ -1045,6 +1516,7 @@ class VllmCompatible(BaseVlmModel):
                 if "enable_chunked_prefill" in _engine_supported_params:
                     engine_args_kwargs["enable_chunked_prefill"] = True
 
+                enforce_eager = False
                 if "enforce_eager" in _engine_supported_params:
                     enforce_eager = (
                         _get_rtvi_vllm_env("VLLM_ENFORCE_EAGER", "false").lower() == "true"
@@ -1052,6 +1524,25 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["enforce_eager"] = enforce_eager
                     if enforce_eager:
                         logger.info("VLLM enforce_eager enabled via VLLM_ENFORCE_EAGER")
+
+                compilation_config = _get_vllm_compilation_config(self._model_architecture)
+                if compilation_config:
+                    if enforce_eager:
+                        raise ValueError(
+                            "vLLM compilation cannot be enabled when VLLM_ENFORCE_EAGER=true"
+                        )
+                    if "compilation_config" in _engine_supported_params:
+                        engine_args_kwargs["compilation_config"] = compilation_config
+                        logger.info(
+                            "VLLM compilation config: %s",
+                            compilation_config,
+                        )
+                    else:
+                        logger.warning(
+                            "vLLM compilation config %s ignored; installed vLLM does not "
+                            "support compilation_config",
+                            compilation_config,
+                        )
 
                 vlm_trust_remote_code = _get_vlm_trust_remote_code(self._model_architecture)
                 if "trust_remote_code" in _engine_supported_params:
@@ -1208,6 +1699,7 @@ class VllmCompatible(BaseVlmModel):
             self._model_architecture in _NEMOTRON_OMNI_ARCHS
             or self._model_architecture in _QWEN35_ARCHS
             or self._model_architecture in _QWEN3VL_ARCHS
+            or _is_cosmos3_edge_arch(self._model_architecture)
         ):
             return {"enable_thinking": bool(config.enable_reasoning)}
         return {}
@@ -1728,15 +2220,14 @@ class VllmCompatible(BaseVlmModel):
         if not request_ids:
             return 0
 
+        for request_future in request_futures:
+            request_future.cancel()
+
         abort_future = asyncio.run_coroutine_threadsafe(
             self._llm.abort(request_ids),
             self._event_loop,
         )
-        try:
-            abort_future.result(timeout=timeout_sec)
-        finally:
-            for request_future in request_futures:
-                request_future.cancel()
+        abort_future.result(timeout=timeout_sec)
         return len(request_ids)
 
     async def process_async_vllm(
@@ -1800,19 +2291,58 @@ class VllmCompatible(BaseVlmModel):
                         video_metadata,
                     )
             else:
-                # Single image: extract tensor, convert to CPU for vLLM.
-                # NemotronH_Nano_VL_V2/Omni_Reasoning_V3 use NanoNemotronVLProcessor whose image path
+                # Image input: default to the historical CPU/NumPy path. The
+                # raw tensor opt-in lets native video keep CUDA tensors through
+                # vLLM preprocessing for Qwen-style image prompts.
+                # NemotronH_Nano_VL_V2/Omni_Reasoning_V3 use NanoNemotronVLProcessor
+                # whose image path
                 # calls image.size expecting a PIL Image (tuple), not a numpy array (int).
                 # The video path works because video_to_pixel_values does Image.fromarray
                 # internally, but the image path has no such conversion.
-                images_tensor = llm_inputs["multi_modal_data"]["image"][0]
-                images_numpy = await asyncio.to_thread(lambda: images_tensor.cpu().numpy())
-                if self._model_architecture in _NEMOTRON_OMNI_ARCHS:
-                    # Squeeze batch dim if present: (1, H, W, C) → (H, W, C)
-                    img_arr = images_numpy.squeeze(0) if images_numpy.ndim == 4 else images_numpy
-                    llm_inputs["multi_modal_data"]["image"] = Image.fromarray(img_arr, mode="RGB")
+                image_input = llm_inputs["multi_modal_data"]["image"]
+
+                if _use_raw_image_tensor_input(getattr(self, "_model_architecture", None)):
+                    logger.debug(
+                        "Keeping raw image tensor input for vLLM request %s",
+                        request_id,
+                    )
                 else:
-                    llm_inputs["multi_modal_data"]["image"] = images_numpy
+
+                    def _image_to_numpy(image_tensor):
+                        if isinstance(image_tensor, numpy.ndarray):
+                            return image_tensor
+                        return image_tensor.cpu().numpy()
+
+                    if isinstance(image_input, list):
+                        images_numpy = await asyncio.to_thread(
+                            lambda: [_image_to_numpy(image_tensor) for image_tensor in image_input]
+                        )
+                    else:
+                        images_tensor = image_input[0]
+                        images_numpy = await asyncio.to_thread(
+                            lambda: _image_to_numpy(images_tensor)
+                        )
+
+                    if self._model_architecture in _NEMOTRON_OMNI_ARCHS:
+                        if isinstance(images_numpy, list):
+                            llm_inputs["multi_modal_data"]["image"] = [
+                                (
+                                    Image.fromarray(img_arr.squeeze(0), mode="RGB")
+                                    if img_arr.ndim == 4
+                                    else Image.fromarray(img_arr, mode="RGB")
+                                )
+                                for img_arr in images_numpy
+                            ]
+                        else:
+                            # Squeeze batch dim if present: (1, H, W, C) → (H, W, C)
+                            img_arr = (
+                                images_numpy.squeeze(0) if images_numpy.ndim == 4 else images_numpy
+                            )
+                            llm_inputs["multi_modal_data"]["image"] = Image.fromarray(
+                                img_arr, mode="RGB"
+                            )
+                    else:
+                        llm_inputs["multi_modal_data"]["image"] = images_numpy
 
         logger.debug(
             f"Request {request_id} entering AsyncLLMEngine queue. "
@@ -1983,13 +2513,66 @@ class VllmCompatible(BaseVlmModel):
                 if len(self._cuda_mm_pending_submission_ids) >= preprocess_capacity:
                     return False
                 if (
-                    self._multimodal_preprocess_limiter is None
-                    or self._multimodal_preprocess_limiter.config.shadow_mode
-                ) and sum(
-                    self._cuda_mm_resident_units_by_request.values()
-                ) >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS:
+                    sum(self._cuda_mm_resident_units_by_request.values())
+                    >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS
+                ):
                     return False
         return len(self._inflight_req_ids) < self._max_batch_size
+
+    def release_idle_resources(self, wait_timeout_sec: float = 0.0):
+        """Release allocator caches after the service becomes fully idle.
+
+        The vLLM EngineCore owns a separate CUDA allocator. Clearing only the
+        RTVI process cache therefore leaves encoder and worker allocations
+        visible as used memory, which can make the live-stream admission guard
+        reject the next benchmark level even though no requests remain.
+        """
+        deadline = time.monotonic() + max(0.0, wait_timeout_sec)
+        while True:
+            with self._cuda_mm_residency_lock:
+                pending = bool(
+                    self._adaptive_preprocess_pending_submission_ids
+                    or self._cuda_mm_pending_submission_ids
+                    or self._cuda_mm_resident_units_by_request
+                )
+            with self._live_request_ids_lock:
+                live_requests = bool(self._live_request_ids or self._live_request_futures)
+            inflight = len(self._inflight_req_ids)
+            if not inflight and not pending and not live_requests:
+                break
+            if time.monotonic() >= deadline:
+                logger.info(
+                    "Skipping idle VLM resource release after %.1fs: inflight=%d, "
+                    "pending=%s, live_requests=%s",
+                    max(0.0, wait_timeout_sec),
+                    inflight,
+                    pending,
+                    live_requests,
+                )
+                return False
+            time.sleep(0.05)
+
+        async def _release_engine_resources():
+            import cloudpickle
+
+            await self._llm.reset_encoder_cache()
+            worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
+            return await self._llm.collective_rpc(worker_method, timeout=60.0)
+
+        worker_memory = asyncio.run_coroutine_threadsafe(
+            _release_engine_resources(), self._event_loop
+        ).result(timeout=90.0)
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        logger.info(
+            "Released idle VLM resources: frontend_free=%d MiB/%d MiB, workers=%s",
+            free_bytes // (1024 * 1024),
+            total_bytes // (1024 * 1024),
+            worker_memory,
+        )
+        return True
 
     def warmup(self):
         """Warm up the model with dummy tensors to initialize CUDA kernels and memory."""
@@ -2970,9 +3553,26 @@ class VllmCompatible(BaseVlmModel):
         # VLLM model generation
 
         is_single_image = len(images) == 1
+        use_multi_image_chunk_input = (
+            not is_single_image
+            and _parse_bool_env("VLLM_MULTI_IMAGE_CHUNK_INPUT", False)
+            and self._model_architecture not in _NEMOTRON_OMNI_ARCHS
+            and not has_audio
+        )
+        if (
+            not is_single_image
+            and _parse_bool_env("VLLM_MULTI_IMAGE_CHUNK_INPUT", False)
+            and (has_audio or self._model_architecture in _NEMOTRON_OMNI_ARCHS)
+        ):
+            logger.warning(
+                "Ignoring VLLM_MULTI_IMAGE_CHUNK_INPUT for unsupported chunk shape; "
+                "falling back to video multimodal input."
+            )
 
         if is_single_image:
-            input = (images if CPU_COPY_OTHER_THREAD else images.cpu().numpy(),)
+            input = (images if CPU_COPY_OTHER_THREAD else _frame_batch_as_numpy(images),)
+        elif use_multi_image_chunk_input:
+            input = list(images) if CPU_COPY_OTHER_THREAD else list(_frame_batch_as_numpy(images))
         else:
             duration = video_frames_times[-1] - video_frames_times[0]
 
@@ -2992,7 +3592,7 @@ class VllmCompatible(BaseVlmModel):
                 }
 
             input = (
-                images if CPU_COPY_OTHER_THREAD else images.cpu().numpy(),
+                images if CPU_COPY_OTHER_THREAD else _frame_batch_as_numpy(images),
                 video_metadata,
             )
 
@@ -3017,16 +3617,17 @@ class VllmCompatible(BaseVlmModel):
                     {"type": "image", "image": "sample.jpg"},
                 ]
             )
+        elif use_multi_image_chunk_input:
+            message_content.append({"type": "text", "text": query_text})
+            message_content.extend(
+                {"type": "image", "image": f"frame_{idx:06d}.jpg"} for idx in range(len(images))
+            )
         else:
-            if (
-                self._vlm_model_type in ("cosmos-reason2", "cosmos-reason3")
-                or self._model_architecture in _QWEN3VL_ARCHS
-            ):
-                message_content.append({"type": "video", "video": "sample.mp4"})
-                message_content.append({"type": "text", "text": query_text})
-            else:
-                message_content.append({"type": "text", "text": query_text})
-                message_content.append({"type": "video", "video": "sample.mp4"})
+            message_content.extend(
+                _build_video_message_content(
+                    query_text, self._vlm_model_type, self._model_architecture
+                )
+            )
 
         # Add audio if VLM should process it natively (not handled by RIVA ASR)
         if process_audio_in_vlm and has_audio:
@@ -3098,6 +3699,8 @@ class VllmCompatible(BaseVlmModel):
         # Prepare multimodal data
         if is_single_image:
             mm_data = {"image": input}
+        elif use_multi_image_chunk_input:
+            mm_data = {"image": input}
         else:
             mm_data = {"video": [input]}
 
@@ -3136,7 +3739,9 @@ class VllmCompatible(BaseVlmModel):
             "mm_processor_kwargs": mm_processor_kwargs,
         }
         multi_modal_uuids = {}
-        if not is_single_image:
+        if use_multi_image_chunk_input:
+            multi_modal_uuids["image"] = [None] * len(input)
+        elif not is_single_image:
             multi_modal_uuids["video"] = [None]
         if "audio" in mm_data:
             multi_modal_uuids["audio"] = [None]
@@ -3151,10 +3756,11 @@ class VllmCompatible(BaseVlmModel):
         num_frames = len(images) if images is not None else 0
         logger.debug(
             "VLM generate: prompt_tokens=%d, num_frames=%d, is_single_image=%s, "
-            "mm_processor_kwargs=%s, generation_params=%s",
+            "multi_image_chunk_input=%s, mm_processor_kwargs=%s, generation_params=%s",
             len(prompt_token_ids),
             num_frames,
             is_single_image,
+            use_multi_image_chunk_input,
             {k: v for k, v in mm_processor_kwargs.items() if k != "chain_of_thought"},
             {
                 "max_tokens": generation_params["max_new_tokens"],
@@ -3162,6 +3768,7 @@ class VllmCompatible(BaseVlmModel):
                 "top_k": generation_params["top_k"],
                 "temperature": generation_params.get("temperature", "default"),
                 "repetition_penalty": generation_params["repetition_penalty"],
+                "seed": config.seed,
             },
         )
 
@@ -3170,8 +3777,7 @@ class VllmCompatible(BaseVlmModel):
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-        if self._vlm_model_type in ("cosmos-reason2", "cosmos-reason3"):
-            vllm_sampling_params.no_repeat_ngram_size = 3
+        _set_cosmos_no_repeat_ngram_size(vllm_sampling_params, self._vlm_model_type)
 
         try:
             request_id = str(uuid.uuid4())
@@ -3263,7 +3869,6 @@ class VllmCompatible(BaseVlmModel):
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
 
@@ -3371,7 +3976,6 @@ class VllmCompatible(BaseVlmModel):
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
-
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
 

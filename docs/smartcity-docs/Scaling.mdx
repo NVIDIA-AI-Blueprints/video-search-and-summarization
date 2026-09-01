@@ -11,7 +11,7 @@ The Smartcity Blueprint can be deployed using either Kubernetes or Docker Compos
 * **Kubernetes Scaling**: For production-grade deployments with advanced orchestration
 * **Docker Compose Scaling**: For single-node deployments and development environments
 
-Each section covers the same components ([RTVI CV ](/object-detection-tracking), VST/NVStreamer, Alert-Bridge, ELK, Kafka) but with platform-specific configurations.
+Each section covers the same components ([RTVI CV ](/vss/system-components/vision-microservices/object-detection-and-tracking), VST/NVStreamer, Alert-Bridge, ELK, Kafka) but with platform-specific configurations.
 
 # Kubernetes Scaling
 
@@ -19,11 +19,11 @@ This section covers scaling configurations for Kubernetes deployments.
 
 ## RTVI CV Scaling
 
-By default, the configs for Kubernetes are tuned for 10fps 1080p streams on the default SmartCity Blueprint Kubernetes [Hardware Profiles](/smartcity-docs/Quickstart-Guide-K8s#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
+By default, the configs for Kubernetes are tuned for 10fps 1080p streams on the default SmartCity Blueprint Kubernetes [Hardware Profiles](./Quickstart-Guide-K8s.mdx#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
 
 ### Scaling Across Additional GPUs
 
-Default configs expect a single node with the default [Hardware Profiles](/smartcity-docs/Quickstart-Guide-K8s#hardware-profiles). A single node equipped with 8 GPUs can support up to **150 streams** based on the number of GPUs allocated for RTVI CV (30 streams per RTVI CV pod). One of the GPUs will be used for VST, one for LLM, one for VLLM, and the rest for RTVI CV.
+Default configs expect a single node with the default [Hardware Profiles](./Quickstart-Guide-K8s.mdx#hardware-profiles). A single node equipped with 8 GPUs can support up to **150 streams** based on the number of GPUs allocated for RTVI CV (30 streams per RTVI CV pod). One of the GPUs will be used for VST, one for LLM, one for VLLM, and the rest for RTVI CV.
 
 To do so, update the `/perception-app/override-values-for-1-nodes.yml` file and set `wl_units` to the number of GPUs you want RTVI CV to use. SDR will automatically scale RTVI CV up as needed up to this limit.
 
@@ -126,7 +126,7 @@ This section covers scaling configurations for Docker Compose deployments, suppo
 
 ## RTVI CV Scaling
 
-By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Hardware Profiles](/smartcity-docs/Quickstart-Guide#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
+By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Hardware Profiles](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
 
 ### Scaling Across Additional GPUs
 
@@ -262,4 +262,4 @@ The following configurations apply to both Kubernetes and Docker Compose deploym
 
 * The Alert Verifier supports concurrent processing through configurable worker threads controlled by the `num_workers` parameter. For deployments with approximately 30 streams, setting `num_workers` to 10 provides adequate throughput. For larger deployments handling 200+ streams simultaneously, increase `num_workers` to approximately 40.
 
-* Additionally, since VIOS storage currently has limited scaling support for high-concurrency scenarios, consider disabling the `add_overlay` option to reduce processing overhead during video retrieval from VIOS. Refer to the [Alerts Microservice ](/alert-verification-service) for detailed tuning guidance.
+* Additionally, since VIOS storage currently has limited scaling support for high-concurrency scenarios, consider disabling the `add_overlay` option to reduce processing overhead during video retrieval from VIOS. Refer to the [Alerts Microservice ](/vss/system-components/analytics-microservices/alerts-microservice) for detailed tuning guidance.

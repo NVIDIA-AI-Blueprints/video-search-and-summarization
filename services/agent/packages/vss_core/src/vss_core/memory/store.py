@@ -27,14 +27,31 @@ from datetime import UTC
 from datetime import datetime
 from typing import Protocol
 
+from vss_core._foundation.errors import LibraryError
 from vss_core._foundation.time import iso8601_to_datetime
 
+from .models import SCHEMA_ID
 from .models import JobStatus
 from .models import MemoryGroup
 from .models import RecordType
 from .models import UnifiedMemoryRecord
 
 STORAGE_ID_DELIMITER = "#"
+
+
+class MemoryDecodeError(LibraryError):
+    """A stored document cannot be loaded as ``nv.vss.memory/1.0``.
+
+    Deliberately not a ``ValueError``: pydantic's is, and callers map that to
+    "the request was malformed". A document that will not decode is neither the
+    caller's input nor a backend outage, so it needs an identity of its own —
+    one that names the offending document instead of surfacing a traceback.
+    """
+
+    def __init__(self, storage_id: str, cause: Exception) -> None:
+        super().__init__(f"stored record {storage_id!r} is not readable as {SCHEMA_ID}: {cause}")
+        self.storage_id = storage_id
+        self.__cause__ = cause
 
 
 def coerce_utc_instant(value: datetime | str | None) -> datetime | None:

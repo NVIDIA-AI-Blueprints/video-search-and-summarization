@@ -45,9 +45,9 @@ def client():
     fake_service = AlertConfigService(store=AlertConfigStore())
     app = FastAPI()
     app.include_router(router)
-    # Routes call ``_get_service()`` directly inside their try/except
-    # (so a build failure surfaces as 503 instead of bypassing the
-    # handler via ``Depends``-time evaluation). The module-level
+    # Routes call ``_get_service_async()`` inside their try/except (so a
+    # build failure surfaces as 503 instead of bypassing the handler via
+    # ``Depends``-time evaluation). The module-level
     # ``_service`` cache is the override point: pre-populating it makes
     # the first call return the fake without touching config / Redis /
     # ES. We restore the previous value on teardown so tests don't
@@ -220,3 +220,158 @@ class TestDelete:
     def test_delete_missing_404(self, client):
         resp = client.delete("/api/v1/verification/config/missing")
         assert resp.status_code == 404
+
+
+# Service construction ------------------------------------------------------
+#
+# Two properties of the lazy singleton that the route tests above cannot see,
+# because their fixture pre-populates ``_service`` and so never builds one.
+
+@pytest.fixture
+def unbuilt_service():
+    """Clear the cached service so a build actually happens."""
+    previous = getattr(_routes_mod, "_service", None)
+    _routes_mod._service = None
+    try:
+        yield
+    finally:
+        _routes_mod._service = previous
+
+
+def test_concurrent_callers_build_exactly_one_store(unbuilt_service, monkeypatch):
+    """Construction is single-flight.
+
+    Startup and request handlers both reach the builder from worker threads,
+    so without the lock several would see an empty cache at once and build a
+    store apiece -- each opening its own Elasticsearch client, and each but
+    the last silently discarded after being handed to a caller.
+    """
+    import threading
+
+    builds = []
+    # Forces every thread to be inside the builder simultaneously *if* they
+    # can get there. Under the lock only one ever does, so the barrier is
+    # never satisfied and it raises instead -- which is the observation: the
+    # builder list stays at one.
+    barrier = threading.Barrier(8, timeout=1)
+
+    def build(_cfg):
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            pass  # expected: the lock let only this one thread in
+        obj = object()
+        builds.append(obj)
+        return obj
+
+    monkeypatch.setattr(_routes_mod, "load_config", lambda: {})
+    monkeypatch.setattr(_routes_mod, "build_alert_config_store", build)
+    monkeypatch.setattr(_routes_mod, "AlertConfigService", lambda store: store)
+
+    handed_out = []
+    threads = [
+        threading.Thread(target=lambda: handed_out.append(_routes_mod._get_service()))
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert not any(t.is_alive() for t in threads), "a caller never returned"
+
+    # Exact counts, not upper bounds: a change that made construction always
+    # raise would leave both lists empty, and "<= 1" would wave it through
+    # while testing nothing.
+    assert len(builds) == 1, f"built {len(builds)} stores concurrently, expected 1"
+    assert len(handed_out) == 8, "not every caller received a store"
+    assert len({id(s) for s in handed_out}) == 1, "callers received different stores"
+
+
+@pytest.mark.asyncio
+async def test_a_request_does_not_build_the_store_on_the_event_loop(unbuilt_service,
+                                                                    monkeypatch):
+    """Handlers must reach the service through the async accessor.
+
+    Building talks to Elasticsearch synchronously and holds the construction
+    lock while it does. A handler that called the blocking accessor directly
+    would park the event loop for that whole time, so /health -- the endpoint
+    a deployment gates on -- would stop answering for exactly as long as an
+    unreachable Elasticsearch takes to fail.
+
+    The app is driven in-process, so the loop runs on this very thread: if the
+    build happened on the loop, ``built_on`` would be this thread.
+    """
+    import threading
+
+    import httpx
+
+    loop_thread = threading.current_thread()
+    built_on = []
+
+    def build(_cfg):
+        built_on.append(threading.current_thread())
+        return AlertConfigStore()
+
+    monkeypatch.setattr(_routes_mod, "load_config", lambda: {})
+    monkeypatch.setattr(_routes_mod, "build_alert_config_store", build)
+
+    app = FastAPI()
+    app.include_router(router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport,
+                                 base_url="http://testserver") as client:
+        response = await client.get("/api/v1/verification/config")
+
+    assert response.status_code == 200
+    assert built_on, "the store was never built"
+    assert built_on[0] is not loop_thread, (
+        "the store was built on the event loop thread; /health would stall for "
+        "the length of the build"
+    )
+
+
+@pytest.mark.asyncio
+async def test_waiting_requests_do_not_occupy_worker_threads(unbuilt_service,
+                                                             monkeypatch):
+    """Only one build may be in flight, and it may cost only one thread.
+
+    asyncio.to_thread draws from the loop's default executor, which this
+    process shares with the realtime and incident services. That pool is
+    min(32, cpu+4) threads -- 8 on a 4-core pod. Letting every waiting config
+    request take a slot and block there on the construction mutex would fill
+    the pool with threads that cannot make progress, and unrelated endpoints
+    would stall behind them for the length of an Elasticsearch outage. The
+    waiting has to happen on the loop, where it costs nothing.
+    """
+    import asyncio as _asyncio
+    import threading
+
+    entered = []
+    release = threading.Event()
+
+    def blocking_build():
+        entered.append(threading.current_thread())
+        release.wait(timeout=5)
+        return object()
+
+    monkeypatch.setattr(_routes_mod, "_get_service", blocking_build)
+
+    tasks = [_asyncio.create_task(_routes_mod._get_service_async())
+             for _ in range(8)]
+    try:
+        # Wait for the first builder rather than for a fixed delay, so a slow
+        # machine cannot make this pass by having reached nobody yet.
+        for _ in range(200):
+            if entered:
+                break
+            await _asyncio.sleep(0.01)
+        assert entered, "no builder ever started"
+        await _asyncio.sleep(0.1)  # settle: let any others through if they can
+
+        assert len(entered) == 1, (
+            f"{len(entered)} worker threads were consumed by one build; "
+            "waiting callers must queue on the event loop, not in the executor"
+        )
+    finally:
+        release.set()
+        await _asyncio.gather(*tasks)

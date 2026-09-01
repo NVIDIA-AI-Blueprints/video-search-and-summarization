@@ -14,7 +14,8 @@ summarize job with broader events when the result is empty.
 ### Resolve endpoints
 
 Run once before any probe. Docker keeps host ports; Kubernetes uses
-`VSS_PUBLIC_URL` (LVS client base = origin, **no** `/v1` suffix).
+`VSS_PUBLIC_URL` with LVS mounted at `/lvs` and RT-VLM at `/rtvi-vlm`
+(**no** `/v1` suffix — the skill appends it).
 
 ```bash
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
@@ -24,11 +25,15 @@ fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
-  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
+  # Force public prefixes — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
+  # The /lvs mount, not the origin — the bare origin is the UI catch-all. The
+  # skill appends /v1/ready and /v1/summarize; the gateway strips /lvs before
+  # the backend sees them.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
   VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
-  VLM="${VSS_PUBLIC_URL}"
+  # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
+  VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
@@ -226,7 +231,9 @@ if [ ! -s "$SUMMARIZE_OUT" ]; then
   echo "no job was created (exit $SUMMARIZE_EXIT): fix the call or run vss configure, then run once"
   return 1 2>/dev/null || exit 1
 fi
-JOB_ID=$(tail -1 "$SUMMARIZE_OUT" | jq -er '.job_id')
+SUMMARIZE_RESULT=$(sed -n '1p' "$SUMMARIZE_OUT")
+COMPLETION_MARKER=$(tail -1 "$SUMMARIZE_OUT")
+JOB_ID=$(printf '%s\n' "$COMPLETION_MARKER" | jq -er '.job_id')
 echo "exit=$SUMMARIZE_EXIT job=$JOB_ID"
 
 # Only exits 0 and 6 carry a summary. Every other marker reports status,
@@ -234,14 +241,14 @@ echo "exit=$SUMMARIZE_EXIT job=$JOB_ID"
 # rather than parsing a summary that is not there.
 case "$SUMMARIZE_EXIT" in
   0) ;;
-  6) echo "summary produced, persistence failed — present it as unpersisted" ;;
+  6) echo "summary produced; an ES or Markdown write failed — present the result and both memory outcomes" ;;
   7)
-    tail -1 "$SUMMARIZE_OUT" | jq -e '{job_id, status, record}'
+    printf '%s\n' "$COMPLETION_MARKER" | jq -e '{job_id, status, persisted}'
     echo "timed out — reconcile once: ${VSS[*]} summarize get --job-id $JOB_ID"
     return 1 2>/dev/null || exit 1
     ;;
   *)
-    tail -1 "$SUMMARIZE_OUT" | jq -e '{job_id, status, record, error}'
+    printf '%s\n' "$COMPLETION_MARKER" | jq -e '{job_id, status, persisted}'
     echo "summarize failed (exit $SUMMARIZE_EXIT, job $JOB_ID)"
     echo "the marker means it was submitted: report this job, do not resubmit it"
     return 1 2>/dev/null || exit 1
@@ -249,17 +256,19 @@ case "$SUMMARIZE_EXIT" in
 esac
 
 # The LVS envelope is nested under .summary, otherwise unchanged.
-tail -1 "$SUMMARIZE_OUT" | jq -e '{
+printf '%s\n' "$SUMMARIZE_RESULT" | jq -e '{
   usage: (.summary.usage // {}),
   result: (.summary.choices[0].message.content | fromjson | {video_summary, events})
 }'
 ```
 
-The same marker reports the write, so nothing needs to be read back:
+The result and completion marker report separate memory outcomes, so nothing
+needs to be read back:
 
 ```bash
-# status `complete`, the index it landed in, and how many events went with it.
-tail -1 "$SUMMARIZE_OUT" | jq -e '.persist'
+# `.persist` is absent when static policy selected stdout-only execution.
+printf '%s\n' "$SUMMARIZE_RESULT" | jq '{persist: (.persist // null), memory_note: (.memory_note // null)}'
+printf '%s\n' "$COMPLETION_MARKER" | jq '{job_id, status, persisted, exit_hint}'
 ```
 
 For any failure, inspect `$SUMMARIZE_OUT`, the stderr diagnostic, and service
