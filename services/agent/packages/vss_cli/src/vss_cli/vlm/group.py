@@ -388,10 +388,7 @@ class VlmGroup(CommandGroup):
                 _download_ok = False
                 try:
                     with httpx.stream("GET", media_url, timeout=float(inputs.timeout)) as clip_resp:
-                        if clip_resp.status_code >= 400:
-                            raise InvalidInput(
-                                f"VIOS clip fetch failed for loopback base64 fallback: HTTP {clip_resp.status_code}"
-                            )
+                        clip_resp.raise_for_status()
                         with open(_loopback_tmp, "wb") as f:
                             for chunk in clip_resp.iter_bytes(chunk_size=65536):
                                 f.write(chunk)
@@ -417,8 +414,6 @@ class VlmGroup(CommandGroup):
                     return Result(
                         body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id
                     )
-                except InvalidInput:
-                    raise
                 except Exception as exc:
                     # httpx.HTTPError (network/protocol failure) or OSError
                     # during the write — both signal VIOS is unreachable, not a

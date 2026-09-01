@@ -692,6 +692,9 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
         class _FakeStream:
             status_code = 200
 
+            def raise_for_status(self) -> None:
+                pass  # 200 — no-op
+
             def iter_bytes(self, chunk_size: int = 8192):
                 yield clip_bytes
 
@@ -767,6 +770,47 @@ def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
     jobs = store.service.list_jobs()
     assert jobs, "expected at least one memory record written on loopback clip-fetch timeout"
     assert jobs[-1].job.status == "timeout", f"terminal record status: {jobs[-1].job.status}"
+
+
+def test_sensor_loopback_clip_http_error_writes_terminal_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the loopback VIOS clip fetch returns HTTP 5xx, the CLI must write a terminal
+    record with status='failed' and return Exit.BACKEND_UNREACHABLE — NOT Exit.INVALID_INPUT."""
+    import contextlib
+
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+    )
+
+    @contextlib.contextmanager
+    def _error_stream(*_a: Any, **_kw: Any):
+        resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", loopback_url))
+        resp.raise_for_status()
+        yield resp  # noqa: unreachable
+
+    monkeypatch.setattr(httpx, "stream", _error_stream)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", timeout=5), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE, f"expected BACKEND_UNREACHABLE, got {result.exit}: {result.body}"
+    assert result.body.get("status") == "failed"
+
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record written on loopback clip HTTP error"
+    assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
 
 
 def test_is_loopback_url() -> None:
