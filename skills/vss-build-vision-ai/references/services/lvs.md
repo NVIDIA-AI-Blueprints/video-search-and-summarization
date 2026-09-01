@@ -30,5 +30,5 @@
 
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/video-summarization/configs/config.yaml`
-- `skills/vss-summarize-video/references/video-summarization-environment-variables.md`
-- `skills/vss-summarize-video/references/video-summarization-deployment.md`
+- `skills/operations/vss-summarize-video/references/video-summarization-environment-variables.md`
+- `skills/operations/vss-summarize-video/references/video-summarization-deployment.md`
