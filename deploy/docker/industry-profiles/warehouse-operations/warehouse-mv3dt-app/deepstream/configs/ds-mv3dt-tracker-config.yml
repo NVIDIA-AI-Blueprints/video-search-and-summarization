@@ -28,6 +28,7 @@ TargetManagement:
   maxShadowTrackingAge: 150
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
+  outputVisibility: 1
 
 TrajectoryManagement:
   useUniqueID: 0
