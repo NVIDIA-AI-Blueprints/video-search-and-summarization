@@ -1,9 +1,9 @@
 ---
 name: vss-generate-video-calibration
-description: Use to run AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, and to deploy vss-auto-calibration when needed. Do not use for non-AMC calibration or runtime analytics.
+description: Use this skill when running AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -37,7 +37,7 @@ Run AutoMagicCalib over one of three input sources and drive the calibration thr
 
 Shared helper references are loaded only when needed:
 - Read [`references/common-steps.md`](references/common-steps.md) when a mode reference needs the shared `create_project`, video-upload, or handoff snippets.
-- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the verify → calibrate → poll → results tail.
+- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the stage-linear-media → verify → calibrate → post-process → results tail.
 
 ## Input Routing
 
@@ -64,9 +64,18 @@ Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) l
 
 ## Shared Calibration Tail
 
-The verify → calibrate → poll → results sequence is identical regardless of input mode. After the mode-specific reference has uploaded videos / ingested RTSP clips / uploaded the bundled sample, run this tail. Use [`references/calibration-tail.md`](references/calibration-tail.md) for the shared Python snippet.
+The stage-linear-media → verify → calibrate → post-process → results sequence is identical regardless of input mode. After the mode-specific reference has uploaded videos / ingested RTSP clips / uploaded the bundled sample, run this tail. Use [`references/calibration-tail.md`](references/calibration-tail.md) for the shared Python snippet.
 
-### Step A — Verify Project
+### Step A — Stage Linear Media
+
+AMC v3.3.0 cannot calibrate raw media. After the mode-specific workflow has uploaded videos or completed RTSP ingest, explicitly choose one path before verification:
+
+- **Already-linear/pinhole media** — call `POST /v1/linear_media/<project_id>` and require `rectification_state == "COMPLETED"`.
+- **Distorted media** — open AMC UI Step 4: Rectification, estimate/review settings, and explicitly commit rectification. Require `rectification_state == "COMPLETED"` before continuing.
+
+Rectification produces `rectified.mp4` and `rectified.jpg`; create or upload alignment data against those linear images. Never call `/v1/calibrate/<project_id>` before the linear-media or rectification state is complete.
+
+### Step B — Verify Project
 
 ```
 POST /v1/verify_project/<project_id>
@@ -74,7 +83,7 @@ POST /v1/verify_project/<project_id>
 
 Response: `{"project_state": "READY"}` — must be `READY` before calibrating. If not READY, re-check that videos + alignment + layout are present (either via API or via UI manual alignment).
 
-### Step B — Start Calibration
+### Step C — Start AMC Calibration
 
 **Confirm the plan before calibrating.** Whether the settings file and detector were auto-detected or asked, present a short summary and confirm via `AskUserQuestion` before the `POST /calibrate`. The resolved values are the defaults, so confirming is one click — but the user can switch the detector or skip an auto-detected settings file. Summarize:
 
@@ -105,7 +114,7 @@ UI Step 3 (Parameters) does NOT cover detector choice; never assume the user pic
 
 Wait for the user's choice — and, if they choose to tune, for them to confirm they've Saved — before calling `/calibrate`.
 
-### Step C — Poll for Completion
+### Step D — Poll for AMC Completion
 
 ```
 GET /v1/get_project_info/<project_id>
@@ -115,7 +124,7 @@ Poll every 10 s. `project_info.project_state`:
 
 | State | Meaning |
 |---|---|
-| `RUNNING` | Calibration in progress |
+| `RUNNING` | AMC calibration in progress |
 | `COMPLETED` | Finished |
 | `ERROR` | Failed — pull log via `GET /v1/amc/calibrate/<id>/log` |
 
@@ -123,7 +132,16 @@ When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:$
 
 Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample).
 
-### Step D — Results
+### Step E — Post-process and Results
+
+For multi-camera projects, run layout post-processing after AMC calibration (and again after independent VGGT calibration, if run):
+
+```
+POST /v1/postprocess/<project_id>
+GET  /v1/get_project_info/<project_id>  # poll postprocess_state until COMPLETED
+```
+
+Do not report a multi-camera project as successful until `postprocess_state == "COMPLETED"`; raw AMC results may exist even when post-processing fails.
 
 ```
 GET /v1/get_project_info/<project_id>                    # project state
@@ -140,19 +158,23 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 
-### Step E — VGGT Refinement
+### Step F — Independent VGGT Calibration
 
 After the AMC run completes, always check `vggt_state` in project info. VGGT model staging is optional during setup and must not block the AMC result, but post-AMC handling follows the state:
 
-- If `vggt_state == "READY"` and the user explicitly requested VGGT refinement or staged VGGT during this setup flow, run VGGT refinement without asking again.
-- If `vggt_state == "READY"` but VGGT was already staged before this request and the user has not asked for VGGT-refined output, ask via `AskUserQuestion` whether to run refinement before starting it.
-- If VGGT is not ready, skip refinement and mention that VGGT refinement is available after staging the model (see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2).
+- If `vggt_state == "READY"` and the user explicitly requested independent VGGT calibration or staged VGGT during this setup flow, run it without asking again.
+- If `vggt_state == "READY"` but VGGT was already staged before this request and the user has not asked for a VGGT result, ask via `AskUserQuestion` whether to run independent VGGT calibration before starting it.
+- If VGGT is not ready, skip it and mention that independent VGGT calibration is available after staging the model (see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2).
 
 ```
 POST /v1/vggt/calibrate/<project_id>
 GET  /v1/get_project_info/<project_id>                    # poll vggt_state
 GET  /v1/vggt_results/<project_id>/evaluation_statistics  # VGGT metrics
+POST /v1/postprocess/<project_id>                          # multi-camera only, after VGGT
+GET  /v1/get_project_info/<project_id>                    # require postprocess_state == COMPLETED
 ```
+
+After independent VGGT calibration completes, re-run layout post-processing for multi-camera projects and require `postprocess_state == "COMPLETED"` before reporting the VGGT result.
 
 ## Settings File + Detector Pattern
 
@@ -241,7 +263,7 @@ GET /v1/result/{project_id}/mv3dt_result?result_type=amc
 # Response: application/zip — mv3dt_output.zip containing transforms.yml
 ```
 
-For VGGT-refined output (only available if VGGT ran to `COMPLETED`, see Step E):
+For independent VGGT output (only available if VGGT ran to `COMPLETED`, see Step F):
 
 ```
 GET /v1/result/{project_id}/mv3dt_result?result_type=vggt
@@ -252,7 +274,7 @@ Downstream skill flow:
 1. Call this skill with the user's inputs; capture the printed `project_id`.
 2. Wait for the skill to return (it polls until `COMPLETED` internally).
 3. `GET /v1/result/{project_id}/mv3dt_result?result_type=amc` — save the ZIP locally.
-4. If VGGT also ran, optionally fetch `?result_type=vggt` for the refined MV3DT.
+4. If independent VGGT calibration also ran, optionally fetch `?result_type=vggt` for the VGGT MV3DT result.
 
 ## Related Skills
 

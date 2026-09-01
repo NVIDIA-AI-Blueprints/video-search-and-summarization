@@ -43,6 +43,6 @@ the correct order; the mode reference just feeds them into this endpoint.
 
 Once the mode-specific reference has uploaded videos, alignment, and layout
 (plus any optional GT zip / focal lengths), continue with the **Shared
-Calibration Tail** — see [SKILL.md Step A onward](../SKILL.md#step-a--verify-project)
+Calibration Tail** — see [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media)
 for the REST flow and [`calibration-tail.md`](calibration-tail.md) for the
-shared Python snippet (verify → calibrate → poll → results).
+shared Python snippet (stage linear media → verify → calibrate → post-process → results).

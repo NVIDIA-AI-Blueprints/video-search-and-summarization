@@ -20,7 +20,7 @@
       "Routes to the videos mode of the calibration skill, runs the platform preflight before upload/calibration work, and stops instead of continuing automatically if the host is not supported.",
       "Auto-detects the settings (including calibration_settings.json), alignment, and layout files when present.",
       "Asks which detector to use (resnet vs transformer) when no settings file pins one, rather than silently defaulting.",
-      "Confirms the resolved plan before starting calibration."
+      "Requires confirmed linear-media staging or completed UI rectification before calibration, runs post-processing after multi-camera calibration, and confirms the resolved plan before starting calibration."
     ]
   },
   {
@@ -31,7 +31,7 @@
     "expected_behavior": [
       "Routes to the RTSP mode of the calibration skill.",
       "Runs the platform preflight before VIOS probing/capture and stops instead of continuing automatically if the host is not supported.",
-      "Uses /v1/rtsp/capture, polls the session, and ingests clips before calibrating."
+      "Uses /v1/rtsp/capture, polls the session, ingests clips, then stages or rectifies media before calibrating and post-processes the multi-camera result."
     ]
   }
 ]

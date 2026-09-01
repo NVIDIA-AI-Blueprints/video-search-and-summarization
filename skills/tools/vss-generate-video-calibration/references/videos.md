@@ -33,7 +33,7 @@ See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-p
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
 6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
 
-VGGT refinement is handled after AMC completes by [SKILL.md Step E](../SKILL.md#step-e--vggt-refinement). Do not collect a separate videos-mode VGGT flag; staging the model is optional during deployment, and missing VGGT must not block the AMC run.
+Independent VGGT calibration is handled after AMC completes by [SKILL.md Step F](../SKILL.md#step-f--independent-vggt-calibration). Do not collect a separate videos-mode VGGT flag; staging the model is optional during deployment, and missing VGGT must not block the AMC run.
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 
@@ -103,7 +103,7 @@ focal_length=1269.0&focal_length=1099.5&...
 
 ### Step 5 — Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), continue with [SKILL.md Step A onward](../SKILL.md#step-a--verify-project) (verify → calibrate → poll → results). Use [`calibration-tail.md`](calibration-tail.md) for the shared Python snippet.
+Once uploads are done (and any UI fallback confirmed on disk), continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → calibrate → post-process → results). Use [`calibration-tail.md`](calibration-tail.md) for the shared Python snippet.
 
 ---
 
@@ -244,27 +244,49 @@ if ui_tasks:
         )
         print(f"    Alignment files verified at {manual_dir}")
 
-# Paste references/calibration-tail.md here before VGGT refinement.
+# Paste references/calibration-tail.md here before independent VGGT calibration.
 
-# Step E — VGGT refinement
+# Step F — Independent VGGT calibration
 info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
 vggt_state = info.get("project_info", {}).get("vggt_state", "INIT")
 if vggt_state == "READY" and RUN_VGGT_IF_READY:
+    vggt_completed = False
     s.post(f"{BASE_URL}/vggt/calibrate/{project_id}").raise_for_status()
-    print("\n[E] VGGT started")
+    print("\n[F] Independent VGGT calibration started")
     t0 = time.time()
     while time.time() - t0 < 900:
         vs = s.get(f"{BASE_URL}/get_project_info/{project_id}").json() \
             .get("project_info", {}).get("vggt_state", "INIT")
         if vs == "COMPLETED":
-            print("     VGGT done"); break
+            print("     VGGT done")
+            vggt_completed = True
+            break
         if vs == "ERROR":
             raise RuntimeError("VGGT failed")
         time.sleep(10)
+    if not vggt_completed:
+        raise RuntimeError("Independent VGGT calibration still running after 15 min")
+
+    # VGGT changes multi-camera output; re-run layout post-processing before
+    # reporting the VGGT result.
+    project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
+    if len(project.get("video_files", [])) > 1:
+        s.post(f"{BASE_URL}/postprocess/{project_id}").raise_for_status()
+        post_t0 = time.time()
+        while time.time() - post_t0 < 1800:
+            post_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("postprocess_state")
+            if post_state == "COMPLETED":
+                print("     VGGT layout post-processing completed")
+                break
+            if post_state == "ERROR":
+                raise RuntimeError("VGGT layout post-processing failed")
+            time.sleep(10)
+        else:
+            raise RuntimeError("VGGT layout post-processing still running after 30 min")
 elif vggt_state == "READY":
-    print("\n[E] VGGT is ready. Ask whether to run refinement; set RUN_VGGT_IF_READY=True for direct-mode runs.")
+    print("\n[F] VGGT is ready. Ask whether to run independent VGGT calibration; set RUN_VGGT_IF_READY=True for direct-mode runs.")
 else:
-    print(f"\n[E] VGGT not ready (state={vggt_state}) — skipping. VGGT refinement is available after staging the model.")
+    print(f"\n[F] VGGT not ready (state={vggt_state}) — skipping. Independent VGGT calibration is available after staging the model.")
 
 print(f"\nProject: {project_id}")
 print(f"Final camera parameters: ${{VSS_APPS_DIR}}/services/auto-calibration/projects/project_{project_id}/output/multi_view_results/BA_output/results_ba/refined/camInfo_XX.yaml")
