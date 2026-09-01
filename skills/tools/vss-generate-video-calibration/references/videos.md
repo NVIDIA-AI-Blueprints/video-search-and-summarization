@@ -7,7 +7,7 @@ For live RTSP streams, see `rtsp.md`. For verifying the install with the bundled
 ## What to Ask the User
 
 ### Required
-1. **Videos directory** — a folder containing `cam_00.mp4`, `cam_01.mp4`, … (time-synchronized, 1920×1080 recommended). The skill reads `cam_*.mp4` from here and uploads them sorted alphabetically.
+1. **Videos directory** — a folder containing non-empty, valid `1920×1080` MP4 files named `cam_00.mp4`, `cam_01.mp4`, …, covering the same time window and ordered by overlapping FOV. The skill reads `cam_*.mp4` from here and uploads them sorted alphabetically.
 2. **Microservice URL** — e.g. `http://<HOST_IP>:8010`.
 3. **Project name** — short descriptive string.
 
@@ -17,23 +17,23 @@ The skill scans the **videos directory** and its **parent directory** for these 
 
 | File | Candidate filenames |
 |---|---|
-| Calibration settings | `calibration_settings.json`, `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, this file replaces the entire UI Step 3 Parameters dialog. If they don't have a file, ask which detector to use separately (see below). |
-| Alignment JSON | `alignment_data.json` |
+| Calibration settings | `calibration_settings.json`, `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, apply its supported API configuration; UI Step 3 floor-plan scale/focal lengths and UI Step 4 rectification remain separate. If they don't have a file, ask which detector to use separately (see below). |
+| Alignment JSON | `alignment_data.json`; also identify `coord_space`: `original` for points from pre-rectification frames, `rectified` for points selected on staged linear frames. |
 | Layout PNG | `layout.png` |
 
 See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern) section in SKILL.md for the parsing rule.
 
 ### Required when no calibration-settings file is provided
-4. **Detector type** — see [SKILL.md § Step B — Start Calibration](../SKILL.md#step-b--start-calibration) for the `resnet` vs `transformer` choice and the
+4. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d--start-amc-calibration) for the `resnet` vs `transformer` choice and the
    AskUserQuestion fallback. When a config file is provided, the script extracts
    the detector automatically.
-5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step B](../SKILL.md#step-b--start-calibration) for the exact prompt.
+5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d--start-amc-calibration) for the exact prompt.
 
 ### Optional
-5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
-6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
+6. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
+7. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
 
-Independent VGGT calibration is handled after AMC completes by [SKILL.md Step F](../SKILL.md#step-f--independent-vggt-calibration). Do not collect a separate videos-mode VGGT flag; staging the model is optional during deployment, and missing VGGT must not block the AMC run.
+After verification, [SKILL.md Step C](../SKILL.md#step-c--run-vggt-first-when-available) makes READY VGGT the recommended first calibration. `MODEL_MISSING` is a non-blocking AMC condition: do not invoke VGGT in that state.
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 
@@ -49,7 +49,7 @@ Create the project with the shared request in [`common-steps.md`](common-steps.m
 
 ### Step 2 — Upload Videos (required)
 
-See [`common-steps.md` § Upload videos](common-steps.md#upload-videos).
+See [`common-steps.md` § Validate and upload videos](common-steps.md#validate-and-upload-videos).
 
 > **Important**: upload sorted alphabetically — the server assigns camera
 > indices by upload order. The `multipart/form-data` part name is `files`.
@@ -79,7 +79,7 @@ After a successful POST, also parse the file for `"detector"` / `"detector_type"
 
 **Alignment JSON**:
 ```
-POST /v1/upload_alignment/<project_id>
+POST /v1/upload_alignment/<project_id>?coord_space=<original-or-rectified>
 alignment_file: ("alignment_data.json", <bytes>, "application/json")
 ```
 
@@ -103,7 +103,7 @@ focal_length=1269.0&focal_length=1099.5&...
 
 ### Step 5 — Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → calibrate → post-process → results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
+Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (linear media → verify → VGGT/post-process when available → AMC/post-process → results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
 
 ---
 
@@ -122,14 +122,15 @@ PROJECT_NAME   = "my_calibration_run"
 VIDEO_DIR      = Path("/path/to/videos")
 # Optional explicit overrides (leave as None to trigger auto-scan, then ask-user, then UI fallback)
 CONFIG_FILE    = None                                   # e.g. Path("/path/to/settings.json")
-                                                        # Full settings override — replaces UI Step 3 (rectification, BA, eval, detector, ...).
+                                                        # API configuration only; UI Step 3 scale/focal and Step 4 rectification stay separate.
                                                         # If the file pins a detector, it's also extracted for the calibrate call below.
 ALIGNMENT_JSON = None                                   # e.g. Path("/path/to/alignment_data.json")
+ALIGNMENT_COORD_SPACE = "original"                     # "original" or "rectified"
 LAYOUT_PNG     = None                                   # e.g. Path("/path/to/layout.png")
 GT_ZIP         = None                                   # optional: Path("/path/to/GT.zip")
 FOCAL_LENGTHS  = None                                   # optional: [1269.0, 1099.5]
 DETECTOR_TYPE  = "resnet"                               # "resnet" or "transformer" (overridden if CONFIG_FILE pins it)
-RUN_VGGT_IF_READY = False  # Set True if the user requested VGGT or staged VGGT in this run
+RUN_VGGT_IF_READY = True   # Default: run the faster independent VGGT first when the service reports READY.
 MEDIA_MODE = os.environ.get("MEDIA_MODE", "")  # empty prompts for a safe linear/rectification decision in calibration-tail.md
 
 # Projects dir on the host (for verifying manual alignment output).
@@ -140,6 +141,7 @@ PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", VSS_APPS_DIR / "services" / "
 
 VIDEO_FILES = sorted(VIDEO_DIR.glob("cam_*.mp4"))
 assert VIDEO_FILES, f"No cam_*.mp4 files under {VIDEO_DIR}"
+assert all(v.is_file() and v.stat().st_size > 0 for v in VIDEO_FILES), "Every input video must be a non-empty readable file"
 
 # --- Auto-scan helper ---
 def _resolve_local(override, candidate_names, scan_dirs, label):
@@ -201,6 +203,7 @@ if CONFIG_FILE and CONFIG_FILE.exists():
 if ALIGNMENT_JSON and ALIGNMENT_JSON.exists():
     with open(ALIGNMENT_JSON, "rb") as f:
         s.post(f"{BASE_URL}/upload_alignment/{project_id}",
+               params={"coord_space": ALIGNMENT_COORD_SPACE},
                files={"alignment_file": (ALIGNMENT_JSON.name, f, "application/json")}).raise_for_status()
     print(f"[3] Uploaded alignment: {ALIGNMENT_JSON.name}")
 
@@ -232,7 +235,7 @@ if not CONFIG_FILE:
             DETECTOR_TYPE = _choice
         print(f"    Using detector: {DETECTOR_TYPE}")
 if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 4 (Alignment): upload alignment_data.json or mark correspondence points, then Save.")
+    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 5 (Manual Alignment): upload alignment_data.json or mark correspondence points on rectified media, then Save.")
 if ui_tasks:
     print(f"\n[5] UI action required for project {project_id}:")
     for t in ui_tasks:
@@ -241,56 +244,12 @@ if ui_tasks:
     if not ALIGNMENT_JSON or not LAYOUT_PNG:
         manual_dir = PROJECTS_DIR / f"project_{project_id}" / "manual_adjustment"
         assert (manual_dir / "alignment_data.json").exists() and (manual_dir / "layout.png").exists(), (
-            f"Alignment files missing under {manual_dir}. Re-check UI Step 4 and click Save."
+            f"Alignment files missing under {manual_dir}. Re-check UI Step 5 and click Save."
         )
         print(f"    Alignment files verified at {manual_dir}")
 
-# Paste references/calibration-tail.md here before independent VGGT calibration.
-
-# Step F — Independent VGGT calibration
-info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
-vggt_state = info.get("project_info", {}).get("vggt_state", "INIT")
-if vggt_state == "READY" and RUN_VGGT_IF_READY:
-    vggt_completed = False
-    s.post(f"{BASE_URL}/vggt/calibrate/{project_id}").raise_for_status()
-    print("\n[F] Independent VGGT calibration started")
-    t0 = time.time()
-    while time.time() - t0 < 900:
-        vs = s.get(f"{BASE_URL}/get_project_info/{project_id}").json() \
-            .get("project_info", {}).get("vggt_state", "INIT")
-        if vs == "COMPLETED":
-            print("     VGGT done")
-            vggt_completed = True
-            break
-        if vs == "ERROR":
-            raise RuntimeError("VGGT failed")
-        time.sleep(10)
-    if not vggt_completed:
-        raise RuntimeError("Independent VGGT calibration still running after 15 min")
-
-    # VGGT changes multi-camera output; re-run layout post-processing before
-    # reporting the VGGT result.
-    project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
-    if len(project.get("video_files", [])) > 1:
-        s.post(f"{BASE_URL}/postprocess/{project_id}").raise_for_status()
-        post_t0 = time.time()
-        while time.time() - post_t0 < 1800:
-            post_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("postprocess_state")
-            if post_state == "COMPLETED":
-                print("     VGGT layout post-processing completed")
-                break
-            if post_state == "ERROR":
-                raise RuntimeError("VGGT layout post-processing failed")
-            time.sleep(10)
-        else:
-            raise RuntimeError("VGGT layout post-processing still running after 30 min")
-elif vggt_state == "READY":
-    print("\n[F] VGGT is ready. Ask whether to run independent VGGT calibration; set RUN_VGGT_IF_READY=True for direct-mode runs.")
-else:
-    print(f"\n[F] VGGT not ready (state={vggt_state}) — skipping. Independent VGGT calibration is available after staging the model.")
-
-print(f"\nProject: {project_id}")
-print(f"Final camera parameters: ${{VSS_APPS_DIR}}/services/auto-calibration/projects/project_{project_id}/output/multi_view_results/BA_output/results_ba/refined/camInfo_XX.yaml")
+# Paste references/calibration-tail.md here. It runs READY VGGT first, then AMC,
+# and post-processes each result independently.
 ```
 
 ## Mode-specific Troubleshooting

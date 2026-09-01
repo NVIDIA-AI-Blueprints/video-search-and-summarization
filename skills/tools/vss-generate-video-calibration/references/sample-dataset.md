@@ -239,6 +239,7 @@ print(f"[2] Uploaded {len(videos)} videos")
 # Step 3 — Upload alignment JSON
 with open(alignment, "rb") as f:
     r = s.post(f"{BASE_URL}/upload_alignment/{project_id}",
+               params={"coord_space": "original"},
                files={"alignment_file": (alignment.name, f, "application/json")})
     r.raise_for_status()
 print(f"[3] Uploaded alignment JSON")
@@ -258,7 +259,7 @@ with open(gt_zip, "rb") as f:
 print(f"[5] Uploaded GT zip")
 
 # Shared Calibration Tail — see references/calibration-tail.md for the snippet
-# (stage linear media → verify_project → calibrate → post-process → fetch evaluation_statistics)
+# (stage linear media → verify → READY VGGT + post-process → AMC + post-process → compare results)
 # Note: detector_type is hard-coded to "resnet" for the sample dataset.
 DETECTOR_TYPE = "resnet"
 MEDIA_MODE = "linear"  # bundled sample is confirmed already-linear media
@@ -292,23 +293,27 @@ The microservice exposes an interactive OpenAPI UI at **`http://<HOST_IP>:<MS_PO
    |---|---|---|
    | 1 | `POST /v1/create_project` | `project_name`: any string |
    | 2 | `POST /v1/upload_video_files/{project_id}` | `files`: upload all 4 `videos/cam_0*.mp4` **sorted by name** |
-   | 3 | `POST /v1/upload_alignment/{project_id}` | `alignment_file`: `alignment_data/alignment_data.json` |
+   | 3 | `POST /v1/upload_alignment/{project_id}?coord_space=original` | `alignment_file`: `alignment_data/alignment_data.json` |
    | 4 | `POST /v1/upload_layout/{project_id}` | `layout_file`: `alignment_data/layout.png` |
    | 5 | `POST /v1/upload_gt_file/{project_id}` | `gt_file`: `GT.zip` |
    | 6 | `POST /v1/linear_media/{project_id}` | only for confirmed linear bundled media; expect `rectification_state: COMPLETED` |
    | 7 | `POST /v1/verify_project/{project_id}` | — (expect `project_state: READY`) |
-   | 8 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` |
-   | 9 | `GET /v1/get_project_info/{project_id}` | Refresh every ~10 s until AMC calibration completes |
-   | 10 | `POST /v1/postprocess/{project_id}` | multi-camera only; poll `postprocess_state` until `COMPLETED` |
-   | 11 | `GET /v1/result/{project_id}/evaluation_statistics` | Read L2 distance + reprojection error |
+   | 8 | `GET /v1/get_project_info/{project_id}` | Check `vggt_state`; if `READY`, continue with VGGT first; if `MODEL_MISSING`, skip VGGT |
+   | 9 | `POST /v1/vggt/calibrate/{project_id}` | Only when VGGT is `READY`; poll `vggt_state` until terminal |
+   | 10 | `POST /v1/postprocess/{project_id}` | Required after successful VGGT; poll `postprocess_state` until terminal |
+   | 11 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` |
+   | 12 | `GET /v1/get_project_info/{project_id}` | Refresh every ~10 s until `amc_state` is terminal |
+   | 13 | `POST /v1/postprocess/{project_id}` | Required again after successful AMC; poll `postprocess_state` until terminal |
+   | 14 | `GET /v1/result/{project_id}/evaluation_statistics` | Read AMC metrics; compare with VGGT statistics when VGGT ran |
 
 This is the same sequence the Python script runs, just executed manually.
 
 ## Success Criteria
 
-- Project reaches `project_state == "COMPLETED"` within ~30 min.
-- `/v1/result/{id}/evaluation_statistics` returns non-empty `statistics` (GT was uploaded).
-- No `ERROR` state encountered.
+- AMC reaches `amc_state == "COMPLETED"` within ~30 min; VGGT reaches `vggt_state == "COMPLETED"` when its model is available and that method runs.
+- Post-processing reaches `COMPLETED` after every successful VGGT/AMC run.
+- `/v1/result/{id}/evaluation_statistics` returns non-empty AMC `statistics` (GT was uploaded); compare VGGT statistics when VGGT ran.
+- Requested pipeline(s) have no unreported `ERROR`; one independent method may still succeed if the other fails.
 
 Representative metrics for the sample (yours should be similar):
 
