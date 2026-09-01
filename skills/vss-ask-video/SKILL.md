@@ -76,7 +76,7 @@ Do **not** use this skill when the request is one of the following:
 
 Use this route when the question starts with `Regarding video <video-id> in memory` or OpenClaw has already loaded a standard VSS daily-note block for the conversation.
 
-1. Let OpenClaw's native memory search handle the request. Do not run a separate filename search or assume a document named after the video. Use a loaded VSS block only when its `Sensor:` context contains an exact sensor ID equal to `<video-id>`.
+1. Let OpenClaw's native memory search handle the request. Do not run a separate filename search or assume a document named after the video. Use a loaded VSS block only when its `Sensor:` context contains an exact sensor ID equal to `<video-id>`. If native memory search is unavailable, inspect only the standard daily notes directly under `~/.openclaw/workspace/memory/`; never search `/tmp`, `/tmp/harbor`, another task's workspace, or the wider filesystem for a substitute memory record. For a request that explicitly says `in memory`, absence of an exact matching daily-note block is a setup failure and must not be bypassed with a stale fixture or another run's artifact.
 2. Read the authoritative summary job ID from that block's `vss memory get --job-id ...` pointer. The exact sensor ID is also the VIOS sensor name. If the block's answer is sufficient, answer from it.
 3. If the summary is insufficient, retrieve the full record into this task's `$TMPDIR`:
    ```bash

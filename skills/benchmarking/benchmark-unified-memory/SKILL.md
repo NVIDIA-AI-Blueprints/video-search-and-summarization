@@ -125,8 +125,11 @@ For every supplied `dataset_video_id`:
 Repeat `--event` once for every configured event. Run the videos sequentially.
 Do not pass a sensor name through `--id`; LVS reserves that field for its
 UUID-shaped request identity. The stable benchmark sensor belongs in
-`--video-id` while the media is supplied through `--url`.
+`--video-id` while the media is supplied through `--url`. Pass the supplied
+`dataset_video_id` itself through `--video-id`; do not substitute the internal
+VIOS sensor UUID returned by the sensor-list or clip APIs. The stable ID is
+what the persisted record and OpenClaw note must expose for later recall.
 
 Do not pass persistence flags, call `vss memory upsert`, or write Markdown manually. The configured defaults make `vss summarize run` persist its parent and child records to Elasticsearch and write its standard parent block under `~/.openclaw/workspace/memory/YYYY-MM-DD-vss.md` after authoritative persistence succeeds.
 
-A completed summarize run is terminal. Do not rerun it because its content looks incomplete. Fail the setup task if a run fails, reports `persisted: false`, or does not report successful Markdown-note creation. Before completing, confirm that the daily VSS note contains the resulting summary job block for every supplied video.
+A completed summarize run is terminal. Do not rerun it because its content looks incomplete. Fail the setup task if a run fails, reports `persisted: false`, or does not report successful Markdown-note creation. Before completing, confirm that the daily VSS note contains the resulting summary job block for every supplied video and that its `Sensor:` context is the exact supplied `dataset_video_id`, not a VIOS UUID.
