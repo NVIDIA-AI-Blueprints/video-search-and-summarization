@@ -155,12 +155,19 @@ RUN rm -rf /usr/lib/*-linux-gnu/gstreamer-1.0/libgstaudioparsers.so \
 
 # The SBSA DeepStream image supplies its native hardware decoder as a system
 # GStreamer plugin rather than under /opt. Preserve it after the shared media
-# cleanup so H.264 decoding does not depend on the proprietary codec overlay.
+# cleanup and select its V4L2 shim so H.264 decoding does not depend on the
+# proprietary codec overlay.
 RUN --mount=from=sbsa-media-runtime,source=/,target=/tmp/sbsa-root,readonly \
     if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "sbsa" ]; then \
         source_plugin=/tmp/sbsa-root/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so; \
+        source_v4l2_shim=/tmp/sbsa-root/usr/lib/aarch64-linux-gnu/tegra/libnvv4l2.so; \
+        source_v4l_plugins=/tmp/sbsa-root/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv; \
         test -s "$source_plugin"; \
+        test -s "$source_v4l2_shim"; \
+        test -d "$source_v4l_plugins"; \
         install -Dm755 "$source_plugin" /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvvideo4linux2.so; \
+        mkdir -p /usr/lib/aarch64-linux-gnu/libv4l/plugins; \
+        cp -a "$source_v4l_plugins" /usr/lib/aarch64-linux-gnu/libv4l/plugins/nv; \
     fi
 # Mount Triton's CUDA targets instead of copying the whole tree into an image
 # layer. Only NPP and NVJPEG are needed at runtime; a COPY followed by rm would
@@ -345,6 +352,10 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
+# Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
+RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_flashinfer_cudart_patch.py
+
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-x86-evs-cython/ /tmp/evs-libs/x86/
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/igpu/
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-sbsa-evs-cython/ /tmp/evs-libs/sbsa/
@@ -375,6 +386,16 @@ RUN cd /usr && find . \( -name 'libavcodec*' -o -name 'libavfilter*' -o -name 'l
     && find /opt/tritonserver/backends/dali \( -name 'libavcodec*' -o -name 'libavformat*' \
         -o -name 'libavfilter*' -o -name 'libavutil*' -o -name 'libavdevice*' \
         -o -name 'libswresample*' -o -name 'libswscale*' \) -type f -delete 2>/dev/null || true
+
+# A runtime dependency can restore the generic libv4l2 dispatch link. Select
+# DeepStream's SBSA shim after all package installation and media cleanup.
+RUN if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "sbsa" ]; then \
+        test -s /usr/lib/aarch64-linux-gnu/tegra/libnvv4l2.so; \
+        ln -sfn /usr/lib/aarch64-linux-gnu/tegra/libnvv4l2.so /usr/lib/aarch64-linux-gnu/libv4l2.so.0.0.999999; \
+        ln -sfn libv4l2.so.0.0.999999 /usr/lib/aarch64-linux-gnu/libv4l2.so.0; \
+        ln -sfn libv4l2.so.0 /usr/lib/aarch64-linux-gnu/libv4l2.so; \
+    fi
+
 # Create user with UID/GID 1001 for non-root execution and set permissions.
 # install_codecs_nonroot.sh runs apt-get update at startup using user-owned state dirs,
 # so build-time apt lists are not needed and are cleaned up to keep the image smaller.
