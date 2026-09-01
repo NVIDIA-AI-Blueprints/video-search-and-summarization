@@ -61,9 +61,11 @@ do not duplicate full workflows from this top-level file.
 
 Selection rules:
 
-- For normal RT-Embed or Cosmos-Embed1 deployment, use the deployment reference;
-  say this is the default deployment path and not the BYOM/custom model
-  workflow.
+- For normal RT-Embed or Cosmos-Embed1 deployment, use the deployment reference.
+  In the answer, explicitly say that this is the default RT-Embed deployment
+  path. Also explicitly distinguish it from BYOM/custom model integration:
+  BYOM is only for adding or validating non-default custom embedding backends
+  such as VideoPrism, and is not needed for the default Cosmos-Embed1 model.
 - For BYOM, custom embedding models, VideoPrism examples, or model implementation path questions,
   use the BYOM reference first, then deployment/API references only as needed.
 - For direct endpoint calls, use the API reference and reuse deployment context

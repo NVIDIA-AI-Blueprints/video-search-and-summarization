@@ -235,11 +235,12 @@ For local Compose validation, set the standard RT-Embed deployment values plus
 the custom model overrides. The example below uses VideoPrism paths:
 
 ```bash
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
 export VSS_RT_EMBED_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
 # Pin a published RT-Embed image tag when needed; develop uses develop-latest by default.
 export VSS_RT_EMBED_TAG="${VSS_RT_EMBED_TAG:-develop-latest}"
 export RTVI_EMBED_PORT=8017
-export VSS_DATA_DIR="${PWD}/.standalone-data"
+export VSS_DATA_DIR="${REPO_ROOT}/.standalone-data"
 export NGC_API_KEY="<ngc-api-key>"
 export HF_TOKEN="${HF_TOKEN:-}"
 
@@ -253,13 +254,13 @@ in-container implementation path exists:
 
 ```yaml
 volumes:
-  - ./services/rtvi/rt-embed/src:/opt/nvidia/rtvi/rtvi:ro
+  - ${REPO_ROOT}/services/rtvi/rt-embed/src:/opt/nvidia/rtvi/rtvi:ro
 ```
 
 Then run:
 
 ```bash
-cd deploy/docker/services/rtvi/rtvi-embed
+cd "${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-embed"
 docker compose -f rtvi-embed-docker-compose.yml \
   --profile rtvi-embed up -d rtvi-embed
 ```
@@ -278,7 +279,8 @@ modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/videopri
 Render before deploying:
 
 ```bash
-helm template rtvi-embed deploy/helm/services/rtvi/charts/rtvi-embed \
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+helm template rtvi-embed "${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-embed" \
   --set modelPath="git:https://huggingface.co/<org>/<videoprism-checkpoint>" \
   --set modelImplementationPath="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism" \
   --set modelRepositoryScriptPath="/opt/nvidia/rtvi/rtvi/models/custom/samples/videoprism/create_triton_model_repo.py"
