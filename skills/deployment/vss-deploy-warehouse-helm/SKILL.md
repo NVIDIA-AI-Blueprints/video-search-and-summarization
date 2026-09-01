@@ -63,15 +63,12 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    copied from the chart README, and offer to run it for them:**
    - No `StorageClass` → relay the `local-path-provisioner` install + `kubectl patch storageclass`
      snippet from `warehouse-<mode>-app/README.md` §Prerequisites (bare-metal option) — or ask
-     what StorageClass they intend to use if they already have one in mind. `local-path` binds
-     each PV to whichever node claims it first (`WaitForFirstConsumer` + node affinity); on a
-     multi-node cluster, `vss-vios-nvstreamer`'s several PVCs (`vios.vstStorage.vstData`/
-     `vstVideo`/`streamerVideos`) can end up pinned to different nodes and leave the pod
-     permanently unschedulable (`didn't match PersistentVolume's node affinity`). If the cluster
-     has more than one node, ask whether a shared/networked StorageClass (e.g. NFS-backed) is
-     available and set it per-component via those `vios.vstStorage.*.storageClass` keys instead
-     of relying on `global.storageClass` — this repo has no install snippet for setting one up,
-     so if the user doesn't already have one, say so plainly rather than improvising steps.
+     what StorageClass they intend to use if they already have one in mind. Multi-node cluster:
+     `local-path`'s node affinity can strand `vss-vios-nvstreamer`'s PVCs across different nodes
+     (`didn't match PersistentVolume's node affinity`) — use a shared StorageClass via
+     `vios.vstStorage.{vstData,vstVideo,streamerVideos}.storageClass` instead of
+     `global.storageClass` if the user has one; this repo has no install snippet for one, so say
+     so if they don't.
    - No `nvidia.com/gpu` allocatable → relay the NVIDIA GPU Operator install steps from
      §Prerequisites (links to the GPU Operator getting-started guide) and the recommended driver
      versions listed there.
