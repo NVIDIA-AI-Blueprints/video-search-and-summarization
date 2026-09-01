@@ -15,9 +15,12 @@ it verbatim, and deploy it. Do not add, remove or prune service keys, and do not
 treat another Foundation as a starting point: each list is a validated
 combination. To change the shape of a deployment, select a different variant.
 
-This file is self-contained for warehouse. It carries the env layers, build
-artifacts and resolve pipeline below, and shares the rest of the skill's
-machinery by reference: [`../prerequisites.md`](../prerequisites.md),
+This file is self-contained for warehouse **facts** — it states them once, and
+SKILL.md points here rather than restating them. It carries no intake questions
+and no step sequence: variant selection is SKILL.md's Q2w, and the lifecycle is
+SKILL.md's Steps. It carries the env layers, build artifacts and resolve
+pipeline below, and shares the rest of the skill's machinery by reference:
+[`../prerequisites.md`](../prerequisites.md),
 [`../credentials.md`](../credentials.md), [`../ngc.md`](../ngc.md),
 [`../data-directory.md`](../data-directory.md) (**including its
 [Warehouse app data](../data-directory.md#warehouse-app-data--check-never-create)

@@ -33,7 +33,7 @@ metadata:
 | Request | Route |
 |---|---|
 | Deploy, start, run, verify, or stop a named `base`, `alerts`, `lvs`, or `search` profile | Stock mode for that profile. |
-| Any warehouse request — deploy, run, verify, stop, customize | `references/profiles/warehouse.md`, which is self-contained for warehouse. Warehouse **registers its own sources** via `bp-configurator-<mode>`; never hand-provision one. Select a variant per Q2w and expand its `COMPOSE_PROFILES_WH_*` list verbatim. Warehouse is variant selection, not composition: to change the shape of a deployment, select a different variant. |
+| Any warehouse request — deploy, run, verify, stop, customize | `references/profiles/warehouse.md` owns every warehouse fact. It carries no intake questions and no step sequence — variant selection is **Q2w below**, and the lifecycle is the shared Steps. Warehouse **registers its own sources** via `bp-configurator-<mode>`; never hand-provision one. Select a variant per Q2w and expand its `COMPOSE_PROFILES_WH_*` list verbatim. Warehouse is variant selection, not composition: to change the shape of a deployment, select a different variant. |
 | Deploy capabilities that exactly match one current developer profile | Stock mode for the exact match. |
 | Build, create, extend, customize, combine, add, or remove capabilities | Delta mode using the closest current developer profile as the Foundation. |
 | A named profile qualified as headless | Delta mode off that profile, not a stock deploy. |
@@ -97,27 +97,35 @@ variant selection, not composition, so there is no delta path. Read
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) before
 asking, and apply its Hard constraints while asking, not after.
 
-Three single-select questions, each inside the four-option cap:
+Up to three single-select questions, each inside the four-option cap. Describe
+each option from warehouse.md's **Profile Service Set** table; do not restate
+its service lists here, or this table drifts from the one that is authoritative:
 
 | Question | Options |
 |---|---|
 | **Q2w-mode** — *"Which warehouse perception mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) |
-| **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` (agent + UI + RTVI VLM) · `bp_wh_kafka` · `bp_wh_redis` |
-| **Q2w-size** — *"Minimal or extended?"* | Extended (ELK, analytics API, ingress, monitoring) · Minimal (perception + analytics only) |
+| **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
+| **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
 
-Filter the remaining options rather than validating the answers afterwards:
+Filter the remaining options rather than validating the answers afterwards.
+Both filters below are warehouse.md's to state; it is the source of truth for
+why, and this list only says when to apply them:
 
-- **Omit `bp_wh` from Q2w-profile when Q2w-mode is `3d`** — the combination is
-  unsupported. Leaving it selectable turns an impossible deployment into a late
-  runtime failure.
-- **Skip Q2w-size entirely for `bp_wh`** — it has no minimal/extended pair.
+- **Omit `bp_wh` from Q2w-profile when Q2w-mode is `3d`** — Hard constraints:
+  `bp_wh` is 2D-only. Leaving it selectable turns an impossible deployment into
+  a late runtime failure.
+- **Skip Q2w-size entirely for `bp_wh`** — the Profile Service Set table lists
+  no minimal variant for it.
 - Set `SAMPLE_VIDEO_DATASET` and `NUM_STREAMS` from the chosen variant, not from
-  the Foundation default.
+  the Foundation default; the dataset ↔ variant pairing is a Hard constraint.
 
-The three answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its
-name in `FOUNDATION_VARIANT`, expand it verbatim into `COMPOSE_PROFILES`, and
-continue at **Step 3** with `FOUNDATION=warehouse`. The shared lifecycle applies
-from there; Step 8 resolves through
+The answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its name in
+`FOUNDATION_VARIANT`, expand it verbatim into `COMPOSE_PROFILES`, and continue
+at **Step 2** with `FOUNDATION=warehouse`. The shared lifecycle applies from
+there, with four warehouse divergences: skip **Step 4**
+(`references/composition.md` is the delta flow), **Step 5**'s effective service
+set is already fixed above, **Step 7** additionally writes `configurator.env`,
+and **Step 8** resolves through
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) rather
 than the delta flow in `references/composition.md`.
 
