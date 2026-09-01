@@ -151,6 +151,7 @@ helm upgrade --install "${RELEASE}" . \
 Notes:
 
 - Ensure **`hf-token-secret`** exists in **`${NAMESPACE}`** (the umbrella install does not create secrets). Configure `imagePullSecrets` only if you override the public GHCR image with a private registry image.
+- **MIG:** add `--set vss-rtvi-embed.gpuResourceName=nvidia.com/mig-<profile>` to the umbrella command, replacing `<profile>` with a resource advertised by the NVIDIA device plugin. Do not set a MIG UUID in `vss-rtvi-embed.gpuDeviceId`; the device plugin injects the allocated slice. This replaces the child chart's default `nvidia.com/gpu: 1` request and limit.
 - **`messageBusTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
 - Output and error publishing are controlled by **`MESSAGE_BUS`**, **`MESSAGE_BUS_TOPIC`**, and **`ERROR_BUS`**.
 - First startup can take **many minutes** (HF model download + Triton model repo; `startupProbe` in `values.yaml` allows a long initial delay).
