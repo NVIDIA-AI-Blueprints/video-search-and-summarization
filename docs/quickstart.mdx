@@ -42,10 +42,10 @@ The default VSS Agent is built on the **NVIDIA NeMo Agent Toolkit (NAT)** and is
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NeMo Agent Toolkit (NAT)** — VSS Agent (default) | The shipped reference agent (`services/agent`). YAML-driven workflow with built-in MCP client, function groups, FastAPI front-end, and Phoenix telemetry. Powers the Reference Agentic UI via `/chat/stream` and `/generate/stream` endpoints. See [VSS Agents ](/vss/vision-agent/vss-agents). | Native NIM and MCP integration out of the box; declarative `config.yml` for tools, sub-agents, and prompts; first-class sub-agent hierarchy (`report_agent`, `multi_report_agent`); built-in Phoenix tracing; UI compatibility guaranteed. | YAML can become verbose for highly custom flows; tied to NAT's runtime model. |
-| **NemoClaw (OpenClaw sandbox)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server ](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw ](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
-| **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP ](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
-| **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
+| **NeMo Agent Toolkit (NAT)** — VSS Agent (default) | The shipped reference agent (`services/agent`). YAML-driven workflow with built-in MCP client, function groups, FastAPI front-end, and Phoenix telemetry. Powers the Reference Agentic UI via `/chat/stream` and `/generate/stream` endpoints. See [VSS Agents](/vss/vision-agent/vss-agents). | Native NIM and MCP integration out of the box; declarative `config.yml` for tools, sub-agents, and prompts; first-class sub-agent hierarchy (`report_agent`, `multi_report_agent`); built-in Phoenix tracing; UI compatibility guaranteed. | YAML can become verbose for highly custom flows; tied to NAT's runtime model. |
+| **NemoClaw (OpenClaw sandbox)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
+| **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
 <Note>
 These harnesses are **not mutually exclusive**. A common pattern is to run the default NAT-based VSS Agent for end-user chat, while a separate service (NemoClaw, a custom MCP client, or a REST integration) handles deployment automation or back-office workflows against the same VSS microservices.
@@ -72,7 +72,7 @@ This can be done using NGC CLI as documented below, or downloaded from the NGC U
 The `nvidia/vss-developer/dev-profile-sample-data` resource requires authenticated
 NGC CLI access with an org selected. If you see `Artifact is not Guest accessible`
 or `Missing org`, configure NGC with an API key and org before retrying.
-See [Prerequisites ](/vss/getting-started/prerequisites) for NGC setup.
+See [Prerequisites](/vss/getting-started/prerequisites) for NGC setup.
 
 ```bash
 # Download sample data
@@ -107,8 +107,8 @@ git lfs pull
 
 <Note>
 - Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
-- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
+- Refer to [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 - For advanced settings and Agent Customization, see the deploy command help.
 </Note>
 
@@ -241,7 +241,7 @@ export VLM_ENDPOINT_URL=`https://<vlm-endpoint>`
 <Tab title="SPARK">
 </Tab>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+See [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
 and [edge-deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
 ``bash
@@ -253,7 +253,7 @@ export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
 <Tab title="IGX-THOR">
 </Tab>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+See [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
 and [edge-deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
 ``bash
@@ -265,7 +265,7 @@ export LLM_ENDPOINT_URL=`https://<llm-endpoint>`
 <Tab title="AGX-THOR">
 </Tab>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+See [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
 and [edge-deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
 ``bash
@@ -508,7 +508,7 @@ For any video clip, a report can be generated and then follow-up questions can b
 The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated reports are accessible at
 `http://<HOST_IP>:8000/static/agent_report_<DATE>.md` and `http://<HOST_IP>:8000/static/agent_report_<DATE>.pdf`. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
 `vss-agent` container restarts. To persist reports, enable `save_local_copy` in the agent configuration and
-mount a host directory as a Docker volume. For details, refer to [Report Generation ](/vss/vision-agent/vss-agents/report-generation).
+mount a host directory as a Docker volume. For details, refer to [Report Generation](/vss/vision-agent/vss-agents/report-generation).
 </Note>
 
 ### Step 5: Teardown the Agent
@@ -545,8 +545,8 @@ from natural language.
 
 <Note>
 Install the skills into your coding agent first (see [Agent Skills](/vss/vision-agent/agent-skills) for the install flow) and confirm your host meets the
-[Prerequisites ](/vss/getting-started/prerequisites). For how each harness loads skills, see
-[Agent Harnesses ](/vss/vision-agent/agent-harnesses).
+[Prerequisites](/vss/getting-started/prerequisites). For how each harness loads skills, see
+[Agent Harnesses](/vss/vision-agent/agent-harnesses).
 </Note>
 
 The base profile journey exercises four skills:
@@ -573,7 +573,7 @@ On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
 supported, but a remote LLM is recommended for better response time — add
 "with a remote LLM" to the prompt (for example, *"Deploy the VSS base profile
 on this DGX-SPARK machine with a remote LLM."*). See
-[Configure LLM ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
+[Configure LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
 </Note>
 
 The deploy skill chooses the `<platform>` and `<mode>` to match your host,
@@ -648,7 +648,7 @@ Because the skill talks to the VLM itself, a run leaves no trace in the VSS
 agent's logs — look at the VLM service when you want to inspect one. The
 agent's own `video_understanding` tool does frame-level VLM analysis and is
 what the VSS UI and the NAT agent workflows call; for that tool and its
-parameters, see [Agent Configuration ](/vss/vision-agent/vss-agents/agent-configuration).
+parameters, see [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
 </Note>
 
 ### Generate a report
@@ -685,7 +685,7 @@ Tear down the VSS deployment.
 Once you've familiarized yourself with the base vision agent, you can test other videos and explore adding agent workflows,
 such as video summarization, search, and alerting.
 
-Additionally, you can dive deeper into the agent tools for [report generation ](/vss/vision-agent/vss-agents/report-generation), video understanding, and video management.
+Additionally, you can dive deeper into the agent tools for [report generation](/vss/vision-agent/vss-agents/report-generation), video understanding, and video management.
 
 ### Known Issues
 

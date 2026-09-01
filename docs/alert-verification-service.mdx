@@ -126,7 +126,7 @@ Each alert type requires a configuration with the following components:
 
 Prompts are stored in RedisJSON at startup and selected based on the alert type during processing.
 
-`vlm_params` may also be updated at runtime via `PUT /api/v1/verification/config/{alert_type}` (see the [Alert Verification API ](/vss/system-components/analytics-microservices/alerts-microservice/api-reference/alert-verification-api)) without restarting the container. At request time the service merges all sources with the following precedence:
+`vlm_params` may also be updated at runtime via `PUT /api/v1/verification/config/{alert_type}` (see the [Alert Verification API](/vss/system-components/analytics-microservices/alerts-microservice/api-reference/alert-verification-api)) without restarting the container. At request time the service merges all sources with the following precedence:
 
 1. Runtime overrides set via the API and persisted in Redis under `alert_config:{alert_type}` — applied without restart.
 2. Static `vlm_params` from `alert_type_config.json` — requires container restart to take effect.

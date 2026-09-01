@@ -20,26 +20,26 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([link ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
-2. **Video IO & Storage (VIOS)** ([link ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices))
+2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/vss/system-components/middleware/video-io-storage-vios/vios-microservices))
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d))
+3. **DeepStream** ([3D Multi Camera Detection and Tracking (Sparse4D)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d))
 
-   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, utilizing the Sparse4D model ([link ](/vss/system-components/models/sparse4d-3d-multi-camera)) to generate BEV (Bird's Eye View) outputs.
+   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, utilizing the Sparse4D model ([Sparse4D (3D multi-camera)](/vss/system-components/models/sparse4d-3d-multi-camera)) to generate BEV (Bird's Eye View) outputs.
    - It sends frame data, including detected and tracked object IDs, in Protobuf format to the message broker via the `mdx-bev` topic.
 
 4. **Message Broker (Kafka or Redis)**
 
    - The message broker serves as the central hub for data distribution, using Protobuf for all data exchanges.
-   - **Kafka** ([../kafka](/vss/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
+   - **Kafka** ([Kafka](/vss/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
    - **Redis Streams**: Lightweight message broker ideal for edge deployments with minimal memory footprint and low-latency requirements.
    - It also functions as a control bus, managing notifications (in JSON, via `mdx-notification`) for calibration updates, such as new ROI or tripwire definitions.
 
-5. **Behavior Analytics** ([link ](/vss/system-components/analytics-microservices/behavior-analytics))
+5. **Behavior Analytics** ([Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics))
 
    - This microservice consumes `mdx-bev` data (Protobuf) from the message broker.
    - It processes the data to generate behavior analytics, safety insights, and metrics.
@@ -47,7 +47,7 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 
 6. **Storage**
 
-   - **ELK (Elasticsearch, Logstash, Kibana)** ([../elk](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
+   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
 
 7. **Visualization**
 
@@ -56,7 +56,7 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 
 8. **External Interfaces**
 
-   - **API Gateway and MCP** ([../api-gateway-mcp](/vss/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
+   - **API Gateway and MCP** ([API Gateway / MCP](/vss/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
 
 ### Key Technologies
 
@@ -110,7 +110,7 @@ Browse the Kibana UI, discover the data views and visualize the data.
 ### VIOS UI
 
 <Note>
-At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VST docs ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
+At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VST docs](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
 </Note>
 
   1. Launch Chrome browser.
@@ -122,7 +122,7 @@ At this point the web-based application is only available for Chrome browser run
 
 **View VIOS Video Wall**
 
-Enable Overlay settings (instructions [here](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall)), to view 3D object detection and tracking results.
+Enable Overlay settings (refer to [Playback Overlay on Video Wall](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall)) to view 3D object detection and tracking results.
 
 ![VIOS Video Wall View](/assets/images/analytics-blueprints/3D-analytics-blueprint-vios-wall.png)
 
@@ -246,7 +246,7 @@ Number of streams to be processed can be configured in two ways:
    NUM_STREAMS=4
    ```
 
-   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
 
 2. **Dynamic Configuration**: Use the VSS Configurator's prerequisite operations to automatically count the number of video files in the recorded videos directory and use that count for configuration updates.
 
@@ -286,7 +286,7 @@ Dynamic Configuration cannot be used for live RTSP streams.
              num_sensors: ${final_stream_count}
    ```
 
-   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
 
 When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number of video files available in that dataset. Make sure `NUM_STREAMS` is less than or equal to the number of videos you want to process.
 
@@ -328,7 +328,7 @@ Deploy the auto-calibration profile (`bp_wh_auto_calib_3d`) to generate a new ca
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For 3D profile use cases, the ROIs and Tripwires must be drawn on the floor plan/layout map.
 - The AMC UI exports the `group` and `region` blocks under each entry in `sensors[]` with empty values. The 3D profile uses these fields for multi-camera grouping and BEV fusion, so populate them with valid values for each sensor before deploying the blueprint.
-- Add new camera information following the schema defined in [Calibration Schema ](/vss/system-components/calibration/calibration-schema).
+- Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
 - Auto Calibration requires time-synchronized videos as input. For RTSP cameras, record videos from the RTSP source (e.g. using ffmpeg or similar tools), manually trim the videos to time-synchronize them if needed, then provide them to Auto Calibration.
@@ -633,7 +633,7 @@ Key options:
 
 The Blueprint uses Sparse4D as its primary perception model. To customize:
 
-1. Fine-tune Sparse4D using TAO ([Sparse4D model page ](/vss/system-components/models/sparse4d-3d-multi-camera))
+1. Fine-tune Sparse4D using TAO ([Sparse4D model page](/vss/system-components/models/sparse4d-3d-multi-camera))
 2. Configure DeepStream to use your custom model ([model configuration guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint))
 
 ### Application Customization
@@ -646,7 +646,7 @@ The Blueprint uses a modular microservices architecture with the following commu
 
 Users can build their own microservices by consuming data from the above channels.
 
-For complete API documentation, see [API Reference Page ](/vss/appendix/api-reference).
+For complete API documentation, see [API Reference Page](/vss/appendix/api-reference).
 
 #### Available Service Ports
 
@@ -665,8 +665,8 @@ The following ports are used during deployment, and users can leverage them for 
 
 For detailed information about customizing specific analytics microservices, refer to:
 
-* [Behavior Analytics ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
-* [VSS Video Analytics API ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
+* [Behavior Analytics](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
+* [VSS Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
 
 ### Hardware Config Customization
 
@@ -744,4 +744,4 @@ The VSS Configurator provides a comprehensive set of features for automated prof
 
 **Execution Order:** Prerequisite Operations → Environment Variable Validation → Variable Computations → Configuration File Updates
 
-For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).

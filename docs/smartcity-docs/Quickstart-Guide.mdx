@@ -25,9 +25,9 @@ The Smart City Blueprint provides a unified deployment profile that includes all
 
 **bp_smc - Smart City Blueprint**
 
-- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking)
-- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice ](/vss/system-components/analytics-microservices/alerts-microservice)
-- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice ](/vss/vision-agent/vss-agents)
+- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/vss/system-components/vision-microservices/object-detection-and-tracking)
+- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
+- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice](/vss/vision-agent/vss-agents)
 - Integration options:
 
   - API
@@ -81,7 +81,7 @@ The following section will guide you through the steps to install the Smart City
 
 4. Access the Jupyter Interface
 
-    In your browser, navigate to `http://<server-IP>`:8888, replacing `<server-IP>` with the IP address or hostname of your GPU server.
+    In your browser, navigate to `http://<server-IP>:8888`, replacing `<server-IP>` with the IP address or hostname of your GPU server.
 
 5. Authenticate with Your Secure Token
 
@@ -92,7 +92,7 @@ The following section will guide you through the steps to install the Smart City
    jupyter server list
    ```
 
-   The output will include a URL in the form `http://<HOST>`:8888/?token=`<TOKEN>`. Copy the token value and paste it into the browser authentication field, then click Log in to open the Jupyter interface.
+   The output will include a URL in the form `http://<HOST>:8888/?token=<TOKEN>`. Copy the token value and paste it into the browser authentication field, then click Log in to open the Jupyter interface.
 
 6. Open the deployment notebook
 
@@ -117,7 +117,7 @@ docker ps
 
 2. Check to make sure streams were properly added to VST. To do so, navigate to the VST UI (see endpoint below) and check the Dashboard to confirm your streams are in a healthy state. If you do not see them there, check NVStreamer or your source to make sure they are active.
 
-3. Check RTVI CV FPS to make sure the [RTVI CV microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly. View the `vss-rtvi-cv` logs by running the following command and looking for FPS lines in the logs. Ensure it is running at the desired FPS (10fps with the sample streams). If this is lower than expected, make sure your GPU is not oversaturated.
+3. Check RTVI CV FPS to make sure the [RTVI CV microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly. View the `vss-rtvi-cv` logs by running the following command and looking for FPS lines in the logs. Ensure it is running at the desired FPS (10fps with the sample streams). If this is lower than expected, make sure your GPU is not oversaturated.
 
 ```bash
 docker logs -f vss-rtvi-cv

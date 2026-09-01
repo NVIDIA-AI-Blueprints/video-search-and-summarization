@@ -38,8 +38,8 @@ VIOS is built as a collection of cooperating microservices that together provide
 
 The following diagram illustrates the high-level architecture of VIOS. Each service is responsible for a specific aspect of the system, and the list that follows describes the role of each component.
 
-* **Sensor Management Service**: A comprehensive system designed to facilitate the administration and control of sensor-related functionalities. It handles sensor discovery, configuration, and stream management through dedicated sensor services and adaptors, and provides efficient management of sensors across the network. This service exclusively owns the sensor REST API surface — [Sensor Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api) (prefixed with `/v1/sensor`).
-* **Unified Stream Processing MS**: A unified microservice that consolidates RTSP proxying, live and replay (recorded) WebRTC streaming, recording, and media storage into a single service. It handles video stream transformation, file ingestion, content download from ingested files, routing, and protocol conversion for real-time video ingestion, low-latency playback, and long-term archival. It exposes every stream- and media-related REST API in VIOS — [Proxy Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api) (`/v1/proxy`), [Live Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api) (`/v1/live`), [Record Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api) (`/v1/record`), [Replay Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api) (`/v1/replay`), and [Storage Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api) (`/v1/storage`) — covering the entire VIOS API surface except the sensor APIs, which are owned by the Sensor Management Service.
+* **Sensor Management Service**: A comprehensive system designed to facilitate the administration and control of sensor-related functionalities. It handles sensor discovery, configuration, and stream management through dedicated sensor services and adaptors, and provides efficient management of sensors across the network. This service exclusively owns the sensor REST API surface — [Sensor Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api) (prefixed with `/v1/sensor`).
+* **Unified Stream Processing MS**: A unified microservice that consolidates RTSP proxying, live and replay (recorded) WebRTC streaming, recording, and media storage into a single service. It handles video stream transformation, file ingestion, content download from ingested files, routing, and protocol conversion for real-time video ingestion, low-latency playback, and long-term archival. It exposes every stream- and media-related REST API in VIOS — [Proxy Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api) (`/v1/proxy`), [Live Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api) (`/v1/live`), [Record Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api) (`/v1/record`), [Replay Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api) (`/v1/replay`), and [Storage Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api) (`/v1/storage`) — covering the entire VIOS API surface except the sensor APIs, which are owned by the Sensor Management Service.
 * **Storage Layer**: Multi-tier storage system supporting Redis for caching, PostgreSQL for metadata, and local filesystem object storage for video content.
 * **Client Interfaces**: Support for various client types including web applications, perception services, computer vision applications, and the VSS UI.
 * **Ingress**: A service that handles the ingress of the HTTP requests to the VIOS microservices.
@@ -762,12 +762,12 @@ Following table describes the parameters in RTSP Streams config file:
 
 VIOS microservice API documentation can be found in the following VIOS API references:
 
-- [Sensor Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api)
-- [Live Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api)
-- [Replay Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api)
-- [Record Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api)
-- [Proxy Stream Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api)
-- [Storage Management API ](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api)
+- [Sensor Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api)
+- [Live Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api)
+- [Replay Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api)
+- [Record Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api)
+- [Proxy Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api)
+- [Storage Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api)
 
 ## Components & Customization
 
@@ -815,7 +815,7 @@ typedef void destroyMediaObject( IMediaInterface* object );
 
 ## KPI
 
-For detailed VIOS performance benchmarks including stream profiling, per-replica stream counts, and per-request latency benchmarks, see [VIOS Performance ](/vss/appendix/performance/microservices/vios-performance).
+For detailed VIOS performance benchmarks including stream profiling, per-replica stream counts, and per-request latency benchmarks, see [VIOS Performance](/vss/appendix/performance/microservices/vios-performance).
 
 ### Troubleshooting
 
