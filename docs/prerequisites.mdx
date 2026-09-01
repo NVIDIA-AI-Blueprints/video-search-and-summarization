@@ -340,7 +340,7 @@ ngc registry model download-version <org>/<team>/<model>:<version>
 mv </downloaded/path/in/ngc/output> </path/to/custom/weights>
 ```
 
-The weights will be downloaded to a local directory. Note the path to this directory, then set `VLM_CUSTOM_WEIGHTS` to it in the selected profile's `overrides.env` before deploying.
+The weights will be downloaded to a local directory. Note the path to this directory, then set `VLM_CUSTOM_WEIGHTS` to it in the selected profile's `user-overrides.env` before deploying.
 
 ### Download Custom Weights from Hugging Face
 
@@ -655,7 +655,7 @@ For each supported NIM and GPU, the deployment includes a corresponding env file
 
 #### Unsupported GPU hardware
 
-For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in the selected profile `overrides.env`. The deployment uses a default empty env file and the NIM falls back to its own defaults.
+For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in the selected profile `user-overrides.env`. The deployment uses a default empty env file and the NIM falls back to its own defaults.
 
 ```bash
 ./deploy/docker/services/nim/cosmos3-reasoner/hw-OTHER.env
@@ -663,7 +663,7 @@ For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in th
 
 #### Custom env files at install time
 
-You can define your own env variants for a NIM in the selected profile `overrides.env`. Set `LLM_ENV_FILE` and/or `VLM_ENV_FILE`; paths can be absolute or relative to `deploy/docker`.
+You can define your own env variants for a NIM in the selected profile `user-overrides.env`. Set `LLM_ENV_FILE` and/or `VLM_ENV_FILE`; paths can be absolute or relative to `deploy/docker`.
 
 ```ini
 LLM_ENV_FILE=/path/to/llm.env

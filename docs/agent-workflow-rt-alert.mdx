@@ -201,7 +201,7 @@ Be sure to replace the VST_PUBLIC_URL_BASE listed above with your own VST public
 - Set the NGC CLI API key, then run the deploy commands for your GPU type.
 - Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
   For RTVI-VLM configuration options, see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm).
-- For advanced settings and Agent Customization, edit the profile `overrides.env`.
+- For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
 ```bash
@@ -212,24 +212,32 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+
+```bash
+PROFILE=alerts
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
+```
+
+For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
 
 ```bash
 PROFILE=alerts
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   config --quiet
 
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   up -d
 ```
 
-**Environment-variable overrides:** Update existing values in `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env` in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+**Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
 **Host-path and service-address overrides (all hardware profiles):**
 
@@ -406,7 +414,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 <Tab title="RTXPRO4500BW">
 
 <Note>
-On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
+On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
 </Note>
 
 <Tabs>
@@ -676,7 +684,7 @@ Once deployed, the following services are available:
 
 * VSS-RTVI-VLM logs may repeatedly show a "Generated text is empty" warning and result in incomplete/unreliable alert verdicts
 
-* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
+* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 
