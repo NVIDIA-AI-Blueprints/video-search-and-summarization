@@ -35,7 +35,16 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
   - **580.105.08** — Ubuntu 24.04
   - **580.65.06** — Ubuntu 22.04
 
-- **Volume provisioner** — the chart creates PVCs for VST, Elasticsearch, and related storage. A StorageClass must exist on the cluster. Set **`global.storageClass`** to its name in your values override. On bare-metal clusters, [local-path-provisioner](https://github.com/rancher/local-path-provisioner) is a straightforward option:
+- **Volume provisioner** — the chart creates PVCs for VST, Elasticsearch, and related storage. A StorageClass must exist on the cluster. Set **`global.storageClass`** to its name in your values override. On bare-metal clusters with no provisioner yet, install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) via Helm:
+
+  ```bash
+  helm repo add containeroo https://charts.containeroo.ch
+  helm repo update
+  helm upgrade --namespace default --install \
+    local-path-provisioner-default containeroo/local-path-provisioner --version '0.0.32'
+  ```
+
+  Then, if `local-path` isn't already the default StorageClass:
 
   ```bash
   kubectl patch storageclass local-path \

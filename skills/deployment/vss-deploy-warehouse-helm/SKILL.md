@@ -61,10 +61,9 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
 
    **On any failure, don't just link the user to the README and stop — hand them the actual fix,
    copied from the chart README, and offer to run it for them:**
-   - No `StorageClass` → the README's `kubectl patch storageclass` snippet assumes a provisioner
-     already exists (e.g. `local-path` from k3s/kind) — relay it, plus the
-     [local-path-provisioner](https://github.com/rancher/local-path-provisioner) link if none is
-     running. Or ask what StorageClass they already have in mind.
+   - No `StorageClass` → relay the `local-path-provisioner` install + `kubectl patch storageclass`
+     snippet from `warehouse-<mode>-app/README.md` §Prerequisites (bare-metal option) — or ask
+     what StorageClass they intend to use if they already have one in mind.
    - No `nvidia.com/gpu` allocatable → relay the NVIDIA GPU Operator install steps from
      §Prerequisites (links to the GPU Operator getting-started guide) and the recommended driver
      versions listed there.
