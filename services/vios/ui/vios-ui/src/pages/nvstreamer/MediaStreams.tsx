@@ -17,15 +17,18 @@
 import React, { useState, useEffect } from 'react';
 import { Grid2 as Grid, Typography, Card, CardHeader, Box, Stack } from '@mui/material';
 import MultipleSensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
-import { Sensor } from '../../interfaces/interfaces';
+import { Sensor, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import useVSTUIStore from '../../services/StateManagement';
 import VSTStreamManager from '../../features/streamManager/StreamManager';
+import DeliveryProtocolSelector from '../../components/deliveryProtocol/DeliveryProtocolSelector';
 import { StreamType } from 'vst-streaming-lib';
 
 const MediaStreams = () => {
     const sensors = useVSTUIStore(state => state.sensorServiceSensors);
 
     // State for tag selector
+    // Picked before anything plays: switching restarts the stream.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
     const [selectedTagList, setSelectedTagList] = useState<string[]>([]);
     const [uniqueTags, setUniqueTags] = useState<string[]>([]);
 
@@ -76,9 +79,16 @@ const MediaStreams = () => {
     return (
         <Grid container spacing={3}>
             <Grid size={{ xs: 12 }}>
-                <Typography variant='h4' gutterBottom>
+<Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography variant='h4' gutterBottom>
                     Media Streams
                 </Typography>
+                    <DeliveryProtocolSelector
+                        value={deliveryProtocol}
+                        onChange={setDeliveryProtocol}
+                        disabled={Boolean(selectedSensorList && selectedSensorList.length)}
+                    />
+                </Box>
             </Grid>
             <Grid size={{ xs: 12 }}>
                 <Card>
@@ -110,6 +120,7 @@ const MediaStreams = () => {
                         {selectedSensorList?.map(sensor => (
                             <Grid size={{ xs: 12, md: 6 }} key={sensor.sensorId}>
                                 <VSTStreamManager
+                                    protocol={deliveryProtocol}
                                     sensor={sensor}
                                     streamType={StreamType.Live}
                                     onClose={() => handleCloseVideo(sensor.sensorId)}

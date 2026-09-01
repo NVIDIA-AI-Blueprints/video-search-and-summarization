@@ -292,6 +292,16 @@ VmsConfigManager::VmsConfigManager()
 
         m_vmsConfig.max_webrtc_out_connections = network.get("max_webrtc_out_connections", 8).asInt();
         m_vmsConfig.max_webrtc_in_connections = network.get("max_webrtc_in_connections", 8).asInt();
+        /* The DASH settings are grouped rather than spelled out one by one at
+         * the top level, so a reader can see at a glance which knobs belong to
+         * this protocol and which do not. A missing block is not an error: each
+         * value falls back to the same default it would have had on its own. */
+        const Json::Value dash = network.get("dash", Json::objectValue);
+        m_vmsConfig.max_live_dash_sessions = dash.get("max_live_sessions", 8).asInt();
+        m_vmsConfig.dash_segment_duration_sec = dash.get("segment_duration_sec", 1).asInt();
+        m_vmsConfig.dash_playlist_length = dash.get("playlist_length", 8).asInt();
+        m_vmsConfig.dash_idle_timeout_sec = dash.get("idle_timeout_sec", 45).asInt();
+        m_vmsConfig.dash_output_root = dash.get("output_root", "dash").asString();
         m_vmsConfig.webservice_access_control_list = network.get("webservice_access_control_list", "").asString();
         m_vmsConfig.rtsp_preferred_network_iface = network.get("rtsp_preferred_network_iface", "").asString();
         m_vmsConfig.rtsp_server_port = network.get("rtsp_server_port", -1).asInt();
@@ -367,6 +377,7 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.onvif_request_timeout_secs = onvif.get("onvif_request_timeout_secs", 10).asInt();
         m_vmsConfig.onvif_sensor_time_sync_interval_secs = onvif.get("onvif_sensor_time_sync_interval_secs", 60).asInt();
         m_vmsConfig.onvif_sensor_time_sync_compensation_ms = onvif.get("onvif_sensor_time_sync_compensation_ms", 20).asInt();
+        m_vmsConfig.onvif_cache_device_time_offset = onvif.get("onvif_cache_device_time_offset", true).asBool();
         Json::Value discovery_interfaces = onvif.get("device_discovery_interfaces", Json::nullValue);
         if(discovery_interfaces.isArray())
         {
