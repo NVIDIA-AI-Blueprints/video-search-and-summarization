@@ -14,7 +14,7 @@ test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
 }
 cd "${VSS_REPO_ROOT}" &&
 uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
-  vss search run <path> [options]
+  vss search run <embed|attribute|fusion|object> [options]   # path is the command, never a source name or --path flag
 ```
 
 The executable is provided by that project and need not exist globally. Do not

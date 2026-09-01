@@ -25,6 +25,7 @@ Per-step behavior is driven by what's configured:
 """
 
 import logging
+import re
 from typing import Any
 
 from elasticsearch import AsyncElasticsearch
@@ -38,10 +39,16 @@ from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
+from vss_agents.tools.vst.utils import verify_vst_cleanup
 from vss_agents.utils.sanitize import scrub_log
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
+
+_RTVI_STREAM_ABSENT_RE = re.compile(
+    r"\bstream\b.{0,160}\b(?:not found|does not exist|already removed|not registered)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 # ============================================================================
@@ -55,6 +62,10 @@ class DeleteVideoResponse(BaseModel):
     status: str = Field(..., description="'success', 'partial', or 'failure'")
     message: str = Field(..., description="Human-readable status message")
     video_id: str = Field(..., description="The video/sensor ID that was deleted")
+    warnings: list[str] | None = Field(
+        default=None,
+        description="Non-durable best-effort cleanup failures that did not change the status",
+    )
 
 
 class EsCleanupConfig(BaseModel):
@@ -127,7 +138,18 @@ async def _remove_from_rtvi_cv(
         if response.status_code in (200, 201, 204):
             logger.info("RTVI-CV stream removed: %s", scrub_log(sensor_id))
             return True, "OK"
-        return False, f"RTVI-CV returned {response.status_code}: {response.text}"
+        response_text = response.text
+        already_absent = response.status_code in (400, 404, 409, 410, 500) and bool(
+            _RTVI_STREAM_ABSENT_RE.search(response_text)
+        )
+        if already_absent:
+            # Uploaded files are finite streams. RTVI-CV can retire one after
+            # playback completes, before the user deletes the durable VST and
+            # Elasticsearch state. A semantic "already absent" response is
+            # therefore the idempotent delete goal, not a partial failure.
+            logger.info("RTVI-CV stream already absent: %s", scrub_log(sensor_id))
+            return True, "already absent"
+        return False, f"RTVI-CV returned {response.status_code}: {response_text}"
     except Exception as e:
         logger.error(f"RTVI-CV remove failed: {e}", exc_info=True)
         return False, str(e)
@@ -171,8 +193,21 @@ async def _delete_es_documents(es_endpoint: str, index_pattern: str, id_value: s
                 }
             },
             refresh=True,
-            conflicts="proceed",  # Don't fail on version conflicts
+            # Return conflict details instead of raising immediately so the
+            # caller can report the cleanup as incomplete.
+            conflicts="proceed",
         )
+        timed_out = bool(result.get("timed_out", False))
+        failures = result.get("failures") or []
+        version_conflicts = int(result.get("version_conflicts", 0) or 0)
+        if timed_out or failures or version_conflicts:
+            message = (
+                "Elasticsearch cleanup was incomplete "
+                f"(timed_out={timed_out}, version_conflicts={version_conflicts}, "
+                f"failures={len(failures)})"
+            )
+            logger.error("%s for index '%s'", message, index_pattern)
+            return False, message
         deleted = result.get("deleted", 0)
         logger.info(
             "Deleted %s docs from ES index '%s' (field=%s, value=%s)",
@@ -241,8 +276,8 @@ def create_video_delete_router(
         overall result as 'success', 'partial', or 'failure'.
 
         Steps:
-          0. Look up sensorName from VST (only when ES cleanup will run; needed
-             for behavior/raw index queries).
+          0. Look up sensorName from VST for name-keyed cleanup and final
+             source-absence verification.
           1. ES embed index delete by sensor.id = video_id        (skipped if no es_config)
           2. ES behavior index delete by sensor.id = sensorName   (skipped if no es_config)
           3. ES raw index delete by sensorId = sensorName         (skipped if no es_config)
@@ -256,25 +291,32 @@ def create_video_delete_router(
         Returns:
             DeleteVideoResponse with overall status
         """
+        # ``results`` contains durable cleanup only. RTVI-CV is optional
+        # processing infrastructure for uploaded files (the ingest path also
+        # tolerates it being unreachable), and a finite stream commonly
+        # retires before the durable video is deleted. Its best-effort remove
+        # must therefore be attempted and logged, but must not turn completed
+        # VST + Elasticsearch cleanup into a ``partial`` video deletion.
         results: list[bool] = []
+        warnings: list[str] = []
         sensor_name = ""
 
         logger.info("Deleting video '%s'", scrub_log(video_id))
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # --- Step 0: Look up sensorName from VST (only when ES cleanup will run) ---
-            # Must happen BEFORE any deletions, since we need sensorName for ES queries.
-            if es_config is not None:
-                try:
-                    with TimeMeasure("video_delete: lookup sensor name from VST"):
-                        sensor_name = await get_sensor_id_from_stream_id(video_id, vst_url)
-                except VSTError as e:
-                    logger.warning(
-                        "Could not look up sensorName for '%s': %s. ES cleanup for behavior/raw may not work.",
-                        scrub_log(video_id),
-                        scrub_log(e),
-                    )
-                    sensor_name = ""
+            # Resolve the canonical name before any mutation. Besides keying
+            # behavior/raw documents, it detects VST registrations that remain
+            # under a `_N`-suffixed sensor UUID after deletion.
+            try:
+                with TimeMeasure("video_delete: lookup sensor name from VST"):
+                    sensor_name = await get_sensor_id_from_stream_id(video_id, vst_url)
+            except VSTError as e:
+                logger.warning(
+                    "Could not look up sensorName for '%s': %s. Name-keyed cleanup checks may not work.",
+                    scrub_log(video_id),
+                    scrub_log(e),
+                )
+                sensor_name = ""
 
             # --- ES cleanup (done first to avoid 'not found' issues) ---
             # Each index uses .keyword for exact match (avoids accidental match on similar names):
@@ -290,6 +332,12 @@ def create_video_delete_router(
                 for index_name, field_name, id_value in es_index_configs:
                     if not id_value:
                         logger.warning("Skipping ES delete for '%s': no identifier available", index_name)
+                        # ES cleanup is configured, so missing the source name
+                        # makes behavior/raw deletion unattemptable. Record the
+                        # failure instead of allowing the aggregate response to
+                        # claim full success after only the UUID-keyed embed
+                        # cleanup ran.
+                        results.append(False)
                         continue
                     with TimeMeasure(f"video_delete: ES delete from {index_name}"):
                         success, msg = await _delete_es_documents(es_config.url, index_name, id_value, field_name)
@@ -300,23 +348,43 @@ def create_video_delete_router(
             if rtvi_cv_url:
                 with TimeMeasure("video_delete: remove from RTVI-CV"):
                     success, msg = await _remove_from_rtvi_cv(client, rtvi_cv_url, video_id, sensor_name)
-                results.append(success)
-                logger.info(f"Remove from RTVI-CV: {'OK' if success else msg}")
+                if success:
+                    logger.info("Remove from RTVI-CV: OK")
+                else:
+                    warning = f"RTVI-CV cleanup did not complete: {msg}"
+                    warnings.append(warning)
+                    logger.warning(
+                        "Best-effort RTVI-CV cleanup did not complete for '%s': %s",
+                        scrub_log(video_id),
+                        scrub_log(msg),
+                    )
 
             # --- Delete VST storage (using shared vst utils) ---
             with TimeMeasure("video_delete: delete VST storage"):
-                success, msg = await delete_vst_storage(vst_url, video_id)
-            results.append(success)
-            logger.info("Delete VST storage: %s", "OK" if success else msg)
+                storage_success, msg = await delete_vst_storage(vst_url, video_id)
+            logger.info("Delete VST storage: %s", "OK" if storage_success else msg)
 
             # --- Delete VST sensor (using shared vst utils) ---
             # Required: delete_vst_storage only removes stored files, not the
             # sensor registration — the two must be paired to fully remove a
             # video. Without this, sensors are orphaned in VST.
             with TimeMeasure("video_delete: delete VST sensor"):
-                success, msg = await delete_vst_sensor(vst_url, video_id)
-            results.append(success)
-            logger.info("Delete VST sensor: %s", "OK" if success else msg)
+                sensor_success, msg = await delete_vst_sensor(vst_url, video_id, sensor_name)
+            logger.info("Delete VST sensor: %s", "OK" if sensor_success else msg)
+
+            # Mutation responses are diagnostic only: even two successful
+            # responses do not prove that VST removed a same-name registration
+            # retained under a suffixed UUID. Always verify the final durable
+            # state by both UUID and canonical name after the one-shot deletes.
+            with TimeMeasure("video_delete: verify final VST cleanup"):
+                vst_success, msg = await verify_vst_cleanup(vst_url, video_id, sensor_name)
+            logger.info(
+                "Verify final VST cleanup after storage=%s sensor=%s: %s",
+                storage_success,
+                sensor_success,
+                "OK" if vst_success else msg,
+            )
+            results.append(vst_success)
 
         # --- Determine overall status ---
         all_success = bool(results) and all(results)
@@ -338,6 +406,7 @@ def create_video_delete_router(
             status=status,
             message=message,
             video_id=video_id,
+            warnings=warnings or None,
         )
 
     return router

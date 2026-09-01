@@ -105,10 +105,20 @@ INGESTION_PREAMBLE = (
     "ingestion step. Make fixture setup idempotent through Agent-backed deletion, download the exact "
     "pinned NGC bundle into a fresh directory, derive both upload paths only from that extraction rather "
     "than a cached host file, and ingest only the two named files through the "
-    "three-step Agent workflow. Reconfigure once after ingestion so lazy indexes are discovered, "
+    "three-step Agent workflow. Each file requires all three steps — `POST /api/v1/videos` "
+    "registration, the storage upload, then `POST /complete` — run in full for every file; "
+    "never reuse a prior file's upload URL or sensor ID, skip the registration step, or call "
+    "`PUT /api/v1/videos-for-search/{filename}` (deprecated) or a bare storage PUT without prior "
+    "registration. Reconfigure once after ingestion so lazy indexes are discovered, "
     "then require both canonical VST sources and the exact embedding, behavior, and raw index tuples. "
     "Logs are diagnostics only. If bounded readiness expires, print diagnostics and fail; do not "
-    "reset the deadline, redeploy, restart, or re-ingest."
+    "reset the deadline, redeploy, restart, or re-ingest. The deadline is one and final: reassigning "
+    "SEARCH_READINESS_DEADLINE (or introducing any second phase timer) after it is initialized — even in "
+    "a fresh shell or because the first ingestion produced no embeddings — is a deadline reset and fails "
+    "the contract. If an ingestion produces no embeddings before the deadline, do NOT recover by "
+    "deleting the sensors and re-adding them, re-POSTing /api/v1/videos for the same fixture, or starting "
+    "a new deadline; that delete-and-re-add cycle is a re-ingest recovery loop, never a fresh attempt. "
+    "One ingestion attempt per fixture, one deadline per source-setup."
 )
 
 OPERATION_PREAMBLE = (
@@ -150,7 +160,8 @@ OPERATION_PREAMBLE = (
     "when every hit in the nonempty displayed result set remains unverified; if any hit is confirmed "
     "or rejected, do not offer fallback verification. Never paste raw JSON "
     "into the reply. For nonempty results, clearly summarize the CLI evidence fields; a particular heading "
-    "or prose layout is not required. Use a verification question only under the all-unverified rule above. "
+    "or prose layout is not required. Print each hit's exact `screenshot_url` as a visible `Media URL:` "
+    "line in the final reply — do not omit it or replace it with a generic base-URL mention. Use a verification question only under the all-unverified rule above. "
     "Preserve the CLI evidence "
     "fields, and explicitly say that "
     "similarity scores are retrieval evidence rather than visual confirmation. Preserve the exact returned "
@@ -160,7 +171,7 @@ OPERATION_PREAMBLE = (
     "localhost, single-label/internal hostnames, and private, loopback, link-local, reserved, or "
     "otherwise non-global IP addresses when that public origin was recorded. If setup used the "
     "documented host-reachable fallback after its single bounded public probe failed, accept only "
-    "that exact recorded fallback origin and explicitly label the media URLs host-local. If a bounded GET "
+    "that exact recorded fallback origin and explicitly label the media URLs host-local: when the recorded origin is a private or non-global IP (public probe failed), you MUST annotate every media URL in the final reply with the word `host-local` — e.g. prefix each Media URL line with `host-local:`. If a bounded GET "
     "is needed for a later media action, use that same unmodified returned URL without a VST `streamId` "
     "routing header. Never substitute `VST_EXTERNAL_URL`, localhost, or a reconstructed URL for the returned "
     "screenshot URL; report media unavailability without invalidating successful retrieval. URL availability "
@@ -175,25 +186,45 @@ OPERATION_PREAMBLE = (
     "fails, report its error and stop instead of substituting another search interface."
 )
 
+MISSING_SOURCE_PREAMBLE = (
+    PREAMBLE
+    + " The search profile and fixtures are prepared by preceding steps. Do not deploy, ingest, "
+    "restart, or change routing. The requested source may not be registered: list the registered "
+    "sources through the prepared deployment's discovered VST/VIOS connectivity: read the origin "
+    "from `vss configure show`, use the project-local `vss vios list`, or GET its "
+    "`/vst/api/v1/sensor/list`; do not assume a fixed port. If none matches, stopping IS the "
+    "correct autonomous outcome. Report the missing source, list the available registered "
+    "sources, and ask the user to clarify the source or explicitly request ingestion. Never "
+    "substitute another source, run an unrestricted search as a probe, or invoke `vss search run` "
+    "without a resolved source."
+)
+
+MISSING_SOURCE_AUTONOMY_LINE = (
+    "Run autonomously; a missing source is a reportable final result, not a blocker to work around."
+)
+
 VERIFICATION_PREAMBLE = (
     PREAMBLE
-    + " The search profile and fixtures remain prepared from earlier steps. This is an explicit "
+    + "  \n"
+    "HARD RULES — follow exactly; violations fail the contract:\n"
+    " 1. Make exactly ONE VLM chat/completions request. A 401, 403, SSRF/fetch refusal, timeout, or any non-200 HTTP status means STOP immediately.\n"
+    " 2. The only allowed retry: HTTP 200 with malformed structured output — repair ONCE, never for transport/auth errors. Never make a second request for any other reason — in particular, never retry a blocked or failed fetch by switching upload format (e.g. inlining the clip as base64), endpoint, or auth header, and never re-derive a verdict yourself: do not extract video frames, inline media, or use your own multimodal/vision capabilities to judge the clip. The only two verification pathways are the single VLM request and, after a technical failure, representative screenshot inspection.\n"
+    " 3. Never substitute a local file for the VST clip; if VST returns empty or the clip request fails, report the technical failure instead.\n"
+    " 4. Ask vss-ask-video to return its result field as exactly confirmed, rejected, or unverified — NOT free-text like 'NOT met'. The structured output contract is: result (one of those three), boolean criteria_met, nonempty evidence, media_evaluated: true.\n"
+    " 5. If the ask-video result fails validation (technical failure, null fields, wrong labels, or a non-200/SSRF-blocked request), discard it entirely — do not present it. Report the technical failure and fall back to representative screenshot inspection of the hit's origin-validated `screenshot_url`. A technical failure yields a technical `unverified` (or that screenshot fallback) — never a self-produced `confirmed`/`rejected` from your own vision or extracted frames.\n"
+    " 6. Keep the final reply implementation-neutral — never mention the VLM at all, not even generically: no 'VLM', no model name, no port numbers, no haproxy, no endpoint, no 'SSRF'/'blocked fetch', no 'localhost'/'host-local', no media-URL host details, no internal infrastructure. Say 'visual analysis' or 'verification pass' instead.\n"
+    "  \n"
+    "This is an explicit "
     "post-results confirmation for one already-displayed, unverified bounded hit. Do not rerun "
     "search, deploy, ingest, delete, or inspect screenshot pixels. Resolve the exact current "
-    "warehouse-ladder sensor ID from the origin recorded by `vss configure show`, map the supplied "
+    "warehouse-ladder sensor ID from the origin recorded by vss configure show, map the supplied "
     "synthetic file-search timestamps onto that sensor's current VST timeline as required by the "
     "search-result verification reference, and resolve exactly that bounded clip. Invoke the bundled "
-    "vss-ask-video skill through its ordinary pre-resolved `VIDEO_URL` path. Ask it to evaluate only "
-    "that clip against the complete supplied visual intent and return the structured result contract. "
-    "Validate `result`, boolean `criteria_met`, nonempty `evidence`, and `media_evaluated: true`. Make one "
-    "VLM request, with at most one additional request solely to repair malformed structured output; never retry "
-    "a semantic verdict. "
-    "A 401, 403 or connection error from the VLM IS the technical endpoint failure named below — not a "
-    "configuration puzzle to solve. Do not retry it against another host, port, auth header or endpoint: "
-    "that is what turns one request into seven. Stop requesting and take the permitted path instead. "
-    "A semantic `unverified` is a completed visual check. Screenshot inspection is permitted only "
+    "vss-ask-video skill through its ordinary pre-resolved VIDEO_URL path, with the result-format "
+    "instructions from rule 4 above. "
+    "A semantic unverified is a completed visual check. Screenshot inspection is permitted only "
     "after a technical clip, endpoint, media, or model failure, and must be labeled representative-image "
-    "evidence. Keep the final response implementation-neutral."
+    "evidence."
 )
 
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
@@ -202,12 +233,17 @@ KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
     "deployment from earlier steps. Kubernetes and Compose use the same commands and "
     "differ only in the origin: `vss configure --base-url <origin>` runs once, source "
-    "listing is `vss vios list`, and search is `vss search run <path>`. Do not use "
+    "listing is `vss vios list`, and search is `vss search run <embed|attribute|fusion|object>`. "
+    "Resolve the named source to its sensor ID from the `vss vios list` object first, then invoke "
+    "the path as the command — e.g. `vss search run embed --query \"<text>\" "
+    "--video-source <sensor-id> --source-type video_file --top-k 3` — never pass the source name as a "
+    "positional argument or use a `--path` flag. Do not use "
     "kubectl, port-forward, Service DNS, NodePorts, localhost ports, or direct "
     "Elasticsearch/RTVI access. Your answer must also say what happens when the Ingress "
     "does not expose a route: `vss configure` records it as absent, and a search path "
     "needing it exits 4. That is the answer — do not propose exposing or forwarding the "
     "route instead."
+    + " Read `skills/vss-search-archive/references/cli_usage.md` for the full search-command form."
 )
 
 
@@ -387,8 +423,15 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
         elif expect.get("scenario") == "confirmed-search-result-verification":
             preamble = VERIFICATION_PREAMBLE
+        elif expect.get("scenario") == "search-missing-source":
+            preamble = MISSING_SOURCE_PREAMBLE
         else:
             preamble = OPERATION_PREAMBLE
+        autonomy_line = (
+            MISSING_SOURCE_AUTONOMY_LINE
+            if expect.get("scenario") == "search-missing-source"
+            else "Run autonomously without prompting for confirmation."
+        )
         lines = [
             preamble,
             "",
@@ -397,7 +440,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             "",
             expect.get("query", ""),
             "",
-            "Run autonomously without prompting for confirmation.",
+            autonomy_line,
             "",
         ]
         (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")

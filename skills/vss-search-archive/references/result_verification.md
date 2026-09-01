@@ -91,13 +91,28 @@ Require `result` to be `confirmed`, `rejected`, or `unverified`, every
 JSON from hidden reasoning or surrounding prose. A valid semantic `unverified`
 is a completed visual check and must not trigger fallback.
 
+Make one request per hit. An SSRF/fetch refusal, timeout, 401/403, or any other
+non-200 transport error is a technical failure: stop, discard the result, and
+report it — never retry with a different upload format (for example inlining
+the clip as base64 after a blocked fetch), another endpoint, or another auth
+header. The only permitted second request is a single repair of malformed
+structured output after an HTTP 200. Never re-derive a verdict yourself: do not
+extract video frames, inline media, or use your own multimodal/vision
+capabilities to judge the clip. The only two verification pathways are the
+single VLM request and, after a technical failure, representative screenshot
+inspection.
+
 Replace only that hit's prior `unverified` state with the validated result.
 Use representative-screenshot inspection only after a technical ask-video
 failure. Reuse the hit's already origin-validated `screenshot_url`; never infer
 missing criteria or broaden the interval. State that fallback evidence is one
 representative image. If it is unavailable, retain the retrieval hit and report
-verification as unavailable.
+verification as unavailable. A technical failure yields a technical `unverified`
+(or this screenshot fallback) — never a self-produced `confirmed`/`rejected`
+from your own vision or extracted frames.
 
 Keep progress implementation-neutral: say that verification is running or
 that a secondary method is being used. Do not expose skill, model, endpoint, or
-parser details.
+parser details — not even generic terms: write "visual analysis" or "the
+verification pass", never "VLM", a model name, a port, a proxy name, "SSRF" or
+"blocked fetch", "localhost" or "host-local", or media-URL host details.

@@ -1948,6 +1948,27 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# RT-Embed owns its message-bus contract through its service-local env file.
+_rtvi_embed_compose="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml"
+_rtvi_embed_env="${REPO_ROOT}/deploy/docker/services/rtvi/rtvi-embed/.env"
+_search_compose="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/compose.yml"
+if grep -A1 '^    env_file:$' "${_rtvi_embed_compose}" | grep -Fq -- '- .env' && \
+   grep -Fxq 'MESSAGE_BUS=kafka' "${_rtvi_embed_env}" && \
+   grep -Fxq 'MESSAGE_BUS_TOPIC=mdx-embed' "${_rtvi_embed_env}" && \
+   grep -Fxq 'KAFKA_ENABLED=true' "${_rtvi_embed_env}" && \
+   grep -Fxq 'KAFKA_TOPIC=mdx-embed' "${_rtvi_embed_env}" && \
+   ! grep -Eq '^      (MESSAGE_BUS|MESSAGE_BUS_TOPIC|ERROR_BUS):' "${_rtvi_embed_compose}" && \
+   grep -A1 '^    depends_on:$' "${_rtvi_embed_compose}" | grep -Fq 'broker-health-check:' && \
+   grep -A2 '^      broker-health-check:$' "${_rtvi_embed_compose}" | grep -Fq 'condition: service_completed_successfully' && \
+   grep -A2 '^      broker-health-check:$' "${_rtvi_embed_compose}" | grep -Fq 'required: false' && \
+   ! grep -Eq '^  rtvi-embed:$' "${_search_compose}"; then
+  echo "PASS: RT-Embed owns its message-bus contract and waits for broker readiness when present"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: RT-Embed must define its broker dependency in its own service file (required: false); search profile must not redeclare rtvi-embed"
+  ((TESTS_FAILED++)) || true
+fi
+
 # Helm passes bare VST host aliases as well as URL-form endpoints; Docker agent needs the same contract.
 _agent_compose="${REPO_ROOT}/deploy/docker/services/agent/compose.yml"
 if grep -Fq "EXTERNAL_IP:" "${_agent_compose}" && grep -Fq "INTERNAL_IP:" "${_agent_compose}" && grep -Fq "VST_BASE_URL:" "${_agent_compose}"; then

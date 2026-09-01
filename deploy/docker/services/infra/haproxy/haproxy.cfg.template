@@ -253,6 +253,11 @@ frontend fe_http
     acl p_api path_beg /api/
     use_backend bk_vss_agent if h_main p_api
 
+    # The published VSS origin is also used for Agent readiness checks.
+    # Keep this exact so the UI retains ownership of any /health/* routes.
+    acl p_agent_health path /health
+    use_backend bk_vss_agent if h_main p_agent_health
+
     acl p_chat path /chat
     acl p_chat path_beg /chat/
     use_backend bk_vss_agent if h_main p_chat
