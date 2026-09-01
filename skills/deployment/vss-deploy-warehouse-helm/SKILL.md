@@ -61,9 +61,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
 
    **On any failure, don't just link the user to the README and stop — hand them the actual fix,
    copied from the chart README, and offer to run it for them:**
-   - No `StorageClass` → relay the `local-path-provisioner` install + `kubectl patch storageclass`
-     snippet from `warehouse-<mode>-app/README.md` §Prerequisites (bare-metal option) — or ask
-     what StorageClass they intend to use if they already have one in mind.
+   - No `StorageClass` → the README only has a `kubectl patch storageclass` snippet, which assumes
+     a provisioner (e.g. `local-path` from k3s/kind) is already installed — relay that, and the
+     [local-path-provisioner](https://github.com/rancher/local-path-provisioner) link if one isn't
+     running yet. Or ask what StorageClass they intend to use if they already have one in mind.
    - No `nvidia.com/gpu` allocatable → relay the NVIDIA GPU Operator install steps from
      §Prerequisites (links to the GPU Operator getting-started guide) and the recommended driver
      versions listed there.
@@ -191,7 +192,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    `bp-configurator.env` here would still win no matter where you put it — step 4 should already
    have converted any such override into a values file, not left it inline.
 8. **Post-install validation** — confirm pods actually come up before declaring success; see
-   `warehouse-<mode>-app/README.md` §Post-install validation.
+   `warehouse-<mode>-app/README.md` §Post-install validation, but don't run its `kubectl get pods
+   -w`/`port-forward` verbatim — those block forever. Use
+   `kubectl wait --for=condition=Ready pod --all -n <namespace> --timeout=5m` and a backgrounded
+   `port-forward` instead.
 9. **Re-run the script whenever `NUM_STREAMS` or the target GPU changes** — the values-override
    file isn't tracked automatically; re-generate and re-`helm upgrade` after a hardware change.
 

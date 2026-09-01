@@ -68,12 +68,13 @@ helm upgrade --install wh <chart-dir> -n <namespace> \
 If the customization is inline (`--set`/`--set-json` on `bp-configurator.env`), the script can't
 read it — it only takes YAML files. Move it into a values file first. If a release is already
 installed, `helm get values wh -n <namespace> -o yaml` only returns what was explicitly set, not
-the full merged list — use `helm get values wh -n <namespace> -a -o yaml > /tmp/my-values.yaml`
-instead (outside the repo checkout, so it can't get committed) and keep its `bp-configurator` block
-untrimmed. Verify it wrote something first — `>` truncates on a failed `helm get values` too. `-a`
-dumps the release's full computed values, secrets included: don't print/paste its contents, and
-`rm /tmp/my-values.yaml` as soon as you've pulled the `bp-configurator` block into the real values
-file used below. Then use the values-file case above.
+the full merged list — `-a` dumps the release's full computed values, secrets included, so pick the
+file's location and permissions carefully: `(umask 077; helm get values wh -n <namespace> -a -o
+yaml > /tmp/my-values.yaml) || rm -f /tmp/my-values.yaml` (outside the repo checkout so it can't
+get committed, mode 600 so it's not world-readable, and removed on failure so a truncated dump
+can't be mistaken for a real one). Keep its `bp-configurator` block untrimmed, don't print/paste
+its contents, and `rm /tmp/my-values.yaml` once you've pulled that block into the real values file
+used below. Then use the values-file case above.
 
 ## Without the skill
 
