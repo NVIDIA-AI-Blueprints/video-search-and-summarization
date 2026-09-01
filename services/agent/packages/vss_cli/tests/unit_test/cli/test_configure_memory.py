@@ -89,14 +89,16 @@ def test_memory_show_prints_only_effective_memory_configuration(config_home: Pat
         "introspection": None,
         "embeddings": {
             "enabled": False,
-            "provider": "openai_compatible",
-            "endpoint": None,
-            "model": "nvidia/llama-nemotron-embed-300m-v2",
-            "dimensions": 768,
+            "provider": "openclaw_gateway",
+            "endpoint": "http://127.0.0.1:18789/v1",
+            "model": "openclaw/default",
+            "dimensions": None,
             "index": "vss-memory-embeddings-v1",
             "timeout_seconds": 30.0,
             "batch_size": 16,
-            "api_key_env": None,
+            "api_key_env": "OPENCLAW_GATEWAY_TOKEN",
+            "query_input_type": None,
+            "document_input_type": None,
         },
         "retrieval": {
             "mode": "hybrid",
@@ -348,7 +350,6 @@ def test_memory_config_without_markdown_section_uses_disabled_defaults(
     assert memory_config.markdown == config_mod.MarkdownMemoryConfig()
 
 
-
 def test_configure_introspection_judge_round_trip_and_show(config_home: Path) -> None:
     criteria = "Require direct support from every cited record."
     result = _invoke(
@@ -565,13 +566,42 @@ def test_show_never_resolves_or_displays_judge_secret(
     assert "super-secret-value" not in shown.output
 
 
-def test_embedding_and_retrieval_configuration_round_trip(config_home: Path) -> None:
+def test_embeddings_select_openclaw_defaults_and_discover_dimensions(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes: list[config_mod.EmbeddingConfig] = []
+
+    def probe(config: config_mod.EmbeddingConfig) -> tuple[int, str | None]:
+        probes.append(config)
+        return 768, "resolved/backend-model"
+
+    monkeypatch.setattr(configure_mod, "_probe_embedding", probe)
+    result = _invoke("--embeddings")
+    assert result.exit_code == 0, result.output
+    embedding = config_mod.load().memory.embeddings  # type: ignore[union-attr]
+    assert embedding == config_mod.EmbeddingConfig(enabled=True, dimensions=768)
+    assert probes == [config_mod.EmbeddingConfig(enabled=True)]
+    assert "discovered embedding dimensions: 768" in result.output
+
+
+def test_custom_embedding_and_retrieval_configuration_round_trip(config_home: Path) -> None:
     result = _invoke(
         "--embeddings",
+        "--embedding-provider",
+        "openai_compatible",
         "--embedding-endpoint",
         "http://embedding.example/v1",
+        "--embedding-model",
+        "example-embedding-model",
+        "--embedding-dimensions",
+        "384",
         "--embedding-api-key-env",
         "VSS_EMBED_KEY",
+        "--embedding-query-input-type",
+        "query",
+        "--embedding-document-input-type",
+        "document",
         "--retrieval-mode",
         "semantic",
     )
@@ -580,8 +610,13 @@ def test_embedding_and_retrieval_configuration_round_trip(config_home: Path) -> 
     assert memory_config is not None
     assert memory_config.embeddings == config_mod.EmbeddingConfig(
         enabled=True,
+        provider="openai_compatible",
         endpoint="http://embedding.example/v1",
+        model="example-embedding-model",
+        dimensions=384,
         api_key_env="VSS_EMBED_KEY",
+        query_input_type="query",
+        document_input_type="document",
     )
     assert memory_config.retrieval == config_mod.RetrievalConfig(mode="semantic")
     assert config_mod.MemoryConfig.from_json(memory_config.to_json()) == memory_config
@@ -593,23 +628,105 @@ def test_disabled_embeddings_force_effective_keyword_retrieval() -> None:
     assert config_mod.MemoryConfig().effective_retrieval_mode == "keyword"
     assert (
         config_mod.MemoryConfig(
-            embeddings=config_mod.EmbeddingConfig(enabled=True, endpoint="http://embedding.example/v1")
+            embeddings=config_mod.EmbeddingConfig(enabled=True, dimensions=768)
         ).effective_retrieval_mode
         == "hybrid"
+    )
+
+
+def test_custom_unauthenticated_endpoint_does_not_retain_openclaw_token(config_home: Path) -> None:
+    result = _invoke(
+        "--embeddings",
+        "--embedding-provider",
+        "openai_compatible",
+        "--embedding-endpoint",
+        "http://127.0.0.1:9000/v1",
+        "--embedding-model",
+        "local-custom-model",
+        "--embedding-dimensions",
+        "256",
+        "--no-embedding-auth",
+    )
+    assert result.exit_code == 0, result.output
+    embedding = config_mod.load().memory.embeddings  # type: ignore[union-attr]
+    assert embedding.provider == "openai_compatible"
+    assert embedding.api_key_env is None
+
+
+def test_explicit_dimensions_allow_offline_configuration(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        configure_mod,
+        "_probe_embedding",
+        lambda *_args: pytest.fail("explicit dimensions must not probe the endpoint"),
+    )
+    result = _invoke(
+        "--embeddings",
+        "--embedding-provider",
+        "openai_compatible",
+        "--embedding-endpoint",
+        "http://127.0.0.1:9000/v1",
+        "--embedding-model",
+        "offline-model",
+        "--embedding-dimensions",
+        "512",
+        "--no-embedding-auth",
+    )
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().memory.embeddings.dimensions == 512  # type: ignore[union-attr]
+
+
+def test_switching_provider_profiles_applies_new_defaults_before_overrides(config_home: Path) -> None:
+    assert _invoke("--embeddings", "--embedding-dimensions", "768").exit_code == 0
+    switched = _invoke(
+        "--embedding-provider",
+        "openai_compatible",
+        "--embedding-endpoint",
+        "https://embedding.example/v1",
+        "--embedding-model",
+        "custom-model",
+        "--embedding-dimensions",
+        "1024",
+        "--no-embedding-auth",
+    )
+    assert switched.exit_code == 0, switched.output
+    embedding = config_mod.load().memory.embeddings  # type: ignore[union-attr]
+    assert embedding == config_mod.EmbeddingConfig(
+        enabled=True,
+        provider="openai_compatible",
+        endpoint="https://embedding.example/v1",
+        model="custom-model",
+        dimensions=1024,
+        api_key_env=None,
     )
 
 
 @pytest.mark.parametrize(
     ("embeddings", "retrieval", "message"),
     [
-        (config_mod.EmbeddingConfig(enabled=True), config_mod.RetrievalConfig(), "require"),
         (
-            config_mod.EmbeddingConfig(enabled=True, endpoint="ftp://example"),
+            config_mod.EmbeddingConfig(
+                enabled=True,
+                provider="openai_compatible",
+                endpoint=None,
+                model=None,
+            ),
+            config_mod.RetrievalConfig(),
+            "require explicit",
+        ),
+        (
+            config_mod.EmbeddingConfig(enabled=True, endpoint="ftp://example", dimensions=3),
             config_mod.RetrievalConfig(),
             "absolute HTTP",
         ),
         (
-            config_mod.EmbeddingConfig(enabled=True, endpoint="http://user:" + "password@example"),
+            config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://user:" + "password@example",
+                dimensions=3,
+            ),
             config_mod.RetrievalConfig(),
             "embedded credentials",
         ),
@@ -635,7 +752,7 @@ def test_embedding_index_must_differ_from_authoritative_index() -> None:
         config_mod.MemoryConfig(
             embeddings=config_mod.EmbeddingConfig(
                 enabled=True,
-                endpoint="http://embedding.example/v1",
+                dimensions=768,
                 index="vss-memory",
             )
         ).validate()
@@ -652,11 +769,39 @@ def test_show_names_api_key_environment_without_resolving_secret(
     assert "do-not-print-this" not in result.output
 
 
+@pytest.mark.parametrize(
+    ("args", "message"),
+    (
+        (("--embedding-provider", "unsupported"), "Invalid value"),
+        (("--embedding-endpoint", "relative/path"), "absolute HTTP"),
+        (("--embedding-endpoint", "https://user:" + "secret@example/v1"), "embedded credentials"),
+        (("--embedding-dimensions", "0"), "positive integer"),
+        (("--embedding-timeout-seconds", "0"), "timeout"),
+        (("--embedding-batch-size", "0"), "batch size"),
+        (("--embedding-api-key-env", "NOT-VALID"), "environment variable"),
+    ),
+)
+def test_embedding_cli_rejects_invalid_profile_values(
+    config_home: Path,
+    args: tuple[str, ...],
+    message: str,
+) -> None:
+    result = _invoke(*args)
+    assert result.exit_code != 0
+    assert message in result.output
+
+
+def test_embedding_config_strictly_rejects_unknown_fields() -> None:
+    raw = config_mod.EmbeddingConfig().to_json() | {"token": "must-not-be-accepted"}
+    with pytest.raises(config_mod.ConfigError, match="unknown fields: token"):
+        config_mod.EmbeddingConfig.from_json(raw)
+
+
 def test_embedding_check_probes_once_and_reports_lazy_missing_index(
     config_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert _invoke("--embeddings", "--embedding-endpoint", "http://embedding.example/v1").exit_code == 0
+    assert _invoke("--embeddings", "--embedding-dimensions", "768").exit_code == 0
     probes: list[str] = []
 
     class Provider:
@@ -666,6 +811,10 @@ def test_embedding_check_probes_once_and_reports_lazy_missing_index(
         def embed_query(self, text: str) -> list[float]:
             probes.append(text)
             return [0.0] * 768
+
+        @property
+        def resolved_model(self) -> str:
+            return "resolved/backend-model"
 
         def close(self) -> None:
             return None
@@ -679,6 +828,8 @@ def test_embedding_check_probes_once_and_reports_lazy_missing_index(
     result = _invoke("check")
     assert result.exit_code == 0, result.output
     assert len(probes) == 1
+    assert "target=openclaw/default" in result.output
+    assert "resolved_model=resolved/backend-model" in result.output
     assert "created lazily" in result.output
 
 
@@ -686,7 +837,7 @@ def test_embedding_check_rejects_malformed_probe_as_backend_failure(
     config_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert _invoke("--embeddings", "--embedding-endpoint", "http://embedding.example/v1").exit_code == 0
+    assert _invoke("--embeddings", "--embedding-dimensions", "768").exit_code == 0
 
     class Provider:
         def __init__(self, **_kwargs: object) -> None:
@@ -697,6 +848,10 @@ def test_embedding_check_rejects_malformed_probe_as_backend_failure(
 
             raise EmbeddingProviderError("malformed response")
 
+        @property
+        def resolved_model(self) -> None:
+            return None
+
         def close(self) -> None:
             return None
 
@@ -705,3 +860,33 @@ def test_embedding_check_rejects_malformed_probe_as_backend_failure(
     result = _invoke("check")
     assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
     assert "malformed response" in result.output
+
+
+def test_embedding_check_reports_missing_credential_as_configuration_error(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _invoke("--embeddings", "--embedding-dimensions", "768").exit_code == 0
+
+    class Provider:
+        def __init__(self, **_kwargs: object) -> None:
+            return None
+
+        def embed_query(self, _text: str) -> list[float]:
+            from vss_core.memory import EmbeddingProviderError
+
+            raise EmbeddingProviderError("embedding API key environment variable 'OPENCLAW_GATEWAY_TOKEN' is not set")
+
+        @property
+        def resolved_model(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("vss_core.memory.OpenAICompatibleEmbeddingProvider", Provider)
+    monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "elasticsearch reachable")
+    result = _invoke("check")
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "embedding credential error" in result.output
+    assert "OPENCLAW_GATEWAY_TOKEN" in result.output

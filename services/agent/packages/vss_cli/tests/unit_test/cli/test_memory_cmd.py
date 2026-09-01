@@ -252,6 +252,10 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
         def dimensions(self) -> int:
             return 4
 
+        @property
+        def resolved_model(self) -> str | None:
+            return None
+
         def embed_query(self, _text: str) -> list[float]:
             return [1.0] * 4
 
@@ -309,6 +313,8 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
     assert len(built) == 1
     assert observed["companion_kwargs"]["authoritative_store"] is observed["authoritative"]
     assert observed["companion_kwargs"]["provider"] is observed["provider"]
+    assert observed["companion_kwargs"]["provider_name"] == "openclaw_gateway"
+    assert observed["companion_kwargs"]["embedding_endpoint_identity"].startswith("sha256:")
     assert built[0].service.store is observed["authoritative"]
     assert built[0].service.semantic_retrieval_available is True
     assert built[0].service._retrieval_mode == "hybrid"
@@ -321,6 +327,8 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
         "timeout_seconds": 12,
         "batch_size": 3,
         "api_key_env": "EMBED_TOKEN",
+        "query_input_type": None,
+        "document_input_type": None,
     }
     assert closed == ["companion", "provider", "authoritative"]
 

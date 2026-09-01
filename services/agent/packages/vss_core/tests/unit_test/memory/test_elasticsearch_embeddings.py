@@ -18,6 +18,7 @@ from vss_core.memory.backends.elasticsearch_embeddings import ElasticsearchEmbed
 from vss_core.memory.backends.elasticsearch_embeddings import EmbeddingSyncFailure
 from vss_core.memory.backends.elasticsearch_embeddings import EmbeddingSyncResult
 from vss_core.memory.backends.in_memory import InMemoryStore
+from vss_core.memory.embeddings import CANONICAL_SEARCHABLE_TEXT_VERSION
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.service import MemoryService
 from vss_core.memory.store import MemoryQuery
@@ -25,6 +26,8 @@ from vss_core.memory.store import storage_id_for
 
 MODEL = "embed-model"
 INDEX = "vss-memory-embeddings-v1"
+PROVIDER_NAME = "openclaw_gateway"
+ENDPOINT_IDENTITY = "sha256:test-endpoint"
 
 
 def _record(
@@ -63,6 +66,7 @@ def _record(
 class _Provider:
     model = MODEL
     dimensions = 3
+    resolved_model = "resolved-model"
 
     def __init__(self) -> None:
         self.passages: list[str] = []
@@ -158,6 +162,8 @@ def _backend(
             index=INDEX,
             provider=embedder,
             authoritative_store=raw,
+            provider_name=PROVIDER_NAME,
+            embedding_endpoint_identity=ENDPOINT_IDENTITY,
             client=es,  # type: ignore[arg-type]
         ),
         es,
@@ -177,10 +183,14 @@ def test_exact_strict_mapping_meta_and_complete_filter_document() -> None:
     assert client.mapping == backend.mapping
     assert client.mapping["dynamic"] == "strict"
     assert client.mapping["_meta"] == {
-        "model": MODEL,
-        "dimensions": 3,
         "schema": EMBEDDING_SCHEMA,
         "implementation_version": IMPLEMENTATION_VERSION,
+        "provider": PROVIDER_NAME,
+        "model_target": MODEL,
+        "dimensions": 3,
+        "canonical_text_version": CANONICAL_SEARCHABLE_TEXT_VERSION,
+        "similarity": "cosine",
+        "endpoint_identity": ENDPOINT_IDENTITY,
     }
     assert client.mapping["properties"]["vector"] == {
         "type": "dense_vector",
@@ -198,6 +208,8 @@ def test_exact_strict_mapping_meta_and_complete_filter_document() -> None:
     assert document["status"] == "completed"
     assert document["is_child"] is True
     assert document["schema"] == EMBEDDING_SCHEMA
+    assert document["provider"] == PROVIDER_NAME
+    assert document["canonical_text_version"] == CANONICAL_SEARCHABLE_TEXT_VERSION
     assert document["content"].startswith("Group: summary")
     assert document["sensor_ids"] == ["camera-1"]
     assert document["window_start"] == "2026-08-31T11:00:00Z"
@@ -226,17 +238,40 @@ def test_concurrent_first_create_accepts_other_process_valid_mapping() -> None:
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda mapping: mapping["_meta"].update(model="other"),
+        lambda mapping: mapping["_meta"].update(model_target="other"),
+        lambda mapping: mapping["_meta"].update(provider="other"),
         lambda mapping: mapping["_meta"].update(dimensions=4),
+        lambda mapping: mapping["_meta"].update(canonical_text_version=99),
+        lambda mapping: mapping["_meta"].update(endpoint_identity="sha256:other"),
         lambda mapping: mapping["properties"]["vector"].update(dims=4),
     ],
 )
-def test_mismatch_requires_new_versioned_index_and_backfill(mutate: Any) -> None:
+def test_mismatch_requires_new_index_and_backfill_without_recreation(mutate: Any) -> None:
     backend, client, _, _ = _backend()
     client.mapping = backend.mapping
     mutate(client.mapping)
-    with pytest.raises(ConfigurationError, match="new versioned embedding index and backfill"):
+    with pytest.raises(ConfigurationError, match=r"Configure a new `--embedding-index`.*backfill"):
         backend.sync_record(_record())
+    assert not client.docs
+    assert client.created == 0
+
+
+def test_batch_rejects_provider_vectors_with_wrong_dimensions_before_writing() -> None:
+    class WrongDimensions(_Provider):
+        def embed_passages(self, texts: Any) -> list[list[float]]:
+            return [[0.1, 0.2] for _ in texts]
+
+    backend, client, _, raw = _backend(provider=WrongDimensions())
+    records = [_record(job_id="parent"), _record(job_id="parent", record_id="child")]
+    for record in records:
+        raw.upsert(record)
+
+    outcomes = backend.sync_records(records)
+
+    assert all(isinstance(outcome, EmbeddingSyncFailure) for outcome in outcomes)
+    assert all(
+        "returned 2 dimensions" in outcome.error for outcome in outcomes if isinstance(outcome, EmbeddingSyncFailure)
+    )
     assert not client.docs
 
 
