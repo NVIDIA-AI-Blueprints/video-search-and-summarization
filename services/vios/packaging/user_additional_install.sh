@@ -88,6 +88,8 @@ runtime_present() {
   for required in \
     /usr/lib/*-linux-gnu/libv4lconvert.so.0 \
     /usr/lib/*-linux-gnu/gstreamer-1.0/libgstvideoparsersbad.so \
+    /usr/lib/*-linux-gnu/gstreamer-1.0/libgstdash.so \
+    /usr/lib/*-linux-gnu/gstreamer-1.0/libgstisomp4.so \
     /usr/lib/*-linux-gnu/gstreamer-1.0/libgstmpegtsmux.so \
     /usr/lib/*-linux-gnu/gstreamer-1.0/libgstlibav.so; do
     compgen -G "${required}" >/dev/null || return 1

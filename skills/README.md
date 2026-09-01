@@ -1,6 +1,6 @@
 # VSS Skills
 
-Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Each subdirectory under `skills/` is a self-contained skill following the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter.
+Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Skills are grouped by what they do — `deployment/` stands a stack up, `operations/` drives a running one, `tools/` and `benchmarking/` hold standalone utilities, and `vss-build-vision-ai` sits at the top level as the entry point that composes the rest. Each skill directory is self-contained and follows the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter. A skill's name is its directory's leaf name; the category is repository organisation and does not appear in the installed path.
 
 > **New here? Read [Orientation](#orientation-how-vss-fits-together) first, then [Which skill do I need?](#which-skill-do-i-need).** Those two sections are the fastest path from a user request to the right skill.
 
@@ -85,23 +85,23 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
-| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
-| Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](vss-deploy-warehouse-helm/SKILL.md) |
-| Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
-| Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
-| Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
-| Produce a formatted analysis report | [`vss-generate-video-report`](vss-generate-video-report/SKILL.md) |
-| Produce a report using the frag / Enterprise-RAG pipeline | [`vss-generate-video-report-rag`](vss-generate-video-report-rag/SKILL.md) |
-| Add / manage / monitor alerts on a stream | [`vss-manage-alerts`](vss-manage-alerts/SKILL.md) |
-| Read incidents, metrics, or sensor data (incl. Slack/Kafka feeds) | [`vss-query-analytics`](vss-query-analytics/SKILL.md) |
-| Add a camera, extract a clip, grab a snapshot, manage recordings | [`vss-manage-video-io-storage`](vss-manage-video-io-storage/SKILL.md) |
-| Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](vss-deploy-detection-tracking-2d/SKILL.md) |
-| Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
-| Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](vss-deploy-dense-captioning/SKILL.md) |
-| Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](vss-deploy-video-embedding/SKILL.md) |
-| Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](vss-generate-video-calibration/SKILL.md) |
-| Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](vss-setup-behavior-analytics/SKILL.md) |
-| Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](vss-setup-video-analytics-api/SKILL.md) |
+| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) |
+| Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
+| Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
+| Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
+| Ask a one-off visual question about a clip | [`vss-ask-video`](operations/vss-ask-video/SKILL.md) |
+| Produce a formatted analysis report | [`vss-generate-video-report`](operations/vss-generate-video-report/SKILL.md) |
+| Produce a report using the frag / Enterprise-RAG pipeline | [`vss-generate-video-report-rag`](operations/vss-generate-video-report-rag/SKILL.md) |
+| Add / manage / monitor alerts on a stream | [`vss-manage-alerts`](operations/vss-manage-alerts/SKILL.md) |
+| Read incidents, metrics, or sensor data (incl. Slack/Kafka feeds) | [`vss-query-analytics`](operations/vss-query-analytics/SKILL.md) |
+| Add a camera, extract a clip, grab a snapshot, manage recordings | [`vss-manage-video-io-storage`](operations/vss-manage-video-io-storage/SKILL.md) |
+| Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](deployment/vss-deploy-detection-tracking-2d/SKILL.md) |
+| Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](deployment/vss-deploy-detection-tracking-3d/SKILL.md) |
+| Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](deployment/vss-deploy-dense-captioning/SKILL.md) |
+| Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](deployment/vss-deploy-video-embedding/SKILL.md) |
+| Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
+| Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
+| Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
 
 **Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence; the catalog below is grouped by layer so you can see what's adjacent.
 
@@ -118,39 +118,39 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 ### Deployment & infrastructure
 | Skill | Description |
 |---|---|
-| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
-| [vss-deploy-warehouse-helm](vss-deploy-warehouse-helm/SKILL.md) | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
-| [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
+| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
+| [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence
 | Skill | Description |
 |---|---|
-| [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
-| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
-| [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
-| [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
+| [vss-deploy-detection-tracking-2d](deployment/vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
+| [vss-deploy-detection-tracking-3d](deployment/vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
+| [vss-deploy-dense-captioning](deployment/vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
+| [vss-deploy-video-embedding](deployment/vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 
 ### Layer 2 — Downstream analytics
 | Skill | Description |
 |---|---|
-| [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
-| [vss-setup-behavior-analytics](vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
-| [vss-setup-video-analytics-api](vss-setup-video-analytics-api/SKILL.md) | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
+| [vss-manage-alerts](operations/vss-manage-alerts/SKILL.md) | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
+| [vss-setup-behavior-analytics](deployment/vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
+| [vss-setup-video-analytics-api](deployment/vss-setup-video-analytics-api/SKILL.md) | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
 
 ### Layer 3 — Agent & offline processing
 | Skill | Description |
 |---|---|
-| [vss-search-archive](vss-search-archive/SKILL.md) | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
-| [vss-summarize-video](vss-summarize-video/SKILL.md) | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
-| [vss-ask-video](vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip by calling the VLM/RT-VLM `chat/completions` endpoint directly — on a VIOS clip URL or a video the user supplies; never the agent's `/generate`. |
-| [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
-| [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
-| [vss-query-analytics](vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+| [vss-search-archive](operations/vss-search-archive/SKILL.md) | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
+| [vss-summarize-video](operations/vss-summarize-video/SKILL.md) | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
+| [vss-ask-video](operations/vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip by calling the VLM/RT-VLM `chat/completions` endpoint directly — on a VIOS clip URL or a video the user supplies; never the agent's `/generate`. |
+| [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
+| [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
+| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
 
 ### Middleware
 | Skill | Description |
 |---|---|
-| [vss-manage-video-io-storage](vss-manage-video-io-storage/SKILL.md) | Video/stream management, recording timelines, clip extraction, snapshots, and add/delete sensors via the Video IO & Storage (VIOS) microservices. |
+| [vss-manage-video-io-storage](operations/vss-manage-video-io-storage/SKILL.md) | Video/stream management, recording timelines, clip extraction, snapshots, and add/delete sensors via the Video IO & Storage (VIOS) microservices. |
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
@@ -191,7 +191,7 @@ The agent will read the frontmatter of each `SKILL.md`, create the symlinks, and
 
 To install skills individually, paste the following prompt:
 
-> Install only `skills/<name>/` for this host the same way.
+> Install only `skills/<category>/<name>/` for this host the same way.
 
 ### Update
 

@@ -84,6 +84,13 @@ case ",$COMPOSE_PROFILES," in
   *,nvstreamer-lvs,*) required+=(videos/dev-profile-lvs) ;;
 esac
 
+# Warehouse perception writes its detector ONNX into models/ at ds-start phase 0.
+case ",$COMPOSE_PROFILES," in
+  *,perception-2d,*|*,perception-3d,*)
+    required+=(models)
+    ;;
+esac
+
 broken_links=()
 while IFS= read -r -d '' candidate; do
   [ -e "$candidate" ] || broken_links+=("$candidate")
@@ -115,6 +122,31 @@ for relative_path in "${required[@]}"; do
     exit 1
   fi
 done
+
+# ---------------------------------------------------------------------------
+# Warehouse only. This gate CREATES scaffolding, but warehouse also CONSUMES a
+# supplied app-data bundle that cannot be created. Deploying without it yields
+# 0 streams with every container healthy, so fail here rather than at runtime.
+# ---------------------------------------------------------------------------
+case ",$COMPOSE_PROFILES," in
+  *,nvstreamer-2d,*|*,nvstreamer-3d,*)
+    DATASET="$(sed -n 's/^SAMPLE_VIDEO_DATASET=//p' "$ENV_FILE" | tr -d '"')"
+    wh_fail=0
+    for d in videos models playback data_log; do
+      [ -d "$DATA/$d" ] || { echo "MISSING: \$VSS_DATA_DIR/$d" >&2; wh_fail=1; }
+    done
+    if [ -z "$(ls -A "$DATA/videos/$DATASET" 2>/dev/null)" ]; then
+      echo "MISSING or EMPTY: \$VSS_DATA_DIR/videos/$DATASET" >&2
+      wh_fail=1
+    fi
+    if [ "$wh_fail" -ne 0 ]; then
+      echo "STOP — do not deploy. \$VSS_DATA_DIR must point at the extracted bundle" >&2
+      echo "(<extract>/vss-warehouse-app-data), not a directory you created." >&2
+      echo "See 'Warehouse app data' below to choose a source, then re-run this gate." >&2
+      exit 1
+    fi
+    ;;
+esac
 ```
 
 Do not silently ignore dangling symlinks. A permission walker may skip one in
@@ -150,3 +182,52 @@ docker volume ls -q \
 
 Do not recursively `chown` the data root and do not delete unrelated Docker
 volumes.
+
+
+## Warehouse app data — check, never create
+
+For `warehouse`, **`${VSS_DATA_DIR}` is not a directory you create — it *is* the
+extracted app-data bundle.** Point it at `<extract>/vss-warehouse-app-data`, the
+inner directory holding `videos/`, `playback/`, `models/` and `data_log/`.
+
+The whole bundle is a **read-only input**: `mkdir` cannot substitute for missing
+content, and an empty `videos/` turns a clear "no app data" failure into a
+zero-streams symptom. Treat it as a **blocking presence check**, not part of the
+`required=()` list above — run it *before* any `docker compose up`.
+
+When `COMPOSE_PROFILES` contains an `nvstreamer-2d` or `nvstreamer-3d` key,
+verify before deploying:
+
+```bash
+DATASET="$(sed -n 's/^SAMPLE_VIDEO_DATASET=//p' "$BUILD_DIR/override.env" | tr -d '"')"
+
+fail=0
+# VSS_DATA_DIR must be the extracted bundle, not a directory you just made.
+for d in videos models playback data_log; do
+  [ -d "$VSS_DATA_DIR/$d" ] || { echo "MISSING: \$VSS_DATA_DIR/$d" >&2; fail=1; }
+done
+# The selected dataset must actually carry video files.
+if [ -z "$(ls -A "$VSS_DATA_DIR/videos/$DATASET" 2>/dev/null)" ]; then
+  echo "MISSING or EMPTY: \$VSS_DATA_DIR/videos/$DATASET" >&2
+  fail=1
+fi
+if [ "$fail" -ne 0 ]; then
+  echo "Do NOT deploy. \$VSS_DATA_DIR must point at <extract>/vss-warehouse-app-data." >&2
+  echo "Docker creates any missing bind source as root:root, which then needs root to" >&2
+  echo "repair, and perception reports 0 streams with every container Up." >&2
+  echo "Pick an app-data source below, then re-run this gate." >&2
+  exit 1
+fi
+```
+
+Ask the user which app-data source they want, and only run the NGC download when
+they explicitly choose it:
+
+| Source | `VSS_DATA_DIR` |
+|---|---|
+| Repo `data/` | `<repo>/data` |
+| Custom local path | user-provided |
+| NGC `nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0` | `<extract>/vss-warehouse-app-data` — the **inner** directory, the one holding `videos/`, `playback/`, `models/`, `data_log/` |
+
+Calibration is **not** part of `$VSS_DATA_DIR` and needs no staging here — see
+[`profiles/warehouse.md`](profiles/warehouse.md).

@@ -55,7 +55,7 @@ the selected remote `/v1/models` endpoint instead.
 
 Surface this output contract in the architecture preview and final response for
 summarization builds; it is authoritatively defined in
-`skills/vss-summarize-video/references/integrate-lvs-service.md`.
+`skills/operations/vss-summarize-video/references/integrate-lvs-service.md`.
 
 | Interface | Endpoint | Contract |
 |---|---|---|
@@ -73,5 +73,5 @@ and `/v1/generate_captions` are not the output path for stored/uploaded media.
 - `deploy/docker/developer-profiles/dev-profile-lvs/compose.yml`
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
-- `skills/vss-summarize-video/references/video-summarization-environment-variables.md`
-- `skills/vss-summarize-video/references/integrate-lvs-service.md`
+- `skills/operations/vss-summarize-video/references/video-summarization-environment-variables.md`
+- `skills/operations/vss-summarize-video/references/integrate-lvs-service.md`

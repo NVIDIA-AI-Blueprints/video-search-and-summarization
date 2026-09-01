@@ -3428,17 +3428,30 @@ class RTVIStreamHandler:
             query: VlmQuery object with query parameters
         """
 
+        locked_assets = []
         try:
+            for asset in assets:
+                asset.lock()
+                locked_assets.append(asset)
+
             # Get file duration
             media_file_info = MediaFileInfo.get_info(assets[0].path)
             file_duration = media_file_info.video_duration_nsec
         except gi.repository.GLib.GError as ex:
-            raise ServiceException(ex.message, "FailedRequest", 400)
+            for asset in locked_assets:
+                asset.unlock()
+            raise ServiceException(ex.message, "FailedRequest", 400) from ex
+        except Exception:
+            for asset in locked_assets:
+                asset.unlock()
+            raise
 
         if (
             self._args.max_file_duration != 0
             and file_duration > self._args.max_file_duration * 60000000000
         ):
+            for asset in locked_assets:
+                asset.unlock()
             return (
                 False,
                 f"File duration {round(file_duration/60000000000, 2)} is greater"
@@ -3451,6 +3464,8 @@ class RTVIStreamHandler:
             and query.chunk_overlap_duration > 0
             and query.chunk_overlap_duration >= query.chunk_duration
         ):
+            for asset in locked_assets:
+                asset.unlock()
             raise ServiceException(
                 "chunkOverlapDuration must be less than chunkDuration", "BadParameter", 400
             )
@@ -3477,10 +3492,6 @@ class RTVIStreamHandler:
             message="Summarization-" + str(req_info.request_id), color="blue"
         )
 
-        # Lock the asset(s) so that it cannot be deleted while it is being used.
-        for asset in req_info.assets:
-            asset.lock()
-
         req_info.queue_time = time.time()
         # Adding the request info to the request info map
         with self._lock:
@@ -3496,7 +3507,47 @@ class RTVIStreamHandler:
             req_info._e2e_span.set_attribute("stream_id", req_info.stream_id)
             req_info._e2e_span.set_attribute("is_live", req_info.is_live)
 
-        self._trigger_query(req_info, None)
+        try:
+            self._trigger_query(req_info, None)
+        except Exception as ex:
+            with self._lock:
+                self._request_info_map.pop(req_info.request_id, None)
+                req_info.pending_file_chunks.clear()
+                self._vlm_admission_ready_request_ids.discard(req_info.request_id)
+                while req_info.request_id in self._vlm_admission_ready_requests:
+                    self._vlm_admission_ready_requests.remove(req_info.request_id)
+                released_cost = sum(req_info.active_file_chunk_costs.values())
+                req_info.active_file_chunk_costs.clear()
+                self._vlm_admission_active_cost = max(
+                    0.0, self._vlm_admission_active_cost - released_cost
+                )
+            self._metrics._queries_pending_counter.add(-1)
+            self._finalize_stream_fps_tracking(req_info)
+            if req_info._monitor:
+                self.stop_request_profiling(req_info, [])
+            if req_info.vlm_pipeline_span:
+                try:
+                    req_info.vlm_pipeline_span.set_attribute("setup_failed", True)
+                    req_info.vlm_pipeline_span.end()
+                except Exception as span_error:
+                    logger.warning("Failed to end vlm_pipeline_latency span: %s", span_error)
+            if req_info._e2e_span:
+                try:
+                    req_info._e2e_span.set_attribute("setup_failed", True)
+                    req_info._e2e_span.set_attribute("error_message", str(ex))
+                    req_info._e2e_span.end()
+                except Exception as span_error:
+                    logger.warning("Failed to end e2e OTEL span: %s", span_error)
+            if req_info.nvtx_summarization_start:
+                try:
+                    nvtx.end_range(req_info.nvtx_summarization_start)
+                except Exception as nvtx_error:
+                    logger.warning("Failed to end summarization NVTX range: %s", nvtx_error)
+            self._cleanup_request_files(req_info)
+            for asset in locked_assets:
+                if asset.use_count > 0:
+                    asset.unlock()
+            raise
         return req_info.request_id
 
     def generate_vlm_captions(

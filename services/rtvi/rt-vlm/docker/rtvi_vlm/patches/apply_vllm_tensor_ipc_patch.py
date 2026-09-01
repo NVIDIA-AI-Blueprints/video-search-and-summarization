@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """
 Patch installed vLLM 0.17.1 to add the multimodal tensor IPC path from
 vLLM PR #32104.
@@ -42,8 +43,12 @@ TENSOR_IPC_FILE = """# SPDX-License-Identifier: Apache-2.0
 \"\"\"Tensor IPC transport via torch.multiprocessing.Queue.\"\"\"
 
 import dataclasses
+import queue
+import threading
+import time
 import uuid
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import field
 from multiprocessing.queues import Queue as MPQueue
 from typing import Any
@@ -143,6 +148,13 @@ class TensorIpcReceiver:
                 tensors = sender.tensors
                 tensor = tensors.get(message_id, {}).pop(tensor_id, None)
                 if tensor is not None:
+                    if tensor.is_cuda:
+                        # The EngineCore can release the exporting frontend's
+                        # CUDA allocation as soon as the vision encoder has
+                        # consumed this tensor.  Keep the transport marker on
+                        # the deserialized Tensor instead of changing the wire
+                        # schema used by MsgpackDecoder.
+                        tensor._vllm_torch_shm_cuda_ipc = True
                     if sender.current_message_id != message_id:
                         while tensors and (mid := next(iter(tensors))) < message_id:
                             if sender.tensors.pop(mid):
@@ -170,6 +182,90 @@ class TensorIpcReceiver:
             sender.tensors.setdefault(ipc_data.message_id, {})[ipc_data.tensor_id] = (
                 ipc_data.tensor
             )
+
+
+def _contains_torch_shm_cuda_tensor(value: Any) -> bool:
+    if isinstance(value, torch.Tensor):
+        return bool(getattr(value, "_vllm_torch_shm_cuda_ipc", False))
+    if isinstance(value, Mapping):
+        return any(_contains_torch_shm_cuda_tensor(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_torch_shm_cuda_tensor(item) for item in value)
+    # MultiModalFieldElem and UserDict-backed multimodal containers keep their
+    # nested tensor payload in ``data``.
+    nested = getattr(value, "data", None)
+    return nested is not value and _contains_torch_shm_cuda_tensor(nested)
+
+
+class _TorchShmCudaReleaser:
+    \"\"\"Drop EngineCore's imported CUDA tensors after encoder stream use.
+
+    torch.multiprocessing CUDA IPC keeps the exporting frontend allocation
+    resident while any imported Tensor reference exists.  vLLM normally keeps
+    ``MultiModalFeatureSpec.data`` for the full text-generation lifetime so it
+    can recompute an evicted encoder item.  RTVI's cache-disabled streaming
+    requests can have 128 such tensors alive at once, exhausting an 80 GB GPU
+    before NVDEC can allocate its live-stream surfaces.  The accelerated RTVI
+    mempool path already releases the equivalent lease immediately after the
+    vision encoder reads it; this applies the same lifecycle to torch_shm.
+    \"\"\"
+
+    def __init__(self) -> None:
+        self._pending: queue.SimpleQueue[tuple[torch.cuda.Event, list[Any]]] = (
+            queue.SimpleQueue()
+        )
+        threading.Thread(
+            target=self._serve,
+            name="vllm-torch-shm-cuda-release",
+            daemon=True,
+        ).start()
+
+    def release_after_current_stream(self, features: list[Any]) -> None:
+        releasable = [
+            feature
+            for feature in features
+            if _contains_torch_shm_cuda_tensor(getattr(feature, "data", None))
+        ]
+        if not releasable:
+            return
+        event = torch.cuda.Event()
+        event.record(torch.cuda.current_stream())
+        self._pending.put((event, releasable))
+
+    def _serve(self) -> None:
+        pending: list[tuple[torch.cuda.Event, list[Any]]] = []
+        while True:
+            try:
+                pending.append(self._pending.get(timeout=0.001))
+            except queue.Empty:
+                pass
+            remaining = []
+            for event, features in pending:
+                if not event.query():
+                    remaining.append((event, features))
+                    continue
+                for feature in features:
+                    feature.data = None
+            pending = remaining
+            if pending:
+                time.sleep(0.0005)
+
+
+_torch_shm_cuda_releaser: _TorchShmCudaReleaser | None = None
+
+
+def release_torch_shm_cuda_features(features: list[Any]) -> None:
+    global _torch_shm_cuda_releaser
+    if not any(
+        _contains_torch_shm_cuda_tensor(getattr(feature, "data", None))
+        for feature in features
+    ):
+        return
+    if _torch_shm_cuda_releaser is None:
+        _torch_shm_cuda_releaser = _TorchShmCudaReleaser()
+    _torch_shm_cuda_releaser.release_after_current_stream(features)
+
+
 """
 
 
@@ -982,6 +1078,49 @@ def patch_serial_utils() -> None:
     )
 
 
+def patch_shm_object_storage() -> None:
+    rel = "distributed/device_communicators/shm_object_storage.py"
+    _replace(
+        rel,
+        "import pickle\n",
+        "import pickle\nimport threading\n",
+        "import threading for SHM serde synchronization",
+    )
+    _replace(
+        rel,
+        "        self._mm_kwargs_item_cls = MultiModalKwargsItem\n",
+        "        self._mm_kwargs_item_cls = MultiModalKwargsItem\n"
+        "        # MsgpackEncoder and MsgpackDecoder keep per-message auxiliary\n"
+        "        # buffer state and are not safe to share across preprocess threads.\n"
+        "        self._lock = threading.Lock()\n",
+        "serialize access to shared SHM serde state",
+    )
+    _replace(
+        rel,
+        "    def serialize(self, value: Any) -> tuple[bytes | list[bytes], int, bytes, int]:\n"
+        "        len_arr = None\n",
+        "    def serialize(self, value: Any) -> tuple[bytes | list[bytes], int, bytes, int]:\n"
+        "        with self._lock:\n"
+        "            return self._serialize(value)\n\n"
+        "    def _serialize(\n"
+        "        self, value: Any\n"
+        "    ) -> tuple[bytes | list[bytes], int, bytes, int]:\n"
+        "        len_arr = None\n",
+        "lock SHM serialization",
+    )
+    _replace(
+        rel,
+        "    def deserialize(self, data_view: memoryview) -> Any:\n"
+        "        # pickle.loads do not read past the end of a pickled object\n",
+        "    def deserialize(self, data_view: memoryview) -> Any:\n"
+        "        with self._lock:\n"
+        "            return self._deserialize(data_view)\n\n"
+        "    def _deserialize(self, data_view: memoryview) -> Any:\n"
+        "        # pickle.loads do not read past the end of a pickled object\n",
+        "lock SHM deserialization",
+    )
+
+
 def patch_v1_utils() -> None:
     rel = "v1/utils.py"
     _replace(
@@ -1026,6 +1165,114 @@ def patch_v1_utils() -> None:
     )
 
 
+def patch_multimodal_inputs() -> None:
+    rel = "multimodal/inputs.py"
+    content = _read(rel)
+    old = (
+        "            batch = cast(list[torch.Tensor], batch)\n" "            if len(batch) == 1:\n"
+    )
+    new = (
+        "            batch = cast(list[torch.Tensor], batch)\n"
+        "            # CUDA IPC tensors are already on the model device and cannot\n"
+        "            # be pinned. Batch them directly on GPU.\n"
+        '            if batch[0].device.type != "cpu":\n'
+        "                pin_memory = False\n"
+        "            if len(batch) == 1:\n"
+    )
+    if content.count(new) >= 2:
+        print("  ✓ keep imported CUDA multimodal tensors on device already patched, skipping.")
+        return
+    count = content.count(old)
+    if count != 2:
+        raise AssertionError(
+            f"PATCH ANCHOR NOT FOUND in {rel}: expected 2 tensor batching paths, got {count}"
+        )
+    _write(rel, content.replace(old, new))
+    print("  ✓ keep imported CUDA multimodal tensors on device")
+
+
+def patch_gpu_model_runner_release() -> None:
+    rel = "v1/worker/gpu_model_runner.py"
+    content = _read(rel)
+    tensor_ipc_import = "from vllm.v1.engine.tensor_ipc import " "release_torch_shm_cuda_features\n"
+    rtvi_mempool_import = (
+        "from vllm.v1.engine.rtvi_cuda_mempool import " "release_rtvi_cuda_tensors\n"
+    )
+    has_rtvi_mempool = (VLLM_ROOT / "v1/engine/rtvi_cuda_mempool.py").is_file()
+
+    if tensor_ipc_import not in content:
+        if has_rtvi_mempool and rtvi_mempool_import in content:
+            content = content.replace(
+                rtvi_mempool_import,
+                tensor_ipc_import + rtvi_mempool_import,
+                1,
+            )
+        else:
+            anchor = "from vllm.multimodal.utils import group_mm_kwargs_by_modality\n"
+            if content.count(anchor) != 1:
+                raise AssertionError(
+                    f"PATCH ANCHOR NOT FOUND in {rel}: import torch_shm CUDA release helper"
+                )
+            content = content.replace(anchor, anchor + tensor_ipc_import, 1)
+        _write(rel, content)
+        print("  ✓ import torch_shm CUDA release helper")
+
+    rtvi_release = (
+        "        # The vision encoder has queued every read of the imported input.\n"
+        "        # Record a CUDA event and return exporter leases asynchronously\n"
+        "        # once that event completes, instead of retaining inputs through\n"
+        "        # the text-generation phase.\n"
+        "        release_rtvi_cuda_tensors(mm_kwargs)\n"
+    )
+    torch_shm_release = (
+        "        release_torch_shm_cuda_features(\n"
+        "            [\n"
+        "                self.requests[req_id].mm_features[input_id]\n"
+        "                for req_id, input_ids in "
+        "scheduler_output.scheduled_encoder_inputs.items()\n"
+        "                for input_id in input_ids\n"
+        "            ]\n"
+        "        )\n"
+    )
+    release = (rtvi_release if has_rtvi_mempool else "") + torch_shm_release
+    if release in content:
+        print("  ✓ release CUDA IPC inputs after encoder consumption already patched, skipping.")
+        return
+    if has_rtvi_mempool and rtvi_release in content:
+        _write(rel, content.replace(rtvi_release, release, 1))
+        print("  ✓ upgrade encoder release hook for torch_shm CUDA tensors")
+        return
+
+    # The EVS overlay on main has extra per-clip IPC/pinning branches after
+    # maybe_save_ec_to_connector, so anchor at the method return. Keep the
+    # older anchor for vLLM overlays predating that flow.
+    anchors = (
+        (
+            "            self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)\n\n"
+            "        return encoder_outputs\n",
+            "            self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)\n\n"
+            + release
+            + "        return encoder_outputs\n",
+        ),
+        (
+            "        return encoder_outputs\n\n"
+            "    @staticmethod\n"
+            "    def _is_evs_encode_req(req_data) -> bool:\n",
+            release + "        return encoder_outputs\n\n"
+            "    @staticmethod\n"
+            "    def _is_evs_encode_req(req_data) -> bool:\n",
+        ),
+    )
+    for old, new in anchors:
+        if content.count(old) == 1:
+            _write(rel, content.replace(old, new, 1))
+            print("  ✓ release CUDA IPC inputs after encoder consumption")
+            return
+    raise AssertionError(
+        f"PATCH ANCHOR NOT FOUND in {rel}: release RTVI CUDA leases after encoder consumption"
+    )
+
+
 def main() -> None:
     print(f"Applying vLLM multimodal tensor IPC patch under {VLLM_ROOT}...")
     _write_tensor_ipc_module()
@@ -1038,7 +1285,10 @@ def main() -> None:
     patch_core_client()
     patch_engine_utils()
     patch_serial_utils()
+    patch_shm_object_storage()
     patch_v1_utils()
+    patch_multimodal_inputs()
+    patch_gpu_model_runner_release()
     print("Done.")
 
 

@@ -38,7 +38,7 @@ global:
   kibanaPublicUrl: ""
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).

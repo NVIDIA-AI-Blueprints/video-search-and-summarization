@@ -814,6 +814,43 @@ public:
         }
     }
 
+    /* Record the measured keyframe interval on the stream.
+     *
+     * Off the live555 thread: this walks the device manager's stream list and
+     * takes the stream lock, and this callback is on the path every frame takes.
+     * updateVideoEncoderValues() replaces the whole struct, so the current
+     * values are read first and only govLength is changed. */
+    void publishGovLength(uint32_t pictures)
+    {
+        if (m_govLengthPublished.exchange(true))
+        {
+            return;
+        }
+        const string uri = m_uri;
+        async::spawn([uri, pictures]
+        {
+            std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
+            if (deviceManager == nullptr)
+            {
+                return;
+            }
+            std::vector<shared_ptr<StreamInfo>> streamList = deviceManager->getStreamList();
+            for (auto const& stream : streamList)
+            {
+                if (stream->live_proxy_url != uri)
+                {
+                    continue;
+                }
+                SensorVideoEncoderSettingsValues values = stream->getvideoEncoderValues();
+                values.govLength = std::to_string(pictures);
+                stream->updateVideoEncoderValues(values);
+                LOG(info) << "Measured keyframe interval for " << secureUrlForLogging(uri)
+                          << ": " << pictures << " frames" << endl;
+                break;
+            }
+        });
+    }
+
     void notifyToQosRecord(std::shared_ptr<FrameInfo> frameInfo)
     {
         string media = frameInfo->m_media;
@@ -956,6 +993,31 @@ public:
                         " size = " << size << endl;
                 }
             }
+            /* Count the keyframe interval, IDR to IDR.  See m_picturesSinceIdr. */
+            if (isValidDataNAL(fCurPacketNALUnitType, codec) && m_govLengthPublished == false)
+            {
+                const bool newPicture = (m_lastPictureTimeValid == false)
+                                        || (presentationTime.tv_sec != m_lastPictureTime.tv_sec)
+                                        || (presentationTime.tv_usec != m_lastPictureTime.tv_usec);
+                if (newPicture)
+                {
+                    m_lastPictureTime = presentationTime;
+                    m_lastPictureTimeValid = true;
+                    if (isIDRFrame(fCurPacketNALUnitType, codec))
+                    {
+                        /* The count now covers the previous IDR up to but not
+                         * including this one, which is the interval itself. */
+                        if (m_sawFirstIdr && m_picturesSinceIdr > 0)
+                        {
+                            publishGovLength(m_picturesSinceIdr);
+                        }
+                        m_sawFirstIdr = true;
+                        m_picturesSinceIdr = 0;
+                    }
+                    ++m_picturesSinceIdr;
+                }
+            }
+
             if (isIDRFrame(fCurPacketNALUnitType, codec) && m_isVideoMetadataUpdated == false)
             {
                 m_videoMetadataFetchTask = async::spawn([=]
@@ -1154,6 +1216,21 @@ private:
     std::vector<std::vector<uint8_t>> m_initFrames;
     async::task<void>           m_videoMetadataFetchTask;
     std::atomic<bool>           m_isVideoMetadataUpdated {true};
+    /* Keyframe interval, counted IDR to IDR.
+     *
+     * A camera's keyframe interval decides how long a segment can be and how
+     * far behind the live edge a player has to sit, and nothing else on the
+     * RTSP path reports it: govLength stays empty for every rtsp sensor.  It is
+     * counted here because this is the one place that sees every frame.
+     *
+     * Counted in pictures, not NAL units: a picture may arrive as several slice
+     * NALs, and counting those would report a multiple of the real interval.  A
+     * new picture is one whose presentation time differs from the last. */
+    uint32_t                    m_picturesSinceIdr {0};
+    struct timeval              m_lastPictureTime {};
+    bool                        m_lastPictureTimeValid {false};
+    bool                        m_sawFirstIdr {false};
+    std::atomic<bool>           m_govLengthPublished {false};
     std::vector<uint8_t>        m_sps;
     std::vector<uint8_t>        m_pps;
     std::atomic<bool>           m_useOnvifExtnTimestamp {false};
@@ -3044,6 +3121,27 @@ void StreamMonitor::unregisterConsumer(std::shared_ptr<IMediaDataConsumer> consu
     // Use the existing comprehensive deregisterDataCallback implementation
     std::string url = identifier;
     deregisterDataCallback(consumer, url, doNotRemoveClient);
+}
+
+bool StreamMonitor::seekToTime(const std::string& identifier, int64_t targetEpochMs)
+{
+    // Re-PLAY the SAME RTSP client at an absolute time (RTSP Range), without
+    // tearing it down/recreating it. This keeps the stream-monitor/QoS state and
+    // any concurrent live view untouched. Used for mms VOD recorded-playback seek.
+    QosRtspClient* rtspSrc = getRtspClient(identifier);
+    if (rtspSrc == nullptr)
+    {
+        LOG(error) << "[streamMonitor] seek: no active RTSP client for url:"
+                   << secureUrlForLogging(identifier) << endl;
+        return false;
+    }
+    // convertEpocToISO8601 takes microseconds and yields the compact RTSP time
+    // format that sendPlayCommand's Range expects (same as the relative-seek path).
+    std::string rtspTime = convertEpocToISO8601(targetEpochMs * 1000);
+    LOG(info) << "[streamMonitor] seek to epochMs=" << targetEpochMs
+              << " (" << rtspTime << ") for " << rtspSrc->getDevName() << endl;
+    rtspSrc->controlStreamLiveVideoSource("seek_absolute", rtspTime);
+    return true;
 }
 
 void StreamMonitor::distributeToConsumers(std::shared_ptr<RawFrameParams> frameData)

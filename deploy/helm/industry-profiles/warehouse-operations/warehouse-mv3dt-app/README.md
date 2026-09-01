@@ -377,7 +377,7 @@ python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_strea
 
 Layer `-f values-stream-cap.generated.yaml` into `helm upgrade --install`, and set
 `vios.vss-vios-nvstreamer.syncFileCount` to the effective count it prints. See
-[`skills/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/vss-deploy-warehouse-helm/references/streams.md)
+[`skills/deployment/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/deployment/vss-deploy-warehouse-helm/references/streams.md)
 for the full command and GPU→cap table. No skill/agent required — the script runs standalone.
 
 ## Upgrade and uninstall

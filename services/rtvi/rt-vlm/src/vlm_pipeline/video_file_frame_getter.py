@@ -1605,15 +1605,13 @@ class VideoFileFrameGetter:
             use_ipc_live_source = False
 
         if use_ipc_live_source and self._enable_audio:
-            raise RuntimeError(
-                "RTVI_EMBED_IPC_FRAME_COPY does not support audio capture in this pipeline"
-            )
+            raise RuntimeError("Decoded-frame IPC does not support audio capture in this pipeline")
 
         if use_ipc_live_source:
             nvunixfdsrc = Gst.ElementFactory.make("nvunixfdsrc")
             if nvunixfdsrc is None:
                 raise RuntimeError(
-                    "RTVI_EMBED_IPC_FRAME_COPY is enabled but GStreamer element "
+                    "Decoded-frame IPC is enabled but GStreamer element "
                     "'nvunixfdsrc' is unavailable"
                 )
             nvunixfdsrc.set_property("socket-path", self._ipc_socket_path)
@@ -3247,7 +3245,7 @@ class VideoFileFrameGetter:
             live_stream_identity or live_stream_id or self._live_stream_request_id
         )
         self._ipc_frame_copy_enabled = (
-            _env_bool("RTVI_EMBED_IPC_FRAME_COPY", False)
+            _env_bool("RTVI_IPC_FRAME_COPY", False)
             if ipc_frame_copy_enabled is None
             else ipc_frame_copy_enabled
         )

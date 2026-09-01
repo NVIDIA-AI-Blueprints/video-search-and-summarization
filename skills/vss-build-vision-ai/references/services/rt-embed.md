@@ -52,5 +52,5 @@ stream ceilings.
 ## Sources
 
 - `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`
-- `skills/vss-deploy-video-embedding/references/environment.md`
-- `skills/vss-deploy-video-embedding/references/integrate-vss-deploy-video-embedding.md`
+- `skills/deployment/vss-deploy-video-embedding/references/environment.md`
+- `skills/deployment/vss-deploy-video-embedding/references/integrate-vss-deploy-video-embedding.md`
