@@ -34,7 +34,34 @@ For more details on VSS configurations and how to get API tokens, refer to:
 - [vss-agent/VSS-Agent-Configuration](/vss/vision-agent/vss-agents/agent-configuration) and [vss-agent/configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
 
 
-For each selected configuration, save the values in
+Export credentials before deploying; Docker Compose reads them through `containers.env`:
+
+```bash
+export NGC_CLI_API_KEY=<your-ngc-api-key>
+export NVIDIA_API_KEY=<your-nvidia-api-key>
+export HF_TOKEN=<your-hf-token>
+```
+
+In `deploy/docker/developer-profiles/dev-profile-base/overrides.env`, update the existing
+`VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `EXTERNAL_IP` values in place. Then prepare
+the host data directories before running Compose:
+
+```bash
+VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/analytics_cache" \
+  "$VSS_DATA_DIR/data_log/calibration_toolkit" \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/agent_eval/dataset" \
+  "$VSS_DATA_DIR/agent_eval/results"
+chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+```
+
+For each selected configuration, save the remaining values in
 `deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then run:
 
 ```bash
@@ -75,8 +102,8 @@ docker compose -f compose.yml \
    ```ini
    # developer-profiles/dev-profile-base/overrides.env
    HARDWARE_PROFILE=DGX-SPARK
-   NGC_CLI_API_KEY=<your-ngc-api-key>
-   NVIDIA_API_KEY=<your-nvidia-api-key>
+   VSS_RT_VLM_TAG=develop-latest-sbsa
+   RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
    LLM_MODE=remote
    LLM_NAME_SLUG=none
    LLM_BASE_URL=http://<HOST_IP>:30081
@@ -137,8 +164,7 @@ must be tuned to coexist.
    ```ini
    # developer-profiles/dev-profile-base/overrides.env
    HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
-   NGC_CLI_API_KEY=<your-ngc-api-key>
-   NVIDIA_API_KEY=<your-nvidia-api-key>
+   RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
    LLM_MODE=remote
    LLM_NAME_SLUG=none
    LLM_BASE_URL=http://<HOST_IP>:30081
