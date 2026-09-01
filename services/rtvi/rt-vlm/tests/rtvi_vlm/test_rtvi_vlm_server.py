@@ -1405,7 +1405,7 @@ class TestCVStreamEndpoints:
             purpose="vision",
             media_type="video",
             creation_time="2026-07-09T14:58:40.000Z",
-            file_id=None,
+            file_id=camera_id,
             url_headers=url_headers,
             sensor_name=camera_id,
             camera_id=camera_id,

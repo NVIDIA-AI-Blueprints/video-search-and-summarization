@@ -4,7 +4,7 @@ description: ""
 position: 3
 ---
 An *agent harness* is the coding agent or agent sandbox that is capable of loading the VSS
-[Agent Skills ](/agent-skills) and to easily deploy and operate the vision-based microservices and workflows.
+[Agent Skills ](/vss/vision-agent/agent-skills) and to easily deploy and operate the vision-based microservices and workflows.
 Because every VSS Skill follows the [agentskills.io](https://agentskills.io) specification, any
 compatible harness can load the same Skills folder and drive VSS without bespoke
 integration code.
@@ -19,10 +19,10 @@ The following harnesses are validated against the VSS Agent Skills:
 
 <Note>
 Agent harnesses are a developer-side tool for working with the VSS Blueprint. They
-are distinct from the in-product [VSS Agent ](/VSS-Agents), which is built on the
+are distinct from the in-product [VSS Agent ](/vss/vision-agent/vss-agents), which is built on the
 NeMo Agent Toolkit (NAT) and runs inside a deployed VSS workflow. For a broader
 comparison of ways to drive VSS, including direct MCP and REST integrations, see the
-harness comparison in the [Quickstart ](/quickstart).
+harness comparison in the [Quickstart ](/vss/getting-started/quickstart).
 </Note>
 
 ## How Harnesses Use VSS Skills
@@ -32,7 +32,7 @@ Regardless of which harness you choose, the model is the same:
 1. **Install the Skills.** Each Skill folder from the `skills/` directory of the
    [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/skills)
    is registered into the harness's standard skills directory (typically by symlink, so
-   a `git pull` keeps every Skill current). See [Agent Skills ](/agent-skills) for
+   a `git pull` keeps every Skill current). See [Agent Skills ](/vss/vision-agent/agent-skills) for
    the full install flow.
 2. **Load the Skills.** On startup the harness reads each `SKILL.md` frontmatter and
    adds the Skill to its tool list. New Skills are picked up without a restart.
@@ -40,7 +40,7 @@ Regardless of which harness you choose, the model is the same:
    Skills' descriptions and invokes the matching Skill - chaining several Skills when a
    task needs multiple steps or a missing prerequisite.
 
-As described in [Usage Patterns](/agent-skills#usage-patterns), harnesses are used
+As described in [Usage Patterns](/vss/vision-agent/agent-skills#usage-patterns), harnesses are used
 in two complementary ways:
 
 - **Deployment.** A coding agent such as Claude Code or Codex loads the Skills and stands
@@ -53,7 +53,7 @@ in two complementary ways:
 [Claude Code](https://docs.anthropic.com/claude/docs/claude-code) loads VSS Skills from
 `~/.claude/skills/<name>/`. After cloning the VSS Blueprint repository, open it in
 Claude Code and ask the agent to read `skills/README.md` and register each Skill into
-that directory (see [Installing Skills ](/agent-skills)). Once the Skills are
+that directory (see [Installing Skills ](/vss/vision-agent/agent-skills)). Once the Skills are
 installed, prompt Claude Code in natural language - for example, *"Deploy VSS for video
 summarization"* or *"Add an RTSP camera at rtsp://10.0.0.5:554/stream1"* - and it invokes
 the matching Skill such as `vss-deploy-profile` or `vss-manage-video-io-storage`.
@@ -70,7 +70,7 @@ catalog is used, so the available capabilities and example prompts are unchanged
 
 OpenClaw is an open agent sandbox that exposes an `agentskills.io`-compatible host with
 a chat UI. As a generic compatible host, it loads VSS Skills from `~/.agents/skills/<name>/`.
-OpenClaw is the foundation that [NemoClaw](/agent-harnesses#nemoclaw) builds on:
+OpenClaw is the foundation that [NemoClaw](/vss/vision-agent/agent-harnesses#nemoclaw) builds on:
 NemoClaw packages OpenClaw together with the VSS plugin, VSS policy preset, and the VSS
 Orchestrator MCP server so that Skills, safety policy, and host orchestration are
 preconfigured rather than installed by hand.
@@ -81,11 +81,11 @@ preconfigured rather than installed by hand.
 Instead of installing Skills by hand, the bundled `deploy_nemoclaw.ipynb` and
 `deploy_vss_orchestrator.ipynb` notebooks apply the VSS policy, install the repository's
 VSS Skills and workspace docs into the sandbox, register the VSS Orchestrator MCP, and
-start the [VSS Orchestrator MCP server ](/vss-orchestrator-mcp) on the
+start the [VSS Orchestrator MCP server ](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) on the
 host. From the chat UI you can deploy profiles, manage cameras and streams, query
 incidents, run searches, summarize videos, and pull logs - with confirmation prompts
 before destructive actions. For setup, configuration, and troubleshooting, see
-[NemoClaw ](/nemoclaw).
+[NemoClaw ](/vss/vision-agent/agent-harnesses/nemoclaw).
 
 <Note>
 The NemoClaw notebooks are released as an Early Access feature.
@@ -93,6 +93,6 @@ The NemoClaw notebooks are released as an Early Access feature.
 
 ## Related Documentation
 
-- [Agent Skills ](/agent-skills) - The reusable Skills that every harness loads.
-- [VSS Agents ](/VSS-Agents) - The in-product agent that runs inside a deployed VSS workflow.
-- [Quickstart ](/quickstart) - Harness comparison, including direct MCP and REST options.
+- [Agent Skills ](/vss/vision-agent/agent-skills) - The reusable Skills that every harness loads.
+- [VSS Agents ](/vss/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
+- [Quickstart ](/vss/getting-started/quickstart) - Harness comparison, including direct MCP and REST options.

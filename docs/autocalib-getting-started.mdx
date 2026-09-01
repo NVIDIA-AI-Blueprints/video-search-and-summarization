@@ -42,7 +42,7 @@ AMC filters and matches tracklets before multi-view calibration. Default pipelin
 * **Minimum tracklet length**: 90 frames (approximately three seconds at 30 fps)—short or jittery tracks are discarded.
 * **Minimum matched tracklets** (multi-camera): six cross-camera tracklet correspondences per camera pair (three in robust two-view fallback).
 
-If your videos lack enough moving people or are too short, calibration may fail at detection, tracking, or **tracklet matching**. You may need to adjust the configuration parameters through UI or capture better videos. See [Custom Dataset](/autocalib-custom-dataset) for capture best practices and [Troubleshooting](/autocalib-troubleshooting) if tracklet matching fails.
+If your videos lack enough moving people or are too short, calibration may fail at detection, tracking, or **tracklet matching**. You may need to adjust the configuration parameters through UI or capture better videos. See [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for capture best practices and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) if tracklet matching fails.
 
 ## Prerequisites
 
@@ -55,11 +55,11 @@ Before using the microservice and UI, ensure you have:
 * NVIDIA GPU with hardware encoder (NVENC)
 * NVIDIA driver 590
 * Docker (setup to run without sudo privilege)
-* NVIDIA container toolkit (Refer to the [Prerequisites ](/prerequisites) section)
+* NVIDIA container toolkit (Refer to the [Prerequisites ](/vss/getting-started/prerequisites) section)
 
 **Required**
 
-* Input videos or RTSP streams that meet [tracklet-based video requirements](/autocalib-getting-started#tracklet-based-calibration-input-video-requirements) above
+* Input videos or RTSP streams that meet [tracklet-based video requirements](/vss/system-components/calibration/auto-calibration/getting-started#tracklet-based-calibration-input-video-requirements) above
 * Layout/map image (PNG format)
 * Layout pixel per meter: Number of pixels in the layout image per meter in the real world; This needs to be updated in the configuration parameters
 
@@ -75,11 +75,11 @@ Before using the microservice and UI, ensure you have:
 <Note>
 To automate Auto Calibration deployment and calibration with the bundled VSS
 Agent Skills instead of following the manual steps below, see the
-[Agent Skills walkthrough](/autocalib-getting-started#agent-skills-walkthrough) later in
+[Agent Skills walkthrough](/vss/system-components/calibration/auto-calibration/getting-started#agent-skills-walkthrough) later in
 this guide.
 </Note>
 
-Deploy the UI and backend microservice using Docker Compose. Refer to the [Warehouse Blueprint Introduction ](/warehouse-docs/Introduction) for more details.
+Deploy the UI and backend microservice using Docker Compose. Refer to the [Warehouse Blueprint Introduction ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/introduction) for more details.
 
 To use RTSP capture via VIOS, ensure the VIOS server is set up and running. Set `VIOS_BASE_URL` in the `.env` file as described in [the deployment environment variable setup](#autocalib-env-file-setup).
 
@@ -254,7 +254,7 @@ If you're deploying via Docker Compose, follow the steps in the **Deployment Ste
 **Step 2: Upload Files**
 
 <Note>
-Uploaded or captured videos must satisfy [tracklet-based video requirements](/autocalib-getting-started#tracklet-based-calibration-input-video-requirements) (moving people, duration, 1920×1080, multi-camera sync). Calibration often fails late in the pipeline if these are not met.
+Uploaded or captured videos must satisfy [tracklet-based video requirements](/vss/system-components/calibration/auto-calibration/getting-started#tracklet-based-calibration-input-video-requirements) (moving people, duration, 1920×1080, multi-camera sync). Calibration often fails late in the pipeline if these are not met.
 </Note>
 
 1. Click "Next" to go to Video Configuration
@@ -469,7 +469,7 @@ rectified = cv2.undistort(frame, camera_matrix, dist_coeffs)
 
 Ensure the same image resolution (1920 × 1080) and that you undistort **before** projecting detections with AMC camera matrices. If rectification was disabled (`pinhole` / `general.skip: true`), no `distortion.yaml` is needed and raw video matches calibration space.
 
-See also [Custom Dataset](/autocalib-custom-dataset) (lens distortion guidance) and the AutoMagicCalib `rectification_config.yaml` in the source repository for tuning search ranges and model selection.
+See also [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) (lens distortion guidance) and the AutoMagicCalib `rectification_config.yaml` in the source repository for tuning search ranges and model selection.
 
 ## Settings
 
@@ -487,14 +487,14 @@ Click the settings icon in the top-right corner to access calibration parameters
 ## Agent Skills walkthrough
 
 This section walks through the Auto Calibration user journeys using a coding agent (Claude Code, Codex, or
-NemoClaw) and the `vss-generate-video-calibration` [Agent Skill](/agent-skills).
+NemoClaw) and the `vss-generate-video-calibration` [Agent Skill](/vss/vision-agent/agent-skills).
 For each journey it documents the **example prompt** you give the agent and
 **what the agent does** in response.
 
 <Note>
 Install the skills into your coding agent first (see
-[Installing Skills](/agent-skills#installing-skills) for the install flow). For
-how each harness loads skills, see [agent-harnesses](/agent-harnesses).
+[Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the install flow). For
+how each harness loads skills, see [agent-harnesses](/vss/vision-agent/agent-harnesses).
 </Note>
 
 The agent may pause for user input during the journey. Common prompts include
@@ -628,9 +628,9 @@ confirmation before continuing.
 
 **Input Video**
 
-* Follow [tracklet-based video requirements](/autocalib-getting-started#tracklet-based-calibration-input-video-requirements) at the top of this guide (resolution, duration, moving people, multi-camera sync).
+* Follow [tracklet-based video requirements](/vss/system-components/calibration/auto-calibration/getting-started#tracklet-based-calibration-input-video-requirements) at the top of this guide (resolution, duration, moving people, multi-camera sync).
 * Ensure videos are synchronized in time and uploaded in **order of overlapping FOV**.
-* If cameras have lens distortion, read [Lens Distortion Output](/autocalib-getting-started#lens-distortion-output-distortion-yaml) and plan how your application will undistort frames or use `rectified.mp4`.
+* If cameras have lens distortion, read [Lens Distortion Output](/vss/system-components/calibration/auto-calibration/getting-started#lens-distortion-output-distortion-yaml) and plan how your application will undistort frames or use `rectified.mp4`.
 
 **Alignment Points**
 
@@ -664,6 +664,6 @@ confirmation before continuing.
 
 Now that you're familiar with the basics, explore:
 
-* [Workflow Steps](/autocalib-workflow-steps) - Detailed documentation for each step
-* [Custom Dataset](/autocalib-custom-dataset) - Custom dataset preparation and calibration
-* [Troubleshooting](/autocalib-troubleshooting) - Solutions to common problems
+* [Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) - Detailed documentation for each step
+* [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) - Custom dataset preparation and calibration
+* [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) - Solutions to common problems

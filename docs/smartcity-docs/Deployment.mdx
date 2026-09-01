@@ -7,7 +7,7 @@ position: 3
 
 The default configurations and sample streams are designed for a specific location. To deploy the blueprint for your own location, you must complete the following steps:
 
-1. **Create calibration files**: Generate calibration files for your cameras. Refer to [Calibration](/smartcity-docs/Calibration) for detailed instructions.
+1. **Create calibration files**: Generate calibration files for your cameras. Refer to [Calibration](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration) for detailed instructions.
 
 2. **Update configuration files**: Modify the relevant configuration files to reflect your environment settings, see details below for each deployment method.
 
@@ -33,4 +33,4 @@ The sections below describe the configuration changes required for each deployme
 
    * If you copied streams to the folder mentioned above, those streams should automatically show up here. If you have video files instead and did not copy them to the above folder, you can upload them to NVStreamer via the UI at `http://<HOST_IP>:31000` then use the RTSP stream link provided and add to VST.
    * Make sure that if you are manually adding streams to VST that the sensor name set matches exactly what you have in the calibration file otherwise the videos will not be mapped correctly by Analytics.
-   * For additional details on how to use VST, check the [VST docs ](/vss-vios) page and for additional details on how to use NVStreamer, check the [NVStreamer docs ](/vios-nvstreamer) page.
+   * For additional details on how to use VST, check the [VST docs ](/vss/system-components/middleware/video-io-storage-vios) page and for additional details on how to use NVStreamer, check the [NVStreamer docs ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer) page.
