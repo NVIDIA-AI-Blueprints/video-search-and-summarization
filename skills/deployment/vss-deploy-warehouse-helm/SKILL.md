@@ -173,10 +173,13 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
    ```
-   `-f values-stream-cap.generated.yaml` has to be the last `-f`/`--set` in the command, full stop
-   — it's what makes it win on `bp-configurator.env` (Helm merges `-f`/`--set` in the order given,
-   later wins per top-level key). That includes coming after `values-nodeport.yaml` in the NodePort
-   case and after every other secrets/ingress/alerts override in both.
+   `-f values-stream-cap.generated.yaml` has to be the last `-f` in the command — that's what
+   makes it win on `bp-configurator.env` (multiple `-f` files merge in order given, later wins
+   per top-level key). That includes coming after `values-nodeport.yaml` in the NodePort case and
+   after every other `-f` in both. `--set` doesn't follow this rule: Helm always applies `--set`
+   after every `-f` file regardless of command-line position, so a stray `--set` on
+   `bp-configurator.env` here would still win no matter where you put it — step 4 should already
+   have converted any such override into a values file, not left it inline.
 8. **Post-install validation** — confirm pods actually come up before declaring success; see
    `warehouse-<mode>-app/README.md` §Post-install validation.
 9. **Re-run the script whenever `NUM_STREAMS` or the target GPU changes** — the values-override
