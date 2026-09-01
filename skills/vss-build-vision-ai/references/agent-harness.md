@@ -296,9 +296,15 @@ The notebook runs with errors fatal and asserts each step itself, so a clean
 exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
-1. **The harness is reachable.** Section 3.7 prints the Agent UI link. Report it
-   verbatim — on Brev it is the secure-link FQDN, and a `127.0.0.1` URL needs the
-   SSH tunnel the same section prints.
+1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in
+   the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
+   — not as a bare URL in prose, so the user can click straight through to the
+   harness they just deployed. The target is the printed URL character for
+   character: do not shorten it, re-host it, or drop the fragment, because the
+   OpenClaw URL carries the gateway token in `#token=` and a link without it
+   lands on an unauthenticated page. On Brev the host is the secure-link FQDN. A
+   `127.0.0.1` URL only resolves on the deployment host, so pair the link with
+   the SSH tunnel the same section prints rather than offering it alone.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters
