@@ -236,6 +236,32 @@ def command_runner(command: list[str]) -> str:
 
 
 def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
+    if update.digest:
+        # Verify the SOURCE (content tag) before creating the alias so that we
+        # compare a stable, already-published manifest rather than the newly
+        # created target.  GHCR's eventual consistency means that inspecting a
+        # tag immediately after writing it can still return the old manifest,
+        # which produces a spurious mismatch.  The content tag was published by
+        # the build job and is stable; if its digest matches the release-set the
+        # alias will be correct by construction -- imagetools create copies the
+        # manifest pointer exactly.
+        observed = runner(
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                update.source,
+                "--format",
+                "{{json .Manifest}}",
+            ]
+        )
+        source_digest = str(json.loads(observed).get("digest") or "")
+        if source_digest != update.digest:
+            raise RuntimeError(
+                f"{update.name}: content tag digest {source_digest!r} != release-set {update.digest!r}"
+            )
+
     runner(
         [
             "docker",
@@ -247,28 +273,24 @@ def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
             update.source,
         ]
     )
-    observed = runner(
-        [
-            "docker",
-            "buildx",
-            "imagetools",
-            "inspect",
-            update.target,
-            "--format",
-            "{{json .Manifest}}",
-        ]
-    )
-    digest = str(json.loads(observed).get("digest") or "")
+
     if not update.digest:
         # Reuse-pinned entries record no digest. The source was content
         # addressed, so there is nothing to compare against -- report what the
-        # alias resolved to.
-        print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
-        return
-    if digest != update.digest:
-        raise RuntimeError(
-            f"{update.name}: alias digest {digest!r} != release-set {update.digest!r}"
+        # alias resolved to after creation.
+        observed = runner(
+            [
+                "docker",
+                "buildx",
+                "imagetools",
+                "inspect",
+                update.target,
+                "--format",
+                "{{json .Manifest}}",
+            ]
         )
+        digest = str(json.loads(observed).get("digest") or "")
+        print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
 
 
 def main() -> int:
