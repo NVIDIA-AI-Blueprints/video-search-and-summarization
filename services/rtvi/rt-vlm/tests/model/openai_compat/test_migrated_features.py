@@ -23,6 +23,7 @@ Run with:
   PYTHONPATH=src pytest tests/model/openai_compat/test_migrated_features.py -v
 """
 
+import asyncio
 import io
 import os
 import sys
@@ -43,6 +44,7 @@ from models.openai_compat.openai_compat_model import (
     _encode_h264_cpu,
     _encode_h264_nvenc,
     _encode_h264_pyav,
+    _openai_token_param_name,
     _pynvcodec_nvenc_available,
     _rgb_to_nv12,
     _rgb_to_nv12_tensor,
@@ -635,6 +637,90 @@ class TestGenerateSyncReasoningDescription:
 
         assert outputs[0].output == raw_output
         assert outputs[0].reasoning_description == ""
+
+
+
+class TestOpenAITokenParamSelection:
+    def test_default_uses_max_tokens_when_unset(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VIA_VLM_OPENAI_TOKEN_PARAM", None)
+            assert _openai_token_param_name() == "max_tokens"
+
+    def test_env_selects_max_completion_tokens(self):
+        with patch.dict(os.environ, {"VIA_VLM_OPENAI_TOKEN_PARAM": "max_completion_tokens"}):
+            assert _openai_token_param_name() == "max_completion_tokens"
+
+    def test_env_selects_max_tokens(self):
+        with patch.dict(os.environ, {"VIA_VLM_OPENAI_TOKEN_PARAM": "max_tokens"}):
+            assert _openai_token_param_name() == "max_tokens"
+
+    def test_invalid_env_is_rejected(self):
+        with patch.dict(os.environ, {"VIA_VLM_OPENAI_TOKEN_PARAM": "auto"}):
+            with pytest.raises(ValueError, match="VIA_VLM_OPENAI_TOKEN_PARAM"):
+                _openai_token_param_name()
+
+    @patch(
+        "models.openai_compat.openai_compat_model.tensor_to_base64_jpeg",
+        side_effect=_fake_base64_jpeg,
+    )
+    def test_generate_sync_sends_explicit_max_completion_tokens(self, _mock_b64, model, chunk):
+        model._client.chat.completions.create.return_value = _make_mock_response("ok")
+
+        with patch.dict(
+            os.environ,
+            {
+                "REMOTE_VIDEO_INPUT": "false",
+                "VIA_VLM_OPENAI_TOKEN_PARAM": "max_completion_tokens",
+            },
+            clear=False,
+        ):
+            model._generate_sync(
+                query="q",
+                chunks=[chunk],
+                video_frames=[MagicMock()],
+                video_frames_times=[[1.0, 2.0]],
+                generation_config=VlmGenerationConfig(max_new_tokens=321),
+            )
+
+        call_kwargs = model._client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_completion_tokens"] == 321
+        assert "max_tokens" not in call_kwargs
+
+    def test_text_only_uses_default_max_tokens(self, model):
+        model._model_name = "gpt-5o"
+        model._client.chat.completions.create.return_value = _make_mock_response("ok")
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VIA_VLM_OPENAI_TOKEN_PARAM", None)
+            model._generate_text_only_sync(
+                messages=[{"role": "user", "content": "hello"}],
+                generation_config=VlmGenerationConfig(max_new_tokens=123),
+            )
+
+        call_kwargs = model._client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_tokens"] == 123
+        assert "max_completion_tokens" not in call_kwargs
+
+    def test_text_only_stream_sends_explicit_max_completion_tokens(self, model):
+        chunk = SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="ok"))])
+        model._client.chat.completions.create.return_value = [chunk]
+
+        async def collect():
+            return [
+                token
+                async for token in model.generate_text_only_stream(
+                    messages=[{"role": "user", "content": "hello"}],
+                    generation_config=VlmGenerationConfig(max_new_tokens=45),
+                )
+            ]
+
+        with patch.dict(os.environ, {"VIA_VLM_OPENAI_TOKEN_PARAM": "max_completion_tokens"}):
+            assert asyncio.run(collect()) == ["ok"]
+
+        call_kwargs = model._client.chat.completions.create.call_args[1]
+        assert call_kwargs["max_completion_tokens"] == 45
+        assert "max_tokens" not in call_kwargs
+        assert call_kwargs["stream"] is True
 
 
 class TestGenerateSyncExtraBody:
