@@ -166,6 +166,27 @@ def _introspection_result(status: str = "completed") -> IntrospectionResult:
     )
 
 
+def _introspection_memory_config(
+    *,
+    model: str = "openclaw/default",
+    backend_model: str | None = "ollama/gemma3:12b",
+    api_key_env: str | None = "HARNESS_TOKEN",
+    persist_by_default: bool = True,
+) -> config_mod.MemoryConfig:
+    return config_mod.MemoryConfig(
+        persist_by_default=persist_by_default,
+        introspection=config_mod.IntrospectionMemoryConfig(
+            judge=config_mod.IntrospectionJudgeConfig(
+                endpoint="https://text-judge.example/v1",
+                model=model,
+                backend_model=backend_model,
+                api_key_env=api_key_env,
+                criteria_prompt="Require direct evidence.",
+            )
+        ),
+    )
+
+
 def test_introspect_help_exposes_exact_options() -> None:
     result = _invoke("introspect", "--help")
     assert result.exit_code == 0
@@ -316,13 +337,14 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
         services={
-            "rt_vlm": config_mod.Service(url="http://vss.test/rtvi-vlm", models=["first-model"]),
+            "rt_vlm": config_mod.Service(url="http://vss.test/rtvi-vlm", models=["visual-only-model"]),
             "elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch"),
         },
-        memory=config_mod.MemoryConfig(enabled=True, persist_by_default=persist_by_default),
+        memory=_introspection_memory_config(persist_by_default=persist_by_default),
     )
     observed: dict[str, Any] = {}
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("HARNESS_TOKEN", "runtime-secret")
 
     class FakeClient:
         def __init__(self, **kwargs: Any) -> None:
@@ -352,9 +374,146 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
 
     assert result.exit_code == int(expected_exit), result.output
     assert json.loads(result.output)["answer"] == "A forklift crossed the aisle."
-    assert observed["client"]["model"] == "first-model"
+    assert observed["client"]["base_url"] == "https://text-judge.example/v1"
+    assert observed["client"]["model"] == "openclaw/default"
+    assert observed["client"]["backend_model"] == "ollama/gemma3:12b"
+    assert observed["client"]["api_key"] == "runtime-secret"
+    assert observed["client"]["criteria_prompt"] == "Require direct evidence."
     assert observed["closed"] is True
     assert observed["memory_service"] is injected_memory.service
     assert (observed["runner_memory"] is injected_memory) is persist_by_default
     assert injected_memory.service.list_jobs() == []
     assert list(tmp_path.rglob("*.md")) == []
+
+
+def test_introspect_requires_configured_text_judge(
+    monkeypatch: pytest.MonkeyPatch,
+    injected_memory: Memory,
+) -> None:
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch")},
+        memory=config_mod.MemoryConfig(),
+    )
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "vss configure memory introspection" in result.output
+    assert injected_memory.service.list_jobs() == []
+
+
+def test_introspect_requires_configured_credential_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch")},
+        memory=_introspection_memory_config(api_key_env="MISSING_HARNESS_TOKEN"),
+    )
+    monkeypatch.delenv("MISSING_HARNESS_TOKEN", raising=False)
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "MISSING_HARNESS_TOKEN" in result.output
+    assert "missing or empty" in result.output
+
+
+def test_introspect_uses_custom_text_model_without_rt_vlm_for_judging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss_cli.vlm.runner as runner_mod
+    import vss_core.introspection as introspection_mod
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch")},
+        memory=_introspection_memory_config(
+            model="llama-3.3-70b-instruct",
+            backend_model=None,
+            api_key_env=None,
+        ),
+    )
+    observed: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["client"] = kwargs
+
+        async def aclose(self) -> None:
+            observed["closed"] = True
+
+    class FakeRunner:
+        def __init__(self, actual_deployment: Any, **_kwargs: Any) -> None:
+            self.persistence_errors: list[str] = []
+            self.backend_errors: list[str] = []
+            self.timed_out = False
+            observed["runner_deployment"] = actual_deployment
+
+    async def fake_introspect(*_args: Any, **_kwargs: Any) -> IntrospectionResult:
+        return _introspection_result()
+
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(introspection_mod, "OpenAIIntrospectionClient", FakeClient)
+    monkeypatch.setattr(introspection_mod, "introspect", fake_introspect)
+    monkeypatch.setattr(runner_mod, "IntrospectionVLMJobRunner", FakeRunner)
+
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+
+    assert result.exit_code == 0, result.output
+    assert observed["client"]["base_url"] == "https://text-judge.example/v1"
+    assert observed["client"]["model"] == "llama-3.3-70b-instruct"
+    assert observed["client"]["backend_model"] is None
+    assert observed["client"]["api_key"] is None
+    assert observed["runner_deployment"] is deployment
+    assert observed["closed"] is True
+
+
+def test_judge_endpoint_failure_does_not_fall_back_to_rt_vlm_and_closes_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+
+    import vss_cli.vlm.runner as runner_mod
+    import vss_core.introspection as introspection_mod
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={
+            "rt_vlm": config_mod.Service(url="http://visual-only.test/rtvi-vlm", models=["visual-model"]),
+            "elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch"),
+        },
+        memory=_introspection_memory_config(api_key_env=None),
+    )
+    observed: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["client"] = kwargs
+
+        async def aclose(self) -> None:
+            observed["closed"] = True
+
+    class FakeRunner:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            self.persistence_errors: list[str] = []
+            self.backend_errors: list[str] = []
+            self.timed_out = False
+
+    async def failing_introspect(*_args: Any, **_kwargs: Any) -> IntrospectionResult:
+        raise httpx.ConnectError("text judge offline")
+
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(introspection_mod, "OpenAIIntrospectionClient", FakeClient)
+    monkeypatch.setattr(introspection_mod, "introspect", failing_introspect)
+    monkeypatch.setattr(runner_mod, "IntrospectionVLMJobRunner", FakeRunner)
+
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+
+    assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
+    assert observed["client"]["base_url"] == "https://text-judge.example/v1"
+    assert observed["client"]["model"] != "visual-model"
+    assert observed["closed"] is True

@@ -27,6 +27,8 @@ from vss_core.memory.models import TimestampPoint
 from vss_core.memory.models import TimeWindow
 from vss_core.memory.models import UnifiedMemoryRecord
 
+_CRITERIA = "Require direct evidence for all material claims."
+
 
 def _record(
     *,
@@ -211,7 +213,11 @@ def test_window_must_overlap_record_for_the_same_sensor() -> None:
 
 
 def test_client_satisfies_judge_and_synthesizer_protocols() -> None:
-    client = OpenAIIntrospectionClient(base_url="https://rt-vlm.example/v1", model="first-rt-vlm-model")
+    client = OpenAIIntrospectionClient(
+        base_url="https://text-judge.example/v1",
+        model="custom-text-model",
+        criteria_prompt=_CRITERIA,
+    )
 
     assert isinstance(client, SufficiencyJudge)
     assert isinstance(client, AnswerSynthesizer)
@@ -226,16 +232,32 @@ async def test_judge_retries_once_after_invalid_json_then_accepts_fenced_json() 
         calls += 1
         body = json.loads(request.content)
         assert body["temperature"] == 0
-        assert body["response_format"] == {"type": "json_object"}
+        assert body["model"] == "openclaw/default"
+        assert "response_format" not in body
+        assert request.headers["authorization"] == "Bearer gateway-secret"
+        assert request.headers["x-openclaw-model"] == "ollama/gemma3:12b"
         prompt = body["messages"][0]["content"]
-        assert "threshold of 0.70" in prompt
+        assert prompt.count(_CRITERIA) == 1
+        assert "FIXED VSS GROUNDING AND SAFETY RULES:" in prompt
+        assert "Judge only the supplied memory records" in prompt
+        assert "Do not invent evidence" in prompt
+        assert "REQUIRED RESPONSE SCHEMA:" in prompt
+        assert "SUFFICIENCY THRESHOLD:\n0.70" in prompt
         assert "start_time and end_time" in prompt
+        assert prompt.index("FIXED VSS GROUNDING") < prompt.index("CONFIGURED SUFFICIENCY CRITERIA")
+        assert prompt.index("CONFIGURED SUFFICIENCY CRITERIA") < prompt.index("SUFFICIENCY THRESHOLD")
+        assert prompt.index("SUFFICIENCY THRESHOLD") < prompt.index("REQUIRED RESPONSE SCHEMA")
+        assert prompt.index("REQUIRED RESPONSE SCHEMA") < prompt.index("USER QUERY")
+        assert prompt.index("USER QUERY") < prompt.index("RETRIEVED RECORDS")
         content = "not-json" if calls == 1 else f"```json\n{json.dumps(_decision())}\n```"
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]}, request=request)
 
     client = OpenAIIntrospectionClient(
-        base_url="https://rt-vlm.example",
-        model="first-rt-vlm-model",
+        base_url="https://text-judge.example",
+        model="openclaw/default",
+        backend_model="ollama/gemma3:12b",
+        api_key="gateway-secret",
+        criteria_prompt=_CRITERIA,
         transport=httpx.MockTransport(handler),
     )
     try:
@@ -263,8 +285,9 @@ async def test_judge_fails_after_second_invalid_response() -> None:
         )
 
     client = OpenAIIntrospectionClient(
-        base_url="https://rt-vlm.example/v1",
-        model="first-rt-vlm-model",
+        base_url="https://text-judge.example/v1",
+        model="custom-text-model",
+        criteria_prompt=_CRITERIA,
         transport=httpx.MockTransport(handler),
     )
     try:
@@ -291,8 +314,9 @@ async def test_ungrounded_gap_is_rejected_after_one_retry() -> None:
         )
 
     client = OpenAIIntrospectionClient(
-        base_url="https://rt-vlm.example/v1",
-        model="first-rt-vlm-model",
+        base_url="https://text-judge.example/v1",
+        model="custom-text-model",
+        criteria_prompt=_CRITERIA,
         transport=httpx.MockTransport(handler),
     )
     try:
@@ -309,6 +333,8 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert "response_format" not in body
+        assert "authorization" not in request.headers
+        assert "x-openclaw-model" not in request.headers
         prompt = body["messages"][0]["content"]
         assert "camera-east" in prompt
         assert "A person carried a small box." in prompt
@@ -321,8 +347,9 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
         )
 
     client = OpenAIIntrospectionClient(
-        base_url="https://rt-vlm.example/v1",
-        model="first-rt-vlm-model",
+        base_url="https://text-judge.example/v1",
+        model="custom-text-model",
+        criteria_prompt=_CRITERIA,
         transport=httpx.MockTransport(handler),
     )
     evidence = VLMEvidence.model_validate(
@@ -358,8 +385,9 @@ async def test_http_failure_is_not_retried() -> None:
         return httpx.Response(503, request=request)
 
     client = OpenAIIntrospectionClient(
-        base_url="https://rt-vlm.example/v1",
-        model="first-rt-vlm-model",
+        base_url="https://text-judge.example/v1",
+        model="custom-text-model",
+        criteria_prompt=_CRITERIA,
         transport=httpx.MockTransport(handler),
     )
     try:

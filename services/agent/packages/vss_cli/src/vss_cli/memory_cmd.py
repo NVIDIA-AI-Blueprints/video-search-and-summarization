@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from typing import TYPE_CHECKING
 from typing import Any
@@ -133,17 +134,30 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
     from vss_core.introspection import introspect
 
     deployment = config_mod.load()
+    memory_config = deployment.memory
+    if memory_config is None or memory_config.introspection is None:
+        raise config_mod.ConfigError(
+            "memory introspection judge is not configured; run `vss configure memory introspection`"
+        )
+    judge_config = memory_config.introspection.judge
+    api_key: str | None = None
+    if judge_config.api_key_env is not None:
+        api_key = os.environ.get(judge_config.api_key_env, "")
+        if not api_key.strip():
+            raise config_mod.ConfigError(
+                f"introspection judge credential environment variable {judge_config.api_key_env!r} is missing or empty"
+            )
     memory = _memory(deployment)
     owns_memory = _TEST_MEMORY is None
     client: OpenAIIntrospectionClient | None = None
     try:
-        rt_vlm = deployment.services.get("rt_vlm")
-        if rt_vlm is None or not rt_vlm.url or not rt_vlm.models:
-            raise config_mod.ConfigError("the configured RT-VLM service reports no model")
         settings = IntrospectionSettings()
         client = OpenAIIntrospectionClient(
-            base_url=rt_vlm.url,
-            model=rt_vlm.models[0],
+            base_url=judge_config.endpoint,
+            model=judge_config.model,
+            backend_model=judge_config.backend_model,
+            api_key=api_key,
+            criteria_prompt=judge_config.criteria_prompt,
             settings=settings,
         )
         runner = IntrospectionVLMJobRunner(

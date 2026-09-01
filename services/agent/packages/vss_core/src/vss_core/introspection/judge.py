@@ -32,6 +32,8 @@ class OpenAIIntrospectionClient:
         *,
         base_url: str,
         model: str,
+        criteria_prompt: str,
+        backend_model: str | None = None,
         api_key: str | None = None,
         settings: IntrospectionSettings | None = None,
         client: httpx.AsyncClient | None = None,
@@ -41,11 +43,17 @@ class OpenAIIntrospectionClient:
             raise ConfigurationError("introspection base_url must be non-empty")
         if not model.strip():
             raise ConfigurationError("introspection model must be non-empty")
+        if not criteria_prompt.strip():
+            raise ConfigurationError("introspection criteria_prompt must be non-empty")
+        if backend_model is not None and not backend_model.strip():
+            raise ConfigurationError("introspection backend_model must be non-empty when configured")
         if client is not None and transport is not None:
             raise ConfigurationError("provide either an httpx client or transport, not both")
 
         self._base_url = _normalize_base_url(base_url)
         self._model = model.strip()
+        self._criteria_prompt = criteria_prompt
+        self._backend_model = backend_model.strip() if backend_model is not None else None
         self._api_key = api_key
         self._settings = settings or IntrospectionSettings()
         self._owns_client = client is None
@@ -56,10 +64,15 @@ class OpenAIIntrospectionClient:
 
     async def judge(self, *, query: str, records: list[UnifiedMemoryRecord]) -> SufficiencyDecision:
         """Judge memory sufficiency, retrying once only for invalid model output."""
-        prompt = _judge_prompt(query, records, self._settings.sufficiency_threshold)
+        prompt = _judge_prompt(
+            query,
+            records,
+            self._settings.sufficiency_threshold,
+            self._criteria_prompt,
+        )
         last_error: InvalidJudgeResponseError | None = None
         for _attempt in range(2):
-            content = await self._chat(prompt, json_only=True)
+            content = await self._chat(prompt)
             try:
                 decision = _parse_decision(content)
                 return decision.validate_grounding(records)
@@ -79,22 +92,22 @@ class OpenAIIntrospectionClient:
     ) -> str:
         """Produce a final answer from supplied evidence without another judge pass."""
         prompt = _synthesis_prompt(query, memory_evidence, vlm_evidence, unresolved_gaps)
-        answer = (await self._chat(prompt, json_only=False)).strip()
+        answer = (await self._chat(prompt)).strip()
         if not answer:
             raise ValueError("answer synthesizer returned empty content")
         return answer
 
-    async def _chat(self, prompt: str, *, json_only: bool) -> str:
+    async def _chat(self, prompt: str) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
             "temperature": 0,
             "messages": [{"role": "user", "content": prompt}],
         }
-        if json_only:
-            payload["response_format"] = {"type": "json_object"}
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        if self._backend_model is not None:
+            headers["x-openclaw-model"] = self._backend_model
 
         response = await self._client.post(self._chat_completions_url, headers=headers, json=payload)
         response.raise_for_status()
@@ -138,21 +151,28 @@ def _strip_code_fence(content: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
-def _judge_prompt(query: str, records: list[UnifiedMemoryRecord], threshold: float) -> str:
+def _judge_prompt(
+    query: str,
+    records: list[UnifiedMemoryRecord],
+    threshold: float,
+    criteria_prompt: str,
+) -> str:
     schema = SufficiencyDecision.model_json_schema()
     evidence = [record.model_dump_memory() for record in records]
     return (
-        "Decide whether the retrieved memory evidence is sufficient to answer the query. "
-        f"Use a sufficiency threshold of {threshold:.2f}. "
-        "Return JSON only, with exactly the fields approved by the schema; do not add markdown or commentary. "
-        "Every evidence_record_id must be an ID from the supplied records. Each gap must ask one targeted question "
-        "using a supplied sensor name plus start_time and end_time as ISO-8601 UTC instants that overlap that "
-        "sensor's supplied record window. "
+        "FIXED VSS GROUNDING AND SAFETY RULES:\n"
+        "Judge only the supplied memory records. Do not invent evidence. "
+        "Every evidence_record_id must come from the supplied records. "
+        "Each gap must ask one targeted question using a sensor from the supplied records, and its start_time and "
+        "end_time must be ISO-8601 UTC instants that overlap that sensor's supplied record window. "
         "Use canonical input.sensors[].id names or legacy input.sensors[].info.name names. "
-        "If sufficient is true, gaps must be empty.\n"
-        f"SCHEMA:\n{json.dumps(schema, separators=(',', ':'))}\n"
-        f"QUERY:\n{query}\n"
-        f"RECORDS:\n{json.dumps(evidence, separators=(',', ':'))}"
+        "When sufficient is true, gaps must be empty. "
+        "Return JSON only, with exactly the fields required by the schema; do not add markdown or commentary.\n"
+        f"CONFIGURED SUFFICIENCY CRITERIA:\n{criteria_prompt}\n"
+        f"SUFFICIENCY THRESHOLD:\n{threshold:.2f}\n"
+        f"REQUIRED RESPONSE SCHEMA:\n{json.dumps(schema, separators=(',', ':'))}\n"
+        f"USER QUERY:\n{query}\n"
+        f"RETRIEVED RECORDS:\n{json.dumps(evidence, separators=(',', ':'))}"
     )
 
 
