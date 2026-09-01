@@ -18,11 +18,10 @@
   Renders one ConfigMap per enabled NIM containing GPU-tuning env vars.
 
   The active profile is selected via .Values.gpuType (default: H100).
-  Each NIMService (nemotron / cosmos) reads these vars via configMapKeyRef
+  Each NIMService (nemotron35 / cosmos) reads these vars via configMapKeyRef
   with optional: true, so missing keys are silently ignored.
 
   ConfigMap names produced (respects fullnameOverride):
-    <nemotron-fullname>-nim-env  ← read by nemotron NIMService
     <nemotron35-fullname>-nim-env ← read by Nemotron 3.5 NIMService
     <cosmos-fullname>-nim-env    ← read by cosmos NIMService
     <cosmos3-fullname>-nim-env   ← read by cosmos3 NIMService
@@ -35,36 +34,6 @@
   {{- fail (printf "nims: unknown gpuType %q – valid options: %s" $gpuType $valid) -}}
 {{- end -}}
 {{- $profile := index $profiles $gpuType }}
-
-{{- if .Values.nemotron.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "nims.nemotron.fullname" . }}-nim-env
-  labels:
-    {{- include "nims.labels" . | nindent 4 }}
-    nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
-data:
-  {{- range $k, $v := (index $profile "nemotron") }}
-  {{ $k }}: {{ $v | quote }}
-  {{- end }}
-{{- end }}
-
-{{- if .Values.nemotron3.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "nims.nemotron3.fullname" . }}-nim-env
-  labels:
-    {{- include "nims.labels" . | nindent 4 }}
-    nims.nvidia.com/gpu-type: {{ $gpuType | quote }}
-data:
-  {{- range $k, $v := (index $profile "nemotron3") }}
-  {{ $k }}: {{ $v | quote }}
-  {{- end }}
-{{- end }}
 
 {{- if .Values.nemotron35.enabled }}
 ---

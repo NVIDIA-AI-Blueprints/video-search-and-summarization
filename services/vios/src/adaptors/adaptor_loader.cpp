@@ -308,6 +308,13 @@ std::shared_ptr<DeviceManager> AdaptorLoader::loadAdaptor(ModuleId module_id)
     device_manager->password = info_.get("password","").asString();
     device_manager->port = info_.get("port", "").asString();
     device_manager->type = info_.get("type","").asString();
+    // Either source is valid for adaptor credentials: a non-empty compose.env override
+    // (ADAPTOR_IP/USER/PASSWORD/PORT) takes precedence over the adaptor_config.json entry, so a
+    // deployment can configure the bridge/VMS in one place. Applied before url is built from ip below.
+    if (const char* e = getenv("ADAPTOR_IP");       e != nullptr && e[0] != '\0') { device_manager->ip = e; }
+    if (const char* e = getenv("ADAPTOR_USER");     e != nullptr && e[0] != '\0') { device_manager->user = e; }
+    if (const char* e = getenv("ADAPTOR_PASSWORD"); e != nullptr && e[0] != '\0') { device_manager->password = e; }
+    if (const char* e = getenv("ADAPTOR_PORT");     e != nullptr && e[0] != '\0') { device_manager->port = e; }
     device_manager->enabled = true;
     device_manager->needRtspServer = info_.get("need_rtsp_server", false).asBool();
     device_manager->needStreamMonitoring = info_.get("need_stream_monitoring", false).asBool();

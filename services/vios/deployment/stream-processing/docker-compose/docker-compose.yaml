@@ -25,6 +25,12 @@ services:
     environment:
       - CONTAINER_NAME=sensor-ms
       - ADAPTOR=${VST_ADAPTOR}
+      # Optional adaptor credential override. When set (non-empty) these win over the
+      # adaptor_config.json entry; leave blank to use adaptor_config.json. Either source is valid.
+      - ADAPTOR_IP=${ADAPTOR_IP:-}
+      - ADAPTOR_USER=${ADAPTOR_USER:-}
+      - ADAPTOR_PASSWORD=${ADAPTOR_PASSWORD:-}
+      - ADAPTOR_PORT=${ADAPTOR_PORT:-}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - VST_USE_SDRC=${VST_USE_SDRC:-false}
@@ -81,6 +87,11 @@ services:
       - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB:-}
       - CONTAINER_NAME=streamprocessing-ms-1
       - VST_APT_CACHE_DIR=/opt/apt-cache
+      # Diagnostic, off by default: keep every DASH segment on disk instead of
+      # pruning to the published window, so a session can be taken apart after
+      # it has gone wrong.  Output grows without bound while it is on, so turn
+      # it on for a session and off again afterwards.
+      - VST_DASH_KEEP_SEGMENTS=${VST_DASH_KEEP_SEGMENTS:-0}
       - ADAPTOR=${VST_ADAPTOR}
       - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT_1}
       - PROMETHEUS_PORT=${STREAM_PROCESSOR_PROMETHEUS_PORT_1}

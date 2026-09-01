@@ -114,6 +114,8 @@ export interface VideoPlayerProps {
     onWebRTCStatsUpdate?: (stats: RTCStatsReport) => void;
     sensors?: Sensor[];
     onClose?: () => void;
+    /** Chosen on the page before playback starts.  Defaults to WebRTC. */
+    protocol?: LiveDeliveryProtocol;
 }
 
 /**
@@ -803,3 +805,7 @@ export interface RuntimeStreamOverlayOptions {
     resolution: string; // widthxheight
     overlay?: StreamOverlayOptions;
 }
+
+// How a live or recorded stream is delivered to the browser.  Chosen by the
+// viewer before playback starts, because changing it restarts the stream.
+export type LiveDeliveryProtocol = 'webrtc' | 'dash';

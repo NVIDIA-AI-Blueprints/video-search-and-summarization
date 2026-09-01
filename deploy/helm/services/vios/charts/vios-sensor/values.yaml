@@ -64,6 +64,20 @@ env:
     value: "0.0.0.0"
   - name: ADAPTOR
     value: vst_rtsp
+  # Optional credential override for mms-type adaptors (milestone_onvif,
+  # milestone_soap), mirroring ADAPTOR_IP/USER/PASSWORD/PORT in the compose
+  # deployments. A non-empty value wins over the matching field in
+  # adaptor_config.json; leave empty to let that file be authoritative.
+  # ADAPTOR_PASSWORD is a secret: prefer overriding it from a Secret via
+  # --set or a values file rather than committing a value here.
+  - name: ADAPTOR_IP
+    value: ""
+  - name: ADAPTOR_USER
+    value: ""
+  - name: ADAPTOR_PASSWORD
+    value: ""
+  - name: ADAPTOR_PORT
+    value: ""
   - name: NEED_RECORDING
     value: "false"
   - name: NEED_RTSPSERVER

@@ -145,9 +145,21 @@ struct DeviceConfig
     int onvif_request_timeout_secs;
     int onvif_sensor_time_sync_interval_secs;
     int onvif_sensor_time_sync_compensation_ms;
+    // When true, cache the per-device clock offset (deviceTime - localTime) and
+    // reuse it to build the WS-UsernameToken timestamp, instead of doing a
+    // GetSystemDateAndTime round-trip before every authenticated ONVIF request.
+    // Falls back to a live GetSystemDateAndTime when the offset is stale or unset,
+    // and is invalidated on a 401 so a drifted clock self-heals. Set false to
+    // restore the legacy per-call behaviour.
+    bool onvif_cache_device_time_offset;
     bool enable_perf_logging;
     int max_webrtc_out_connections;
     int max_webrtc_in_connections;
+    int max_live_dash_sessions;
+    int dash_segment_duration_sec;
+    int dash_playlist_length;
+    int dash_idle_timeout_sec;
+    string dash_output_root;
     string storage_config_file;
     size_t total_video_storage_size_MB;
     double storage_threshold_percentage;

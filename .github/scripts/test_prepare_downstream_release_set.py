@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import tempfile
 import unittest
@@ -141,27 +140,30 @@ class WorkflowSeparationTest(unittest.TestCase):
         self.assertIn("DOWNSTREAM_REF: main", sdu)
         self.assertIn('"SPATIALAI_PIPELINE": "true"', sdu)
         sonar = (workflows / "sonarqube.yml").read_text()
-        match = re.search(
-            r"^          - name: spatialai-data-utils\n(?P<entry>(?:            .*\n)+)",
-            sonar,
-            flags=re.MULTILINE,
+        self.assertIn("detect_sonarqube_projects.py", sonar)
+        self.assertIn("fromJSON(needs.detect.outputs.matrix)", sonar)
+
+        import detect_sonarqube_projects as dsp
+
+        sdu = next(
+            project
+            for project in dsp.PROJECTS
+            if project["name"] == "spatialai-data-utils"
         )
-        self.assertIsNotNone(match, "SDU SonarQube matrix entry is missing")
-        assert match is not None
-        entry = match.group("entry")
-        self.assertIn(
+        self.assertEqual(
+            sdu["project_key"],
             "TEGRASW_METROPOLIS_spatialai-data-utils_video-search-and-summarization",
-            entry,
         )
-        self.assertIn(
-            "sources: libs/analytics/spatialai-data-utils/spatialai_data_utils",
-            entry,
+        self.assertEqual(
+            sdu["sources"],
+            "libs/analytics/spatialai-data-utils/spatialai_data_utils",
         )
-        self.assertIn(
-            "tests: libs/analytics/spatialai-data-utils/tests",
-            entry,
+        self.assertEqual(
+            sdu["tests"],
+            "libs/analytics/spatialai-data-utils/tests",
         )
-        self.assertIn('python_version: "3.13"', entry)
+        self.assertEqual(sdu["python_version"], "3.13")
+        self.assertEqual(sdu["paths"], ["libs/analytics/spatialai-data-utils"])
 
     def test_release_set_preparation_has_no_sdu_transport(self):
         script = Path(module.__file__).read_text()

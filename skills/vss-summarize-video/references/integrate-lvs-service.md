@@ -142,7 +142,7 @@ jq -e '.choices[0].message.content | length > 0'
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` | Raw RT-VLM caption topic | `mdx-vlm-captions` | Yes when RT-VLM Kafka is enabled |
 | `RTVI_VLM_ERROR_BUS` | Error-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
 | `VLM_NAME` | Model id sent to LVS | `nim_nvidia_cosmos-reason2-8b_hf-1208` | Yes |
-| `LLM_NAME` | LLM model id | `nvidia/nvidia-nemotron-nano-9b-v2` | Required for local LLM |
+| `LLM_NAME` | LLM model id | `nvidia/nemotron-3.5-lightning-30b-a3b` | Required for local LLM |
 | `LLM_BASE_URL` | Remote or local LLM OpenAI-compatible base URL | `http://${HOST_IP}:${LLM_PORT}` when local | Required |
 | `NVIDIA_API_KEY` / `OPENAI_API_KEY` | Remote endpoint auth and LVS LLM API key fallback | empty | Required when endpoint enforces auth |
 | `VSS_APPS_DIR` | Optional build/deploy root when wrapper composes are used; source-of-truth LVS compose uses repo-relative config mounts instead | none | Conditional |

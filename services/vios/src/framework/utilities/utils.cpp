@@ -2894,62 +2894,10 @@ std::map<std::string, std::string, std::less<>> getStreamOptions(Json::Value in)
     Json::Value compositeJson = optionsJson.get("composite", EMPTY_STRING);
     if (compositeJson.isObject())
     {
-        if (compositeJson.get("doComposite", false).asBool())
-        {
-            opts["doComposite"] = "true";
-            if (optionsJson.isMember("framerate"))
-            {
-                opts["framerate"] = optionsJson.get("framerate", EMPTY_STRING).asString();
-            }
-            LOG(info) << "Composite overlay is enabled, framerate is set to " << opts["framerate"] << endl;
-        }
-        Json::Value stream_ids_json = compositeJson.get("streamIds", EMPTY_STRING);
-        if(!stream_ids_json.empty())
-        {
-            string streamIds = "";
-            for (auto x: stream_ids_json)
-            {
-                streamIds += "," + x.asString();
-            }
-            if (!streamIds.empty())
-            {
-                streamIds.erase(streamIds.begin()); // Erase first "," at position 0
-            }
-            opts["streamIds"] = streamIds;
-        }
-        Json::Value compositeoverlayJson = compositeJson.get("showSensorName", EMPTY_STRING);
-        if (compositeoverlayJson.isObject())
-        {
-            bool enableCompositeOverlay = compositeoverlayJson.get("enable", false).asBool();
-            if (enableCompositeOverlay)
-            {
-                opts["showSensorName"] = "true";
-                Json::Value overlay_position = compositeoverlayJson.get("position", EMPTY_STRING);
-                if (!overlay_position.empty())
-                {
-                    string position = "";
-                    for (auto x: overlay_position)
-                    {
-                        position += "," + x.asString();
-                    }
-                    if (!position.empty())
-                    {
-                        position.erase(position.begin()); // Erase first "," at position 0
-                    }
-                    opts["showSensorNamePosition"] = position;
-                }
-            }
-        }
-        bool includeFloorPlan = compositeJson.get("includeFloorPlan", false).asBool();
-        if (includeFloorPlan)
-        {
-            opts["gods_eye_view"] = "true";
-        }
-        Json::Value compositeLayout = compositeJson.get("gridLayout", EMPTY_STRING);
-        if (compositeLayout.isObject())
-        {
-            opts["compositeLayout"] = jsonToString(compositeLayout);
-        }
+        setCompositeOptsBasedOnJson(opts, compositeJson,
+                                    optionsJson.isMember("framerate")
+                                        ? optionsJson.get("framerate", EMPTY_STRING).asString()
+                                        : std::string());
     }
 
     if (in.isMember("tag"))
@@ -3904,6 +3852,72 @@ string getMediaContentType(const string& fileExtension)
     return string("application/octet-stream"); // Default
 }
 
+// A video wall is described the same way whichever protocol carries it, so
+// the composite half of the stream options is read here rather than being
+// spelled out again by each caller.  The frame rate travels beside the
+// composite object rather than inside it, so it is passed in.
+template<typename Compare>
+void setCompositeOptsBasedOnJson(std::map<std::string, std::string, Compare>& opts,
+                                 const Json::Value& compositeJson,
+                                 const std::string& frameRate)
+{
+    if (!compositeJson.isObject())
+    {
+        return;
+    }
+    if (compositeJson.get("doComposite", false).asBool())
+    {
+        opts["doComposite"] = "true";
+        if (!frameRate.empty())
+        {
+            opts["framerate"] = frameRate;
+        }
+        LOG(info) << "Composite is enabled, framerate is set to " << opts["framerate"] << endl;
+    }
+    const Json::Value streamIdsJson = compositeJson.get("streamIds", EMPTY_STRING);
+    if (!streamIdsJson.empty())
+    {
+        std::string streamIds;
+        for (const auto& entry : streamIdsJson)
+        {
+            streamIds += "," + entry.asString();
+        }
+        if (!streamIds.empty())
+        {
+            streamIds.erase(streamIds.begin());
+        }
+        opts["streamIds"] = streamIds;
+    }
+    const Json::Value sensorNameJson = compositeJson.get("showSensorName", EMPTY_STRING);
+    if (sensorNameJson.isObject() && sensorNameJson.get("enable", false).asBool())
+    {
+        opts["showSensorName"] = "true";
+        const Json::Value position = sensorNameJson.get("position", EMPTY_STRING);
+        if (!position.empty())
+        {
+            std::string joined;
+            for (const auto& entry : position)
+            {
+                joined += "," + entry.asString();
+            }
+            if (!joined.empty())
+            {
+                joined.erase(joined.begin());
+            }
+            opts["showSensorNamePosition"] = joined;
+        }
+    }
+    if (compositeJson.get("includeFloorPlan", false).asBool())
+    {
+        opts["gods_eye_view"] = "true";
+    }
+    const Json::Value layout = compositeJson.get("gridLayout", EMPTY_STRING);
+    if (layout.isObject())
+    {
+        opts["compositeLayout"] = jsonToString(layout);
+    }
+}
+
 template<typename Compare>
 void setOverlayOptsBasedOnJson(std::map<std::string, std::string, Compare>& opts, const Json::Value& overlayJson)
 {
@@ -4295,6 +4309,10 @@ void parseGlobalProperties(std::map<std::string, std::string, Compare>& opts, co
     }
 }
 
+template void setCompositeOptsBasedOnJson<std::less<std::string>>(
+    std::map<std::string, std::string, std::less<std::string>>&, const Json::Value&, const std::string&);
+template void setCompositeOptsBasedOnJson<std::less<void>>(
+    std::map<std::string, std::string, std::less<void>>&, const Json::Value&, const std::string&);
 template void setOverlayOptsBasedOnJson<std::less<std::string>>(
     std::map<std::string, std::string, std::less<std::string>>& opts, const Json::Value& overlayJson);
 template void setOverlayOptsBasedOnJson<std::less<void>>(

@@ -21,6 +21,12 @@
 #include "gstnvvideodecoder.h"
 #include "health_probes.h"
 
+#include <future>
+#include <exception>
+#include <chrono>
+#include <vector>
+#include <algorithm>
+
 constexpr const char* SENSOR_API = "/api/v1/sensor/*";
 constexpr const char* DEBUG_API = "/api/v1/sensor/debug/*";
 constexpr const char* DEBUG_API_SUBSTR = "/api/v1/sensor/debug/";
@@ -727,43 +733,106 @@ VmsErrorCode SensorManagementApis::getAllSensorTimelines(const Json::Value& req_
         
         response = Json::objectValue;
         
-        // For each sensor, get its recording timelines from ONVIF
+        // Fetch each sensor's recording timelines from ONVIF IN PARALLEL. The
+        // per-camera ONVIF search chain is several seconds, so a sequential loop
+        // makes latency scale with sensor count (~N x per-camera). Each sensor uses
+        // its own ClientSession/curl handle inside the adaptor, so concurrent
+        // per-sensor SOAP calls are independent; the sensor list is read-only here
+        // (no discovery writes during a timelines request). The response is merged
+        // single-threaded after the join, so no lock is needed on `response`.
         int successCount = 0;
         int errorCount = 0;
-        
+
+        std::vector<shared_ptr<SensorInfo>> validSensors;
+        validSensors.reserve(sensors.size());
         for (const auto& sensor : sensors)
         {
-            if (!sensor)
+            if (sensor)
             {
-                continue;
+                validSensors.push_back(sensor);
             }
-            
-            const string& sensorId = sensor->id;
-            
-            // Call the recording timelines API for this sensor
-            Json::Value sensorTimelinesJson;
-            int ret = sensorControl->getRecordingTimelines(sensorId, sensorTimelinesJson);
-            
-            if (ret != 0)
+        }
+
+        // ret defaults to a non-zero failure so any worker that throws before it
+        // records a result is treated as an error in the merge, not a silent success.
+        struct TimelineResult { string sensorId; Json::Value json; int ret = -1; };
+        std::vector<TimelineResult> results(validSensors.size());
+
+        // Bound concurrency so we don't overwhelm the VMS with too many
+        // simultaneous ONVIF search sessions.
+        const size_t maxConcurrency = 12;
+        for (size_t batchStart = 0; batchStart < validSensors.size(); batchStart += maxConcurrency)
+        {
+            size_t batchEnd = std::min(batchStart + maxConcurrency, validSensors.size());
+            std::vector<std::future<void>> futures;
+            futures.reserve(batchEnd - batchStart);
+            for (size_t i = batchStart; i < batchEnd; ++i)
             {
-                LOG(error) << "Failed to get recording timelines for sensor " << sensorId << ", error: " << ret;
+                futures.push_back(std::async(std::launch::async,
+                    [i, &validSensors, &results, &sensorControl]()
+                    {
+                        results[i].sensorId = validSensors[i]->id;
+                        // Contain any exception inside the worker so it cannot
+                        // propagate out of f.get() and take down the server.
+                        try
+                        {
+                            results[i].ret = sensorControl->getRecordingTimelines(
+                                validSensors[i]->id, results[i].json);
+                        }
+                        catch (const std::exception& e)
+                        {
+                            results[i].ret = -1;
+                            LOG(error) << "Exception fetching timelines for sensor "
+                                       << validSensors[i]->id << ": " << e.what() << endl;
+                        }
+                        catch (...)
+                        {
+                            results[i].ret = -1;
+                            LOG(error) << "Unknown exception fetching timelines for sensor "
+                                       << validSensors[i]->id << endl;
+                        }
+                    }));
+            }
+            for (auto& f : futures)
+            {
+                // The worker contains its own exceptions, but guard f.get() too:
+                // std::async can still surface a broken-promise/bad_alloc here, and
+                // one failed worker must not abort the whole request.
+                try
+                {
+                    f.get();
+                }
+                catch (const std::exception& e)
+                {
+                    LOG(error) << "Timeline worker join failed: " << e.what() << endl;
+                }
+                catch (...)
+                {
+                    LOG(error) << "Timeline worker join failed with unknown exception" << endl;
+                }
+            }
+        }
+
+        // Merge results (single-threaded)
+        for (auto& r : results)
+        {
+            if (r.ret != 0)
+            {
+                LOG(error) << "Failed to get recording timelines for sensor " << r.sensorId << ", error: " << r.ret;
                 errorCount++;
-                // Continue to next sensor instead of failing entirely
                 continue;
             }
-            
+
             // Flatten all recording tokens into single timeline array per sensor
             Json::Value allTimelinesForSensor = Json::arrayValue;
-            
-            if (sensorTimelinesJson.isObject())
+
+            if (r.json.isObject())
             {
-                // Iterate through all recording tokens and collect their timelines
-                for (const auto& recordingToken : sensorTimelinesJson.getMemberNames())
+                for (const auto& recordingToken : r.json.getMemberNames())
                 {
-                    const Json::Value& timelineArray = sensorTimelinesJson[recordingToken];
+                    const Json::Value& timelineArray = r.json[recordingToken];
                     if (timelineArray.isArray())
                     {
-                        // Append all timeline entries from this recording token
                         for (const auto& timeline : timelineArray)
                         {
                             allTimelinesForSensor.append(timeline);
@@ -771,11 +840,11 @@ VmsErrorCode SensorManagementApis::getAllSensorTimelines(const Json::Value& req_
                     }
                 }
             }
-            
+
             // Only add sensor to response if it has timelines
             if (!allTimelinesForSensor.empty())
             {
-                response[sensorId] = allTimelinesForSensor;
+                response[r.sensorId] = allTimelinesForSensor;
                 successCount++;
             }
         }

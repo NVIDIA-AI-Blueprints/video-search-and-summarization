@@ -34,7 +34,7 @@ cleanup_docker_environment() {
     echo "Docker Compose down..."
     
     # Build the docker compose command with optional profile
-    COMPOSE_CMD="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
+    COMPOSE_CMD="docker compose --env-file infra/.env -f infra/compose.yml -f apps/mdx-apps.yml"
     if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
         COMPOSE_CMD="$COMPOSE_CMD --profile $STREAMING_SERVICE"
     fi
