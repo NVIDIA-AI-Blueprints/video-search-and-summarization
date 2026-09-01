@@ -54,6 +54,9 @@ vlm_env_file=""
 # Remote LLM/VLM model type (nim, openai)
 llm_model_type=""
 vlm_model_type=""
+# VLM backend for the base profile on non-edge hardware (nim_cosmos | rtvi).
+# nim_cosmos (default): in-process Cosmos NIM VLM. rtvi: self-host the VLM in vss-rtvi-vlm.
+vlm_backend="nim_cosmos"
 
 
 # Flags to track explicitly provided options
@@ -446,6 +449,11 @@ function usage() {
   echo "  --use-remote-vlm                 Use remote VLM; requires VLM_ENDPOINT_URL on the host (both are required together)."
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "  --vlm-model-type                 VLM backend type when --use-remote-vlm is passed: nim or openai."
+  echo "  --vlm-backend                    VLM backend for profile=base on non-edge hardware: nim_cosmos or rtvi."
+  echo "                                   • Default: nim_cosmos (in-process Cosmos NIM VLM)"
+  echo "                                   • rtvi: self-host the VLM in vss-rtvi-vlm (OpenAI API on :8018)"
+  echo "                                   • Only for profile=base; not accepted on IGX-THOR/AGX-THOR/DGX-SPARK,"
+  echo "                                     nor combined with --use-remote-vlm or --vlm"
   echo "  --vlm-env-file                   Path to VLM env file. Absolute or relative to CWD."
   echo "                                   • Not allowed when --use-remote-vlm is passed"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
@@ -473,7 +481,7 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,vlm-backend:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -514,7 +522,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,vlm-backend:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   # Parse options
@@ -594,6 +602,12 @@ function process_args() {
         shift
         vlm_model_type="${1}"
         options_provided+=("vlm-model-type")
+        shift
+        ;;
+      --vlm-backend)
+        shift
+        vlm_backend="${1}"
+        options_provided+=("vlm-backend")
         shift
         ;;
       --llm-env-file)
@@ -998,6 +1012,31 @@ function process_args() {
             ((_all_good++))
           elif [[ ! -d "${vlm_custom_weights}" ]]; then
             echo "[ERROR] Specified VLM custom weights path does not exist: ${vlm_custom_weights}"
+            ((_all_good++))
+          fi
+        fi
+      fi
+
+      # ===== VLM backend (--vlm-backend) validation =====
+      # Opt-in switch to self-host the VLM in vss-rtvi-vlm for profile=base on non-edge
+      # hardware. Default (nim_cosmos) leaves all existing behavior unchanged.
+      if contains_element "vlm-backend" "${options_provided[@]}"; then
+        _valid_vlm_backends=('nim_cosmos' 'rtvi')
+        if ! contains_element "${vlm_backend}" "${_valid_vlm_backends[@]}"; then
+          echo "[ERROR] Invalid --vlm-backend: ${vlm_backend}. Must be one of: nim_cosmos, rtvi"
+          ((_all_good++))
+        fi
+        if [[ "${profile}" != "base" ]]; then
+          echo "[ERROR] --vlm-backend is only supported for profile 'base' (alerts/lvs already use rtvi)"
+          ((_all_good++))
+        fi
+        if [[ "${vlm_backend}" == "rtvi" ]]; then
+          if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
+            echo "[ERROR] --vlm-backend rtvi is not accepted on ${hardware_profile} (base already uses rtvi there)"
+            ((_all_good++))
+          fi
+          if contains_element "use-remote-vlm" "${options_provided[@]}" || contains_element "vlm" "${options_provided[@]}"; then
+            echo "[ERROR] --vlm-backend rtvi cannot be combined with --use-remote-vlm or --vlm"
             ((_all_good++))
           fi
         fi
@@ -1412,6 +1451,42 @@ function state_up() {
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
   # (alerts defaults to VLM_MODEL_TYPE=rtvi via its source .env, so it does not need this override)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
+    set_env_var "VLM_MODEL_TYPE" "rtvi"
+  fi
+
+  # Base profile + opt-in rtvi backend (--vlm-backend rtvi) on non-edge hardware
+  # (H100/RTXPRO6000BW/...): self-host cosmos3-nano in vss-rtvi-vlm instead of the
+  # in-process Cosmos NIM. Mirrors the Thor base block above and the alerts/lvs device
+  # logic. Only fires when explicitly requested, so default base is untouched.
+  if [[ "${profile}" == "base" ]] && [[ "${vlm_backend}" == "rtvi" ]] \
+     && ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}" \
+     && [[ "${vlm_mode}" != "remote" ]]; then
+    set_env_var "VLM_NAME_SLUG" "none"
+    set_env_var "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+    set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
+    set_env_var "RTVI_VLM_PORT" "8018"
+    set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
+    # Self-host the model (override the source .env default of openai-compat, which would
+    # otherwise turn rtvi-vlm into a proxy to a non-existent NIM).
+    set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3"
+    # base does not deploy Kafka; rtvi-vlm defaults KAFKA_ENABLED=true, so disable it.
+    # Base interactive Q&A/summarization uses the synchronous OpenAI endpoint, not captions.
+    set_env_var "RTVI_VLM_KAFKA_ENABLED" "false"
+    # Respect a caller-provided override (matching the Thor base block); else use the per-hardware default.
+    set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")}"
+    local _base_rtvi_max_len
+    _base_rtvi_max_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+    if [[ -n "${_base_rtvi_max_len}" ]]; then
+      set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_base_rtvi_max_len}"
+    fi
+    # RT_VLM_DEVICE_ID: local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
+    if [[ "${vlm_mode}" == "local_shared" ]]; then
+      local _shared_rt_dev_id
+      _shared_rt_dev_id="$(get_env_value "${_source_env}" "SHARED_LLM_VLM_DEVICE_ID")"
+      set_env_var "RT_VLM_DEVICE_ID" "${_shared_rt_dev_id:-${vlm_device_id}}"
+    else
+      set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
+    fi
     set_env_var "VLM_MODEL_TYPE" "rtvi"
   fi
 
