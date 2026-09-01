@@ -165,7 +165,7 @@ UI fallback details — see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallba
 
 ## Step 7 — Hand off to the Shared Calibration Tail
 
-Continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → calibrate → post-process → results). Use [`calibration-tail.md`](calibration-tail.md) for the shared Python snippet; [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail) has the reusable handoff note.
+After ingest, ask whether every captured clip is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → calibrate → post-process → results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely. [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail) has the reusable handoff note.
 
 ---
 
@@ -197,6 +197,7 @@ LAYOUT_PNG     = None
 GT_ZIP         = None                                   # optional
 FOCAL_LENGTHS  = None                                   # optional: [1269.0, 1099.5]
 DETECTOR_TYPE  = "resnet"                               # overridden below if CONFIG_FILE pins it
+MEDIA_MODE = os.environ.get("MEDIA_MODE", "")  # empty prompts for a safe linear/rectification decision in calibration-tail.md
 
 VSS_APPS_DIR = Path(os.environ.get("VSS_APPS_DIR", Path.cwd()))
 PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", VSS_APPS_DIR / "services" / "auto-calibration" / "projects"))
