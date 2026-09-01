@@ -6,6 +6,7 @@
     "benchmark-unified-memory",
     "vss-deploy-profile",
     "vss-manage-video-io-storage",
+    "vss-summarize-video",
     "vss-ask-video"
   ],
   "resources": {
@@ -26,18 +27,26 @@
     },
     {
       "name": "Download and ingest benchmark videos",
-      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download and extract the pinned NGC resource `nvidia/vss-developer/dev-profile-sample-data:3.2.0` into `$TMPDIR/videos`. Ingest only `warehouse_sample.mp4` and `sample-sim-traffic.mp4` into VIOS, using each filename stem as its sensor name.",
+      "inputs": [
+        "dataset_video_ids"
+      ],
+      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download the pinned benchmark video resource, ingest every supplied benchmark video into VIOS, and verify the result according to the benchmark skill.",
       "checks": [
-        "Every video ID required by the benchmark Parquet exists as a downloaded video filename stem under `$TMPDIR/videos`.",
-        "Every required video ID exists as a VIOS video sensor name."
+        "Every supplied dataset video ID has exactly one matching downloaded video.",
+        "Every supplied dataset video ID exists as a VIOS video sensor."
       ]
     },
     {
-      "name": "Initialize frozen unified memories",
-      "query": "Use the benchmark-unified-memory skill to initialize every frozen JSON memory under `datasets/physical-ai-video-mme-v2/memory`.",
+      "name": "Generate unified memories",
+      "inputs": [
+        "dataset_video_ids",
+        "summarization_config"
+      ],
+      "agent_timeout_sec": 1800,
+      "query": "Use the benchmark-unified-memory and vss-summarize-video skills. Configure the default unified-memory persistence policy, then summarize every supplied benchmark video exactly once.",
       "checks": [
-        "Every frozen unified-memory record is readable from Elasticsearch by its authoritative record ID.",
-        "The OpenClaw daily VSS note under `~/.openclaw/workspace/memory/` contains one complete marked block for every verified parent summary job ID, including its sensor context and authoritative Elasticsearch pointer."
+        "Unified memory is configured to persist by default to Elasticsearch and write OpenClaw Markdown notes by default.",
+        "Every supplied video has one successfully persisted summary and a corresponding OpenClaw daily-note block."
       ]
     }
   ],
@@ -45,8 +54,12 @@
     "path": "datasets/physical-ai-video-mme-v2/data.parquet",
     "format": "video-mme-v2"
   },
-  "memory": {
-    "directory": "datasets/physical-ai-video-mme-v2/memory"
+  "summarization": {
+    "scenario": "Physical AI environment monitoring",
+    "events": [
+      "Identify notable entities, actions, incidents, state changes, and their temporal ordering"
+    ],
+    "creation_time": "2025-01-01T00:00:00.000Z"
   },
   "scoring": {
     "metric": "overall_group_score",

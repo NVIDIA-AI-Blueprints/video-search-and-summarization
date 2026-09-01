@@ -1,11 +1,11 @@
 ---
 name: benchmark-unified-memory
-description: "Run the dataset-backed unified-memory video benchmark setup: deploy LVS, download and ingest its videos, and initialize frozen authoritative memories plus OpenClaw Markdown projections. Use only from the skill-eval benchmark harness."
+description: "Run the dataset-backed unified-memory video benchmark setup: deploy LVS, ingest its videos, and generate authoritative memory through production VSS summarization. Use only from the skill-eval benchmark harness."
 ---
 
 # Unified-memory benchmark
 
-Follow the setup query exactly. This skill supplies deterministic setup scripts; it does not answer benchmark questions.
+Follow the setup query and supplied task inputs exactly. This skill defines the benchmark setup procedure; it does not answer benchmark questions.
 
 ## Deployment and CLI setup
 
@@ -40,8 +40,8 @@ VSS=(
 ```
 
 Do not run `vss configure` before deployment. The resulting
-`~/.vss/config.json` is shared with the video-ingestion, memory-initialization,
-and benchmark-question tasks in the same evaluation leg.
+`~/.vss/config.json` is shared with the video-ingestion, unified-memory
+summarization, and benchmark-question tasks in the same evaluation leg.
 
 ## Video setup
 
@@ -62,21 +62,22 @@ tar -xzf \
   --strip-components=1
 ```
 
-This produces:
+2. For every supplied `dataset_video_id`:
 
-```text
-$TMPDIR/videos/warehouse_sample.mp4
-$TMPDIR/videos/sample-sim-traffic.mp4
-```
+   1. Find exactly one downloaded video whose filename stem equals the ID.
+   2. Fail if no file or more than one file matches.
+   3. Ingest the matching file with the project-local `vss vios add` CLI.
+   4. Use the exact filename stem as the VIOS sensor name.
 
-2. For every required video, use its filename stem as the VIOS sensor name and ingest it with the project-local `vss vios add` CLI.
+3. Run `vss vios list --type video` and confirm that every supplied ID exists as a VIOS video sensor before completing the task.
 
 Notes:
-- Do not derive a video manifest from the question Parquet.
+- Do not open or parse the question Parquet. Use only the safe video IDs
+  supplied in the task prompt.
 
-## Memory setup
+## Unified-memory summarization
 
-Initialize every parent summary and child event from the configured frozen-memory directory with the official VSS CLI:
+Configure the production persistence policy before starting any summary:
 
 ```bash
 set -euo pipefail
@@ -96,85 +97,36 @@ mkdir -p "$OPENCLAW_WORKSPACE"
   --enable \
   --backend elasticsearch \
   --index vss-memory \
+  --persist-by-default \
   --markdown \
   --harness openclaw \
-  --workspace "$OPENCLAW_WORKSPACE"
+  --workspace "$OPENCLAW_WORKSPACE" \
+  --write-notes-by-default
+"${VSS[@]}" configure memory show
 "${VSS[@]}" configure memory check
-
-SOURCE_DIR="$HOME/.openclaw/skills/benchmark-unified-memory/datasets/physical-ai-video-mme-v2/memory"
-STATE_DIR="${TMPDIR:?}/memory-initialization"
-
-rm -rf "$STATE_DIR"
-mkdir -p "$STATE_DIR/upserts"
-: > "$STATE_DIR/summary-ids.txt"
-: > "$STATE_DIR/events.tsv"
-
-shopt -s nullglob
-summaries=("$SOURCE_DIR"/*_summary.json)
-events=("$SOURCE_DIR"/*_event-*.json)
-
-if ((${#summaries[@]} == 0)); then
-  echo "No frozen summary records found under $SOURCE_DIR" >&2
-  exit 1
-fi
-
-for source in "${summaries[@]}"; do
-  persisted="$STATE_DIR/upserts/$(basename "$source")"
-  "${VSS[@]}" memory upsert < "$source" > "$persisted"
-  jq -er 'select(.job.record_id == null) | .job.job_id' "$persisted" \
-    >> "$STATE_DIR/summary-ids.txt"
-done
-
-for source in "${events[@]}"; do
-  persisted="$STATE_DIR/upserts/$(basename "$source")"
-  "${VSS[@]}" memory upsert < "$source" > "$persisted"
-  jq -er \
-    'select(.job.record_type == "event") | [.job.job_id, .job.record_id] | @tsv' \
-    "$persisted" >> "$STATE_DIR/events.tsv"
-done
-
-total_summaries=$(wc -l < "$STATE_DIR/summary-ids.txt")
-unique_summaries=$(sort -u "$STATE_DIR/summary-ids.txt" | wc -l)
-total_events=$(wc -l < "$STATE_DIR/events.tsv")
-unique_events=$(sort -u "$STATE_DIR/events.tsv" | wc -l)
-
-if [ "$total_summaries" -ne "$unique_summaries" ] || \
-   [ "$total_events" -ne "$unique_events" ]; then
-  echo "Frozen memories produced duplicate authoritative identities" >&2
-  exit 1
-fi
-
-while IFS= read -r job_id; do
-  "${VSS[@]}" memory get --job-id "$job_id" |
-    jq -e --arg expected "$job_id" \
-      '.job.job_id == $expected and (.job.record_id == null)' \
-      >/dev/null
-done < "$STATE_DIR/summary-ids.txt"
-
-while IFS=$'\t' read -r job_id event_id; do
-  "${VSS[@]}" memory get \
-    --job-id "$job_id" \
-    --record-type event \
-    --record-id "$event_id" |
-    jq -e \
-      --arg expected_job "$job_id" \
-      --arg expected_event "$event_id" \
-      '.job.job_id == $expected_job and
-       .job.record_type == "event" and
-       .job.record_id == $expected_event' \
-      >/dev/null
-done < "$STATE_DIR/events.tsv"
-
-for persisted in "$STATE_DIR"/upserts/*_summary.json; do
-  uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev --extra cli \
-    python "$HOME/.openclaw/skills/benchmark-unified-memory/scripts/write_memory_note.py" \
-    --input "$persisted"
-done
-
-printf \
-  'Initialized and verified %d summaries and %d events.\n' \
-  "$total_summaries" \
-  "$total_events"
 ```
 
-Parent summaries are always persisted before their child events. Standard VSS daily-note blocks are written only after every authoritative parent and child passes exact-identity readback. Elasticsearch upserts and Markdown block replacement are idempotent, so the setup is safe to retry.
+For every supplied `dataset_video_id`:
+
+1. Confirm that the same value exists as a VIOS sensor.
+2. Resolve that sensor's full current timeline and mint a fresh VIOS clip URL.
+3. Verify that the clip URL is byte-fetchable from the `vss-lvs` container.
+4. Run exactly one summary, substituting the supplied `summarization_config` values:
+
+```bash
+"${VSS[@]}" summarize run \
+  --url '<fresh VIOS clip URL>' \
+  --video-id '<dataset_video_id>' \
+  --scenario '<summarization_config.scenario>' \
+  --event '<summarization_config.events item>' \
+  --creation-time '<summarization_config.creation_time>'
+```
+
+Repeat `--event` once for every configured event. Run the videos sequentially.
+Do not pass a sensor name through `--id`; LVS reserves that field for its
+UUID-shaped request identity. The stable benchmark sensor belongs in
+`--video-id` while the media is supplied through `--url`.
+
+Do not pass persistence flags, call `vss memory upsert`, or write Markdown manually. The configured defaults make `vss summarize run` persist its parent and child records to Elasticsearch and write its standard parent block under `~/.openclaw/workspace/memory/YYYY-MM-DD-vss.md` after authoritative persistence succeeds.
+
+A completed summarize run is terminal. Do not rerun it because its content looks incomplete. Fail the setup task if a run fails, reports `persisted: false`, or does not report successful Markdown-note creation. Before completing, confirm that the daily VSS note contains the resulting summary job block for every supplied video.

@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import shutil
 import sys
+from pathlib import Path
 
 SKILL_EVAL_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SKILL_EVAL_ROOT))
@@ -20,6 +20,7 @@ from benchmark.domain import (  # noqa: E402
     GroupEvaluationSpec,
 )
 from benchmark.prompts import render_question_prompt  # noqa: E402
+from benchmark.setup import render_setup_prompt  # noqa: E402
 from benchmark.spec import load_benchmark_spec  # noqa: E402
 from benchmark.video_mme_v2 import load_video_mme_v2  # noqa: E402
 
@@ -60,6 +61,7 @@ def _task_toml(
     step_index: int,
     step_count: int,
     check_count: int,
+    agent_timeout_sec: int = 600,
 ) -> str:
     config = PLATFORMS[platform]
     return "\n".join(
@@ -70,7 +72,7 @@ def _task_toml(
             'keywords = ["benchmark-unified-memory", "video-mme-v2", "openclaw"]',
             "",
             "[agent]",
-            "timeout_sec = 600.0",
+            f"timeout_sec = {float(agent_timeout_sec)}",
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -102,21 +104,11 @@ def _base_step(step_dir: Path, skills: tuple[str, ...], repo_root: Path) -> None
     _copy_skills(step_dir, repo_root, skills)
 
 
-def _setup_test_script(step: int, *, verify_videos: bool) -> str:
-    deterministic = (
-        'if ! uv run --project "$HOME/video-search-and-summarization/services/agent" --no-dev --extra cli --with pyarrow '
-        'python "$TEST_DIR/verify_video_setup.py" --dataset "$TEST_DIR/dataset.parquet"; then\n'
-        '  printf "0.0\\n" > /logs/verifier/reward.txt\n'
-        '  printf \'{"passed":false,"rationale":"deterministic video setup verification failed"}\\n\' '
-        '> /logs/verifier/judge.json\n'
-        '  exit 0\n'
-        'fi\n'
-        if verify_videos else ""
-    )
+def _setup_test_script(step: int) -> str:
     return f'''#!/bin/bash
 set -uo pipefail
 TEST_DIR="$(cd "$(dirname "$0")" && pwd)"
-{deterministic}python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true
+python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true
 python3 "$TEST_DIR/generic_judge.py" --spec "$TEST_DIR/setup-spec.json" --step {step}
 '''
 
@@ -154,14 +146,15 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
     repo_root = Path(__file__).resolve().parents[4]
     skill_dir = skill_dir.resolve()
     dataset_path = _resolve_input(skill_dir, spec.dataset.path)
-    memory_dir = _resolve_input(skill_dir, spec.memory.directory)
     if not dataset_path.is_file():
         raise FileNotFoundError(dataset_path)
-    if not memory_dir.is_dir():
-        raise FileNotFoundError(memory_dir)
     dataset = load_video_mme_v2(dataset_path)
     if not dataset.groups:
         raise ValueError("benchmark dataset is empty")
+    available_setup_inputs = {
+        "dataset_video_ids": tuple(dict.fromkeys(group.video.video_id for group in dataset.groups)),
+        "summarization_config": spec.summarization.model_dump(mode="json"),
+    }
 
     platform_dir = output_root / "benchmark" / PLATFORMS[platform]["short_name"]
     if platform_dir.exists():
@@ -174,7 +167,13 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
     for index, setup in enumerate(spec.setup, 1):
         step_dir = platform_dir / f"step-{index}"
         _base_step(step_dir, spec.skills, repo_root)
-        (step_dir / "instruction.md").write_text(f"{PREAMBLE}\n\n{setup.query}\n", encoding="utf-8")
+        instruction = render_setup_prompt(
+            preamble=PREAMBLE,
+            query=setup.query,
+            requested_inputs=setup.inputs,
+            available_inputs=available_setup_inputs,
+        )
+        (step_dir / "instruction.md").write_text(instruction, encoding="utf-8")
         (step_dir / "task.toml").write_text(
             _task_toml(
                 name=f"benchmark-unified-memory-setup-{index}-{PLATFORMS[platform]['short_name']}",
@@ -183,16 +182,14 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
                 step_index=index,
                 step_count=total_steps,
                 check_count=len(setup.checks),
+                agent_timeout_sec=setup.agent_timeout_sec,
             ),
             encoding="utf-8",
         )
         tests = step_dir / "tests"
         (tests / "setup-spec.json").write_text(json.dumps(setup_spec, indent=2) + "\n", encoding="utf-8")
         shutil.copy(SKILL_EVAL_ROOT / "verifiers" / "generic_judge.py", tests)
-        if index == 2:
-            shutil.copy(dataset_path, tests / "dataset.parquet")
-            shutil.copy(Path(__file__).with_name("verify_video_setup.py"), tests)
-        (tests / "test.sh").write_text(_setup_test_script(index, verify_videos=index == 2), encoding="utf-8")
+        (tests / "test.sh").write_text(_setup_test_script(index), encoding="utf-8")
 
     for offset, group in enumerate(dataset.groups, 1):
         step_index = len(spec.setup) + offset

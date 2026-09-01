@@ -19,10 +19,21 @@ class AgentSpec(StrictModel):
     name: Literal["openclaw"]
 
 
+SetupInputName = Literal["dataset_video_ids", "summarization_config"]
+
+
 class SetupStep(StrictModel):
     name: Annotated[str, Field(min_length=1)]
     query: Annotated[str, Field(min_length=1)]
     checks: Annotated[tuple[str, ...], Field(min_length=1)]
+    inputs: tuple[SetupInputName, ...] = ()
+    agent_timeout_sec: Annotated[int, Field(ge=60, le=3600)] = 600
+
+    @model_validator(mode="after")
+    def require_unique_inputs(self) -> SetupStep:
+        if len(set(self.inputs)) != len(self.inputs):
+            raise ValueError("setup inputs must be unique")
+        return self
 
 
 class PlatformResource(StrictModel):
@@ -38,8 +49,10 @@ class DatasetSpec(StrictModel):
     format: Literal["video-mme-v2"]
 
 
-class MemorySpec(StrictModel):
-    directory: str
+class SummarizationSpec(StrictModel):
+    scenario: Annotated[str, Field(min_length=1)]
+    events: Annotated[tuple[str, ...], Field(min_length=1)]
+    creation_time: Annotated[str, Field(min_length=1)]
 
 
 class ScoringSpec(StrictModel):
@@ -53,11 +66,11 @@ class BenchmarkSpec(StrictModel):
     resources: ResourcesSpec
     setup: tuple[SetupStep, ...]
     dataset: DatasetSpec
-    memory: MemorySpec
+    summarization: SummarizationSpec
     scoring: ScoringSpec
 
     @model_validator(mode="after")
-    def require_setup_contract(self) -> "BenchmarkSpec":
+    def require_setup_contract(self) -> BenchmarkSpec:
         if len(self.setup) != 3:
             raise ValueError("dataset benchmarks require exactly three setup steps")
         if len(set(self.skills)) != len(self.skills):
