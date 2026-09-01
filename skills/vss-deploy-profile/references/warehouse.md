@@ -336,8 +336,12 @@ docker volume prune -f
 docker system prune -f
 
 # Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
-# blueprint-configurator backups. Resolves VSS_DATA_DIR from generated.env.
-bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from generated.env
+# (falling back to overrides.env if generated.env was never created).
+PROFILE_DIR="industry-profiles/warehouse-operations"
+ENV_FILE="$PROFILE_DIR/generated.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/overrides.env"
+bash ./scripts/cleanup_all_datalog.sh -e "$ENV_FILE"
 ```
 
 ### Lifecycle: Bring up

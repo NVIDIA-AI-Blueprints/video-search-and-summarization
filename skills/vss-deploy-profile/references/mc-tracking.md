@@ -201,14 +201,15 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
    To reset `data_log` volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed:
 
    ```bash
-   bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/generated.env
+   PROFILE_DIR="developer-profiles/dev-profile-mc-tracking"
+   ENV_FILE="$PROFILE_DIR/generated.env"
+   [ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/overrides.env"
+   bash scripts/cleanup_all_datalog.sh -e "$ENV_FILE"
    ```
 
    This deletes calibration output and VST/nvstreamer runtime data by default — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` (sample media).
 
-   Use `generated.env` here, not `overrides.env` — `overrides.env`'s `VSS_DATA_DIR` is still the checked-in `/path/to/...` placeholder, so pointing `-e` at it fails with `Error: VSS data dir '/path/to/vss-mc-tracking-data' not found` and silently skips the actual `data_log` cleanup (verified).
-
-   **Check for pre-exported `VSS_DATA_DIR`/`VSS_APPS_DIR` in the shell before running this.** If the invoking shell already exports `VSS_DATA_DIR` or `VSS_APPS_DIR` for another deployment, `cleanup_all_datalog.sh` restores those values after sourcing the explicitly selected mc-tracking overlay, causing cleanup to delete the other deployment's runtime data while leaving the selected deployment intact — with no error. `env | grep -E "^VSS_DATA_DIR=|^VSS_APPS_DIR="` and `unset` both before running the command above if either is set.
+   Prefer `generated.env` (created by this skill's Step 1c) over the checked-in `overrides.env`, which still has `VSS_DATA_DIR` set to a `/path/to/...` placeholder unless you edited it directly for a manual deploy. If `cleanup_all_datalog.sh` is pointed at a file where `VSS_DATA_DIR` doesn't resolve to a real directory, it now exits with `Error: VSS data dir '...' not found` (verified) rather than silently skipping the `data_log` cleanup. The explicitly selected `-e` file's `VSS_DATA_DIR`/`VSS_APPS_DIR` always wins, even if the invoking shell already has either exported for another deployment.
 
 ## Debugging
 

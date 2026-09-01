@@ -782,7 +782,10 @@ docker compose -p "$COMPOSE_PROJECT_NAME" ps --format '{{.Name}}' | head
 docker compose -p "$COMPOSE_PROJECT_NAME" down -v --remove-orphans
 docker volume prune -f
 docker system prune -f
-bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
+PROFILE_DIR="industry-profiles/warehouse-operations"
+ENV_FILE="$PROFILE_DIR/generated.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/overrides.env"
+bash ./scripts/cleanup_all_datalog.sh -e "$ENV_FILE"
 ```
 
 3. Bring up:
