@@ -354,8 +354,12 @@ For a full reset that also drops locally-built images (Elasticsearch, init conta
 Scoped to `COMPOSE_PROJECT_NAME` so unrelated volumes on the host aren't touched:
 
 ```bash
-COMPOSE_PROJECT_NAME=$(grep -E '^COMPOSE_PROJECT_NAME=' industry-profiles/warehouse-operations/overrides.env | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-: "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME not found in overrides.env — refusing to guess a fallback project for volume cleanup}"
+COMPOSE_PROJECT_NAME=$(docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/overrides.env \
+  config | head -1 | cut -d' ' -f2)
+: "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME not found — refusing to guess a fallback project for volume cleanup}"
 export COMPOSE_PROJECT_NAME
 docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" | xargs -r docker volume rm
 ```
@@ -392,10 +396,10 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
       registry \
       resource \
       download-version \
-      nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:v3.3.0-09012026
+      nvstaging/vss-developer/vss-mc-tracking-app-data:v3.3.0-09012026
 
    # OR manually download the tar file from NGC:
-   # https://catalog.ngc.nvidia.com/orgs/nv-metropolis-dev/teams/vss-developer/resources/vss-mc-tracking-app-data?version=v3.3.0-09012026
+   # https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-developer/resources/vss-mc-tracking-app-data?version=v3.3.0-09012026
 
    cd vss-mc-tracking-app-data_vv3.3.0-09012026
    tar -xvf vss-mc-tracking-app-data.tar.gz
@@ -452,11 +456,15 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
 
 5. **Clean up dangling volumes**
 
-   This is scoped to `COMPOSE_PROJECT_NAME` so dangling volumes from unrelated stopped containers/apps on the host are not touched. `COMPOSE_PROJECT_NAME` defaults to `vss` but can be customized in `overrides.env` — export it from there first so this standalone command (which isn't run through `docker compose` and won't otherwise see `overrides.env`) targets the same project you actually deployed, instead of silently falling back to `vss`:
+   This is scoped to `COMPOSE_PROJECT_NAME` so dangling volumes from unrelated stopped containers/apps on the host are not touched. `COMPOSE_PROJECT_NAME` defaults to `vss` but can be customized in `overrides.env` — resolve it via `docker compose config` (same env-file chain as every other command here) so this standalone command targets the same project you actually deployed, instead of silently falling back to `vss`:
 
    ```bash
-   COMPOSE_PROJECT_NAME=$(grep -E '^COMPOSE_PROJECT_NAME=' developer-profiles/dev-profile-mc-tracking/overrides.env | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-   : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME not found in overrides.env — refusing to guess a fallback project for volume cleanup}"
+   COMPOSE_PROJECT_NAME=$(docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+     config | head -1 | cut -d' ' -f2)
+   : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME not found — refusing to guess a fallback project for volume cleanup}"
    export COMPOSE_PROJECT_NAME
    docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" | xargs -r docker volume rm
    ```
