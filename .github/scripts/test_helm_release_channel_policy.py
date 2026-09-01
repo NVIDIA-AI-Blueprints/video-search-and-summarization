@@ -49,7 +49,7 @@ HELM_VALUES = {
         "deploy/helm/services/bp-configurator/values.yaml",
         "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values.yaml",
         "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml",
-        "deploy/helm/developer-profiles/dev-profile-mc-tracking/values.yaml",
+        "deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml",
     ],
     "vss-rt-config-adaptor": [
         "deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml",

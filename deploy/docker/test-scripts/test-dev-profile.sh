@@ -999,18 +999,18 @@ else
   ((TESTS_PASSED++)) || true
 fi
 
-_helm_dev_mct_values="${REPO_ROOT}/deploy/helm/developer-profiles/dev-profile-mc-tracking/values.yaml"
-_helm_dev_mct_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
-_helm_dev_mct_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
-if grep -q 'downloadModelsFromNgc: true' "${_helm_dev_mct_values}" \
-  && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_dev_mct_values}" \
-  && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_dev_mct_values}" \
-  && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_dev_mct_values}" \
-  && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_dev_mct_statefulset}" \
-  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_dev_mct_statefulset}" \
-  && ! grep -q 'wait-for-models' "${_helm_dev_mct_statefulset}" \
+_helm_mv3dt_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values.yaml"
+_helm_mv3dt_statefulset="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/templates/statefulset-standalone-mv3dt.yaml"
+_helm_mv3dt_defaults="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml"
+if grep -q 'downloadModelsFromNgc: true' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_helm_mv3dt_values}" \
+  && grep -q 'model: nvidia/tao/bodypose3dnet:deployable_accuracy_onnx_1.0' "${_helm_mv3dt_values}" \
+  && grep -q 'destPath: BodyPose3DNet/bodypose3dnet_accuracy.onnx' "${_helm_mv3dt_values}" \
+  && grep -q 'DS_MODEL_DOWNLOAD' "${_helm_mv3dt_statefulset}" \
+  && grep -q 'name: ensure-mv3dt-engine-dirs' "${_helm_mv3dt_statefulset}" \
+  && ! grep -q 'wait-for-models' "${_helm_mv3dt_statefulset}" \
   && ! grep -Eq 'prepare-mv3dt-models|runtime-storage|rtdetrPvcSubPath|bodyPosePvcSubPath' \
-    "${_helm_dev_mct_statefulset}" "${_helm_dev_mct_defaults}"; then
+    "${_helm_mv3dt_statefulset}" "${_helm_mv3dt_defaults}"; then
   echo "PASS: warehouse Helm MV3DT uses per-file models via ds-start phase 0 and direct PVC storage"
   ((TESTS_PASSED++)) || true
 else
@@ -1042,8 +1042,8 @@ else
 fi
 
 _compose_mv3dt_root="${_warehouse_root}/warehouse-mv3dt-app"
-_helm_dev_mct_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
-if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_dev_mct_start}" \
+_helm_mv3dt_start="${REPO_ROOT}/deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-mv3dt/deepstream/init-scripts/ds-start-mv3dt.sh"
+if cmp -s "${_compose_mv3dt_root}/deepstream/init-scripts/ds-start-mv3dt.sh" "${_helm_mv3dt_start}" \
   && grep -q 'PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml" \
   && grep -q 'VSS_RT_CV_TAG:-3.3.0-26.07.2' "${_compose_mv3dt_root}/warehouse-mv3dt-app.yml"; then
   echo "PASS: warehouse MV3DT startup script and perception fallback are aligned across Compose and Helm"

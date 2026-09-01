@@ -15,14 +15,14 @@ See the License for the specific language governing permissions and limitations 
 
 -->
 
-# Dev Profile: Multi-Camera Tracking Helm Chart
+# Warehouse MV3DT App Helm Chart
 
 This profile chart wraps `deploy/helm/services/infra` and `deploy/helm/services/rtvi`, enabling Kafka, Redis, shared-infra Mosquitto, MV3DT BEV fusion, and **`vss-rtvi-cv.profileMode`**=`standalone-mv3dt`.
 
 ```bash
-helm dependency build deploy/helm/developer-profiles/dev-profile-mc-tracking
-helm lint deploy/helm/developer-profiles/dev-profile-mc-tracking
-helm template mc-tracking deploy/helm/developer-profiles/dev-profile-mc-tracking
+helm dependency build deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app
+helm lint deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app
+helm template warehouse-mv3dt deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app
 ```
 
 Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** when using a different NGC warehouse app-data resource.
@@ -275,9 +275,9 @@ kubectl get ingressclass          # expect: haproxy
 ### 3. Install
 
 ```bash
-helm dependency update deploy/helm/developer-profiles/dev-profile-mc-tracking
+helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app
 
-helm upgrade --install wh deploy/helm/developer-profiles/dev-profile-mc-tracking \
+helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app \
   -n <namespace> --create-namespace \
   --set global.vssIngress.enabled=true \
   --set global.externalHost=<NODE_IP> \
@@ -330,9 +330,9 @@ has to change too, or the app 404s after its first redirect.
 The bundled override puts the same UIs on node ports and skips the Ingress:
 
 ```bash
-helm upgrade --install wh deploy/helm/developer-profiles/dev-profile-mc-tracking \
+helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app \
   -n <namespace> --create-namespace \
-  -f deploy/helm/developer-profiles/dev-profile-mc-tracking/values-nodeport.yaml
+  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/values-nodeport.yaml
 ```
 
 | UI | URL |
@@ -377,7 +377,7 @@ python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_strea
 
 Layer `-f values-stream-cap.generated.yaml` into `helm upgrade --install`, and set
 `vios.vss-vios-nvstreamer.syncFileCount` to the effective count it prints. See
-[`skills/vss-deploy-warehouse-helm/references/streams.md`](../../../../skills/vss-deploy-warehouse-helm/references/streams.md)
+[`skills/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/vss-deploy-warehouse-helm/references/streams.md)
 for the full command and GPU→cap table. No skill/agent required — the script runs standalone.
 
 ## Upgrade and uninstall
@@ -385,7 +385,7 @@ for the full command and GPU→cap table. No skill/agent required — the script
 **Upgrade**
 
 ```bash
-helm upgrade wh deploy/helm/developer-profiles/dev-profile-mc-tracking \
+helm upgrade wh deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app \
   -n <namespace> -f <your-values-file>.yaml
 ```
 

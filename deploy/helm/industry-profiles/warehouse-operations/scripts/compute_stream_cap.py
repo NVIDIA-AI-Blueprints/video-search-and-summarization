@@ -32,10 +32,6 @@ BLUEPRINT_CONFIG = (
 )
 HELM_WAREHOUSE_DIR = REPO_ROOT / "deploy/helm/industry-profiles/warehouse-operations"
 
-CHART_DIR_OVERRIDES = {
-    "mv3dt": REPO_ROOT / "deploy/helm/developer-profiles/dev-profile-mc-tracking",
-}
-
 # nvidia-smi GPU name substring -> HARDWARE_PROFILE, matching
 # skills/vss-deploy-profile/references/warehouse.md "Supported Hardware".
 GPU_NAME_TO_PROFILE = [
@@ -174,7 +170,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    chart_dir = CHART_DIR_OVERRIDES.get(args.mode, HELM_WAREHOUSE_DIR / f"warehouse-{args.mode}-app")
+    chart_dir = HELM_WAREHOUSE_DIR / f"warehouse-{args.mode}-app"
     chart_values_path = chart_dir / "values.yaml"
     if not chart_values_path.exists():
         sys.exit(f"error: chart values not found: {chart_values_path}")
