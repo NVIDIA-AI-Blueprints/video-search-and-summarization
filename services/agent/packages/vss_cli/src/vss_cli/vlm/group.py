@@ -320,6 +320,23 @@ class VlmGroup(CommandGroup):
         model = inputs.model or _default_model(deployment)
         job_id = _mint_job_id()
 
+        from vss_core.memory.adapters import utc_now_iso
+
+        from .memory_adapter import VlmAdapter
+
+        adapter = VlmAdapter()
+        created_at = utc_now_iso()
+
+        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout, "num_frames": inputs.num_frames}
+        if inputs.max_tokens is not None:
+            model_params["max_tokens"] = inputs.max_tokens
+        if inputs.temperature is not None:
+            model_params["temperature"] = inputs.temperature
+
+        # Initialise memory before media resolution so any failure path (including
+        # the loopback clip-fetch timeout below) can write a terminal record.
+        memory = self.persist_memory(ctx, no_persist=options.no_persist)
+
         # Resolve the media URL.
         media_url: str
         resolved_start: str | None = inputs.start_time
@@ -357,7 +374,25 @@ class VlmGroup(CommandGroup):
                     with contextlib.suppress(OSError):
                         os.unlink(_loopback_tmp)
                     _loopback_tmp = None
-                    raise  # guarded() maps TimeoutException → Exit.TIMEOUT
+                    detail = f"VIOS clip download timed out after {inputs.timeout}s"
+                    # VIOS resolution succeeded; resolved_start/resolved_end are available.
+                    clip_input: MemoryInput = adapter.build_input(
+                        prompt=inputs.prompt,
+                        sensor=inputs.sensor,
+                        start_time=resolved_start,
+                        end_time=resolved_end,
+                        media_url=None,
+                        intent=inputs.intent,
+                        model_params=model_params,
+                    )
+                    _write_terminal(
+                        memory, adapter, job_id=job_id, created_at=created_at,
+                        input_data=clip_input, status="timeout", message=detail,
+                    )
+                    click.echo(f"vss: {detail} (job {job_id})", err=True)
+                    return Result(
+                        body={"job_id": job_id, "status": "timeout"}, exit=Exit.TIMEOUT, job_id=job_id
+                    )
                 except InvalidInput:
                     with contextlib.suppress(OSError):
                         os.unlink(_loopback_tmp)
@@ -377,19 +412,6 @@ class VlmGroup(CommandGroup):
             # Path A (url): pre-resolved HTTP/HTTPS handle passed directly to the VLM.
             media_url = inputs.media_url  # type: ignore[assignment]
 
-        from vss_core.memory.adapters import utc_now_iso
-
-        from .memory_adapter import VlmAdapter
-
-        adapter = VlmAdapter()
-        created_at = utc_now_iso()
-
-        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout, "num_frames": inputs.num_frames}
-        if inputs.max_tokens is not None:
-            model_params["max_tokens"] = inputs.max_tokens
-        if inputs.temperature is not None:
-            model_params["temperature"] = inputs.temperature
-
         # True for --file, "--media-url <path> --use-base64", or the loopback
         # SSRF fallback where the clip was streamed to a temp file: the video
         # content is machine-specific bytes, not a retrievable URL handle.
@@ -405,23 +427,23 @@ class VlmGroup(CommandGroup):
             model_params=model_params,
         )
 
-        memory = self.persist_memory(ctx, no_persist=options.no_persist)
-
-        # Build and send the VLM request.
-        request_payload = _build_vlm_request(
-            prompt=inputs.prompt,
-            media_url=media_url,
-            model=model,
-            max_tokens=inputs.max_tokens,
-            temperature=inputs.temperature,
-            use_base64=_use_base64_effective,
-            num_frames=inputs.num_frames,
-        )
-        # Temp file has been read; discard it before the network call.
-        if _loopback_tmp is not None:
-            with contextlib.suppress(OSError):
-                os.unlink(_loopback_tmp)
-            _loopback_tmp = None
+        # Build the VLM request payload. Wrap in try/finally so the loopback temp
+        # file is always deleted even if _build_vlm_request raises (e.g. OSError).
+        try:
+            request_payload = _build_vlm_request(
+                prompt=inputs.prompt,
+                media_url=media_url,
+                model=model,
+                max_tokens=inputs.max_tokens,
+                temperature=inputs.temperature,
+                use_base64=_use_base64_effective,
+                num_frames=inputs.num_frames,
+            )
+        finally:
+            if _loopback_tmp is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(_loopback_tmp)
+                _loopback_tmp = None
 
         vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
         try:

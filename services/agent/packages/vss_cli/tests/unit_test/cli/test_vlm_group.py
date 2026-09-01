@@ -719,6 +719,47 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
     _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor loopback fallback")
 
 
+def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the loopback clip fetch times out, the CLI must write a terminal record and
+    return Exit.TIMEOUT — it must NOT re-raise (leaving no record for persistence-enabled runs)."""
+    import contextlib
+
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+    )
+
+    @contextlib.contextmanager
+    def _timeout_stream(*_a: Any, **_kw: Any):
+        raise httpx.TimeoutException("timed out")
+        yield  # make it a generator  # noqa: unreachable
+
+    monkeypatch.setattr(httpx, "stream", _timeout_stream)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", timeout=5), ctx)
+
+    assert result.exit == Exit.TIMEOUT, f"expected TIMEOUT, got {result.exit}: {result.body}"
+    assert result.body.get("status") == "timeout"
+
+    # A terminal record must have been written to memory.
+    jobs = store.service.list_jobs()
+    assert jobs, "expected at least one memory record written on loopback clip-fetch timeout"
+    assert jobs[-1].job.status == "timeout", f"terminal record status: {jobs[-1].job.status}"
+
+
 def test_is_loopback_url() -> None:
     """_is_loopback_url must match localhost / 127.x.x.x / ::1 and reject routable hosts."""
     from vss_cli.vlm.group import _is_loopback_url
