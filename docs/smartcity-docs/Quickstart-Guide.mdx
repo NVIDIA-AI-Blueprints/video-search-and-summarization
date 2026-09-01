@@ -96,7 +96,7 @@ and verification.
    ```bash
    cd "${VSS_SMC_WORKSPACE}"
    source .venv/bin/activate
-   jupyter lab --no-browser --ip=127.0.0.1 --port=8888
+   jupyter notebook --no-browser --ip=0.0.0.0 --port=8888 --NotebookApp.token="$(openssl rand -hex 16)"
    ```
 
    Jupyter prints a URL of the form `http://127.0.0.1:8888/lab?token=<TOKEN>`. Leave
