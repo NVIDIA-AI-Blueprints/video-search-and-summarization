@@ -42,7 +42,15 @@ export NVIDIA_API_KEY=<your-nvidia-api-key>
 export HF_TOKEN=<your-hf-token>
 ```
 
-In `deploy/docker/developer-profiles/dev-profile-base/overrides.env`, update the existing
+From the repository root, create the user-managed profile file. Repeat this copy only when you want
+to discard prior configuration changes:
+
+```bash
+cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
+  deploy/docker/developer-profiles/dev-profile-base/user-overrides.env
+```
+
+In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update the existing
 `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `EXTERNAL_IP` values in place. Then prepare
 the host data directories before running Compose:
 
@@ -62,19 +70,19 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
 
 For each selected configuration, save the remaining values in
-`deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then run:
+`deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, then run:
 
 ```bash
 cd deploy/docker
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-base/.env \
-  --env-file developer-profiles/dev-profile-base/overrides.env \
+  --env-file developer-profiles/dev-profile-base/user-overrides.env \
   config --quiet
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-base/.env \
-  --env-file developer-profiles/dev-profile-base/overrides.env \
+  --env-file developer-profiles/dev-profile-base/user-overrides.env \
   up -d
 ```
 
@@ -100,7 +108,7 @@ docker compose -f compose.yml \
 2. Deploy the agent workflow:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    HARDWARE_PROFILE=DGX-SPARK
    VSS_RT_VLM_TAG=develop-latest-sbsa
    RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
@@ -162,7 +170,7 @@ must be tuned to coexist.
 2. Deploy the agent workflow:
 
    ```ini
-   # developer-profiles/dev-profile-base/overrides.env
+   # developer-profiles/dev-profile-base/user-overrides.env
    HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
    RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
    LLM_MODE=remote
