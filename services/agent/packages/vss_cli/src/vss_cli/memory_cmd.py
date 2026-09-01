@@ -323,7 +323,7 @@ def introspect_memory(
     group: str | None,
     pretty: bool,
 ) -> None:
-    """Answer one scoped question using memory and bounded VLM follow-ups."""
+    """Answer via the configured text judge and bounded RT-VLM follow-ups."""
     try:
         from vss_core.introspection import IntrospectionRequest
 
