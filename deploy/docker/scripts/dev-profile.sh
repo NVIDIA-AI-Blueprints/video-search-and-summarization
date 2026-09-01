@@ -485,6 +485,21 @@ function get_rtvi_vlm_max_model_len() {
   esac
 }
 
+# Compose interpolates ${VSS_RT_VLM_IMAGE}:${VSS_RT_VLM_TAG}. Reuse an already
+# selected SBSA tag when present; otherwise append -sbsa to the managed channel.
+function resolve_sbsa_image_tag() {
+  local _current="${1}"
+  local _fallback="${2:-develop-latest}"
+  local _base
+  if [[ "${_current}" == *sbsa* ]]; then
+    echo "${_current}"
+    return
+  fi
+  _base="${_current:-${_fallback}}"
+  _base="${_base%-sbsa}"
+  echo "${_base}-sbsa"
+}
+
 # Apply VSS kernel settings (IPv6 disable, TCP buffer sizes). Persistent across reboots via /etc/sysctl.d/99-vss.conf.
 function set_vss_linux_kernel_settings() {
   local _sudo=""
@@ -1654,11 +1669,14 @@ function state_up() {
       echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
-  # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
-  # override into generated.env where it wins during Compose interpolation.
-  if [[ "${hardware_profile}" == "GB300" ]]; then
-    set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
-    echo "[INFO] Selected SBSA RT-VLM image for GB300"
+  # rtvi-vlm-docker-compose.yml reads VSS_RT_VLM_TAG. LVS has no commented SBSA
+  # line for that key, so the swap above is not enough on GB300. Write the
+  # managed SBSA tag into generated.env so Compose interpolation wins.
+  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" ]]; then
+    local _rt_vlm_tag
+    _rt_vlm_tag="$(resolve_sbsa_image_tag "$(get_env_value "${_generated_env}" "VSS_RT_VLM_TAG")" "${VSS_CONTAINER_TAG:-develop-latest}")"
+    set_env_var "VSS_RT_VLM_TAG" "${_rt_vlm_tag}"
+    echo "[INFO] Selected SBSA RT-VLM image for ${hardware_profile}: ${_rt_vlm_tag}"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
