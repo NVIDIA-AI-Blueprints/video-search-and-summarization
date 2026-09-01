@@ -60,7 +60,7 @@ commons:
       # This profile has a single BP_PROFILE value; STREAM_TYPE (not BP_PROFILE) selects
       # the message broker. Auto-calibration is a separate profile, not part of this one.
       - variable: BP_PROFILE
-        allowed_values: ["bp_developer_mc-tracking"]
+        allowed_values: ["dev_profile_mc_tracking"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -93,7 +93,7 @@ commons:
             - variable: NUM_STREAMS
               equals: "4"
             - variable: BP_PROFILE
-              equals: "bp_developer_mc-tracking"
+              equals: "dev_profile_mc_tracking"
 
   variables:
     mc-tracking:

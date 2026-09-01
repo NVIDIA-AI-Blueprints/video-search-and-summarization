@@ -1,6 +1,6 @@
 # VSS MC-Tracking Profile — Reference
 
-Profile: `mc-tracking` | Blueprint: `bp_developer_mc-tracking` | Mode: `mc-tracking`
+Profile: `mc-tracking` | Blueprint: `dev_profile_mc_tracking` | Mode: `mc-tracking`
 
 Multi-camera 3D person/forklift tracking with BEV (bird's-eye-view) fusion, calibration import, and behavior analytics, packaged as a standalone developer profile — its own compose file, env files, camera config, calibration assets, and DeepStream/SDR-controller configs all live under `developer-profiles/dev-profile-mc-tracking/`.
 
