@@ -60,7 +60,7 @@ services:
       ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/
-      NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs
+      NVSTREAMER_CONFIG_DIR: ${VSS_APPS_DIR}/services/nvstreamer/configs
       RECOMPUTE_BEV_CENTERS_ENABLED: false
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false

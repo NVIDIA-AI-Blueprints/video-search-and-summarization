@@ -129,8 +129,8 @@ preview the commands and generated environment without starting containers.
 - Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
-- **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) runs as phase 0 of the perception startup script (`ds-start.sh` / MV3DT `ds-start-mv3dt.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- **`mc-tracking` is the documented exception** and keeps its dedicated `ds-start-mc-tracking.sh` command override.
+- Model acquisition for **developer profiles** (alerts, search, mc-tracking) and **warehouse RT-CV profiles** (2D, 3D) runs as phase 0 of the perception startup script (`ds-start.sh` / mc-tracking's `ds-start-mc-tracking.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
 
 ### Direct Compose usage and data directories
 
@@ -310,18 +310,18 @@ machine and selected warehouse scenario:
 - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
 - **`VSS_DATA_DIR`**: extracted warehouse app data directory
 - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
-- **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse, Sparse4D, and BodyPose3DNet model packages required by the selected mode; also **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
-- **`MODE`**: `2d`, `3d`, or `mv3dt`
+- **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and Sparse4D model packages required by the selected mode; also **`NVIDIA_API_KEY`**, **`OPENAI_API_KEY`** as needed
+- **`MODE`**: `2d` or `3d`
 - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`
 - **`HARDWARE_PROFILE`**, model settings, public ingress settings, and host-published ports
 - **`COMPOSE_PROFILES`**: one of the warehouse or playback profile lists defined in `overrides.env`
 
-`bp_wh` is valid only with `MODE=2d`. For `MODE=3d` or `MODE=mv3dt`, use
+`bp_wh` is valid only with `MODE=2d`. For `MODE=3d`, use
 `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`. Keep `MODE`,
 `BP_PROFILE`, `STREAM_TYPE`, sample dataset settings, and `COMPOSE_PROFILES`
 aligned with the comments in `overrides.env`.
 
-   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx`, Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`, and BodyPose3DNet at `models/BodyPose3DNet/bodypose3dnet_accuracy.onnx`.
+   Model destinations are shared across profiles: RT-DETR is stored at `models/rtdetr_warehouse_v1.0.2.fp16.onnx` and Sparse4D at `models/sparse4d/sparse4d_warehouse_v2.2.onnx`.
 
 3. **Start the stack**
 
@@ -345,7 +345,28 @@ docker compose -f compose.yml \
   down -v --remove-orphans
 ```
 
-5. **Data / backup cleanup**
+`-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, so it survives `down -v` intact, including `sdr-controller`'s stale provisioning state. Clear it with step 6's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+
+For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
+
+5. **Clean up dangling volumes**
+
+Scoped to `COMPOSE_PROJECT_NAME` so unrelated volumes on the host aren't touched:
+
+```bash
+COMPOSE_PROJECT_NAME=$(docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/overrides.env \
+  config | head -1 | cut -d' ' -f2)
+: "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME not found — refusing to guess a fallback project for volume cleanup}"
+export COMPOSE_PROJECT_NAME
+docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" | xargs -r docker volume rm
+```
+
+This misses anonymous volumes (no compose label), which can pile up from `--force-recreate`/rebuild cycles. If needed, and no unrelated Docker workloads share this host, sweep unscoped instead: `docker volume ls -q -f "dangling=true" | xargs -r docker volume rm`.
+
+6. **Data / backup cleanup**
 
 To reset **`data_log`** volumes, calibration/VST data, and
 blueprint-configurator backups in a way that matches how you deployed, use
@@ -359,6 +380,104 @@ bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/ov
 Compose profiles for warehouse slices are defined in
 **`industry-profiles/warehouse-operations/overrides.env`** and selected by
 `COMPOSE_PROFILES`.
+
+---
+
+## MC-Tracking developer profile
+
+The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under **`developer-profiles/dev-profile-mc-tracking/`** and is deployed and torn down with direct Compose commands. Full reference (service table, hardware profiles, debugging) is in [`skills/vss-deploy-profile/references/mc-tracking.md`](../../skills/vss-deploy-profile/references/mc-tracking.md).
+
+1. **Sample video data**
+
+   Sample videos come from the `vss-mc-tracking-app-data` NGC resource (dedicated to this profile — do not use the `vss-warehouse-app-data` resource here):
+
+   ```bash
+   ngc \
+      registry \
+      resource \
+      download-version \
+      nvstaging/vss-developer/vss-mc-tracking-app-data:v3.3.0-09012026
+
+   # OR manually download the tar file from NGC:
+   # https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-developer/resources/vss-mc-tracking-app-data?version=v3.3.0-09012026
+
+   cd vss-mc-tracking-app-data_vv3.3.0-09012026
+   tar -xvf vss-mc-tracking-app-data.tar.gz
+
+   chmod -R o+rwX vss-mc-tracking-app-data_vv3.3.0-09012026
+
+   # Prepare the writable model destination used by ds-start phase-0 download
+   sudo mkdir -p /path/to/vss-mc-tracking-app-data/models
+   sudo chmod 0777 /path/to/vss-mc-tracking-app-data/models
+
+   # This is the path to the data directory. It is set in the developer-profiles/dev-profile-mc-tracking/overrides.env file for VSS_DATA_DIR.
+   #VSS_DATA_DIR="/path/to/vss-mc-tracking-app-data"
+   ```
+
+   Point `VSS_DATA_DIR` at the extracted directory (containing `videos/nv-warehouse-4cams/` and a pre-populated `data_log/`). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/nv-warehouse-4cams/` — no separate calibration download needed.
+
+   Models download automatically on first perception start via `models-download.json` (`DS_MODEL_DOWNLOAD=auto`, the default) — ensure `NGC_CLI_API_KEY` is set and `$VSS_DATA_DIR/models` exists and is writable before first deploy.
+
+2. **Edit deployment overrides**
+
+   Keep stable profile defaults in **`developer-profiles/dev-profile-mc-tracking/.env`**. Update **`developer-profiles/dev-profile-mc-tracking/overrides.env`** directly for the target machine:
+
+   - **`VSS_APPS_DIR`**: absolute path to this repository's `deploy/docker` directory
+   - **`VSS_DATA_DIR`**: extracted `vss-mc-tracking-app-data` directory (step 1)
+   - **`HOST_IP`** / **`EXTERNAL_IP`**: host address and externally reachable address
+   - **`NGC_CLI_API_KEY`**: an NGC key with access to the RT-DETR warehouse and BodyPose3DNet model packages
+   - **`HARDWARE_PROFILE`**, **`STREAM_TYPE`** (`kafka` or `redis`), and **`COMPOSE_PROFILES`** — keep `STREAM_TYPE` and `COMPOSE_PROFILES` aligned (`COMPOSE_PROFILES_MC_TRACKING_KAFKA`/`_REDIS` and their `_MINIMAL` variants)
+
+3. **Start the stack**
+
+   ```bash
+   cd /path/to/video-search-and-summarization/deploy/docker
+
+   docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+     up --detach --pull always --force-recreate --build
+   ```
+
+4. **Stop the stack**
+
+   ```bash
+   docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+     down -v --remove-orphans
+   ```
+
+   `-v` wipes Postgres (`vss_vios_pg_data`, a named Docker volume). It does **not** wipe Redis — Redis's data (`$VSS_DATA_DIR/data_log/redis/data`) is a host bind mount, so it survives `down -v` intact, including `sdr-controller`'s stale provisioning state. Clear it with step 6's `cleanup_all_datalog.sh`, or manually: `rm -rf $VSS_DATA_DIR/data_log/redis/data/*`.
+
+   For a full reset that also drops locally-built images (Elasticsearch, init containers), use `down -v --rmi all` instead; expect the next `up` to take several minutes longer while those images rebuild.
+
+5. **Clean up dangling volumes**
+
+   This is scoped to `COMPOSE_PROJECT_NAME` so dangling volumes from unrelated stopped containers/apps on the host are not touched. `COMPOSE_PROJECT_NAME` defaults to `vss` but can be customized in `overrides.env` — resolve it via `docker compose config` (same env-file chain as every other command here) so this standalone command targets the same project you actually deployed, instead of silently falling back to `vss`:
+
+   ```bash
+   COMPOSE_PROJECT_NAME=$(docker compose -f compose.yml \
+     --env-file containers.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/.env \
+     --env-file developer-profiles/dev-profile-mc-tracking/overrides.env \
+     config | head -1 | cut -d' ' -f2)
+   : "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME not found — refusing to guess a fallback project for volume cleanup}"
+   export COMPOSE_PROJECT_NAME
+   docker volume ls -q -f "dangling=true" -f "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" | xargs -r docker volume rm
+   ```
+
+6. **Data / backup cleanup**
+
+   To reset `data_log` volumes, calibration/VST data, and blueprint-configurator backups in a way that matches how you deployed:
+
+   ```bash
+   bash scripts/cleanup_all_datalog.sh -e developer-profiles/dev-profile-mc-tracking/overrides.env
+   ```
+
+   This deletes calibration output and VST/nvstreamer runtime data by default (matching `cleanup_all_datalog.sh`'s defaults) — pass `--skip-delete-calibration-data` and/or `--skip-delete-vst-data` to keep them. It does not touch `$VSS_DATA_DIR/models/` (downloaded models / built TensorRT engines) or `$VSS_DATA_DIR/videos/` (sample media) — those aren't removed by this script for any profile.
 
 ---
 

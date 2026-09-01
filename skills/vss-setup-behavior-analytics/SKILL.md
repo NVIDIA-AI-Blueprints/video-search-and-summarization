@@ -83,9 +83,9 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 
 - "Deploy behavior analytics" / "run behavior-analytics standalone"
 - "I just want to run analytics, not the full stack"
-- "Change the entrypoint to search_and_alerts / analytics 3D / mv3dt"
+- "Change the entrypoint to search_and_alerts / analytics 3D / mc-tracking"
 - "Use my own behavior-analytics config / calibration JSON"
-- "Point behavior-analytics at the warehouse-3d (or mv3dt) config without spinning up the rest of the warehouse profile"
+- "Point behavior-analytics at the warehouse-3d (or mc-tracking) config without spinning up the rest of the warehouse profile"
 - "Dynamic config / dynamic calibration into a running behavior-analytics"
 
 ## When NOT to use
@@ -112,7 +112,7 @@ If any required prerequisite fails, surface the gap before going further.
 
 Hand the user [`references/deploy-behavior-analytics-service.md`](references/deploy-behavior-analytics-service.md) and walk them through its steps in order:
 
-1. Pick an entrypoint (analytics 2D / 3D / mv3dt, search_and_alerts).
+1. Pick an entrypoint (analytics 2D / 3D / mc-tracking, search_and_alerts).
 2. Choose a config — profile-shipped or custom.
 3. Choose a calibration — optional; profile-shipped or custom; otherwise the app waits for a dynamic-calibration notification.
 4. Decide whether a broker is reachable; if yes, point them at the dynamic-update flows.

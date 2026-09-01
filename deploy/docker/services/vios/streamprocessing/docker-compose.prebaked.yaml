@@ -52,7 +52,7 @@ services:
       args:
         VSS_VIOS_STREAMPROCESSING_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
 
-  streamprocessing-ms-mv3dt:
+  streamprocessing-ms-mc-tracking:
     image: vss-vios-streamprocessing-prebaked:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
     build:
       context: ./services/vios

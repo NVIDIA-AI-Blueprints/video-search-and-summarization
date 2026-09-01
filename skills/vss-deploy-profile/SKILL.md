@@ -34,12 +34,15 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy alerts" / "alert verification" / "real-time alerts" / "deploy for incident report" | `alerts` | [`references/alerts.md`](references/alerts.md) |
 | "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
 | "deploy search" / "video search" | `search` | [`references/search.md`](references/search.md) |
+| "deploy mc-tracking" / "multi-camera 3D tracking profile" / "multi-camera tracking with BEV fusion" | `mc-tracking` | [`references/mc-tracking.md`](references/mc-tracking.md) |
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). All three edge platforms run the blueprint default `nemotron-3.5-lightning-30b-a3b` NIM on port `30081` as `vss-llm-nim`; each ships its own `hw-*.env` sizing pair. Nothing rewrites the LLM on edge any more. `nvidia-nemotron-nano-9b-v2-fp8` remains reachable via an explicit `--llm`.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
+
+**`mc-tracking` uses direct Compose, not `dev-profile.sh`.** It follows the same `dev-profile-<profile>/{.env,overrides.env,generated.env}` layout as every other profile, but is deployed and torn down with the direct `docker compose` commands in [`references/mc-tracking.md`](references/mc-tracking.md), not [`references/teardown.md`](references/teardown.md) or `dev-profile.sh`'s `up`/`down`.
 
 ## Instructions
 

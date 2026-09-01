@@ -57,19 +57,6 @@ services:
       bp-configurator-3d:
         condition: service_healthy
 
-  nvstreamer-mv3dt:
-    extends:
-      file: base.yml
-      service: nvstreamer-base
-    profiles: !override ["nvstreamer-mv3dt"]
-    container_name: vss-vios-nvstreamer-mv3dt
-    volumes:
-      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
-    depends_on:
-      bp-configurator-mv3dt:
-        condition: service_healthy
-
   nvstreamer-amc:
     extends:
       file: base.yml
@@ -122,3 +109,16 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+
+  nvstreamer-mc-tracking:
+    extends:
+      file: base.yml
+      service: nvstreamer-base
+    profiles: !override ["nvstreamer-mc-tracking"]
+    container_name: vss-vios-nvstreamer-mc-tracking
+    volumes:
+      - ${NVSTREAMER_CONFIG_DIR}/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}:/home/vst/vst_release/streamer_videos
+    depends_on:
+      bp-configurator-mc-tracking:
+        condition: service_healthy

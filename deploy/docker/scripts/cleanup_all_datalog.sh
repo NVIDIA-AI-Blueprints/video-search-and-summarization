@@ -85,22 +85,18 @@ function process_args() {
 }
 
 function load_env() {
-  # Save pre-existing environment variables
-  local _saved_vss_data_dir="${VSS_DATA_DIR}"
-  local _saved_vss_apps_dir="${VSS_APPS_DIR}"
+  local _pre_vss_data_dir="${VSS_DATA_DIR}"
+  local _pre_vss_apps_dir="${VSS_APPS_DIR}"
 
   if [[ -f "${env_file}" ]]; then
     source "${env_file}"
     echo "✅ Sourced env file: ${env_file}"
 
-    # Restore pre-existing environment variables if they were set
-    if [[ -n "${_saved_vss_data_dir}" ]]; then
-      export VSS_DATA_DIR="${_saved_vss_data_dir}"
-      echo "Using pre-set exported vars VSS_DATA_DIR: ${VSS_DATA_DIR}"
+    if [[ -n "${_pre_vss_data_dir}" && "${_pre_vss_data_dir}" != "${VSS_DATA_DIR}" ]]; then
+      echo "Note: shell had VSS_DATA_DIR='${_pre_vss_data_dir}' exported — using '${VSS_DATA_DIR}' from ${env_file} instead."
     fi
-    if [[ -n "${_saved_vss_apps_dir}" ]]; then
-      export VSS_APPS_DIR="${_saved_vss_apps_dir}"
-      echo "Using pre-set exported vars VSS_APPS_DIR: ${VSS_APPS_DIR}"
+    if [[ -n "${_pre_vss_apps_dir}" && "${_pre_vss_apps_dir}" != "${VSS_APPS_DIR}" ]]; then
+      echo "Note: shell had VSS_APPS_DIR='${_pre_vss_apps_dir}' exported — using '${VSS_APPS_DIR}' from ${env_file} instead."
     fi
   else
     echo "Error: env file '${env_file}' not found"
@@ -125,6 +121,7 @@ function info() {
     fi
   else
     echo "Error: VSS data dir '${VSS_DATA_DIR}' not found"
+    exit 1
   fi
 }
 

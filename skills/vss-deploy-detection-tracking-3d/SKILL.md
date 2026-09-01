@@ -7,11 +7,13 @@ description: >
   camera config, BEV Fusion, live OSD or saved grid/BEV outputs, bundled
   brokers, basic external MQTT/Kafka brokers, verification, and teardown.
   Trigger for generic MV3DT, RTVI-CV-3D, multi-view 3D tracking, multi-cam
-  tracking, or sample MV3DT dataset requests. Explicit warehouse
-  blueprint/profile MV3DT requests route to vss-deploy-profile; single-camera
-  2D tracking routes to the 2D tracking or DeepStream skills. Not for full
-  warehouse blueprint deployment, single-camera 2D tracking, camera calibration
-  itself, or VSS summarization, Q&A, and RAG workflows.
+  tracking, or sample MV3DT dataset requests. Requests for the full
+  VIOS-backed "mc-tracking" developer profile (with VST/nvstreamer,
+  bp-configurator, behavior analytics, and a Kibana/Video-Analytics-API UI),
+  or for the warehouse blueprint/profile, route to vss-deploy-profile;
+  single-camera 2D tracking routes to the 2D tracking or DeepStream skills.
+  Not for full warehouse blueprint deployment, single-camera 2D tracking,
+  camera calibration itself, or VSS summarization, Q&A, and RAG workflows.
 license: Apache-2.0
 metadata:
   author: NVIDIA
@@ -26,6 +28,17 @@ metadata:
 
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
 This is the default path for MV3DT / RTVI-CV-3D / multi-camera tracking requests.
+
+**`mc-tracking` developer profile is a separate, third path** — not this
+skill's standalone stack, and not the warehouse industry profile. It's the
+full VIOS-backed compose stack (VST/nvstreamer, `sensor-ms`,
+`streamprocessing-ms`, `bp-configurator`, `sdr-controller`, behavior
+analytics, Kibana/Video-Analytics-API) repackaged as a developer profile at
+`deploy/docker/developer-profiles/dev-profile-mc-tracking/`. Route requests
+for that profile, or for a UI/analytics-dashboard/behavior-analytics view of
+multi-camera tracking, to `vss-deploy-profile` →
+[`references/mc-tracking.md`](../vss-deploy-profile/references/mc-tracking.md)
+— this skill's stack has no VST, no bp-configurator, and no analytics UI.
 
 Do not derive MV3DT services from the warehouse blueprint for this skill. Use
 `vss-deploy-profile` only when the user explicitly asks for warehouse MV3DT,
@@ -149,4 +162,4 @@ Follow these stages for deployment work:
 
 - `vss-generate-video-calibration` owns AMC deployment and calibration from local MP4s or RTSP streams.
 - `vss-manage-video-io-storage` is used only to bring up or verify VIOS when RTSP calibration needs VIOS and it is not already deployed.
-- `vss-deploy-profile` owns full warehouse blueprint deployments, including explicit warehouse MV3DT requests.
+- `vss-deploy-profile` owns full warehouse blueprint deployments and the `mc-tracking` developer profile.

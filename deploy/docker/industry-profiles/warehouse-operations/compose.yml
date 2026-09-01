@@ -24,15 +24,10 @@ include:
       - ${VSS_APPS_DIR}/services/nvstreamer/.env
       - ${VSS_APPS_DIR}/services/vios/vst.env
       - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
-  - path: ./warehouse-mv3dt-app/warehouse-mv3dt-app.yml
-    env_file:
-      - ${VSS_APPS_DIR}/services/nvstreamer/.env
-      - ${VSS_APPS_DIR}/services/vios/vst.env
-      - ${VSS_APPS_DIR}/services/rtvi/rtvi.env
 
-  # Warehouse Configuration - includes 2D, 3D (Sparse4D), and MV3DT apps
+  # Warehouse Configuration - includes 2D and 3D (Sparse4D) apps
 
-  # Services are differentiated by -2d, -3d, and -mv3dt suffixes.
+  # Services are differentiated by -2d and -3d suffixes.
   # Primary services carry profiles: ["<service-name>"]; model-download helpers share
   # their perception service profile so they cannot be omitted from a perception start.
   # Active services are selected via COMPOSE_PROFILES in generated.env, using warehouse
