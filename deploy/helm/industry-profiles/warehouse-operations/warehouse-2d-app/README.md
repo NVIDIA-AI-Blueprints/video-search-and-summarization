@@ -53,9 +53,9 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
 
   Replace `local-path` with your StorageClass name if it differs.
 
-  `local-path` binds each PV to whichever node claims it first — on a multi-node cluster this
-  can strand VST's several PVCs on different nodes and leave `vss-vios-nvstreamer` permanently
-  unschedulable. On multi-node clusters, prefer a shared StorageClass instead, e.g.
+  `local-path` binds each PV to whichever node claims it first — on a multi-node cluster, a pod
+  with several PVCs can end up unschedulable if they land on different nodes. Prefer a shared
+  StorageClass on multi-node clusters instead, e.g.
   [nfs-subdir-external-provisioner](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner)
   (needs an existing NFS server):
 
