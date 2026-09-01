@@ -392,13 +392,15 @@ The **`mc-tracking`** developer profile (multi-camera 3D tracking) lives under *
       registry \
       resource \
       download-version \
-      nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:3.3.0-08262026
+      nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:v3.3.0-09012026
 
-   # OR manually download the zip file from NGC:
-   # https://catalog.ngc.nvidia.com/orgs/nv-metropolis-dev/teams/vss-developer/resources/vss-mc-tracking-app-data?version=3.3.0-08262026
+   # OR manually download the tar file from NGC:
+   # https://catalog.ngc.nvidia.com/orgs/nv-metropolis-dev/teams/vss-developer/resources/vss-mc-tracking-app-data?version=v3.3.0-09012026
 
-   cd vss-mc-tracking-app-data_v3.3.0-08262026
-   unzip vss-mc-tracking-app-data.zip
+   cd vss-mc-tracking-app-data_vv3.3.0-09012026
+   tar -xvf vss-mc-tracking-app-data.tar
+
+   chmod -R o+rwX vss-mc-tracking-app-data_vv3.3.0-09012026
 
    # Prepare the writable model destination used by ds-start phase-0 download
    sudo mkdir -p /path/to/vss-mc-tracking-app-data/models

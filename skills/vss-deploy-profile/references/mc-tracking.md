@@ -82,10 +82,12 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
       registry \
       resource \
       download-version \
-      nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:3.3.0-08262026
+      nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:v3.3.0-09012026
 
-   cd vss-mc-tracking-app-data_v3.3.0-08262026
-   unzip vss-mc-tracking-app-data.zip
+   cd vss-mc-tracking-app-data_vv3.3.0-09012026
+   tar -xvf vss-mc-tracking-app-data.tar
+
+   chmod -R o+rwX vss-mc-tracking-app-data_vv3.3.0-09012026
    ```
 
    Point `VSS_DATA_DIR` at the extracted directory (containing `videos/nv-warehouse-4cams/` and a pre-populated `data_log/`). Calibration/camInfo/imagery for the default dataset are self-contained in-repo under `developer-profiles/dev-profile-mc-tracking/calibration/sample-data/nv-warehouse-4cams/` — no separate calibration download needed.
