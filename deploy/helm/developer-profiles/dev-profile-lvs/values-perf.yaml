@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-llmNameSlug: nemotron-3.5-lightning-30b-a3b
+llmNameSlug: nemotron-3-nano
 
 global:
-  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
+  llmName: "nvidia/nemotron-3-nano"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
 
 vlmName: "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix"
@@ -22,12 +22,12 @@ vlmPrecision:
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix"
 
 vss-summarization:
-  llmService: "nemotron-35-lightning-30b-a3b"
+  llmService: "nemotron-3-nano"
   vlmService: "vss-rtvi-vlm"
 
 agent:
   vss-agent:
-    llmServiceName: "nemotron-35-lightning-30b-a3b"
+    llmServiceName: "nemotron-3-nano"
 
 rtvi:
   vss-rtvi-vlm:
@@ -38,5 +38,10 @@ rtvi:
 nims:
   enabled: true
   gpuType: H100
+  nemotron:
+    enabled: false
   nemotron35:
+    enabled: false
+  nemotron3:
     enabled: true
+    modelPrecision: "fp8"

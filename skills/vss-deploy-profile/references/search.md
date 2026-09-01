@@ -181,7 +181,7 @@ NIM_MODEL_PROFILE=2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bda
 Re-derive it with `docker run --rm --gpus all -e NGC_API_KEY=$NGC_CLI_API_KEY <nim-image>
 list-model-profiles` if the image tag changes. (Some NIMs accept a
 `name-hash` form such as `vllm-fp8-tp1-pp1-<sha>` — see
-`services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env` — so copy whichever form that
+`services/nim/nemotron-3-nano/hw-H100-shared.env` — so copy whichever form that
 image's own listing prints.)
 
 **RT-Embed budget rule of thumb: 10 GB.** Cosmos-Embed1 weights are ~2 GB (1 B params at FP16); the rest is per-stream activation buffers, decoder workers, and Triton/ONNX runtime overhead. 10 GB is a comfortable budget for `NUM_STREAMS=16` on any GPU. Reserve those 10 GB and give the LLM the rest, leaving the standard 15% framework headroom.

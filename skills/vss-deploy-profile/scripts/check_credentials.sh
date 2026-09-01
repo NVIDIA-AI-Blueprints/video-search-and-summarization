@@ -57,14 +57,14 @@ else
   echo "NVIDIA_API_KEY: not set — skip (required only for remote NIM)"
 fi
 
-# HF — not needed by any in-tree edge path; kept for RT-VLM / RT-Embed HF checkpoints
+# HF — edge only (gated Edge 4B)
 if [[ -n "${HF_TOKEN:-}" ]]; then
   status=$(curl -sf --max-time 10 -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${HF_TOKEN}" \
-    "https://huggingface.co/api/models/Qwen/Qwen3-VL-8B-Instruct")
+    "https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8")
   [[ "$status" = "200" ]] \
     && echo "HF_TOKEN ok" \
-    || echo "HF_TOKEN invalid or no access to the probed HF model (HTTP $status)"
+    || echo "HF_TOKEN invalid or no access to gated Edge 4B (HTTP $status)"
 else
-  echo "HF_TOKEN: not set — skip (no in-tree edge path needs it; used by RT-VLM / RT-Embed HF checkpoints)"
+  echo "HF_TOKEN: not set — skip (required only on edge with Edge 4B)"
 fi

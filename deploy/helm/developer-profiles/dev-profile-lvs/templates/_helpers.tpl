@@ -93,5 +93,12 @@
 {{- if and $mp (ne $mp $want.modelPath) -}}
 {{- fail (printf "dev-profile-lvs: nims.gpuType %q => %s precision (modelPath %s), but rtvi.vss-rtvi-vlm.modelPath is %q. Fix modelPath to match the platform." $gt $p $want.modelPath $mp) -}}
 {{- end -}}
+{{- $n3 := index (index .Values "nims" | default dict) "nemotron3" | default dict -}}
+{{- if $n3.enabled -}}
+{{- $llmPrec := $n3.modelPrecision | default "" -}}
+{{- if and $llmPrec (ne $llmPrec $p) -}}
+{{- fail (printf "dev-profile-lvs: nims.gpuType %q => %s precision, but nims.nemotron3.modelPrecision is %q. Set nims.nemotron3.modelPrecision to %s to match the platform." $gt $p $llmPrec $p) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

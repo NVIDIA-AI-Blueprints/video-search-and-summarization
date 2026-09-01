@@ -12,9 +12,7 @@ a cold NIM start.
   the NGC CLI and build override use `NGC_CLI_API_KEY`; NIM / RT-VLM
   containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
-- `HF_TOKEN`: required only on edge targets that use the standalone
-  RT-VLM / RT-Embed Hugging Face checkpoints; no in-tree edge
-  LLM does not need it.
+- `HF_TOKEN`: required on edge targets that use the gated Edge 4B model.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
   endpoints because their `/v1/models` response can list many models.
@@ -113,7 +111,7 @@ REMOTE_API_KEY="$NVIDIA_API_KEY" \
   skills/vss-build-vision-ai/scripts/probe_remote_models.sh "$LLM_BASE_URL" "$LLM_NAME"
 
 skills/vss-build-vision-ai/scripts/probe_remote_models.sh \
-  "http://localhost:30081" "nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8"
+  "http://localhost:30081" "nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark"
 ```
 
 If `/v1/models` fails or does not advertise the selected model, stop and ask

@@ -111,21 +111,12 @@ function warehouse_num_streams() {
 function get_llm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
+    nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
     nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
-    *) echo "" ;;
-  esac
-}
-
-# Models that used to ship with the blueprint. Returns a migration message for a
-# removed model name, or an empty string for a name that was never bundled. Kept
-# so a stale --llm fails loudly instead of resolving to an empty slug, which
-# Compose renders as zero LLM services with exit 0 (a silent no-LLM deploy).
-function get_removed_llm_message() {
-  local _name="${1}"
-  case "${_name}" in
-    nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
-      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, the default on every hardware profile." ;;
+    nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
+    nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
+    nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
+    openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
     *) echo "" ;;
   esac
 }
@@ -306,7 +297,7 @@ function usage() {
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
-  echo "  --llm                           LLM model (e.g. nvidia/nemotron-3.5-lightning-30b-a3b)"
+  echo "  --llm                           LLM model (e.g. nvidia/nvidia-nemotron-nano-9b-v2)"
   echo "  --vlm                           VLM model (e.g. nvidia/cosmos-reason2-8b)"
   echo "  --llm-device-id                 GPU device ID for LLM"
   echo "  --vlm-device-id                 GPU device ID for VLM"
@@ -680,25 +671,6 @@ function process_args() {
         echo "[ERROR] VLM_ENDPOINT_URL must be set when --use-remote-vlm is passed"
         ((_all_good++))
       fi
-      # Validate a locally-served --llm here rather than in state_up: the main
-      # path runs state_down first, so a bad name would otherwise destroy a
-      # healthy deployment before reporting the error. Remote endpoints serve
-      # arbitrary ids, so skip the allowlist when LLM_MODE resolves to remote.
-      if [[ -n "${llm}" ]] && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
-        local _pa_dir _pa_llm_mode
-        _pa_dir="${deployment_directory}/$(deployment_rel_path "${deployment}")"
-        _pa_llm_mode="$(get_env_value_from_files "LLM_MODE" "${_pa_dir}/.env" "${_pa_dir}/overrides.env")"
-        if [[ "${_pa_llm_mode:-local}" != "remote" ]] && [[ -z "$(get_llm_slug "${llm}")" ]]; then
-          local _pa_removed
-          _pa_removed="$(get_removed_llm_message "${llm}")"
-          if [[ -n "${_pa_removed}" ]]; then
-            echo "[ERROR] ${_pa_removed}"
-          else
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-          fi
-          ((_all_good++))
-        fi
-      fi
     fi
 
     if [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
@@ -879,19 +851,8 @@ function state_up() {
       set_env_var "LLM_NAME" "${_llm_name}"
       set_env_var "LLM_NAME_SLUG" "none"
     elif [[ -n "${llm}" ]]; then
-      if [[ "${_llm_mode}" == "remote" ]]; then
-        # A remote endpoint serves whatever model id it likes, so the local
-        # allowlist must not apply. LLM_MODE=remote can come from the profile env
-        # files rather than --use-remote-llm, in which case llm_base_url is empty
-        # and this branch, not the one above, is the one taken.
-        set_env_var "LLM_NAME" "${llm}"
-        set_env_var "LLM_NAME_SLUG" "none"
-      else
-        # Already validated in process_args, which runs before state_down so an
-        # invalid name cannot tear down a healthy deployment first.
-        set_env_var "LLM_NAME" "${llm}"
-        set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
-      fi
+      set_env_var "LLM_NAME" "${llm}"
+      set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
     fi
     if [[ "${_vlm_mode}" == "remote" ]] && [[ -n "${vlm_base_url}" ]]; then
       local _vlm_name
