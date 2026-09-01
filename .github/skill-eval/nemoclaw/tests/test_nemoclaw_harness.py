@@ -146,6 +146,16 @@ class NotebookRunnerTests(unittest.TestCase):
         # without it the exporter never runs. Resolve it inside the sandbox.
         self.assertIn("nemo-relay-node-linux-$(node -p process.arch)-gnu", relay)
         self.assertNotIn("platform.machine()", settings)
+        # --force installs into a fresh generation directory and leaves the
+        # previous one behind, so the binding has to follow the plugin's own
+        # install path; a search of the project tree finds the stale copy.
+        self.assertIn("openclaw plugins inspect nemo-relay --json", relay)
+        self.assertNotIn("find /sandbox/.openclaw/npm/projects", relay)
+        # The npm-registry grant is NemoClaw's own preset, not a hand-rolled
+        # one, and onboard owns it — so disable must not take it away.
+        self.assertIn("policy add npm", relay)
+        self.assertNotIn("relay_npm_policy.yaml", relay)
+        self.assertNotIn("policy remove", relay)
         # Turning the flag back off must stop an earlier opt-in from recording.
         self.assertIn("openclaw plugins disable nemo-relay", relay)
         self.assertIn('key="plugins.entries.nemo-relay"', relay)
