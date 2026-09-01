@@ -143,6 +143,12 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      reference](../vss-deploy-profile/references/warehouse.md#supported-hardware). If detection
      fails or the GPU isn't in that table, pass `--hardware-profile` explicitly. `IGX-THOR`/
      `DGX-SPARK` edge devices aren't supported by this Helm path.
+   - No local `nvidia-smi` (common when `helm`/`kubectl` run from a machine other than a GPU
+     node — a bastion, laptop, or CI runner)? Get the GPU name remotely instead: find a GPU
+     Operator daemonset pod (driver or device-plugin, e.g. `kubectl get pods --all-namespaces
+     -l app=nvidia-driver-daemonset`) and `kubectl exec` into it to run `nvidia-smi
+     --query-gpu=name --format=csv,noheader`, then map that name via the same table and pass
+     `--hardware-profile` explicitly.
    - It prints the effective (possibly capped) stream count and the `syncFileCount` value to keep
      in step (see [`references/streams.md`](references/streams.md) for why).
    - It never lowers the request silently without saying so — a cap is always logged to stderr.
