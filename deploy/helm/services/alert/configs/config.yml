@@ -228,10 +228,14 @@ cors:
   allow_headers: ['*']
   allow_credentials: false
 
+{{- $esHosts := .Values.elasticHosts | default (printf "http://%s:9200" $esHost) }}
+{{- if not (regexMatch "^https?://" $esHosts) }}
+{{- $esHosts = printf "http://%s" $esHosts }}
+{{- end }}
 elastic:
   enabled: true
   hosts:
-    - {{ .Values.elasticHosts | default (printf "http://%s:9200" $esHost) | quote }}
+    - {{ $esHosts | quote }}
 
 persistence:
   enabled: true
