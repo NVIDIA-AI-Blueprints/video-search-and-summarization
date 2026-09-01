@@ -5,18 +5,26 @@
 | Capability | Canonical service profile keys |
 |---|---|
 | Video database and ingest | `centralizedb`, `vst-ingress` |
-| Sensor and stream management | `sensor-ms`, `streamprocessing-ms` |
-| Profile stream sources | `nvstreamer-alerts`, `nvstreamer-lvs`, `nvstreamer-2d-fusion` |
+| Sensor and stream management | `sensor-ms`, `streamprocessing-ms`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>` |
+| Profile stream sources | `nvstreamer-alerts`, `nvstreamer-lvs`, `nvstreamer-2d-fusion`, `nvstreamer-2d`, `nvstreamer-3d` |
 | SDR controller and config rendering | `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sdr-controller` |
+| WebRTC relay for VST playback | `turnserver`, `turnserver-init` |
 
 ## Required peers
 
 - `centralizedb`, `vst-ingress`, `sensor-ms`, and `streamprocessing-ms` form the
   normal developer VIOS core.
 - SDR-controlled profiles require the full helper sequence shown above and
-  `redis`.
+  `redis`. No capability names these helpers, so only their status as VIOS peers
+  keeps them out of the forward-closure prune in
+  [`../composition.md`](../composition.md).
+- `turnserver` and `turnserver-init` are required wherever VST playback is
+  served, alongside `sensor-bp-wait-bp-configurator`, which gates sensor
+  registration on the configurator ([`configurator.md`](configurator.md)).
 - NvStreamer variants require the matching developer profile's mounted configs
   and, where declared, `broker-health-check`.
+- `vios-apt-cache-init` has no `profiles:` gate and is a `depends_on` of
+  `streamprocessing-ms-*`; it resolves into every build and cannot be pruned.
 - Add only the profile-specific NvStreamer key; do not activate multiple
   variants for one source.
 
