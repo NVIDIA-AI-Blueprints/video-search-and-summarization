@@ -29,7 +29,9 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
   --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana \
   --set vios.vss-vios-nvstreamer.syncFileCount=8 \
-  -f values-stream-cap.generated.yaml    # last: match the effective count from step 1
+  -f values-stream-cap.generated.yaml
+# both syncFileCount and the generated file above must use the *effective* (possibly
+# capped) count printed in step 1, not necessarily the --num-streams you requested
 ```
 
 The non-streams overrides above (`global.vssIngress.enabled`, `externalHost`, `storageClass`,
@@ -40,8 +42,9 @@ stream-cap layer.
 ## If your install customizes `bp-configurator.env`
 
 The script patches `NUM_STREAMS`/`HARDWARE_PROFILE` into the chart's own `bp-configurator.env`
-list. Skip what's below and its output — built from chart defaults, then layered last — overwrites
-whatever you had there, since Helm replaces list-typed values wholesale instead of merging entries.
+list. If you skip what's below, its output — built from chart defaults, then layered last —
+overwrites whatever you had there, since Helm replaces list-typed values wholesale instead of
+merging entries.
 
 If the customization is in a values file (`-f my-values.yaml`), pass that file to the script too,
 via `-f`/`--values`, so it merges your customizations in before patching:
