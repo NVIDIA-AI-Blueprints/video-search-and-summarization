@@ -64,10 +64,10 @@ def sandbox_host_cidrs(sandbox_name: str) -> list[str]:
     cover. Returns an empty list when the sandbox does not exist yet or Docker cannot
     be inspected, so a caller can fall back to whatever the policy declares.
     """
-    container = resolve_openshell_gateway_container(sandbox_name)
-    if container is None:
-        return []
     try:
+        container = resolve_openshell_gateway_container(sandbox_name)
+        if container is None:
+            return []
         attached = json.loads(
             subprocess.run(
                 ["docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", container],
