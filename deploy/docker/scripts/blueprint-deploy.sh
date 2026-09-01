@@ -11,6 +11,8 @@ desired_state=""
 deployment=""
 mode=""
 bp_profile=""
+compose_profiles_selector=""
+compose_variant=""
 sample_video_dataset=""
 elasticsearch_mode="cpu"
 deployment_directory="${deploy_docker_dir}"
@@ -50,16 +52,19 @@ function deployment_rel_path() {
   esac
 }
 
-# MODE × BP_PROFILE matrix (industry-profiles/warehouse-operations/.env header).
+# MODE × BP_PROFILE matrix. Auto-calibration is a single MODE, not a 2d/3d/mv3dt suffix.
 function warehouse_bp_profile_valid_for_mode() {
   local _mode="${1}"
   local _profile="${2}"
   case "${_mode}" in
     2d)
-      contains_element "${_profile}" "bp_wh" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"
+      contains_element "${_profile}" "bp_wh" "bp_wh_kafka" "bp_wh_redis"
       ;;
     3d | mv3dt)
-      contains_element "${_profile}" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"
+      contains_element "${_profile}" "bp_wh_kafka" "bp_wh_redis"
+      ;;
+    auto-calibration)
+      [[ "${_profile}" == "bp_wh_auto_calib" ]]
       ;;
     *)
       return 1
@@ -79,6 +84,7 @@ function warehouse_default_bp_profile() {
   case "${_mode}" in
     2d) echo "bp_wh" ;;
     3d | mv3dt) echo "bp_wh_kafka" ;;
+    auto-calibration) echo "bp_wh_auto_calib" ;;
     *) echo "bp_wh" ;;
   esac
 }
@@ -86,7 +92,9 @@ function warehouse_default_bp_profile() {
 function warehouse_sample_video_dataset() {
   local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
+  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
+    echo "warehouse-loading-dock-3cams-synthetic"
+  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
     echo "warehouse-4cams-20mx20m-synthetic"
   elif [[ "${_profile}" == "bp_wh" ]]; then
     echo "nv-warehouse-4cams"
@@ -98,13 +106,153 @@ function warehouse_sample_video_dataset() {
 function warehouse_num_streams() {
   local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
+  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
+    echo "3"
+  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
     echo "4"
   elif [[ "${_profile}" == "bp_wh" ]]; then
     echo "4"
   else
     echo "3"
   fi
+}
+
+# COMPOSE_PROFILES selector: -p/-m (or --minimal/--playback) override generated.env;
+# otherwise the assignment in overrides.env is used, e.g.
+# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D} or COMPOSE_PROFILES_WH_AUTO_CALIB.
+function warehouse_compose_profiles_selector() {
+  local _raw
+  _raw="$(get_env_value_from_files "COMPOSE_PROFILES" "$@")"
+  _raw="${_raw#\$\{}"
+  _raw="${_raw%\}}"
+  echo "${_raw}"
+}
+
+# Accept COMPOSE_PROFILES_WH_AUTO_CALIB, WH_AUTO_CALIB, or ${COMPOSE_PROFILES_WH_AUTO_CALIB}.
+function warehouse_normalize_compose_selector() {
+  local _in="${1}"
+  _in="${_in#\$\{}"
+  _in="${_in%\}}"
+  case "${_in}" in
+    COMPOSE_PROFILES_WH_* | COMPOSE_PROFILES_PLAYBACK_*)
+      echo "${_in}"
+      ;;
+    WH_* | PLAYBACK_*)
+      echo "COMPOSE_PROFILES_${_in}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Map BP_PROFILE + MODE (+ optional minimal/playback) to a COMPOSE_PROFILES_* name.
+function warehouse_compose_selector_from_profile_mode() {
+  local _profile="${1}"
+  local _mode="${2}"
+  local _kind="${3:-}"
+  if [[ "${_profile}" == "bp_wh_auto_calib" ]] || [[ "${_mode}" == "auto-calibration" ]]; then
+    if [[ -n "${_kind}" ]]; then
+      return 1
+    fi
+    echo "COMPOSE_PROFILES_WH_AUTO_CALIB"
+    return 0
+  fi
+  if [[ "${_profile}" == "bp_wh" ]]; then
+    if [[ "${_mode}" != "2d" ]] || [[ -n "${_kind}" ]]; then
+      return 1
+    fi
+    echo "COMPOSE_PROFILES_WH_2D"
+    return 0
+  fi
+  local _broker=""
+  case "${_profile}" in
+    bp_wh_kafka) _broker="KAFKA" ;;
+    bp_wh_redis) _broker="REDIS" ;;
+    *) return 1 ;;
+  esac
+  local _mode_u=""
+  case "${_mode}" in
+    2d) _mode_u="2D" ;;
+    3d) _mode_u="3D" ;;
+    mv3dt) _mode_u="MV3DT" ;;
+    *) return 1 ;;
+  esac
+  case "${_kind}" in
+    playback) echo "COMPOSE_PROFILES_PLAYBACK_${_broker}_${_mode_u}" ;;
+    minimal) echo "COMPOSE_PROFILES_WH_${_broker}_${_mode_u}_MINIMAL" ;;
+    "") echo "COMPOSE_PROFILES_WH_${_broker}_${_mode_u}" ;;
+    *) return 1 ;;
+  esac
+}
+
+function warehouse_print_accepted_p_values() {
+  echo "[ERROR] Accepted -p compose lists (industry-profiles/warehouse-operations/overrides.env):"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_2D"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_2D  COMPOSE_PROFILES_WH_REDIS_2D"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_3D  COMPOSE_PROFILES_WH_REDIS_3D"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_MV3DT  COMPOSE_PROFILES_WH_REDIS_MV3DT"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL  COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL  COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL  COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL"
+  echo "[ERROR]   COMPOSE_PROFILES_WH_AUTO_CALIB"
+  echo "[ERROR]   COMPOSE_PROFILES_PLAYBACK_KAFKA_2D  COMPOSE_PROFILES_PLAYBACK_REDIS_2D"
+  echo "[ERROR]   COMPOSE_PROFILES_PLAYBACK_KAFKA_3D  COMPOSE_PROFILES_PLAYBACK_REDIS_3D"
+  echo "[ERROR]   COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT  COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT"
+  echo "[ERROR] Shorthand: WH_2D, WH_KAFKA_2D, WH_AUTO_CALIB, PLAYBACK_REDIS_2D, ..."
+  echo "[ERROR] Blueprint aliases: bp_wh | bp_wh_kafka | bp_wh_redis | bp_wh_auto_calib"
+  echo "[ERROR]   kafka/redis need -m 2d|3d|mv3dt; optional --minimal or --playback"
+}
+
+function warehouse_infer_from_compose_profiles_selector() {
+  local _selector="${1}"
+  case "${_selector}" in
+    COMPOSE_PROFILES_WH_2D)
+      echo "bp_wh 2d"
+      ;;
+    COMPOSE_PROFILES_WH_KAFKA_2D | COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL)
+      echo "bp_wh_kafka 2d"
+      ;;
+    COMPOSE_PROFILES_WH_REDIS_2D | COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL)
+      echo "bp_wh_redis 2d"
+      ;;
+    COMPOSE_PROFILES_WH_KAFKA_3D | COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL)
+      echo "bp_wh_kafka 3d"
+      ;;
+    COMPOSE_PROFILES_WH_REDIS_3D | COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL)
+      echo "bp_wh_redis 3d"
+      ;;
+    COMPOSE_PROFILES_WH_KAFKA_MV3DT | COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL)
+      echo "bp_wh_kafka mv3dt"
+      ;;
+    COMPOSE_PROFILES_WH_REDIS_MV3DT | COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL)
+      echo "bp_wh_redis mv3dt"
+      ;;
+    COMPOSE_PROFILES_WH_AUTO_CALIB)
+      echo "bp_wh_auto_calib auto-calibration"
+      ;;
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_2D)
+      echo "bp_wh_kafka 2d"
+      ;;
+    COMPOSE_PROFILES_PLAYBACK_REDIS_2D)
+      echo "bp_wh_redis 2d"
+      ;;
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_3D)
+      echo "bp_wh_kafka 3d"
+      ;;
+    COMPOSE_PROFILES_PLAYBACK_REDIS_3D)
+      echo "bp_wh_redis 3d"
+      ;;
+    COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT)
+      echo "bp_wh_kafka mv3dt"
+      ;;
+    COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT)
+      echo "bp_wh_redis mv3dt"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 # LLM/VLM model name to slug mapping (for paths and config lookup)
@@ -284,11 +432,22 @@ function usage() {
   echo "Options for 'up':"
   echo "  -d, --deployment                 [REQUIRED] Deployment type."
   echo "                                   • warehouse — .env under industry-profiles/warehouse-operations/"
-  echo "  -m, --mode                       Deployment mode: 2d (default), 3d, or mv3dt"
-  echo "  -p, --bp-profile                Blueprint profile (must match MODE; see .env header):"
-  echo "                                   • MODE=2d:  bp_wh (default), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
-  echo "                                   • MODE=3d:  bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (bp_wh not valid)"
-  echo "                                   • MODE=mv3dt: bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (bp_wh not valid)"
+  echo "  -m, --mode                       Deployment mode. Used with -p. Default: MODE from overrides.env, else 2d."
+  echo "                                   • 2d, 3d, or mv3dt for perception variants"
+  echo "                                   • auto-calibration for the single warehouse auto-calib stack"
+  echo "  -p, --bp-profile                Warehouse stack to deploy. Writes COMPOSE_PROFILES in generated.env."
+  echo "                                   • Compose lists from warehouse-operations/overrides.env:"
+  echo "                                     COMPOSE_PROFILES_WH_2D"
+  echo "                                     COMPOSE_PROFILES_WH_{KAFKA,REDIS}_{2D,3D,MV3DT}"
+  echo "                                     COMPOSE_PROFILES_WH_{KAFKA,REDIS}_{2D,3D,MV3DT}_MINIMAL"
+  echo "                                     COMPOSE_PROFILES_WH_AUTO_CALIB"
+  echo "                                     COMPOSE_PROFILES_PLAYBACK_{KAFKA,REDIS}_{2D,3D,MV3DT}"
+  echo "                                   • Shorthand: WH_2D, WH_KAFKA_3D, WH_AUTO_CALIB, PLAYBACK_REDIS_2D, ..."
+  echo "                                   • Blueprint aliases: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
+  echo "                                     (kafka/redis need -m 2d|3d|mv3dt; optional --minimal/--playback)"
+  echo "                                   • If omitted, COMPOSE_PROFILES in overrides.env is used."
+  echo "  --minimal                        With -p bp_wh_kafka or bp_wh_redis: use the *_MINIMAL compose list."
+  echo "  --playback                       With -p bp_wh_kafka or bp_wh_redis: use COMPOSE_PROFILES_PLAYBACK_*."
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
@@ -299,10 +458,11 @@ function usage() {
   echo "  -E, --es, --elasticsearch-mode  Elasticsearch mode: gpu (GPU-accelerated) or cpu (CPU-only)."
   echo "                                   • Default: cpu"
   echo "  -s, --sample-video-dataset      [Warehouse only] Override sample video dataset."
-  echo "                                   • Default by mode+profile:"
+  echo "                                   • Default by MODE/BP_PROFILE (or COMPOSE_PROFILES in overrides.env):"
   echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams)"
-  echo "                                     2d+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
-  echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams)"
+  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams)"
+  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
@@ -339,6 +499,20 @@ function contains_element() {
   return 1
 }
 
+# Auto-calibration's compose profile list has no sdr-controller, so the warehouse SDRC
+# routing overrides must fall back to the direct VST defaults in services/vios/vst.env.
+# Commented here rather than in overrides.env so other warehouse profiles keep SDRC.
+function disable_sdrc_routing_in_env() {
+  local _generated_env="${1}"
+  local _key
+  for _key in VST_USE_SDRC STREAM_PROCESSOR_MODULE_ENDPOINT VST_NGINX_MODE; do
+    if grep -qE "^${_key}=" "${_generated_env}"; then
+      sed -i -E "s/^(${_key}=.*)/# \1/" "${_generated_env}"
+      echo "[INFO] Commented ${_key} for auto-calibration (direct VST mode from services/vios/vst.env)"
+    fi
+  done
+}
+
 # Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env (DGX-SPARK or --use-sbsa-images).
 function apply_sbsa_image_tags_to_env() {
   local _generated_env="${1}"
@@ -357,7 +531,7 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -396,7 +570,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -417,6 +591,16 @@ function process_args() {
         shift
         bp_profile="${1}"
         options_provided+=("bp-profile")
+        shift
+        ;;
+      --minimal)
+        compose_variant="minimal"
+        options_provided+=("minimal")
+        shift
+        ;;
+      --playback)
+        compose_variant="playback"
+        options_provided+=("playback")
         shift
         ;;
       -H | --hardware-profile)
@@ -592,12 +776,87 @@ function process_args() {
       local _deploy_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/.env"
       local _deploy_overrides_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/overrides.env"
 
-      # Mode: default 2d
-      if ! contains_element "mode" "${options_provided[@]}"; then
-        mode="2d"
+      # Compose list: -p/-m (--minimal/--playback) win over COMPOSE_PROFILES in overrides.env.
+      if contains_element "minimal" "${options_provided[@]}" && contains_element "playback" "${options_provided[@]}"; then
+        echo "[ERROR] --minimal and --playback cannot be used together"
+        ((_all_good++))
       fi
-      # Profile: default from .env when valid for MODE, else mode-specific default
-      if ! contains_element "bp-profile" "${options_provided[@]}"; then
+      if ! contains_element "mode" "${options_provided[@]}"; then
+        mode="$(get_env_value_from_files "MODE" "${_deploy_env}" "${_deploy_overrides_env}")"
+        mode="${mode:-2d}"
+      fi
+      local _compose_selector="" _inferred="" _p_arg="${bp_profile}"
+      if contains_element "bp-profile" "${options_provided[@]}"; then
+        if _compose_selector="$(warehouse_normalize_compose_selector "${_p_arg}")" \
+          && _inferred="$(warehouse_infer_from_compose_profiles_selector "${_compose_selector}")"; then
+          if [[ -n "${compose_variant}" ]]; then
+            echo "[ERROR] --minimal/--playback cannot be combined with a compose-list -p (${_p_arg})"
+            ((_all_good++))
+          else
+            local _inferred_profile _inferred_mode
+            _inferred_profile="${_inferred%% *}"
+            _inferred_mode="${_inferred#* }"
+            if contains_element "mode" "${options_provided[@]}" && [[ "${mode}" != "${_inferred_mode}" ]]; then
+              echo "[ERROR] -m ${mode} conflicts with -p ${_p_arg} (MODE=${_inferred_mode})"
+              ((_all_good++))
+            fi
+            bp_profile="${_inferred_profile}"
+            mode="${_inferred_mode}"
+            compose_profiles_selector="${_compose_selector}"
+          fi
+        elif contains_element "${_p_arg}" "bp_wh" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"; then
+          bp_profile="${_p_arg}"
+          if [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; then
+            if contains_element "mode" "${options_provided[@]}" && [[ "${mode}" != "auto-calibration" ]]; then
+              echo "[ERROR] -m ${mode} conflicts with -p bp_wh_auto_calib (MODE=auto-calibration)"
+              ((_all_good++))
+            fi
+            mode="auto-calibration"
+          fi
+          if ! _compose_selector="$(warehouse_compose_selector_from_profile_mode "${bp_profile}" "${mode}" "${compose_variant}")"; then
+            echo "[ERROR] Cannot map -p ${bp_profile} -m ${mode} ${compose_variant:+--${compose_variant}} to a COMPOSE_PROFILES list."
+            warehouse_print_accepted_p_values
+            ((_all_good++))
+          elif ! _inferred="$(warehouse_infer_from_compose_profiles_selector "${_compose_selector}")"; then
+            echo "[ERROR] Unknown COMPOSE_PROFILES selector: ${_compose_selector}"
+            warehouse_print_accepted_p_values
+            ((_all_good++))
+          else
+            compose_profiles_selector="${_compose_selector}"
+          fi
+        else
+          echo "[ERROR] Invalid -p ${_p_arg}."
+          warehouse_print_accepted_p_values
+          bp_profile=""
+          ((_all_good++))
+        fi
+      else
+        if [[ -n "${compose_variant}" ]]; then
+          echo "[ERROR] --minimal/--playback requires -p bp_wh_kafka or -p bp_wh_redis"
+          ((_all_good++))
+        fi
+        _compose_selector="$(warehouse_compose_profiles_selector "${_deploy_env}" "${_deploy_overrides_env}")"
+        if [[ -z "${_compose_selector}" ]]; then
+          echo "[ERROR] COMPOSE_PROFILES is not set in ${_deploy_overrides_env}."
+          echo "[ERROR] Pass -p (e.g. -p bp_wh_auto_calib) or set COMPOSE_PROFILES=\${COMPOSE_PROFILES_WH_*} in overrides.env."
+          ((_all_good++))
+        elif ! _inferred="$(warehouse_infer_from_compose_profiles_selector "${_compose_selector}")"; then
+          echo "[ERROR] Unknown COMPOSE_PROFILES selector: ${_compose_selector}"
+          warehouse_print_accepted_p_values
+          ((_all_good++))
+        else
+          local _inferred_profile _inferred_mode
+          _inferred_profile="${_inferred%% *}"
+          _inferred_mode="${_inferred#* }"
+          if contains_element "mode" "${options_provided[@]}" && [[ "${mode}" != "${_inferred_mode}" ]]; then
+            echo "[WARN] -m ${mode} ignored; COMPOSE_PROFILES=\${${_compose_selector}} selects ${_inferred_mode}. Pass -p to choose the stack."
+          fi
+          bp_profile="${_inferred_profile}"
+          mode="${_inferred_mode}"
+          compose_profiles_selector="${_compose_selector}"
+        fi
+      fi
+      if [[ -z "${bp_profile}" ]] && ! contains_element "bp-profile" "${options_provided[@]}"; then
         bp_profile="$(warehouse_default_bp_profile "${mode}" "${_deploy_env}" "${_deploy_overrides_env}")"
       fi
       # HARDWARE_PROFILE: default from .env for any warehouse mode/profile when -H not passed
@@ -623,9 +882,9 @@ function process_args() {
       fi
 
       if [[ "${deployment}" == "warehouse" ]]; then
-        _valid_modes=('2d' '3d' 'mv3dt')
+        _valid_modes=('2d' '3d' 'mv3dt' 'auto-calibration')
         if [[ -n "${mode}" ]] && ! contains_element "${mode}" "${_valid_modes[@]}"; then
-          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d, mv3dt"
+          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d, mv3dt, auto-calibration"
           ((_all_good++))
         fi
         _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis' 'bp_wh_auto_calib')
@@ -637,10 +896,13 @@ function process_args() {
           echo "[ERROR] Invalid MODE=${mode} with BP_PROFILE=${bp_profile}."
           case "${mode}" in
             2d)
-              echo "[ERROR]   MODE=2d supports: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
+              echo "[ERROR]   MODE=2d supports: bp_wh, bp_wh_kafka, bp_wh_redis"
               ;;
             3d | mv3dt)
-              echo "[ERROR]   MODE=${mode} supports: bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (not bp_wh)"
+              echo "[ERROR]   MODE=${mode} supports: bp_wh_kafka, bp_wh_redis (not bp_wh)"
+              ;;
+            auto-calibration)
+              echo "[ERROR]   MODE=auto-calibration supports: bp_wh_auto_calib"
               ;;
           esac
           ((_all_good++))
@@ -701,7 +963,7 @@ function process_args() {
       fi
     fi
 
-    if [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" != "bp_wh_auto_calib" ]]; then
+    if [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" != "bp_wh_auto_calib" ]] && [[ "${mode}" != "auto-calibration" ]]; then
       if [[ -z "${ngc_cli_api_key}" ]]; then
         echo "[ERROR] NGC_CLI_API_KEY is required for 'up' (warehouse RT-CV model downloads via compose init; also required for local NIM when BP_PROFILE=bp_wh)"
         ((_all_good++))
@@ -727,6 +989,9 @@ function print_args() {
     echo "deployment:                 ${deployment}"
     echo "mode:                     ${mode}"
     echo "bp-profile:               ${bp_profile}"
+    if [[ "${deployment}" == "warehouse" ]] && [[ -n "${compose_profiles_selector}" ]]; then
+      echo "compose-profiles:         \${${compose_profiles_selector}}"
+    fi
     echo "elasticsearch-mode:       ${elasticsearch_mode}"
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${sample_video_dataset}" ]]; then
       echo "sample-video-dataset:      ${sample_video_dataset}"
@@ -787,6 +1052,11 @@ function state_up() {
   }
   ensure_generated_env_trailing_newline
 
+  if [[ "${deployment}" == "warehouse" ]] \
+    && { [[ "${bp_profile}" == "bp_wh_auto_calib" ]] || [[ "${mode}" == "auto-calibration" ]]; }; then
+    disable_sdrc_routing_in_env "${_generated_env}"
+  fi
+
   # Append compose-wide defaults for variables not already defined in the profile
   local _compose_defaults="${deployment_directory}/services/vios/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then
@@ -840,8 +1110,8 @@ function state_up() {
     set_env_var "HARDWARE_PROFILE" "${hardware_profile}"
   fi
 
-  # Warehouse 3d/mv3dt and non-agent profiles (kafka, redis, auto_calib): no local NIM LLM/VLM
-  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
+  # Warehouse 3d/mv3dt, kafka/redis, and auto-calibration: no local NIM LLM/VLM
+  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]] || [[ "${mode}" == "auto-calibration" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
     set_env_var "LLM_MODE" "none"
     set_env_var "VLM_MODE" "none"
     set_env_var "LLM_NAME_SLUG" "none"
@@ -979,25 +1249,12 @@ function state_up() {
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
 
-    # Select explicit service-list variable for the active warehouse variant.
-    local _cp_var
-    case "${bp_profile}_${mode}" in
-      bp_wh_2d)              _cp_var="COMPOSE_PROFILES_WH_2D" ;;
-      bp_wh_kafka_2d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
-      bp_wh_redis_2d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
-      bp_wh_auto_calib_2d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_2D" ;;
-      bp_wh_kafka_3d)        _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
-      bp_wh_redis_3d)        _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
-      bp_wh_auto_calib_3d)   _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_3D" ;;
-      bp_wh_kafka_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_KAFKA_MV3DT" ;;
-      bp_wh_redis_mv3dt)     _cp_var="COMPOSE_PROFILES_WH_REDIS_MV3DT" ;;
-      bp_wh_auto_calib_mv3dt) _cp_var="COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT" ;;
-      *)
-        echo "[ERROR] Unknown warehouse bp-profile/mode combination: ${bp_profile}/${mode}"
-        return 1
-        ;;
-    esac
-    set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
+    # -p/-m select the compose list; copy of overrides.env is rewritten here.
+    if [[ -z "${compose_profiles_selector}" ]]; then
+      compose_profiles_selector="$(warehouse_compose_profiles_selector "${_source_env}" "${_overrides_env}")"
+    fi
+    set_env_var "COMPOSE_PROFILES" "\${${compose_profiles_selector}}"
+    echo "[INFO] Warehouse COMPOSE_PROFILES=\${${compose_profiles_selector}}"
   fi
 
   if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
