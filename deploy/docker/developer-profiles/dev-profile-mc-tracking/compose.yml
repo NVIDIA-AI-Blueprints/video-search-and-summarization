@@ -45,7 +45,7 @@ services:
     environment:
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/blueprint-configurator/blueprint_config.yml
       DS_CONFIG_DIR: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/deepstream/configs
-      NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/nvstreamer/configs
+      NVSTREAMER_CONFIG_DIR: ${VSS_APPS_DIR}/services/nvstreamer/configs
       RECOMPUTE_BEV_CENTERS_ENABLED: true
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/developer-profiles/dev-profile-mc-tracking/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true

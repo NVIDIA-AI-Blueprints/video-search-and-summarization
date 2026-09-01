@@ -1396,7 +1396,6 @@ _nvstreamer_service_definition_specs=(
   "nvstreamer-2d-fusion:deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml"
   "nvstreamer-2d:deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml"
   "nvstreamer-3d:deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml"
-  "nvstreamer-mc-tracking:deploy/docker/developer-profiles/dev-profile-mc-tracking/compose.yml"
 )
 for _spec in "${_nvstreamer_service_definition_specs[@]}"; do
   _service="${_spec%%:*}"
