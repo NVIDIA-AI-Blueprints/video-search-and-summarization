@@ -95,7 +95,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      - `2d` — 2D object detection & tracking.
      - `3d` — standalone RTVI-CV-3D / multi-camera 3D tracking on calibrated inputs.
      - `mv3dt` — Multi-View 3D Tracking warehouse profile. Also needs
-       `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.maxExpectedSensors` set to the effective stream
+       `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.fusion.maxExpectedSensors` set to the effective stream
        count in step 6/7 (default `4`) — it's BEV fusion's own camera-count setting, separate from
        `NUM_STREAMS`/`syncFileCount`, and the stream-cap script doesn't touch it.
    - **Alerts.** Not a fourth mode — an optional overlay, off by default, and only available on
@@ -123,10 +123,10 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      still needs `helm` to see the original file directly. See
      [`references/streams.md`](references/streams.md#if-your-install-customizes-bp-configuratorenv).
    - **Inline** (`--set`/`--set-json` on `bp-configurator.env`) → the script only reads YAML files,
-     it can't consume a `--set` string. Plain `helm get values` only returns what was explicitly
-     set, not the full merged list — use `helm get values <release> -a` instead and take its
-     `bp-configurator.env` block untrimmed, or `deep_merge` will still replace the whole list and
-     drop the rest of the defaults. Then treat it as the values-file case above.
+     it can't consume a `--set` string. Move it into a values file first — see
+     [`references/streams.md`](references/streams.md#if-your-install-customizes-bp-configuratorenv)
+     for the `helm get values -a` command (secrets included, handle with care) and why it can't be
+     trimmed. Then treat it as the values-file case above.
    - **No customizations** → say so explicitly (e.g. "no custom `bp-configurator.env` overrides,
      so nothing extra is needed here") and proceed without any of the above.
 5. **Run the stream-cap script** from the repo root:
@@ -150,7 +150,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    the NodePort values file per the choice made in step 2, and — if Alerts was enabled in step 3 —
    the four-flag Alerts values block from `warehouse-2d-app/README.md` §Alerts (Kafka/
    Elasticsearch/VST endpoints included). On `mv3dt`, also add
-   `--set rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.maxExpectedSensors=<effective-streams>` (same
+   `--set rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.fusion.maxExpectedSensors=<effective-streams>` (same
    value as `syncFileCount` from step 5). If step 4 found a customizing values file, it goes here
    too (`-f my-values.yaml`) — passing it only to the script in step 5 covers `bp-configurator.env`
    but drops everything else in that file from the install. See
