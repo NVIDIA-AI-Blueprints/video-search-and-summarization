@@ -72,13 +72,36 @@ LiveMetadataStore::~LiveMetadataStore()
 
 void LiveMetadataStore::checkAndWaitForMetadata()
 {
+    /* The overlay draws on the media thread, so this wait is charged to every
+    ** frame.  While analytics is publishing, waiting keeps a box on the frame it
+    ** belongs to and costs almost nothing because the metadata is already there.
+    ** When nothing is publishing - no analytics deployed, or the producer has
+    ** stopped - every frame paid the full timeout instead, which held the live
+    ** pipeline at 1000/METADATA_WAIT_TIMEOUT_MS frames per second no matter what
+    ** the source delivered.  After a few silent frames the wait is abandoned and
+    ** the stream runs at source rate; the first metadata to arrive restores it.
+    */
+    if (m_metadataIdle)
+    {
+        return;
+    }
     while (isMetadataQueueEmpty())
     {
-        if (!m_metaWait.wait(200))
+        if (!m_metaWait.wait(METADATA_WAIT_TIMEOUT_MS))
         {
-            LOG(warning) << "Metadata wait timed out" << endl;
+            if (++m_metadataTimeouts >= MAX_CONSECUTIVE_METADATA_TIMEOUTS)
+            {
+                m_metadataIdle = true;
+                LOG(warning) << "No analytics metadata for " << m_metadataTimeouts.load()
+                             << " consecutive frames; overlay will draw without waiting"
+                             << " until metadata resumes" << endl;
+            }
             break;
         }
+    }
+    if (!isMetadataQueueEmpty())
+    {
+        m_metadataTimeouts = 0;
     }
 }
 
@@ -109,6 +132,13 @@ void LiveMetadataStore::addMetadata(const Json::Value& metadata)
 
     std::lock_guard<std::mutex> guard(metadataQueueMutex());
     metadataQueue().push(metadata);
+    /* Metadata is flowing again: resume synchronising frames with it. */
+    if (m_metadataIdle)
+    {
+        LOG(info) << "Analytics metadata resumed; overlay will synchronise again" << endl;
+    }
+    m_metadataIdle = false;
+    m_metadataTimeouts = 0;
     m_metaWait.signal();
 }
 

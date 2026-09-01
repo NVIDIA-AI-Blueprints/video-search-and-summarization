@@ -99,7 +99,7 @@ def main():
         print(f"Error connecting to Redis: {e}")
         print("\nMake sure Redis is running and accessible.")
         print("You can start Redis with:")
-        print("  docker run -d -p 6379:6379 redis:latest")
+        print("  docker run -d -p 6379:6379 redis:8.10.0-alpine")
         print("Or install locally:")
         print("  sudo apt-get install redis-server")
         sys.exit(1)

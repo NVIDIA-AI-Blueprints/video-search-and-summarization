@@ -16,10 +16,11 @@
  */
 import useVSTUIStore from '../../services/StateManagement';
 import SensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
+import DeliveryProtocolSelector from '../../components/deliveryProtocol/DeliveryProtocolSelector';
 import React, { useCallback, useState } from 'react';
 import { Box, Grid2 as Grid, Button, IconButton } from '@mui/material';
 import VSTStreamManager from '../../features/streamManager/StreamManager';
-import { Sensor } from '../../interfaces/interfaces';
+import { Sensor, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import { StreamType } from 'vst-streaming-lib';
 import { PlayArrow, Stop, ZoomIn, ZoomOut, Add } from '@mui/icons-material';
 import { getAuthorizedMainStreams } from '../../utils/misc/sensorUtils';
@@ -28,6 +29,9 @@ const VideoWall = () => {
     const sensors = useVSTUIStore(state => state.sensorServiceSensors);
     const liveSensors = useVSTUIStore(state => state.liveServiceSensors);
     const isLiveStreamServiceAvailable = useVSTUIStore(state => state.isLiveStreamServiceAvailable);
+    // Picked before anything plays, because switching afterwards tears the
+    // stream down and builds a new one.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
     const [selectedSensors, setSelectedSensors] = useState<Sensor[] | undefined>();
     const [isStreaming, setIsStreaming] = useState(false);
     const [gridSize, setGridSize] = useState(10);
@@ -68,7 +72,14 @@ const VideoWall = () => {
     return (
         <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
-                <h1>Video Wall</h1>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <h1>Video Wall</h1>
+                    <DeliveryProtocolSelector
+                        value={deliveryProtocol}
+                        onChange={setDeliveryProtocol}
+                        disabled={isStreaming}
+                    />
+                </Box>
             </Grid>
             <Grid size={{ xs: 12 }}>
                 <div
@@ -138,7 +149,12 @@ const VideoWall = () => {
             >
                 <Box className='video-container'>
                     {isStreaming && selectedSensors && selectedSensors.length > 0 && (
-                        <VSTStreamManager sensors={selectedSensors} streamType={StreamType.VideoWall} onClose={handleCloseVideo} />
+                        <VSTStreamManager
+                            sensors={selectedSensors}
+                            streamType={StreamType.VideoWall}
+                            protocol={deliveryProtocol}
+                            onClose={handleCloseVideo}
+                        />
                     )}
                 </Box>
             </Grid>

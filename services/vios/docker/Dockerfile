@@ -180,7 +180,7 @@ RUN apt-get update \
          arm64) apt-get install -y --no-install-recommends \
                   iptables v4l-utils libprotobuf32t64 libgrpc++1.51t64 kmod;; \
        esac \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && apt-get clean
 
 # Resolve arch-specific paths once: DEB = multiarch triplet, VST = prebuilts dir.
 RUN set -eux; case "${TARGETARCH}" in \

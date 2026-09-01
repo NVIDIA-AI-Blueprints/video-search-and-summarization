@@ -60,6 +60,7 @@ src/vllm_cosmos3/model.py
 src/vlm_pipeline/errors.py
 src/vlm_pipeline/__init__.py
 src/vlm_pipeline/ipc_frame_source.py
+src/vlm_pipeline/model_path_policy.py
 src/vlm_pipeline/ngc_model_downloader.py
 src/vlm_pipeline/process_base.py
 src/vlm_pipeline/video_file_frame_getter.py

@@ -35,6 +35,10 @@ models/vllm_compatible/__init__.py
 models/vllm_compatible/adaptive_preprocess_limiter.py
 models/vllm_compatible/vllm_compatible_model.py
 vllm_cosmos3/__init__.py
+vllm_cosmos3/edge_attention_backend.py
+vllm_cosmos3/edge_config.py
+vllm_cosmos3/edge_native.py
+vllm_cosmos3/edge_processor.py
 vllm_cosmos3/model.py
 vllm_cosmos3-0.1.0.dist-info/METADATA
 vllm_cosmos3-0.1.0.dist-info/entry_points.txt
@@ -52,8 +56,9 @@ utils/otel_helper.py
 utils/request_profiler.py
 vlm_pipeline/__init__.py
 vlm_pipeline/errors.py
-vlm_pipeline/ngc_model_downloader.py
 vlm_pipeline/ipc_frame_source.py
+vlm_pipeline/model_path_policy.py
+vlm_pipeline/ngc_model_downloader.py
 vlm_pipeline/process_base.py
 vlm_pipeline/vlm_pipeline.py
 vlm_pipeline/video_file_frame_getter.py

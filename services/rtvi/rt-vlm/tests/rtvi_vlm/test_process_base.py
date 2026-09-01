@@ -17,6 +17,9 @@ import concurrent.futures
 import queue
 from threading import Lock
 
+import pytest
+import torch
+
 from vlm_pipeline import process_base as process_base_module
 from vlm_pipeline import vlm_pipeline as vlm_pipeline_module
 from vlm_pipeline.process_base import ProcessBase
@@ -199,3 +202,18 @@ def test_async_callback_preserves_live_stream_routing(monkeypatch):
     assert error_item["chunk"] is chunk
     assert error_item["is_live_stream"] is True
     assert error_item["request_id"] == "request-1"
+
+
+def test_move_cuda_frames_to_cpu_keeps_tensor_type_with_gpu_queue(monkeypatch):
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required for this test")
+
+    monkeypatch.setenv("RTVI_QUEUE_DECODED_FRAMES_ON_GPU", "true")
+
+    frames = torch.zeros((2, 4, 4, 3), dtype=torch.uint8, device="cuda")
+    converted = process_base_module._move_cuda_frames_to_cpu(frames)
+
+    assert isinstance(converted, torch.Tensor)
+    assert converted.is_cuda
+    assert converted.shape == (2, 4, 4, 3)
+    assert converted.dtype == torch.uint8
