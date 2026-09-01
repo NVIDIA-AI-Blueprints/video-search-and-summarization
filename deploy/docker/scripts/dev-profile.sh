@@ -485,21 +485,6 @@ function get_rtvi_vlm_max_model_len() {
   esac
 }
 
-# Compose interpolates ${VSS_RT_VLM_IMAGE}:${VSS_RT_VLM_TAG}. Reuse an already
-# selected SBSA tag when present; otherwise append -sbsa to the managed channel.
-function resolve_sbsa_image_tag() {
-  local _current="${1}"
-  local _fallback="${2:-develop-latest}"
-  local _base
-  if [[ "${_current}" == *sbsa* ]]; then
-    echo "${_current}"
-    return
-  fi
-  _base="${_current:-${_fallback}}"
-  _base="${_base%-sbsa}"
-  echo "${_base}-sbsa"
-}
-
 # Apply VSS kernel settings (IPv6 disable, TCP buffer sizes). Persistent across reboots via /etc/sysctl.d/99-vss.conf.
 function set_vss_linux_kernel_settings() {
   local _sudo=""
@@ -1669,15 +1654,6 @@ function state_up() {
       echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
-  # rtvi-vlm-docker-compose.yml reads VSS_RT_VLM_TAG. LVS has no commented SBSA
-  # line for that key, so the swap above is not enough on GB300. Write the
-  # managed SBSA tag into generated.env so Compose interpolation wins.
-  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" ]]; then
-    local _rt_vlm_tag
-    _rt_vlm_tag="$(resolve_sbsa_image_tag "$(get_env_value "${_generated_env}" "VSS_RT_VLM_TAG")" "${VSS_CONTAINER_TAG:-develop-latest}")"
-    set_env_var "VSS_RT_VLM_TAG" "${_rt_vlm_tag}"
-    echo "[INFO] Selected SBSA RT-VLM image for ${hardware_profile}: ${_rt_vlm_tag}"
-  fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 
@@ -1745,6 +1721,17 @@ function state_up() {
   # shellcheck disable=SC1091
   source "${deployment_directory}/containers.env"
   set +a
+
+  # rtvi-vlm-docker-compose.yml resolves ${VSS_RT_VLM_IMAGE}:${VSS_RT_VLM_TAG}, and
+  # Compose ranks the exported shell value above every --env-file, so the SBSA
+  # variant has to be selected here, once containers.env has resolved the channel.
+  # GB300 needs it because the generic ARM64 image omits the DeepStream runtime.
+  if [[ "${hardware_profile}" == "GB300" ]] && [[ "${VSS_RT_VLM_TAG}" != *sbsa* ]]; then
+    export VSS_RT_VLM_TAG="${VSS_RT_VLM_TAG}-sbsa"
+    set_env_var "VSS_RT_VLM_TAG" "${VSS_RT_VLM_TAG}"
+    echo "[INFO] Selected SBSA RT-VLM image for GB300: ${VSS_RT_VLM_TAG}"
+  fi
+
   # -f disables Compose's default file discovery, so the base file must be named
   # explicitly alongside any overlay.
   local compose_files=(-f compose.yml)
