@@ -66,9 +66,10 @@ helm upgrade --install wh <chart-dir> -n <namespace> \
 ```
 
 If the customization is inline (`--set`/`--set-json` on `bp-configurator.env`), the script can't
-read it — it only takes YAML files. Move it into a values file first: write it by hand, or if a
-release is already installed, `helm get values wh -n <namespace> -o yaml > my-values.yaml` and trim
-it down to the `bp-configurator` block. Then use the values-file case above.
+read it — it only takes YAML files. Move it into a values file first. If a release is already
+installed, `helm get values wh -n <namespace> -o yaml` only returns what was explicitly set, not
+the full merged list — use `helm get values wh -n <namespace> -a -o yaml > my-values.yaml` instead
+and keep its `bp-configurator` block untrimmed. Then use the values-file case above.
 
 ## Without the skill
 
