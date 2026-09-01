@@ -85,7 +85,7 @@ Follow the umbrella skill's standard flow (Steps 1c–5b) with `PROFILE=mc-track
       nv-metropolis-dev/vss-developer/vss-mc-tracking-app-data:v3.3.0-09012026
 
    cd vss-mc-tracking-app-data_vv3.3.0-09012026
-   tar -xvf vss-mc-tracking-app-data.tar
+   tar -xvf vss-mc-tracking-app-data.tar.gz
 
    chmod -R o+rwX vss-mc-tracking-app-data_vv3.3.0-09012026
    ```
