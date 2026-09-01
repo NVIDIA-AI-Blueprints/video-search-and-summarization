@@ -196,6 +196,29 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
     )
 
 
+def open_for_persist(deployment: config_mod.Deployment | None, *, no_persist: bool) -> Memory | None:
+    """Return the memory store when the deployment policy says to persist, else None.
+
+    Encapsulates the full persistence policy so the framework and individual
+    commands do not need to inspect ``memory.enabled`` or
+    ``memory.persist_by_default`` directly.  The check order:
+
+    1. ``no_persist=True`` → caller explicitly opted out; return None immediately.
+    2. ``memory.enabled`` or ``memory.persist_by_default`` is false → the operator
+       disabled auto-persistence; return None without raising.
+    3. All other :func:`build` failures (unconfigured, wrong backend, …) → propagate
+       :class:`MemoryUnavailable` so the caller can surface the real cause.
+    """
+    if no_persist:
+        return None
+    if deployment is None:
+        return None
+    memory_config = deployment.memory
+    if not (memory_config and memory_config.enabled and memory_config.persist_by_default):
+        return None
+    return build(deployment)
+
+
 def write_failures() -> tuple[type[BaseException], ...]:
     """Exception classes that mean "the tier would not take this write".
 
@@ -217,4 +240,4 @@ def write_failures() -> tuple[type[BaseException], ...]:
     return tuple(failures)
 
 
-__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "write_failures"]
+__all__ = ["Memory", "MemoryUnavailable", "build", "group_token", "open_for_persist", "write_failures"]
