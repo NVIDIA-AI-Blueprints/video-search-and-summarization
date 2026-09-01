@@ -163,7 +163,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      --set global.externalHost=<NODE_IP> \
      --set global.storageClass=<STORAGE_CLASS> \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
-     ...  # remaining secrets/URL overrides, see references/streams.md \
+     ... \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
 
    # NodePort:
@@ -174,6 +174,9 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
    ```
+   `...` is the remaining secrets/URL overrides from step 6 — see
+   [`references/streams.md`](references/streams.md).
+
    `-f values-stream-cap.generated.yaml` has to be the last `-f` in the command — that's what
    makes it win on `bp-configurator.env` (multiple `-f` files merge in order given, later wins
    per top-level key). That includes coming after `values-nodeport.yaml` in the NodePort case and
