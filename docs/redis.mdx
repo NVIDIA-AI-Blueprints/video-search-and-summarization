@@ -14,7 +14,7 @@ Additional information regarding Redis can be found in the [Redis documentation]
 | --- | --- | --- | --- |
 | `mdx-raw` | Protobuf | `nv.Frame` | The stream where the Perception microservice sends frame metadata. |
 | `mdx-bev` | Protobuf | `nv.Frame` | The stream where the Perception microservice sends Bird's Eye View (BEV) based frame data. |
-| `mdx-behavior` | Protobuf | `nv.Behavior` | The stream used by the analytics pipeline to send behavior data. Refer to [Behavior Processing](/behavior-analytics#behavior-processing) for details. |
+| `mdx-behavior` | Protobuf | `nv.Behavior` | The stream used by the analytics pipeline to send behavior data. Refer to [Behavior Processing](/vss/system-components/analytics-microservices/behavior-analytics#behavior-processing) for details. |
 | `mdx-behavior-plus` | Protobuf | `nv.Behavior` | Used by the analytics pipeline to send enhanced behavior data, like assigning cluster details to behaviors. |
 | `mdx-alerts` | Protobuf | `nv.Behavior` | For all anomaly data sent by the analytics pipeline. |
 | `mdx-events` | Protobuf | `nv.Behavior` | Used for sending various events such as IN/OUT tripwire events and ENTRY/EXIT ROI events. |

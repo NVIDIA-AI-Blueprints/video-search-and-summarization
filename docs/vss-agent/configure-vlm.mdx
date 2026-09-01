@@ -18,7 +18,7 @@ The Cosmos3 Reasoner NIM requires a **Personal API Key** (`NGC_CLI_API_KEY`).
 Legacy NGC API keys will fail authentication.
 </Info>
 
-- **Custom NIM env file:** At deploy time, pass `--vlm-env-file` with the path (absolute or relative to the current directory) to an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** At deploy time, pass `--vlm-env-file` with the path (absolute or relative to the current directory) to an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
 - **Different local model:** Pass `--vlm` with one of the supported model names:
 
@@ -36,14 +36,14 @@ model, set `VLM_NAME=nvidia/cosmos3-nano-reasoner` and
 
 - **Verified models:** Only the default `nvidia/cosmos3-nano-reasoner` is verified for local deployment. For other models, ensure GPU memory meets requirements and refer to [VLM NIM documentation](https://docs.nvidia.com/nim/vision-language-models/1.7.0/support-matrix.html).
 
-- **Custom VLM weights:** Set `VLM_CUSTOM_WEIGHTS` to the path of a directory containing custom VLM weights. See [VLM Custom Weights](/prerequisites#vlm-custom-weights) in Prerequisites for download instructions.
+- **Custom VLM weights:** Set `VLM_CUSTOM_WEIGHTS` to the path of a directory containing custom VLM weights. See [VLM Custom Weights](/vss/getting-started/prerequisites#vlm-custom-weights) in Prerequisites for download instructions.
 
 - **GPU assignment:** Use `--vlm-device-id` to pin the local VLM to a specific GPU (e.g. when sharing with a local LLM). See the quickstart deploy tab-set for examples.
 
 ## Setup assumptions for remote VLMs
 
-Before you start, make sure you followed the [prerequisites](/prerequisites) section.
-It is also recommended to review the different parameters described in the [quickstart](/quickstart) guide.
+Before you start, make sure you followed the [prerequisites](/vss/getting-started/prerequisites) section.
+It is also recommended to review the different parameters described in the [quickstart](/vss/getting-started/quickstart) guide.
 
 1. Register an account at [NVIDIA NGC](https://org.ngc.nvidia.com/setup). Get an NGC API key.
 
@@ -231,7 +231,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 
 1. **Deploy the VSS blueprint** (local LLM, remote VLM)
 
-   Complete [prerequisites](/prerequisites) and the [quickstart](/quickstart) **base** profile deploy flow. Use **remote VLM** layout.
+   Complete [prerequisites](/vss/getting-started/prerequisites) and the [quickstart](/vss/getting-started/quickstart) **base** profile deploy flow. Use **remote VLM** layout.
 
    **Profile `.env`** (before `dev-profile.sh up`):
 

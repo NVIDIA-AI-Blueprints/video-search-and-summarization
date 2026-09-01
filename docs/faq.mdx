@@ -11,48 +11,48 @@ If your issue is not addressed on this page, please raise it on [GitHub Issues](
 
 **VIOS**
 
-- [Why do large file uploads to VIOS fail?](/faq#why-do-large-file-uploads-to-vios-fail)
-- [Why are video uploads to VIOS slow?](/faq#why-are-video-uploads-to-vios-slow)
-- [How do I re-encode a video and disable B-frames before uploading to VIOS?](/faq#how-do-i-re-encode-a-video-and-disable-b-frames-before-uploading-to-vios)
+- [Why do large file uploads to VIOS fail?](/vss/appendix/faq#why-do-large-file-uploads-to-vios-fail)
+- [Why are video uploads to VIOS slow?](/vss/appendix/faq#why-are-video-uploads-to-vios-slow)
+- [How do I re-encode a video and disable B-frames before uploading to VIOS?](/vss/appendix/faq#how-do-i-re-encode-a-video-and-disable-b-frames-before-uploading-to-vios)
 
 **Video Summarization MS**
 
-- [Can the Video Summarization microservice process multiple videos simultaneously?](/faq#can-the-video-summarization-microservice-process-multiple-videos-simultaneously)
-- [What video formats are supported?](/faq#what-video-formats-are-supported)
-- [How do I use a custom VLM model in the Video Summarization microservice?](/faq#how-do-i-use-a-custom-vlm-model-in-the-video-summarization-microservice)
-- [How can I change the VLM prompt for summarization?](/faq#how-can-i-change-the-vlm-prompt-for-summarization)
+- [Can the Video Summarization microservice process multiple videos simultaneously?](/vss/appendix/faq#can-the-video-summarization-microservice-process-multiple-videos-simultaneously)
+- [What video formats are supported?](/vss/appendix/faq#what-video-formats-are-supported)
+- [How do I use a custom VLM model in the Video Summarization microservice?](/vss/appendix/faq#how-do-i-use-a-custom-vlm-model-in-the-video-summarization-microservice)
+- [How can I change the VLM prompt for summarization?](/vss/appendix/faq#how-can-i-change-the-vlm-prompt-for-summarization)
 
 **Real-Time Video Intelligence**
 
-- [What streaming protocols are supported?](/faq#what-streaming-protocols-are-supported)
-- [What file-based video formats are supported?](/faq#what-file-based-video-formats-are-supported)
+- [What streaming protocols are supported?](/vss/appendix/faq#what-streaming-protocols-are-supported)
+- [What file-based video formats are supported?](/vss/appendix/faq#what-file-based-video-formats-are-supported)
 
 **Local LLM and VLM deployments on OTHER hardware**
 
-- [NVIDIA A100 (80 GB)](/faq#nvidia-a100-80-gb)
-- [NVIDIA H200](/faq#nvidia-h200)
-- [NVIDIA RTX PRO 4500 Blackwell](/faq#nvidia-rtx-pro-4500-blackwell)
+- [NVIDIA A100 (80 GB)](/vss/appendix/faq#nvidia-a100-80-gb)
+- [NVIDIA H200](/vss/appendix/faq#nvidia-h200)
+- [NVIDIA RTX PRO 4500 Blackwell](/vss/appendix/faq#nvidia-rtx-pro-4500-blackwell)
 
 **Local RTVI-VLM deployments on OTHER hardware**
 
-- [NVIDIA RTX PRO 4500 Blackwell](/faq#nvidia-rtx-pro-4500-blackwell)
+- [NVIDIA RTX PRO 4500 Blackwell](/vss/appendix/faq#nvidia-rtx-pro-4500-blackwell)
 
 **Remote VLM (`nim` model-type)**
 
-- [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos)
+- [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos)
 
 **Deployment networking and host firewall**
 
-- [Why does Kibana show request timeouts or ELK services fail startup health checks?](/faq#why-does-kibana-show-request-timeouts-or-elk-services-fail-startup-health-checks)
-- [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high)
-- [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
-- [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
+- [Why does Kibana show request timeouts or ELK services fail startup health checks?](/vss/appendix/faq#why-does-kibana-show-request-timeouts-or-elk-services-fail-startup-health-checks)
+- [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/vss/appendix/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high)
+- [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
+- [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
 
 ## VIOS
 
 ### Why do large file uploads to VIOS fail?
 
-Upload size is governed by two settings (NGINX `client_max_body_size` and `nv_streamer_max_upload_file_size_MB`). The effective limit is the lower of the two. Refer to [Configuring upload file size limit](/vios-microservices#configuring-upload-file-size-limit) for configuration steps.
+Upload size is governed by two settings (NGINX `client_max_body_size` and `nv_streamer_max_upload_file_size_MB`). The effective limit is the lower of the two. Refer to [Configuring upload file size limit](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#configuring-upload-file-size-limit) for configuration steps.
 
 ### Why are video uploads to VIOS slow?
 
@@ -60,7 +60,7 @@ Slow uploads are commonly caused by VPN overhead. Upload from a machine on the s
 
 ### How do I re-encode a video and disable B-frames before uploading to VIOS?
 
-Videos with B-frames or incompatible encoding settings may fail to play back or stream correctly. Re-encode with B-frames disabled and a fixed keyframe interval before uploading. Refer to [Synchronize Streaming of Videos](/vios-nvstreamer#synchronize-streaming-of-videos) for the recommended `ffmpeg` command.
+Videos with B-frames or incompatible encoding settings may fail to play back or stream correctly. Re-encode with B-frames disabled and a fixed keyframe interval before uploading. Refer to [Synchronize Streaming of Videos](/vss/system-components/middleware/video-io-storage-vios/nvstreamer#synchronize-streaming-of-videos) for the recommended `ffmpeg` command.
 
 ## Video Summarization MS
 
@@ -104,11 +104,11 @@ processed by the downstream pipeline.
 
 ### What streaming protocols are supported?
 
-The reference blueprint uses **RTSP** for live video and **files/URLs** where each RTVI microservice documents them; other protocols require a custom DeepStream/GStreamer graph or an RTSP gateway. Refer to [Streaming protocols](/object-detection-tracking#streaming-protocols) in [Object Detection and Tracking ](/object-detection-tracking).
+The reference blueprint uses **RTSP** for live video and **files/URLs** where each RTVI microservice documents them; other protocols require a custom DeepStream/GStreamer graph or an RTSP gateway. Refer to [Streaming protocols](/vss/system-components/vision-microservices/object-detection-and-tracking#streaming-protocols) in [Object Detection and Tracking ](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
 ### What file-based video formats are supported?
 
-DeepStream-backed RTVI paths support **H.264**, **H.265**, **JPEG**, and **MJPEG** in common **multimedia container formats** (for example MP4 or MKV) when **GStreamer** can demux them; each microservice still defines which file or URL inputs it accepts. Refer to [File-based video and codecs](/object-detection-tracking#file-based-video-and-codecs) in [Object Detection and Tracking ](/object-detection-tracking).
+DeepStream-backed RTVI paths support **H.264**, **H.265**, **JPEG**, and **MJPEG** in common **multimedia container formats** (for example MP4 or MKV) when **GStreamer** can demux them; each microservice still defines which file or URL inputs it accepts. Refer to [File-based video and codecs](/vss/system-components/vision-microservices/object-detection-and-tracking#file-based-video-and-codecs) in [Object Detection and Tracking ](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
 ## Remote VLM (`nim` model-type) and video access
 
@@ -123,10 +123,10 @@ When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs else
 
 Ensure your network and firewall allow the `nim` VLM to access port 30888 on the appropriate IP from where the VLM runs.
 
-**Exception: Nemotron Omni with `ENABLE_AUDIO=true`:** For remote Omni VLMs on the base agent profile, the agent inlines the MP4 as `data:video/mp4;base64,…` instead of giving the VLM a VST `video_url`. Port **30082** must be reachable for the OpenAI-compatible API; See [Using Nemotron Omni (audio-enabled VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm).
+**Exception: Nemotron Omni with `ENABLE_AUDIO=true`:** For remote Omni VLMs on the base agent profile, the agent inlines the MP4 as `data:video/mp4;base64,…` instead of giving the VLM a VST `video_url`. Port **30082** must be reachable for the OpenAI-compatible API; See [Using Nemotron Omni (audio-enabled VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm).
 
 <Note>
-The same connectivity pattern (a service that needs to reach VST on the host's IP) can also fail when the caller is a *local* container on a Docker bridge network rather than a remote host. See [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
+The same connectivity pattern (a service that needs to reach VST on the host's IP) can also fail when the caller is a *local* container on a Docker bridge network rather than a remote host. See [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
 </Note>
 
 ## ELK Services Timeouts or Startup Health Check Failures
@@ -135,7 +135,7 @@ The same connectivity pattern (a service that needs to reach VST on the host's I
 
 If Kibana shows `Request timeout: "Request timed out"`, inspect the relevant service logs before changing Kibana settings.
 
-A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can appear as `Unable to retrieve search results` with `Request timeout: "Request timed out"`. Check Elasticsearch allocation and disk watermarks before tuning Kibana timeouts. See [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high).
+A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can appear as `Unable to retrieve search results` with `Request timeout: "Request timed out"`. Check Elasticsearch allocation and disk watermarks before tuning Kibana timeouts. See [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/vss/appendix/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high).
 
 If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, check the service logs to confirm it is starting slowly rather than failing because of a configuration issue. If the service becomes ready shortly after Docker marks it unhealthy, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root), then redeploy.
 
@@ -213,13 +213,13 @@ Re-run the bridge-container `curl` to confirm HTTP 200, then re-run the profile'
 
 As an alternative, move the failing service to host networking (for `vss-rtvi-embed`, add `network_mode: host` and drop the `ports:` mapping in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`). This sidesteps the firewall but edits a shipped Compose file, so prefer the firewall fix.
 
-Related: [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
+Related: [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
 
 PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
 
 ### PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
 
-The streaming upload endpoint rejects requests without a video `Content-Type` header (HTTP 400, `Content-Type header is required. Must be a video format (e.g., video/mp4, video/x-matroska)`). A header problem produces an immediate 400 from the agent; the firewall issue in [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host) instead lets the upload look successful in VST but produces no embeddings.
+The streaming upload endpoint rejects requests without a video `Content-Type` header (HTTP 400, `Content-Type header is required. Must be a video format (e.g., video/mp4, video/x-matroska)`). A header problem produces an immediate 400 from the agent; the firewall issue in [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host) instead lets the upload look successful in VST but produces no embeddings.
 
 ```bash
 curl -X PUT -H "Content-Type: video/mp4" \

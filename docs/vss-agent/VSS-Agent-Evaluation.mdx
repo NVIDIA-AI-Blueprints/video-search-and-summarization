@@ -36,15 +36,15 @@ against ground truth references using a hierarchical, bottom-up evaluation appro
 - **Bottom-Up Evaluation**: The evaluation follows a hierarchical structure. Fields are evaluated
   first and given a score, then sections, and so on until reaching the overall report score.
   Each field or section supports its own customizable evaluation metric.
-  See [Evaluation Method](/vss-agent/VSS-Agent-Evaluation#evaluation-method) for details.
+  See [Evaluation Method](/vss/vision-agent/vss-agents/agent-evaluation#evaluation-method) for details.
 
 - **Dynamic Field Auto-Discovery**: The evaluator automatically handles fields not explicitly defined in config,
   allowing flexible report formats and field naming while preserving semantic matching.
-  See [Dynamic Field Discovery](/vss-agent/VSS-Agent-Evaluation#dynamic-field-discovery) for details.
+  See [Dynamic Field Discovery](/vss/vision-agent/vss-agents/agent-evaluation#dynamic-field-discovery) for details.
 
 - **Configuration-Driven**: Schema changes require only config updates, no code changes. Each Blueprint or Developer Profile
   defines its own metrics YAML file and evaluation data.
-  See [Metrics Configuration](/vss-agent/VSS-Agent-Evaluation#metrics-configuration) for details.
+  See [Metrics Configuration](/vss/vision-agent/vss-agents/agent-evaluation#metrics-configuration) for details.
 
 #### Evaluation Method
 
@@ -65,7 +65,7 @@ For each section, the evaluator processes all fields:
 | `non_empty` | Validates that the field contains non-empty content |
 | `llm_judge` | LLM-based semantic similarity evaluation |
 
-2. **Fields without explicit metrics** (discovered at runtime using [dynamic field discovery](/vss-agent/VSS-Agent-Evaluation#dynamic-field-discovery)):
+2. **Fields without explicit metrics** (discovered at runtime using [dynamic field discovery](/vss/vision-agent/vss-agents/agent-evaluation#dynamic-field-discovery)):
 
    - Extracts all fields from the generated section that do not have explicit metrics defined in the config
    - Makes a batch LLM call to score all discovered fields against the ground truth section
@@ -137,9 +137,9 @@ evaluators:
 Configuration parameters:
 
 - `eval_metrics_config_path`: Path to the metrics YAML file that defines report structure and
-  evaluation methods. See [Metrics Configuration](/vss-agent/VSS-Agent-Evaluation#metrics-configuration) for details.
+  evaluation methods. See [Metrics Configuration](/vss/vision-agent/vss-agents/agent-evaluation#metrics-configuration) for details.
 - `object_store`: Name of the object store for retrieving generated reports.
-- `evaluation_method_id`: Identifier used to match against the `evaluation_method` field in the dataset. See [dataset configuration](/vss-agent/VSS-Agent-Evaluation#configuring-evaluation-dataset) for details.
+- `evaluation_method_id`: Identifier used to match against the `evaluation_method` field in the dataset. See [dataset configuration](/vss/vision-agent/vss-agents/agent-evaluation#configuring-evaluation-dataset) for details.
 - `report_url_pattern`: Regex pattern to extract report URLs from agent responses.
 - `include_vlm_output`: When `true`, outputs a separate average score for VLM-related fields, used with `vlm_related_fields`.
 - `vlm_related_fields`: List of section names to include in the VLM accuracy score, used with `include_vlm_output: true`.
@@ -147,7 +147,7 @@ Configuration parameters:
 
   - `llm_judge`: LLM judge settings:
 
-    - `llm_name`: Reference to the LLM configuration (see [LLM Configuration](/vss-agent/VSS-Agent-Evaluation#llm-configuration) for details)
+    - `llm_name`: Reference to the LLM configuration (see [LLM Configuration](/vss/vision-agent/vss-agents/agent-evaluation#llm-configuration) for details)
     - `max_retries`: Number of retry attempts on LLM failures
     - `llm_judge_reasoning`: Enable reasoning in the LLM judge
     - `single_field_comparison_prompt`: Custom prompt for the LLM judge used for single field evaluation
@@ -426,7 +426,7 @@ The evaluation dataset defines test cases and specifies which evaluators to use 
 #### Multi-Turn Dataset
 
 Multi-turn evaluation items use a `conversation` field containing an ordered list of turns.
-The agent maintains context across turns within the same conversation. For details on multi-turn evaluation, please refer to [Multi-Turn Evaluation](/vss-agent/VSS-Agent-Evaluation#multi-turn-evaluation).
+The agent maintains context across turns within the same conversation. For details on multi-turn evaluation, please refer to [Multi-Turn Evaluation](/vss/vision-agent/vss-agents/agent-evaluation#multi-turn-evaluation).
 
 ```json
 [
@@ -473,7 +473,7 @@ as placeholders. The actual queries and evaluation methods are defined per turn 
 
 ### Report Ground Truth Format
 
-For QA evaluation, `ground_truth` is a string answer. For report evaluation, `ground_truth` should be a path to a JSON file whose structure mirrors your [metrics configuration](/vss-agent/VSS-Agent-Evaluation#metrics-configuration).
+For QA evaluation, `ground_truth` is a string answer. For report evaluation, `ground_truth` should be a path to a JSON file whose structure mirrors your [metrics configuration](/vss/vision-agent/vss-agents/agent-evaluation#metrics-configuration).
 
 ```json
 {
@@ -575,7 +575,7 @@ The evaluation supports multi-turn conversations, where the agent maintains cont
 sequential queries within the same conversation. Multi-turn items are automatically detected
 by the presence of a `conversation` field in the dataset entry.
 
-Please refer to [Multi-Turn Dataset](/vss-agent/VSS-Agent-Evaluation#multi-turn-dataset) for the dataset format.
+Please refer to [Multi-Turn Dataset](/vss/vision-agent/vss-agents/agent-evaluation#multi-turn-dataset) for the dataset format.
 
 #### Execution Model
 
