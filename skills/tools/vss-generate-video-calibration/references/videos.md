@@ -103,7 +103,7 @@ focal_length=1269.0&focal_length=1099.5&...
 
 ### Step 5 — Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → calibrate → post-process → results). Use [`calibration-tail.md`](calibration-tail.md) for the shared Python snippet.
+Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → calibrate → post-process → results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
 
 ---
 
@@ -130,6 +130,7 @@ GT_ZIP         = None                                   # optional: Path("/path/
 FOCAL_LENGTHS  = None                                   # optional: [1269.0, 1099.5]
 DETECTOR_TYPE  = "resnet"                               # "resnet" or "transformer" (overridden if CONFIG_FILE pins it)
 RUN_VGGT_IF_READY = False  # Set True if the user requested VGGT or staged VGGT in this run
+MEDIA_MODE = os.environ.get("MEDIA_MODE", "")  # empty prompts for a safe linear/rectification decision in calibration-tail.md
 
 # Projects dir on the host (for verifying manual alignment output).
 # Bind-mounted into the MS container from $VSS_APPS_DIR/services/auto-calibration/projects
