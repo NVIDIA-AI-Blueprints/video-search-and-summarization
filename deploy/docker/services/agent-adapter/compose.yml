@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# BYO agent adapter: lets the VSS UI drive an external agent harness
+# (OpenClaw, Hermes, or anything speaking the OpenAI Responses API) instead of
+# the built-in vss-agent. See tools/vss-agent-adapter/README.md.
+#
+# Off unless the vss-agent-adapter profile is active, so existing deployments
+# are unaffected.
+
+services:
+
+  vss-agent-adapter:
+    build:
+      context: ../../../../tools/vss-agent-adapter
+      dockerfile: Dockerfile
+    image: ${VSS_AGENT_ADAPTER_IMAGE:-vss-agent-adapter}:${VSS_AGENT_ADAPTER_TAG:-local}
+    profiles: ["vss-agent-adapter"]
+    container_name: vss-agent-adapter
+    restart: always
+    # Published because the agent sandbox reaches back in by host alias
+    # (host.openshell.internal:<port>) to fetch skills and run archive search.
+    # That port must also be listed in assets/vss_nemoclaw_policy.yaml or those
+    # calls fail as policy_denied.
+    ports:
+      - ${VSS_AGENT_ADAPTER_HOST_PORT:-9098}:9098
+    extra_hosts:
+      # The harness gateway is an OpenShell/ssh forward on the host, not a
+      # compose service, so it is reachable only via the host gateway.
+      - "host.docker.internal:host-gateway"
+    environment:
+      ADAPTER_PORT: 9098
+      AGENT_BACKEND: ${AGENT_BACKEND:-openclaw-http}
+
+      # OpenClaw: the OpenAI Responses endpoint on the forwarded gateway port.
+      OPENCLAW_HTTP_URL: ${OPENCLAW_HTTP_URL:-http://host.docker.internal:18789/v1/responses}
+      OPENCLAW_HTTP_MODEL: ${OPENCLAW_HTTP_MODEL:-openclaw}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-ws://host.docker.internal:18789/}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+
+      # Hermes: same contract, its own port and token.
+      HERMES_RESPONSES_URL: ${HERMES_RESPONSES_URL:-http://host.docker.internal:8642/v1/responses}
+      HERMES_MODEL: ${HERMES_MODEL:-hermes-agent}
+      HERMES_TOKEN: ${HERMES_TOKEN:-}
+
+      # Conversation identity. `user` is accepted by both harnesses; override
+      # only for a harness that wants its own name or a header.
+      AGENT_SESSION_FIELD: ${AGENT_SESSION_FIELD:-user}
+      AGENT_SESSION_IN: ${AGENT_SESSION_IN:-body}
+      # Unset means random per process: conversations stay isolated but do not
+      # survive a restart. Set it to keep them continuous across restarts.
+      AGENT_SESSION_SALT: ${AGENT_SESSION_SALT:-}
+
+      # What the agent is told to call back on. Host alias, because the caller
+      # is the sandbox, not this network.
+      ADAPTER_PUBLIC_URL: ${ADAPTER_PUBLIC_URL:-http://${VSS_HOST_ALIAS:-host.openshell.internal}:${VSS_AGENT_ADAPTER_HOST_PORT:-9098}}
+      VSS_HOST_ALIAS: ${VSS_HOST_ALIAS:-host.openshell.internal}
+
+      # Skills are read from the mounted checkout, so they always match the
+      # deployment rather than a snapshot baked into the image.
+      VSS_SKILLS_DIR: /repo/skills
+      VSS_REPO_ROOT: /repo
+      # The checkout is mounted read-only, so uv must build its virtualenv and
+      # cache outside it. Both live on a named volume: first search pays for
+      # resolving the CLI's dependencies, later ones and restarts do not.
+      UV_PROJECT_ENVIRONMENT: /venv/agent
+      UV_CACHE_DIR: /venv/cache
+      # Origin the `vss` CLI is pointed at on startup, for POST /v1/search.
+      # The ingress by service name: same compose network, and the public
+      # origin would leave the box and come back through whatever fronts it.
+      VSS_SEARCH_BASE_URL: ${VSS_SEARCH_BASE_URL:-http://vss-haproxy-ingress:${HAPROXY_PORT:-7777}}
+
+      ADAPTER_ALLOW_CIDRS: ${ADAPTER_ALLOW_CIDRS:-127.0.0.1/32,::1/128,172.16.0.0/12}
+      ADAPTER_TOKEN: ${ADAPTER_TOKEN:-}
+      ADAPTER_TURN_TIMEOUT: ${ADAPTER_TURN_TIMEOUT:-600}
+      ADAPTER_SEARCH_TIMEOUT: ${ADAPTER_SEARCH_TIMEOUT:-180}
+      ADAPTER_SSE_KEEPALIVE: ${ADAPTER_SSE_KEEPALIVE:-15}
+    volumes:
+      # Read-only: the adapter serves skills from here and runs the `vss` CLI
+      # against it for archive search. It never writes.
+      - ${VSS_REPO_DIR:-../../../..}:/repo:ro
+      - vss-agent-adapter-venv:/venv
+
+volumes:
+  vss-agent-adapter-venv:
