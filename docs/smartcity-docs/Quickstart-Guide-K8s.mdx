@@ -2,11 +2,11 @@
 title: "Quickstart Guide - Kubernetes"
 description: ""
 ---
-This Quickstart Guide provides a comprehensive step-by-step walkthrough to help you quickly set up and start using the Smart City Blueprint on Kubernetes, based on the VSS 3.0 framework.
+This Quickstart Guide provides a comprehensive step-by-step walkthrough to help you quickly set up and start using the Smart City Blueprint on Kubernetes, based on the VSS 3.3 framework.
 
 ## Components Overview
 
-The high-level diagram illustrates the components of the Smart City Blueprint. The system features a layered architecture based on VSS 3.0 that comprises:
+The high-level diagram illustrates the components of the Smart City Blueprint. The system features a layered architecture based on VSS 3.3 that comprises:
 
 - **Foundational Microservices** - Based on vision language models (VLMs) and computer vision (CV) models
 - **Real-time Video Processing Pipelines** - For processing live camera feeds
@@ -27,7 +27,7 @@ Before you begin, ensure all prerequisites are met:
 
 The Smart City Blueprint on Kubernetes includes all available features in a single unified deployment:
 
-- CV-based object detection and tracking using the RTDETR model via the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking)
+- CV-based object detection and tracking using the RTDETR model via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/vss/system-components/vision-microservices/object-detection-and-tracking)
 - VLM-based verification for enhanced alert accuracy
 - Agents and Agent UI for natural language interaction with the system
 - Integration options:
@@ -589,7 +589,7 @@ Initialization of some components might take a while, especially the first time 
 
 2. Check to make sure streams were properly added to VST. Navigate to the VST UI (see endpoint below) and check the Dashboard to confirm your streams are in a healthy state.
 
-3. Check RTVI CV FPS to make sure the [RTVI CV microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly:
+3. Check RTVI CV FPS to make sure the [RTVI CV microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly:
 
   ```bash
   kubectl logs -f statefulsets/perception-app

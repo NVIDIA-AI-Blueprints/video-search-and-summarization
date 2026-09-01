@@ -17,17 +17,21 @@ The high-level diagram illustrates the components of the Smart City Blueprint. T
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites)  page for more details.
+Before you begin, ensure all of the prerequisites are met. See the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites) page for more details.
 
 ## Deployment Options
 
-The Smart City Blueprint provides a unified deployment profile that includes all available features:
+The Smart City Blueprint ships as a single unified deployment: the `alerts` developer
+profile plus the Smart City industry overlay in
+`deploy/docker/industry-profiles/smartcities`. The notebook applies the overlay for you
+in its Smart City Customizations step; you do not select a separate "Smart City"
+profile name anywhere.
 
-**bp_smc - Smart City Blueprint**
+The resulting deployment provides:
 
-- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking)
-- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice ](/vss/system-components/analytics-microservices/alerts-microservice)
-- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice ](/vss/vision-agent/vss-agents)
+- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/vss/system-components/vision-microservices/object-detection-and-tracking). The overlay sets `MODEL_NAME_2D=RTDETR`, whereas the base `alerts` profile defaults to GDINO.
+- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
+- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice](/vss/vision-agent/vss-agents)
 - Integration options:
 
   - API
@@ -37,7 +41,7 @@ The Smart City Blueprint provides a unified deployment profile that includes all
 
 ## Supported Workload
 
-This section provides details of supported stream count for each model deployment configuration per supported GPU. The goal is to enable the user to scope the supported workload ensuring optimal operation of the blueprint, while taking into account resource availability based on GPUs available at their disposal.
+This section gives the supported stream count for each model deployment configuration on each supported GPU. Use it to scope the workload for optimal operation of the blueprint, taking into account the GPU resources you have available.
 
 | GPU Type | Number of Streams (RTDETR) | Number of Streams (GDINO) | Number of GPUs<br />Local VLM+LLM (dedicated GPU each) (default) | Number of GPUs<br />Local VLM+LLM (shared GPU) | Number of GPUs<br />Remote VLM+LLM |
 | --- | --- | --- | --- | --- | --- |
@@ -46,107 +50,143 @@ This section provides details of supported stream count for each model deploymen
 | RTX PRO 6000 Blackwell | 30 | 12 | 3 | 2 | 1 |
 
 <Note>
-- Above numbers are based on the default configurations using streams at 1080p 10fps
-- To use GDINO instead of RTDETR (default), update `MODEL_NAME_2D` to `GDINO` and modify `NUM_SENSORS` based on your GPU capabilities in the `.env` file
+- The numbers above are based on the default configurations, using streams at 1080p 10fps
+- To use GDINO instead of RTDETR (the default), set `MODEL_NAME_2D` to `GDINO` and adjust `NUM_SENSORS` in the `.env` file to suit your GPU
 </Note>
 
 ## Install Smart City Blueprint
 
-The following section will guide you through the steps to install the Smart City Blueprint.
+The whole deployment runs from one Jupyter notebook on the GPU server. The steps below
+get that notebook onto the server and open it; the notebook itself performs the
+prerequisites check, NGC data and model downloads, LLM/VLM configuration, deployment,
+and verification.
 
-1. Download the Notebook
+1. Create the workspace directory
 
-   Download the VSS notebook on your local machine at https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/docker/scripts/deploy_smartcities_launchable.ipynb
-
-2. Install Jupyter Notebook in a Python virtual environment
-
-   From the GPU server system root where you want to deploy the stack:
+   Every later step, including the notebook's teardown, is relative to this directory.
+   Create it explicitly rather than deploying from whatever directory you happened to
+   log in to.
 
    ```bash
-   python3 -m venv .venv-sqa
-   source .venv-sqa/bin/activate
+   export VSS_SMC_WORKSPACE="${HOME}/vss-smartcities"
+   mkdir -p "${VSS_SMC_WORKSPACE}"
+   cd "${VSS_SMC_WORKSPACE}"
+   ```
+
+   Re-export `VSS_SMC_WORKSPACE` and `cd` into it at the start of any new SSH session.
+
+2. Install Jupyter in a Python virtual environment
+
+   ```bash
+   cd "${VSS_SMC_WORKSPACE}"
+   python3 -m venv .venv
+   source .venv/bin/activate
    pip install --upgrade pip
    pip install notebook jupyterlab ipykernel
    ```
 
-3. Launch Jupyter
+3. Download the deployment notebook
 
-   From the repository root, with the venv still active.
-   After running the below command, Jupyter will print a URL in the form of: `http://<HOST>:8888/?token=<TOKEN>`
+   Download [`deploy_smartcities_launchable.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/docker/scripts/deploy_smartcities_launchable.ipynb)
+   from the `v3.3.0` tag, so the notebook and the deployment code it clones are the same
+   release, and place it in `${VSS_SMC_WORKSPACE}` on the server.
+
+4. Launch Jupyter
 
    ```bash
-   jupyter notebook --no-browser --ip=0.0.0.0 --port=8888 --NotebookApp.token="$(openssl rand -hex 16)"
+   cd "${VSS_SMC_WORKSPACE}"
+   source .venv/bin/activate
+   jupyter lab --no-browser --ip=127.0.0.1 --port=8888
    ```
 
-4. Access the Jupyter Interface
+   Jupyter prints a URL of the form `http://127.0.0.1:8888/lab?token=<TOKEN>`. Leave
+   this session running.
 
-    In your browser, navigate to `http://<server-IP>`:8888, replacing `<server-IP>` with the IP address or hostname of your GPU server.
+5. Access the interface
 
-5. Authenticate with Your Secure Token
-
-   When prompted, enter the token generated during launch. To retrieve it, open a new SSH session on the server and run the following commands:
+   Open `http://127.0.0.1:8888/lab` in a browser and paste the token from step 4 when
+   prompted. If you no longer have the token, run this on the server:
 
    ```bash
-   source .venv-sqa/bin/activate
+   cd "${VSS_SMC_WORKSPACE}"
+   source .venv/bin/activate
    jupyter server list
    ```
 
-   The output will include a URL in the form `http://<HOST>`:8888/?token=`<TOKEN>`. Copy the token value and paste it into the browser authentication field, then click Log in to open the Jupyter interface.
+   The output includes a URL of the form `http://127.0.0.1:8888/?token=<TOKEN>`. Copy
+   the token value into the browser authentication field and select **Log in**.
 
-6. Open the deployment notebook
+6. Open and run the notebook
 
-   In the Jupyter file browser, click on **Upload**: add your `deploy_smartcities_launchable.ipynb`.
-   Once uploaded, double click on it to open the notebook.
-
-7. Follow the notebook
-
-   From here, execute the notebook cells in order. The notebook contains every remaining step: prerequisites check, environment variables, NGC data/model downloads, remote LLM/VLM configuration, deployment, verification, and UI exploration.
+   The notebook is already in the working directory Jupyter was started from, so it
+   appears in the file browser; double-click it to open. Set `NGC_CLI_API_KEY` and
+   `GOOGLE_MAPS_API_KEY` in Section 1, then execute the cells in order. The notebook
+   covers the prerequisites check, Docker storage relocation and version pinning,
+   deployment code checkout, Smart City overlay, NGC data and model downloads,
+   deployment, verification, and teardown.
 
 <Note>
-- You will find four sample SDG clips, one of which has a collision, are each 1 minute in length. Due to the length of the video, you should see collision alerts consistently appear once per minute since NVStreamer repeats clips upon completion.
+The sample data provides four SDG clips, one of which contains a collision, each one
+minute long. NVStreamer loops clips when they finish, so once the pipeline is warm you
+should see collision alerts recur at roughly one-minute intervals.
 </Note>
 
 ### Verify Deployment
 
-1. Verify if containers are in running state:
+1. Verify that the containers are in the running state:
 
 ```bash
 docker ps
 ```
 
-2. Check to make sure streams were properly added to VST. To do so, navigate to the VST UI (see endpoint below) and check the Dashboard to confirm your streams are in a healthy state. If you do not see them there, check NVStreamer or your source to make sure they are active.
+2. Confirm that the streams were properly added to VST. Navigate to the VST UI (see the endpoints below) and check the Dashboard to confirm that your streams are in a healthy state. If you do not see them there, check NVStreamer or your source to confirm that they are active.
 
-3. Check RTVI CV FPS to make sure the [RTVI CV microservice ](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly. View the `vss-rtvi-cv` logs by running the following command and looking for FPS lines in the logs. Ensure it is running at the desired FPS (10fps with the sample streams). If this is lower than expected, make sure your GPU is not oversaturated.
+3. Check the RTVI CV frame rate to confirm that the [RTVI CV microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly. View the `vss-rtvi-cv` logs with the following command and look for the FPS lines. Ensure the service is running at the expected rate (10fps with the sample streams). If the rate is lower than expected, confirm that your GPU is not oversaturated.
 
 ```bash
 docker logs -f vss-rtvi-cv
 ```
 
-4. Check Kibana for traffic statistics and alerts. Go to the endpoint listed below and navigate to the dashboard.
+4. Check Kibana for traffic statistics and alerts. Go to the Kibana endpoint listed below and navigate to the dashboard.
 
-5. Check the VSS UI (see endpoint below) and test a few prompts after the system is up for a few minutes and a few alerts are present.
+5. Open the VSS UI (see the endpoints below) and test a few prompts once the system has been up for several minutes and alerts are present.
 
 ## Endpoints
 
-Once deployed, the following endpoints are available:
+Once deployed, all browser-facing traffic is consolidated behind the HAProxy ingress on
+port `7777`. Prefer these ingress paths; they are the addresses the UI itself uses, and
+they keep everything reachable through a single port.
 
 | Service | Endpoint |
 | --- | --- |
 | VSS-UI | `http://<HOST_IP>:7777` |
-| Video-Analytics-UI (Map View) | `http://<HOST_IP>:3002` |
-| Grafana-UI | `http://<HOST_IP>:35000/` |
 | Kibana-UI | `http://<HOST_IP>:7777/kibana/app/home#/` |
-| NvStreamer-UI | `http://<HOST_IP>:31000/#/dashboard` |
-| VST-UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
 | Phoenix-UI (Telemetry) | `http://<HOST_IP>:7777/phoenix/projects` |
+| Video-Analytics-API | `http://<HOST_IP>:7777/video-analytics-api` |
+| VST API | `http://<HOST_IP>:7777/vst` |
+| Elasticsearch (read-mostly) | `http://<HOST_IP>:7777/elasticsearch` |
+| VA-MCP | `http://<HOST_IP>:7777/va-mcp` |
+
+These services publish their own host ports and are not behind the ingress:
 
 | Service | Endpoint |
 | --- | --- |
-| Video-Analytics-API | `http://<HOST_IP>:8081` |
-| VST-MCP | `http://<HOST_IP>:8001` |
-| VA-MCP | `http://<HOST_IP>:9901` |
+| Video-Analytics-UI (Map View) | `http://<HOST_IP>:3002` |
+| NvStreamer-UI | `http://<HOST_IP>:31000/#/dashboard` |
+| VST-UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
+| Calibration Toolkit | `http://<HOST_IP>:8003` |
 | LLM-NIM | `http://<HOST_IP>:30081` |
-| VLM-NIM | `http://<HOST_IP>:8018` |
+| RT-VLM | `http://<HOST_IP>:8018` |
+
+<Note>
+The host ports are set in `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`
+and, for the map UI and calibration toolkit, in
+`deploy/docker/industry-profiles/smartcities/overrides.env`. Change them there if they
+collide with something else on your host.
+
+Grafana and the VST-MCP service are not in this profile's Compose profile list and are
+not deployed; earlier revisions of this page listed endpoints for them.
+</Note>
 
 ## Explore the Blueprint
 
@@ -160,7 +200,7 @@ We will delve into the four salient features of the blueprint, namely: chat inte
 
 The chat allows you to interact with the system in natural language. The system is optimized to understand the different sensors and situations such as alerts.
 
-As a key intuition, it is important to interact with the sensor using the sensor IDs.
+Address sensors by their sensor ID. The agent resolves sensors by ID, so a query that names a camera any other way is likely to come back empty.
 
 In the chat reference section below, we provide some typical prompts users can use to interact with the system. The reference below is organized from basic to advanced.
 
@@ -213,15 +253,15 @@ The system remembers your previous questions, allowing you to ask follow-ups wit
 
 The Alerts tab is a centralized view of all alerts generated from RTVI CV metadata. The alerts can be reviewed by using the different filters available in the system. Below is a table summarizing these filters:
 
-| Filter | Description |  |  |
-| --- | --- | --- | --- |
-| VLM Verified | Toggle VLM verified to identify what the VLM alert verification has removed as a false positive. This provides a powerful insight into the value of VLMs as part of a real-time computer vision application. |  |  |
-| Verdict | Expand your filter to identify alerts that have been either **rejected** or **confirmed**. There is a third status for **verification failed**, that can be used to identify potential system setup or configuration issues. |  |  |
-| Period | Pulldown allows users to select the time period that the alert page should show. From the pull-down you can select between 10 minutes to two hours. In addition there is an option to enter a custom value. |  |  |
-| Sensor | Pulldown with all sensors available in the system. |  |  |
-| Alert Type | The current release only supports collision. This can be expanded as needed. |  |  |
-| Alert Triggered | The alert triggered by can filter by: | Abnormal movement | Stop by speed |
-| Refresh frequency icon | Allows to turn on/off auto refresh and configure the refresh interval. |  |  |
+| Filter | Description |
+| --- | --- |
+| VLM Verified | Toggle VLM Verified to see what the VLM alert verification removed as a false positive. This gives a direct read on the value VLMs add to a real-time computer vision application. |
+| Verdict | Narrows the list to alerts that were **rejected** or **confirmed**. A third status, **verification failed**, identifies potential system setup or configuration issues. |
+| Period | Selects the time period the alerts page covers, from 10 minutes to two hours, or a custom value. |
+| Sensor | Selects among all sensors available in the system. |
+| Alert Type | This release supports collision only. It can be extended as needed. |
+| Alert Triggered | Filters by what raised the alert: **Abnormal movement** or **Stop by speed**. |
+| Refresh frequency icon | Turns auto-refresh on or off and configures the refresh interval. |
 
 ### Dashboard
 
@@ -281,9 +321,9 @@ The road network is constructed of smaller road segments. Each road segment can 
 
 In the image above, two of the upper horizontal road segments can be seen colored orange and green. The significance of the colors is explained in the Speed Legend sub-section. In brief, these colors depict the range of the average vehicle speed around that area on road in the real world.
 
-However, the grey colored segments are discussed here. The grey colored segments are called the inactive segments. These segments are those which have not been marked active since the launch of the current instance of the web client. A segment is marked active when at least once since the launch of the UI instance, the UI has received either a positive vehicle count or an average vehicle speed for the segment. For inactive segments, the tooltip text,upon hovering the mouse over, notifies user of the inactive state of the segment.
+The grey segments are the inactive segments: those that have not been marked active since the current instance of the web client launched. A segment is marked active once the UI has received either a positive vehicle count or an average vehicle speed for it. Hovering over an inactive segment shows a tooltip stating that the segment is inactive.
 
-The active road segments can be interacted more and Speed display boxes can be spawned for more information. Speed boxes are explained in one of the following sub-sections.
+Active road segments can be interacted with further to spawn speed display boxes, which are explained in one of the following sub-sections.
 
 ##### Speed legend
 
@@ -291,9 +331,9 @@ The active road segments can be interacted more and Speed display boxes can be s
 
 The speed legend UI component is a static component. The left most color depicts busy traffic at a road segment and the right most color depicts free flowing traffic. The colored boxes can be hovered upon to see the range of integral speed they depict.
 
-###### Intersection Level Live View
+#### Intersection Level Live View
 
-![Visual Glossary Intersection Level Live View"](/assets/images/scbp/its-visual-glossary-intersection-live.svg)
+![Visual glossary of the intersection-level live view](/assets/images/scbp/its-visual-glossary-intersection-live.svg)
 
 The user reaches the intersection level view for an intersection upon left-clicking an intersection icon in the city view. This section discusses, in detail, the specific UI features available at this view level.
 

@@ -11,7 +11,7 @@ The Smartcity Blueprint can be deployed using either Kubernetes or Docker Compos
 * **Kubernetes Scaling**: For production-grade deployments with advanced orchestration
 * **Docker Compose Scaling**: For single-node deployments and development environments
 
-Each section covers the same components ([RTVI CV ](/vss/system-components/vision-microservices/object-detection-and-tracking), VST/NVStreamer, Alert-Bridge, ELK, Kafka) but with platform-specific configurations.
+Each section covers the same components ([RTVI CV](/vss/system-components/vision-microservices/object-detection-and-tracking), VST/NVStreamer, Alert-Bridge, ELK, Kafka) but with platform-specific configurations.
 
 # Kubernetes Scaling
 
@@ -126,7 +126,7 @@ This section covers scaling configurations for Docker Compose deployments, suppo
 
 ## RTVI CV Scaling
 
-By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Hardware Profiles](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
+By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Supported Workload](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#supported-workload). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
 
 ### Scaling Across Additional GPUs
 
@@ -175,7 +175,7 @@ Afterwards restart Docker:
 sudo systemctl restart docker
 ```
 
-It is recommended to also increase the max storage allocation for VST as the default 100GB will not last very long at high stream counts (10-20 minutes total recording at 120 streams). To do so, you can modify the `deployments/vst/smc/vst/configs/vst_storage.json` config and update `total_video_storage_size_MB` to be `1000000` or higher. Default in Docker Compose is 10000 (~1TB).
+It is recommended to also increase the max storage allocation for VST, as the Docker Compose default of `total_video_storage_size_MB: 100000` (100 GB) will not last very long at high stream counts (10-20 minutes of total recording at 120 streams). To raise it, modify `deploy/docker/services/vios/configs/vst_storage.json` and set `total_video_storage_size_MB` to `1000000` (1 TB) or higher, after confirming the disk can hold the new value.
 
 ## ELK Configuration
 
@@ -262,4 +262,4 @@ The following configurations apply to both Kubernetes and Docker Compose deploym
 
 * The Alert Verifier supports concurrent processing through configurable worker threads controlled by the `num_workers` parameter. For deployments with approximately 30 streams, setting `num_workers` to 10 provides adequate throughput. For larger deployments handling 200+ streams simultaneously, increase `num_workers` to approximately 40.
 
-* Additionally, since VIOS storage currently has limited scaling support for high-concurrency scenarios, consider disabling the `add_overlay` option to reduce processing overhead during video retrieval from VIOS. Refer to the [Alerts Microservice ](/vss/system-components/analytics-microservices/alerts-microservice) for detailed tuning guidance.
+* Additionally, since VIOS storage currently has limited scaling support for high-concurrency scenarios, consider disabling the `add_overlay` option to reduce processing overhead during video retrieval from VIOS. Refer to the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) for detailed tuning guidance.

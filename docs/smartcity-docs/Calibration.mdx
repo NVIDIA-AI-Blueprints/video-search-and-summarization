@@ -4,7 +4,7 @@ description: ""
 position: 2
 ---
 Camera calibration is an essential step to enable using cameras as sensors for analytics with Metropolis systems.
-It involves obtaining a homography matrix for projecting points from camera image coordinates, (i.e. pixel coordinates), to the global satellite space (i.e. latitude/longitude co-ordinates). Calibration is required because analyzing object movement in geo coordinates rather than image based coordinated enables more accurate spatial analysis of vehicle location, and movement attributes such as trajectory and speed, while also being able to map it road links where the vehicles are moving.
+It involves obtaining a homography matrix for projecting points from camera image coordinates (that is, pixel coordinates) to the global satellite space (that is, latitude/longitude coordinates). Calibration is required because analyzing object movement in geo coordinates rather than image-based coordinates enables more accurate spatial analysis of vehicle location and of movement attributes such as trajectory and speed, while also allowing objects to be mapped to the road links on which the vehicles are moving.
 
 This release describes use of a web based tool to enable manual calibration of cameras based on correlating points between image (through camera snapshot) and geo coordinates (through Google Map). In addition, a preview of using digital twin to facilitate camera calibration based on a semi automated process is also described.
 
@@ -43,7 +43,7 @@ This calibration is essential for the Smart City Blueprint where vehicle trackin
 - Requires a Google Maps JavaScript API key.
 </Note>
 
-For detailed installation instructions, sensor configuration fields, step-by-step drawing guidelines with screenshots, and export procedures, refer to the [Legacy Camera Calibration ](/vss/system-components/calibration/legacy-camera-calibration) page.
+For detailed installation instructions, sensor configuration fields, step-by-step drawing guidelines with screenshots, and export procedures, refer to the [Legacy Camera Calibration](/vss/system-components/calibration/legacy-camera-calibration) page.
 
 ## Digital Twin-Based Camera Calibration
 
@@ -221,7 +221,7 @@ generate a calibration file (Workflow 1.A, 1.B, or 1.C) → refine the calibrati
 3. Enter `CARLA Map` name corresponding to your `camera_specs.yml`.
 4. Click the "Run Calibration" button. The process might take few seconds to complete.
 5. Once the process is complete, go to the *Results & Downloads* tab.
-6. Download the generated MDX JSON.  and visualization files.
+6. Download the generated MDX JSON and visualization files.
 
 ![Automatic Calibration Interface](/assets/images/digital-twin-autocalibration/automatic-calibration.png)
 
@@ -316,7 +316,7 @@ This service is accessible at `http://<HOST_IP>:8080` and requires a Google Maps
 
 If you upload a combined calibration file containing multiple camera specifications, the Regions of Interest (ROIs) for every intersection will be displayed as shown below.
 
-![ROI Refiner](/assets/images/digital-twin-autocalibration/roi-multi-refiner.png)
+![ROI Refiner showing the regions of interest for several intersections at once](/assets/images/digital-twin-autocalibration/roi-multi-refiner.png)
 
 ### Digital Twin Geo-Validator
 
@@ -444,7 +444,7 @@ Call the API with your camera specs as shown below.
 http://<HOST_IP>:7865/api/camera_specs?id=cam_01&position=37.3930241,-121.9477627,150&orientation=-90,0,0&fov=120&fps=300&resolution=1920,1080&label=1&geo_position=True&map_name=Montague
 ```
 
-### Stoping Your Deployment
+### Stopping Your Deployment
 
 ```bash
 docker compose --profile dt_based_calibration down
