@@ -74,6 +74,22 @@ PREAMBLE = (
     "setup action the trial requires."
 )
 
+# Used instead of PREAMBLE when the adapter emits `profile` into task.toml
+# [metadata], i.e. when NemoClawBrevEnvironment._predeploy_vss has already
+# brought the profile up through the orchestrator MCP. Rendering the stock
+# PREAMBLE in that case contradicts the queries outright — it tells the agent to
+# run `/vss-deploy-profile` while the step says the stack is already up — and an
+# agent that follows it triggers the skill's Step 0 teardown, destroying the
+# very deployment the harness just made.
+PREDEPLOYED_PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. The VSS "
+    "profile this trial needs is ALREADY DEPLOYED and healthy — the harness "
+    "brought it up before your turn. Do NOT run `/vss-deploy-profile`, do NOT "
+    "tear the stack down, and do NOT redeploy: that would destroy the "
+    "environment the checks run against. Inspect the running stack instead, and "
+    "do not pause to ask for confirmation on any other action the trial requires."
+)
+
 # Appended only to specs whose checks require the clip URL to come from
 # `vss vios clip`. Applied globally it also reached the direct-VLM spec, whose
 # checks assert the run never touches VIOS, and regressed it.
@@ -89,13 +105,18 @@ CLI_CLAUSE = (
 )
 
 
-def _preamble_for(spec: dict) -> str:
-    """PREAMBLE, plus the CLI clause only when this spec's checks demand it.
+def _preamble_for(spec: dict, predeployed: bool = True) -> str:
+    """Base preamble, plus the CLI clause only when this spec's checks demand it.
 
     Keyed off the spec rather than a hardcoded name, so a spec that starts
     requiring the CLI gets the instruction and one that forbids VIOS does not.
+
+    `predeployed` must track whether the adapter emits `profile` into task.toml
+    [metadata]; the two are the same decision and drifting them apart produces a
+    prompt that contradicts the environment.
     """
-    return PREAMBLE + CLI_CLAUSE if "vss vios clip" in json.dumps(spec) else PREAMBLE
+    base = PREDEPLOYED_PREAMBLE if predeployed else PREAMBLE
+    return base + CLI_CLAUSE if "vss vios clip" in json.dumps(spec) else base
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
@@ -187,6 +208,10 @@ def generate_task(
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
+    # Optional; only `alerts` specs set a pipeline mode today. Emitted into
+    # [metadata] alongside `profile` so the environment's pre-deploy can pass it
+    # to docker_generate.
+    deploy_mode = str(spec.get("deploy_mode") or "").strip()
 
     for idx, expect in enumerate(expects, 1):
         step_dir = output_root / profile / platform_short
@@ -235,6 +260,16 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "vss-ask-video"',
+            # Opts this skill into the harness VSS pre-deploy
+            # (NemoClawBrevEnvironment._predeploy_vss). The environment deploys
+            # this profile through the orchestrator MCP before the agent turn,
+            # so the model under test is scored on vss-ask-video rather than on
+            # its ability to bring VSS up. Adapters that omit `profile` keep the
+            # old behaviour, which is what leaves the vss-deploy-* /
+            # vss-setup-* skills -- where deploying IS the measurement --
+            # correct without special-casing.
+            f'profile = "{profile}"',
+            *([f'deploy_mode = "{deploy_mode}"'] if deploy_mode else []),
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',

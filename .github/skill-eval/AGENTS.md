@@ -115,14 +115,25 @@ The canonical harbor command is in § Harbor invocation.
    Optional: `profile` (string — the `/vss-deploy-profile -p <profile>`
    argument, e.g. `"alerts"`) and `deploy_mode` (string — the
    `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`).
-   These are **hints for the adapter** (used to pick the dataset
-   group / deploy-mode defaults). They are **NOT** harness directives —
-   the harness no longer pre-deploys anything.
-   Every spec's first `expects[]` query is responsible for invoking
-   `/vss-deploy-profile` (or the appropriate standalone deploy
-   runbook) when the rest of its queries need VSS up. The agent is
-   pre-authorized to deploy autonomously (see the PREAMBLE that every
-   adapter renders into the trial prompt).
+   Who deploys depends on whether the skill's adapter opts into the
+   harness pre-deploy by emitting `profile` into `task.toml [metadata]`
+   (see § 3, "`profile` in `[metadata]` is the pre-deploy opt-in
+   switch"):
+
+   - **Adapter emits `profile`** — `NemoClawBrevEnvironment._predeploy_vss`
+     brings the profile up through the orchestrator MCP before the agent
+     turn, on step-1 only. The spec's `expects[]` must NOT contain a
+     deploy step, and its adapter renders `PREDEPLOYED_PREAMBLE`. A spec
+     whose `expects[0]` still says `/vss-deploy-profile` under this mode
+     is **spec drift** (§ 3a): the agent would tear down the stack the
+     harness just deployed.
+   - **Adapter omits `profile`** — the older contract holds. The spec's
+     first `expects[]` query is responsible for invoking
+     `/vss-deploy-profile` (or the appropriate standalone deploy runbook)
+     when the rest of its queries need VSS up, and the agent is
+     pre-authorized to deploy autonomously via `PREAMBLE`. This is the
+     required mode for `vss-deploy-*` / `vss-setup-*`, where deploying is
+     the measurement.
 
    Skills with no specs at all are runtime libraries — skip them.
 
@@ -145,8 +156,10 @@ The canonical harbor command is in § Harbor invocation.
          or any platform listed in `spec.resources.platforms`.
        - **Spec drift**: the rendered `instruction.md` references an
          old skill name, the `[metadata]` profile is hardcoded
-         instead of read from the spec, or the spec needs a placeholder
-         the adapter doesn't substitute.
+         instead of read from the spec, the spec needs a placeholder
+         the adapter doesn't substitute, or the preamble does not match
+         the pre-deploy mode (`profile` in `[metadata]` but `PREAMBLE`
+         rendered, or no `profile` but `PREDEPLOYED_PREAMBLE` rendered).
 
    3b. **Generate or patch the adapter in the workspace.** Pattern-match
        from
@@ -275,17 +288,38 @@ The canonical harbor command is in § Harbor invocation.
        every run.
 
    When cloning the vss-manage-video-io-storage template for a new
-   skill, the adapter should read the spec's `profile` field (when
-   present) for **prose rendering only** — e.g. naming the profile in
-   the trial's environment description so the agent knows what to
-   deploy in its first turn. Do **not** emit `profile`,
-   `prerequisite_deploy_mode`, or `requires_deployed_vss` into
-   `task.toml [metadata]`; nothing in the harness reads those anymore
-   (the `_ensure_prerequisite_deployed` pre-deploy hook is gone).
+   skill, the adapter reads the spec's `profile` field for prose
+   rendering, and — for skills that opt into the harness pre-deploy —
+   emits it into `task.toml [metadata]`.
 
-   Every `instruction.md` the adapter writes **must begin with the
-   `PREAMBLE` constant** defined in `adapters/vss-manage-video-io-storage/generate.py` and
-   `adapters/vss-deploy-profile/generate.py`:
+   **`profile` in `[metadata]` is the pre-deploy opt-in switch.** When an
+   adapter emits `profile = "<base|lvs|search|alerts>"` (and optionally
+   `deploy_mode`), `NemoClawBrevEnvironment._predeploy_vss` brings that
+   profile up through the orchestrator MCP **before the agent turn**, on
+   step-1 only. An adapter that omits `profile` keeps the older
+   behaviour, where the trial's own first `expects[]` query deploys.
+   Presence of the key is the entire contract — there is no per-skill
+   branching in the environment.
+
+   - **`vss-deploy-*` and `vss-setup-*` adapters MUST NOT emit
+     `profile`.** For those skills deploying *is* the measurement, so a
+     pre-deployed stack makes the eval vacuous.
+   - An adapter that emits `profile` **must** render
+     `PREDEPLOYED_PREAMBLE`, not `PREAMBLE` (see below). Emitting one
+     without the other produces an instruction that contradicts the
+     environment.
+   - `prerequisite_deploy_mode` and `requires_deployed_vss` remain
+     removed — nothing reads them. Only `profile` and `deploy_mode` came
+     back, and they feed `_predeploy_vss`, not the deleted
+     `_ensure_prerequisite_deployed` hook.
+
+   Every `instruction.md` the adapter writes **must begin with a
+   preamble constant**, and which one is decided by the same switch as
+   `[metadata] profile`.
+
+   **Adapters that do NOT emit `profile`** (the trial deploys itself) use
+   `PREAMBLE`, defined in `adapters/vss-manage-video-io-storage/generate.py`
+   and `adapters/vss-deploy-profile/generate.py`:
 
    > You are running inside a non-interactive evaluation harness.
    > You are pre-authorized to deploy prerequisites autonomously —
@@ -297,6 +331,22 @@ The canonical harbor command is in § Harbor invocation.
    stall (no user to answer in CI) or fall through to a localhost
    default, which produces false negatives on steps that need a
    deployed profile.
+
+   **Adapters that DO emit `profile`** (the harness pre-deployed) use
+   `PREDEPLOYED_PREAMBLE`, defined in
+   `adapters/vss-ask-video/generate.py`:
+
+   > You are running inside a non-interactive evaluation harness. The VSS
+   > profile this trial needs is ALREADY DEPLOYED and healthy — the harness
+   > brought it up before your turn. Do NOT run `/vss-deploy-profile`, do NOT
+   > tear the stack down, and do NOT redeploy: that would destroy the
+   > environment the checks run against. Inspect the running stack instead, and
+   > do not pause to ask for confirmation on any other action the trial requires.
+
+   Rendering the wrong one is a **spec-drift trigger** (§ 3a). Using
+   `PREAMBLE` on a pre-deployed trial is actively destructive, not just
+   confusing: `/vss-deploy-profile` Step 0 is a teardown, so an agent that
+   obeys it wipes the stack the harness just deployed.
 
 4. **Regenerate the dataset** for each `(skill, spec, platform)` the
    spec's `resources.platforms` enumerates. Datasets land at

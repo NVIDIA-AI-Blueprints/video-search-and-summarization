@@ -78,6 +78,9 @@ def test_optional_model_overrides_only_the_evaluated_agent() -> None:
         "ANTHROPIC_MODEL": "existing-coordinator-and-judge-model",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
         "ANTHROPIC_API_KEY": "inference-key",
+        # nemoclaw resolves its own credential; the ANTHROPIC_* pair above is
+        # the coordinator's and stays only to prove it is not reused.
+        "COMPATIBLE_API_KEY": "nvapi-inference-key",
     }
 
     config = model_config.apply_model_config(env)
@@ -167,3 +170,52 @@ def test_api_key_is_hidden_from_config_repr() -> None:
     config = model_config.resolve_model_config(env)
 
     assert "do-not-render" not in repr(config)
+
+
+def test_nemoclaw_nvidia_inference_requires_an_explicit_model() -> None:
+    """The orchestrator's model must never become the agent-under-test's model.
+
+    A `workflow_dispatch` with agent=nemoclaw and a blank `model` input used to
+    resolve ANTHROPIC_MODEL -- an Anthropic id -- and hand it to the NVIDIA
+    inference endpoint. nvidia-build already failed closed here; nvidia-inference
+    now matches.
+    """
+    env = {
+        "EVAL_AGENT": "nemoclaw",
+        "SKILLS_EVAL_PROVIDER": "nvidia-inference",
+        "ANTHROPIC_MODEL": "must-not-be-reused",
+        "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "must-not-be-reused",
+    }
+
+    with pytest.raises(ValueError, match="SKILLS_EVAL_MODEL is required"):
+        model_config.resolve_model_config(env)
+
+
+def test_nemoclaw_does_not_reuse_the_anthropic_ci_key() -> None:
+    """skills-eval.yml overwrites ANTHROPIC_API_KEY with the GitHub secret, so
+    reusing it here transmitted the Anthropic CI credential to NVIDIA."""
+    env = {
+        "EVAL_AGENT": "nemoclaw",
+        "SKILLS_EVAL_PROVIDER": "nvidia-inference",
+        "SKILLS_EVAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "sk-ant-ci-secret",
+    }
+
+    with pytest.raises(ValueError, match="no API key is configured"):
+        model_config.resolve_model_config(env)
+
+
+def test_codex_still_resolves_through_anthropic_api_key() -> None:
+    """The nemoclaw narrowing must not touch the codex chain."""
+    config = model_config.resolve_model_config({
+        "EVAL_AGENT": "codex",
+        "SKILLS_EVAL_PROVIDER": "nvidia-inference",
+        "CODEX_MODEL": "some/codex-model",
+        "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "codex-key",
+    })
+
+    assert config.model == "some/codex-model"
+    assert config.api_key == "codex-key"

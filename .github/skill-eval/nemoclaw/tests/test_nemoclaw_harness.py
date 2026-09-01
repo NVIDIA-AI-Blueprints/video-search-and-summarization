@@ -51,6 +51,11 @@ class NotebookRunnerTests(unittest.TestCase):
             "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com",
             "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-sonnet-4-6",
             "ANTHROPIC_API_KEY": "provider-test-key",
+            # nemoclaw no longer falls back to the orchestrator's ANTHROPIC_*
+            # for its own model/key, so state them explicitly. The ANTHROPIC_*
+            # pair stays to prove it is NOT reused.
+            "NEMOCLAW_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "COMPATIBLE_API_KEY": "nvapi-test-key",
             "HOME": os.environ.get("HOME", str(Path.home())),
             "PATH": os.environ.get("PATH", ""),
         }
@@ -91,6 +96,13 @@ class NotebookRunnerTests(unittest.TestCase):
         )
         self.assertEqual(
             namespace["NEMOCLAW_MODEL"],
+            "nvidia/nemotron-3.5-lightning-30b-a3b",
+        )
+        # The orchestrator's own model is present in the environment above and
+        # must NOT reach the notebook -- that reuse is what sent an Anthropic
+        # model id to the NVIDIA endpoint on a blank-model workflow_dispatch.
+        self.assertNotEqual(
+            namespace["NEMOCLAW_MODEL"],
             "aws/anthropic/bedrock-claude-sonnet-4-6",
         )
 
@@ -102,6 +114,8 @@ class NotebookRunnerTests(unittest.TestCase):
             "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com",
             "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-sonnet-4-6",
             "ANTHROPIC_API_KEY": "provider-test-key",
+            "NEMOCLAW_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "COMPATIBLE_API_KEY": "nvapi-test-key",
             "NEMOCLAW_PROVIDER": "install-vllm",
             "HOME": os.environ.get("HOME", str(Path.home())),
             "PATH": os.environ.get("PATH", ""),
@@ -178,6 +192,10 @@ class NotebookRunnerTests(unittest.TestCase):
             "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
             "ANTHROPIC_MODEL": "agent-model",
             "ANTHROPIC_API_KEY": "provider-test-key",
+            # nemoclaw resolves its key from COMPATIBLE_API_KEY, not from the
+            # orchestrator's ANTHROPIC_API_KEY. The agent model still falls
+            # through to LLM_REMOTE_MODEL, which this test covers.
+            "COMPATIBLE_API_KEY": "nvapi-test-key",
             "LLM_REMOTE_URL": "https://integrate.api.nvidia.com/v1",
             "LLM_REMOTE_MODEL": "llm-model",
             "VLM_REMOTE_URL": "https://integrate.api.nvidia.com/v1/models",

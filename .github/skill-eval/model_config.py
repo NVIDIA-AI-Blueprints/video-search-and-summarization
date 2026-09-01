@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 
@@ -86,12 +87,18 @@ def resolve_model_config(
     if not model and provider == "anthropic":
         model = _first(env.get("CLAUDE_CODE_MODEL"), env.get("ANTHROPIC_MODEL"))
     elif not model and provider == "nvidia-inference":
+        # NOTE: `ANTHROPIC_MODEL` is deliberately NOT in the nemoclaw chain.
+        # It is the CI orchestrator's own model (skills_eval_agent.py) and the
+        # judge's fallback, so reusing it here silently handed an Anthropic
+        # model id to the NVIDIA inference endpoint whenever a workflow_dispatch
+        # left `model` blank and the coordinator .env had no NEMOCLAW_MODEL.
+        # `nvidia-build` already failed closed in that situation; this makes
+        # `nvidia-inference` match. Codex keeps its own chain untouched.
         model = (
             _first(env.get("CODEX_MODEL"))
             if runtime == "codex"
             else _first(
                 env.get("NEMOCLAW_MODEL"),
-                env.get("ANTHROPIC_MODEL"),
                 env.get("LLM_REMOTE_MODEL"),
             )
         )
@@ -114,7 +121,12 @@ def resolve_model_config(
         api_key = _first(
             env.get("SKILLS_EVAL_API_KEY"),
             env.get("COMPATIBLE_API_KEY") if runtime == "nemoclaw" else "",
-            env.get("ANTHROPIC_API_KEY"),
+            # Same reasoning as the model chain above: skills-eval.yml overwrites
+            # ANTHROPIC_API_KEY with the `secrets.ANTHROPIC_API_KEY` GitHub
+            # secret, so leaving it in the nemoclaw chain transmitted the
+            # Anthropic CI credential to an NVIDIA-hosted endpoint. Codex still
+            # resolves through it.
+            env.get("ANTHROPIC_API_KEY") if runtime != "nemoclaw" else "",
             env.get("OPENAI_API_KEY") if runtime == "nemoclaw" else "",
             env.get("NVIDIA_API_KEY") if runtime == "nemoclaw" else "",
         )
@@ -158,7 +170,30 @@ def apply_model_config(
 
 
 def main() -> int:
-    config = resolve_model_config(os.environ)
+    # This runs as an early workflow step, so its stderr is the first thing an
+    # operator sees when a dispatch is misconfigured. A bare traceback here
+    # names an env var they never set; name the workflow input instead.
+    try:
+        config = resolve_model_config(os.environ)
+    except ValueError as exc:
+        runtime = _first(
+            os.environ.get("SKILLS_EVAL_HARNESS"),
+            os.environ.get("EVAL_AGENT"),
+            "claude-code",
+        )
+        print(f"FATAL: {exc}", file=sys.stderr)
+        if runtime != "claude-code":
+            print(
+                f"\nThe `{runtime}` runtime has no default model. On a manual "
+                "run, set the workflow's `model` input (e.g. "
+                "`nvidia/nemotron-3.5-lightning-30b-a3b`), or have the "
+                "coordinator .env define NEMOCLAW_MODEL + COMPATIBLE_API_KEY.\n"
+                "The orchestrator's ANTHROPIC_MODEL / ANTHROPIC_API_KEY are "
+                "deliberately NOT used here — reusing them sent an Anthropic "
+                "model id and the Anthropic CI key to the NVIDIA endpoint.",
+                file=sys.stderr,
+            )
+        return 1
     print(
         f"skill-eval model: runtime={config.runtime} "
         f"provider={config.provider} model={config.model}"

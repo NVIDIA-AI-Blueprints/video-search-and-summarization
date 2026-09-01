@@ -134,6 +134,49 @@ timeout --signal=TERM --kill-after=120 {timeout}s \
 """.strip()
 
 
+def _bounded_predeploy_timeout() -> int:
+    """Seconds allowed for the whole MCP deploy, including a cold NIM pull.
+
+    A cold first deploy downloads model weights (~20 min observed); warm is
+    ~1 min. The default leaves headroom for cold without letting a wedged
+    `docker_up` eat the leg's 840-minute Actions budget.
+    """
+    value = int(os.environ.get("NEMOCLAW_PREDEPLOY_TIMEOUT_SEC", "3600"))
+    if not 300 <= value <= 7200:
+        raise ValueError("NEMOCLAW_PREDEPLOY_TIMEOUT_SEC must be 300..7200")
+    return value
+
+
+def _predeploy_command(profile: str, deploy_mode: str, timeout: int) -> str:
+    """Drive the documented orchestrator-MCP deploy sequence on the box.
+
+    Runs AFTER the setup notebooks because the MCP server it calls is what
+    `deploy_vss_orchestrator.ipynb` starts. Uses the same reassigned HOME as
+    `_setup_command` so `uv` resolves the same caches and venv the notebooks
+    prepared, and pins VSS_REPO_DIR explicitly -- predeploy.py would otherwise
+    derive it from the reassigned HOME and miss the checkout.
+    """
+    mode_arg = (
+        f" --deploy-mode {shlex.quote(deploy_mode)}" if deploy_mode else ""
+    )
+    return f"""
+set -e
+set +u
+. "$HOME/.profile" 2>/dev/null || true
+set -u
+. "$HOME/.eval_env"
+host_home=$HOME
+repo="$host_home/video-search-and-summarization"
+export HOME="$host_home/.skill-eval/nemoclaw-home"
+export PATH="$HOME/.local/bin:$host_home/.local/bin:$PATH"
+export VSS_REPO_DIR="$repo"
+cd "$repo"
+timeout --signal=TERM --kill-after=120 {timeout}s \
+  python3 .github/skill-eval/nemoclaw/predeploy.py \
+  --profile {shlex.quote(profile)}{mode_arg}
+""".strip()
+
+
 class NemoClawBrevEnvironment(BrevEnvironment):
     """Run normal Brev preparation, then the checked-in setup notebooks."""
 
@@ -221,5 +264,55 @@ class NemoClawBrevEnvironment(BrevEnvironment):
             raise RuntimeError(
                 f"NemoClaw notebook setup failed (exit {result.return_code}):\n{detail}"
             )
+        await self._predeploy_vss()
         self._nemoclaw_ready = True
         logger.info("NemoClaw is ready on %s", self._instance_name)
+
+    async def _predeploy_vss(self) -> None:
+        """Deploy this spec's VSS profile before the agent turn, if declared.
+
+        OPT-IN by metadata presence: an adapter that emits `profile` into
+        `task.toml [metadata]` gets its stack pre-deployed; one that does not is
+        untouched and keeps today's behaviour. That is what keeps the deploy
+        skills (`vss-deploy-*`, `vss-setup-*`) correct -- pre-deploying those
+        would make the eval vacuous -- without any per-skill special-casing
+        here.
+
+        Reverses part of #819, which removed
+        `BrevEnvironment._ensure_prerequisite_deployed()` so the deploy would be
+        visible in the trial trajectory. The difference: that hook ran
+        `/vss-deploy-profile` through a *sub-agent*, whereas this drives the
+        documented MCP tool sequence directly, so it is reproducible rather than
+        model-dependent. The trajectory argument is answered by the brev-exec
+        output landing in the trial log instead.
+        """
+        metadata = self._read_task_metadata()
+        profile = str(metadata.get("profile") or "").strip()
+        if not profile:
+            logger.info(
+                "No `profile` in task.toml [metadata]; skipping VSS pre-deploy "
+                "(the trial's own steps own deployment)"
+            )
+            return
+        deploy_mode = str(metadata.get("deploy_mode") or "").strip()
+        timeout = _bounded_predeploy_timeout()
+        logger.info(
+            "Pre-deploying VSS profile %r (mode=%s) on %s via the orchestrator "
+            "MCP (timeout=%ss)",
+            profile,
+            deploy_mode or "-",
+            self._instance_name,
+            timeout,
+        )
+        result = await _run_brev_exec(
+            self._instance_name,
+            _predeploy_command(profile, deploy_mode, timeout),
+            timeout=timeout + 60,
+        )
+        if result.return_code != 0:
+            detail = (result.stderr or result.stdout or "")[-12000:]
+            raise RuntimeError(
+                f"VSS pre-deploy failed for profile {profile!r} "
+                f"(exit {result.return_code}):\n{detail}"
+            )
+        logger.info("VSS profile %r is deployed on %s", profile, self._instance_name)

@@ -12,16 +12,6 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile on the target host: VST reachable at http://localhost:30888/vst/api/v1, VLM endpoint reachable at either ${VLM_BASE_URL}/v1 (NIM Cosmos, picked when VLM_BASE_URL non-empty and VLM_MODE != none) or ${RTVI_VLM_BASE_URL}/v1 (RT-VLM Cosmos, picked otherwise; base default port 30082, alerts default 8018). Read VLM_BASE_URL / VLM_NAME / VLM_MODE / RTVI_VLM_BASE_URL off the vss-agent container env. The skill answers a visual question by calling the resolved VLM endpoint's /v1/chat/completions directly with a video_url block (it does NOT call POST /generate). The chosen VLM endpoint must be able to fetch the VST clip URL; prefer local NIM/RT-VLM unless the clip URL is externally reachable by the remote VLM. Set Brev secure-link vars if checks validate media URLs. (See `skills/vss-ask-video/SKILL.md`).",
-      "checks": [
-        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
-        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0"
-      ]
-    },
-    {
       "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
       "checks": [
         "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload — for example `vss vios list --type video`, the agent tools, or equivalent REST such as curl /vst/api/v1/sensor/list — not an unconditional upload.",
