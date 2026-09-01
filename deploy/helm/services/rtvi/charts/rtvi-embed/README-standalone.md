@@ -8,7 +8,7 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 
 ## Prerequisites
 
-- Kubernetes cluster with **NVIDIA GPU** nodes and the NVIDIA device plugin (workload requests `nvidia.com/gpu: 1`).
+- Kubernetes cluster with **NVIDIA GPU** nodes and the NVIDIA device plugin (workload requests `nvidia.com/gpu: 1` by default, or one configured `nvidia.com/mig-*` resource for MIG).
 - **`helm`** (v3) with network access to pull images from `ghcr.io`.
 - **Hugging Face token** in a Secret (default name/key below) for [nvidia/Cosmos-Embed1-448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p). The chart **`modelPath`** value is `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (runtime download specifier for the embed service—not a URL to open in a browser).
 - A **StorageClass** for RWO volumes (or leave `persistence.storageClass` empty to use the cluster default).
@@ -102,6 +102,26 @@ helm upgrade --install "${RELEASE}" . \
   -f overrides_rtvi_embed.yaml \
   --wait --timeout 45m
 ```
+
+### 3.2 Install on a MIG slice (optional)
+
+Configure MIG and the NVIDIA device plugin on the cluster first. Set
+`gpuResourceName` to the resource advertised by the plugin; do not set a MIG
+UUID in `NVIDIA_VISIBLE_DEVICES`, because the device plugin injects the selected
+slice. The supplied example uses `nvidia.com/mig-3g.40gb` and must be changed if
+your cluster advertises a different resource:
+
+```bash
+helm upgrade --install "${RELEASE}" . \
+  --namespace "${NAMESPACE}" \
+  --create-namespace \
+  -f overrides_rtvi_embed.yaml \
+  -f overrides_rtvi_embed_mig.yaml \
+  --wait --timeout 45m
+```
+
+The MIG resource replaces the default `nvidia.com/gpu: 1` in both requests and
+limits; the chart never requests a full GPU and a MIG slice together.
 
 ---
 
@@ -243,7 +263,7 @@ kubectl delete namespace "${NAMESPACE}"
 
 ## 8. Troubleshooting
 
-- **Pod `Pending`**: insufficient **`nvidia.com/gpu`** or missing device plugin — `kubectl describe pod -n "${NAMESPACE}"`.
+- **Pod `Pending`**: insufficient **`nvidia.com/gpu`** (or configured `nvidia.com/mig-*`) or missing device plugin — `kubectl describe pod -n "${NAMESPACE}"`.
 - **`ImagePullBackOff`**: check the image repository/tag, registry reachability, and `imagePullSecrets` when using a private registry override.
 - **Stuck in init `wait-for-kafka`**: use **`overrides_rtvi_embed.yaml`** or set **`waitForKafka.enabled: false`**.
 - **HF / model errors**: verify **`hf-token-secret`** / **`HF_TOKEN`**; check pod logs during Cosmos-Embed1 download.
