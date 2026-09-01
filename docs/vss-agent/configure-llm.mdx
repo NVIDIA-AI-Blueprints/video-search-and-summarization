@@ -13,7 +13,7 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 - **Default model:** The local default is profile-specific. The Base, Live Video Search, and Search profiles use `nvidia/nemotron-3.5-lightning-30b-a3b`; the Alerts profile uses `nvidia/nvidia-nemotron-nano-9b-v2`. Each profile's `overrides.env` includes the matching `LLM_NAME` and `LLM_NAME_SLUG`.
 
-- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
 - **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile `overrides.env` to use one of the supported local models:
 
@@ -56,7 +56,7 @@ It is also recommended to review the different parameters described in the [quic
 
 For every configuration below, save the shown values in
 `deploy/docker/developer-profiles/dev-profile-base/overrides.env`, then validate and
-start the profile with the native Docker Compose command in [Quickstart](/quickstart).
+start the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
 
 ## Managed remote LLMs
 

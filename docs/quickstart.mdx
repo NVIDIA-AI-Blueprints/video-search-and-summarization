@@ -106,9 +106,9 @@ git lfs pull
 ### Step 1: Deploy the Agent
 
 <Note>
-- Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/prerequisites#ngc-hugging-face-api-keys).
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) and [VSS-Agent-Customization-configure-vlm ](/vss-agent/configure-vlm) for all LLM and VLM (local and remote) configuration options.
-- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss-agent/configure-vlm).
+- Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
+- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 - For advanced settings and Agent Customization, edit the profile `overrides.env`.
 </Note>
 
@@ -582,12 +582,12 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 **Switch Agent Workflows:** In the Docker Compose commands, use the matching `developer-profiles/dev-profile-<profile>/.env` and `developer-profiles/dev-profile-<profile>/overrides.env` files. For the Alerts profile, set `MODE` in `developer-profiles/dev-profile-alerts/overrides.env` to the workflow mode:
 
 - `base`: Base vision agent (this quickstart)
-- `lvs`: [Video Summarization Workflow](/agent-workflow-lvs#step-1-deploy-the-agent)
-- `search`: [Search Workflow](/agent-workflow-search#step-1-deploy-the-search-agent)
+- `lvs`: [Video Summarization Workflow](/vss/vision-agent/agent-workflows/video-summarization#step-1-deploy-the-agent)
+- `search`: [Search Workflow](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent)
 - `alerts`: Alert workflows
 
-  - [Alert Verification Workflow](/agent-workflow-alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
-  - [Real-Time Alert Workflow](/agent-workflow-rt-alert#step-1-deploy-the-agent) — `MODE=2d_vlm`
+  - [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
+  - [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:
