@@ -45,7 +45,7 @@ The official Alert Verification workflow's "what's being deployed" set, mapped t
 - **Nemotron LLM (NIM)** — **optional**, only meaningful when the agent layer is included (the LLM serves the agent's reasoning / tool selection / report generation). Alerts default `LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2` at `LLM_BASE_URL=http://${HOST_IP}:${LLM_PORT}` (`:30081`); `LLM_MODE` picks dedicated (`local`) vs shared-GPU (`local_shared`) placement. Owned by the LLM-NIM catalog entry (`skills/vss-deploy-profile/`); the `required: false` `llm_placement` variant in `patch-alerts.md`. Omit for a headless verify deployment.
 - **Phoenix** — observability for the agent layer (`PHOENIX_ENDPOINT=http://${HOST_IP}:6006`). Already part of ELK's `component_services` (`phoenix` key). Owned by ELK/infra.
 - **NVStreamer** — video streaming service that plays back dataset videos to replicate live cameras (`vss-vios-nvstreamer`, `ADAPTOR=streamer`). In `build-vision-ai` this is the **validation-harness** component emitted by Step 6 (recorded under the sidecar `validation_harness:` key) when the deployment needs a live/streaming source but no real camera is supplied — it is NOT a `component_services:` entry. Source: `references/validation-harness.md`.
-- **Video Analytics API** — `vss-video-analytics-api-alerts` (`:9901` query surface) serving incident/alert queries over the verified ES indices — a **headless** query surface that does NOT require `vss-agent`. Optional. Owned by the alerts profile (optional `component_services`).
+- **Video Analytics API** — `vss-video-analytics-api` (`:9901` query surface) serving incident/alert queries over the verified ES indices — a **headless** query surface that does NOT require `vss-agent`. Optional. Defined in the common services bundle; optional `component_services`.
 - **VSS Agent UI** — `vss-ui` (`vss-agent-ui`, `:3000`) + HAProxy ingress. Optional web UI (Alerts tab, Video Management, Kibana dashboard). Requires the agent layer (it calls the agent) and HAProxy routing; consumes the `NEXT_PUBLIC_*` env block. Owned by the UI/ingress layer. Omit for a headless deployment.
 - **MQTT / mosquitto** — optional. Only when republishing verified alerts over MQTT. Declared `required: false`.
 
@@ -126,7 +126,7 @@ The compose interpolates host-side names; the `env-substitute.py` entrypoint fol
 | `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` | Host path to `realtime-config.yml` (`→ /app/configs/realtime-config.yml`) | `.../realtime-config.yml` | **Yes** |
 | `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` | Host path to `alert_type_config.json` (CV `category` → verifier prompts) | `.../alert_type_config.json` | **Yes (CV mode)** |
 | `CONFIG_PATH` | In-container resolved config path the command reads | `/app/runtime/config.yml` | **Yes (compose-set)** |
-| `ALWAYS_ON_RULES_CONFIG` | In-container always-on rules YAML | `/app/configs/realtime-config.yml` | optional |
+| `ALWAYS_ON_RULES_CONFIG` | In-container rendered always-on rules YAML | `/app/runtime/realtime-config.yml` | optional |
 
 ## Network Requirements
 
@@ -145,7 +145,7 @@ The compose interpolates host-side names; the `env-substitute.py` entrypoint fol
 ## Known Integration Constraints
 
 - **Single-instance.** `container_name: vss-alert-bridge` is hardcoded; a second instance on the same host fails with a name conflict. The `:9080` host port is likewise singleton under `network_mode: host`.
-- **Config mount + env-substitute entrypoint are mandatory.** The container's entrypoint runs `env-substitute.py --source /app/configs/config.yml --output /app/runtime/config.yml` before launching `enhance_alert_with_vlm.py`. The three host configs (`config.yml`, `realtime-config.yml`, `alert_type_config.json`) plus `env-substitute.py` must be bind-mounted, and `/app/runtime` is a writable tmpfs. A missing config mount fails boot.
+- **Config mounts + env-substitute entrypoint are mandatory.** A single `env-substitute.py` invocation renders the required main config and, when present, the optional realtime config under `/app/runtime`, then launches `enhance_alert_with_vlm.py`. This is required for always-on rules using `model: "${VLM_NAME}"`. `config.yml`, `alert_type_config.json`, and `env-substitute.py` must be bind-mounted; `realtime-config.yml` is optional only while `alert_agent.always_on` is false. If always-on is enabled without a rendered rules file, startup validation fails. `/app/runtime` must be a writable tmpfs.
 - **Topics must be pre-created.** `alert-bridge` consumes `mdx-incidents` / `mdx-alerts` and (optionally) produces `mdx-vlm-incidents` / `mdx-vlm-alerts`. It `depends_on: kafka-topic-init-container (service_completed_successfully)`; a standalone deploy must keep that init container in the allow-list (it is part of ELK's component set).
 - **CV `category` must match `alert_type_config.json`.** In `cv-verification`, an incident whose Behavior-Analytics `category` has no entry in `alert_type_config.json` is not verified (no prompt to send the VLM). Editing the JSON requires an `alert-bridge` restart.
 - **Verdict semantics.** Verified records carry `info.verdict` ∈ {`confirmed`, `rejected`, `unverified`} and `verification_response_code` (200 = success). `vlm-realtime` incidents are confirmed at source (the trigger itself is a Yes/No VLM answer) and carry no separate verdict. The verifier matches verdict tokens against the VLM response per `vlm.response_format` (`auto` detects Cosmos-Reason vs. generic).
@@ -178,7 +178,7 @@ services:
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://${HOST_IP}:8018}
       CONFIG_PATH: /app/runtime/config.yml
-      ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
+      ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE}:/app/configs/config.yml:ro
@@ -200,6 +200,10 @@ services:
       - /app/configs/config.yml
       - --output
       - /app/runtime/config.yml
+      - --optional-source
+      - /app/configs/realtime-config.yml
+      - --optional-output
+      - /app/runtime/realtime-config.yml
       - --
     command: ["/usr/local/bin/python", "enhance_alert_with_vlm.py", "--config", "/app/runtime/config.yml"]
 ```

@@ -7,7 +7,7 @@
 | Video database and ingest | `centralizedb`, `vst-ingress` |
 | Sensor and stream management | `sensor-ms`, `streamprocessing-ms` |
 | Profile stream sources | `nvstreamer-alerts`, `nvstreamer-lvs`, `nvstreamer-2d-fusion` |
-| SDR controller and config rendering | `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, `sdr-controller` |
+| SDR controller and config rendering | `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sdr-controller` |
 
 ## Required peers
 

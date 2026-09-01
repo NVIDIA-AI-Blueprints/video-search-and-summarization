@@ -8,6 +8,41 @@ metadata:
   name: {{ include "elasticsearch.fullname" . }}
   labels:
     {{- include "elasticsearch.labels" . | nindent 4 }}
+  {{- $guard := .Values.ingressGuard | default dict }}
+  {{- if $guard.enabled }}
+  {{- $mem := $guard.memoryIndex | default "vss-memory" }}
+  annotations:
+    # Edge guard for the public /elasticsearch mount, the same rules the Docker
+    # edge enforces (deploy/docker/services/infra/haproxy/haproxy.cfg.template).
+    # It lives on this Service, not on the Ingress, so it applies to the
+    # Elasticsearch backend alone -- on the Ingress it would deny on every
+    # route sharing the origin.
+    #
+    # Not read-only: this stops PUT/DELETE, the cluster-admin paths and the
+    # two-segment mutating operations, but POST is allowed, so POST /_bulk,
+    # /_reindex, /_scripts/<id> and /<index>/_doc still reach Elasticsearch.
+    # Closing that means deny-by-default with an allowlist of the handful of
+    # operations the CLI uses, not another entry on the denylist.
+    #
+    # Unified memory persists a job as PUT /<index>/_doc/<job_id>, which the
+    # read-only method rule would answer 405. The exception is scoped to that
+    # index -- `vss-memory`, plus a suffixed variant such as `vss-memory-dev`
+    # for a --memory-index override -- rather than to the `vss-` prefix, so it
+    # does not widen on its own if other indices are renamed into that prefix.
+    #
+    # The path prefix is optional in every pattern because the mount's
+    # replace-path may or may not have run by the time these rules do.
+    haproxy.org/backend-config-snippet: |
+      acl vss_es_read_method method GET HEAD POST OPTIONS
+      acl vss_es_admin_path path_reg ^(/elasticsearch)?/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
+      acl vss_es_mutating_op path_reg ^(/elasticsearch)?/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
+      acl vss_es_memory_write method PUT
+      acl vss_es_memory_doc path_reg ^(/elasticsearch)?/{{ $mem }}(-[^/]+)?/_doc/[^/]+$
+      http-request deny status 405 if !vss_es_read_method !vss_es_memory_doc
+      http-request deny status 405 if !vss_es_read_method vss_es_memory_doc !vss_es_memory_write
+      http-request deny status 403 if vss_es_admin_path
+      http-request deny status 403 if vss_es_mutating_op
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:

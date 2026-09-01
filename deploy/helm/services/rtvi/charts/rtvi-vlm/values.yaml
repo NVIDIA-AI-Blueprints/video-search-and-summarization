@@ -22,6 +22,10 @@ image:
   tag: "develop-latest"
   pullPolicy: IfNotPresent
 replicas: 1
+# Allow the initial RT-VLM image pull and model startup to complete before
+# Kubernetes reports the Deployment as stalled. Kubernetes defaults this to
+# 600 seconds when it is omitted, which is too short on a cold node.
+progressDeadlineSeconds: 3600
 
 # When true, use shared NIM VLM (nvidia-cosmos3-reasoner) instead of loading model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
 useSharedNim: false
@@ -71,13 +75,27 @@ service:
   port: 8000
   type: ClusterIP
 
+# Server-side ingress timeout for this backend. Empty leaves the controller
+# default; the LVS and search profiles raise it, since a long generation there
+# outlasts it.
+ingressTimeoutServer: ""
+
 # Compose: user 1001:1001, shm 16gb, GPU
 securityContext:
   runAsUser: 1001
   runAsGroup: 1001
 shmSize: "16Gi"
 
+# Optional MIG resource replacement. Uncomment and set this to the MIG resource
+# advertised by the Kubernetes NVIDIA device plugin (for example,
+# nvidia.com/mig-3g.40gb). The default remains one nvidia.com/gpu, as on develop.
+# A MIG deployment always requests one slice per pod.
+# gpuResourceName: "nvidia.com/mig-3g.40gb"
+
 resources:
+  # CPU and memory resources can be added here. gpuResourceName replaces the
+  # default GPU resource in both limits and requests. See
+  # overrides_rtvi_vlm_mig.yaml for a complete MIG example.
   limits:
     nvidia.com/gpu: 1
   requests:

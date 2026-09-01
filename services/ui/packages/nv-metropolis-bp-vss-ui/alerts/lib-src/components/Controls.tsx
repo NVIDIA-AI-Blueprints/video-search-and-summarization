@@ -16,6 +16,7 @@ interface ControlsProps {
   alertsView: AlertsView;
   onAlertsViewChange: (view: AlertsView) => void;
   onAddNewAlertRule: () => void;
+  manageAlertsEnabled?: boolean;
 }
 
 const ALERTS_VIEW_OPTIONS: Array<{
@@ -40,26 +41,30 @@ export const Controls: React.FC<ControlsProps> = ({
   alertsView,
   onAlertsViewChange,
   onAddNewAlertRule,
+  manageAlertsEnabled = true,
 }) => {
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const viewOptions = manageAlertsEnabled
+    ? ALERTS_VIEW_OPTIONS
+    : ALERTS_VIEW_OPTIONS.filter((option) => option.id !== 'create');
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex: number | null = null;
     // Vertical tablist — Up/Down move focus, Home/End jump to ends. Left/Right
     // are also accepted for users who expect the horizontal tab pattern.
     if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
-      nextIndex = (currentIndex + 1) % ALERTS_VIEW_OPTIONS.length;
+      nextIndex = (currentIndex + 1) % viewOptions.length;
     } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
-      nextIndex = (currentIndex - 1 + ALERTS_VIEW_OPTIONS.length) % ALERTS_VIEW_OPTIONS.length;
+      nextIndex = (currentIndex - 1 + viewOptions.length) % viewOptions.length;
     } else if (event.key === 'Home') {
       nextIndex = 0;
     } else if (event.key === 'End') {
-      nextIndex = ALERTS_VIEW_OPTIONS.length - 1;
+      nextIndex = viewOptions.length - 1;
     }
 
     if (nextIndex == null) return;
     event.preventDefault();
-    const nextOption = ALERTS_VIEW_OPTIONS[nextIndex];
+    const nextOption = viewOptions[nextIndex];
     onAlertsViewChange(nextOption.id);
     tabRefs.current[nextIndex]?.focus();
   };
@@ -78,7 +83,7 @@ export const Controls: React.FC<ControlsProps> = ({
           isDark ? 'bg-neutral-950' : 'bg-gray-100'
         }`}
       >
-        {ALERTS_VIEW_OPTIONS.map((option, index) => {
+        {viewOptions.map((option, index) => {
           const isSelected = alertsView === option.id;
           return (
             <button
@@ -113,7 +118,7 @@ export const Controls: React.FC<ControlsProps> = ({
 
       {/* Create alert rule action (Create mode only). Extra top margin gives
           the button breathing room from the View/Manage tab toggle above. */}
-      {alertsView === 'create' && (
+      {manageAlertsEnabled && alertsView === 'create' && (
         <button
           type="button"
           onClick={onAddNewAlertRule}

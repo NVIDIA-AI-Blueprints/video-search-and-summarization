@@ -85,6 +85,11 @@ class TestRTVIVLMAlertInner:
         assert result.success is True
         assert result.total_count == 1
 
+        # VA projects only Id/timestamp/end/sensorId unless `includes` asks for more;
+        # the alerts path needs category and info to render an incident table.
+        va_input = mock_va_tool.ainvoke.call_args.kwargs["input"]
+        assert va_input["includes"] == ["category", "info"]
+
     @pytest.mark.asyncio
     async def test_get_incidents_string_result(self, mock_builder):
         config = RTVIVLMAlertConfig(

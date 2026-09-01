@@ -14,7 +14,8 @@ summarize job with broader events when the result is empty.
 ### Resolve endpoints
 
 Run once before any probe. Docker keeps host ports; Kubernetes uses
-`VSS_PUBLIC_URL` (LVS client base = origin, **no** `/v1` suffix).
+`VSS_PUBLIC_URL` with LVS mounted at `/lvs` and RT-VLM at `/rtvi-vlm`
+(**no** `/v1` suffix — the skill appends it).
 
 ```bash
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
@@ -24,11 +25,15 @@ fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
-  LVS_BACKEND_URL="${VSS_PUBLIC_URL}"
+  # Force public prefixes — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
+  # The /lvs mount, not the origin — the bare origin is the UI catch-all. The
+  # skill appends /v1/ready and /v1/summarize; the gateway strips /lvs before
+  # the backend sees them.
+  LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
   VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
-  VLM="${VSS_PUBLIC_URL}"
+  # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
+  VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"

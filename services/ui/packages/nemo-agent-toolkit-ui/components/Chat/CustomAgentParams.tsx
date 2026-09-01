@@ -26,7 +26,7 @@ interface CustomAgentParamsProps {
   onClose: () => void;
   fields: ParamField[];
   onFieldsChange: (fields: ParamField[]) => void;
-  anchorRef?: React.RefObject<HTMLElement>;
+  anchorRef?: React.RefObject<HTMLElement | null>;
   /** When true, field values cannot be edited (e.g. while a query is in progress). */
   valuesChangeDisabled?: boolean;
 }

@@ -35,10 +35,10 @@ RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
 
 
 # Conditional runner phase
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.11 AS runner-prod
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.2 AS runner-prod
 ARG BUILD_TYPE
 
-FROM nvcr.io/nvidia/distroless/node:22-v4.0.11-dev AS runner-dev
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.2-dev AS runner-dev
 ARG BUILD_TYPE
 
 

@@ -298,23 +298,23 @@ export const StreamCard: React.FC<StreamCardProps> = ({
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <Button
+                kind="secondary"
+                size="small"
                 onClick={handlePlayClick}
                 disabled={isLoadingPlay}
                 data-testid="playback-notice-retry"
-                className="rounded px-2 py-1 text-xs font-medium transition-colors bg-gray-300 text-gray-800 hover:bg-gray-400 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500"
               >
                 Retry
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                kind="tertiary"
+                size="small"
                 onClick={() => setPlaybackFailed(false)}
                 data-testid="playback-notice-dismiss"
-                className="rounded px-2 py-1 text-xs transition-colors text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500"
               >
                 Dismiss
-              </button>
+              </Button>
             </div>
           </div>
         )}

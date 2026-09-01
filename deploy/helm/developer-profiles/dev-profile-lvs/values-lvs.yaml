@@ -92,8 +92,12 @@ vssIngress:
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
+  # LVS is at /lvs and RT-VLM at /rtvi-vlm — the canonical mounts, the same on
+  # every profile and on the Docker edge. Neither owns the origin root.
   lvsBackendPort: 38111
   rtviVlmPort: 8000
+  vaMcpPort: 9901
+  elasticsearchPort: 9200
   kibanaHost: ""
   phoenixHost: ""
   kibanaPort: 5601

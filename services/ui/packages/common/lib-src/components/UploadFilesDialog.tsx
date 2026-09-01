@@ -321,7 +321,6 @@ export const UploadFilesDialog = forwardRef<UploadFilesDialogHandle, UploadFiles
     () => Boolean(configTemplate && Array.isArray(configTemplate.fields) && configTemplate.fields.length > 0),
     [configTemplate]
   );
-  const hasExpandableContent = metadataEnabled || hasConfigFields;
 
   const createFileItem = useCallback(
     (file: File): UploadFilesDialogFileItem => ({
@@ -575,24 +574,25 @@ export const UploadFilesDialog = forwardRef<UploadFilesDialogHandle, UploadFiles
                     <div className="flex items-center justify-between bg-white p-3 dark:bg-neutral-900">
                       <button
                         type="button"
-                        className={`flex flex-1 items-center gap-2 overflow-hidden text-left ${hasExpandableContent ? 'cursor-pointer' : ''}`}
-                        onClick={() => hasExpandableContent && handleToggleExpand(fileItem.id)}
-                        aria-expanded={hasExpandableContent ? fileItem.isExpanded : undefined}
+                        className="flex flex-1 cursor-pointer items-center gap-2 overflow-hidden text-left"
+                        onClick={() => handleToggleExpand(fileItem.id)}
+                        aria-expanded={fileItem.isExpanded}
                       >
-                        {hasExpandableContent && (
-                          <IconChevronDown
-                            size={16}
-                            className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${fileItem.isExpanded ? 'rotate-180' : ''}`}
-                          />
-                        )}
+                        <IconChevronDown
+                          size={16}
+                          className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${fileItem.isExpanded ? 'rotate-180' : ''}`}
+                        />
                         <IconVideo size={18} className="flex-shrink-0 text-[#76b900]" />
-                        <span className="truncate text-sm text-gray-700 dark:text-gray-300">
-                          {fileItem.file.name}
+                        <span
+                          className="truncate text-sm text-gray-700 dark:text-gray-300"
+                          title={fileItem.file.name}
+                        >
+                          {(fileItem.uploadFilename ?? '').trim() || fileItem.file.name}
                         </span>
                         <span className="flex-shrink-0 text-xs text-gray-400">
                           ({(fileItem.file.size / 1024 / 1024).toFixed(2)} MB)
                         </span>
-                        {((fileItem.uploadFilename ?? '').trim().length === 0 || /\s/.test(fileItem.uploadFilename ?? '')) && (
+                        {isUploadFilenameInvalid(fileItem.uploadFilename) && (
                           <IconAlertTriangle size={18} className="flex-shrink-0 text-amber-500 dark:text-amber-400" />
                         )}
                       </button>
@@ -605,7 +605,7 @@ export const UploadFilesDialog = forwardRef<UploadFilesDialogHandle, UploadFiles
                       </button>
                     </div>
 
-                    {hasExpandableContent && fileItem.isExpanded && (
+                    {fileItem.isExpanded && (
                       <div className="border-t border-gray-200 bg-gray-50 p-3 dark:border-neutral-700 dark:bg-black">
                         <div className="mb-3 space-y-1">
                           {(() => {

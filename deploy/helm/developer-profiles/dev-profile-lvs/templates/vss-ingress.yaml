@@ -1,38 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 {{- if .Values.vssIngress.enabled }}
 {{- $vi := .Values.vssIngress }}
 {{- $host := default .Values.global.externalHost $vi.host }}
 {{- $kibanaHost := default (printf "kibana.%s" $host) $vi.kibanaHost }}
 {{- $phoenixHost := $vi.phoenixHost | default "" | trim }}
-{{- $fk := index (.Values.infra | default dict) "kibana" | default dict }}
-{{- $kibanaStackEnabled := and $fk (default true $fk.enabled) }}
-{{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
-{{- $phoenixStackEnabled := and $fp (default true $fp.enabled) }}
-{{/*
-  CLI edge routes, matching the mounts the Docker edge publishes in
-  deploy/docker/services/infra/haproxy/haproxy.cfg.template so `vss configure`
-  resolves the same paths on both. `vss summarize run` needs /lvs to reach the
-  summarization API and /elasticsearch to persist the job to unified memory.
+{{- $infra := .Values.infra | default dict }}
+{{- $fk := index $infra "kibana" | default dict }}
+{{- $fp := index $infra "phoenix" | default dict }}
+{{- $fes := index $infra "elasticsearch" | default dict }}
+{{- $vios := .Values.vios | default dict }}
+{{- $viosIngress := index $vios "vss-vios-ingress" | default dict }}
+{{- $agentRoot := .Values.agent | default dict }}
+{{- $agent := index $agentRoot "vss-agent" | default dict }}
+{{- $vaMcp := index $agentRoot "vss-va-mcp" | default dict }}
+{{- $ui := index .Values "vss-agent-ui" | default dict }}
+{{- $rtvi := .Values.rtvi | default dict }}
+{{- $vlm := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- $summ := index .Values "vss-summarization" | default dict }}
+{{- /* Enablement is read with vss.ingress.enabled, not `default true`: sprig
+       treats an explicit `false` as empty and would hand back the default,
+       mounting a route at a Service that was never created. */}}
+{{- $en := "vss.ingress.enabled" }}
+{{- $infraOn := include $en (dict "vals" $infra "default" true) }}
+{{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
+{{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
+{{- $kibanaOn := and $infraOn (include $en (dict "vals" $fk "default" true)) }}
+{{- /*
+  Which of the canonical routes this profile serves. The mounts are the shared
+  table in services/common: LVS answers at /lvs (/lvs/v1/summarize,
+  /lvs/v1/ready) and RT-VLM at /rtvi-vlm (/rtvi-vlm/v1/models), the same places
+  every other profile and the Docker edge put them. Neither owns the origin
+  root any more, so a caller no longer has to know it is talking to LVS to
+  guess which /v1 it will get.
 
-  Off by default, as in dev-profile-search: enabling it publishes Elasticsearch
-  on the public origin with no per-path guard, because an Ingress annotation
-  cannot express one.
-
-  Summarization is bounded by the ingress-wide timeouts below rather than by the
-  CLI's --request-timeout-seconds, so a run that outlasts them arrives as a 504
-  -- exit 3 and a terminal `failed` record -- for a job LVS is probably still
-  working on. Both routes to that backend are affected: /v1/summarize, which
-  direct API callers use, and /lvs, which the CLI resolves through.
-
-  The default is therefore 3600s, matching the CLI's own default, the Docker
-  edge's per-backend `timeout server`, and dev-profile-search, which this
-  profile's cliRoutes block is modelled on. Unlike Docker, an Ingress
-  annotation cannot scope that to one backend, so it does apply to every route
-  here; the narrower fix is a `haproxy.org/backend-config-snippet` on the
-  summarization Service, which is worth doing if the wide ceiling ever costs
-  something.
+  Server timeouts are per backend now, on the Services that need them
+  (vss-summarization, vss-rtvi-vlm, vss-agent) rather than as one ingress-wide
+  ceiling over every route here.
 */}}
-{{- $cli := $vi.cliRoutes | default dict }}
-{{- $cliOn := default false $cli.enabled }}
+{{- $b := dict }}
+{{- if include $en (dict "vals" $ui "default" true) }}
+{{- $_ := set $b "ui" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui")) "port" $vi.vssUiPort) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $agent "default" true)) }}
+{{- $_ := set $b "agent" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent")) "port" $vi.vssAgentPort) }}
+{{- end }}
+{{- if and (include $en (dict "vals" $vios "default" true)) (include $en (dict "vals" $viosIngress "default" true)) }}
+{{- $_ := set $b "vst" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress")) "port" $vi.vstIngressPort) }}
+{{- end }}
+{{- if include $en (dict "vals" $summ "default" true) }}
+{{- $_ := set $b "lvs" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization")) "port" $vi.lvsBackendPort) }}
+{{- end }}
+{{- if and $rtviOn (include $en (dict "vals" $vlm "default" false)) }}
+{{- $_ := set $b "rtvi-vlm" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm")) "port" $vi.rtviVlmPort) }}
+{{- end }}
+{{- if and $infraOn (include $en (dict "vals" $fes "default" false)) }}
+{{- $_ := set $b "elasticsearch" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "elasticsearch")) "port" $vi.elasticsearchPort) }}
+{{- end }}
+{{- if and $agentUmbrellaOn (include $en (dict "vals" $vaMcp "default" false)) }}
+{{- $_ := set $b "va-mcp" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-va-mcp")) "port" $vi.vaMcpPort) }}
+{{- end }}
+{{- if and $infraOn (include $en (dict "vals" $fp "default" true)) }}
+{{- $_ := set $b "phoenix" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix")) "port" $vi.phoenixPort) }}
+{{- end }}
+{{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
 {{- if $host }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -44,164 +88,28 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
-    # LVS /v1/summarize runs the full chunk -> VLM caption -> merge -> aggregate
-    # pipeline, which on a long video outlasts ten minutes. Raise the HAProxy
-    # timeouts well above the 50s controller default so the ingress does not
-    # return a 504 Gateway Time-out while the backend is still working.
+    # Kept for continuity with earlier releases, but inert: the controller reads
+    # timeout-client only from its own ConfigMap, not from an Ingress annotation
+    # (haproxytech/kubernetes-ingress documentation/annotations.md). A
+    # summarization run that outlasts the controller default still has its
+    # client side closed; fixing that means setting timeout-client on the
+    # controller ConfigMap, which is cluster-wide and outside this chart.
     haproxy.org/timeout-client: {{ $vi.timeoutClient | default "3600s" | quote }}
-    haproxy.org/timeout-server: {{ $vi.timeoutServer | default "3600s" | quote }}
-  {{- if or $phoenixStackEnabled $cliOn }}
+    {{- with $vi.timeoutServer }}
+    haproxy.org/timeout-server: {{ . | quote }}
+    {{- end }}
+    {{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
     haproxy.org/path-rewrite: |
-    {{- if $phoenixStackEnabled }}
-      /phoenix/(.*) /\1
-      /phoenix /
+      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
     {{- end }}
-    {{- if $cliOn }}
-      /lvs/(.*) /\1
-      /lvs /
-      /elasticsearch/(.*) /\1
-      /elasticsearch /
-    {{- end }}
-  {{- end }}
 spec:
   ingressClassName: {{ default "haproxy" $vi.ingressClassName | quote }}
   rules:
     - host: {{ $host | quote }}
       http:
         paths:
-          - path: /api/chat
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
-                port:
-                  number: {{ $vi.vssUiPort }}
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /chat
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /websocket
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          # The summarization workflow uses the same public origin for LVS and
-          # RT-VLM. Keep these as exact paths: both backends own /v1 APIs.
-          - path: /v1/ready
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
-                port:
-                  number: {{ $vi.lvsBackendPort | default 38111 }}
-          - path: /v1/summarize
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
-                port:
-                  number: {{ $vi.lvsBackendPort | default 38111 }}
-          - path: /v1/models
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
-                port:
-                  number: {{ $vi.rtviVlmPort | default 8000 }}
-          - path: /v1/chat/completions
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
-                port:
-                  number: {{ $vi.rtviVlmPort | default 8000 }}
-          - path: /static
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /docs
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /openapi.json
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /redoc
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /generate
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
-                port:
-                  number: {{ $vi.vssAgentPort }}
-          - path: /vst
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
-                port:
-                  number: {{ $vi.vstIngressPort }}
-{{- if $cliOn }}
-          - path: /lvs
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
-                port:
-                  number: {{ $vi.lvsBackendPort | default 38111 }}
-          - path: /elasticsearch
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "elasticsearch") }}
-                port:
-                  number: {{ $cli.elasticsearchPort | default 9200 }}
-{{- end }}
-{{- if $phoenixStackEnabled }}
-          - path: /phoenix
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix") }}
-                port:
-                  number: {{ $vi.phoenixPort | default 6006 }}
-{{- end }}
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
-                port:
-                  number: {{ $vi.vssUiPort }}
-{{- if and $kibanaStackEnabled $kibanaHost }}
+          {{- include "vss.ingress.paths" (dict "backends" $b) | nindent 10 }}
+{{- if and $kibanaOn $kibanaHost }}
     - host: {{ $kibanaHost | quote }}
       http:
         paths:
@@ -213,7 +121,7 @@ spec:
                 port:
                   number: {{ $vi.kibanaPort | default 5601 }}
 {{- end }}
-{{- if and $phoenixStackEnabled (ne $phoenixHost "") }}
+{{- if and (index $b "phoenix") (ne $phoenixHost "") }}
     - host: {{ $phoenixHost | quote }}
       http:
         paths:
@@ -221,9 +129,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix") }}
+                name: {{ (index $b "phoenix").service }}
                 port:
-                  number: {{ $vi.phoenixPort | default 6006 }}
+                  number: {{ (index $b "phoenix").port }}
 {{- end }}
 {{- end }}
 {{- end }}

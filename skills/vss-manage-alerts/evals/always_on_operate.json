@@ -37,7 +37,7 @@
       "query": "Have any always-on alerts fired on this deployment? If not, what would explain that?",
       "checks": [
         "The agent grounds the 'have any fired' part in the realtime incident store: the trajectory issues a `GET http://localhost:9080/api/v1/realtime/incidents` (any scoping) and the reply reflects what it returned — an empty list reported as 'none' is the expected valid outcome. Fabricating incidents or answering from the rules list is a failure.",
-        "The root-cause explanation names the disabled `alert_agent.always_on` feature gate (established in the previous step or re-checked) as the primary reason, plus at least one other real link of the always-on chain (rules YAML present/valid, SDR camera events reaching Alert Bridge, stream registration on rtvi-vlm). Naming only generic reasons ('no events matched') without the gate is a failure.",
+        "The root-cause explanation names the disabled `alert_agent.always_on` feature gate (established in the previous step or re-checked) as the primary reason, plus at least one other real link of the always-on chain (rules YAML present/valid, VIOS camera webhooks reaching Alert Bridge, stream registration on rtvi-vlm). Naming only generic reasons ('no events matched') without the gate is a failure.",
         "Operate-not-author holds through the turn: no config authoring, no sensor onboarding, no rule creation, no restarts — the agent diagnoses and reports; read-only inspection is acceptable."
       ]
     }

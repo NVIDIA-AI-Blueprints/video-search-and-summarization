@@ -12,6 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+{{- /* `ingress:` is the former name of the vssIngress block; keys set there
+       still win. Same merge as templates/vss-ingress.yaml. */}}
+{{- $legacy := .Values.ingress | default dict }}
+{{- $vi := merge (deepCopy $legacy) (.Values.vssIngress | default dict) }}
+{{- $ingressEnabled := default false $vi.enabled }}
+{{- if hasKey $legacy "enabled" }}{{- $ingressEnabled = $legacy.enabled }}{{- end }}
+{{- $viHosts := $vi.hosts | default dict }}
 
 =====================================================================
   NVIDIA Metropolis Search Profile - Developer Workflow
@@ -28,7 +35,7 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   When nims is enabled, the NIM Operator exposes ClusterIP services matching the
   NIMService metadata.name (same slugs as dev-profile-base nims charts):
 
-  1. Nemotron Nano 9B v2 (LLM):  nvidia-nemotron-nano-9b-v2:8000
+  1. Nemotron 3.5 Lightning 30B A3B (LLM):  nemotron-3.5-lightning-30b-a3b:8000
   2. VLM (critic + video_understanding): vss-rtvi-vlm:8000  (rtvi.vss-rtvi-vlm, in-pod
                                   Cosmos3 checkpoint; set nims.cosmos3.enabled=true to use
                                   the standalone NIM instead)
@@ -52,28 +59,32 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
     --set global.externalHost=<NODE_IP>                          (bare IP)
     --set global.externalHost=vss-search.<NODE_IP>.nip.io        (hostname)
   Ingress hosts are auto-constructed using nip.io in either case.
-  Override with --set ingress.hosts.main=custom.domain.com if needed.
+  Override with --set vssIngress.hosts.main=custom.domain.com if needed.
 
 =====================================================================
   ACCESS
 =====================================================================
-{{- if .Values.ingress.enabled }}
+{{- if $ingressEnabled }}
 
   {{- $ipRaw := .Values.global.externalHost | default "NODE_IP" | toString | trim }}
   {{- $ip := $ipRaw }}
   {{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}
   {{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}
   {{- end }}
-  {{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
-  {{- $streamerHost := .Values.ingress.hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
-  {{- $kibanaHost := .Values.ingress.hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
-  {{- $phoenixHost := .Values.ingress.hosts.phoenix | default "" | trim }}
+  {{- $mainHost := $viHosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
+  {{- $streamerHost := $viHosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
+  {{- $kibanaHost := $viHosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
+  {{- $phoenixHost := $viHosts.phoenix | default "" | trim }}
   Ingress is ENABLED. Services are exposed via host/path routing:
 
   VSS UI (Search):      http://{{ $mainHost }}
   VSS Agent API:        http://{{ $mainHost }}/api
   VST API:              http://{{ $mainHost }}/vst/api
   Video Analytics API:  http://{{ $mainHost }}/video-analytics-api
+  RT-VLM (OpenAI API):  http://{{ $mainHost }}/rtvi-vlm/v1
+  RT-Embed:             http://{{ $mainHost }}/rtvi-embed/v1
+  RT-CV:                http://{{ $mainHost }}/rtvi-cv/api/v1
+  Elasticsearch:        http://{{ $mainHost }}/elasticsearch  (guarded: no PUT/DELETE or
   Kibana Dashboards:    http://{{ $kibanaHost }}
   Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
   {{- if ne $phoenixHost "" }}
@@ -99,13 +110,13 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   NVStreamer RTSP:       not exposed via NodePort by default; port-forward to pod if needed
 
   To enable Ingress, reinstall with:
-    --set ingress.enabled=true \
-    --set ingress.hosts.main=vss-search.<IP>.nip.io \
-    --set ingress.hosts.streamer=streamer.<IP>.nip.io \
-    --set ingress.hosts.kibana=kibana.<IP>.nip.io \
-    --set ingress.hosts.phoenix=phoenix.<IP>.nip.io \
+    --set vssIngress.enabled=true \
+    --set vssIngress.hosts.main=vss-search.<IP>.nip.io \
+    --set vssIngress.hosts.streamer=streamer.<IP>.nip.io \
+    --set vssIngress.hosts.kibana=kibana.<IP>.nip.io \
+    --set vssIngress.hosts.phoenix=phoenix.<IP>.nip.io \
 
-  (ingress.hosts.phoenix is optional; default Phoenix route is /phoenix on main host)
+  (vssIngress.hosts.phoenix is optional; default Phoenix route is /phoenix on main host)
 
 {{- end }}
 
@@ -117,8 +128,8 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   2. A default StorageClass provisioned on the cluster
   3. NGC docker registry secret created (auto-created if ngcApiKey set)
   4. Nemotron and Cosmos3 NIMs installed and healthy
-{{- if .Values.ingress.enabled }}
-  5. Ingress controller ({{ .Values.ingress.className }}) installed in cluster
+{{- if $ingressEnabled }}
+  5. Ingress controller ({{ coalesce $vi.ingressClassName $vi.className }}) installed in cluster
 {{- end }}
 
 =====================================================================

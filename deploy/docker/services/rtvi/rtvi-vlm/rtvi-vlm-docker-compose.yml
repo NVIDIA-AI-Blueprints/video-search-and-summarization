@@ -31,6 +31,8 @@ services:
             - gpu
             driver: nvidia
             device_ids:
+            # Accepts a GPU index, GPU UUID, or MIG UUID (MIG-... or MIG-GPU-...).
+            # The NVIDIA Container Toolkit exposes only this device to RTVI-VLM.
             - "${RT_VLM_DEVICE_ID:-0}"
     ports:
       - "${RTVI_VLM_PORT?}:8000"
@@ -69,6 +71,9 @@ services:
       NUM_GPUS: "${RTVI_VLM_NUM_GPUS:-}"
       VLM_SYSTEM_PROMPT: "${RTVI_VLM_SYSTEM_PROMPT:-}"
       VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK: "${RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-}"
+      # Default is intentionally "all" for compatibility with existing deployments.
+      # For MIG, set both RT_VLM_DEVICE_ID and RTVI_VLM_NVIDIA_VISIBLE_DEVICES
+      # to the same MIG-... or MIG-GPU-... UUID; the slice appears as logical CUDA device 0.
       NVIDIA_VISIBLE_DEVICES: "${RTVI_VLM_NVIDIA_VISIBLE_DEVICES:-all}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       LOG_LEVEL: "${RTVI_VLM_LOG_LEVEL:-INFO}"

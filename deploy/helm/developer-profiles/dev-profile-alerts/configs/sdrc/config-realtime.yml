@@ -1,3 +1,10 @@
+# SDRC workload config — alerts profile, real-time mode (2d_vlm).
+# Kept for Helm on purpose: the compose alerts profile no longer runs SDRC and
+# provisions from VIOS webhooks instead. Webhooks post to a single fixed
+# address, so they cannot place streams across replicas or recover them, which
+# is why SDRC stays in Kubernetes. Do not delete this workload to match
+# compose — see infra.sdrc in the chart values.yaml.
+
 defaults:
   WDM_XDS_GRPC_ADS_ENABLED: "true"
 
