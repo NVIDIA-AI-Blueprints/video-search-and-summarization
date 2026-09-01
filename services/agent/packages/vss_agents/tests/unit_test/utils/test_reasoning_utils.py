@@ -192,10 +192,27 @@ class TestGetLlmReasoningBindKwargs:
         result = get_llm_reasoning_bind_kwargs(mock_llm, llm_reasoning=None)
         assert result == {}
 
+    # --- ChatNVIDIA / nemotron-3.5 lightning (the default LLM) ---
+
+    def test_chatnvidia_lightning_reasoning_true(self):
+        mock_llm = _make_mock("ChatNVIDIA", model_name="nvidia/nemotron-3.5-lightning-30b-a3b")
+        result = get_llm_reasoning_bind_kwargs(mock_llm, llm_reasoning=True)
+        assert result == {"chat_template_kwargs": {"enable_thinking": True}}
+
+    def test_chatnvidia_lightning_reasoning_false(self):
+        mock_llm = _make_mock("ChatNVIDIA", model_name="nvidia/nemotron-3.5-lightning-30b-a3b")
+        result = get_llm_reasoning_bind_kwargs(mock_llm, llm_reasoning=False)
+        assert result == {"chat_template_kwargs": {"enable_thinking": False}}
+
+    def test_chatnvidia_lightning_reasoning_none(self):
+        mock_llm = _make_mock("ChatNVIDIA", model_name="nvidia/nemotron-3.5-lightning-30b-a3b")
+        result = get_llm_reasoning_bind_kwargs(mock_llm, llm_reasoning=None)
+        assert result == {}
+
     # --- ChatNVIDIA / other models ---
 
     def test_chatnvidia_unknown_model_returns_empty(self):
-        mock_llm = _make_mock("ChatNVIDIA", model_name="nvidia/nvidia-nemotron-nano-9b-v2")
+        mock_llm = _make_mock("ChatNVIDIA", model_name="nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8")
         result = get_llm_reasoning_bind_kwargs(mock_llm, llm_reasoning=True)
         assert result == {}
 

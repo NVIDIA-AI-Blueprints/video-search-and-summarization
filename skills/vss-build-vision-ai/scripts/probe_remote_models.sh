@@ -17,7 +17,7 @@ Examples:
     https://integrate.api.nvidia.com nvidia/llama-3.3-nemotron-super-49b-v1
 
   probe_remote_models.sh \
-    http://localhost:30081 nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark
+    http://localhost:30081 nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8
 EOF
 
   return 0

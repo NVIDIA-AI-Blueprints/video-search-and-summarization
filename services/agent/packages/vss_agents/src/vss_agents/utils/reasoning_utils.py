@@ -19,6 +19,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Model-name markers for the models whose thinking mode is driven by the
+# `enable_thinking` chat-template kwarg. Listed explicitly because a bare
+# "nemotron-3" test also matches "nemotron-3.5-lightning-30b-a3b" — that model
+# is pinned correctly today only by that accident, and a rename would silently
+# stop binding the kwarg, leaving thinking on (the chat template defaults it to
+# true). Substring rather than equality so remote endpoints serving a renamed
+# variant still match.
+_ENABLE_THINKING_MARKERS = ("nemotron-3.5-lightning", "nemotron-3-nano")
+
 
 def get_llm_reasoning_bind_kwargs(llm: Any, llm_reasoning: bool | None) -> dict:
     """
@@ -38,7 +47,7 @@ def get_llm_reasoning_bind_kwargs(llm: Any, llm_reasoning: bool | None) -> dict:
         if "gpt-oss" in model_name and llm_reasoning is not None:
             return {"reasoning_effort": "low"} if llm_reasoning is False else {"reasoning_effort": "medium"}
 
-        if "nemotron-3" in model_name and llm_reasoning is not None:
+        if any(marker in model_name for marker in _ENABLE_THINKING_MARKERS) and llm_reasoning is not None:
             return {"chat_template_kwargs": {"enable_thinking": llm_reasoning}}
     elif type(llm).__name__ == "ChatOpenAI":
         return {"reasoning": {"effort": "medium", "summary": "auto"}} if llm_reasoning else {}
