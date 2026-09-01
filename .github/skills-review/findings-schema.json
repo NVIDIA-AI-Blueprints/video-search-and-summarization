@@ -10,7 +10,7 @@
       "properties": {
         "skill": {"type": "string", "description": "skill dir name, e.g. vss-manage-alerts"},
         "paradigm": {"type": "string", "enum": ["review", "gstack-review", "codex", "ce-code-review", "ce-doc-review", "best-practices"]},
-        "file": {"type": "string", "description": "repo-relative path, e.g. skills/vss-manage-alerts/SKILL.md"},
+        "file": {"type": "string", "description": "repo-relative path, e.g. skills/operation/vss-manage-alerts/SKILL.md"},
         "line": {"type": "integer", "minimum": 0, "description": "1-based line; 0 when not line-anchored"},
         "title": {"type": "string", "description": "<= ~12 words"},
         "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},

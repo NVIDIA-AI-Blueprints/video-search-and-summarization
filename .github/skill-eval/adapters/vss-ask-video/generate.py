@@ -35,10 +35,10 @@ available host).  Override with ``--platform``.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-ask-video/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-ask-video \\
-        --skill-dir skills/vss-ask-video \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
-        --video-io-skill-dir skills/vss-manage-video-io-storage \\
-        --spec skills/vss-ask-video/evals/base_profile_video_understanding.json
+        --skill-dir skills/operation/vss-ask-video \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --video-io-skill-dir skills/operation/vss-manage-video-io-storage \\
+        --spec skills/operation/vss-ask-video/evals/base_profile_video_understanding.json
 """
 from __future__ import annotations
 
@@ -307,15 +307,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--skill-dir", required=True,
-        help="Path to skills/vss-ask-video",
+        help="Path to skills/operation/vss-ask-video",
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
-        help="Path to skills/vss-deploy-profile (optional — included for agent diagnosis)",
+        help="Path to skills/deployment/vss-deploy-profile (optional — included for agent diagnosis)",
     )
     parser.add_argument(
         "--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-        help="Path to skills/vss-manage-video-io-storage (optional — spec env references VIOS video upload)",
+        help="Path to skills/operation/vss-manage-video-io-storage (optional — spec env references VIOS video upload)",
     )
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):

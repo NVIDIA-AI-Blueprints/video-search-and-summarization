@@ -973,7 +973,7 @@ if [[ -e "${_helm_job}" ]] \
   ((_warehouse_model_config_failed++)) || true
 fi
 
-_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+_standalone_skill_defaults="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
 if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
   || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
   || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
@@ -1029,7 +1029,7 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+_warehouse_3d_skill="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-3d"
 if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
   "${_warehouse_3d_skill}/SKILL.md" \
   "${_warehouse_3d_skill}/references" \

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-setup-behavior-analytics skill.
 
-This adapter handles specs under `skills/vss-setup-behavior-analytics/evals/`.
+This adapter handles specs under `skills/deployment/vss-setup-behavior-analytics/evals/`.
 The current spec (`standalone_deploy.json`) exercises the skill's
 **standalone-deploy** flow — pulling and starting `vss-behavior-analytics`
 via the service compose file at
@@ -30,13 +30,13 @@ Directory layout (one spec → one task per platform key):
         tests/<spec_stem>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/vss-setup-behavior-analytics/
+        skills/deployment/vss-setup-behavior-analytics/
         environment/Dockerfile
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-setup-behavior-analytics/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-setup-behavior-analytics \\
-        --skill-dir skills/vss-setup-behavior-analytics
+        --skill-dir skills/deployment/vss-setup-behavior-analytics
 
 Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
@@ -381,7 +381,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--skill-dir", required=True,
-        help="Path to skills/vss-setup-behavior-analytics",
+        help="Path to skills/deployment/vss-setup-behavior-analytics",
     )
     parser.add_argument(
         "--spec", default=None,

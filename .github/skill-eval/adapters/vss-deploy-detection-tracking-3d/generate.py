@@ -24,14 +24,14 @@ runtime smoke test.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-3d/generate.py \\
         --output-dir /tmp/skill-eval/datasets/<leg-slug>/<run_id> \\
-        --skill-dir skills/vss-deploy-detection-tracking-3d \\
-        --spec skills/vss-deploy-detection-tracking-3d/evals/sample-deployment.json
+        --skill-dir skills/deployment/vss-deploy-detection-tracking-3d \\
+        --spec skills/deployment/vss-deploy-detection-tracking-3d/evals/sample-deployment.json
 
     # With platform filter:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-3d/generate.py \\
         --output-dir /tmp/skill-eval/datasets/<leg-slug>/<run_id> \\
-        --skill-dir skills/vss-deploy-detection-tracking-3d \\
-        --spec skills/vss-deploy-detection-tracking-3d/evals/sample-deployment.json \\
+        --skill-dir skills/deployment/vss-deploy-detection-tracking-3d \\
+        --spec skills/deployment/vss-deploy-detection-tracking-3d/evals/sample-deployment.json \\
         --platform RTXPRO6000BW
 """
 from __future__ import annotations
@@ -67,6 +67,23 @@ PREAMBLE = (
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
     "setup action the trial requires."
 )
+
+
+def _peer_skill_dir(skill_dir: Path, name: str) -> Path | None:
+    """Resolve a peer skill by its leaf directory name.
+
+    A skill lives at either skills/<name>/ or skills/<category>/<name>/, and a
+    peer may sit in a different category than the caller — so look beside the
+    caller first, then across the categories one level up.
+    """
+    beside = skill_dir.parent / name
+    if beside.is_dir():
+        return beside
+    for category in sorted(skill_dir.parent.parent.glob("*")):
+        nested = category / name
+        if nested.is_dir():
+            return nested
+    return None
 
 
 def _substitute_spec(spec: dict, platform: str) -> dict:
@@ -404,9 +421,9 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-deploy-detection-tracking-3d")
+                        help="Path to skills/deployment/vss-deploy-detection-tracking-3d")
     parser.add_argument("--calibration-skill-dir", default=None,
-                        help="Path to skills/vss-generate-video-calibration "
+                        help="Path to skills/operation/vss-generate-video-calibration "
                              "(included for calibration-chain spec)")
     parser.add_argument(
         "--spec",
@@ -421,9 +438,9 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     calibration_skill_dir = (
         Path(args.calibration_skill_dir) if args.calibration_skill_dir
-        else skill_dir.parent / "vss-generate-video-calibration"
+        else _peer_skill_dir(skill_dir, "vss-generate-video-calibration")
     )
-    if not calibration_skill_dir.exists():
+    if calibration_skill_dir is not None and not calibration_skill_dir.exists():
         calibration_skill_dir = None
 
     if args.spec:

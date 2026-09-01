@@ -20,17 +20,17 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SELECTOR_DOCUMENTS = {
     # Only the approved VLM fallback still picks a model by hand here; the
     # summarize request takes the one `vss configure` recorded from LVS.
-    "skills/vss-summarize-video/references/end-to-end-example.md": 1,
+    "skills/operation/vss-summarize-video/references/end-to-end-example.md": 1,
     # The direct-API reference keeps both discovery branches, because a caller
     # working against the API by hand still has to name a model.
-    "skills/vss-summarize-video/references/video-summarization-api.md": 2,
+    "skills/operation/vss-summarize-video/references/video-summarization-api.md": 2,
 }
 LVS_DISCOVERY_DOCUMENTS = [
-    "skills/vss-summarize-video/references/video-summarization-api.md",
+    "skills/operation/vss-summarize-video/references/video-summarization-api.md",
 ]
 #: Documents describing the ordered workflow, which asks the CLI for the model.
 CLI_WORKFLOW_DOCUMENTS = [
-    "skills/vss-summarize-video/references/hitl-prompts.md",
+    "skills/operation/vss-summarize-video/references/hitl-prompts.md",
 ]
 
 
@@ -118,7 +118,7 @@ def test_cli_workflow_documents_do_not_discover_a_model(relative_path: str) -> N
 def test_direct_vlm_fallback_uses_versioned_models_route() -> None:
     """Require direct VLM discovery to use its versioned models route."""
     content = (
-        REPO_ROOT / "skills/vss-summarize-video/references/end-to-end-example.md"
+        REPO_ROOT / "skills/operation/vss-summarize-video/references/end-to-end-example.md"
     ).read_text()
 
     assert '"$VLM/v1/models"' in content

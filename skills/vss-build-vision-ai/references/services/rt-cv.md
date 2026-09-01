@@ -11,7 +11,7 @@ Select the Foundation that ships the requested model family. RT-DETR and
 GDINO are not interchangeable — each requires its own configs, mounts, and
 class-label taxonomy. The detector model family and its emitted class-label
 taxonomy are authoritatively defined in
-`skills/vss-deploy-detection-tracking-2d/references/integrate-vss-detection-tracking-2d.md`;
+`skills/deployment/vss-deploy-detection-tracking-2d/references/integrate-vss-detection-tracking-2d.md`;
 the mapping above is the composition surface, not a second source of truth.
 
 ## Required peers
@@ -66,5 +66,5 @@ fits. See `../sizing.md` for placement resolution and starting stream counts.
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-cv/ds-start.sh`
-- `skills/vss-deploy-detection-tracking-2d/references/environment.md`
-- `skills/vss-deploy-detection-tracking-2d/references/integrate-vss-detection-tracking-2d.md`
+- `skills/deployment/vss-deploy-detection-tracking-2d/references/environment.md`
+- `skills/deployment/vss-deploy-detection-tracking-2d/references/integrate-vss-detection-tracking-2d.md`

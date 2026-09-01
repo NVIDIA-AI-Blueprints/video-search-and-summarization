@@ -30,21 +30,21 @@ is never a Compose profile.
         tests/generic_judge.py
         solution/solve.sh
         skills/vss-build-vision-ai/   (full skill copy)
-        skills/vss-deploy-dense-captioning/   (bundled for dense-captioning checks)
-        skills/vss-deploy-detection-tracking-2d/ (bundled for RT-CV checks)
-        skills/vss-deploy-video-embedding/   (bundled for RT-Embed checks)
-        skills/vss-summarize-video/      (bundled for LVS summarize API checks)
+        skills/deployment/vss-deploy-dense-captioning/   (bundled for dense-captioning checks)
+        skills/deployment/vss-deploy-detection-tracking-2d/ (bundled for RT-CV checks)
+        skills/deployment/vss-deploy-video-embedding/   (bundled for RT-Embed checks)
+        skills/operation/vss-summarize-video/      (bundled for LVS summarize API checks)
         environment/Dockerfile           (FROM scratch; BrevEnvironment takes over)
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-build-vision-ai/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-build-vision-ai \\
         --skill-dir skills/vss-build-vision-ai \\
-        --vios-skill-dir skills/vss-manage-video-io-storage \\
-        --rtvi-skill-dir skills/vss-deploy-dense-captioning \\
-        --rtcv-skill-dir skills/vss-deploy-detection-tracking-2d \\
-        --rtembed-skill-dir skills/vss-deploy-video-embedding \\
-        --summarize-skill-dir skills/vss-summarize-video \\
+        --vios-skill-dir skills/operation/vss-manage-video-io-storage \\
+        --rtvi-skill-dir skills/deployment/vss-deploy-dense-captioning \\
+        --rtcv-skill-dir skills/deployment/vss-deploy-detection-tracking-2d \\
+        --rtembed-skill-dir skills/deployment/vss-deploy-video-embedding \\
+        --summarize-skill-dir skills/operation/vss-summarize-video \\
         --spec skills/vss-build-vision-ai/eval/profile_in_1_streaming_dense_captions.json
 """
 from __future__ import annotations
@@ -438,27 +438,27 @@ def main() -> None:
     )
     parser.add_argument(
         "--vios-skill-dir", default=None,
-        help="Path to skills/vss-manage-video-io-storage (bundled for post-deploy VIOS checks)",
+        help="Path to skills/operation/vss-manage-video-io-storage (bundled for post-deploy VIOS checks)",
     )
     parser.add_argument(
         "--rtvi-skill-dir", default=None,
-        help="Path to skills/vss-deploy-dense-captioning (bundled for RT-VLM checks)",
+        help="Path to skills/deployment/vss-deploy-dense-captioning (bundled for RT-VLM checks)",
     )
     parser.add_argument(
         "--rtcv-skill-dir", default=None,
-        help="Path to skills/vss-deploy-detection-tracking-2d (bundled for RT-CV checks)",
+        help="Path to skills/deployment/vss-deploy-detection-tracking-2d (bundled for RT-CV checks)",
     )
     parser.add_argument(
         "--rtembed-skill-dir", default=None,
-        help="Path to skills/vss-deploy-video-embedding (bundled for RT-Embed checks)",
+        help="Path to skills/deployment/vss-deploy-video-embedding (bundled for RT-Embed checks)",
     )
     parser.add_argument(
         "--summarize-skill-dir", default=None,
-        help="Path to skills/vss-summarize-video (bundled for LVS summarize API checks)",
+        help="Path to skills/operation/vss-summarize-video (bundled for LVS summarize API checks)",
     )
     parser.add_argument(
         "--report-skill-dir", default=None,
-        help="Path to skills/vss-generate-video-report (bundled for SOP report checks)",
+        help="Path to skills/operation/vss-generate-video-report (bundled for SOP report checks)",
     )
     parser.add_argument(
         "--spec", default=None,

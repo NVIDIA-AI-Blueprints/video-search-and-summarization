@@ -25,8 +25,8 @@ this in `resources.platforms`.
         tests/<spec>.json
         tests/generic_judge.py
         solution/solve.sh
-        skills/vss-summarize-video/
-        skills/vss-manage-video-io-storage/       (when listed in spec["skills"])
+        skills/operation/vss-summarize-video/
+        skills/operation/vss-manage-video-io-storage/       (when listed in spec["skills"])
         environment/Dockerfile        (FROM scratch; BrevEnvironment takes over)
 
 `<profile>` comes from `spec.profile` (here: `lvs`). `<k>` is the
@@ -45,9 +45,9 @@ limit).
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-summarize-video/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-summarize-video \\
-        --skill-dir skills/vss-summarize-video \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
-        --video-io-skill-dir skills/vss-manage-video-io-storage
+        --skill-dir skills/operation/vss-summarize-video \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --video-io-skill-dir skills/operation/vss-manage-video-io-storage
 """
 from __future__ import annotations
 
@@ -272,11 +272,11 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root (e.g. .github/skill-eval/datasets/vss-summarize-video)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-summarize-video")
+                        help="Path to skills/operation/vss-summarize-video")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
+                        help="Path to skills/deployment/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-                        help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for video upload prerequisite)")
+                        help="Path to skills/operation/vss-manage-video-io-storage (optional — referenced by the spec for video upload prerequisite)")
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)

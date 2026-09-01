@@ -7,7 +7,7 @@ The vss-generate-video-calibration skill exercises the AutoMagicCalib (AMC)
 microservice REST API -- deploy, calibrate from local videos / RTSP / sample
 dataset, and export results in MV3DT format.
 
-The current spec (`skills/vss-generate-video-calibration/evals/auto-calibration.json`)
+The current spec (`skills/operation/vss-generate-video-calibration/evals/auto-calibration.json`)
 **omits the `profile` field by design** -- the agent is expected to deploy
 AMC standalone via the skill's bundled
 `references/deploy-auto-calibration-service.md` runbook before exercising
@@ -38,8 +38,8 @@ whatever it needs:
             tests/generic_judge.py
             tests/auto-calibration.json
             solution/solve.sh
-            skills/vss-generate-video-calibration/   (full skill copy)
-            skills/vss-deploy-profile/               (optional, for agent debug)
+            skills/operation/vss-generate-video-calibration/   (full skill copy)
+            skills/deployment/vss-deploy-profile/               (optional, for agent debug)
             environment/Dockerfile
         step-2/
             ...
@@ -51,8 +51,8 @@ only the `gpu_type` / `brev_search` / resource hints in task.toml differ.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-generate-video-calibration/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-generate-video-calibration \\
-        --skill-dir skills/vss-generate-video-calibration \\
-        --deploy-skill-dir skills/vss-deploy-profile
+        --skill-dir skills/operation/vss-generate-video-calibration \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile
 """
 from __future__ import annotations
 
@@ -254,9 +254,9 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root (e.g. .github/skill-eval/datasets/vss-generate-video-calibration)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-generate-video-calibration")
+                        help="Path to skills/operation/vss-generate-video-calibration")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional -- included for agent debug)")
+                        help="Path to skills/deployment/vss-deploy-profile (optional -- included for agent debug)")
     parser.add_argument("--spec", default=None,
                         help="Path to auto-calibration.json "
                              "(default: <skill-dir>/evals/auto-calibration.json)")

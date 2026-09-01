@@ -8,7 +8,8 @@ the base ref to list changed files (skipped when CHANGED_FILES is
 provided, which the unit tests use). Prints `matrix` and `has_targets`
 to $GITHUB_OUTPUT so the workflow can fan out one `eval` leg per spec.
 
-Rules (see docs/matrix-dispatch-design.md):
+Rules (see docs/matrix-dispatch-design.md). `<skill>` is a skill dir under one
+of EVAL_SKILL_ROOTS; skills outside those roots dispatch nothing:
   - skills/<skill>/evals/<spec>.json (or legacy eval/) changed
         -> dispatch just that (skill, spec)
   - any other skills/<skill>/** file changed (SKILL.md, references, ...)
@@ -59,6 +60,14 @@ ADAPTERS_DIR = Path(__file__).resolve().parent / "adapters"
 # An adapter edit re-scopes its whole skill (the adapter feeds every spec); the
 # adapters/ tree stays flat, keyed by the skill's leaf name.
 ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
+# What skill-eval covers, split by shape so a path can be attributed without
+# touching the filesystem: a category holds skill dirs one level down, a named
+# root is itself a skill dir. Anything under skills/ outside these roots — the
+# deployment category, benchmarking — is attributed to no skill, so changing it
+# dispatches no eval leg.
+EVAL_SKILL_CATEGORIES = ("operation",)
+EVAL_SKILL_NAMES = ("vss-build-vision-ai",)
+EVAL_SKILL_ROOTS = EVAL_SKILL_CATEGORIES + EVAL_SKILL_NAMES
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
 # stems, and platform keys are safe today, but enforce the token so a future
@@ -68,25 +77,29 @@ SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def discover_skills() -> dict[str, Path]:
-    """Map leaf skill-name -> skill dir for every dir under skills/ holding a
-    SKILL.md — flat (skills/<name>/) or one category level down
-    (skills/<category>/<name>/). Leaf names are the identity and must be unique.
-    Adapters stay keyed by this leaf name (the adapters/ tree is flat)."""
+    """Map leaf skill-name -> skill dir for every dir holding a SKILL.md under
+    an EVAL_SKILL_ROOTS root — the root itself (skills/<name>/) or one category
+    level down (skills/<category>/<name>/). Leaf names are the identity and must
+    be unique. Adapters stay keyed by this leaf name (the adapters/ tree is flat)."""
     out: dict[str, Path] = {}
     skills_root = REPO_ROOT / "skills"
     if not skills_root.is_dir():
         return out
-    for md in sorted(skills_root.rglob("SKILL.md")):
-        d = md.parent
-        rel = d.relative_to(skills_root)
-        if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
+    for root_name in EVAL_SKILL_ROOTS:
+        root = skills_root / root_name
+        if not root.is_dir():
             continue
-        if d.name in out and out[d.name] != d:
-            raise ValueError(
-                f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
-                f"skill leaf names must be unique across categories"
-            )
-        out[d.name] = d
+        for md in sorted(root.rglob("SKILL.md")):
+            d = md.parent
+            rel = d.relative_to(skills_root)
+            if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
+                continue
+            if d.name in out and out[d.name] != d:
+                raise ValueError(
+                    f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
+                    f"skill leaf names must be unique across categories"
+                )
+            out[d.name] = d
     return out
 
 
@@ -107,10 +120,15 @@ def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
             best, best_depth = name, len(d.parts)
     if best is not None:
         return best
-    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk):
-    # fall back to the first path segment under skills/ (the flat layout).
+    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk).
+    # Derive the name from the path, but only inside a covered root — otherwise a
+    # file under skills/deployment/<skill>/ would name the *category* as its skill.
     parts = path.split("/")
-    return parts[1] if len(parts) >= 3 and parts[1] else None
+    if len(parts) >= 3 and parts[1] in EVAL_SKILL_NAMES:
+        return parts[1]
+    if len(parts) >= 4 and parts[1] in EVAL_SKILL_CATEGORIES and parts[2]:
+        return parts[2]
+    return None
 
 
 def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:

@@ -44,5 +44,5 @@ re-expand values already read from the Foundation env files.
 - `deploy/docker/services/vios/initiator/docker-compose.yaml`
 - `deploy/docker/services/vios/streamprocessing/docker-compose.yaml`
 - `deploy/docker/services/infra/sdrc/docker-compose.yaml`
-- `skills/vss-manage-video-io-storage/references/deploy-vios-service.md`
-- `skills/vss-manage-video-io-storage/references/integrate-vios-service.md`
+- `skills/operation/vss-manage-video-io-storage/references/deploy-vios-service.md`
+- `skills/operation/vss-manage-video-io-storage/references/integrate-vios-service.md`
