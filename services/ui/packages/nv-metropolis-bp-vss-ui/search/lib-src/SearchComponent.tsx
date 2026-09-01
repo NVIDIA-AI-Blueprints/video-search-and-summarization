@@ -262,7 +262,6 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
         onCancelSearch={cancelSearch}
         onGetPendingQuery={handleGetPendingQuery}
         contentDisabled={contentDisabled}
-        onRefresh={refetch}
       />
     ),
     [
@@ -279,7 +278,6 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       cancelSearch,
       handleGetPendingQuery,
       contentDisabled,
-      refetch,
     ]
   );
 
@@ -375,24 +373,29 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       data-testid="search-component"
       className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
-      <div className={`flex-shrink-0 px-4 py-2 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
-        {!renderControlsInLeftSidebar && controlsComponent}
-        <SearchHeader 
-          theme={isDark ? 'dark' : 'light'} 
-          streams={streams}
-          filterParams={filterParams} 
-          setFilterParams={setFilterParams} 
-          onUpdateSearchParams={onUpdateSearchParams} 
-          addFilter={addFilter} 
-          removeFilterTag={removeFilterTag} 
-          filterTags={filterTags}
-          isSearching={loading}
-          onCancelSearch={cancelSearch}
-          onGetPendingQuery={handleGetPendingQuery}
-          submitChatMessage={wrappedSubmitChatMessage}
-          contentDisabled={contentDisabled}
-        />
-      </div>
+      {/* Query + filters live in the left sidebar when the parent app renders them
+          there; the in-tab header is the standalone-only alternative. Rendering
+          both would mount two copies of the same controls, each with its own
+          sourceType state. */}
+      {!renderControlsInLeftSidebar && (
+        <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
+          <SearchHeader
+            theme={isDark ? 'dark' : 'light'}
+            streams={streams}
+            filterParams={filterParams}
+            setFilterParams={setFilterParams}
+            onUpdateSearchParams={wrappedOnUpdateSearchParams}
+            addFilter={addFilter}
+            removeFilterTag={removeFilterTag}
+            filterTags={filterTags}
+            isSearching={effectiveLoading}
+            onCancelSearch={cancelSearch}
+            onGetPendingQuery={handleGetPendingQuery}
+            submitChatMessage={wrappedSubmitChatMessage}
+            contentDisabled={contentDisabled}
+          />
+        </div>
+      )}
       <div className="flex-1 overflow-auto">
         <VideoSearchList
           data={agentSearchResults ?? searchResults}

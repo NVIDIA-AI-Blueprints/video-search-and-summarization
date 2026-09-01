@@ -23,7 +23,6 @@ export interface SearchSidebarControlsProps {
   isDark: boolean;
   compactLayout?: boolean;
   outerPadding?: React.CSSProperties['padding'];
-  onRefresh?: () => void;
 }
 
 const SOURCE_TYPE_OPTIONS = [

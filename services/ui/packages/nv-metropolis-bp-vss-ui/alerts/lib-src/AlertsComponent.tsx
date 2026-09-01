@@ -465,6 +465,16 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'
       }`}
     >
+      {/* Only rendered when the parent app is not hosting these controls in its
+          left sidebar, so view tabs, filters and settings exist exactly once. */}
+      {!renderControlsInLeftSidebar && (
+        <div
+          className={`flex-shrink-0 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}
+        >
+          {controlsComponent}
+        </div>
+      )}
+
       {/* Keep both sub-views mounted (display:none when hidden) so Manage Alerts
           RTSP thumbnails and draft state are not torn down on tab switches. */}
       {manageAlertsEnabled && hasOpenedManageAlerts && (
