@@ -39,6 +39,10 @@ from concurrent.futures import ThreadPoolExecutor, Future, TimeoutError as Futur
 
 import requests
 import uvicorn
+
+import tracing
+from tracing import meters as _otel_meters
+from tracing import spans as tracing_spans
 import yaml
 from openai import APIConnectionError, APITimeoutError, InternalServerError, UnprocessableEntityError
 from openai.types.chat import ChatCompletionMessage
@@ -1368,17 +1372,31 @@ class AnomalyEnhancer(
 
             if not message_type:
                 raise ValueError("message_type is required for process_batch_vlm")
+            # Only the protobuf branch below is a Kafka record, and only it may
+            # put the transport key on a message. Every other ingress -- Redis
+            # Stream, replay, a direct dict from a test or a plugin -- carries a
+            # payload whose contents came from outside, so the key is stripped
+            # rather than trusted: a payload that declares its own
+            # `traceparent` could otherwise choose AB's trace id and, because
+            # ParentBased honours a remote `sampled=1`, defeat sampling_ratio
+            # entirely. Same takeover as the REST body one, different door.
             if isinstance(messages, list) and all(isinstance(m, dict) for m in messages):
                 parsed_messages = messages
+                for message in parsed_messages:
+                    message.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
             elif isinstance(messages, list) and all(isinstance(m, str) for m in messages):
                 parsed_messages = []
                 for raw in messages:
                     try:
-                        parsed_messages.append(json.loads(raw))
+                        parsed = json.loads(raw)
                     except (json.JSONDecodeError, TypeError) as exc:
                         logger.warning(
                             "Skipping malformed JSON message in batch: %s", exc
                         )
+                        continue
+                    if isinstance(parsed, dict):
+                        parsed.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
+                    parsed_messages.append(parsed)
             else:
                 # Kafka sources provide protobuf tuples; Redis Stream sources
                 # provide JSON strings. Only run protobuf decoding for the
@@ -1389,16 +1407,72 @@ class AnomalyEnhancer(
                     message_type
                 )
                 parsed_messages = []
-                for message in decoded_messages:
+                for decoded in decoded_messages:
+                    # The decoder now hands back (json_str, source_record) so the
+                    # inbound headers stay tied to the record that carried them.
+                    # Older shapes (a bare string, or a dict) still arrive from
+                    # non-Kafka sources and from tests that stub the decoder.
+                    if isinstance(decoded, tuple) and len(decoded) == 2:
+                        message, source_record = decoded
+                    else:
+                        message, source_record = decoded, None
+
+                    parsed = None
                     if isinstance(message, str):
                         try:
-                            parsed_messages.append(json.loads(message))
+                            parsed = json.loads(message)
                         except (json.JSONDecodeError, TypeError) as exc:
                             logger.warning(
                                 "Skipping malformed JSON message in batch: %s", exc
                             )
+                            # Carried per record rather than re-derived by
+                            # position: this branch drops one, and a positional
+                            # zip downstream would then read the wrong source.
+                            continue
                     elif isinstance(message, dict):
-                        parsed_messages.append(message)
+                        parsed = message
+
+                    if parsed is None:
+                        continue
+
+                    # Parse-time attach (REQ-007/SG2-004). What has to hold is
+                    # that every step between here and the pop *carries* the
+                    # key -- not that it preserves object identity, which is the
+                    # weaker claim an earlier version of this comment made. The
+                    # dedup and rate-limit filters do preserve identity, but
+                    # normalize_alert_message (alert-shaped events only) returns
+                    # dict(message), so on that path the key survives by copy.
+                    # A future step that rebuilds the dict field by field would
+                    # unparent every alert silently.
+                    #
+                    # Attached only when tracing is on, so a disabled deployment
+                    # never sees the key at all (REQ-019), and popped before
+                    # anything can serialise it.
+                    headers = getattr(source_record, "headers", None)
+                    decoded = (
+                        tracing_spans.decode_kafka_headers(headers)
+                        if headers and tracing.ensure_initialised()
+                        else None
+                    )
+                    if decoded and any(n.lower() == "traceparent" for n, _ in decoded):
+                        # Decoded to str, not kept as the raw bytes confluent-kafka
+                        # hands back. If any exit path ever fails to pop this key,
+                        # a str value costs a stray field in a document; bytes cost
+                        # the whole document -- Elasticsearch's serializer raises on
+                        # them and the sink swallows that, so the alert is silently
+                        # never indexed. Tracing must not cost an event (REQ-019).
+                        # Only when a traceparent survived the W3C filter. A
+                        # record carrying only a schema id, a routing hint, or a
+                        # tracestate with no traceparent gets no key at all:
+                        # extraction returns None for all of them, so attaching
+                        # it there widens the exposure by exactly the traffic
+                        # that can never use it. Case-insensitive: the decoder
+                        # filters case-insensitively but keeps the name as sent,
+                        # and extraction folds case too, so a producer sending
+                        # `TraceParent` can be parented and must not be gated out.
+                        parsed[tracing_spans.KAFKA_HEADERS_KEY] = decoded
+
+                    parsed_messages.append(parsed)
 
             messages = parsed_messages
 
@@ -1410,6 +1484,12 @@ class AnomalyEnhancer(
             )
 
             if self.vst_pass_through_mode:
+                # This exit leaves the traced path entirely: no root span is
+                # opened, so nothing downstream pops the transport key. Drop it
+                # here rather than letting it ride into the publisher.
+                for _m in messages:
+                    if isinstance(_m, dict):
+                        _m.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
                 self._process_media_passthrough(worker_id, messages)
                 return
 
@@ -1767,7 +1847,6 @@ class AnomalyEnhancer(
         # test harnesses) that do not surface the batch-level value.
         if worker_assigned_at is None:
             worker_assigned_at = datetime.now(timezone.utc).isoformat()
-        sensor_id = message.get('sensorId')
 
         # C25: initialize ``latency`` up-front so the pre-VST early-exit
         # handler (below) has a valid dict to hand to
@@ -1776,173 +1855,249 @@ class AnomalyEnhancer(
         # bubbled out of this function with no metric attached —
         # events silently vanished from ``EVENTS_TOTAL`` during Redis
         # incidents and operators had no dashboard correlate.
-        latency = {
-            'timestamps': {
-                'kafkaPublishedAt': kafka_published_at,
-                'kafkaConsumedAt': kafka_consumed_at,
-                'workerAssignedAt': worker_assigned_at,
-            },
+        # Built before the span so the root can start when the event actually
+        # entered the pipeline rather than when this worker reached it. The sync
+        # path has no taskDispatchedAt/taskStartedAt; earliest_stamp falls
+        # through the ones it does have.
+        stage_timestamps = {
+            'kafkaPublishedAt': kafka_published_at,
+            'kafkaConsumedAt': kafka_consumed_at,
+            'workerAssignedAt': worker_assigned_at,
         }
+        latency = {'timestamps': stage_timestamps}
 
-        prompts = self._prepare_message_context(
-            message, sensor_id, latency, worker_start_time
+
+        # Root span for this event. `open_root_span` never raises and returns
+        # None on failure, so a tracing fault degrades to an untraced event
+        # rather than a lost one. The record's inbound Kafka parent, if any,
+        # rides on the message and is consumed by the call below (REQ-007).
+        span_handle = tracing_spans.open_root_span(
+            message,
+            pipeline_mode=getattr(self, 'pipeline_mode', None),
+            timestamps=stage_timestamps,
         )
-        if prompts is None:
-            return
-        user_prompt, system_prompt = prompts
-
-        video_url = None
-        storage_video_url = None
+        # A local flag, not sys.exc_info(): this function is reached from
+        # async_dispatch_mixin's inline fallback, which calls it from inside an
+        # `except` handler, so exc_info() would report the caller's exception and
+        # stamp every event on that path as a failure on a clean success.
+        _failed = False
         try:
-            video_url, effective_start_time, effective_end_time, vst_error_captured = (
-                self._resolve_video_url(message, sensor_id, latency)
+            # Inside the guard: `message` is the one thing here that can be
+            # something other than a dict, and everything the root span
+            # needs comes from parameters, so the span is already open by
+            # the time this runs. That closes the last gap where an
+            # exception could escape the function untraced.
+            sensor_id = message.get('sensorId')
+            prompts = self._prepare_message_context(
+                message, sensor_id, latency, worker_start_time, span_handle
             )
-
-            if not video_url:
-                self._handle_media_collection_failure(
-                    message, vst_error_captured, worker_start_time, latency
-                )
+            if prompts is None:
                 return
+            user_prompt, system_prompt = prompts
 
-            vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
-
-            if not self.validate_video_url(video_url):
-                self._handle_url_validation_failure(
-                    message, storage_video_url, worker_start_time, latency
+            video_url = None
+            storage_video_url = None
+            try:
+                video_url, effective_start_time, effective_end_time, vst_error_captured = (
+                    self._resolve_video_url(message, sensor_id, latency)
                 )
-                return
 
-            category = message.get('category', '')
-            merged_vlm = self._get_merged_vlm_config(category)
+                if not video_url:
+                    self._handle_media_collection_failure(
+                        message, vst_error_captured, worker_start_time, latency,
+                        span_handle=span_handle,
+                    )
+                    return
 
-            if merged_vlm.get('dynamic_frame_count', False):
-                num_frames = self.set_max_frames(effective_start_time, effective_end_time)
-            else:
-                num_frames = merged_vlm.get('num_frames', 10)
+                vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
 
-            if os.getenv('LOG_VERBOSE_PROMPTS', 'false').lower() in ('1', 'true', 'yes'):
-                logger.debug(f"User Prompt: {user_prompt}\nSystem Prompt: {system_prompt}")
+                if not self.validate_video_url(video_url):
+                    self._handle_url_validation_failure(
+                        message, storage_video_url, worker_start_time, latency,
+                        span_handle=span_handle,
+                    )
+                    return
 
-            max_retries = merged_vlm.get('max_retries', 1)
-            retry_delay = 0.5
+                category = message.get('category', '')
+                merged_vlm = self._get_merged_vlm_config(category)
 
-            vlm_response = None
-            response_content = None
-            verification_successful = False
-            vlm_failure_reason = None  # set if VLM parse fails on last attempt
+                if merged_vlm.get('dynamic_frame_count', False):
+                    num_frames = self.set_max_frames(effective_start_time, effective_end_time)
+                else:
+                    num_frames = merged_vlm.get('num_frames', 10)
 
-            for attempt in range(max_retries + 1):
-                # Start timer outside try so it is always accessible in except clauses.
-                # _vlm_observed guards against double-counting on parse errors, which
-                # only occur after analyze_video_url() has already returned (and been
-                # observed), unlike API exceptions which fire before observe() is called.
-                _attempt_start = time.time()
-                _vlm_observed = False
-                try:
-                    logger.info("VLM request sent (attempt %d/%d, base64=%s) [sensor=%s category=%s start=%s end=%s]",
-                                attempt + 1, max_retries + 1, self.vlm_media_source_using_base64,
-                                sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
-                    start = time.time()
-                    vlm_response: ChatCompletionMessage = self._analyze_video_url_with_mode(
-                        vlm_video_url,
-                        user_prompt,
-                        system_prompt,
-                        num_frames=num_frames,
-                        use_base64=self.vlm_media_source_using_base64,
+                if os.getenv('LOG_VERBOSE_PROMPTS', 'false').lower() in ('1', 'true', 'yes'):
+                    logger.debug(f"User Prompt: {user_prompt}\nSystem Prompt: {system_prompt}")
+
+                max_retries = merged_vlm.get('max_retries', 1)
+                retry_delay = 0.5
+
+                vlm_response = None
+                response_content = None
+                verification_successful = False
+                vlm_failure_reason = None  # set if VLM parse fails on last attempt
+
+                for attempt in range(max_retries + 1):
+                    # Start timer outside try so it is always accessible in except clauses.
+                    # _vlm_observed guards against double-counting on parse errors, which
+                    # only occur after analyze_video_url() has already returned (and been
+                    # observed), unlike API exceptions which fire before observe() is called.
+                    _attempt_start = time.time()
+                    _vlm_observed = False
+                    try:
+                        logger.info("VLM request sent (attempt %d/%d, base64=%s) [sensor=%s category=%s start=%s end=%s]",
+                                    attempt + 1, max_retries + 1, self.vlm_media_source_using_base64,
+                                    sensor_id, message.get('category', 'N/A'), message.get('timestamp', 'N/A'), message.get('end', 'N/A'))
+                        start = time.time()
+                        # Live, per attempt: `latency['vlmRequest']` is
+                        # overwritten each time round the loop, so a span
+                        # reconstructed from it reports only the last attempt and
+                        # hides a slow-then-fast retry. `success` is set at
+                        # creation because an attribute set after the call is
+                        # unreachable exactly when the call raises, which is the
+                        # only case that matters here.
+                        with tracing_spans.live_span(
+                            "VLM Request",
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            success=False,
+                        ) as _vlm_span:
+                            vlm_response: ChatCompletionMessage = self._analyze_video_url_with_mode(
+                                vlm_video_url,
+                                user_prompt,
+                                system_prompt,
+                                num_frames=num_frames,
+                                use_base64=self.vlm_media_source_using_base64,
+                                config_overrides=merged_vlm,
+                            )
+                            if _vlm_span is not None:
+                                _vlm_span.set_attribute("success", vlm_response is not None)
+                        duration = round(time.time() - start, 3)
+                        latency['vlmRequest'] = {'success': vlm_response is not None, 'duration': duration}
+                        observe_vlm_duration(duration, sensor_id)
+                        # Per attempt, on both outcomes. Placed beside this call
+                        # rather than after the VLM request, because every failure
+                        # branch reaches its except before that point -- so the
+                        # counter recorded successes only, and the one thing it
+                        # exists to show, a VLM outage, produced silence.
+                        _otel_meters.count_vlm_attempt(
+                            success=vlm_response is not None, attempt=attempt + 1)
+                        _vlm_observed = True
+                        logger.info("VLM response received [sensor=%s category=%s] duration=%.3fs",
+                                    sensor_id, message.get('category', 'N/A'), duration)
+
+                        # Raw response will be logged once below using response_content
+                        response_content = vlm_response.content
+                        if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
+                            logger.debug(f"Raw VLM response: {response_content}")
+
+                        verification_successful, response_content = self._apply_vlm_response(
+                            message,
+                            response_content,
+                            merged_vlm,
+                            storage_video_url,
+                            latency,
+                        )
+                        break # Terminal outcome (success or pluggable-parser error)
+
+                    except (APITimeoutError, APIConnectionError, InternalServerError, UnprocessableEntityError) as e:
+                        # API-level error: analyze_video_url() threw before returning,
+                        # so VLM_DURATION was never observed for this attempt.
+                        if not _vlm_observed:
+                            observe_vlm_duration(
+                                round(time.time() - _attempt_start, 3),
+                                sensor_id,
+                            )
+                            # Per attempt, on both outcomes: every failure branch reaches its
+                            # except before the post-call site this used to sit at, so the
+                            # counter recorded successes only and a VLM outage produced silence.
+                            _otel_meters.count_vlm_attempt(success=False, attempt=attempt + 1)
+                        if attempt < max_retries:
+                            logger.warning("VLM API error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
+                            self._sleep_retry_with_mode(retry_delay)
+                        else:
+                            raise e # Let outer handlers handle final failure
+
+                    except Exception as e:
+                        # Parse/validation error or unexpected error.
+                        # If analyze_video_url() threw (not a parse error), _vlm_observed is
+                        # still False and we need to observe. If it was a parse error,
+                        # _vlm_observed is True and we skip to avoid double-counting.
+                        if not _vlm_observed:
+                            observe_vlm_duration(
+                                round(time.time() - _attempt_start, 3),
+                                sensor_id,
+                            )
+                            # Per attempt, on both outcomes: every failure branch reaches its
+                            # except before the post-call site this used to sit at, so the
+                            # counter recorded successes only and a VLM outage produced silence.
+                            _otel_meters.count_vlm_attempt(success=False, attempt=attempt + 1)
+                        if attempt < max_retries:
+                            logger.warning("VLM validation/processing error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
+                            self._sleep_retry_with_mode(retry_delay)
+                        else:
+                            vlm_failure_reason = self._apply_vlm_parse_failure(
+                                message, e, response_content, storage_video_url, latency
+                            )
+                            response_content = None
+                            break
+
+                publish_future = self._publish_outcome_and_complete(
+                    message,
+                    user_prompt,
+                    system_prompt,
+                    response_content,
+                    vlm_failure_reason,
+                    worker_start_time,
+                    latency,
+                    span_handle=span_handle,
+                )
+
+                # Process enrichment after publish (async pattern - zero latency impact on alert availability)
+                if verification_successful:
+                    enrichment_result = self._process_enrichment_with_mode(
+                        message=message,
+                        video_url=vlm_video_url,
+                        system_prompt=system_prompt,
+                        sensor_id=sensor_id,
                         config_overrides=merged_vlm,
                     )
-                    duration = round(time.time() - start, 3)
-                    latency['vlmRequest'] = {'success': vlm_response is not None, 'duration': duration}
-                    observe_vlm_duration(duration, sensor_id)
-                    _vlm_observed = True
-                    logger.info("VLM response received [sensor=%s category=%s] duration=%.3fs",
-                                sensor_id, message.get('category', 'N/A'), duration)
-
-                    # Raw response will be logged once below using response_content
-                    response_content = vlm_response.content
-                    if os.getenv('LOG_VERBOSE_VLM_RESPONSE', 'false').lower() in ('1', 'true', 'yes'):
-                        logger.debug(f"Raw VLM response: {response_content}")
-
-                    verification_successful, response_content = self._apply_vlm_response(
-                        message,
-                        response_content,
-                        merged_vlm,
-                        storage_video_url,
-                        latency,
-                    )
-                    break # Terminal outcome (success or pluggable-parser error)
-
-                except (APITimeoutError, APIConnectionError, InternalServerError, UnprocessableEntityError) as e:
-                    # API-level error: analyze_video_url() threw before returning,
-                    # so VLM_DURATION was never observed for this attempt.
-                    if not _vlm_observed:
-                        observe_vlm_duration(
-                            round(time.time() - _attempt_start, 3),
-                            sensor_id,
+                    if enrichment_result:
+                        self.enrichment_processor.merge_into_message(message, enrichment_result)
+                        self._update_enrichment_with_mode(
+                            message,
+                            enrichment_result,
+                            publish_future=publish_future,
                         )
-                    if attempt < max_retries:
-                        logger.warning("VLM API error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
-                        self._sleep_retry_with_mode(retry_delay)
-                    else:
-                        raise e # Let outer handlers handle final failure
-
-                except Exception as e:
-                    # Parse/validation error or unexpected error.
-                    # If analyze_video_url() threw (not a parse error), _vlm_observed is
-                    # still False and we need to observe. If it was a parse error,
-                    # _vlm_observed is True and we skip to avoid double-counting.
-                    if not _vlm_observed:
-                        observe_vlm_duration(
-                            round(time.time() - _attempt_start, 3),
-                            sensor_id,
-                        )
-                    if attempt < max_retries:
-                        logger.warning("VLM validation/processing error (attempt %d/%d), retrying: %s", attempt + 1, max_retries + 1, e)
-                        self._sleep_retry_with_mode(retry_delay)
-                    else:
-                        vlm_failure_reason = self._apply_vlm_parse_failure(
-                            message, e, response_content, storage_video_url, latency
-                        )
-                        response_content = None
-                        break
-
-            publish_future = self._publish_outcome_and_complete(
-                message,
-                user_prompt,
-                system_prompt,
-                response_content,
-                vlm_failure_reason,
-                worker_start_time,
-                latency,
-            )
-
-            # Process enrichment after publish (async pattern - zero latency impact on alert availability)
-            if verification_successful:
-                enrichment_result = self._process_enrichment_with_mode(
-                    message=message,
-                    video_url=vlm_video_url,
-                    system_prompt=system_prompt,
-                    sensor_id=sensor_id,
-                    config_overrides=merged_vlm,
+            except Exception as e:
+                self._handle_vlm_exception(
+                    e,
+                    message,
+                    user_prompt,
+                    system_prompt,
+                    storage_video_url,
+                    worker_start_time,
+                    latency,
+                    span_handle=span_handle,
                 )
-                if enrichment_result:
-                    self.enrichment_processor.merge_into_message(message, enrichment_result)
-                    self._update_enrichment_with_mode(
+                return
+        except BaseException:
+            # Re-raises: this only records that the exit was not clean.
+            _failed = True
+            raise
+        finally:
+            if span_handle is not None:
+                # First, so a sink callback firing afterwards can tell the
+                # `finally` has already had its turn.
+                span_handle.mark_finally_reached()
+                if span_handle.should_close_from_finally():
+                    span_handle.close(
+                        latency,
                         message,
-                        enrichment_result,
-                        publish_future=publish_future,
+                        failure_reason='uncaught_exception' if _failed else None,
                     )
-        except Exception as e:
-            self._handle_vlm_exception(
-                e,
-                message,
-                user_prompt,
-                system_prompt,
-                storage_video_url,
-                worker_start_time,
-                latency,
-            )
-            return
+                # Always, on this thread: the context was attached here.
+                span_handle.detach()
 
     def _prepare_message_context(
         self,
@@ -1950,6 +2105,7 @@ class AnomalyEnhancer(
         sensor_id: Any,
         latency: Dict[str, Any],
         worker_start_time: float,
+        span_handle: Any = None,
     ) -> Optional[tuple]:
         """
         Run the confirmed-verdict skip check and resolve prompts.
@@ -1975,7 +2131,9 @@ class AnomalyEnhancer(
                 worker_start_time,
                 message,
                 latency,
+                span_handle=span_handle,
                 failure_reason="malformed_message",
+                pipeline_mode=getattr(self, 'pipeline_mode', None),
             )
             return None
 
@@ -1996,7 +2154,9 @@ class AnomalyEnhancer(
                 worker_start_time,
                 message,
                 latency,
+                span_handle=span_handle,
                 failure_reason=self._classify_pre_processing_failure(exc),
+                pipeline_mode=getattr(self, 'pipeline_mode', None),
             )
             return None
 
@@ -2012,7 +2172,9 @@ class AnomalyEnhancer(
                 worker_start_time,
                 message,
                 latency,
+                span_handle=span_handle,
                 failure_reason="no_prompt",
+                pipeline_mode=getattr(self, 'pipeline_mode', None),
             )
             return None
 
@@ -2156,6 +2318,7 @@ class AnomalyEnhancer(
         vst_error_captured,
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> None:
         sensor_id = message.get('sensorId')
         vst_code, vst_status = self._classify_vst_failure(vst_error_captured)
@@ -2187,6 +2350,7 @@ class AnomalyEnhancer(
             message,
             latency,
             failure_reason=self._classify_vst_failure_reason(vst_error_captured),
+            span_handle=span_handle,
         )
 
     def _handle_url_validation_failure(
@@ -2195,6 +2359,7 @@ class AnomalyEnhancer(
         storage_video_url: Optional[str],
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> None:
         sensor_id = message.get('sensorId')
         logger.error("URL validation failed [sensor=%s category=%s start=%s end=%s]",
@@ -2225,6 +2390,7 @@ class AnomalyEnhancer(
             message,
             latency,
             failure_reason="url_validation",
+            span_handle=span_handle,
         )
 
     def _apply_vlm_response(
@@ -2355,6 +2521,7 @@ class AnomalyEnhancer(
         vlm_failure_reason: Optional[str],
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> Optional[Future]:
         # C23: ``elasticReadyAt`` is stamped by ``record_event_complete``;
         # when the async elastic sink is enabled it fires from the publish
@@ -2381,6 +2548,7 @@ class AnomalyEnhancer(
             message,
             latency,
             failure_reason=vlm_failure_reason,
+            span_handle=span_handle,
         )
         return publish_future
 
@@ -2437,6 +2605,7 @@ class AnomalyEnhancer(
         storage_video_url: Optional[str],
         worker_start_time: float,
         latency: Dict[str, Any],
+        span_handle=None,
     ) -> None:
         """Publish the error document and metrics for a failed VLM call."""
         failure_reason, log_label = self._apply_vlm_exception(
@@ -2454,6 +2623,7 @@ class AnomalyEnhancer(
             message,
             latency,
             failure_reason=failure_reason,
+            span_handle=span_handle,
         )
         self._log_vlm_exception(log_label, message, exc)
 
@@ -2554,6 +2724,7 @@ class AnomalyEnhancer(
         message,
         latency,
         failure_reason=None,
+        span_handle=None,
     ):
         """Fire ``record_event_complete`` once the sink publish finishes (C23).
 
@@ -2582,12 +2753,28 @@ class AnomalyEnhancer(
         thread-safe via the ``prometheus_client`` internal lock.
         """
         def _finalize(_future=None):
-            record_event_complete(
-                worker_start_time,
-                message,
-                latency,
-                failure_reason=failure_reason,
-            )
+            # try/finally, because concurrent.futures swallows and logs a
+            # callback's exception. If the recorder raised, the handoff would
+            # never complete -- and the pipeline's `finally` has already declined
+            # closure, having deferred to this callback. The span would then
+            # never end, never export, and orphan every child under it, which is
+            # the one thing this module exists to prevent.
+            try:
+                record_event_complete(
+                    worker_start_time,
+                    message,
+                    latency,
+                    failure_reason=failure_reason,
+                    span_handle=span_handle,
+                    pipeline_mode=getattr(self, 'pipeline_mode', None),
+                )
+            finally:
+                if span_handle is not None:
+                    span_handle.mark_finalized()
+                    if span_handle.should_close_from_callback():
+                        # The outer `finally` has already run and handed closure
+                        # here, so this thread owns the end.
+                        span_handle.close(latency, message, failure_reason=failure_reason)
 
         if publish_future is None:
             # Sync mode (``_submit_sink_operation_with_mode`` returned
@@ -2599,7 +2786,26 @@ class AnomalyEnhancer(
             # future is already done at this point (rare but possible
             # when the executor raced ahead), ``add_done_callback``
             # runs the callback immediately.
+            #
+            # Registration first, the handoff second (HLD SG3-005). The
+            # opposite order looks safer against a future that is already
+            # resolved -- add_done_callback would fire _finalize synchronously
+            # before the handle knew a handoff was coming -- but mark_deferred()
+            # already refuses in exactly that case, and reversing it opens a leak
+            # with no such guard: if registration raises, the outer finally sees
+            # a deferred span and declines to close it while no callback exists
+            # to close it either, and the root is never ended.
             publish_future.add_done_callback(_finalize)
+            if span_handle is not None:
+                # The return value is the contract: False means the callback
+                # already ran and declined. Ignoring it is safe today only
+                # because should_close_from_finally() re-admits the refused case
+                # via `or self._finalized` -- a change to that expression would
+                # make this discard silently load-bearing, so it is read here.
+                if not span_handle.mark_deferred():
+                    logger.debug(
+                        "sink callback completed before the handoff; the finally keeps closure"
+                    )
 
     @staticmethod
     def _classify_pre_processing_failure(exc) -> str:
@@ -2951,6 +3157,19 @@ def _run_pipeline_process(config_path: str, index: int, parent_pid: int, process
 
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
         signal.signal(sig, shutdown_handler)
+
+    # Tracing, before any work. The pid keying is defensive rather than load-
+    # bearing here: _pipeline_mp_context() uses the spawn start method, so this
+    # child imported every module fresh and inherited nothing. It stays because
+    # a change of start method would make it load-bearing again, silently.
+    # Initialising here also
+    # pays the one-off cost -- imports, a config read, and patching the HTTP
+    # clients, around 160ms -- at startup rather than inside the first alert,
+    # where it would block the event loop mid-event.
+    #
+    # Never raises and returns False when the feature is off, so this is a no-op
+    # on the shipped default.
+    tracing.init_tracing()
 
     logger.info("Pipeline process %d starting (pid=%d)", index, os.getpid())
     try:
@@ -3500,6 +3719,17 @@ if __name__ == "__main__":
             require_startup_budget("prompt seeding")
 
         if not multi_process:
+            # Same eager init as _run_pipeline_process, for the same reason and
+            # for the configuration that actually ships. Every shipped profile
+            # sets processes: 1, so that call site -- which only runs in a
+            # spawned child -- never fires on a default deployment, and the
+            # ~160ms of imports, config read and HTTP-client patching landed
+            # inside the first alert, on the event loop thread. Which is
+            # precisely what putting it at startup exists to avoid.
+            #
+            # Never raises, returns False when the feature is off: a no-op on
+            # the shipped default.
+            tracing.init_tracing()
             # Constructed before the metrics port binds (C15): the constructor
             # populates state that scrapes should see from the very first
             # response, and a boot that fails here must never expose a

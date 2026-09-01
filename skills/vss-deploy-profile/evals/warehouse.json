@@ -28,7 +28,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx kafka` returns exit 0 (CV metadata + control bus)",
         "`grep -qE \"^LLM_MODE=['\\\"]?remote['\\\"]?$\" $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/generated.env` returns exit 0 (remote LLM actually selected — the query asks for it, and without this every other check passes identically for `LLM_MODE=none`)",
         "`grep -qE \"^LLM_NAME_SLUG=['\\\"]?none['\\\"]?$\" $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/generated.env` returns exit 0 (so the trailing `llm_${LLM_MODE}_${LLM_NAME_SLUG}` token of `COMPOSE_PROFILES_WH_2D` matches no local NIM profile — per `overrides.env` and `references/warehouse.md` § *GPU Layout*)",
-        "`docker ps --format '{{.Names}}' | grep -qxE 'nvidia-nemotron-nano-9b-v2(-fp8)?|nemotron-3-nano|llama-3.3-nemotron-super-49b-v1.5|gpt-oss-20b'` returns exit 1 (no local LLM NIM container — remote mode must not start one; only 2 GPUs on this platform)"
+        "`docker ps --format '{{.Names}}' | grep -qxE 'nemotron-3\\.5-lightning-30b-a3b|nvidia-nemotron-nano-9b-v2-fp8'` returns exit 1 (no local LLM container — remote mode must not start one; only 2 GPUs on this platform)"
       ]
     }
   ]

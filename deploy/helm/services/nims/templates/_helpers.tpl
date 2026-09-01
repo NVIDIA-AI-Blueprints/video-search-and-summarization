@@ -44,41 +44,12 @@ Resolve the effective resource name for each NIM.
 Must stay in sync with the subchart _helpers.tpl fullname templates so the
 ConfigMaps rendered here match the names the NIMService envFrom references.
 */}}
-{{- define "nims.nemotron.fullname" -}}
-{{- if .Values.nemotron.fullnameOverride }}
-{{- .Values.nemotron.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $short := "nvidia-nemotron-nano-9b-v2" }}
-{{- $g := .Values.global | default dict }}
-{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
-{{- if $pfx }}
-{{- printf "%s-%s" .Release.Name $short | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $short }}
-{{- end }}
-{{- end }}
-{{- end }}
-
-{{- define "nims.nemotron3.fullname" -}}
-{{- if .Values.nemotron3.fullnameOverride }}
-{{- .Values.nemotron3.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $short := "nemotron-3-nano" }}
-{{- $g := .Values.global | default dict }}
-{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
-{{- if $pfx }}
-{{- printf "%s-%s" .Release.Name $short | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $short }}
-{{- end }}
-{{- end }}
-{{- end }}
 
 {{- define "nims.nemotron35.fullname" -}}
 {{- if .Values.nemotron35.fullnameOverride }}
 {{- .Values.nemotron35.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- $short := "nemotron-3.5-lightning-30b-a3b" }}
+{{- $short := "nemotron-35-lightning-30b-a3b" }}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- if $pfx }}

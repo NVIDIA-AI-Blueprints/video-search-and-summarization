@@ -99,7 +99,15 @@ services:
     volumes:
     - phoenix-data:/.phoenix
     ports:
-    - ${PHOENIX_HOST_PORT:-6006}:6006
+    # Loopback by default. Phoenix serves its UI and its OTLP HTTP receiver on
+    # the same port, and that receiver is unauthenticated -- so a wildcard bind
+    # lets anything that can reach the host inject forged spans into the traces
+    # an operator inspects, bypassing the collector's own loopback binding.
+    # Split into a bind and a port because every shipped profile sets
+    # PHOENIX_HOST_PORT to a bare `6006`: folding the bind into that variable
+    # would have changed the default and left every real deployment untouched.
+    # Set PHOENIX_HOST_BIND=0.0.0.0 to reach the UI from another machine.
+    - ${PHOENIX_HOST_BIND:-127.0.0.1}:${PHOENIX_HOST_PORT:-6006}:6006
 
   elasticsearch:
     build:

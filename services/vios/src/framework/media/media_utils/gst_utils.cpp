@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -688,11 +689,42 @@ int getFrameCountForFile (string& file_path, const string& codec)
     return elements.m_parserSrcPadOutCount;
 }
 
+gint64 GstNvElements::queryPipelinePositionNs()
+{
+    if (m_pipeline == nullptr)
+    {
+        return -1;
+    }
+    gint64 position = -1;
+    if (gst_element_query_position(m_pipeline, GST_FORMAT_TIME, &position) == FALSE)
+    {
+        return -1;
+    }
+    if (!GST_CLOCK_TIME_IS_VALID(static_cast<GstClockTime>(position)))
+    {
+        return -1;
+    }
+    return position;
+}
+
 void GstNvElements::pollBusMessages()
 {
     // Maximum timeout to prevent permanent hangs (e.g., caps negotiation failures)
     const int MAX_TIMEOUT_SECONDS = GET_CONFIG().download_files_timeout_secs;
     const int POLL_INTERVAL_SECONDS = 2;
+    // A pipeline in steady state emits no bus messages, so silence alone says
+    // nothing about whether it is working.  A software encode of a long file on
+    // a slow machine is silent for far longer than the budget a fast machine
+    // needs, and failing it there discards work that was progressing.  When the
+    // budget runs out, ask the pipeline where it has reached: only a position
+    // that has not moved since the budget started is actually stuck.  One that
+    // has moved earns another slice and is asked again, up to a ceiling that
+    // still bounds a pipeline that stops moving later on.
+    const int PROGRESS_GRACE_SECONDS = 30;
+    const int PROGRESS_CEILING_SECONDS = std::max(MAX_TIMEOUT_SECONDS, 600);
+    // Position at the moment the current silent stretch began.
+    gint64 checkpoint_position = queryPipelinePositionNs();
+    int budget_seconds = MAX_TIMEOUT_SECONDS;
     int elapsed_seconds = 0;
 
     while(!m_isError)
@@ -742,6 +774,10 @@ void GstNvElements::pollBusMessages()
                     g_free (path);
                     // Reset timeout on activity - pipeline is making progress
                     elapsed_seconds = 0;
+                    // The next silent stretch is measured from here, so the
+                    // decision at its end compares against where the pipeline
+                    // stood when the silence began rather than at start-up.
+                    checkpoint_position = queryPipelinePositionNs();
                     break;
                 }
             }
@@ -751,15 +787,34 @@ void GstNvElements::pollBusMessages()
         {
             // No message received within poll interval - check for timeout
             elapsed_seconds += POLL_INTERVAL_SECONDS;
-            if (elapsed_seconds >= MAX_TIMEOUT_SECONDS)
+            if (elapsed_seconds >= budget_seconds)
             {
-                LOG(error) << "Pipeline timeout after " << MAX_TIMEOUT_SECONDS
-                          << " seconds without EOS/progress. Pipeline may be stuck." << endl;
-                m_isError = true;
-                return;
+                const gint64 position = queryPipelinePositionNs();
+                // An unanswerable position query is treated as no progress, so a
+                // pipeline that cannot say where it is still fails on the budget
+                // it would have failed on before.
+                const bool progressing = position >= 0 && position > checkpoint_position;
+                if (progressing && budget_seconds < PROGRESS_CEILING_SECONDS)
+                {
+                    budget_seconds = std::min(budget_seconds + PROGRESS_GRACE_SECONDS,
+                                              PROGRESS_CEILING_SECONDS);
+                    LOG(info) << "Pipeline still progressing at "
+                              << (position / GST_SECOND) << "s after " << elapsed_seconds
+                              << "s without a bus message; extending budget to "
+                              << budget_seconds << "s (ceiling " << PROGRESS_CEILING_SECONDS
+                              << "s)" << endl;
+                    checkpoint_position = position;
+                }
+                else
+                {
+                    LOG(error) << "Pipeline timeout after " << elapsed_seconds
+                              << " seconds without EOS/progress. Pipeline may be stuck." << endl;
+                    m_isError = true;
+                    return;
+                }
             }
             LOG(verbose) << "No message received, elapsed: " << elapsed_seconds
-                        << "s, max: " << MAX_TIMEOUT_SECONDS << "s" << endl;
+                        << "s, budget: " << budget_seconds << "s" << endl;
         }
     }
     LOG(verbose) << "Exiting from bus message task...." << endl;

@@ -36,6 +36,23 @@ To define APIs:
 const std::vector<ApiSpec> LIVE_API_SPEC = {
     {"/api/v1/live/streams"},
 
+    {"/api/v1/live/dash/start",
+     {{"streamId", JsonType::String, true, Format::NOT_EMPTY},
+      {"overlay", JsonType::Object},
+      {"composite", JsonType::Object},
+      {"framerate", JsonType::Int}}},
+
+    {"/api/v1/live/dash/stop",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    {"/api/v1/live/dash/status",
+     {{"viewerId", JsonType::String, true, Format::NOT_EMPTY}}},
+
+    /* Reports every running live DASH session, or one viewer's when the
+     * request names it.  The viewerId arrives as a query parameter, so there
+     * are no body fields to validate. */
+    {"/api/v1/live/dash/query"},
+
     {"/api/v1/live/stream/settings",
      {{"framerate", JsonType::Int},
       {"resolution", JsonType::String},
