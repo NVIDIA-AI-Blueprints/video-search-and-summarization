@@ -25,6 +25,10 @@ replicas: 1
 kafkaBrokers: ""   # default: kafka-kafka:9092 (<release>-kafka-kafka:9092 if global.useReleaseNamePrefix)
 elasticsearchNode: ""   # default: http://<release>-elasticsearch:9200
 
+# Stream backend for the video-analytics-api. One of: "kafka", "redis".
+# Mirrors STREAM_TYPE in deploy/docker/services/analytics/video-analytics-api/compose.yml.
+streamType: "kafka"
+
 service:
   port: 8081
   type: ClusterIP
