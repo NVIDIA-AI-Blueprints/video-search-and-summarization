@@ -30,6 +30,8 @@ from vss_agents.tools.vst.utils import delete_vst_sensor
 from vss_agents.tools.vst.utils import delete_vst_storage
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.tools.vst.utils import get_storage_timeline
+from vss_agents.tools.vst.utils import normalize_vst_origin
+from vss_agents.tools.vst.utils import resolve_vst_internal_url
 from vss_agents.tools.vst.utils import validate_video_url
 
 # Sample mock data based on real VST server responses
@@ -100,6 +102,28 @@ class TestVSTError:
     def test_vst_error_raise_and_catch(self):
         with pytest.raises(VSTError, match="Test error"):
             raise VSTError("Test error")
+
+
+class TestVSTUrlResolution:
+    """Test VST base URL normalization and env resolution."""
+
+    def test_normalize_vst_origin_strips_trailing_slash_and_vst_suffix(self):
+        assert normalize_vst_origin(" http://vss.local:7777/vst/ ") == "http://vss.local:7777"
+
+    def test_resolve_vst_internal_url_prefers_argument_over_env(self):
+        with patch.dict("os.environ", {"VST_INTERNAL_URL": "http://env-vst:30888"}, clear=False):
+            assert resolve_vst_internal_url("http://gateway.example.com/vst/") == "http://gateway.example.com"
+
+    def test_resolve_vst_internal_url_reads_env(self):
+        with patch.dict("os.environ", {"VST_INTERNAL_URL": "http://env-vst:30888/vst"}, clear=False):
+            assert resolve_vst_internal_url() == "http://env-vst:30888"
+
+    def test_resolve_vst_internal_url_requires_config(self):
+        with (
+            patch.dict("os.environ", {"VST_INTERNAL_URL": ""}, clear=False),
+            pytest.raises(VSTError, match="VST_INTERNAL_URL"),
+        ):
+            resolve_vst_internal_url()
 
 
 def create_mock_response(status: int, text_data: str):
@@ -206,8 +230,8 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("vss_agents.tools.vst.timeline.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.vst.timeline.create_retry_strategy", side_effect=no_retry_generator),
         ):
             start_time, end_time = await get_timeline("24c5a7d6-39ce-442e-abf0-430f036b7a3d", "http://localhost:30888")
 
@@ -221,8 +245,8 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("vss_agents.tools.vst.timeline.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.vst.timeline.create_retry_strategy", side_effect=no_retry_generator),
         ):
             start_time, end_time = await get_timeline(
                 "490bd636-32c3-4bcf-b1a6-f185d359631c", "http://localhost:30888/vst"
@@ -258,6 +282,8 @@ class TestGetTimeline:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
+            patch("vss_agents.tools.vst.timeline.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.vst.timeline.create_retry_strategy", side_effect=no_retry_generator),
             patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
             patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
             pytest.raises(VSTError),
@@ -293,6 +319,8 @@ class TestGetTimeline:
         mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with (
+            patch("vss_agents.tools.vst.timeline.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.vst.timeline.create_retry_strategy", side_effect=no_retry_generator),
             patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
             patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
         ):
@@ -309,26 +337,27 @@ class TestGetTimeline:
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
+            patch("vss_agents.tools.vst.timeline.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.vst.timeline.create_retry_strategy", side_effect=no_retry_generator),
             pytest.raises(VSTError, match="VST timelines API returned status 404"),
         ):
             await get_timeline("stream-id", "http://localhost:30888")
 
     @pytest.mark.asyncio
     async def test_timeline_uses_env_default(self):
-        """Test that VST_BASE_URL environment variable is used as default."""
+        """Test that VST_INTERNAL_URL environment variable is used as default."""
         mock_response = create_mock_response(200, json.dumps(MOCK_TIMELINES_RESPONSE))
         mock_session = create_mock_session(mock_response)
 
         with (
-            patch("vss_agents.tools.vst.utils.aiohttp.ClientSession", return_value=mock_session),
-            patch("vss_agents.tools.vst.utils.create_retry_strategy", side_effect=no_retry_generator),
-            patch.dict("os.environ", {"VST_BASE_URL": "http://env-vst:30888"}),
+            patch("vss_agents.tools.vst.timeline.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.vst.timeline.create_retry_strategy", side_effect=no_retry_generator),
+            patch.dict("os.environ", {"VST_INTERNAL_URL": "http://env-vst:30888"}),
         ):
             start_time, _end_time = await get_timeline("24c5a7d6-39ce-442e-abf0-430f036b7a3d")
 
         assert start_time == "2025-12-18T07:19:59.332Z"
+        assert mock_session.get.call_args.args[0] == "http://env-vst:30888/vst/api/v1/storage/timelines"
 
 
 class TestDeleteVSTResources:
