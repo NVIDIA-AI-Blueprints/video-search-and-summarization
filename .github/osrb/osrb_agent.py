@@ -1377,8 +1377,8 @@ def build_comment(
         "the `osrb-compliance` artifact. An OSRB condition on file outranks it."
     )
     lines.append(
-        "Supersedes the internal OSRB reviewer comment for triage; the OSRB "
-        "Review check remains the compliance gate until ci-vss-oss retires it."
+        "Replaces the internal OSRB reviewer bot. The blocking gate is the "
+        "OSRB Scan delta check; this comment is triage."
         + (f" [Run]({run_url})" if run_url else "")
     )
     return scrub_internal("\n".join(lines) + "\n")

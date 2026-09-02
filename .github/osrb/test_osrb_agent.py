@@ -479,7 +479,7 @@ class CommentTests(unittest.TestCase):
             "## Licence changes on version updates",
             "## Usage drift",
             "## Auto-cleared (permissive)",
-            "Supersedes the internal OSRB reviewer comment",
+            "Replaces the internal OSRB reviewer bot",
         ]
         positions = [comment.index(section) for section in order]
         self.assertEqual(positions, sorted(positions))

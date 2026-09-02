@@ -239,15 +239,34 @@ class TriageWiringTests(unittest.TestCase):
         # release-branch PRs upload no delta CSV, by design (job 1 skips).
         self.assertIn("needs.osrb-scan.outputs.skip != 'true'", condition)
 
-    def test_agent_and_commit_failures_cannot_red_the_workflow(self) -> None:
-        """Report-only stage: the delta gate stays the blocking check."""
+    def test_model_failures_cannot_red_the_workflow(self) -> None:
+        """Report-only for judgement, loud for infrastructure.
+
+        A slow or unavailable model must not fail the pull request -- the delta
+        gate is the blocking check. The inventory sync is deliberately NOT in
+        that set: its push once failed on a protected ref and continue-on-error
+        reported the job green anyway, which left a stale inventory in the pull
+        request with nothing to show for it.
+        """
         job = self._job()
-        for name in (
-            "Install claude-agent-sdk",
-            "Run the triage agent",
-            "Sync inventory.csv to the PR tree",
-        ):
+        for name in ("Install claude-agent-sdk", "Run the triage agent"):
             self.assertIn("continue-on-error: true", self._step(job, name), name)
+        sync = self._step(job, "Sync inventory.csv to the PR tree")
+        self.assertNotIn("continue-on-error: true", sync)
+
+    def test_inventory_sync_pushes_to_the_pull_requests_own_branch(self) -> None:
+        """Never to GITHUB_REF_NAME: that is the protected mirror.
+
+        This workflow runs on refs/heads/pull-request/<N>, which two rulesets
+        protect, so pushing there is rejected with GH013 and the sync silently
+        does nothing. It has to resolve the pull request's head ref and push
+        that, and say so plainly when the head is a fork it cannot write to.
+        """
+        sync = self._step(self._job(), "Sync inventory.csv to the PR tree")
+        self.assertIn("head_ref", sync)
+        self.assertIn('push origin "HEAD:${head_ref}"', sync)
+        self.assertNotIn('push origin "HEAD:${GITHUB_REF_NAME}"', sync)
+        self.assertIn("fork", sync.lower())
 
     def test_missing_api_key_degrades_to_skip_agent_never_fails(self) -> None:
         agent = self._step(self._job(), "Run the triage agent")

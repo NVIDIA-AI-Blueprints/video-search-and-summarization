@@ -413,13 +413,17 @@ jobs:
   # Job 3: the TRIAGE agent. Reads what the two jobs above produced — the delta
   # CSV and the approved-state comparison — runs .github/osrb/osrb_agent.py
   # (deterministic pre-pass, bounded agent loop, deterministic validator), and
-  # posts one `<!-- osrb-triage -->` comment on the source PR. It supersedes
-  # the internal OSRB reviewer's comment for triage; the OSRB Review check
-  # stays the compliance gate until ci-vss-oss retires it (MIGRATION.md § 7).
+  # posts one `<!-- osrb-triage -->` comment on the source PR. It replaces the
+  # internal OSRB reviewer bot, which this branch also stops triggering.
   #
-  # REPORT-ONLY: every step that can fail for agent/model reasons carries
-  # continue-on-error, so this job never turns the workflow red. The delta
-  # gate in the osrb-scan job above remains the blocking check.
+  # REPORT-ONLY for agent/model failures: every step that can fail because a
+  # model was slow, unavailable or unconvincing carries continue-on-error, so
+  # none of them turns the workflow red. The delta gate in the osrb-scan job
+  # above remains the blocking check.
+  #
+  # The inventory sync is the one exception and is NOT continue-on-error. A
+  # failure there is infrastructure, not judgement, and hiding it is what let
+  # a rejected push leave a stale inventory in the pull request unnoticed.
   #
   # Trust model, in one place: this workflow runs on the pull-request/<N>
   # mirror, which copy-pr-bot creates only after a vetted contributor (or an
@@ -663,9 +667,9 @@ jobs:
       - name: Sync inventory.csv to the PR tree
         id: commit
         if: always() && steps.refresh.outcome == 'success' && steps.agent.outcome != 'cancelled'
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if git diff --quiet -- .github/osrb/inventory.csv; then
@@ -699,6 +703,24 @@ jobs:
           # during the injection-reachable agent step; set the push credential
           # HERE, scoped to this push, from the job's own contents:write token.
           auth=$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
-            push origin "HEAD:${GITHUB_REF_NAME}"
-          echo "Pushed inventory sync to ${GITHUB_REF_NAME}."
+          # Push to the pull request's OWN branch, not ${GITHUB_REF_NAME}.
+          # This workflow runs on the copy-pr-bot mirror, and
+          # refs/heads/pull-request/* is protected by two rulesets, so a push
+          # there is rejected with GH013 "Cannot update this protected ref" --
+          # which is how this sync silently did nothing on every pull request.
+          pr="${GITHUB_REF##*/pull-request/}"
+          head_ref=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.head.ref')
+          cross=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.head.repo.full_name != .base.repo.full_name')
+          if [[ "${cross}" == "true" ]]; then
+            # GITHUB_TOKEN cannot write to a fork. Nothing to do but say so:
+            # the drift is already reported in the triage comment.
+            echo "::warning title=OSRB inventory not synced::this pull request is from a fork, so the refreshed inventory.csv cannot be pushed. Regenerate it with 'python3 .github/osrb/osrb_inventory.py --previous .github/osrb/inventory.csv --output .github/osrb/inventory.csv' and commit."
+            exit 0
+          fi
+          if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:${head_ref}"
+          then
+            echo "::error title=OSRB inventory sync failed::could not push the refreshed inventory.csv to ${head_ref}."
+            exit 1
+          fi
+          echo "Pushed inventory sync to ${head_ref}."
