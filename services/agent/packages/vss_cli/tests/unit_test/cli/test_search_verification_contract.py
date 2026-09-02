@@ -123,6 +123,9 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     ask_video = (ASK_VIDEO_SKILL / "SKILL.md").read_text(encoding="utf-8")
     normalized = " ".join(ask_video.split())
     evals = json.loads((ASK_VIDEO_SKILL / "evals/evals.json").read_text(encoding="utf-8"))
+    direct_vlm_evals = json.loads(
+        (ASK_VIDEO_SKILL / "evals/direct_vlm_video_understanding.json").read_text(encoding="utf-8")
+    )
     evals_by_id = {case["id"]: case for case in evals}
 
     assert 'version: "3.3.0"' in ask_video
@@ -146,6 +149,11 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     )
     assert "Do not call an OpenAI-compatible `/chat/completions` endpoint directly" in normalized
     assert "Never enter this fallback after `vss memory introspect`" in normalized
+    assert "send the **native MP4 bytes as one video input**" in normalized
+    assert "data:video/mp4;base64,<base64 of the complete MP4 file>" in ask_video
+    assert "Do not run `ffmpeg`, OpenCV, or any frame extractor" in normalized
+    assert "image/jpeg" in json.dumps(direct_vlm_evals)
+    assert "data:video/mp4;base64," in json.dumps(direct_vlm_evals)
     assert "curl " not in ask_video
     assert {
         "ask-video-hot-context",

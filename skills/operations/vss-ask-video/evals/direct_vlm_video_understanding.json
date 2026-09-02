@@ -11,10 +11,10 @@
   },
   "expects": [
     {
-      "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4 by inlining it as base64 to the caller-provided OpenAI-compatible VLM.",
+      "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
       "checks": [
         "The response clearly labels this as the explicit non-VSS local-file fallback.",
-        "The local MP4 is sent as a base64 video input to the caller-provided VLM.",
+        "The complete local MP4 is base64-encoded and sent as one video_url content part whose URI starts with data:video/mp4;base64,. No ffmpeg, OpenCV, frame extraction, image/jpeg, image/png, or image_url inputs are used.",
         "The trajectory does not run vss memory introspect, vss memory query, vss memory get, vss vlm run, or access VIOS.",
         "The answer is derived from the standalone VLM response."
       ]

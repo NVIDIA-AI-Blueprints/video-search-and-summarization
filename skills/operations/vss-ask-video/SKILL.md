@@ -206,6 +206,25 @@ standalone local file/base64 video and no VSS deployment or VIOS sensor is in
 scope. It may use a caller-provided OpenAI-compatible VLM according to that
 service's documented media format. Label the result as non-VSS.
 
+For an MP4, send the **native MP4 bytes as one video input**. Read the file
+directly, base64-encode the complete byte sequence, and construct exactly:
+
+```text
+data:video/mp4;base64,<base64 of the complete MP4 file>
+```
+
+Pass that URI in one OpenAI-compatible `video_url` content part:
+
+```json
+{"type":"video_url","video_url":{"url":"data:video/mp4;base64,<complete MP4 base64>"}}
+```
+
+Do not run `ffmpeg`, OpenCV, or any frame extractor. Do not convert the video
+to JPEG/PNG images or send an `image_url` array: extracted frames are not the
+requested native video input and can discard motion, timing, and audio. If the
+caller-provided VLM does not support a native MP4 `video_url` data URI, report
+that incompatibility instead of silently changing the media format.
+
 Never enter this fallback after `vss memory introspect`, use it for a named VIOS
 sensor or stored VSS result, or combine local/base64 media with introspection.
 If the request could refer to VSS memory, ask the user to choose the standalone
