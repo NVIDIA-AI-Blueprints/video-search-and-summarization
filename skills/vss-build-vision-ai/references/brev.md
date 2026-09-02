@@ -49,9 +49,17 @@ BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
 brev_fqdn() { jq -er --argjson p "$1" '[.ports[]? | select(.destination_port == $p) | .fqdn][0] // empty' "$BREV_CTX" 2>/dev/null; }
 # Public port for that link (443 in current Brev; read it, don't assume it).
 brev_public_port() { jq -er --argjson p "$1" '[.ports[]? | select(.destination_port == $p) | .public_port][0] // empty' "$BREV_CTX" 2>/dev/null; }
+# Browse origin for that port. Use this for any URL you hand the user or curl:
+# an origin built from the FQDN alone is wrong wherever public_port is not 443.
+brev_origin() {
+  local host port
+  host="$(brev_fqdn "$1")" && port="$(brev_public_port "$1")" || return 1
+  if [ "$port" = 443 ]; then echo "https://${host}"; else echo "https://${host}:${port}"; fi
+}
 
-brev_fqdn 7777        # the haproxy ingress link — the VSS browse origin
+brev_fqdn 7777        # hostname only — for EXTERNAL_IP / VSS_PUBLIC_HOST
 brev_public_port 7777
+brev_origin 7777      # the haproxy ingress link — the VSS browse origin
 ```
 
 `7777` is the destination port on the instance — the HAProxy ingress VSS exposes.
@@ -117,7 +125,7 @@ curl -sf -o /dev/null http://localhost:7777/ && echo "proxy OK"
 curl -sfI http://localhost:7777/ | head -1
 
 # 3. Print the browser URL the user should open — resolved, never constructed
-echo "https://$(brev_fqdn 7777)"
+brev_origin 7777
 ```
 
 If step 1 fails, the haproxy container (`vss-haproxy-ingress`) hasn't come up — check
@@ -130,8 +138,8 @@ request as 404 from the browser even though `curl localhost:7777` works).
 
 | Symptom | Cause |
 |---|---|
-| User says the Brev link won't load at all | Compare their URL with `brev_fqdn 7777`. A hostname absent from the context file is not exposed. If the deployment sits behind a different exposed port, resolve that port and redeploy. |
+| User says the Brev link won't load at all | Compare their URL with `brev_origin 7777`. A hostname absent from the context file is not exposed. If the deployment sits behind a different exposed port, resolve that port and redeploy. |
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
-| `curl https://$(brev_fqdn 7777)` → 502 | HAProxy container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
-| `curl https://$(brev_fqdn 7777)` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
+| `curl "$(brev_origin 7777)"` → 502 | HAProxy container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
+| `curl "$(brev_origin 7777)"` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
 | Agent-generated report URLs don't open | `EXTERNAL_IP` in the build override is still the internal `${HOST_IP}` default → reports hard-code internal IPs. Set it from `brev_fqdn 7777` in `_builds/<name>/override.env` (see [Setup flow](#setup-flow)), regenerate `resolved.yml`, and redeploy. |
