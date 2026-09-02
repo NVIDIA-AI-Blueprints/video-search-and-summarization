@@ -255,7 +255,8 @@ def build_triage_input(
 # distributions: NVIDIA first-party code, and the base-image / OS packages whose
 # licence lives inside a built image, not in any registry. They dominate the raw
 # NOT_APPROVED count and would drown the real gaps, so the repo-state summary
-# separates them out rather than listing them.
+# lists the third-party rest inline and puts the base-image/OS packages in a
+# separate collapsed list.
 _FIRST_PARTY_RE = re.compile(
     r"^(nvidia-vss|vss[-_]|vss$|deep[-_]search|cv[-_]pipeline|gst[-_]video[-_]sei|"
     r"vllm[-_]cosmos|nvidia-rag|tritonserver|triton[-_]python[-_]backend|pyds|"
@@ -275,6 +276,26 @@ def _not_approved_class(row: dict[str, str]) -> str:
     if row.get("language", "") in _IMAGE_LANGS:
         return "base_image"
     return "third_party"
+
+
+def _needs_no_osrb_review(row: dict[str, str]) -> bool:
+    """True when a LICENSE_DRIFT row asks nothing of OSRB.
+
+    The comment exists to tell OSRB what to review; the compliance artifact
+    carries every difference either way. What OSRB reviews is the licence the
+    repository actually ships, so a drift is only worth their time when that
+    licence is not permissive. Whether it also disagrees with the approved
+    baseline is a records question, not a review question.
+
+    Trusting the shipped licence here is the same call the pipeline already
+    makes everywhere else: the permissive gate clears thousands of NOT_APPROVED
+    rows on exactly this signal, and check_python_licenses.py enforces it on
+    every commit. Treating it as untrustworthy for drift alone was inconsistent
+    -- and wrong on the facts. The rows this used to keep (arize-phoenix-otel
+    "Elastic-2.0", cuda-pathfinder and nvidia-ml-py "Nvidia Proprietary") are
+    all Apache-2.0/BSD upstream on PyPI: the baseline was stale, not the scan.
+    """
+    return is_permissive(row.get("license", ""))
 
 
 def summarize_repo_state(compliance_rows: list[dict[str, str]]) -> dict:
@@ -299,17 +320,25 @@ def summarize_repo_state(compliance_rows: list[dict[str, str]]) -> dict:
         ]
 
     na_class: dict[str, int] = {}
+    na_rows: dict[str, list[dict[str, str]]] = {}
     for row in _rows(VERDICT_NOT_APPROVED):
         key = _not_approved_class(row)
         na_class[key] = na_class.get(key, 0) + 1
+        na_rows.setdefault(key, []).append(row)
 
     return {
         "counts": counts,
         "refused": _rows(VERDICT_OSRB_REFUSED),
         "conditional": _rows(VERDICT_OSRB_CONDITIONAL),
-        "license_drift": _rows(VERDICT_LICENSE_DRIFT),
+        "license_drift": [
+            r for r in _rows(VERDICT_LICENSE_DRIFT) if not _needs_no_osrb_review(r)
+        ],
+        "license_relabel_count": sum(
+            1 for r in _rows(VERDICT_LICENSE_DRIFT) if _needs_no_osrb_review(r)
+        ),
         "version_drift_count": counts.get(VERDICT_VERSION_DRIFT, 0),
         "not_approved_class": na_class,
+        "not_approved_rows": na_rows,
     }
 
 
@@ -862,6 +891,12 @@ def _risk_band_moved(row: dict[str, str]) -> bool:
     )
 
 
+# Caps on the two NOT_APPROVED lists so a large repo cannot flood the PR
+# comment; any overflow is stated inline and the full set is in the artifact.
+_THIRD_PARTY_CAP = 80
+_BASE_IMAGE_CAP = 40
+
+
 def _render_repo_state(state: dict, run_url: str) -> list[str]:
     """The whole-repo comparison, collapsed. Pre-existing state, not this PR.
 
@@ -875,6 +910,7 @@ def _render_repo_state(state: dict, run_url: str) -> list[str]:
     conditional = state["conditional"]
     drift = state["license_drift"]
     na = state["not_approved_class"]
+    na_rows = state.get("not_approved_rows", {})
     actionable = (
         len(refused) + len(conditional) + len(drift)
         + state["version_drift_count"] + na.get("third_party", 0)
@@ -908,6 +944,59 @@ def _render_repo_state(state: dict, run_url: str) -> list[str]:
     )
     lines.append("")
 
+    third_party = na_rows.get("third_party", [])
+    if third_party:
+        lines.append(
+            "**Unapproved third-party packages** — the actionable rest once "
+            "base-image/OS packages are set aside; each needs an OSRB submission:"
+        )
+        lines.append("| package | module | resolved licence |")
+        lines.append("|---|---|---|")
+        for row in third_party[:_THIRD_PARTY_CAP]:
+            lines.append(
+                f"| {markdown_cell(row.get('package', ''))} "
+                f"| {markdown_cell(row.get('module', ''))} "
+                f"| {markdown_cell((row.get('license', '') or '')[:30])} |"
+            )
+        extra = len(third_party) - _THIRD_PARTY_CAP
+        if extra > 0:
+            lines.append(
+                f"| …and {extra} more | see the `osrb-compliance` artifact | |"
+            )
+        lines.append("")
+
+    base_image = na_rows.get("base_image", [])
+    if base_image:
+        lines.append("<details>")
+        lines.append(
+            f"<summary>Base-image / OS packages ({len(base_image)}) — need an "
+            f"image SBOM, not an OSRB submission</summary>"
+        )
+        lines.append("")
+        lines.append(
+            "Their licence ships inside a built image, not in a registry "
+            "manifest, so an SBOM of the base image clears them rather than an "
+            "OSRB row. Listed separately so they never crowd out the "
+            "third-party packages above."
+        )
+        lines.append("")
+        lines.append("| package | module | ecosystem |")
+        lines.append("|---|---|---|")
+        for row in base_image[:_BASE_IMAGE_CAP]:
+            lines.append(
+                f"| {markdown_cell(row.get('package', ''))} "
+                f"| {markdown_cell(row.get('module', ''))} "
+                f"| {markdown_cell(row.get('language', ''))} |"
+            )
+        extra = len(base_image) - _BASE_IMAGE_CAP
+        if extra > 0:
+            lines.append(
+                f"| …and {extra} more | see the `osrb-compliance` artifact | |"
+            )
+        lines.append("")
+        lines.append("</details>")
+        lines.append("")
+
     if refused:
         lines.append("**Refused packages still present** — the most serious:")
         lines.append("| module | detail |")
@@ -931,8 +1020,11 @@ def _render_repo_state(state: dict, run_url: str) -> list[str]:
             )
         lines.append("")
 
+    relabels = state.get("license_relabel_count", 0)
     if drift:
-        lines.append("**Licence disagreements** (repo resolves a different licence than approved):")
+        lines.append(
+            "**Licence disagreements** (repo resolves a different licence than approved):"
+        )
         lines.append("| package | module | repo licence | approved licence |")
         lines.append("|---|---|---|---|")
         for row in drift[:20]:
@@ -942,6 +1034,14 @@ def _render_repo_state(state: dict, run_url: str) -> list[str]:
                 f"| {markdown_cell((row.get('license', '') or '')[:30])} "
                 f"| {markdown_cell((row.get('approved_license', '') or '')[:30])} |"
             )
+        lines.append("")
+    if relabels:
+        lines.append(
+            f"{relabels} further licence difference(s) are not listed: the repo "
+            "ships them under a permissive licence, so they need no OSRB review "
+            "whatever the baseline records. Every difference is in the "
+            "`osrb-compliance` artifact."
+        )
         lines.append("")
 
     lines.append("</details>")

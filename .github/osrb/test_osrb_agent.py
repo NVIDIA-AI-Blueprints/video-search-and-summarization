@@ -753,8 +753,10 @@ class RepoStateSectionTest(unittest.TestCase):
             row(verdict="OSRB_REFUSED", package="batch", module="services/rtvi/rt-vlm",
                 notes="comment-93: OSRB REFUSED this batch."),
             row(verdict="OSRB_CONDITIONAL", package="mkl", notes="comment-15: needs attorney"),
-            row(verdict="LICENSE_DRIFT", package="arize-phoenix-otel",
-                license="Apache-2.0", approved_license="Elastic-2.0"),
+            # non-permissive as shipped, so it must reach the comment; a
+            # permissive-as-shipped drift is covered by the suppression test
+            row(verdict="LICENSE_DRIFT", package="pygobject-like",
+                license="GNU Lesser General Public License v3", approved_license="MIT"),
             row(verdict="NOT_APPROVED", package="real-thirdparty", language="python"),
             row(verdict="NOT_APPROVED", package="curl", language="deb"),
             row(verdict="NOT_APPROVED", package="pyds", language="python"),
@@ -780,10 +782,106 @@ class RepoStateSectionTest(unittest.TestCase):
         self.assertIn("Repo state vs the OSRB-approved baseline", comment)
         self.assertIn("pre-existing, not introduced by this PR", comment)
         self.assertIn("Refused packages still present", comment)
-        self.assertIn("arize-phoenix-otel", comment)
-        self.assertIn("Elastic-2.0", comment)
-        # the base-image rows are counted, not listed as actionable
+        self.assertIn("pygobject-like", comment)
         self.assertIn("base-image / OS packages", comment)
+
+    def test_not_approved_splits_base_image_from_third_party(self) -> None:
+        """The actionable third-party rest is listed; base images are separate.
+
+        A bare count buries the packages that need an OSRB submission among
+        base-image/OS rows that need an image SBOM instead. The two lists must
+        be distinct sections, and a base-image package must never appear in the
+        third-party table.
+        """
+        st = agent.summarize_repo_state(self._state_rows())
+        self.assertEqual([r["package"] for r in st["not_approved_rows"]["third_party"]],
+                         ["real-thirdparty"])
+        self.assertEqual([r["package"] for r in st["not_approved_rows"]["base_image"]],
+                         ["curl"])
+        comment = agent.build_comment({"new_deps": [], "license_changes": [],
+            "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
+            "removed": []}, {"validated": [], "rejected": [], "flagged": [],
+            "unverifiable": [], "not_triaged": []}, repo_state=st)
+        self.assertIn("Unapproved third-party packages", comment)
+        self.assertIn("real-thirdparty", comment)
+        # base-image rows get their own collapsed list, not the actionable table
+        head, _, tail = comment.partition("Base-image / OS packages (1)")
+        self.assertTrue(tail, "base-image section missing")
+        self.assertNotIn("curl", head)
+        self.assertIn("curl", tail)
+        # first-party and scanner artifacts stay counted only
+        self.assertNotIn("pyds |", comment)
+        self.assertNotIn("${IMG}", comment)
+
+    def test_long_lists_are_capped_and_say_so(self) -> None:
+        """Caps keep the comment readable and never silently truncate."""
+        rows = [
+            {"verdict": "NOT_APPROVED", "package": f"tp-{i}", "version": "1",
+             "language": "python", "module": "services/x", "license": "MIT",
+             "approved_license": "", "notes": "", "usage_evidence": "declared",
+             "source_file": ""}
+            for i in range(agent._THIRD_PARTY_CAP + 5)
+        ]
+        st = agent.summarize_repo_state(rows)
+        comment = agent.build_comment({"new_deps": [], "license_changes": [],
+            "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
+            "removed": []}, {"validated": [], "rejected": [], "flagged": [],
+            "unverifiable": [], "not_triaged": []}, repo_state=st)
+        self.assertIn(f"tp-{agent._THIRD_PARTY_CAP - 1}", comment)
+        self.assertNotIn(f"tp-{agent._THIRD_PARTY_CAP + 1}", comment)
+        self.assertIn("…and 5 more", comment)
+
+    def test_only_non_permissive_drift_reaches_the_comment(self) -> None:
+        """The comment asks OSRB to review; the artifact records everything.
+
+        What OSRB reviews is the licence the repo actually ships. If that is
+        permissive the row needs no review, however the baseline records it --
+        the three rows below were kept for exactly that reason and all three
+        are Apache-2.0/BSD upstream, so the baseline was stale. A drift whose
+        SHIPPED licence is not permissive still has to be listed.
+        """
+        def row(**kw):
+            base = {"verdict": "LICENSE_DRIFT", "package": "", "version": "1",
+                    "language": "python", "module": "services/x", "license": "",
+                    "approved_license": "", "notes": "", "usage_evidence": "declared",
+                    "source_file": ""}
+            base.update(kw)
+            return base
+        rows = [
+            # permissive relabels
+            row(package="opencv-python", license="Apache Software License",
+                approved_license="MIT"),
+            # permissive shipped, non-permissive BASELINE -> still no review
+            row(package="arize-phoenix-otel", license="Apache-2.0",
+                approved_license="Elastic-2.0"),
+            row(package="cuda-pathfinder", license="Apache-2.0",
+                approved_license="Nvidia Proprietary License"),
+            row(package="nvidia-ml-py", license="BSD License",
+                approved_license="Nvidia Proprietary License"),
+            # NOT permissive as shipped -> OSRB must see it
+            # the real rt-vlm string: LGPL v2-or-later, which is NOT the
+            # LGPL-2.1 the repo allowlist accepts
+            row(package="PyGObject",
+                license="GNU Lesser General Public License v2 or later ",
+                approved_license="MIT"),
+            row(package="somepkg", license="GPL-3.0", approved_license="MIT"),
+        ]
+        st = agent.summarize_repo_state(rows)
+        self.assertEqual([r["package"] for r in st["license_drift"]],
+                         ["PyGObject", "somepkg"])
+        self.assertEqual(st["license_relabel_count"], 4)
+        comment = agent.build_comment({"new_deps": [], "license_changes": [],
+            "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
+            "removed": []}, {"validated": [], "rejected": [], "flagged": [],
+            "unverifiable": [], "not_triaged": []}, repo_state=st)
+        self.assertIn("PyGObject", comment)
+        self.assertIn("somepkg", comment)
+        for quiet in ("arize-phoenix-otel", "cuda-pathfinder", "nvidia-ml-py",
+                      "opencv-python"):
+            self.assertNotIn(quiet, comment)
+        # suppression is disclosed and points at the artifact
+        self.assertIn("4 further licence difference(s)", comment)
+        self.assertIn("osrb-compliance", comment)
 
     def test_no_repo_state_means_no_section(self) -> None:
         comment = agent.build_comment({"new_deps": [], "license_changes": [],

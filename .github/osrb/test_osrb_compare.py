@@ -986,5 +986,66 @@ class PermissiveGreenGateTest(unittest.TestCase):
         name = sorted(compare_mod.DENYLISTED)[0]
         self.assertFalse(compare_mod.is_permissive("MIT", name))
 
+
+class PermissiveCompositeTest(unittest.TestCase):
+    """Composite and alternately-spelled labels the allowlist alone misses.
+
+    pip-licenses and registry metadata emit comma-joined lists and prose
+    spellings. Refusing every one of them buried ~10 unambiguously permissive
+    packages in NOT_APPROVED, where they competed for attention with the rows
+    that genuinely need an OSRB submission.
+    """
+
+    def test_alternate_spellings_of_one_permissive_licence(self) -> None:
+        for text in (
+            "Apache License, Version 2.0",
+            "Apache Software License v2",
+            "Apache-2.0",
+            "MIT License",
+        ):
+            self.assertTrue(compare_mod.is_permissive(text), text)
+
+    def test_all_permissive_composites_clear(self) -> None:
+        for text in (
+            "BSD, Public Domain",
+            "MIT OR Apache-2.0",
+            "MIT AND Apache-2.0",
+            "BSD-3-Clause, Apache-2.0",
+        ):
+            self.assertTrue(compare_mod.is_permissive(text), text)
+
+    def test_baseline_family_spelling_is_the_family_entry(self) -> None:
+        """"BSD (any variant)" is how the OSRB baseline spells a BSD approval.
+
+        359 approved rows use it. Read literally it names the BSD family, so it
+        must resolve to the BSD allowlist entry -- otherwise every one of those
+        rows reads as a licence disagreement against a repo that resolved a
+        specific BSD variant. The qualifier must not launder a non-permissive
+        family.
+        """
+        self.assertTrue(compare_mod.is_permissive("BSD (any variant)"))
+        self.assertFalse(compare_mod.is_permissive("GPL (any variant)"))
+        self.assertFalse(compare_mod.is_permissive("BSD (any variant) AND GPL-3.0"))
+
+    def test_one_non_permissive_operand_refuses_the_whole(self) -> None:
+        for text in (
+            "MIT AND GPL-2.0-or-later",
+            "MIT OR GPL-3.0",
+            "MIT, GPL-2.0",
+            # trailing prose is not a licence: the real string on pypdfium2
+            "BSD-3-Clause, Apache-2.0, dependent on the module",
+            # an exception modifies the licence it attaches to
+            "Apache-2.0 WITH LLVM-exception",
+        ):
+            self.assertFalse(compare_mod.is_permissive(text), text)
+
+    def test_absence_of_evidence_is_still_not_permissive(self) -> None:
+        for text in ("", "UNKNOWN", "NOASSERTION", "SEE-LICENSE-TEXT", ","):
+            self.assertFalse(compare_mod.is_permissive(text), repr(text))
+
+    def test_denylist_still_wins_over_a_permissive_label(self) -> None:
+        for pkg in sorted(compare_mod.DENYLISTED)[:3]:
+            self.assertFalse(compare_mod.is_permissive("MIT", pkg), pkg)
+
 if __name__ == "__main__":
     unittest.main()

@@ -1024,15 +1024,54 @@ def _denylisted_packages() -> set[str]:
 DENYLISTED = _denylisted_packages()
 
 
-def is_permissive(license_text: str, package: str = "") -> bool:
-    """True when the licence matches the repo's permissive list EXACTLY.
+# "Apache License, Version 2.0" and "Apache Software License v2" are single
+# permissive licences whose spelling the allowlist does not carry. Normalising
+# them here rather than widening PERMISSIVE_LICENSE_PATTERNS keeps
+# check_python_licenses.py the single definition of WHICH licences are
+# permissive -- this only canonicalises how one is spelled before asking.
+_LICENCE_SPELLING_SUBS = (
+    # "<name>, Version 2.0" -> "<name> 2.0". Must run before any comma split:
+    # splitting first yields the non-licence operand "Version 2.0".
+    (re.compile(r"^(.*?),\s*Version\s+([0-9][0-9.]*)$", re.IGNORECASE), r"\1 \2"),
+    # "... License v2" -> "... License 2"
+    (re.compile(r"\bv([0-9])"), r"\1"),
+    # "BSD (any variant)" is how the OSRB baseline spells a family-wide BSD
+    # approval -- 359 rows use it. It names the family, so it is the BSD
+    # allowlist entry, not a separate licence.
+    (re.compile(r"^(BSD)\s*\(any variant\)$", re.IGNORECASE), r"\1"),
+)
 
-    Exact match on a single licence label, deliberately. A composite
-    expression like "MIT AND GPL-2.0-or-later" contains a permissive operand
-    and is not permissive, so anything carrying AND/OR/WITH is refused here and
-    goes to a human. Same for an empty or UNKNOWN licence: absence of evidence
-    is not permissiveness, and auto-clearing it would hide exactly the rows
-    most worth reading.
+# Operand separators for a composite expression. A comma is included because
+# pip-licenses emits comma-joined lists ("BSD, Public Domain") that carry no
+# SPDX operator.
+_LICENCE_OPERANDS_RE = re.compile(r"\s+(?:AND|OR)\s+|,", re.IGNORECASE)
+
+
+def _canonical_licence(text: str) -> str:
+    """Normalise the SPELLING of a licence label, never its meaning."""
+    for pattern, replacement in _LICENCE_SPELLING_SUBS:
+        text = pattern.sub(replacement, text).strip()
+    return text
+
+
+def is_permissive(license_text: str, package: str = "") -> bool:
+    """True when every licence the text names is on the repo's permissive list.
+
+    A single label must match the allowlist exactly. A composite ("MIT OR
+    Apache-2.0", "BSD, Public Domain") is permissive only when EVERY operand
+    is: under OR the recipient may pick any branch, under AND they must satisfy
+    all of them, and a bare comma list is ambiguous between the two -- so if
+    each branch is permissive the outcome is permissive under every reading,
+    while a single non-permissive operand ("MIT AND GPL-2.0-or-later",
+    "BSD-3-Clause, Apache-2.0, dependent on the module") still goes to a human.
+
+    WITH is refused outright: an exception modifies the licence it attaches to,
+    so the pair cannot be judged from the operand names alone. That check is
+    belt-and-braces today -- no allowlist pattern contains WITH, so such an
+    operand already fails to match -- and is kept so a future permissive entry
+    spelled with an exception cannot silently start clearing rows. Empty and
+    UNKNOWN are refused too: absence of evidence is not permissiveness, and
+    auto-clearing it would hide exactly the rows most worth reading.
     """
     if PERMISSIVE_LICENSE_RE is None:
         return False
@@ -1041,9 +1080,19 @@ def is_permissive(license_text: str, package: str = "") -> bool:
     text = (license_text or "").strip().strip('"')
     if not text or text.upper() in {"UNKNOWN", "NOASSERTION", "SEE-LICENSE-TEXT"}:
         return False
-    if re.search(r"\b(AND|OR|WITH)\b", text):
+    if re.search(r"\bWITH\b", text, re.IGNORECASE):
         return False
-    return bool(PERMISSIVE_LICENSE_RE.match(text))
+    text = _canonical_licence(text)
+    if PERMISSIVE_LICENSE_RE.match(text):
+        return True
+    operands = [
+        _canonical_licence(part.strip())
+        for part in _LICENCE_OPERANDS_RE.split(text)
+        if part and part.strip()
+    ]
+    if len(operands) < 2:
+        return False
+    return all(bool(PERMISSIVE_LICENSE_RE.match(op)) for op in operands)
 
 
 # Verdicts that mean "no approval row was found for this package". Those are
