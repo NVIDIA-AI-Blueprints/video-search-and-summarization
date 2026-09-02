@@ -1,9 +1,49 @@
 # Multi-architecture Dockerfile for production builds (AMD64/ARM64)
 ARG USER_ID=1000
 ARG GROUP_ID=1000
+ARG PYTHON_VERSION=3.13.15
+ARG PYTHON_SHA256=1e66a7945a48390ee4c2a4268a0e4185884059a13c4aab6d148aa208deea4a76
+
+# Python 3.13.15 contains the stable-branch fixes for CVE-2026-11940,
+# CVE-2026-11972, and CVE-2026-15308. Build it from the checksum-verified
+# upstream release because the official and NVIDIA distroless images still contain
+# 3.13.14. Keep the 3.13 ABI to avoid forcing a prerelease Python 3.15 stack.
+FROM python:3.13-bookworm AS patched-python
+ARG PYTHON_VERSION
+ARG PYTHON_SHA256
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libbz2-dev \
+        libffi-dev \
+        libgdbm-dev \
+        liblzma-dev \
+        libncursesw5-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libssl-dev \
+        tk-dev \
+        uuid-dev \
+        xz-utils \
+        zlib1g-dev && \
+    curl -fsSLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" && \
+    echo "${PYTHON_SHA256}  Python-${PYTHON_VERSION}.tar.xz" | sha256sum -c - && \
+    tar -xJf "Python-${PYTHON_VERSION}.tar.xz" && \
+    cd "Python-${PYTHON_VERSION}" && \
+    LDFLAGS="-Wl,-rpath=/usr/local/lib" ./configure \
+        --enable-shared \
+        --with-ensurepip=no && \
+    make -j"$(nproc)" && \
+    make install && \
+    cd / && \
+    rm -rf "Python-${PYTHON_VERSION}" "Python-${PYTHON_VERSION}.tar.xz" \
+        /usr/local/lib/python3.13/site-packages/* \
+        /var/lib/apt/lists/* && \
+    python3 --version | grep -Fx "Python ${PYTHON_VERSION}"
 
 # Builder stage - need this since distroless has no package manager
-FROM python:3.13-bookworm AS builder
+FROM patched-python AS builder
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
@@ -119,7 +159,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
-FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.10 AS runtime
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.0.9 AS runtime
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
@@ -127,12 +167,20 @@ ARG TARGETARCH
 ENV VSS_RUNTIME_UID=${USER_ID}
 ENV VSS_RUNTIME_GID=${GROUP_ID}
 
-# Copy cleanup script (as root to ensure proper permissions)
-COPY --from=builder /vss-agent/cleanup_vulnerabilities.py /tmp/cleanup_vulnerabilities.py
+# Replace the vulnerable 3.13.14 interpreter from the distroless base. The
+# currently running interpreter remains mapped until this atomic replacement
+# finishes; subsequent layers use the patched interpreter.
+COPY --from=patched-python /usr/local /patched-python
 
-# Ensure we're running as root (UID 0) for cleanup operations
+# Ensure we're running as root (UID 0) for interpreter and cleanup operations
 # Distroless images don't have /etc/passwd, so use numeric UID
 USER 0
+
+RUN ["/usr/local/bin/python3", "-c", "import shutil; shutil.rmtree('/usr/local'); shutil.copytree('/patched-python', '/usr/local', symlinks=True); shutil.rmtree('/patched-python')"]
+RUN ["/usr/local/bin/python3", "-c", "import sys; assert sys.version_info[:3] == (3, 13, 15), sys.version"]
+
+# Copy cleanup script (as root to ensure proper permissions)
+COPY --from=builder /vss-agent/cleanup_vulnerabilities.py /tmp/cleanup_vulnerabilities.py
 
 # Remove unnecessary libraries using Python exec form (no shell needed)
 RUN ["/usr/local/bin/python3", "/tmp/cleanup_vulnerabilities.py"]
