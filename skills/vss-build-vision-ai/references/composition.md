@@ -73,6 +73,14 @@ service outside that closure, including a peer whose only consumer was removed
 requested). A service is retained only because a requested capability reaches it,
 never because the Foundation happened to ship it.
 
+Treat the Q3 harness/chat-owner answer as an explicit closure root. **Yes —
+deploy NemoClaw** (including a bare yes) and **attach existing harness** reach
+`agent-gateway` plus `vss-ui`; **No — use built-in VSS Agent** reaches
+`vss-agent`; **No chat** reaches neither. The mere presence of `vss-agent` or
+`vss-ui` in the Foundation is never a closure root. An external-owner build may
+still reach `vss-agent` through another capability's Required peers, but that
+retention is internal and does not transfer chat ownership back to it.
+
 When more than one requested capability maps to the same owner, converge on a
 single instance (one service key, one variant, one config), never two variants
 of one owner for the same role (for example, one detector feeding two pipelines).
@@ -225,9 +233,12 @@ Compose model used directly for validation, deployment, readiness, and teardown:
 or `down`, and deploy with `pull --ignore-buildable && up -d --build`
 (see [`deployment.md`](deployment.md)).
 
-All three primary files are required in stock and delta mode. `_builds/` is
-gitignored because `override.env` and `resolved.yml` can contain credentials.
-Keep them local and never commit them.
+All three primary files are required in stock and delta mode. An existing
+external harness also requires `agent-capabilities.json` and the protected
+`agent-gateway.env` final resolution layer produced by its host-side bootstrap.
+`_builds/` is gitignored because `override.env`, `agent-gateway.env`, and
+`resolved.yml` can contain credentials. Keep them local, set every
+credential-bearing file to mode `0600`, and never commit them.
 
 ## Resolve
 
@@ -257,6 +268,16 @@ env_args=(
   --env-file "$FOUNDATION_DIR/overrides.env"
   --env-file "$BUILD_DIR/override.env"
 )
+
+# Existing OpenClaw/Hermes builds receive this protected final layer from the
+# host-side capability bootstrap. Use it for config resolution only.
+if [[ -f "$BUILD_DIR/agent-gateway.env" ]]; then
+  [[ "$(stat -c '%a' "$BUILD_DIR/agent-gateway.env")" == "600" ]] || {
+    echo "agent-gateway.env must have mode 0600" >&2
+    exit 1
+  }
+  env_args+=(--env-file "$BUILD_DIR/agent-gateway.env")
+fi
 
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
@@ -349,6 +370,13 @@ Then verify:
   `validate_resolved_yml.py` enforces this — it fails when `nvcr.io/`/`ngc:`
   artifacts are present but `NGC_API_KEY`/`NGC_CLI_API_KEY` resolve empty; pass
   `--required-secret KEY` for other mode-required keys.
+- When `agent-gateway` resolves, `validate_resolved_yml.py` also requires a
+  supported `AGENT_BACKEND_PROTOCOL`, a non-empty absolute backend URL with the
+  matching HTTP or WebSocket scheme, `vss-ui`, a non-empty absolute
+  `AGENT_GATEWAY_URL`, and the forced HTTP chat transport plus chat tab. Fix the
+  protected attachment inputs and regenerate; never deploy an incomplete
+  gateway graph. A coexisting `vss-agent` is valid when another selected owner
+  requires it internally and does not change the external chat owner.
 - With an NGC key the non-empty check is necessary but not sufficient: run the
   `credentials.md` Artifact Entitlement Probes against the exact baked `nvcr.io/`
   images and `ngc:` paths. A `401`/`403`/missing-repo result is a blocker — a

@@ -25,6 +25,32 @@ from validate_resolved_yml import validate_document
 
 
 class ValidateResolvedYmlTest(unittest.TestCase):
+    @staticmethod
+    def external_agent_document(
+        *,
+        protocol: str = "openclaw-ws",
+        backend_url: str = "ws://127.0.0.1:18789",
+    ) -> dict[str, object]:
+        return {
+            "services": {
+                "agent-gateway": {
+                    "environment": {
+                        "AGENT_BACKEND_PROTOCOL": protocol,
+                        "AGENT_BACKEND_URL": backend_url,
+                    }
+                },
+                "vss-ui": {
+                    "environment": {
+                        "AGENT_GATEWAY_URL": (
+                            "http://host.docker.internal:18090"
+                        ),
+                        "NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT": "true",
+                        "NEXT_PUBLIC_ENABLE_CHAT_TAB": "true",
+                    }
+                },
+            }
+        }
+
     def test_rejects_empty_model(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             errors = validate_document({}, Path(directory))
@@ -72,6 +98,99 @@ class ValidateResolvedYmlTest(unittest.TestCase):
             )
 
             self.assertEqual(len(errors), 2)
+
+    def test_rejects_empty_external_agent_backend_url(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document(backend_url="")
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("AGENT_BACKEND_URL", errors[0])
+            self.assertIn("non-empty absolute URL", errors[0])
+
+    def test_rejects_external_agent_protocol_url_scheme_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document(
+                protocol="openclaw-ws",
+                backend_url="http://127.0.0.1:18789",
+            )
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("scheme ws, wss", errors[0])
+
+    def test_rejects_credential_bearing_external_agent_url(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document(
+                backend_url=(
+                    "ws://operator:secret@127.0.0.1:18789/?debug=true"
+                )
+            )
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("must not contain credentials", errors[0])
+
+    def test_rejects_external_agent_without_ui_gateway_route(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document()
+            ui_environment = document["services"]["vss-ui"]["environment"]
+            ui_environment["AGENT_GATEWAY_URL"] = ""
+            ui_environment["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] = "false"
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(len(errors), 2)
+            self.assertTrue(any("AGENT_GATEWAY_URL" in error for error in errors))
+            self.assertTrue(
+                any("FORCE_HTTP_CHAT_TRANSPORT" in error for error in errors)
+            )
+
+    def test_rejects_external_agent_without_vss_ui(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document()
+            del document["services"]["vss-ui"]
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("requires service 'vss-ui'", errors[0])
+
+    def test_rejects_external_agent_with_disabled_chat_tab(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document()
+            ui_environment = document["services"]["vss-ui"]["environment"]
+            ui_environment["NEXT_PUBLIC_ENABLE_CHAT_TAB"] = "false"
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(len(errors), 1)
+            self.assertIn("NEXT_PUBLIC_ENABLE_CHAT_TAB", errors[0])
+
+    def test_accepts_complete_external_agent_with_internal_vss_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document()
+            document["services"]["vss-agent"] = {
+                "environment": {"ROLE": "internal-lvs-peer"}
+            }
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(errors, [])
+
+    def test_accepts_responses_backend_with_http_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.external_agent_document(
+                protocol="responses",
+                backend_url="http://127.0.0.1:8642",
+            )
+
+            errors = validate_document(document, Path(directory))
+
+            self.assertEqual(errors, [])
 
     def test_allows_container_shell_interpolation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
