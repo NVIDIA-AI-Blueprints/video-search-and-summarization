@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -259,6 +260,31 @@ class ValidationTests(unittest.TestCase):
                 "http://127.0.0.1:18789",
             )
 
+    def test_api_probe_requires_the_live_responses_route(self) -> None:
+        runner = RecordingRunner()
+        models = io.BytesIO(b'{"data":[{"id":"openclaw"}]}')
+        missing_route = urllib.error.HTTPError(
+            "http://127.0.0.1:18789/v1/responses",
+            404,
+            "Not Found",
+            hdrs=None,
+            fp=None,
+        )
+        with (
+            mock.patch.object(
+                attach.urllib.request,
+                "urlopen",
+                side_effect=[models, missing_route],
+            ),
+            self.assertRaisesRegex(attach.AttachError, "endpoint is not enabled"),
+        ):
+            attach.verify_api(
+                runner,
+                attach.PROFILES["openclaw"],
+                "demo",
+                "http://127.0.0.1:18789",
+            )
+
 
 class AttachFlowTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -356,6 +382,29 @@ class AttachFlowTests(unittest.TestCase):
         )
         self.assertFalse(any("openclaw config" in command for command in flattened))
         self.assertFalse(any(" gateway restart" in command for command in flattened))
+
+    def test_verified_api_accepts_an_operator_owned_forward(self) -> None:
+        runner = RecordingRunner()
+        restart_error = attach.AttachError("managed host forward is already owned")
+        with (
+            mock.patch.object(attach.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(attach, "verify_source_snapshot"),
+            mock.patch.object(attach, "enable_api", return_value=restart_error),
+            mock.patch.object(
+                attach,
+                "verify_api",
+                return_value=attach.ApiReadiness(
+                    origin="http://127.0.0.1:18789",
+                    token="backend-token",
+                    model="openclaw/default",
+                ),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            result = attach.attach(make_args(self.root), runner)
+
+        self.assertIsNotNone(result.api)
+        self.assertIn("live authenticated Responses API is ready", output.getvalue())
 
     def test_identity_drift_fails_closed(self) -> None:
         runner = RecordingRunner(identity_drift=True)

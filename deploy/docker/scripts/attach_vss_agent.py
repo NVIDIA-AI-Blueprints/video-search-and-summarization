@@ -762,9 +762,11 @@ def write_gateway_env(
     write_private_text(path, content)
 
 
-def enable_api(runner: CommandRunner, profile: HarnessProfile, sandbox: str) -> None:
+def enable_api(
+    runner: CommandRunner, profile: HarnessProfile, sandbox: str
+) -> AttachError | None:
     if not profile.enable_responses:
-        return
+        return None
     sandbox_exec(
         runner,
         profile,
@@ -776,7 +778,19 @@ def enable_api(runner: CommandRunner, profile: HarnessProfile, sandbox: str) -> 
         "true",
         timeout=120,
     )
-    runner.run(sandbox_command(profile, sandbox, "gateway", "restart"), timeout=300)
+    try:
+        runner.run(
+            sandbox_command(profile, sandbox, "gateway", "restart"),
+            capture=True,
+            timeout=300,
+        )
+    except AttachError as error:
+        # The managed restart command also insists on owning the preferred host
+        # forward. An operator-owned forward can make that auxiliary step fail
+        # after the gateway itself restarted successfully. Defer the decision
+        # to the authenticated live-route checks below.
+        return error
+    return None
 
 
 def discover_api_origin(
@@ -869,6 +883,24 @@ def verify_api(
     ]
     if not model_ids:
         fail("agent Responses API returned no usable model IDs")
+
+    route_request = urllib.request.Request(
+        f"{api_url.rstrip('/')}/v1/responses",
+        method="GET",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(route_request, timeout=15) as response:
+            route_status = response.status
+    except urllib.error.HTTPError as error:
+        route_status = error.code
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise AttachError("agent Responses API route probe failed") from error
+    # OpenAI-compatible servers normally return 405 for a GET on this POST-only
+    # route. A 400 response is also an acceptable route-level rejection; 404
+    # means the harness has not enabled the Responses endpoint.
+    if route_status not in {200, 400, 405}:
+        fail("agent Responses API endpoint is not enabled or ready")
     return ApiReadiness(
         origin=api_url.rstrip("/"),
         token=token,
@@ -961,7 +993,7 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> AttachmentResult:
     )
     if runtime_output:
         print(runtime_output)
-    enable_api(runner, profile, sandbox)
+    restart_error = enable_api(runner, profile, sandbox)
     identity_after = identity_digest(runner, profile, sandbox)
     if identity_before != identity_after:
         fail("agent identity files changed during VSS attachment")
@@ -972,6 +1004,13 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> AttachmentResult:
         if args.skip_api_check
         else verify_api(runner, profile, sandbox, api_origin.url)
     )
+    if restart_error is not None:
+        if api is None:
+            raise restart_error
+        print(
+            "Managed gateway restart reported an auxiliary failure; "
+            "the live authenticated Responses API is ready."
+        )
     # The receipt is the success marker consumed by VSS-aware skills. Publish it
     # only after every mutation and readiness check has passed, so a failed
     # first-time attachment cannot advertise capabilities it did not finish.
