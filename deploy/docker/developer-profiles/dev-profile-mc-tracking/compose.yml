@@ -227,6 +227,7 @@ services:
     ports:
       - ${REID_SERVICE_HOST_PORT:-8088}:${REID_SERVICE_PORT:-8088}
     restart: unless-stopped
+    runtime: nvidia
     ipc: host
     depends_on:
       reid-milvus-mc-tracking:
