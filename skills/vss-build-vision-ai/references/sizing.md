@@ -22,7 +22,9 @@ contract.
    the fixed-footprint services placed in step 3. Share only when the combined
    budget fits. Resolve the atomic variant/placement set without inheriting
    consumer wiring, as specified by the [RT-VLM owner](services/rt-vlm.md). Stock
-   mode retains its Foundation's reviewed variant and placement. For continuous
+   mode retains its Foundation's reviewed variant and placement, except that a
+   co-located placement on a host with a free GPU is the user's call — ask, per
+   "Ask before co-locating" below. For continuous
    VLM inference on a shared GPU, reduce `NUM_STREAMS` and verify utilization
    headroom under load.
 5. Use a remote endpoint only when the user requested one or approved it after
@@ -113,6 +115,21 @@ RT-VLM placement and utilization starting values:
 | Shared with another GPU service | Search FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
 | Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
 | Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
+
+**Ask before co-locating.** When the Foundation puts RT-VLM on the same GPU as
+another model and the host has a free GPU, ask the user which layout they want
+before writing `override.env`. Ask every time — never infer the answer from
+"stock", from the Foundation's device IDs, or from the fact that both models fit.
+Offer two choices and write the utilization the chosen one names:
+
+- **One GPU** — keep the Foundation's device IDs and set the shared value above.
+- **Two GPUs** — point `RT_VLM_DEVICE_ID` at the free GPU and set the dedicated
+  value above.
+
+Set `RTVI_VLLM_GPU_MEMORY_UTILIZATION` explicitly either way. Every Foundation
+ships it blank, and RT-VLM reads blank as the **dedicated** `0.7` no matter what
+shares the device, so leaving it blank on a shared GPU overcommits the card and
+the second model to start dies at init.
 
 These values apply when `rtvi-vlm` is in the effective service set, including
 stock Alerts `2d_cv` and `2d_vlm`. The BF16 co-resident row is a stock-Foundation
