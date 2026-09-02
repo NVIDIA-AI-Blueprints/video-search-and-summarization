@@ -284,15 +284,12 @@ async def _retrieve_records(
                 job_id=job_id,
                 sensor_id=query.sensor_id,
                 group=query.group,
-                since=query.since,
-                until=query.until,
-                time_field=query.time_field,
                 include_children=False,
                 parents_only=True,
                 limit=1,
             ),
         )
-        if parents:
+        if parents and _parent_matches_time_scope(parents[0], query):
             records.append(parents[0])
             known_parents.add(job_id)
 
@@ -319,6 +316,16 @@ def _record_id(record: UnifiedMemoryRecord) -> str:
 
 def _record_identity(record: UnifiedMemoryRecord) -> tuple[str, str | None, str | None]:
     return (record.job.job_id, record.job.record_type, record.job.record_id)
+
+
+def _parent_matches_time_scope(parent: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
+    """Keep scoped parents without windows, but reject known non-overlapping windows."""
+    window = parent.input.window if parent.input is not None else None
+    if window is None:
+        return True
+    if query.since is not None and window.end.timestamp < query.since:
+        return False
+    return query.until is None or window.start.timestamp <= query.until
 
 
 def _gap_label(gap: GroundedGap) -> str:

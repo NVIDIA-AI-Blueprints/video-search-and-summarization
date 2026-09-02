@@ -74,7 +74,7 @@ class OpenAIIntrospectionClient:
         for _attempt in range(2):
             content = await self._chat(prompt)
             try:
-                decision = _parse_decision(content)
+                decision = _normalize_evidence_ids(_parse_decision(content), records)
                 return decision.validate_grounding(records)
             except (InvalidJudgeResponseError, ValidationError, ValueError) as error:
                 last_error = InvalidJudgeResponseError(f"invalid sufficiency judge response: {error}")
@@ -158,11 +158,12 @@ def _judge_prompt(
     criteria_prompt: str,
 ) -> str:
     schema = SufficiencyDecision.model_json_schema()
-    evidence = [record.model_dump_memory() for record in records]
+    evidence = [_judge_record(record) for record in records]
     return (
         "FIXED VSS GROUNDING AND SAFETY RULES:\n"
         "Judge only the supplied memory records. Do not invent evidence. "
-        "Every evidence_record_id must come from the supplied records. "
+        "For every evidence_record_id, copy exactly one top-level evidence_record_id value from the supplied records. "
+        "Never construct an ID or cite an Elasticsearch document ID, embedding reference, or compound #event# ID. "
         "Each gap must ask one targeted question using a sensor from the supplied records, and its start_time and "
         "end_time must be ISO-8601 UTC instants that overlap that sensor's supplied record window. "
         "Use canonical input.sensors[].id names or legacy input.sensors[].info.name names. "
@@ -174,6 +175,51 @@ def _judge_prompt(
         f"USER QUERY:\n{query}\n"
         f"RETRIEVED RECORDS:\n{json.dumps(evidence, separators=(',', ':'))}"
     )
+
+
+def _judge_record(record: UnifiedMemoryRecord) -> dict[str, Any]:
+    """Expose one unambiguous citeable ID and omit internal embedding identifiers."""
+    payload = record.model_dump_memory()
+    output = payload.get("output")
+    if isinstance(output, dict):
+        output.pop("embedding", None)
+    return {"evidence_record_id": _record_id(record), **payload}
+
+
+def _normalize_evidence_ids(
+    decision: SufficiencyDecision,
+    records: list[UnifiedMemoryRecord],
+) -> SufficiencyDecision:
+    """Map only known storage/embedding aliases back to public evidence IDs."""
+    aliases: dict[str, set[str]] = {}
+    for record in records:
+        public_id = _record_id(record)
+        candidates = {public_id, _storage_id(record)}
+        if record.output is not None:
+            for embedding in record.output.embedding or []:
+                if embedding.es_ref:
+                    candidates.add(embedding.es_ref)
+                    candidates.add(embedding.es_ref.rsplit("/", 1)[-1])
+        for candidate in candidates:
+            aliases.setdefault(candidate, set()).add(public_id)
+
+    normalized: list[str] = []
+    for evidence_id in decision.evidence_record_ids:
+        targets = aliases.get(evidence_id)
+        public_id = next(iter(targets)) if targets is not None and len(targets) == 1 else evidence_id
+        if public_id not in normalized:
+            normalized.append(public_id)
+    return decision.model_copy(update={"evidence_record_ids": normalized})
+
+
+def _record_id(record: UnifiedMemoryRecord) -> str:
+    return record.job.record_id or record.job.job_id
+
+
+def _storage_id(record: UnifiedMemoryRecord) -> str:
+    if record.job.record_id is None or record.job.record_type is None:
+        return record.job.job_id
+    return f"{record.job.job_id}#{record.job.record_type}#{record.job.record_id}"
 
 
 def _synthesis_prompt(

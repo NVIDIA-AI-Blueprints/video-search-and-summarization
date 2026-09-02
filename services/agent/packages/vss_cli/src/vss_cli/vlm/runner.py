@@ -278,6 +278,34 @@ async def run_vlm_job(
     model = analyzer_model or (type(analyzer).__name__ if analyzer is not None else "")
     adapter = VLMAdapter()
     persistence_error: str | None = None
+    persistence_lock = threading.Lock()
+
+    async def persist_record(record: Any) -> None:
+        """Run a synchronous store write without blocking deadline cancellation."""
+        if memory is None:
+            return
+        target_memory = memory
+        write_finished: asyncio.Future[Exception | None] = loop.create_future()
+
+        def write() -> None:
+            outcome: Exception | None = None
+            try:
+                with persistence_lock:
+                    target_memory.service.upsert(record)
+            except Exception as error:
+                outcome = error
+
+            def report(result: Exception | None = outcome) -> None:
+                if not write_finished.done():
+                    write_finished.set_result(result)
+
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(report)
+
+        threading.Thread(target=write, name="vss-vlm-persistence-write", daemon=True).start()
+        outcome = await asyncio.shield(write_finished)
+        if outcome is not None:
+            raise outcome
 
     async def close(
         status: Literal["failed", "partial", "timeout"],
@@ -285,20 +313,22 @@ async def run_vlm_job(
     ) -> Literal["absent", "closed", "stale"]:
         if memory is None or job_id is None or created_at is None or input_data is None:
             return "absent"
+        target_memory = memory
         write_finished: asyncio.Future[bool] = loop.create_future()
 
         def write() -> None:
-            closed = mark_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status=status,
-                message=detail,
-                attempts=1,
-                backoff_seconds=0,
-            )
+            with persistence_lock:
+                closed = mark_terminal(
+                    target_memory,
+                    adapter,
+                    job_id=job_id,
+                    created_at=created_at,
+                    input_data=input_data,
+                    status=status,
+                    message=detail,
+                    attempts=1,
+                    backoff_seconds=0,
+                )
 
             def report() -> None:
                 if not write_finished.done():
@@ -372,7 +402,7 @@ async def run_vlm_job(
                 )
                 if memory is not None:
                     try:
-                        memory.service.upsert(
+                        await persist_record(
                             adapter.submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
                         )
                     except Exception as error:
@@ -391,7 +421,7 @@ async def run_vlm_job(
                 persisted = False
                 if memory is not None:
                     try:
-                        memory.service.upsert(
+                        await persist_record(
                             adapter.terminal_record(
                                 job_id=job_id,
                                 created_at=created_at,

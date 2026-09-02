@@ -324,6 +324,30 @@ def test_timeout_terminal_write_is_bounded_by_shared_deadline() -> None:
     assert time.monotonic() - started < 1.2
 
 
+def test_completion_write_is_bounded_by_shared_deadline() -> None:
+    class _NearDeadlineAnalyzer(_Analyzer):
+        async def analyze(self, **kwargs: Any) -> str:
+            self.calls.append(kwargs)
+            await asyncio.sleep(0.6)
+            return self.answer
+
+    class _SlowCompletionStore(InMemoryStore):
+        def upsert(self, record: Any) -> Any:
+            if record.job.status == "completed":
+                time.sleep(2)
+            return super().upsert(record)
+
+    memory = memory_mod.Memory(MemoryService(_SlowCompletionStore()), index="test-memory")
+    started = time.monotonic()
+
+    with pytest.raises(VLMJobError) as caught:
+        _run(_NearDeadlineAnalyzer(), memory=memory, timeout_seconds=1)
+
+    assert caught.value.result.status == "timeout"
+    assert caught.value.result.record == "stale"
+    assert time.monotonic() - started < 1.2
+
+
 def test_cancellation_after_submission_closes_terminal_record() -> None:
     started = asyncio.Event()
 

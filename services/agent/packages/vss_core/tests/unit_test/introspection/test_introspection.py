@@ -20,8 +20,10 @@ from vss_core.introspection.models import SufficiencyDecision
 from vss_core.introspection.models import VLMEvidence
 from vss_core.introspection.protocols import AnswerSynthesizer
 from vss_core.introspection.protocols import SufficiencyJudge
+from vss_core.memory.models import EmbeddingRef
 from vss_core.memory.models import JobInfo
 from vss_core.memory.models import MemoryInput
+from vss_core.memory.models import MemoryOutput
 from vss_core.memory.models import SensorInfo
 from vss_core.memory.models import TimestampPoint
 from vss_core.memory.models import TimeWindow
@@ -269,6 +271,56 @@ async def test_judge_retries_once_after_invalid_json_then_accepts_fenced_json() 
     assert result.evidence_record_ids == ["event-1"]
     assert result.gaps[0].start_time == "2026-08-26T12:00:10Z"
     assert result.gaps[0].end_time == "2026-08-26T12:00:20Z"
+
+
+@pytest.mark.asyncio
+async def test_judge_uses_public_citation_ids_and_normalizes_known_storage_aliases() -> None:
+    calls = 0
+    record = _record().model_copy(
+        update={
+            "output": MemoryOutput(
+                embedding=[
+                    EmbeddingRef(
+                        es_ref="vss-memory-embeddings-v1/search-1#search_hit#event-1",
+                        doc_ids=["search-1#search_hit#event-1"],
+                        kind="text",
+                    )
+                ]
+            )
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        prompt = json.loads(request.content)["messages"][0]["content"]
+        supplied = json.loads(prompt.split("RETRIEVED RECORDS:\n", 1)[1])
+        assert supplied[0]["evidence_record_id"] == "event-1"
+        assert "embedding" not in supplied[0].get("output", {})
+        assert "search-1#search_hit#event-1" not in prompt
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": json.dumps(_decision(evidence_record_ids=["search-1#search_hit#event-1"]))}}
+                ]
+            },
+            request=request,
+        )
+
+    client = OpenAIIntrospectionClient(
+        base_url="https://text-judge.example/v1",
+        model="custom-text-model",
+        criteria_prompt=_CRITERIA,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        result = await client.judge(query="What happened?", records=[record])
+    finally:
+        await client.aclose()
+
+    assert calls == 1
+    assert result.evidence_record_ids == ["event-1"]
 
 
 @pytest.mark.asyncio

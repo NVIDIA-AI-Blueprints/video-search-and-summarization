@@ -255,9 +255,9 @@ async def test_builds_internal_parent_child_query_with_all_request_selectors() -
     assert parent_query.job_id == "search-1"
     assert parent_query.sensor_id == "camera-east"
     assert parent_query.group == "search"
-    assert parent_query.time_field == "window"
-    assert parent_query.since is not None
-    assert parent_query.until is not None
+    assert parent_query.time_field == "created_at"
+    assert parent_query.since is None
+    assert parent_query.until is None
     assert parent_query.text is None
     assert parent_query.record_id is None
     assert [record.job.is_child for record in judge.records] == [True, False]
@@ -352,9 +352,11 @@ async def test_parent_expansion_does_not_add_parents_outside_the_time_window() -
 
 
 @pytest.mark.asyncio
-async def test_parent_expansion_keeps_in_scope_parent_without_text_match() -> None:
+async def test_parent_expansion_keeps_windowless_parent_of_time_scoped_child() -> None:
     child = _record()
     parent = _record(record_id=None, query="shift notes", answer="Warehouse shift summary.")
+    assert parent.input is not None
+    parent = parent.model_copy(update={"input": parent.input.model_copy(update={"window": None})})
     memory, _ = _memory(parent, child)
     judge = _Judge(_decision(sufficient=True))
 
