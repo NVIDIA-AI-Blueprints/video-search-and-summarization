@@ -203,7 +203,7 @@ sends the prompt with the video, and prints the result as JSON.
 VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 # Exit 6 means the answer was produced but could not be written to memory.
 # The answer is still valid, so keep it; only persistence needs retrying.
-check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit 1; }; }
+check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit "$1"; }; }
 
 # URL (RT-VLM fetches it):
 RC=0
@@ -227,7 +227,7 @@ check_rc "${RC}"
 VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 # Exit 6 means the answer was produced but could not be written to memory.
 # The answer is still valid, so keep it; only persistence needs retrying.
-check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit 1; }; }
+check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit "$1"; }; }
 
 # Without a time window (full recorded clip):
 RC=0
