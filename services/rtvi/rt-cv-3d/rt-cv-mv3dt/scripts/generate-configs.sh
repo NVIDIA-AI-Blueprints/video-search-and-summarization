@@ -42,7 +42,15 @@
 set -euo pipefail
 
 CALIB="${1:-}"
-[ -n "$CALIB" ] && [ -f "$CALIB" ] || { echo "Usage: $0 /path/to/calibration.json" >&2; exit 1; }
+if [ -z "$CALIB" ]; then
+  echo "ERROR: calibration path is required" >&2
+  echo "Usage: $0 /path/to/calibration.json" >&2
+  exit 2
+fi
+if [ ! -f "$CALIB" ]; then
+  echo "ERROR: calibration file not found: $CALIB" >&2
+  exit 2
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/../../../.." && pwd)"
