@@ -227,7 +227,8 @@ or `down`, and deploy with `pull --ignore-buildable && up -d --build`
 
 All three primary files are required in stock and delta mode. `_builds/` is
 gitignored because `override.env` and `resolved.yml` can contain credentials.
-Keep them local and never commit them.
+Keep them local, set both credential-bearing files to mode `0600`, and never
+commit them.
 
 ## Resolve
 

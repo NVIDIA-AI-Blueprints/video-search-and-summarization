@@ -136,16 +136,36 @@ When present, `/api/chat` uses the gateway and `/api/agent/*` exposes the struct
 same-origin contract for the native renderer migration. Upstream and gateway
 tokens never appear in `NEXT_PUBLIC_*` variables.
 
-For a local Compose deployment, build the image and select the opt-in profile:
+For a single-host Linux Compose deployment, select the opt-in profile and bind
+the gateway to Docker's private bridge address. The service uses host networking
+only so it can reach a notebook-managed harness API on host loopback; the UI
+reaches the private bind through Docker's `host-gateway` alias:
 
 ```bash
-docker build -t vss-agent-gateway:local services/agent-gateway
-export VSS_AGENT_GATEWAY_IMAGE=vss-agent-gateway:local
-export VSS_AGENT_GATEWAY_URL=http://agent-gateway:8090
+export VSS_AGENT_GATEWAY_ENABLED=true
+export VSS_AGENT_GATEWAY_BIND_HOST="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+export VSS_AGENT_GATEWAY_PORT=18090
+export VSS_AGENT_GATEWAY_URL=http://host.docker.internal:18090
 export VSS_AGENT_GATEWAY_TOKEN="$(openssl rand -hex 32)"
-export VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642
+export VSS_AGENT_BACKEND_URL=http://127.0.0.1:8642
+export VSS_AGENT_BACKEND_TOKEN="..."
+export VSS_AGENT_BACKEND_MODEL=hermes-agent
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}agent-gateway"
 ```
+
+The root Compose graph includes a local `build:` definition, so the standard
+deployment lifecycle (`pull --ignore-buildable`, then `up -d --build`) works
+from a pinned source checkout before a registry image is published. The image
+variables name/tag that build. Once a released image is available, a
+registry-only deployment should remove the `build:` block in its deployment
+overlay and pin the released image by digest.
+
+`deploy_nemoclaw.ipynb` enables OpenClaw's Responses endpoint. The companion
+`deploy_vss_orchestrator.ipynb` obtains the selected OpenClaw/Hermes API token
+without displaying it, generates an independent gateway token, verifies the
+backend, selects `vss-ui` plus `agent-gateway`, and passes the settings into the
+resolved Compose deployment. Generated environment and Compose artifacts are
+written owner-readable (`0600`) because they contain both credentials.
 
 Run the dependency-free test suite:
 
@@ -156,9 +176,11 @@ PYTHONPATH=. python3 -m unittest discover -s tests -t . -v
 ## Current storage boundary
 
 Run events and Responses chain metadata are in memory. Reconnect works within one
-gateway process and the configured retention window. Use one gateway replica for
-now; a durable/shared `RunStore` is the required next step before horizontal
-scaling or restart-surviving replay.
+gateway process and the configured retention window. This is suitable for the
+single-host Compose deployment above, but not yet for an HA control plane: use
+one gateway replica, and expect active replay state to be lost if it restarts.
+A durable/shared `RunStore` is required before horizontal scaling or
+restart-surviving replay.
 
 This gateway is one trusted-operator boundary, not adversarial multi-tenant
 isolation. Put authentication in front of the VSS UI and use separate gateway

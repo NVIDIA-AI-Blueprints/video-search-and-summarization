@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
+import ipaddress
 import os
 import re
 import subprocess
@@ -96,6 +97,9 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "VLM_NAME_SLUG",
 )
 _COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
+_TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off", ""})
+DEFAULT_AGENT_GATEWAY_PORT: Final[int] = 18090
 
 
 class ValidationError(ValueError):
@@ -509,6 +513,72 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
     return ",".join(compose_profiles)
 
 
+def apply_agent_gateway_env(merged: dict[str, str]) -> None:
+    """Add the production UI-to-harness services and defaults when requested.
+
+    The gateway runs with host networking so it can reach notebook-managed
+    OpenClaw/Hermes forwards on host loopback. It binds only to Docker's private
+    bridge address; the UI reaches that address through ``host-gateway``.
+    """
+
+    raw_enabled = merged.get("VSS_AGENT_GATEWAY_ENABLED", "").strip().lower()
+    if raw_enabled in _FALSE_VALUES:
+        return
+    if raw_enabled not in _TRUE_VALUES:
+        raise ValidationError("VSS_AGENT_GATEWAY_ENABLED must be true or false.")
+
+    if not merged.get("VSS_AGENT_GATEWAY_TOKEN", "").strip():
+        raise ValidationError("VSS_AGENT_GATEWAY_TOKEN is required when VSS_AGENT_GATEWAY_ENABLED=true.")
+    if not merged.get("VSS_AGENT_BACKEND_URL", "").strip():
+        raise ValidationError("VSS_AGENT_BACKEND_URL is required when VSS_AGENT_GATEWAY_ENABLED=true.")
+
+    bind_host = merged.get("VSS_AGENT_GATEWAY_BIND_HOST", "").strip()
+    if not bind_host:
+        raise ValidationError(
+            "VSS_AGENT_GATEWAY_BIND_HOST is required when VSS_AGENT_GATEWAY_ENABLED=true; "
+            "set it to the private gateway from `docker network inspect bridge`."
+        )
+    try:
+        bind_address = ipaddress.ip_address(bind_host)
+    except ValueError as exc:
+        raise ValidationError("VSS_AGENT_GATEWAY_BIND_HOST must be a private IPv4 address.") from exc
+    if (
+        bind_address.version != 4
+        or not bind_address.is_private
+        or bind_address.is_loopback
+        or bind_address.is_unspecified
+    ):
+        raise ValidationError("VSS_AGENT_GATEWAY_BIND_HOST must be a private, non-loopback IPv4 address.")
+
+    raw_port = merged.get("VSS_AGENT_GATEWAY_PORT", "").strip() or str(DEFAULT_AGENT_GATEWAY_PORT)
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValidationError("VSS_AGENT_GATEWAY_PORT must be an integer.") from exc
+    if not 1024 <= port <= 65535:
+        raise ValidationError("VSS_AGENT_GATEWAY_PORT must be between 1024 and 65535.")
+
+    merged["VSS_AGENT_GATEWAY_ENABLED"] = "true"
+    merged["VSS_AGENT_GATEWAY_BIND_HOST"] = bind_host
+    merged["VSS_AGENT_GATEWAY_PORT"] = str(port)
+    defaults = {
+        "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",
+        "VSS_AGENT_BACKEND_PROTOCOL": "responses",
+        "VSS_AGENT_BACKEND_MODEL": "agent",
+        "VSS_AGENT_BACKEND_SESSION_FIELD": "user",
+        "NEXT_PUBLIC_ENABLE_CHAT_TAB": "true",
+    }
+    for key, value in defaults.items():
+        if not merged.get(key, "").strip():
+            merged[key] = value
+
+    profiles = [item.strip() for item in merged.get("COMPOSE_PROFILES", "").split(",") if item.strip()]
+    for required_profile in ("vss-ui", "agent-gateway"):
+        if required_profile not in profiles:
+            profiles.append(required_profile)
+    merged["COMPOSE_PROFILES"] = ",".join(profiles)
+
+
 def infer_runtime_mode(
     *,
     device_id: str,
@@ -758,6 +828,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
     merged["COMPOSE_PROFILES"] = resolve_compose_profiles(merged, config.profile)
+    apply_agent_gateway_env(merged)
     # Resolve nested ${VAR} references (e.g. SDR_CONTROLLER_CONFIG_PATH, VST_CONFIG_PATH,
     # REACT_APP_API_ENDPOINT_BASE_URL) so the generated .env holds self-contained values;
     # docker compose does not interpolate env-file values against each other.
@@ -881,17 +952,31 @@ def sanitize_resolved_compose(compose_text: str) -> str:
     return yaml.safe_dump(parsed, sort_keys=False)
 
 
+def write_private_text(path: Path, content: str) -> None:
+    """Write a credential-bearing deployment artifact with owner-only access."""
+
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            descriptor = -1
+            stream.write(content)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Path, Path]:
     resolved_env = build_resolved_env(config)
     env_file = config.output_env_file
     compose_file = config.output_compose_file
     env_file.parent.mkdir(parents=True, exist_ok=True)
-    env_file.write_text(  # NOSONAR S2083: --output-env-file is an intentional CLI destination
-        render_generated_env(config.source_env_file, resolved_env)
+    write_private_text(  # NOSONAR S2083: --output-env-file is an intentional CLI destination
+        env_file, render_generated_env(config.source_env_file, resolved_env)
     )
     compose_file.parent.mkdir(parents=True, exist_ok=True)
-    compose_file.write_text(  # NOSONAR S2083: --output-compose-file is an intentional CLI destination
-        resolve_compose(config)
+    write_private_text(  # NOSONAR S2083: --output-compose-file is an intentional CLI destination
+        compose_file, resolve_compose(config)
     )
     return resolved_env, env_file, compose_file
 

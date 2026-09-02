@@ -61,6 +61,7 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
+import yaml
 
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
@@ -86,6 +87,65 @@ _COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
 _COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
 _MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 _DEEP_CLEAN_RM_TIMEOUT_S: Final[int] = 300
+_SECRET_NAME_MARKERS: Final[tuple[str, ...]] = (
+    "KEY",
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "CREDENTIAL",
+)
+_SENSITIVE_HEADER_NAMES: Final[frozenset[str]] = frozenset({"authorization", "cookie", "set-cookie"})
+_REDACTED_VALUE: Final[str] = "<redacted>"
+
+
+def _sensitive_name(name: object) -> bool:
+    if not isinstance(name, str):
+        return False
+    return name.lower() in _SENSITIVE_HEADER_NAMES or any(marker in name.upper() for marker in _SECRET_NAME_MARKERS)
+
+
+def _redact_env_artifact(content: str) -> str:
+    redacted: list[str] = []
+    for line in content.splitlines(keepends=True):
+        candidate = line.strip()
+        if candidate.startswith("export "):
+            candidate = candidate.removeprefix("export ").lstrip()
+        key, separator, _value = candidate.partition("=")
+        if separator and _sensitive_name(key.strip()):
+            prefix = line[: line.index("=") + 1]
+            suffix = "\n" if line.endswith("\n") else ""
+            redacted.append(f"{prefix}{_REDACTED_VALUE}{suffix}")
+        else:
+            redacted.append(line)
+    return "".join(redacted)
+
+
+def _redact_structured_secrets(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: (_REDACTED_VALUE if _sensitive_name(key) else _redact_structured_secrets(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        redacted: list[object] = []
+        for item in value:
+            if isinstance(item, str) and "=" in item:
+                key, separator, _raw_value = item.partition("=")
+                if separator and _sensitive_name(key.strip()):
+                    redacted.append(f"{key}={_REDACTED_VALUE}")
+                    continue
+            redacted.append(_redact_structured_secrets(item))
+        return redacted
+    return value
+
+
+def _redact_compose_artifact(content: str) -> str:
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return _redact_env_artifact(content)
+    return yaml.safe_dump(_redact_structured_secrets(parsed), sort_keys=False)
 
 
 @dataclass
@@ -283,6 +343,22 @@ class OrchestratorRuntimeSettings(BaseSettings):
     rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
     llm_device_id: str = Field(default="", validation_alias="LLM_DEVICE_ID")
     vlm_device_id: str = Field(default="", validation_alias="VLM_DEVICE_ID")
+    # Optional VSS UI -> external harness gateway. These are explicit fields so
+    # only allowlisted deployment settings cross from the notebook process into
+    # generated Compose artifacts.
+    vss_agent_gateway_enabled: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_ENABLED")
+    vss_agent_gateway_url: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_URL")
+    vss_agent_gateway_token: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_TOKEN")
+    vss_agent_gateway_port: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_PORT")
+    vss_agent_gateway_bind_host: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_BIND_HOST")
+    vss_agent_backend_protocol: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PROTOCOL")
+    vss_agent_backend_url: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_URL")
+    vss_agent_backend_path: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PATH")
+    vss_agent_backend_token: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_TOKEN")
+    vss_agent_backend_model: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_MODEL")
+    vss_agent_backend_session_field: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_SESSION_FIELD")
+    vss_agent_backend_session_header: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_SESSION_HEADER")
+    vss_agent_backend_headers_json: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_HEADERS_JSON")
 
     @field_validator(
         "ngc_cli_api_key",
@@ -301,6 +377,19 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "rtvi_vllm_gpu_memory_utilization",
         "llm_device_id",
         "vlm_device_id",
+        "vss_agent_gateway_enabled",
+        "vss_agent_gateway_url",
+        "vss_agent_gateway_token",
+        "vss_agent_gateway_port",
+        "vss_agent_gateway_bind_host",
+        "vss_agent_backend_protocol",
+        "vss_agent_backend_url",
+        "vss_agent_backend_path",
+        "vss_agent_backend_token",
+        "vss_agent_backend_model",
+        "vss_agent_backend_session_field",
+        "vss_agent_backend_session_header",
+        "vss_agent_backend_headers_json",
     )
     @classmethod
     def _strip_value(cls, value: str) -> str:
@@ -675,7 +764,6 @@ async def vss_orchestrator(
     # `nat mcp serve` was launched) to aid deployment debugging. The set of names
     # is derived from OrchestratorRuntimeSettings' field aliases rather than a
     # hardcoded list, so it stays in sync with the model. Secret values are masked.
-    _secret_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL")
     print("[vss_orchestrator] startup environment (from nat mcp serve):", flush=True)
     for _field in OrchestratorRuntimeSettings.model_fields.values():
         _env_name = _field.validation_alias
@@ -684,7 +772,7 @@ async def vss_orchestrator(
         _raw = os.environ.get(_env_name)
         if _raw is None:
             _shown = "(unset)"
-        elif _raw and any(marker in _env_name.upper() for marker in _secret_markers):
+        elif _raw and _sensitive_name(_env_name):
             _shown = f"<set, {len(_raw)} chars>"
         else:
             _shown = _raw
@@ -1136,6 +1224,17 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
+                # Carry only the explicitly modeled gateway/backend settings
+                # from notebook startup. Per-call overrides keep precedence.
+                for field_name, field_info in OrchestratorRuntimeSettings.model_fields.items():
+                    env_name = field_info.validation_alias
+                    if not isinstance(env_name, str) or not env_name.startswith(
+                        ("VSS_AGENT_GATEWAY_", "VSS_AGENT_BACKEND_")
+                    ):
+                        continue
+                    value = getattr(runtime_settings, field_name)
+                    if value:
+                        env_overrides.setdefault(env_name, value)
                 # Honor LLM_DEVICE_ID / VLM_DEVICE_ID from the runtime settings, but NOT
                 # for edge hardware profiles.
                 effective_hardware_profile = (
@@ -1227,7 +1326,7 @@ async def vss_orchestrator(
     if "docker_read" in _config.include:
 
         async def _docker_read(input: ComposeArtifactsInput) -> dict:
-            """Fetch generated env and resolved compose yaml content by docker_compose_id."""
+            """Fetch generated artifacts with credential values redacted."""
             with _COMPOSE_SPECS_LOCK:
                 spec = _COMPOSE_SPECS.get(input.docker_compose_id)
             if spec is None:
@@ -1249,8 +1348,10 @@ async def vss_orchestrator(
                 "status": ComposeStatus.SUCCESS.value,
                 "docker_compose_id": input.docker_compose_id,
                 "profile": spec.get("profile"),
-                "env_content": env_path.read_text(encoding="utf-8", errors="replace"),
-                "compose_yaml_content": compose_path.read_text(encoding="utf-8", errors="replace"),
+                "env_content": _redact_env_artifact(env_path.read_text(encoding="utf-8", errors="replace")),
+                "compose_yaml_content": _redact_compose_artifact(
+                    compose_path.read_text(encoding="utf-8", errors="replace")
+                ),
             }
 
         group.add_function(name="docker_read", fn=_docker_read, description=_docker_read.__doc__)

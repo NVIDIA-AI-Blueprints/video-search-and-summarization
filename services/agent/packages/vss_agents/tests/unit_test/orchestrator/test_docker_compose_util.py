@@ -362,6 +362,60 @@ class TestResolveComposeProfiles:
         )
 
 
+class TestApplyAgentGatewayEnv:
+    def test_disabled_is_a_noop(self):
+        merged = {"COMPOSE_PROFILES": "vss-agent"}
+
+        dcu.apply_agent_gateway_env(merged)
+
+        assert merged == {"COMPOSE_PROFILES": "vss-agent"}
+
+    def test_enabled_adds_safe_defaults_and_required_services(self):
+        merged = {
+            "COMPOSE_PROFILES": "vss-agent,vss-ui",
+            "VSS_AGENT_GATEWAY_ENABLED": "yes",
+            "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
+            "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
+            "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
+        }
+
+        dcu.apply_agent_gateway_env(merged)
+
+        assert merged["COMPOSE_PROFILES"] == "vss-agent,vss-ui,agent-gateway"
+        assert merged["VSS_AGENT_GATEWAY_ENABLED"] == "true"
+        assert merged["VSS_AGENT_GATEWAY_PORT"] == "18090"
+        assert merged["VSS_AGENT_GATEWAY_URL"] == "http://host.docker.internal:18090"
+        assert merged["VSS_AGENT_BACKEND_PROTOCOL"] == "responses"
+        assert merged["VSS_AGENT_BACKEND_MODEL"] == "agent"
+        assert merged["NEXT_PUBLIC_ENABLE_CHAT_TAB"] == "true"
+
+    @pytest.mark.parametrize(
+        ("overrides", "message"),
+        [
+            ({"VSS_AGENT_GATEWAY_TOKEN": ""}, "VSS_AGENT_GATEWAY_TOKEN is required"),
+            ({"VSS_AGENT_BACKEND_URL": ""}, "VSS_AGENT_BACKEND_URL is required"),
+            ({"VSS_AGENT_GATEWAY_BIND_HOST": "127.0.0.1"}, "private, non-loopback IPv4"),
+            ({"VSS_AGENT_GATEWAY_PORT": "80"}, "between 1024 and 65535"),
+        ],
+    )
+    def test_enabled_rejects_incomplete_or_unsafe_settings(self, overrides: dict[str, str], message: str):
+        merged = {
+            "COMPOSE_PROFILES": "vss-ui",
+            "VSS_AGENT_GATEWAY_ENABLED": "true",
+            "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
+            "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
+            "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
+            **overrides,
+        }
+
+        with pytest.raises(dcu.ValidationError, match=message):
+            dcu.apply_agent_gateway_env(merged)
+
+    def test_invalid_enabled_value_is_rejected(self):
+        with pytest.raises(dcu.ValidationError, match="must be true or false"):
+            dcu.apply_agent_gateway_env({"COMPOSE_PROFILES": "vss-ui", "VSS_AGENT_GATEWAY_ENABLED": "sometimes"})
+
+
 class TestExpandEnvValueReferences:
     def test_expands_nested_path_reference(self):
         env = {
@@ -456,6 +510,27 @@ class TestSanitizeResolvedCompose:
 
 
 class TestBuildResolvedEnv:
+    def test_build_resolved_env_selects_external_agent_gateway(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor"), "COMPOSE_PROFILES=vss-agent"),
+            env_overrides={
+                "VSS_AGENT_GATEWAY_ENABLED": "true",
+                "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
+                "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
+                "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:8642",
+                "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret
+                "VSS_AGENT_BACKEND_MODEL": "hermes-agent",
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["COMPOSE_PROFILES"] == "vss-agent,vss-ui,agent-gateway"
+        assert resolved["VSS_AGENT_BACKEND_MODEL"] == "hermes-agent"
+        assert resolved["VSS_AGENT_GATEWAY_URL"] == "http://host.docker.internal:18090"
+
     def test_build_resolved_env_merges_defaults_and_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(
             tmp_path,
@@ -1901,6 +1976,8 @@ class TestGenerateDryRunArtifacts:
         assert "MODE=2d_vlm" in env_path.read_text()
         assert "COMPOSE_PROFILES=nvstreamer-alerts,rtvi-vlm,llm_local_llm-a-slug" in env_path.read_text()
         assert compose_path.read_text() == "services: {}\n"
+        assert env_path.stat().st_mode & 0o777 == 0o600
+        assert compose_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_path: Path):

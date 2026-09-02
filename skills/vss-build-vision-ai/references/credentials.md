@@ -18,6 +18,10 @@ a cold NIM start.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
   endpoints because their `/v1/models` response can list many models.
+- External agent UI mode (`agent-gateway`): requires two distinct credentials:
+  a newly generated `VSS_AGENT_GATEWAY_TOKEN` for the UI-server-to-gateway hop,
+  and the selected harness's `VSS_AGENT_BACKEND_TOKEN`. An OpenClaw/Hermes
+  gateway token is operator-level access; it must remain server-side.
 
 ## Discovery
 
@@ -31,6 +35,11 @@ Surface discovered credentials to the user; do not auto-source them without conf
 - If neither NGC env var is set but `~/.ngc/config` exists, extract the
   account metadata and ask: `Use NGC account <org>/<team> for the deploy?`
 - If `$HF_TOKEN` is unset but `~/.cache/huggingface/token` exists, ask before exporting it.
+- Only after the user explicitly requests external-harness chat, obtain the
+  selected sandbox token through its `gateway-token --quiet` command. Capture
+  it directly into the protected artifact-generation process and report only
+  whether discovery succeeded; never echo or paste the value. Generate the VSS
+  gateway token separately with a cryptographically secure random generator.
 
 ## Probes
 
@@ -109,6 +118,12 @@ localhost; it
 catches wrong ports, stale tunnels, missing auth, and model-name mismatches
 before the deploy flow spends time generating compose or warming containers.
 
+When `agent-gateway` is selected, also probe the harness's authenticated
+`/v1/models` endpoint using `VSS_AGENT_BACKEND_TOKEN`. For OpenClaw, first
+enable `gateway.http.endpoints.responses.enabled=true`; for Hermes, use its API
+forward (default `:8642`). A failed API/auth probe is a blocker. Do not put the
+token in a command-line URL, notebook output, or captured logs.
+
 Use the base URL without a trailing `/v1`; the script strips `/v1` and
 `/v1/models` if the user supplied them. If the endpoint requires auth, set
 `REMOTE_API_KEY` to the key that the agent will use for that endpoint.
@@ -140,3 +155,7 @@ NGC artifact access failure, or a selected remote endpoint that fails
 mutation until it resolves.
 
 A `skip` for a key the mode does not use is fine.
+
+`override.env` and `resolved.yml` contain the external harness and gateway
+tokens when this mode is selected. Create them with mode `0600`, keep them
+under the gitignored `_builds/` directory, and never attach them to a report.

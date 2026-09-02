@@ -22,6 +22,10 @@ services:
     ports:
       - ${VSS_UI_HOST_PORT:-3000}:3000
     restart: always
+    extra_hosts:
+      # Linux equivalent of Docker Desktop's host alias. The agent gateway uses
+      # it because notebook-managed OpenClaw/Hermes APIs stay on host loopback.
+      - "host.docker.internal:host-gateway"
     depends_on:
       vss-agent:
         condition: service_healthy
