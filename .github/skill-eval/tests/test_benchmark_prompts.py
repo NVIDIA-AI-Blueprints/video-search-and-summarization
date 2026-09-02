@@ -28,7 +28,7 @@ def test_question_prompt_uses_canonical_choice_answer_schema() -> None:
         group_id="video-1",
         video=VideoReference("video-1", "https://example.invalid/video"),
         group_type=GroupType.RELEVANCE,
-        group_structure="[1,2,3,4]",
+        group_structure=[1, 2, 3, 4],
         cases=(case,),
     )
 

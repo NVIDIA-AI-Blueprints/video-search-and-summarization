@@ -21,7 +21,7 @@ def _spec(*, final_group: bool = False) -> GroupEvaluationSpec:
     return GroupEvaluationSpec(
         group_id="video-1",
         group_type=GroupType.RELEVANCE,
-        group_structure="[1,2,3,4]",
+        group_structure=[1, 2, 3, 4],
         expected_answers=tuple(
             _answer(f"video-1-{index}", label) for index, label in enumerate("ABCD", 1)
         ),
@@ -64,6 +64,28 @@ def test_evaluate_group_returns_typed_grades_and_relevance_score() -> None:
 
     assert [grade.correct for grade in result.grades] == [True, True, False, False]
     assert result.question_accuracy == 0.5
+    assert result.score == 0.25
+
+
+def test_evaluate_group_dispatches_logic_scoring() -> None:
+    spec = _spec().model_copy(
+        update={
+            "group_type": GroupType.LOGIC,
+            "group_structure": [1, 2, 3, 4],
+        }
+    )
+
+    result = evaluate_group(
+        spec,
+        (
+            _answer("video-1-1", "A"),
+            _answer("video-1-2", "B"),
+            _answer("video-1-3", "A"),
+            _answer("video-1-4", "D"),
+        ),
+    )
+
+    assert [grade.correct for grade in result.grades] == [True, True, False, True]
     assert result.score == 0.25
 
 

@@ -4,9 +4,10 @@
 
 from __future__ import annotations
 
+import ast
+import re
 from collections import defaultdict
 from pathlib import Path
-import re
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -17,6 +18,7 @@ from benchmark.domain import (
     BenchmarkGroup,
     Choice,
     ChoiceAnswer,
+    GroupStructure,
     GroupType,
     MultipleChoiceTask,
     VideoReference,
@@ -27,10 +29,52 @@ REQUIRED_COLUMNS = (
     "options", "answer", "level", "second_head", "third_head",
 )
 OPTION_RE = re.compile(r"^([A-H])\.\s+(.+)$")
+SUPPORTED_LOGIC_STRUCTURES: tuple[GroupStructure, ...] = (
+    [1, 2, 3, 4],
+    [1, [2, 3], 4],
+    [[1, 2], 3, 4],
+)
 
 
 class VideoMMEv2FormatError(ValueError):
     pass
+
+
+def _group_structure(
+    raw: str,
+    *,
+    video_id: str,
+    group_type: GroupType,
+) -> GroupStructure:
+    try:
+        structure = ast.literal_eval(raw)
+    except (SyntaxError, ValueError) as exc:
+        raise VideoMMEv2FormatError(
+            f"video {video_id}: invalid group_structure {raw!r}"
+        ) from exc
+
+    is_list_structure = (
+        isinstance(structure, list)
+        and bool(structure)
+        and all(
+            type(item) is int
+            or (
+                isinstance(item, list)
+                and bool(item)
+                and all(type(child) is int for child in item)
+            )
+            for item in structure
+        )
+    )
+    if not is_list_structure:
+        raise VideoMMEv2FormatError(
+            f"video {video_id}: invalid group_structure {raw!r}"
+        )
+    if group_type is GroupType.LOGIC and structure not in SUPPORTED_LOGIC_STRUCTURES:
+        raise VideoMMEv2FormatError(
+            f"video {video_id}: unsupported logic group_structure {structure}"
+        )
+    return structure
 
 
 def _choices(raw: str, question_id: str) -> tuple[Choice, ...]:
@@ -84,11 +128,16 @@ def load_video_mme_v2(path: Path) -> BenchmarkDataset:
         shared = {(row["url"], row["group_type"], row["group_structure"]) for row in group_rows}
         if len(shared) != 1:
             raise VideoMMEv2FormatError(f"video {video_id}: inconsistent group metadata")
-        url, raw_type, structure = shared.pop()
+        url, raw_type, raw_structure = shared.pop()
         try:
             group_type = GroupType(raw_type)
         except ValueError as exc:
             raise VideoMMEv2FormatError(f"video {video_id}: invalid group_type {raw_type!r}") from exc
+        structure = _group_structure(
+            raw_structure,
+            video_id=video_id,
+            group_type=group_type,
+        )
 
         cases = []
         for ordinal, row in enumerate(group_rows, 1):

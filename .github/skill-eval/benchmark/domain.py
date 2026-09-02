@@ -12,6 +12,7 @@ from typing import Literal, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ChoiceLabel: TypeAlias = Literal["A", "B", "C", "D", "E", "F", "G", "H"]
+GroupStructure: TypeAlias = list[int | list[int]]
 
 
 class GroupType(StrEnum):
@@ -72,7 +73,7 @@ class BenchmarkGroup:
     group_id: str
     video: VideoReference
     group_type: GroupType
-    group_structure: str
+    group_structure: GroupStructure
     cases: tuple[BenchmarkCase, ...]
 
 
@@ -86,7 +87,7 @@ class GroupEvaluationSpec(FrozenModel):
 
     group_id: str = Field(min_length=1)
     group_type: GroupType
-    group_structure: str
+    group_structure: GroupStructure
     expected_answers: tuple[CaseAnswer, ...]
     minimum: float = Field(ge=0.0, le=1.0)
     final_group: bool
