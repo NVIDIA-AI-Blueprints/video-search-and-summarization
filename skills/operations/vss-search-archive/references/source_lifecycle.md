@@ -126,7 +126,13 @@ fi
 Never assemble a Brev hostname from guesswork: the documented
 `7777-<BREV_ENV_ID>.<BREV_LINK_DOMAIN>` form, built only from values read out
 of `/etc/environment`, is the one sanctioned construction, and letting the
-deployment workflow write it is preferred. Never rewrite a returned media URL.
+deployment workflow write it is preferred. Never rewrite a media URL returned
+in a search result: the CLI already anchors those on the recorded origin, so
+editing one only hides which origin answered. The upload handshake URL in
+**File source** is the one exception, because the Agent mints it from
+`VST_EXTERNAL_URL` rather than from the recorded origin — re-anchor that one on
+`VSS_ORIGIN`, or ingestion fails whenever the selector chose the host-local
+fallback.
 
 On Kubernetes, use only routed Ingress services. Do not port-forward
 Elasticsearch for readiness or cleanup. When Elasticsearch is not routed,
@@ -265,6 +271,14 @@ UPLOAD_URL_RESPONSE=$(curl -sfS --max-time "${UPLOAD_REQUEST_TIMEOUT}" -X POST \
 UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" |
   jq -er '.url | select(type == "string" and length > 0)') || exit 1
 
+# Keep the returned path, but re-anchor it on `VSS_ORIGIN`: the Agent builds
+# this URL from `VST_EXTERNAL_URL`, which need not be reachable from here.
+UPLOAD_TARGET=${UPLOAD_URL}
+while [ "${UPLOAD_TARGET#*://}" != "${UPLOAD_TARGET}" ]; do
+  UPLOAD_TARGET=${UPLOAD_TARGET#*://}
+done
+UPLOAD_URL="${VSS_ORIGIN%/}/${UPLOAD_TARGET#*/}"
+
 IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
 UPLOAD_TIMEOUT=$(readiness_timeout 300) || exit 1
 UPLOAD_RESPONSE=$(curl -sfS --connect-timeout 10 --max-time "${UPLOAD_TIMEOUT}" -X POST \
@@ -307,6 +321,11 @@ Never call the deprecated single-step
 `PUT /api/v1/videos-for-search/{filename}`. Use
 `UPLOAD_FILENAME` consistently in every request and multipart field; use that
 same value for the upload request, VST metadata, and completion body.
+Post the bytes to the re-anchored `UPLOAD_URL`, never to the raw `.url` the
+handshake returned: that value carries `VST_EXTERNAL_URL`, which is the public
+secure link even when the selector proved it unreachable and chose the
+host-local origin. A connection or DNS failure at this step is that mismatch,
+not a reason to retry the upload against the same URL.
 Completion alone is not readiness. After completing all intended uploads, run
 one bounded readiness wait (at most 20 minutes) until VST lists the sources and
 the search indexes contain the required documents:

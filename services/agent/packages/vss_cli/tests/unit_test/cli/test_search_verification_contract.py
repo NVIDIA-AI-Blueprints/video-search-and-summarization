@@ -9,8 +9,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 from typing import TYPE_CHECKING
+
+import pytest
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -313,6 +316,15 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "Editing `VST_EXTERNAL_URL` in `generated.env` cannot change them" in prose
     assert "`VST_EXTERNAL_URL` governs the Agent-served path" in prose
 
+    # The handshake mints the upload URL from VST_EXTERNAL_URL, so posting the
+    # bytes to it verbatim fails whenever the selector chose the host-local
+    # fallback -- which the budget prose above promises will not block
+    # ingestion. Keep the re-anchor, and keep the media-URL prohibition scoped
+    # so it cannot be read as forbidding it.
+    assert 'UPLOAD_URL="${VSS_ORIGIN%/}/${UPLOAD_TARGET#*/}"' in lifecycle
+    assert "Never rewrite a media URL returned in a search result" in prose
+    assert "Post the bytes to the re-anchored `UPLOAD_URL`" in prose
+
 
 def test_public_probe_rejects_redirects_and_accepts_vst_json(tmp_path: Path) -> None:
     selector = SEARCH_SKILL / "scripts/select_brev_origin.sh"
@@ -369,6 +381,70 @@ SEARCH_READINESS_DEADLINE=$(($(date +%s) - 1))
 ! readiness_timeout 30
 """
     subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize(
+    ("returned_url", "origin", "expected"),
+    [
+        # The failure this recipe exists for: the handshake answers with the
+        # public secure link while the selector chose the host-local origin.
+        (
+            "https://7777-env.brevlab.com:443/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        # Already anchored on the origin we are using: unchanged.
+        (
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        # VIOS 3.2.0 defects the CLI repairs for media URLs, absorbed here too.
+        (
+            "http://http://localhost:30888/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        (
+            "/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        # The returned path is carried over as-is, so a deployment that serves
+        # VST under a prefix is re-anchored rather than mangled.
+        (
+            "https://public.example/edge/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/edge/vst/api/v1/storage/file",
+        ),
+        # A trailing slash on the recorded origin must not double up.
+        (
+            "https://public.example/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777/",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+    ],
+)
+def test_upload_url_is_reanchored_on_the_configured_origin(returned_url: str, origin: str, expected: str) -> None:
+    """The re-anchor block in the skill must move any handshake URL onto the
+    origin `vss configure` recorded. Run the block the agent actually reads
+    rather than a copy, so a doc edit that breaks it fails here."""
+    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"(UPLOAD_TARGET=\$\{UPLOAD_URL\}\n.*?UPLOAD_URL=\"\$\{VSS_ORIGIN%/\}/\$\{UPLOAD_TARGET#\*/\}\")",
+        lifecycle,
+        flags=re.DOTALL,
+    )
+    assert match is not None, "the upload re-anchor block is missing from source_lifecycle.md"
+
+    script = f"""set -euo pipefail
+UPLOAD_URL={shlex.quote(returned_url)}
+VSS_ORIGIN={shlex.quote(origin)}
+{match.group(1)}
+printf '%s' "${{UPLOAD_URL}}"
+"""
+    completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+    assert completed.stdout == expected
 
 
 def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
