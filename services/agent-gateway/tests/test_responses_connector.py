@@ -8,10 +8,12 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from vss_agent_gateway.capabilities import CapabilityReceipt
 from vss_agent_gateway.connectors.responses import ResponsesConnector
 from vss_agent_gateway.contract import CreateRunRequest
 
 from tests.helpers import FakeResponse, make_config
+from tests.test_capabilities import valid_receipt
 
 
 def response_stream(response_id: str, text: str) -> FakeResponse:
@@ -40,6 +42,103 @@ def response_stream(response_id: str, text: str) -> FakeResponse:
 
 
 class ResponsesConnectorTest(unittest.TestCase):
+    def test_publishes_vss_artifact_with_a_responses_client_tool(self) -> None:
+        connector = ResponsesConnector(
+            make_config(
+                vss_capabilities=CapabilityReceipt.from_payload(valid_receipt())
+            )
+        )
+        requests: list[dict[str, object]] = []
+        artifact_arguments = json.dumps(
+            {
+                "version": "1.0",
+                "kind": "vss.search.results",
+                "payload": {"data": [], "job_id": "job-1"},
+            }
+        )
+        tool_events = [
+            (
+                "response.created",
+                {"type": "response.created", "response": {"id": "resp_tool"}},
+            ),
+            (
+                "response.output_item.added",
+                {
+                    "type": "response.output_item.added",
+                    "item": {
+                        "type": "function_call",
+                        "id": "item_publish",
+                        "call_id": "call_publish",
+                        "name": "vss_ui_publish_artifact",
+                    },
+                },
+            ),
+            (
+                "response.output_item.done",
+                {
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "id": "item_publish",
+                        "call_id": "call_publish",
+                        "name": "vss_ui_publish_artifact",
+                        "status": "completed",
+                        "arguments": artifact_arguments,
+                    },
+                },
+            ),
+            (
+                "response.completed",
+                {"type": "response.completed", "response": {"id": "resp_tool"}},
+            ),
+        ]
+        first_response = FakeResponse(
+            b"".join(
+                f"event: {event_type}\ndata: {json.dumps(payload)}\n\n".encode()
+                for event_type, payload in tool_events
+            )
+            + b"data: [DONE]\n\n"
+        )
+        responses = iter([first_response, response_stream("resp_final", "Done")])
+
+        def open_response(request: object, **_kwargs: object) -> FakeResponse:
+            requests.append(json.loads(request.data))  # type: ignore[attr-defined]
+            return next(responses)
+
+        request = CreateRunRequest.from_dict(
+            {
+                "thread_id": "thread-1",
+                "input": [{"role": "user", "content": "search"}],
+            }
+        )
+        with patch("urllib.request.urlopen", side_effect=open_response):
+            events = list(
+                connector.run(request, run_id="run_1", cancel_event=threading.Event())
+            )
+
+        self.assertEqual(
+            [event.type for event in events],
+            ["tool.started", "tool.requested", "tool.completed", "message.delta"],
+        )
+        self.assertIn(
+            "<vss-ui-artifact>",
+            str(events[2].data["output"]),
+        )
+        self.assertEqual(events[-1].data, {"delta": "Done"})
+        self.assertEqual(
+            requests[0]["tools"][0]["name"],  # type: ignore[index]
+            "vss_ui_publish_artifact",
+        )
+        self.assertIn(
+            "must call that tool exactly once",
+            str(requests[0]["instructions"]),
+        )
+        self.assertEqual(requests[1]["previous_response_id"], "resp_tool")
+        follow_up = requests[1]["input"][0]  # type: ignore[index]
+        self.assertEqual(follow_up["type"], "function_call_output")
+        self.assertEqual(follow_up["call_id"], "call_publish")
+        self.assertNotIn("vss-ui-artifact", str(follow_up["output"]))
+
     def test_uses_history_once_then_previous_response_for_matching_transcript(
         self,
     ) -> None:
@@ -88,6 +187,8 @@ class ResponsesConnectorTest(unittest.TestCase):
         self.assertEqual(first_events[0].data, {"delta": "Hello"})
         self.assertNotIn("previous_response_id", requests[0])
         self.assertEqual(len(requests[0]["input"]), 1)  # type: ignore[arg-type]
+        self.assertNotIn("tools", requests[0])
+        self.assertNotIn("instructions", requests[0])
         self.assertEqual(requests[1]["previous_response_id"], "resp_1")
         self.assertEqual(len(requests[1]["input"]), 1)  # type: ignore[arg-type]
         self.assertEqual(requests[1]["input"][0]["content"][0]["text"], "Next")  # type: ignore[index]

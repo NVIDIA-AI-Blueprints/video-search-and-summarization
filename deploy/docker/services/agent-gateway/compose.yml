@@ -15,6 +15,10 @@ services:
     # Bind the gateway itself to Docker's bridge gateway so only local
     # containers with the host-gateway mapping can dial it.
     network_mode: host
+    volumes:
+      # Keeps the challenge-signing device identity stable across container
+      # replacement. A secured OpenClaw gateway pairs this identity once.
+      - agent-gateway-state:/var/lib/vss-agent-gateway
     environment:
       AGENT_GATEWAY_BIND_HOST: ${VSS_AGENT_GATEWAY_BIND_HOST:-127.0.0.1}
       AGENT_GATEWAY_PORT: ${VSS_AGENT_GATEWAY_PORT:-18090}
@@ -25,9 +29,12 @@ services:
       AGENT_BACKEND_PATH: ${VSS_AGENT_BACKEND_PATH:-}
       AGENT_BACKEND_TOKEN: ${VSS_AGENT_BACKEND_TOKEN:-}
       AGENT_BACKEND_MODEL: ${VSS_AGENT_BACKEND_MODEL:-agent}
-      AGENT_BACKEND_SESSION_FIELD: ${VSS_AGENT_BACKEND_SESSION_FIELD:-user}
+      # `${name-default}` preserves the explicit empty value used by native
+      # session protocols while still defaulting Responses to `user`.
+      AGENT_BACKEND_SESSION_FIELD: ${VSS_AGENT_BACKEND_SESSION_FIELD-user}
       AGENT_BACKEND_SESSION_HEADER: ${VSS_AGENT_BACKEND_SESSION_HEADER:-}
       AGENT_BACKEND_HEADERS_JSON: "${VSS_AGENT_BACKEND_HEADERS_JSON:-{}}"
+      AGENT_BACKEND_STATE_DIR: /var/lib/vss-agent-gateway
       # The host-side bootstrap installs skills into the sandbox and injects a
       # digest-bound receipt. Generic chat may opt out, but VSS deployment
       # generation sets REQUIRE=true and therefore fails closed without it.
@@ -51,3 +58,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
+volumes:
+  agent-gateway-state:

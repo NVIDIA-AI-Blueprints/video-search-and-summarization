@@ -45,7 +45,14 @@ class GatewayService:
             },
             "artifact_protocol": {
                 "version": ARTIFACT_PROTOCOL_VERSION,
-                "transport": "agent-text-envelope",
+                "transport": "connector-normalized",
+                "transports": [
+                    "openclaw-tool-result",
+                    "vss-cli-completion",
+                    "responses-client-tool",
+                    "agent-tool-output",
+                    "agent-text-envelope",
+                ],
                 "kinds": ["vss.search.results", "vss.alert.incidents"],
             },
             "connector": self.connector.capabilities,
@@ -103,7 +110,7 @@ class GatewayService:
         return record, False
 
     def _run_worker(self, record: RunRecord) -> None:
-        artifact_parser = ArtifactStreamParser()
+        artifact_parser = ArtifactStreamParser(suppress_invalid_after_artifact=True)
 
         def append(event_type: str, data: dict[str, object]) -> None:
             if event_type == "message.delta":
@@ -113,8 +120,15 @@ class GatewayService:
                         record.append(parsed.type, parsed.data)
                     return
             if event_type == "tool.completed":
+                # Connectors may provide a private artifact source when an
+                # upstream tool result contains a VSS envelope but its raw
+                # command output must not be replayed to the browser.
+                data = dict(data)
+                artifact_source = data.pop("_artifact_source", None)
                 output = data.get("output")
-                artifacts = artifact_parser.inspect_complete(output)
+                artifacts = artifact_parser.inspect_complete(
+                    artifact_source if artifact_source is not None else output
+                )
                 if output is not None:
                     data = {**data, "output": strip_artifacts_from_value(output)}
                 record.append(event_type, data)

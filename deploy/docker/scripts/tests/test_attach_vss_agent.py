@@ -48,6 +48,8 @@ class RecordingRunner:
             return "SANDBOX BIND PORT PID STATUS\ndemo 127.0.0.1 18789 123 running"
         if command[-2:] == ["gateway-token", "--quiet"]:
             return "not-printed-token"
+        if "vss-openclaw-workspace" in command:
+            return "VSS_WORKSPACE=/sandbox/vss-openclaw-workspace"
         if "vss-identity-check" in command:
             self._identity_calls += 1
             root_index = command.index("vss-identity-check") + 1
@@ -270,12 +272,32 @@ class ValidationTests(unittest.TestCase):
     def test_hermes_identity_root_covers_its_canonical_state(self) -> None:
         self.assertEqual(attach.PROFILES["hermes"].identity_root, "/sandbox/.hermes")
 
-    def test_api_probe_rejects_an_oversized_model_list(self) -> None:
+    def test_openclaw_api_probe_uses_native_gateway_health(self) -> None:
+        runner = RecordingRunner()
+        health = io.BytesIO(b'{"ok":true,"status":"live"}')
+        with mock.patch.object(
+            attach.urllib.request, "urlopen", return_value=health
+        ) as urlopen:
+            readiness = attach.verify_api(
+                runner,
+                attach.PROFILES["openclaw"],
+                "demo",
+                "http://127.0.0.1:18789",
+            )
+
+        self.assertIsNotNone(readiness)
+        assert readiness is not None
+        self.assertEqual(readiness.model, "openclaw")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:18789/health")
+        self.assertNotIn("Authorization", request.headers)
+
+    def test_openclaw_api_probe_rejects_an_oversized_health_response(self) -> None:
         runner = RecordingRunner()
         oversized = io.BytesIO(b"x" * (attach.MAX_API_RESPONSE_BYTES + 1))
         with (
             mock.patch.object(attach.urllib.request, "urlopen", return_value=oversized),
-            self.assertRaisesRegex(attach.AttachError, "oversized model list"),
+            self.assertRaisesRegex(attach.AttachError, "oversized readiness response"),
         ):
             attach.verify_api(
                 runner,
@@ -286,9 +308,9 @@ class ValidationTests(unittest.TestCase):
 
     def test_api_probe_requires_the_live_responses_route(self) -> None:
         runner = RecordingRunner()
-        models = io.BytesIO(b'{"data":[{"id":"openclaw"}]}')
+        models = io.BytesIO(b'{"data":[{"id":"hermes-agent"}]}')
         missing_route = urllib.error.HTTPError(
-            "http://127.0.0.1:18789/v1/responses",
+            "http://127.0.0.1:8642/v1/responses",
             404,
             "Not Found",
             hdrs=None,
@@ -304,9 +326,9 @@ class ValidationTests(unittest.TestCase):
         ):
             attach.verify_api(
                 runner,
-                attach.PROFILES["openclaw"],
+                attach.PROFILES["hermes"],
                 "demo",
-                "http://127.0.0.1:18789",
+                "http://127.0.0.1:8642",
             )
 
 
@@ -356,10 +378,42 @@ class AttachFlowTests(unittest.TestCase):
         policy_path = policy_commands[0][policy_commands[0].index("--from-file") + 1]
         self.assertTrue(policy_path.endswith(".yaml"))
         self.assertNotIn("--trusted-private-host", policy_commands[0])
+        self.assertFalse(any("responses.enabled" in command for command in flattened))
         self.assertTrue(
             any(
-                "openclaw config set gateway.http.endpoints.responses.enabled true"
-                in command
+                "tools.exec.pathPrepend" in command and "/sandbox/.local/bin" in command
+                for command in flattened
+            )
+        )
+        self.assertTrue(
+            any(
+                "skills.load.extraDirs" in command
+                and "/sandbox/.openclaw/skills" in command
+                for command in flattened
+            )
+        )
+        self.assertTrue(
+            any(
+                "workspace_root=$identity_root/skills" in command
+                and ".vss-managed-skill" in command
+                and "refusing to replace operator-owned" in command
+                for command in flattened
+            )
+        )
+        self.assertTrue(
+            any(
+                "env.VSS_CAPABILITY_RECEIPT" in command
+                and "env.VSS_REPO_ROOT" in command
+                and "env.VSS_ORIGIN" in command
+                and "env.SHELL" in command
+                for command in flattened
+            )
+        )
+        self.assertTrue(
+            any(
+                "/sandbox/vss-openclaw-workspace" in command
+                and "ln -s" in command
+                and "agents.list[$index].workspace" in command
                 for command in flattened
             )
         )
@@ -405,6 +459,23 @@ class AttachFlowTests(unittest.TestCase):
             any(command.startswith("nemohermes demo") for command in flattened)
         )
         self.assertFalse(any("openclaw config" in command for command in flattened))
+        self.assertFalse(
+            any("tools.exec.pathPrepend" in command for command in flattened)
+        )
+        self.assertFalse(
+            any("skills.load.extraDirs" in command for command in flattened)
+        )
+        self.assertFalse(
+            any(
+                "workspace_root=$identity_root/skills" in command
+                for command in flattened
+            )
+        )
+        self.assertFalse(any("env.VSS_ORIGIN" in command for command in flattened))
+        self.assertFalse(any("env.SHELL" in command for command in flattened))
+        self.assertFalse(
+            any("/sandbox/vss-openclaw-workspace" in command for command in flattened)
+        )
         self.assertFalse(any(" gateway restart" in command for command in flattened))
 
     def test_verified_api_accepts_an_operator_owned_forward(self) -> None:
@@ -413,7 +484,9 @@ class AttachFlowTests(unittest.TestCase):
         with (
             mock.patch.object(attach.shutil, "which", return_value="/usr/bin/nemoclaw"),
             mock.patch.object(attach, "verify_source_snapshot"),
-            mock.patch.object(attach, "enable_api", return_value=restart_error),
+            mock.patch.object(
+                attach, "restart_gateway_after_config", return_value=restart_error
+            ),
             mock.patch.object(
                 attach,
                 "verify_api",
@@ -428,7 +501,7 @@ class AttachFlowTests(unittest.TestCase):
             result = attach.attach(make_args(self.root), runner)
 
         self.assertIsNotNone(result.api)
-        self.assertIn("live authenticated Responses API is ready", output.getvalue())
+        self.assertIn("live authenticated agent gateway is ready", output.getvalue())
 
     def test_identity_drift_fails_closed(self) -> None:
         runner = RecordingRunner(identity_drift=True)
@@ -482,6 +555,11 @@ class AttachFlowTests(unittest.TestCase):
         self.assertEqual(values["VSS_AGENT_GATEWAY_CAPABILITIES_SHA256"], digest)
         self.assertEqual(values["VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"], "a" * 40)
         self.assertEqual(values["VSS_AGENT_BACKEND_TOKEN"], "backend-token")
+        self.assertEqual(values["VSS_AGENT_BACKEND_PROTOCOL"], "openclaw-ws")
+        self.assertEqual(values["VSS_AGENT_BACKEND_URL"], "ws://127.0.0.1:18789")
+        self.assertEqual(values["VSS_AGENT_BACKEND_PATH"], "/")
+        self.assertEqual(values["VSS_AGENT_BACKEND_SESSION_FIELD"], "")
+        self.assertEqual(values["VSS_AGENT_BACKEND_SESSION_HEADER"], "")
         self.assertNotIn("backend-token", output.getvalue())
         self.assertEqual(args.gateway_env_output.stat().st_mode & 0o777, 0o600)
         self.assertEqual(args.receipt_output.stat().st_mode & 0o777, 0o600)

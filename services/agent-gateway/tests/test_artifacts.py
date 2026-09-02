@@ -59,6 +59,85 @@ class ParseArtifactTests(unittest.TestCase):
 
 
 class ArtifactStreamParserTests(unittest.TestCase):
+    def test_extracts_search_output_bound_to_its_completion_marker(self) -> None:
+        result = {
+            "data": [{"video_name": "clip.mp4", "similarity": 0.9}],
+            "search_messages": [],
+            "job_id": "search-123",
+        }
+        completed = {
+            "event": "vss_job_completed",
+            "group": "search",
+            "job_id": "search-123",
+            "status": "completed",
+            "exit_hint": 0,
+        }
+        output = f"log line\n{json.dumps(result)}\n{json.dumps(completed)}\n"
+
+        events = ArtifactStreamParser().inspect_complete(
+            {"content": [{"type": "text", "text": output}]}
+        )
+
+        self.assertEqual([event.type for event in events], ["artifact.created"])
+        self.assertEqual(events[0].data["kind"], "vss.search.results")
+        self.assertEqual(events[0].data["payload"], result)
+
+    def test_does_not_publish_search_output_without_matching_success_marker(
+        self,
+    ) -> None:
+        result = {
+            "data": [],
+            "search_messages": [],
+            "job_id": "search-123",
+        }
+        wrong_job = {
+            "event": "vss_job_completed",
+            "group": "search",
+            "job_id": "search-other",
+            "status": "completed",
+            "exit_hint": 0,
+        }
+
+        events = ArtifactStreamParser().inspect_complete(
+            f"{json.dumps(result)}\n{json.dumps(wrong_job)}"
+        )
+
+        self.assertEqual(events, [])
+
+    def test_hides_damaged_envelope_after_a_valid_tool_artifact(self) -> None:
+        parser = ArtifactStreamParser(suppress_invalid_after_artifact=True)
+        result = {
+            "data": [],
+            "search_messages": [],
+            "job_id": "search-123",
+        }
+        completed = {
+            "event": "vss_job_completed",
+            "group": "search",
+            "job_id": "search-123",
+            "status": "completed",
+            "exit_hint": 0,
+        }
+        self.assertEqual(
+            len(
+                parser.inspect_complete(
+                    f"{json.dumps(result)}\n{json.dumps(completed)}"
+                )
+            ),
+            1,
+        )
+
+        damaged = (
+            f'{ARTIFACT_OPEN}{{"version":"1.0","kind":"vss.search.results",'
+            f'"payload":{{"data":[}}{ARTIFACT_CLOSE}'
+        )
+        events = parser.feed(f"done{damaged}") + parser.finish()
+
+        self.assertEqual(
+            [(event.type, event.data) for event in events],
+            [("message.delta", {"delta": "done"})],
+        )
+
     def test_extracts_split_envelope_without_exposing_it_as_text(self) -> None:
         parser = ArtifactStreamParser()
         value = f"Before {envelope()} after"

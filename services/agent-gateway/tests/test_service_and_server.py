@@ -125,6 +125,16 @@ class GatewayServiceTest(unittest.TestCase):
             capabilities["artifact_protocol"]["kinds"],
             ["vss.search.results", "vss.alert.incidents"],
         )
+        self.assertEqual(
+            capabilities["artifact_protocol"]["transports"],
+            [
+                "openclaw-tool-result",
+                "vss-cli-completion",
+                "responses-client-tool",
+                "agent-tool-output",
+                "agent-text-envelope",
+            ],
+        )
         self.assertEqual(capabilities["vss"], {"attached": False, "ready": False})
 
     def test_capabilities_advertise_verified_vss_readiness(self) -> None:

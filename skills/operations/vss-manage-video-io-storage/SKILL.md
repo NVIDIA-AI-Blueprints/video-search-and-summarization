@@ -64,7 +64,7 @@ Follow the shared public-Ingress contract in
 (`VSS_PUBLIC_URL`, `VSS_VIOS_URL`, `VST_API_BASE`, `VSS_STREAMER_URL`).
 
 ```bash
-VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
   VSS_RECEIPT_ORIGIN=$(jq -er \
     '(.vss_origin // "") | select(type == "string")' \

@@ -26,6 +26,10 @@ Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, veri
 
 Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
 
+When the capability receipt enables VSS UI artifacts, publishing the exact
+validated incident result is part of a successful incident query. Do not
+finish with prose alone.
+
 ## Examples
 
 Runnable end-to-end scenarios live under `evals/` (each `*.json` manifest); inline `curl` blocks appear in each workflow below. Replay with `nv-base validate <this-skill-dir> --agent-eval`.
@@ -68,7 +72,7 @@ Requires the VSS **alerts** profile in either `verification` (CV) or `real-time`
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
 fi
-VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
   VSS_RECEIPT_ORIGIN=$(jq -er '(.vss_origin // "") | select(type == "string")' \
     "$VSS_CAPABILITY_RECEIPT") || exit 1
@@ -594,7 +598,8 @@ response in `INCIDENT_JSON`. If an unfiltered VIOS-down fallback required
 client-side sensor filtering, set `INCIDENT_JSON` to a new object containing
 only the rows actually displayed and their correct filtered `count`/`total`;
 never send unrelated sensors to the UI. When the BYO-agent capability receipt
-enables artifact protocol `1.0`, append this envelope after the human answer:
+enables artifact protocol `1.0`, produce this envelope from the same exec
+result that validates the incident response:
 
 ```bash
 if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
@@ -605,10 +610,12 @@ if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
 fi
 ```
 
-Copy that command's single output line verbatim into the final response. The
-gateway turns it into `artifact.created`; the Chat UI renders incident cards
-and the Alerts tab refreshes. Do not emit it for rule inventory, rule mutation,
-or a failed/unvalidated query.
+If `vss_ui_publish_artifact` is an available tool, call it exactly once with
+the envelope's exact JSON object, then finish the human answer without copying
+the XML. Otherwise copy the command's single output line verbatim into the
+final response. The gateway turns either transport into `artifact.created`;
+the Chat UI renders incident cards and the Alerts tab refreshes. Do not emit it
+for rule inventory, rule mutation, or a failed/unvalidated query.
 
 > **Do NOT list subscription rules for an incident query.** The **bare** `GET /api/v1/realtime` (no `/incidents`) lists *rules* (Workflow D) and is wrong for "what happened".
 

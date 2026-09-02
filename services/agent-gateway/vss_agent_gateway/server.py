@@ -14,7 +14,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from .config import GatewayConfig
-from .connectors import LegacyChatConnector, ResponsesConnector
+from .connectors import (
+    LegacyChatConnector,
+    OpenClawWebSocketConnector,
+    ResponsesConnector,
+)
 from .contract import ContractError, CreateRunRequest, RunEvent
 from .json_codec import strict_json_loads
 from .service import GatewayService
@@ -35,10 +39,12 @@ RESPOND_PATH = re.compile(r"^/v1/runs/([^/]+)/respond$")
 
 
 def build_service(config: GatewayConfig) -> GatewayService:
-    if config.backend_protocol == "responses":
-        connector = ResponsesConnector(config)
-    else:
-        connector = LegacyChatConnector(config)
+    connectors = {
+        "legacy-chat": LegacyChatConnector,
+        "openclaw-ws": OpenClawWebSocketConnector,
+        "responses": ResponsesConnector,
+    }
+    connector = connectors[config.backend_protocol](config)
     return GatewayService(config, connector)
 
 

@@ -9,11 +9,12 @@ import ipaddress
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 from .capabilities import CapabilityError, CapabilityReceipt, decode_receipt
 
-SUPPORTED_PROTOCOLS = frozenset({"responses", "legacy-chat"})
+SUPPORTED_PROTOCOLS = frozenset({"openclaw-ws", "responses", "legacy-chat"})
 RESERVED_UPSTREAM_HEADERS = frozenset(
     {
         "accept",
@@ -23,8 +24,13 @@ RESERVED_UPSTREAM_HEADERS = frozenset(
         "content-type",
         "host",
         "keep-alive",
+        "origin",
         "proxy-authenticate",
         "proxy-authorization",
+        "sec-websocket-extensions",
+        "sec-websocket-key",
+        "sec-websocket-protocol",
+        "sec-websocket-version",
         "te",
         "trailer",
         "transfer-encoding",
@@ -91,15 +97,30 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def _validated_url(value: str, name: str) -> str:
+def _validated_url(
+    value: str,
+    name: str,
+    *,
+    schemes: frozenset[str] = frozenset({"http", "https"}),
+) -> str:
     parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ConfigError(f"{name} must be an absolute http or https URL")
+    if parsed.scheme not in schemes or not parsed.netloc:
+        allowed = " or ".join(sorted(schemes))
+        raise ConfigError(f"{name} must be an absolute {allowed} URL")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ConfigError(
             f"{name} must not contain credentials, a query, or a fragment"
         )
     return value.rstrip("/")
+
+
+def _validated_state_dir(value: str) -> str:
+    path = Path(value)
+    if not path.is_absolute() or path == Path("/") or ".." in path.parts:
+        raise ConfigError(
+            "AGENT_BACKEND_STATE_DIR must be an absolute directory other than /"
+        )
+    return str(path)
 
 
 def _safe_header_name(value: str) -> bool:
@@ -188,6 +209,7 @@ class GatewayConfig:
     backend_session_field: str | None
     backend_session_header: str | None
     backend_headers: dict[str, str]
+    backend_state_dir: str
     request_timeout_seconds: float
     run_retention_seconds: int
     max_runs: int
@@ -212,9 +234,19 @@ class GatewayConfig:
             supported = ", ".join(sorted(SUPPORTED_PROTOCOLS))
             raise ConfigError(f"AGENT_BACKEND_PROTOCOL must be one of: {supported}")
         backend_url = _validated_url(
-            os.environ.get("AGENT_BACKEND_URL", ""), "AGENT_BACKEND_URL"
+            os.environ.get("AGENT_BACKEND_URL", ""),
+            "AGENT_BACKEND_URL",
+            schemes=(
+                frozenset({"ws", "wss"})
+                if protocol == "openclaw-ws"
+                else frozenset({"http", "https"})
+            ),
         )
-        default_path = "/v1/responses" if protocol == "responses" else "/chat/stream"
+        default_path = {
+            "openclaw-ws": "/",
+            "responses": "/v1/responses",
+            "legacy-chat": "/chat/stream",
+        }[protocol]
         backend_path = os.environ.get("AGENT_BACKEND_PATH", "").strip() or default_path
         if (
             not backend_path.startswith("/")
@@ -260,6 +292,12 @@ class GatewayConfig:
             backend_session_field=session_field,
             backend_session_header=session_header,
             backend_headers=_extra_headers(),
+            backend_state_dir=_validated_state_dir(
+                os.environ.get(
+                    "AGENT_BACKEND_STATE_DIR", "/var/lib/vss-agent-gateway"
+                ).strip()
+                or "/var/lib/vss-agent-gateway"
+            ),
             request_timeout_seconds=_float_env(
                 "AGENT_BACKEND_TIMEOUT_SECONDS", 900.0, 1.0, 3600.0
             ),

@@ -596,7 +596,9 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] = "false"
     merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] = "false"
     defaults = {
-        "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",
+        # NOSONAR S5332: this hop stays on the single-host private Docker bridge;
+        # bearer authentication remains mandatory and no public route is created.
+        "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",  # NOSONAR
         "VSS_AGENT_BACKEND_PROTOCOL": "responses",
         "VSS_AGENT_BACKEND_MODEL": "agent",
         "VSS_AGENT_BACKEND_SESSION_FIELD": "user",

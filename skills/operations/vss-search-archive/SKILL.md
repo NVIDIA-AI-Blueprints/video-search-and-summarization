@@ -28,6 +28,9 @@ an agent `/api` route**; on a build without one, they belong to
   does. That recipe owns the direct calls this rule otherwise forbids.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
+- When the capability receipt enables VSS UI artifacts, publishing the exact
+  validated search result is part of a successful search. Do not finish with
+  prose alone.
 - The CLI attempts critic verification by default. Do not separately inspect
   screenshots or call another verifier during the initial search turn.
 - Offer delegated verification only when every displayed result is
@@ -45,7 +48,7 @@ an agent `/api` route**; on a build without one, they belong to
 Resolve and validate the checkout once:
 
 ```bash
-VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
 if [ -z "${VSS_REPO_ROOT:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
   VSS_REPO_ROOT=$(jq -er '.runtime.repo_root | select(type == "string" and length > 0)' \
     "$VSS_CAPABILITY_RECEIPT") || exit 1
@@ -199,6 +202,16 @@ printf '%s' "${SEARCH_COMPLETION}" |
     echo "Search completion marker did not validate" >&2
     exit 1
   }
+
+# Publish from the same exec result that validated the search. Harnesses that
+# expose server-tool output let the gateway consume this envelope directly.
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
+if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
+   jq -e '.ui_artifacts.version == "1.0"' "$VSS_CAPABILITY_RECEIPT" >/dev/null; then
+  VSS_UI_ARTIFACT=$(jq -cn --argjson payload "$SEARCH_JSON" \
+    '{version:"1.0",kind:"vss.search.results",payload:$payload}') || exit 1
+  printf '<vss-ui-artifact>%s</vss-ui-artifact>\n' "$VSS_UI_ARTIFACT"
+fi
 ```
 
 Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
@@ -247,24 +260,20 @@ entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
 omit it even when other hits are unverified. Never deploy a VLM or call
 `vss-ask-video` automatically during this results turn.
 
-When `${HOME}/.vss/agent-capabilities.json` declares UI artifact protocol
-`1.0`, append one machine-readable envelope after the human answer. Use the
-exact validated `SEARCH_JSON`; do not reconstruct, summarize, fence, or modify
-its fields. The VSS gateway removes this envelope from chat prose and emits a
-structured `artifact.created` event, while the Search tab consumes the same
-payload to render result cards.
+When the search command prints the machine-readable envelope, publish its
+exact JSON object without reconstructing, summarizing, fencing, or modifying
+the payload:
 
-```bash
-if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
-   jq -e '.ui_artifacts.version == "1.0"' "$VSS_CAPABILITY_RECEIPT" >/dev/null; then
-  VSS_UI_ARTIFACT=$(jq -cn --argjson payload "$SEARCH_JSON" \
-    '{version:"1.0",kind:"vss.search.results",payload:$payload}') || exit 1
-  printf '<vss-ui-artifact>%s</vss-ui-artifact>\n' "$VSS_UI_ARTIFACT"
-fi
-```
+- If `vss_ui_publish_artifact` is an available tool, call it exactly once with
+  that JSON object. After its success result, finish the human-facing answer
+  without copying the XML envelope into prose.
+- Otherwise, copy the command's single envelope line verbatim into the final
+  response. The gateway strips it from prose when the upstream exposes only
+  final text.
 
-Copy that command's single output line verbatim into the final response. Never
-emit an artifact when the search command or JSON validation failed.
+The gateway emits `artifact.created`, and the Search tab consumes the payload
+to render result cards. Never publish an artifact when the search command or
+JSON validation failed.
 
 8. If the user explicitly confirms, read
 [search-result verification](references/result_verification.md) completely and

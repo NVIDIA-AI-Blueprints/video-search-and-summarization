@@ -19,6 +19,7 @@ ARTIFACT_CLOSE = "</vss-ui-artifact>"
 ARTIFACT_PROTOCOL_VERSION = "1.0"
 MAX_ARTIFACT_LENGTH = 1_000_000
 MAX_TRACKED_ARTIFACTS = 10_000
+MAX_JSON_DOCUMENTS = 100
 _KIND_PATTERN = re.compile(r"^vss\.[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 
 
@@ -99,9 +100,10 @@ class ArtifactStreamParser:
     bug can never silently eat an agent response.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, suppress_invalid_after_artifact: bool = False) -> None:
         self._buffer = ""
         self._seen: OrderedDict[str, None] = OrderedDict()
+        self._suppress_invalid_after_artifact = suppress_invalid_after_artifact
 
     def _artifact_event(self, artifact: VssUiArtifact) -> ConnectorEvent | None:
         if artifact.artifact_id in self._seen:
@@ -111,6 +113,85 @@ class ArtifactStreamParser:
         if len(self._seen) > MAX_TRACKED_ARTIFACTS:
             self._seen.popitem(last=False)
         return artifact.event()
+
+    @staticmethod
+    def _json_documents(value: str) -> list[object]:
+        """Decode bounded JSON documents embedded in CLI stdout.
+
+        ``JSONDecoder`` locates each document, while ``strict_json_loads``
+        re-validates its exact bytes to reject duplicate keys and non-finite
+        numbers before any value can become a UI artifact.
+        """
+
+        decoder = json.JSONDecoder()
+        documents: list[object] = []
+        cursor = 0
+        while cursor < len(value) and len(documents) < MAX_JSON_DOCUMENTS:
+            start = value.find("{", cursor)
+            if start < 0:
+                break
+            try:
+                _, end = decoder.raw_decode(value, start)
+            except (json.JSONDecodeError, RecursionError):
+                cursor = start + 1
+                continue
+            try:
+                documents.append(strict_json_loads(value[start:end]))
+            except ValueError:
+                cursor = start + 1
+                continue
+            cursor = end
+        return documents
+
+    def _inspect_vss_cli_search(self, value: str) -> list[ConnectorEvent]:
+        """Recognize an exact completed VSS CLI search transaction.
+
+        The completion marker binds the candidate result to a successful
+        search job. This avoids asking a model to reconstruct JSON while still
+        requiring the same evidence the search skill validates.
+        """
+
+        documents = self._json_documents(value)
+        completed_jobs = {
+            document.get("job_id")
+            for document in documents
+            if isinstance(document, dict)
+            and document.get("event") == "vss_job_completed"
+            and document.get("group") == "search"
+            and document.get("status") == "completed"
+            and document.get("exit_hint") == 0
+            and isinstance(document.get("job_id"), str)
+            and 0 < len(document["job_id"]) <= 256
+        }
+        events: list[ConnectorEvent] = []
+        for document in documents:
+            if (
+                not isinstance(document, dict)
+                or document.get("job_id") not in completed_jobs
+                or not isinstance(document.get("data"), list)
+                or not isinstance(document.get("search_messages"), list)
+            ):
+                continue
+            try:
+                encoded = json.dumps(
+                    {
+                        "version": ARTIFACT_PROTOCOL_VERSION,
+                        "kind": "vss.search.results",
+                        "payload": document,
+                    },
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            except (TypeError, ValueError, RecursionError):
+                continue
+            artifact = parse_artifact(encoded)
+            if artifact is None:
+                continue
+            event = self._artifact_event(artifact)
+            if event is not None:
+                events.append(event)
+        return events
 
     def inspect_complete(self, value: object) -> list[ConnectorEvent]:
         """Find complete envelopes in a tool result without changing its content.
@@ -130,6 +211,7 @@ class ArtifactStreamParser:
             if isinstance(candidate, str):
                 if len(candidate) > MAX_ARTIFACT_LENGTH * 2:
                     continue
+                events.extend(self._inspect_vss_cli_search(candidate))
                 cursor = 0
                 while cursor < len(candidate):
                     opening = candidate.find(ARTIFACT_OPEN, cursor)
@@ -191,7 +273,15 @@ class ArtifactStreamParser:
             self._buffer = self._buffer[end:]
             artifact = parse_artifact(raw_payload)
             if artifact is None:
-                events.append(ConnectorEvent("message.delta", {"delta": raw_envelope}))
+                # Once this run has already produced a validated artifact from
+                # a tool result, a later artifact-shaped block is transport
+                # noise even if the model damaged its JSON while copying it.
+                # Preserve malformed markup when no valid artifact exists so
+                # ordinary assistant content is never silently discarded.
+                if not self._seen or not self._suppress_invalid_after_artifact:
+                    events.append(
+                        ConnectorEvent("message.delta", {"delta": raw_envelope})
+                    )
                 continue
             event = self._artifact_event(artifact)
             if event is not None:

@@ -5,6 +5,13 @@
 
 from .base import Connector, ConnectorError
 from .legacy_chat import LegacyChatConnector
+from .openclaw_ws import OpenClawWebSocketConnector
 from .responses import ResponsesConnector
 
-__all__ = ["Connector", "ConnectorError", "LegacyChatConnector", "ResponsesConnector"]
+__all__ = [
+    "Connector",
+    "ConnectorError",
+    "LegacyChatConnector",
+    "OpenClawWebSocketConnector",
+    "ResponsesConnector",
+]

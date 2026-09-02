@@ -85,7 +85,7 @@ Helm), resolve public endpoints once. Follow
 [`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md):
 
 ```bash
-VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
   VSS_RECEIPT_ORIGIN=$(jq -er \
     '(.vss_origin // "") | select(type == "string")' \
@@ -313,7 +313,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
    # Omit the window to take the whole recorded segment; the response echoes what it resolved.
    # CLI bootstrap and exit codes: AGENTS.md at the repo root
-   VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+   VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
    if [ -z "${VSS_REPO_ROOT:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
      VSS_REPO_ROOT=$(jq -er \
        '.runtime.repo_root | select(type == "string" and length > 0)' \

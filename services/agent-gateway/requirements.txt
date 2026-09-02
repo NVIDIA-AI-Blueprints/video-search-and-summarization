@@ -1,0 +1,2 @@
+cryptography==50.0.1
+websocket-client==1.9.2

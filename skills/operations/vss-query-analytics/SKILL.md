@@ -64,7 +64,7 @@ through VA-MCP.
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
 fi
-VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
   VSS_RECEIPT_ORIGIN=$(jq -er \
     '(.vss_origin // "") | select(type == "string")' \
@@ -104,7 +104,7 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
    if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
      VSS_PUBLIC_URL="${VSS_ENDPOINT}"
    fi
-   VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+   VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
    if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
      VSS_RECEIPT_ORIGIN=$(jq -er \
        '(.vss_origin // "") | select(type == "string")' \
@@ -146,7 +146,7 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
 fi
-VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
   VSS_RECEIPT_ORIGIN=$(jq -er \
     '(.vss_origin // "") | select(type == "string")' \
@@ -261,7 +261,7 @@ JSON-RPC 2.0 over Server-Sent Events.
    if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
      VSS_PUBLIC_URL="${VSS_ENDPOINT}"
    fi
-   VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+   VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
    if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
      VSS_RECEIPT_ORIGIN=$(jq -er \
        '(.vss_origin // "") | select(type == "string")' \

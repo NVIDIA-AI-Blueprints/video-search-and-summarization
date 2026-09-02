@@ -29,6 +29,25 @@ def _source(cell: dict[str, Any]) -> str:
 
 
 class ExternalAgentNotebookContractTest(unittest.TestCase):
+    def test_operational_skills_accept_an_explicit_receipt_location(self) -> None:
+        receipt_users = []
+        for path in (REPO_ROOT / "skills").rglob("SKILL.md"):
+            source = path.read_text(encoding="utf-8")
+            if "VSS_CAPABILITY_RECEIPT=" not in source:
+                continue
+            receipt_users.append(path)
+            self.assertNotIn(
+                'VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"',
+                source,
+                path,
+            )
+            self.assertIn(
+                'VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"',
+                source,
+                path,
+            )
+        self.assertTrue(receipt_users)
+
     def test_dedicated_notebook_installs_the_recursive_catalog_and_receipt(
         self,
     ) -> None:
@@ -42,9 +61,22 @@ class ExternalAgentNotebookContractTest(unittest.TestCase):
         self.assertIn('"identity_mode": "dedicated"', source)
         self.assertIn('"version": "1.0"', source)
         self.assertIn("/sandbox/.vss/agent-capabilities.json", source)
+        self.assertIn("tools.exec.pathPrepend", source)
+        self.assertIn('["/sandbox/.local/bin"]', source)
+        self.assertIn("skills.load.extraDirs", source)
+        self.assertIn('["/sandbox/.openclaw/skills"]', source)
+        self.assertIn("/sandbox/vss-openclaw-workspace", source)
+        self.assertIn(".vss-managed-skill", source)
+        self.assertIn("agents.defaults.workspace", source)
+        self.assertIn("refusing to replace existing OpenClaw workspace alias", source)
+        self.assertIn("env.VSS_CAPABILITY_RECEIPT", source)
+        self.assertIn("env.VSS_REPO_ROOT", source)
+        self.assertIn("env.VSS_ORIGIN", source)
+        self.assertIn("env.SHELL", source)
 
     def test_orchestrator_passes_a_commit_bound_receipt_to_the_gateway(self) -> None:
         notebook = _notebook(ORCHESTRATOR_NOTEBOOK)
+        notebook_source = "\n".join(_source(cell) for cell in notebook["cells"])
         gateway_cell = next(
             cell
             for cell in notebook["cells"]
@@ -57,7 +89,17 @@ class ExternalAgentNotebookContractTest(unittest.TestCase):
         self.assertIn('"VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true"', source)
         self.assertIn("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256", source)
         self.assertIn("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF", source)
-        self.assertIn('"VSS_AGENT_BACKEND_PROTOCOL": "responses"', source)
+        self.assertIn(
+            'VSS_AGENT_BACKEND_PROTOCOL = "openclaw-ws" if AGENT_RUNTIME == "openclaw" else "responses"',
+            notebook_source,
+        )
+        self.assertIn(
+            'probe_path = "/health" if AGENT_RUNTIME == "openclaw" else "/v1/models"',
+            source,
+        )
+        self.assertIn(
+            '"VSS_AGENT_BACKEND_PROTOCOL": VSS_AGENT_BACKEND_PROTOCOL', source
+        )
 
     def test_harbor_nemoclaw_setup_executes_both_checked_in_notebooks(self) -> None:
         source = HARBOR_ADAPTER.read_text(encoding="utf-8")

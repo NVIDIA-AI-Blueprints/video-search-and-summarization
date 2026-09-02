@@ -9,9 +9,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     AGENT_GATEWAY_PORT=8090
 
 RUN groupadd --system gateway \
-    && useradd --system --gid gateway --home-dir /opt/vss-agent-gateway gateway
+    && useradd --system --gid gateway --home-dir /opt/vss-agent-gateway gateway \
+    && install -d -m 0700 -o gateway -g gateway /var/lib/vss-agent-gateway
 
 WORKDIR /opt/vss-agent-gateway
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --requirement requirements.txt
 COPY --chown=gateway:gateway vss_agent_gateway ./vss_agent_gateway
 
 USER gateway

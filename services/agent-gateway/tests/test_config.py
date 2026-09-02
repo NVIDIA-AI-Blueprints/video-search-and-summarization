@@ -25,6 +25,33 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.backend_path, "/v1/responses")
         self.assertEqual(config.backend_session_field, "user")
 
+    def test_openclaw_websocket_uses_websocket_url_and_root_path(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AGENT_BACKEND_PROTOCOL": "openclaw-ws",
+                "AGENT_BACKEND_URL": "wss://openclaw.example.test",
+            },
+            clear=True,
+        ):
+            config = GatewayConfig.from_env()
+
+        self.assertEqual(config.backend_protocol, "openclaw-ws")
+        self.assertEqual(config.backend_path, "/")
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "AGENT_BACKEND_PROTOCOL": "openclaw-ws",
+                    "AGENT_BACKEND_URL": "https://openclaw.example.test",
+                },
+                clear=True,
+            ),
+            self.assertRaisesRegex(ConfigError, "ws or wss"),
+        ):
+            GatewayConfig.from_env()
+
     def test_non_loopback_bind_requires_authentication(self) -> None:
         with (
             patch.dict(

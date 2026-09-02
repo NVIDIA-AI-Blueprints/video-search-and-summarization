@@ -10,15 +10,17 @@
 
 The VSS UI speaks the VSS-owned run/event contract to `agent-gateway`. The
 gateway selects a wire-protocol connector, not a harness-specific code path.
-OpenClaw and Hermes both use the `responses` connector; another backend that
-implements the same protocol uses the same configuration.
+OpenClaw uses its native protocol-v4 WebSocket connector so its structured tool
+events remain visible. Hermes uses the generic `responses` connector; another
+backend that implements Responses uses the same configuration.
 
 The selected harness owns prompts, sessions, skills, tools, shell commands,
 permissions, and model calls. The gateway normalizes chat/run events and keeps
 the harness credential out of browser code. It must never execute a skill or
-tool on the harness's behalf. Structured tool progress is limited to events the
-upstream protocol exposes; use a richer protocol connector later if interactive
-approvals or backend-private trajectory events are required.
+tool on the harness's behalf. The native OpenClaw connector requests
+`tool-events`, but neither its raw arguments nor command output cross into the
+browser. Use another protocol connector when a harness exposes interactive
+approvals or richer events through a different wire contract.
 
 This separates two kinds of portability:
 
@@ -43,11 +45,17 @@ with no capability attachment is generic chat only and is not a ready external
 VSS agent.
 
 Search results and alert incidents cross the data-plane boundary as versioned
-VSS UI artifacts. The operational skill emits the exact validated response in
-a `<vss-ui-artifact>` envelope; the gateway extracts it from exposed tool output
-or final text and emits `artifact.created`. The UI uses
-`vss.search.results` for Search result cards and `vss.alert.incidents` for Chat
-incident cards plus Alerts-tab refresh. Do not add a harness-specific renderer.
+VSS UI artifacts. The Responses connector offers one protocol-level
+`vss_ui_publish_artifact` client function for harnesses that hide backend tool
+output. For native OpenClaw search, the connector privately recognizes the
+exact strict VSS `SearchOutput` plus its matching successful
+`vss_job_completed` marker from a completed exec result, so the model need not
+reconstruct JSON. A completed tool result can also carry a
+`<vss-ui-artifact>` envelope; other harnesses can use the same envelope in tool
+output, with final text as a fallback. The gateway validates and normalizes
+every path to `artifact.created`. The UI uses `vss.search.results` for Search result cards and
+`vss.alert.incidents` for Chat incident cards plus Alerts-tab refresh. Do not
+add a harness-specific renderer.
 
 This owner is reached only by an explicit request to connect an external agent
 harness to VSS UI. It makes the build a Delta even when the underlying vision
@@ -62,9 +70,9 @@ services otherwise match a stock profile.
   prune `vss-agent`, `phoenix`, and model peers reachable only through it.
   Keep them when another selected capability (for example an LVS workflow)
   explicitly requires them.
-- The harness API must be running before deployment generation. OpenClaw's
-  `/v1/responses` endpoint must be enabled; NemoHermes exposes its Responses API
-  through its API forward.
+- The harness API must be running before deployment generation. OpenClaw uses
+  its Gateway WebSocket and does not require `/v1/responses`; NemoHermes exposes
+  its Responses API through its API forward.
 
 ## Single-host Compose network contract
 
@@ -121,10 +129,15 @@ The origin may be the planned origin of the graph about to be deployed; the
 bootstrap configures it but deployment readiness must prove it is reachable.
 The script recursively installs the complete skill catalog, prepares the
 project CLI at the exact source commit, applies the narrowly scoped network
-policy, enables and probes the harness Responses API, verifies that identity
-files did not change, and writes both host artifacts mode `0600`. It also binds
-the capability receipt to that immutable commit. Never print, source, or commit
-`agent-gateway.env`: it contains both gateway and harness credentials.
+policy, probes the harness API, verifies that identity files did not change,
+and writes both host artifacts mode `0600`. For OpenClaw, the probe checks the
+native Gateway's documented `/health` endpoint and obtains the operator token;
+for Hermes, it checks the authenticated model list and Responses route.
+The bootstrap binds the capability receipt to that immutable commit. OpenClaw attachment promotes
+the official catalog into its highest-precedence workspace skill root, refuses
+an operator-owned same-name collision, and aligns the `~` path in OpenClaw's
+skill cards with NemoClaw's durable sandbox state. Never print, source, or
+commit `agent-gateway.env`: it contains both gateway and harness credentials.
 
 Pass `agent-gateway.env` as the final env layer only while generating
 `resolved.yml`; deploy the resolved file with no env files. A repeated bootstrap
@@ -154,12 +167,13 @@ same values directly to the resolver without displaying them:
 | `VSS_AGENT_GATEWAY_CAPABILITIES_B64` | Canonical capability receipt; generated by the bootstrap. |
 | `VSS_AGENT_GATEWAY_CAPABILITIES_SHA256` | Digest binding for the receipt bytes. |
 | `VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF` | Exact full VSS commit the receipt and gateway deployment must share. |
-| `VSS_AGENT_BACKEND_PROTOCOL` | `responses` for OpenClaw/Hermes. |
+| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` for OpenClaw; `responses` for Hermes or another compatible backend. |
 | `VSS_AGENT_BACKEND_URL` | Harness origin on host loopback. |
+| `VSS_AGENT_BACKEND_PATH` | `/` for OpenClaw; `/v1/responses` for Hermes. |
 | `VSS_AGENT_BACKEND_TOKEN` | Harness operator/API bearer; never expose it to the browser. |
 | `VSS_AGENT_BACKEND_MODEL` | Harness agent/model selector. |
-| `VSS_AGENT_BACKEND_SESSION_FIELD` | Stable Responses field; use `user`. |
-| `VSS_AGENT_BACKEND_SESSION_HEADER` | Optional harness-specific stable-session header. |
+| `VSS_AGENT_BACKEND_SESSION_FIELD` | Stable Responses field (`user` for Hermes); empty for OpenClaw. |
+| `VSS_AGENT_BACKEND_SESSION_HEADER` | Optional protocol routing header (`X-Hermes-Session-Key` for Hermes); empty for OpenClaw. |
 | `VSS_AGENT_BACKEND_HEADERS_JSON` | Optional upstream header object; treat the entire value as credential-bearing even when it contains only routing metadata. |
 | `NEXT_PUBLIC_ENABLE_CHAT_TAB=true` | Makes the VSS UI chat tab visible. |
 | `NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT=true` | Locks all chat surfaces to same-origin HTTP so a saved WebSocket preference cannot bypass the gateway. Set automatically by the generator. |
@@ -171,15 +185,18 @@ print it in chat, logs, or notebook output.
 
 ## Harness presets
 
-| Harness | Backend URL | Model | Session header |
-|---|---|---|---|
-| OpenClaw | `http://127.0.0.1:18789` (or `NEMOCLAW_DASHBOARD_PORT`) | `openclaw/default` | `x-openclaw-session-key` |
-| Hermes | `http://127.0.0.1:8642` (or `NEMOHERMES_API_PORT`) | `hermes-agent` | `X-Hermes-Session-Key` |
+| Harness | Protocol | Backend URL/path | Model | Session routing |
+|---|---|---|---|---|
+| OpenClaw | `openclaw-ws` | `ws://127.0.0.1:18789/` (or `NEMOCLAW_DASHBOARD_PORT`) | `openclaw/default` | Native opaque `agent:main:vss-ui-*` session key |
+| Hermes | `responses` | `http://127.0.0.1:8642/v1/responses` (or `NEMOHERMES_API_PORT`) | `hermes-agent` | `user` plus `X-Hermes-Session-Key` |
 
-Both use `/v1/responses`. For OpenClaw, enable
-`gateway.http.endpoints.responses.enabled=true` and restart the sandbox gateway
-before probing. Probe authenticated `/v1/models` before resolution; a failed
-probe is a blocker.
+The OpenClaw connector does not fall back to Responses. It challenge-signs with
+a device identity persisted in the Compose `agent-gateway-state` volume. The
+NemoClaw host-isolated trust path accepts this client directly. If a hardened
+OpenClaw instance requests device pairing, approve the exact request ID it
+reports, then retry; do not disable device authentication. Probe OpenClaw's
+native `/health` endpoint before resolution; `/v1/models` is not required and
+the Responses endpoint remains disabled. A failed probe is a blocker.
 
 OpenClaw is the primary production-validation preset. Hermes transport is
 compatible, but NVIDIA's current NemoClaw platform-support matrix labels the
@@ -216,9 +233,11 @@ After Compose Gate 0, require all of these:
    an empty receipt origin before it deploys its first stack.
 8. The VSS UI server can reach `VSS_AGENT_GATEWAY_URL`.
 9. Send one harmless chat turn through the VSS UI and confirm the response came
-   from the selected harness. Then run a non-destructive VSS query and confirm
-   the harness executed the skill and the corresponding Search or alert
-   artifact rendered in the UI.
+   from the selected harness. For OpenClaw, confirm `connector.protocol` is
+   `openclaw-ws` and at least one deliberate tool call renders as an
+   intermediate step. Then run a non-destructive VSS query and confirm the
+   harness executed the skill and the corresponding Search or alert artifact
+   rendered in the UI.
 
 ## Sources
 

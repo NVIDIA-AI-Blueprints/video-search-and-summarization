@@ -22,6 +22,7 @@ def make_config(**overrides: object) -> GatewayConfig:
         "backend_session_field": "user",
         "backend_session_header": None,
         "backend_headers": {},
+        "backend_state_dir": "/tmp/vss-agent-gateway-test-state",
         "request_timeout_seconds": 5.0,
         "run_retention_seconds": 3600,
         "max_runs": 100,
