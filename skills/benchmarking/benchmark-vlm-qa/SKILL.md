@@ -81,9 +81,11 @@ Outputs under `<dataset>/../../results/vlm_qa/` (or `--output-dir`):
 
 - Drive the VLM only through `vss vlm run`. Never `POST /generate` or hand-built
   `/v1/chat/completions`.
-- Do not wrap `vss` in extra retries or timeouts; `--timeout` is the bound.
-- Filter to `evaluation_method` containing `qa` with a text `ground_truth`.
-  Report items and trajectory-only items are skipped.
+- Do not wrap `vss` in retries. `--timeout` is the bound; the script adds only a
+  hard kill 60 s past it, so a CLI that never returns cannot cost the whole run.
+  A killed item is recorded as an error naming the watchdog, never as a low score.
+- Items must declare `evaluation_method` containing `qa` and carry a text
+  `ground_truth`. Report, trajectory-only, and unmarked items are skipped.
 
 Implementation: [`deploy/docker/developer-profiles/dev-profile-base/eval/benchmark_vlm_qa.py`](../../../deploy/docker/developer-profiles/dev-profile-base/eval/benchmark_vlm_qa.py).
 Dataset download contract: [`README_eval.md`](../../../deploy/docker/developer-profiles/dev-profile-base/eval/README_eval.md).

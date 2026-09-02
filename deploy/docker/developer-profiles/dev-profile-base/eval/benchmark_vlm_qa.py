@@ -30,6 +30,7 @@ import csv
 import json
 import os
 import re
+import signal
 import statistics
 import subprocess
 import sys
@@ -47,6 +48,10 @@ DEFAULT_NVDATASET_TENANT = "0573334707593577"
 DEFAULT_NVDATASET_GROUP = "vss-bp-team"
 DEFAULT_TIMEOUT_S = 300
 DEFAULT_NUM_FRAMES = 20
+# Watchdog margin over `vss vlm --timeout`. The CLI bounds its own HTTP call; this
+# only covers a CLI that never returns at all, so one stuck item cannot cost the
+# whole run. Wide enough that a CLI honouring its timeout always wins the race.
+WATCHDOG_GRACE_S = 60
 VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 EXPLICIT_VIDEO_KEYS = ("video", "video_file", "video_name", "sensor", "sensor_id", "media")
 
@@ -213,8 +218,7 @@ def evaluation_methods(item: dict[str, Any]) -> list[str]:
 
 
 def is_qa_item(item: dict[str, Any]) -> bool:
-    methods = evaluation_methods(item)
-    if methods and "qa" not in methods:
+    if "qa" not in evaluation_methods(item):
         return False
     ground_truth = item.get("ground_truth")
     if not isinstance(ground_truth, str) or not ground_truth.strip():
@@ -276,6 +280,8 @@ def select_qa_items(
     limit: int | None = None,
 ) -> list[QaItem]:
     selected: list[QaItem] = []
+    if limit is not None and limit <= 0:
+        return selected
     for item in raw_items:
         if not is_qa_item(item):
             continue
@@ -366,6 +372,34 @@ def judge_answer(
     return parse_score(content)
 
 
+def run_bounded(cmd: list[str], timeout_s: float) -> tuple[int, str, str, bool]:
+    """Run ``cmd`` with a hard upper bound, returning ``(rc, stdout, stderr, timed_out)``.
+
+    The child gets its own session so a timeout kills the whole group. ``vss`` runs
+    under ``uv``, so signalling only the direct child orphans the python process that
+    is actually talking to the VLM: it survives, keeps occupying the GPU, and inflates
+    the latency measured for every item after it.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+        return proc.returncode, stdout, stderr, False
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        stdout, stderr = proc.communicate()
+        return proc.returncode, stdout or "", stderr or "", True
+
+
 def run_vlm_item(
     *,
     vss: list[str],
@@ -392,18 +426,27 @@ def run_vlm_item(
     ]
     if model:
         cmd.extend(["--model", model])
+    watchdog_s = timeout_s + WATCHDOG_GRACE_S
     started = time.perf_counter()
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    returncode, stdout, stderr, timed_out = run_bounded(cmd, watchdog_s)
     elapsed = time.perf_counter() - started
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip()
-        return None, elapsed, proc.returncode, err
+    if timed_out:
+        return (
+            None,
+            elapsed,
+            returncode,
+            f"benchmark watchdog killed `vss vlm run` after {watchdog_s}s; "
+            f"the CLI did not honour its own --timeout {timeout_s}s",
+        )
+    if returncode != 0:
+        err = (stderr or stdout or "").strip()
+        return None, elapsed, returncode, err
     try:
-        body = parse_vlm_stdout(proc.stdout)
+        body = parse_vlm_stdout(stdout)
     except ValueError as exc:
-        return None, elapsed, proc.returncode, str(exc)
+        return None, elapsed, returncode, str(exc)
     answer = strip_think_tags(str(body.get("answer") or ""))
-    return answer, elapsed, proc.returncode, ""
+    return answer, elapsed, returncode, ""
 
 
 @dataclass
