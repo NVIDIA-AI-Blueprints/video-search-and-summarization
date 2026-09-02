@@ -479,6 +479,7 @@ jobs:
           SKILL_EVAL_EXPECTED_PYTHON_VERSION: "3.12"
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
+            deploy/docker/scripts/tests/test_train_rl_adapter_notebook.py \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
             .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
