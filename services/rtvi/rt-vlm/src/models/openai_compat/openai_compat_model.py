@@ -925,6 +925,60 @@ class CompOpenAIModel(BaseVlmModel):
     def model_config(self):
         return None
 
+    def _is_reasoning_model(self) -> bool:
+        """gpt-5*/o1*/o3*/o4* reject the old `max_tokens` kwarg and restrict
+        sampling params — only the default `temperature=1` is accepted, and
+        `top_p`/`seed` are commonly also rejected. Older models (gpt-4o, gpt-4,
+        gpt-3.5) accept the full sampling-param surface."""
+        m = (self._model_name or "").lower()
+        return m.startswith(("gpt-5", "o1", "o3", "o4"))
+
+    def _sampling_kwargs(self, config) -> dict:
+        """Build kwargs for chat.completions.create / langchain.invoke that
+        match what this model accepts.
+
+        Reasoning models (gpt-5+/o*): only `max_completion_tokens` plus
+        `temperature=1.0` (the only allowed value — the API rejects any
+        other number with "Only the default (1) value is supported").
+        top_p and seed are omitted because they are commonly restricted on
+        these models and the API silently picks safe defaults.
+        Older models: `max_tokens`, `temperature`, `top_p`, and `seed`.
+        """
+        # Pre-IFS behavior when CHOOSE_FSELECT is off: pass the legacy
+        # sampling kwargs unchanged regardless of model name. The reasoning-
+        # model handling below is part of the IFS feature set and only takes
+        # effect when the flag is on.
+        if os.environ.get("CHOOSE_FSELECT", "false") != "true":
+            kw = {
+                **_openai_token_kwargs(config.max_new_tokens),
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+            }
+            if getattr(config, "seed", None) is not None:
+                kw["seed"] = config.seed
+            return kw
+        if self._is_reasoning_model():
+            # Reasoning models count their hidden reasoning trace against
+            # max_completion_tokens. With the default 512-token budget,
+            # the trace can consume everything and leave the visible answer
+            # empty (gpt-5.5 observed to return empty content for ~30% of
+            # dense-caption chunks at 512). Apply a generous floor that
+            # leaves room for both reasoning AND a useful answer.
+            _floor = 4096
+            return {
+                "max_completion_tokens": max(_floor, int(config.max_new_tokens or 0) * 4),
+                # gpt-5+/o* only accept temperature=1.0; lower values 400-error.
+                "temperature": 1.0,
+            }
+        kw = {
+            **_openai_token_kwargs(config.max_new_tokens),
+            "temperature": config.temperature,
+            "top_p": config.top_p,
+        }
+        if getattr(config, "seed", None) is not None:
+            kw["seed"] = config.seed
+        return kw
+
     def get_conv(self):
         return self._conv.copy()
 
@@ -1187,15 +1241,12 @@ class CompOpenAIModel(BaseVlmModel):
                     if not extra_body:
                         extra_body = None
 
-                    token_kwargs = _openai_token_kwargs(config.max_new_tokens)
                     _nim_t0 = _time.time()
+                    _sk = self._sampling_kwargs(config)
                     if self._model:
                         response_obj = self._model.invoke(
                             messages,
-                            **token_kwargs,
-                            temperature=config.temperature,
-                            seed=config.seed,
-                            top_p=config.top_p,
+                            **_sk,
                             extra_body=extra_body,
                         )
                         content = response_obj.content
@@ -1206,10 +1257,7 @@ class CompOpenAIModel(BaseVlmModel):
                         resp = self._client.chat.completions.create(
                             model=self._model_name,
                             messages=messages,
-                            **token_kwargs,
-                            temperature=config.temperature,
-                            seed=config.seed,
-                            top_p=config.top_p,
+                            **_sk,
                             extra_body=extra_body,
                         )
                         content = ""
@@ -1332,13 +1380,7 @@ class CompOpenAIModel(BaseVlmModel):
         input_tokens = 0
         output_tokens = 0
 
-        kwargs = {
-            **_openai_token_kwargs(config.max_new_tokens),
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-        }
-        if config.seed:
-            kwargs["seed"] = config.seed
+        kwargs = self._sampling_kwargs(config)
         extra_body = {}
         if config.min_tokens is not None:
             extra_body["min_tokens"] = config.min_tokens
@@ -1387,12 +1429,8 @@ class CompOpenAIModel(BaseVlmModel):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
 
-        kwargs = {
-            **_openai_token_kwargs(config.max_new_tokens),
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-            "stream": True,
-        }
+        kwargs = self._sampling_kwargs(config)
+        kwargs["stream"] = True
         if config.seed:
             kwargs["seed"] = config.seed
         extra_body = {}

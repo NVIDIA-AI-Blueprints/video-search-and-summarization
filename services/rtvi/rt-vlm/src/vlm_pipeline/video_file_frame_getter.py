@@ -20,6 +20,7 @@ picking N frames from the segment as well as pre-processing the decoded frames
 as required by the VLM model.
 """
 
+import atexit
 import ctypes
 import json
 import os
@@ -30,6 +31,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from threading import Condition, Lock
 from typing import Callable, Optional
 
@@ -231,6 +233,286 @@ def _cuda_oom_recovery_enabled() -> bool:
         "no",
         "off",
     )
+# The plugin counts changed pixels on a fixed 960x540 grid, so the threshold is
+# always out of 518400 regardless of input resolution.
+MIN_CHANGED_PIXELS_GRID_TOTAL = 960 * 540
+
+
+# How long a chunk's pick burst must be quiet before the chunk ships. Closing on
+# the first pick ships mid-burst and orphans the rest. With chunk-duration
+# aligning the plugin's groups to RTVI's chunks a burst drains in ~22ms, so 0.3s
+# is ample; later arrivals are counted by [fselect][drop] (0 in steady state).
+FSELECT_CHUNK_CLOSE_GRACE_SEC = float(
+    os.environ.get("RTVI_FSELECT_CHUNK_CLOSE_GRACE_SEC") or "0.3"
+)
+
+
+def _fselect_full_stream_window_verdict(pts, start_pts, end_pts):
+    """Frame verdict for FILE + CHOOSE_FSELECT + FSELECT_FULL_STREAM.
+
+    A file chunk is fetched with a KEY_UNIT|SNAP_BEFORE seek, so the decoder
+    starts at the keyframe BEFORE start_pts and emits pre-roll belonging to the
+    previous window. In full-stream mode nothing else filters it: timestampfilter
+    is given timestamps="" so its drop-before-first has no anchor, and it has no
+    respect-segment-start property. Unfiltered pre-roll inflates the plugin's
+    cache until cache-full fires before the chunk-end EOS, splitting one chunk
+    across several selections (measured 3.77 groups/chunk on bus.G508.mp4), and
+    lets frames from outside the window be selected into the caption.
+
+    Half-open window [start_pts, end_pts): end_pts belongs to the next chunk and
+    returns END_OF_CHUNK, which is what makes the caller emit EOS so the plugin
+    flushes on the boundary.
+    """
+    if pts < start_pts:
+        return FrameSelectionResult.SKIP
+    if pts >= end_pts:
+        return FrameSelectionResult.END_OF_CHUNK
+    return FrameSelectionResult.SELECT
+
+
+def _fselect_live_cache_size(num_frames, boundary_supported: bool) -> int:
+    """cache-size for the LIVE path.
+
+    Two regimes, and the requirement inverts between them:
+
+    * No chunk-duration (older library): the cache IS the flush trigger -- there
+      is no EOS on live -- so it must equal the per-chunk frame count exactly.
+      This is the coupling that produced the phase offset in
+      claude/FSELECT_LIVE_CHUNK_ALIGNMENT.md.
+    * With chunk-duration: the PTS boundary is authoritative and the cache is a
+      memory bound only. It must be STRICTLY LARGER than the frames a chunk
+      delivers so CACHE-FULL always loses the race; if it were smaller, cache-full
+      would fire first and silently split chunks again.
+
+    Not setting it at all is worse than either: the plugin default is 100, i.e.
+    ~310MB of NVMM surfaces per 1080p stream instead of ~99MB.
+    """
+    try:
+        n = int(num_frames)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        n = 1
+    if not boundary_supported:
+        return n
+    return int(n * 1.5) + 2
+
+
+def _fselect_live_chunk_grid(chunk_duration_s: float, first_chunk_start_pts_ns: int):
+    """(chunk-duration, chunk-origin) in seconds for the plugin, or None if unusable.
+
+    Without these the plugin flushes only on CACHE-FULL, so its groups sit at a
+    fixed phase offset from RTVI's chunk windows: each chunk got one stray frame,
+    shipped with n_frames=1, and its real frames arrived ~9.5s later with no open
+    chunk to own them. See claude/FSELECT_LIVE_CHUNK_ALIGNMENT.md.
+
+    chunk k spans [origin + k*chunk_duration, +chunk_duration), so origin must be
+    RTVI's FIRST chunk start (the first buffer's PTS, which is arbitrary per
+    stream). Leaving origin at 0 would place the boundaries on absolute multiples
+    of the duration and reintroduce the same phase offset.
+    """
+    if chunk_duration_s is None or chunk_duration_s <= 0:
+        return None
+    if first_chunk_start_pts_ns is None or first_chunk_start_pts_ns < 0:
+        return None
+    return (float(chunk_duration_s), first_chunk_start_pts_ns / 1e9)
+
+
+def _fselect_static_frame_count():
+    """Frames the plugin emits for a STATIC chunk, or None to leave its default.
+
+    0 is a legitimate value ("emit nothing for a STATIC chunk", which drives the
+    NO_ACTIVITY caption path) and is distinct from unset. Malformed or negative
+    values fall back to the plugin default rather than to a guess.
+    """
+    raw = os.environ.get("NVDS_FSELECT_STATIC_FRAME_COUNT")
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        value = int(raw.strip())
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        logger.warning(
+            "[fselect] Invalid NVDS_FSELECT_STATIC_FRAME_COUNT=%r "
+            "(want a non-negative int); leaving the plugin default.",
+            raw,
+        )
+        return None
+    return value
+
+
+def _fselect_chunk_ready_to_close(
+    past_end: bool,
+    n_frames: int,
+    since_last_frame: float,
+    grace_sec: float = FSELECT_CHUNK_CLOSE_GRACE_SEC,
+) -> bool:
+    """True when a live fselect chunk may be dispatched.
+
+    Requires the window to be past its end AND at least one pick to have landed
+    (never ship an empty chunk), then holds until the burst has been quiet for
+    grace_sec so the chunk is not dispatched mid-burst.
+
+    No hard cap is needed: a chunk's frame supply is finite -- the plugin emits
+    each chunk's picks exactly once and then moves on to the next window -- so
+    since_last_frame always grows past grace_sec. A chunk that never receives a
+    single pick stays open until the teardown flush, which is the pre-existing
+    behaviour for an empty chunk.
+    """
+    if not past_end or n_frames <= 0:
+        return False
+    return since_last_frame >= grace_sec
+
+
+def _fselect_cache_size(frame_rate: float, chunk_seconds: float) -> int:
+    """Frames the nvdsframeselector caches before selecting, for FILE input.
+
+    A whole chunk plus 100 frames of headroom. The headroom absorbs frame-count
+    jitter (VFR, GOP boundaries, a chunk that runs slightly long) so the cache
+    never fills early and flushes a partial chunk — which is also what lets a
+    STATIC chunk always emit its full static-frame-count, since the plugin
+    clamps that count to the number of cached frames.
+
+    Capped at MAX_CACHE_FRAMES_PER_PIPELINE because the plugin allocates one
+    NVMM surface per cached frame; the cap bounds allocation and CUDA
+    fragmentation. Live/RTSP does NOT use this — there the cache is sized to the
+    exact per-chunk frame count so it flushes on CACHE-FULL (live has no EOS).
+    """
+    frames_per_chunk = int(frame_rate * chunk_seconds)
+    return min(max(100, frames_per_chunk + 100), MAX_CACHE_FRAMES_PER_PIPELINE)
+
+
+def _fselect_min_changed_pixels() -> int:
+    """Pixels that must change for an OF-active chunk to stay ACTIVE (0 = off).
+
+    Demote-only guard: below this, an ACTIVE chunk is re-classified STATIC.
+    Camera-specific (tracks the noise floor), so RTVI ships it off.
+    """
+    raw = os.environ.get("NVDS_FSELECT_MIN_CHANGED_PIXELS")
+    if raw is None or raw.strip() == "":
+        return 0
+    try:
+        value = int(raw.strip())
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        logger.warning(
+            "[fselect] Invalid NVDS_FSELECT_MIN_CHANGED_PIXELS=%r "
+            "(want a non-negative int); leaving min-changed-pixels=0 (off).",
+            raw,
+        )
+        return 0
+    if value > MIN_CHANGED_PIXELS_GRID_TOTAL:
+        logger.warning(
+            "[fselect] NVDS_FSELECT_MIN_CHANGED_PIXELS=%d exceeds the plugin's "
+            "%d-pixel grid; clamping (every chunk would otherwise be STATIC).",
+            value, MIN_CHANGED_PIXELS_GRID_TOTAL,
+        )
+        return MIN_CHANGED_PIXELS_GRID_TOTAL
+    return value
+
+
+
+def get_total_gpu_memory(gpu_id: int = 0) -> int:
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            return mem_info.total
+        finally:
+            pynvml.nvmlShutdown()  # Always release NVML resources
+    except Exception as e:
+        logger.warning(f"Failed to get GPU memory via pynvml: {e}, using default 8GB")
+        return 8 * 1024 * 1024 * 1024  # Default 8GB
+
+
+def get_num_nvdec_engines(gpu_id: int = 0) -> int:
+    import ctypes as _ctypes
+
+    class CUVIDDECODECAPS(_ctypes.Structure):
+        _fields_ = [
+            ("eCodecType", _ctypes.c_int),
+            ("eChromaFormat", _ctypes.c_int),
+            ("nBitDepthMinus8", _ctypes.c_uint),
+            ("reserved1", _ctypes.c_uint * 3),
+            ("bIsSupported", _ctypes.c_ubyte),
+            ("nNumNVDECs", _ctypes.c_ubyte),
+            ("nOutputFormatMask", _ctypes.c_ushort),
+            ("nMaxWidth", _ctypes.c_uint),
+            ("nMaxHeight", _ctypes.c_uint),
+            ("nMaxMBCount", _ctypes.c_uint),
+            ("nMinWidth", _ctypes.c_ushort),
+            ("nMinHeight", _ctypes.c_ushort),
+            ("bIsHistogramSupported", _ctypes.c_ubyte),
+            ("nCounterBitDepth", _ctypes.c_ubyte),
+            ("nMaxHistogramBins", _ctypes.c_ushort),
+            ("reserved3", _ctypes.c_uint * 10),
+        ]
+
+    libcuda = None
+    libnvcuvid = None
+    need_cleanup = False
+    ctx = None
+
+    try:
+        libcuda = _ctypes.CDLL("libcuda.so.1")
+        libnvcuvid = _ctypes.CDLL("libnvcuvid.so.1")
+        libcuda.cuInit(0)
+        # Check if there's already a CUDA context (from PyTorch/GStreamer)
+        ctx = _ctypes.c_void_p()
+        if libcuda.cuCtxGetCurrent(_ctypes.byref(ctx)) != 0 or not ctx.value:
+            # No current context, use primary context
+            result = libcuda.cuDevicePrimaryCtxRetain(_ctypes.byref(ctx), gpu_id)
+            if result == 0:
+                libcuda.cuCtxPushCurrent(ctx)
+                need_cleanup = True
+            else:
+                logger.warning(
+                    f"cuDevicePrimaryCtxRetain failed: {result}, returning default: 1"
+                )
+                return 1
+
+        decodecaps = CUVIDDECODECAPS()
+        _ctypes.memset(_ctypes.byref(decodecaps), 0, _ctypes.sizeof(decodecaps))
+        decodecaps.eCodecType = 4  # H264
+        decodecaps.eChromaFormat = 1  # 420
+        decodecaps.nBitDepthMinus8 = 0
+
+        libnvcuvid.cuvidGetDecoderCaps(_ctypes.byref(decodecaps))
+        nvdec_count = decodecaps.nNumNVDECs
+        logger.info(f"NVDEC engines detected: {nvdec_count}")
+        return nvdec_count if nvdec_count > 0 else 1
+    except Exception as e:
+        logger.warning(f"Failed to get NVDEC count: {e}, returning default: 1")
+        return 1
+    finally:
+        # Always cleanup CUDA context if we created one
+        if need_cleanup and libcuda is not None and ctx is not None:
+            try:
+                libcuda.cuCtxPopCurrent(_ctypes.byref(ctx))
+                libcuda.cuDevicePrimaryCtxRelease(gpu_id)
+            except Exception:
+                pass  # Ignore cleanup errors
+
+
+# Hard upper-bound on frames cached per pipeline regardless of available memory.
+# Even if the GPU has plenty of headroom, caching more than this many surfaces per
+# pipeline yields diminishing returns for frame-selection quality while linearly
+# increasing the fragmentation overhead.
+MAX_CACHE_FRAMES_PER_PIPELINE = 1200
+
+
+class FrameSelectionResult(Enum):
+    """Result codes for frame selection decisions (used when CHOOSE_FSELECT=true)."""
+    SELECT = "select"              # Frame is within chunk bounds, select it
+    SKIP = "skip"                  # Frame is before chunk start, skip/drop it
+    END_OF_CHUNK = "end_of_chunk"  # Frame is past chunk end, signal EOS
+
+
+# === end CHOOSE_FSELECT helpers ======================================================
 
 
 def get_timestamp_str(ts):
@@ -253,6 +535,8 @@ class FrameSelectorData:
     cached_pts: list[float] = field(default_factory=list)
     cached_frames: list = field(default_factory=list)
     decode_start_time: float = field(default_factory=time.time)
+    # Wall-clock of the most recent pick; 0.0 = none yet.
+    last_frame_time: float = 0.0
 
 
 class ToCHW:
@@ -449,6 +733,16 @@ class DefaultFrameSelector:
         )
 
     def choose_frame(self, buffer, pts):
+        # FULL-STREAM only: pass in-window frames, drop the seek's pre-roll. The
+        # default wider-pool mode keeps the same PTS-list picker as REF below.
+        if (
+            os.environ.get("CHOOSE_FSELECT", "false") == "true"
+            and os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+        ):
+            return _fselect_full_stream_window_verdict(
+                pts, self._chunk.start_pts, self._chunk.end_pts
+            )
+
         if self._select_all_frames:
             return self._selection_start_pts <= pts <= self._selection_end_pts
 
@@ -712,6 +1006,7 @@ class VideoFileFrameGetter:
         data_type_int8=False,
         audio_support=False,
         cv_pipeline_configs={},
+        vlm_model_type=None,
     ) -> None:
         self._selected_pts_array = deque()
         self._last_gst_buffer = None
@@ -777,6 +1072,12 @@ class VideoFileFrameGetter:
         self._on_stream_error_callback = None
         self._gst_signal_handler_ids: list[tuple[object, int]] = []
         self._gst_pad_probe_ids: list[tuple[object, int]] = []
+        # Native (no-GIL) GOP-probe registrations. A fgetter can register more
+        # than once across its warmup->real pipeline lifecycle, and each probe
+        # permanently captures its own C-state as user_data — so we must track
+        # ALL of them and update/free every one. Each entry:
+        #   (pad_obj, pad_ptr, state_ptr, probe_id)
+        # pad_obj is kept so the GstPad* stays valid until we remove the probe.
         self._bus_signal_watch_added = False
         self._first_frame_width = 0
         self._first_frame_height = 0
@@ -842,6 +1143,22 @@ class VideoFileFrameGetter:
         self._parser_current_gop_has_target: bool = True
         self._tee = None
         self._nvtracker = None
+        # CHOOSE_FSELECT state — populated lazily; safe defaults when flag is off.
+        # vlm_model_type is also used by _configure_nvdsframeselector to pick
+        # selection-count, but it's harmless to keep when FSELECT is disabled.
+        self._vlm_model_type = vlm_model_type
+        self._detected_frame_rate = 30.0
+        # Live fselect frame accounting; see [fselect][drop].
+        self._fselect_frames_accepted = 0
+        self._fselect_frames_rejected = 0
+        self._nvdsframeselector = None
+        self._fselect_videoconvert = None
+        self._num_nvdec_engines = get_num_nvdec_engines(gpu_id)
+        self._total_gpu_memory = get_total_gpu_memory(gpu_id)
+        # End-PTS for the active chunk under FSELECT, used by the range-seek
+        # path (decoder/demuxer EOS at this position eliminates the
+        # END_OF_CHUNK Python probe branch).
+        self._seek_stop_position = 0
         self._cached_transcripts = []
         self._cached_audio_frames = []
         self._use_vlm_audio = False  # True when VLM handles audio natively (no ASR)
@@ -894,6 +1211,7 @@ class VideoFileFrameGetter:
         probe_id = pad.add_probe(probe_type, callback, *args)
         self._gst_pad_probe_ids.append((pad, probe_id))
         return probe_id
+
 
     def _disconnect_gst_callbacks(self):
         for pad, probe_id in reversed(self._gst_pad_probe_ids):
@@ -1121,13 +1439,45 @@ class VideoFileFrameGetter:
     def _process_finished_chunks(self, current_pts=None, flush=False):
         chunks_processed_fs = []
 
+        _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
         for fs, fs_data in self._live_stream_frame_selectors.items():
-            if (
-                (current_pts is not None and current_pts >= fs._chunk.end_pts)
-                or (len(fs._selected_pts_array) == 0 and not fs.selects_all_frames)
+            # Time-boundary close: the (leading) PTS has crossed this chunk's end.
+            # For HYP the plugin batch-flushes the chunk's frames at cache-full
+            # (≈ the window boundary), so the batch is present as soon as the
+            # leading input crosses end_pts -> close now instead of waiting for the
+            # next chunk's burst. Guard on cached_frames so a chunk is never shipped
+            # empty if the burst is momentarily late (it will close on a later call).
+            _past_end = current_pts is not None and current_pts >= fs._chunk.end_pts
+            if _fselect_on:
+                # Hold until the pick burst goes quiet; see the constant above.
+                _now = time.time()
+                _time_close = _fselect_chunk_ready_to_close(
+                    past_end=_past_end,
+                    n_frames=len(fs_data.cached_frames),
+                    since_last_frame=(
+                        _now - fs_data.last_frame_time if fs_data.last_frame_time else 0.0
+                    ),
+                )
+            else:
+                _time_close = _past_end
+            _close = (
+                _time_close
+                or (
+                    not _fselect_on
+                    and len(fs._selected_pts_array) == 0
+                    and not fs.selects_all_frames
+                )
                 or flush
-            ):
-                if len(fs_data.cached_pts) == len(fs_data.cached_frames) or flush:
+            )
+            if _close:
+                # CHOOSE_FSELECT: nvdsframeselector emits a different number
+                # of frames than the PTS-list selector pre-buffered, so don't
+                # require the equal-length invariant when FSELECT is on.
+                if (
+                    os.environ.get("CHOOSE_FSELECT", "false") == "true"
+                    or len(fs_data.cached_pts) == len(fs_data.cached_frames)
+                    or flush
+                ):
                     try:
                         cached_frames = self._preprocess(fs_data.cached_frames)
                     except torch.OutOfMemoryError as exc:
@@ -1378,6 +1728,19 @@ class VideoFileFrameGetter:
         if self._frame_selector.selects_all_frames or self._frame_selector.selects_by_frame_index:
             return Gst.PadProbeReturn.OK
 
+        # Bypass GOP-aware drop only when fselect operates on the FULL
+        # decoded stream — there the plugin's motion analysis needs every
+        # frame. In the wider-pool mode (FSELECT_FULL_STREAM=false),
+        # timestampfilter already pre-filters to N target PTSes, so the
+        # GOP-aware drop is safe and saves decoder cycles by skipping
+        # GOPs that contain none of the targets.
+        _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
+        _full_stream = (
+            os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+        )
+        if _fselect_on and _full_stream:
+            return Gst.PadProbeReturn.OK
+
         is_delta = buffer.has_flags(Gst.BufferFlags.DELTA_UNIT)
 
         if not is_delta:
@@ -1439,6 +1802,215 @@ class VideoFileFrameGetter:
 
         return Gst.PadProbeReturn.OK
 
+    # === CHOOSE_FSELECT helpers (used only when CHOOSE_FSELECT=true) ==============
+
+    def _detect_frame_rate(self, file_name: str):
+        """Detect and store frame rate from a video file via MediaFileInfo.
+
+        Updates ``self._detected_frame_rate``. Falls back to the existing value
+        (default 30.0) on any failure or for live streams (rtsp://).
+        """
+        if not file_name or file_name.startswith("rtsp://"):
+            return  # Skip for live streams, use default
+
+        try:
+            file_info = MediaFileInfo.get_info(file_name)
+            if file_info.video_fps:
+                self._detected_frame_rate = float(file_info.video_fps)
+        except Exception as e:
+            logger.warning(
+                f"Failed to detect frame rate for '{file_name}', "
+                f"using default {self._detected_frame_rate}: {e}"
+            )
+
+    def _configure_nvdsframeselector(self, file_or_rtsp: str):
+        """Configure nvdsframeselector with cache-size and selection-count.
+
+        Cache-size is recomputed per chunk so it always matches the current chunk
+        duration (avoids warmup's short duration locking in a small cache that
+        causes multiple cache fills and extra output frames).
+        """
+        if os.environ.get("CHOOSE_FSELECT", "false") == "false":
+            self._nvdsframeselector.set_property("bypass-mode", 1)
+            return
+
+        frame_rate = self._detected_frame_rate
+        chunk_size_seconds = 60.0
+        if self._chunk_duration and self._chunk_duration > 0:
+            chunk_size_seconds = self._chunk_duration / 1e9
+        elif self._live_stream_chunk_duration > 0:
+            chunk_size_seconds = self._live_stream_chunk_duration
+        cache_size = _fselect_cache_size(frame_rate, chunk_size_seconds)
+        # RTSP/live ONLY: the Python probe hands the plugin exactly N frames
+        # (num_frames_per_second_or_fixed_frames) per chunk, and there is no EOS on
+        # live. Size the cache to N so the plugin flushes on CACHE-FULL when those N
+        # arrive (instead of waiting for an EOS). FILE keeps the full-chunk cache.
+        if self._is_live:
+            _live_frames = self._frame_selector._num_frames_per_second_or_fixed_frames
+            _boundary = self._nvdsframeselector.find_property("chunk-duration") is not None
+            cache_size = _fselect_live_cache_size(_live_frames, _boundary)
+            if _boundary and cache_size <= int(_live_frames or 0):
+                # Invariant: with a PTS boundary the cache must never fill first,
+                # or cache-full silently splits the chunk (the original bug).
+                logger.error(
+                    "[fselect] cache-size %d <= frames/chunk %s; cache-full will "
+                    "preempt the chunk boundary and split chunks.",
+                    cache_size, _live_frames,
+                )
+        logger.info(
+            f"[fselect] Setting cache-size to {cache_size} "
+            f"(frame_rate={frame_rate} fps, chunk_size={chunk_size_seconds}s)"
+        )
+        self._nvdsframeselector.set_property("cache-size", cache_size)
+
+        # Wider-pool HYP design: timestampfilter pre-filters to 150 equidistant
+        # PTSes (VLM_DEFAULT_NUM_FRAMES=150), nvdsframeselector then picks the
+        # best 10 motion-aware frames out of that pool → VLM sees 10.
+        #
+        # frame-selection-algorithm is intentionally NOT set here: the current
+        # nvdsframeselector lib defaults to the optical-flow (OF) algorithm, which
+        # is what we want. Leaving the property untouched keeps that default.
+        #
+        # Env overrides (all optional; absent ⇒ current defaults are preserved):
+        #   NVDS_FSELECT_SELECTION_COUNT      — int, frames the plugin emits per chunk
+        #   NVDS_FSELECT_STATIC_FRAME_COUNT   — int, frames emitted for a STATIC chunk
+        #   NVDS_FSELECT_EQUIDISTANT_OUTPUT   — 0/1, emit the selected frames where the
+        #       motion actually is (0, RTVI default) vs spread evenly across the chunk
+        #       (1). Per the plugin: "When TRUE, output equidistant frames from the
+        #       chunk INSTEAD OF motion-ranked frames" -- i.e. 1 runs the whole optical
+        #       -flow ranking and then throws the ranking away, leaving uniform
+        #       sampling with fewer frames than REF, which is strictly worse.
+        #       Measured on 6 scenes (paired REF/HYP, 188 chunks): 0 beat 1 by +0.008
+        #       weighted accuracy at identical frame COUNTS and identical runtime --
+        #       equidistant-output changes frame POSITIONS only. Biggest wins were the
+        #       motion-heavy scenes (its -0.101 -> -0.012, new_warehouse -0.061 ->
+        #       -0.021) because a discrete transition ("enter from left") happens at
+        #       one instant and evenly-spread samples are the worst way to catch it.
+        try:
+            selection_count = int(os.environ.get("NVDS_FSELECT_SELECTION_COUNT") or "10")
+        except ValueError:
+            selection_count = 10
+        # static-frame-count: frames the plugin emits when a chunk is classified
+        # STATIC (peak moving-cell blob below the noise floor).
+        #
+        # Left to the plugin default (3) unless NVDS_FSELECT_STATIC_FRAME_COUNT
+        # is set. A 1-frame chunk is not representable to this vLLM build.
+        #
+        # 0 emits nothing at all for a static chunk — maximum frame reduction, but a
+        # faint subject that stays below the floor then leaves no trace. That was
+        # measured and REJECTED: -0.145 weighted accuracy, because empty chunks fall
+        # back to a canned caption instead of describing the scene.
+        static_frame_count = _fselect_static_frame_count()
+        # RTSP/live ONLY: selection-count = N (num_frames) too, matching the
+        # N-frame pool the probe sends and the cache-size above. FILE unchanged.
+        if self._is_live:
+            selection_count = int(self._frame_selector._num_frames_per_second_or_fixed_frames)
+        self._nvdsframeselector.set_property("selection-count", selection_count)
+        # frame-selection-algorithm left at the plugin default (optical-flow), and
+        # enable-motion-detection is deliberately NOT set: the plugin derives it from
+        # the selected algorithm, switching motion detection on for OF by itself.
+        # Setting it here would duplicate that decision and could contradict a future
+        # algorithm change. If the plugin ever logs
+        # "Motion Detection is disabled (enable-motion-detection=false)" on the OF
+        # path, that assumption has broken and this needs setting again.
+        # exclusion-range left at the plugin default (0 = auto-compute from
+        # cached_frame_count / selection_count).
+        # optical-flow-interval = 0 → plugin AUTO. The nvdsframeselector derives
+        # the interval from received-frame timestamps to hold a ~0.5s OF gap (its
+        # threshold-calibration point), self-adapting to any pool / chunk / fps.
+        self._nvdsframeselector.set_property("optical-flow-interval", 0)
+        # equidistant-output: RTVI default 0 == motion-ranked frame positions, which is
+        # the whole point of running the OF selector. Set 1 only to reproduce the old
+        # uniform-position behaviour for comparison. Anything unparseable falls back to
+        # the default with a warning.
+        #
+        # This is set EXPLICITLY rather than left untouched: the plugin documents a
+        # default for static-frame-count ("Default 3") but NOT for equidistant-output,
+        # so relying on its default would leave frame placement undefined.
+        _equi_raw = os.environ.get("NVDS_FSELECT_EQUIDISTANT_OUTPUT")
+        equidistant_output = 0
+        if _equi_raw is not None and _equi_raw.strip() != "":
+            _equi = _equi_raw.strip().lower()
+            if _equi in ("0", "false", "no", "off"):
+                equidistant_output = 0
+            elif _equi in ("1", "true", "yes", "on"):
+                equidistant_output = 1
+            else:
+                logger.warning(
+                    "[fselect] Invalid NVDS_FSELECT_EQUIDISTANT_OUTPUT=%r "
+                    "(want 0/1); leaving equidistant-output=0.",
+                    _equi_raw,
+                )
+        self._nvdsframeselector.set_property("equidistant-output", equidistant_output)
+        # Set only when explicitly configured; otherwise the plugin's own default
+        # (3 as of the 2026-08-26 library) applies.
+        if static_frame_count is not None:
+            self._nvdsframeselector.set_property("static-frame-count", static_frame_count)
+        # LIVE ONLY (file gets an EOS per chunk): close groups on RTVI's PTS
+        # boundary. chunk-origin is set later by _fselect_apply_chunk_origin().
+        if self._is_live:
+            _grid = _fselect_live_chunk_grid(self._live_stream_chunk_duration, 0)
+            if _grid is not None:
+                _dur, _ = _grid
+                if not _set_gst_property_if_supported(
+                    self._nvdsframeselector, "chunk-duration", _dur
+                ):
+                    logger.warning(
+                        "[fselect] nvdsframeselector has no chunk-duration property; "
+                        "groups will flush on cache-full and can sit at a phase "
+                        "offset from RTVI's chunk windows (frame loss)."
+                    )
+
+        # Demote-only sanity check on the OF verdict; guarded for older builds.
+        min_changed_pixels = _fselect_min_changed_pixels()
+        mcp_supported = _set_gst_property_if_supported(
+            self._nvdsframeselector, "min-changed-pixels", min_changed_pixels
+        )
+        if min_changed_pixels and not mcp_supported:
+            logger.warning(
+                "[fselect] NVDS_FSELECT_MIN_CHANGED_PIXELS=%d requested but this "
+                "nvdsframeselector build has no min-changed-pixels property; "
+                "the OF verdict will not be sanity-checked.",
+                min_changed_pixels,
+            )
+        logger.info(
+            "[fselect] nvdsframeselector configured: selection-count=%d, "
+            "frame-selection-algorithm=default(OF), "
+            "enable-motion-detection=plugin-derived, "
+            "exclusion-range=default(auto), optical-flow-interval=0 (auto), "
+            "equidistant-output=%d, static-frame-count=%s, "
+            "min-changed-pixels=%s",
+            selection_count,
+            equidistant_output,
+            static_frame_count if static_frame_count is not None else "plugin-default",
+            min_changed_pixels if mcp_supported else "unsupported",
+        )
+
+    def _fselect_apply_chunk_origin(self, first_chunk_start_pts_ns):
+        """Phase-align the plugin's chunk grid with RTVI's, once chunk 0 is known.
+
+        RTVI's live grid starts at the first buffer's PTS, which is arbitrary per
+        stream (1.457s, 1.468s, ...). chunk-origin must be that value or the plugin
+        places its boundaries on absolute multiples of chunk-duration and keeps the
+        phase offset this is meant to remove.
+        """
+        if not self._is_live or self._nvdsframeselector is None:
+            return
+        grid = _fselect_live_chunk_grid(
+            self._live_stream_chunk_duration, first_chunk_start_pts_ns
+        )
+        if grid is None:
+            return
+        duration, origin = grid
+        if _set_gst_property_if_supported(self._nvdsframeselector, "chunk-origin", origin):
+            logger.info(
+                "[fselect] chunk grid aligned to RTVI: chunk-duration=%.3fs "
+                "chunk-origin=%.3fs (chunk k spans [origin+k*duration, +duration))",
+                duration, origin,
+            )
+
+    # === end CHOOSE_FSELECT helpers ==============================================
+
     def _create_pipeline(
         self, file_or_rtsp: str, username="", password="", create_source_elems_only=False
     ):
@@ -1478,6 +2050,7 @@ class VideoFileFrameGetter:
 
         def cb_elem_added(elem, username, password, selff):
             if "nvv4l2decoder" in elem.get_factory().get_name():
+                # main: guarded setters (skip props the decoder doesn't expose).
                 _set_gst_property_if_supported(elem, "gpu-id", self._gpu_id)
                 _set_gst_property_if_supported(elem, "extract-sei-type5-data", True)
                 _set_gst_property_if_supported(elem, "sei-uuid", "NVDS_CUSTOMMETA")
@@ -1485,7 +2058,10 @@ class VideoFileFrameGetter:
                 elem.set_property("config-interval", -1)
             parser_name = elem.get_factory().get_name()
             if parser_name in ("h264parse", "h265parse", "mpeg4videoparse"):
-                if self._gop_decode_opt_enabled:
+                # GOP decode-opt is a FILE-only optimization (seek/GOP-skip). On
+                # RTSP/live there is no seek and it early-returns anyway, so don't
+                # attach the parser probe at all on live.
+                if self._gop_decode_opt_enabled and not self._is_live:
                     src_pad = elem.get_static_pad("src")
                     if src_pad is not None:
                         self._add_gst_pad_probe(
@@ -1500,7 +2076,6 @@ class VideoFileFrameGetter:
                         "probe not attached to %s",
                         parser_name,
                     )
-                    logger.debug("GOP decode-opt probe attached to %s", parser_name)
             if parser_name == "rtpjitterbuffer":
                 drop_on_latency = _env_bool("RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY", False)
                 if elem.find_property("drop-on-latency"):
@@ -1736,6 +2311,12 @@ class VideoFileFrameGetter:
 
             self._connect_gst_signal(self._parsebin, "pad-added", cb_newpad_parsebin, self)
 
+        if create_source_elems_only and self._nvdsframeselector:
+            # CHOOSE_FSELECT: reconfigure the existing nvdsframeselector for
+            # the new chunk's duration / fps. Mirrors via-engine's behaviour
+            # when reusing a pipeline across chunks.
+            self._configure_nvdsframeselector(file_or_rtsp)
+
         if create_source_elems_only:
             return
 
@@ -1743,6 +2324,15 @@ class VideoFileFrameGetter:
         pipeline.add(self._q1)
         if nvunixfdsrc:
             nvunixfdsrc.link(self._q1)
+
+        # CHOOSE_FSELECT: extra queue between _q1 and the nvdsframeselector
+        # subgraph. _fselect_videoconvert is used by the EOS-pad probe target
+        # selection later in this method.
+        fselectq = None
+        fselect_videoconvert = None
+        if os.environ.get("CHOOSE_FSELECT", "false") == "true":
+            fselectq = Gst.ElementFactory.make("queue")
+            pipeline.add(fselectq)
 
         qvideoconvert = Gst.ElementFactory.make("queue")
         pipeline.add(qvideoconvert)
@@ -1752,19 +2342,28 @@ class VideoFileFrameGetter:
         # observe the continuous stream to create/close chunks; putting timestampfilter upstream can
         # starve that manager once the current target list is consumed.
         self._timestamp_filter = None
-        enable_live_timestamp_filter = os.environ.get(
-            "RTVI_ENABLE_LIVE_TIMESTAMP_FILTER", "false"
-        ).lower() in ("true", "1", "yes")
         enable_file_timestamp_filter = os.environ.get(
             "RTVI_ENABLE_FILE_TIMESTAMP_FILTER", "true"
         ).lower() in ("true", "1", "yes")
         selects_all_file_frames = not self._is_live and self._frame_selector.selects_all_frames
+        # timestampfilter is FILE-only: on RTSP/live it must never be inserted
+        # (it would push a per-chunk EOS into the fselect subgraph via
+        # send-eos-when-done). Live selection is done by the
+        # Python probe; the plugin flushes on cache-full.
         use_timestamp_filter = (
-            enable_live_timestamp_filter if self._is_live else enable_file_timestamp_filter
+            False if self._is_live else enable_file_timestamp_filter
         )
         if self._frame_selector.selects_by_frame_index:
             use_timestamp_filter = False
-        if selects_all_file_frames:
+        # Full-stream has no target list either, so timestampfilter cannot drop the
+        # KEY_UNIT|SNAP_BEFORE pre-roll (drop-before-first needs a first timestamp,
+        # and there is no respect-segment-start). Use the Python probe instead.
+        _fselect_full_stream_file = (
+            not self._is_live
+            and os.environ.get("CHOOSE_FSELECT", "false") == "true"
+            and os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+        )
+        if selects_all_file_frames or _fselect_full_stream_file:
             # All-frame file chunks have no discrete timestamp target list.
             # Keep them on the Python selector path instead of asking
             # timestampfilter to interpret an empty list.
@@ -1781,35 +2380,125 @@ class VideoFileFrameGetter:
         else:
             logger.info("File timestampfilter disabled; using Python frame selector")
         if self._timestamp_filter:
-            # For file-based, set initial timestamps from frame selector
             if not self._is_live:
-                # Convert timestamps to comma-separated string (nanoseconds)
+                # File: filter to the N PTSes picked by the Python frame selector.
+                # Same contract with and without CHOOSE_FSELECT — the selector
+                # feeds nvdsframeselector exactly the candidate set it should
+                # classify, and the list drives send-eos-when-done, which closes
+                # the chunk. (An empty list would silence that EOS: the
+                # timestamps->empty() branch in gsttimestampfilter.cpp returns
+                # before the consumed-all-timestamps check ever runs.)
                 timestamps_str = ",".join(
                     str(int(pts)) for pts in self._frame_selector._selected_pts_array
                 )
                 self._timestamp_filter.set_property("timestamps", timestamps_str)
                 self._timestamp_filter.set_property("send-eos-when-done", not self._audio_present)
             else:
-                # For live streams, initialize empty (will be updated dynamically)
+                # Live streams: empty initially (updated dynamically), no EOS.
                 self._timestamp_filter.set_property("timestamps", "")
                 self._timestamp_filter.set_property(
                     "send-eos-when-done", False
-                )  # Never send EOS for live
+                )
             pipeline.add(self._timestamp_filter)
-        elif use_timestamp_filter:
+
+        if not use_timestamp_filter:
             logger.warning("timestampfilter plugin not found, falling back to Python buffer_probe")
 
-        if self._is_live and not os.environ.get("RTVI_DISABLE_LIVESTREAM_PREVIEW", ""):
-            logger.info(
-                "Creating live stream video preview branch for %s", self._live_stream_request_id
-            )
-            if not self._create_live_stream_video_preview_branch(pipeline, self._q1, qvideoconvert):
-                logger.warning(
-                    "Failed to create live stream video preview branch. Additional codecs not installed."  # noqa: E501
+        if os.environ.get("CHOOSE_FSELECT", "false") == "true":
+            # _q1 → fselectq (preview branch optionally splits the path).
+            if self._is_live and not os.environ.get("RTVI_DISABLE_LIVESTREAM_PREVIEW", ""):
+                logger.info(
+                    "Creating live stream video preview branch for %s",
+                    self._live_stream_request_id,
                 )
-                self._q1.link(qvideoconvert)
+                if not self._create_live_stream_video_preview_branch(
+                    pipeline, self._q1, fselectq
+                ):
+                    logger.warning(
+                        "Failed to create live stream video preview branch. Additional codecs not installed."  # noqa: E501
+                    )
+                    self._q1.link(fselectq)
+            else:
+                self._q1.link(fselectq)
+
+            # fselectq → [timestampfilter range mode] → nvvideoconvert (NV12) → capsfilter → queue → nvdsframeselector → qvideoconvert
+            fselect_videoconvert = Gst.ElementFactory.make("nvvideoconvert")
+            fselect_videoconvert.set_property("nvbuf-memory-type", 2)
+            fselect_videoconvert.set_property("compute-hw", 1)
+            fselect_videoconvert.set_property("output-buffers", 15)
+            fselect_videoconvert.set_property("gpu-id", self._gpu_id)
+            pipeline.add(fselect_videoconvert)
+            # FSELECT range bounds + EOS are enforced by timestampfilter (C),
+            # replacing the per-frame Python buffer_probe.
+            if self._timestamp_filter and not self._is_live:
+                fselectq.link(self._timestamp_filter)
+                self._timestamp_filter.link(fselect_videoconvert)
+            else:
+                fselectq.link(fselect_videoconvert)
+            # Save for the deferred-seek probe target under FSELECT (the
+            # disconnected timestampfilter pad never sees buffers in this mode).
+            self._fselect_videoconvert = fselect_videoconvert
+
+            fselect_format = "NV12"
+            fselect_capsfilter = Gst.ElementFactory.make("capsfilter")
+            try:
+                width, height = MediaFileInfo.get_info(file_or_rtsp).video_resolution
+            except Exception:
+                width, height = 1920, 1080
+            fselect_capsfilter.set_property(
+                "caps",
+                Gst.Caps.from_string(
+                    (
+                        f"video/x-raw(memory:NVMM), format={fselect_format},"
+                        f" width={width}, height={height}"
+                    )
+                ),
+            )
+            pipeline.add(fselect_capsfilter)
+            fselect_videoconvert.link(fselect_capsfilter)
+
+            fselect_queue = Gst.ElementFactory.make("queue")
+            pipeline.add(fselect_queue)
+            fselect_capsfilter.link(fselect_queue)
+
+            self._nvdsframeselector = Gst.ElementFactory.make("nvdsframeselector")
+            if self._nvdsframeselector is None:
+                # Plugin not loadable — log once and fall back to a direct link
+                # so the service stays usable. Cache-size cap and post-decode
+                # log already None-check `self._nvdsframeselector`.
+                logger.error(
+                    "[fselect] CHOOSE_FSELECT=true but nvdsframeselector plugin "
+                    "is not available. Install libnvdsgst_frameselector.so. "
+                    "Falling back to default frame selection for this pipeline."
+                )
+                fselect_queue.link(qvideoconvert)
+            else:
+                pipeline.add(self._nvdsframeselector)
+                # Configure cache-size / selection-count from chunk-duration / fps
+                self._configure_nvdsframeselector(file_or_rtsp)
+                fselect_queue.link(self._nvdsframeselector)
+                self._nvdsframeselector.link(qvideoconvert)
+                # NOTE: previously the nvdsframeselector sink/src pads carried
+                # per-buffer Python counter probes (the "[fselect-io]" frames-in/out
+                # debug log). They fired ~300x/chunk in the GStreamer streaming
+                # thread and — across the concurrent decode pipelines — serialized
+                # on the GIL, adding latency the REF path never pays. They were
+                # pure instrumentation, so they have been removed: the fselect
+                # path now carries no per-buffer Python probes beyond what REF has.
+                # frames_in/out is still observable via the C nvdsframeselector
+                # logs and the [Timing][DSPipe] tsf_passed / frames_selected fields.
         else:
-            self._q1.link(qvideoconvert)
+            if self._is_live and not os.environ.get("RTVI_DISABLE_LIVESTREAM_PREVIEW", ""):
+                logger.info(
+                    "Creating live stream video preview branch for %s", self._live_stream_request_id
+                )
+                if not self._create_live_stream_video_preview_branch(pipeline, self._q1, qvideoconvert):
+                    logger.warning(
+                        "Failed to create live stream video preview branch. Additional codecs not installed."  # noqa: E501
+                    )
+                    self._q1.link(qvideoconvert)
+            else:
+                self._q1.link(qvideoconvert)
 
         q2 = Gst.ElementFactory.make("queue")
         pipeline.add(q2)
@@ -1832,7 +2521,6 @@ class VideoFileFrameGetter:
             pipeline.add(jpegenc)
         else:
             format = "GBR" if self._do_preprocess else "RGB"
-            pass
 
         # Add parallel encoding pipeline for saving images to disk
         self._enable_image_save = os.getenv("SAVE_CHUNK_FRAMES_MINIO", "false").lower() == "true"
@@ -2045,6 +2733,7 @@ class VideoFileFrameGetter:
                         chunk.is_first = chunk.chunkIdx == 0
                         if chunk.is_first:
                             self._live_stream_next_chunk_start_pts = buffer.pts
+                            self._fselect_apply_chunk_origin(buffer.pts)
                         chunk.start_pts = int(self._live_stream_next_chunk_start_pts)
                         chunk.end_pts = int(
                             chunk.start_pts + self._live_stream_chunk_duration * 1e9
@@ -2074,11 +2763,24 @@ class VideoFileFrameGetter:
                     else:
                         # Fallback: Python-based filtering when timestampfilter not available
                         choose_frame = False
+                        _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
                         for fs, fs_data in self._live_stream_frame_selectors.items():
                             if fs.choose_frame(buffer, buffer.pts):
                                 choose_frame = True
-                                fs_data.cached_pts.append(buffer.pts / 1e9)
+                                # HYP/CHOOSE_FSELECT: nvdsframeselector emits only a
+                                # subset of the passed frames, ~1 chunk late. Populate
+                                # cached_pts from the PLUGIN OUTPUT (add_to_cache), not
+                                # here, so cached_pts stays aligned with cached_frames.
+                                if not _fselect_on:
+                                    fs_data.cached_pts.append(buffer.pts / 1e9)
 
+                    # Close finished chunks on the leading input PTS. For HYP the
+                    # plugin batch-flushes a chunk's frames at cache-full (≈ this
+                    # window boundary), so by the time the leading input crosses
+                    # end_pts the batch is already present and the chunk ships
+                    # immediately — no waiting for the NEXT chunk's burst. The
+                    # cached_frames guard in _process_finished_chunks prevents
+                    # shipping empty if the burst is momentarily late.
                     self._process_finished_chunks(buffer.pts)
 
                 if new_chunk:
@@ -2090,6 +2792,24 @@ class VideoFileFrameGetter:
 
             else:
                 self._last_frame_pts = buffer.pts
+                # CHOOSE_FSELECT path: range seek (start_pts→end_pts) in
+                # get_frames() bounds the demuxer, but KEY_UNIT|SNAP_BEFORE
+                # means pre-roll between the keyframe before start_pts and
+                # start_pts itself still arrives here — drop it via SKIP.
+                # END_OF_CHUNK is the safety net in case the demuxer emits
+                # past end_pts.
+                if os.environ.get("CHOOSE_FSELECT", "false") == "true":
+                    result = self._frame_selector.choose_frame(buffer, buffer.pts)
+                    if result == FrameSelectionResult.SKIP:
+                        return Gst.PadProbeReturn.DROP
+                    if result == FrameSelectionResult.END_OF_CHUNK:
+                        if not self._eos_sent:
+                            self._pipeline.send_event(Gst.Event.new_eos())
+                            self._eos_sent = True
+                        return Gst.PadProbeReturn.DROP
+                    if result == FrameSelectionResult.SELECT:
+                        return Gst.PadProbeReturn.OK
+
                 if self._frame_selector.choose_frame(buffer, buffer.pts):
                     return Gst.PadProbeReturn.OK
                 selector_done = self._frame_selector.selection_done
@@ -2168,9 +2888,48 @@ class VideoFileFrameGetter:
                 # the timestamps from nanoseconds to seconds.
                 if self._is_live:
                     with self._live_stream_frame_selectors_lock:
-                        for _, fs_data in self._live_stream_frame_selectors.items():
-                            if buffer.pts / 1e9 in fs_data.cached_pts:
+                        _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
+                        # Count the frame once, not once per non-matching selector.
+                        _fselect_matched = False
+                        _fselect_windows = []
+                        for fs, fs_data in self._live_stream_frame_selectors.items():
+                            if _fselect_on:
+                                # Plugin already did the selection and emits its picks
+                                # as a batch. Its output PTS is always a valid input
+                                # PTS, so match by the chunk's PTS-range (not exact
+                                # cached_pts) and record the real output PTS.
+                                if fs._chunk.start_pts <= buffer.pts < fs._chunk.end_pts:
+                                    fs_data.cached_frames.append(image_tensor)
+                                    fs_data.cached_pts.append(buffer.pts / 1e9)
+                                    fs_data.last_frame_time = time.time()
+                                    _fselect_matched = True
+                                else:
+                                    _fselect_windows.append(
+                                        (fs._chunk.start_pts / 1e9, fs._chunk.end_pts / 1e9)
+                                    )
+                            elif buffer.pts / 1e9 in fs_data.cached_pts:
                                 fs_data.cached_frames.append(image_tensor)
+                                _fselect_matched = True
+                            elif not _fselect_on:
+                                # REF bookkeeping, symmetric with fselect below.
+                                _fselect_windows.append(
+                                    (fs._chunk.start_pts / 1e9, fs._chunk.end_pts / 1e9)
+                                )
+                        if not _fselect_matched:
+                            # A pick that outlived every open chunk. Should be 0.
+                            self._fselect_frames_rejected += 1
+                            if self._fselect_frames_rejected % 50 == 1:
+                                logger.info(
+                                    "[%s][drop] pts=%.3fs owned by no open chunk "
+                                    "%s (accepted=%d rejected=%d)",
+                                    "fselect" if _fselect_on else "ref",
+                                    buffer.pts / 1e9,
+                                    [f"[{s:.2f},{e:.2f})" for s, e in _fselect_windows],
+                                    self._fselect_frames_accepted,
+                                    self._fselect_frames_rejected,
+                                )
+                        else:
+                            self._fselect_frames_accepted += 1
                         self._process_finished_chunks(buffer.pts)
                 else:
                     return self._append_file_frame_to_cache(image_tensor, buffer.pts / 1000000000.0)
@@ -2358,7 +3117,16 @@ class VideoFileFrameGetter:
                 ),
             )
 
-        pad = videoconvert.get_static_pad("sink")
+        # CHOOSE_FSELECT: attach the EOS / caps probe upstream of the
+        # frameselector so the EOS reaches it instead of getting consumed by
+        # the cache.
+        if (
+            os.environ.get("CHOOSE_FSELECT", "false") == "true"
+            and fselect_videoconvert is not None
+        ):
+            pad = fselect_videoconvert.get_static_pad("sink")
+        else:
+            pad = videoconvert.get_static_pad("sink")
 
         def buffer_probe_event_eos(pad, info, data):
             # Probe callback function to send explicit EOS on audio path
@@ -2451,8 +3219,13 @@ class VideoFileFrameGetter:
         if self._is_live:
             self._add_gst_pad_probe(pad, Gst.PadProbeType.QUERY_DOWNSTREAM, cb_ntpquery, self)
 
-        # Link timestampfilter between qvideoconvert and videoconvert for non-live streams
-        if self._timestamp_filter:
+        # Link timestampfilter between qvideoconvert and videoconvert for the
+        # REF (non-FSELECT) path. Under FSELECT non-live, timestampfilter is
+        # already linked at the head of the FSELECT subgraph (between
+        # fselectq and fselect_videoconvert) in range mode, so qvideoconvert
+        # links straight to videoconvert here.
+        _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
+        if self._timestamp_filter and not _fselect_on:
             qvideoconvert.link(self._timestamp_filter)
             self._timestamp_filter.link(videoconvert)
         else:
@@ -2475,6 +3248,9 @@ class VideoFileFrameGetter:
                 capsfilter.link(q2)
 
         q2.link(appsink)
+
+        # Per-DS-stage timing probes (timestampfilter / fselect-convert /
+        # nvdsframeselector / main-convert). Decoder src is done in cb_elem_added.
 
         def audio_buffer_probe(pad, info, data):
             # Probe callback function to pass chosen frames and drop other frames
@@ -2681,6 +3457,10 @@ class VideoFileFrameGetter:
         if hasattr(self, "_encoding_elements"):
             self._encoding_elements = {}
         self._pipeline_has_file_buffer_probe = False
+        # CHOOSE_FSELECT: drop references so the next pipeline rebuild
+        # creates fresh elements.
+        self._nvdsframeselector = None
+        self._fselect_videoconvert = None
 
     def _wait_for_paused(
         self,
@@ -2774,6 +3554,10 @@ class VideoFileFrameGetter:
         with self._err_msg_lock:
             self._err_msg = None
         self._file_pipeline_reusable = True
+
+        # Detect the source frame rate; used for the file-mode fselect cache sizing.
+        file_name_for_fps = chunk.file.split(";")[0]
+        self._detect_frame_rate(file_name_for_fps)
 
         logger.debug("Audio ASR enabled: %d", enable_audio)
 
@@ -2871,6 +3655,7 @@ class VideoFileFrameGetter:
 
             # Set start/end time in the file based on chunk info.
             start_pts = chunk.start_pts - chunk.pts_offset_ns
+            end_pts = chunk.end_pts - chunk.pts_offset_ns
 
             timestamps_str = ""
             if frame_selector:
@@ -2881,17 +3666,53 @@ class VideoFileFrameGetter:
                 timestamps_str = ",".join(
                     str(int(pts)) for pts in self._frame_selector._selected_pts_array
                 )
-            if self._timestamp_filter:
+            # Decide whether to push the equidistant PTS list to the
+            # timestampfilter for this chunk.
+            #
+            # REF (CHOOSE_FSELECT=false): always push — REF wants the filter
+            #     to pre-select exactly the N target PTSes for the VLM.
+            #
+            # HYP (CHOOSE_FSELECT=true):
+            #   - default (FSELECT_FULL_STREAM=true): the filter is bypassed
+            #     entirely (use_timestamp_filter=False), so nvdsframeselector
+            #     sees the full decoded stream and picks frames motion-aware;
+            #     the Python window verdict drops pre-roll and ends the chunk.
+            #   - FSELECT_FULL_STREAM=false: push the PTS list anyway, just
+            #     like REF — useful for the "wider pre-filter + nvdsframeselector
+            #     picks subset" design (provide a longer _selected_pts_array
+            #     via the frame selector if you want more than N frames here).
+            _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
+            _fselect_full_stream = (
+                os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+            )
+            _push_timestamps = self._timestamp_filter is not None and not (
+                _fselect_on and _fselect_full_stream
+            )
+            if _push_timestamps:
                 self._timestamp_filter.set_property("timestamps", timestamps_str)
 
             # Reset seek tracking for this chunk
             self._seek_done = False
             self._seek_triggered = False
             self._seek_position = int(start_pts)
-            if self._seek_probe_id is not None and self._timestamp_filter:
-                # Remove old probe if exists
-                sink_pad = self._timestamp_filter.get_static_pad("sink")
-                sink_pad.remove_probe(self._seek_probe_id)
+            self._seek_stop_position = int(end_pts)
+            if self._seek_probe_id is not None:
+                # Remove old probe if exists. timestampfilter.sink is the
+                # right pad for both REF and FSELECT (probes fire on buffer
+                # arrival regardless of any later transform_ip drop). Fall
+                # back to fselect_videoconvert.sink only if timestampfilter
+                # is unavailable.
+                if self._timestamp_filter:
+                    sink_pad = self._timestamp_filter.get_static_pad("sink")
+                elif (
+                    os.environ.get("CHOOSE_FSELECT", "false") == "true"
+                    and self._fselect_videoconvert is not None
+                ):
+                    sink_pad = self._fselect_videoconvert.get_static_pad("sink")
+                else:
+                    sink_pad = None
+                if sink_pad is not None:
+                    sink_pad.remove_probe(self._seek_probe_id)
                 self._seek_probe_id = None
 
             # Try to seek now (works if pipeline already linked).
@@ -2919,11 +3740,33 @@ class VideoFileFrameGetter:
                 start_pts=start_pts,
                 pipeline_has_streamed=self._pipeline_has_streamed,
             ):
-                seek_result = pipeline.seek_simple(
-                    Gst.Format.TIME,
-                    Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT | Gst.SeekFlags.SNAP_BEFORE,
-                    start_pts,
-                )
+                if os.environ.get("CHOOSE_FSELECT", "false") == "true":
+                    # Range seek: decoder/demuxer emits frames in
+                    # [start_pts, end_pts) and EOSes naturally at end_pts,
+                    # so it doesn't decode past the chunk boundary.
+                    # KEY_UNIT|SNAP_BEFORE is used (not ACCURATE) to avoid
+                    # the per-chunk decode-and-discard cost that ACCURATE
+                    # incurs; pre-roll between keyframe and start_pts is
+                    # dropped by the slim FSELECT buffer_probe.
+                    seek_result = pipeline.seek(
+                        1.0,
+                        Gst.Format.TIME,
+                        Gst.SeekFlags.FLUSH
+                        | Gst.SeekFlags.KEY_UNIT
+                        | Gst.SeekFlags.SNAP_BEFORE,
+                        Gst.SeekType.SET,
+                        start_pts,
+                        Gst.SeekType.SET,
+                        end_pts,
+                    )
+                else:
+                    seek_result = pipeline.seek_simple(
+                        Gst.Format.TIME,
+                        Gst.SeekFlags.FLUSH
+                        | Gst.SeekFlags.KEY_UNIT
+                        | Gst.SeekFlags.SNAP_BEFORE,
+                        start_pts,
+                    )
 
             if seek_result:
                 logger.debug("Seek successful to %.2fs in get_frames()", start_pts / 1e9)
@@ -2938,8 +3781,11 @@ class VideoFileFrameGetter:
                 _seek_max_attempts = 5
                 _seek_async_waits = [0]
                 _seek_max_async_waits = 100
+                _fselect_seek = os.environ.get("CHOOSE_FSELECT", "false") == "true"
                 _seek_flags = (
-                    Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT | Gst.SeekFlags.SNAP_BEFORE
+                    Gst.SeekFlags.FLUSH
+                    | Gst.SeekFlags.KEY_UNIT
+                    | Gst.SeekFlags.SNAP_BEFORE
                 )
 
                 def seek_probe_callback(
@@ -2992,9 +3838,20 @@ class VideoFileFrameGetter:
                                     _seek_max_async_waits,
                                 )
                                 _seek_async_waits[0] += 1
-                            seek_result = pipeline.seek_simple(
-                                Gst.Format.TIME, _seek_flags, selff._seek_position
-                            )
+                            if _fselect_seek:
+                                seek_result = pipeline.seek(
+                                    1.0,
+                                    Gst.Format.TIME,
+                                    _seek_flags,
+                                    Gst.SeekType.SET,
+                                    selff._seek_position,
+                                    Gst.SeekType.SET,
+                                    selff._seek_stop_position,
+                                )
+                            else:
+                                seek_result = pipeline.seek_simple(
+                                    Gst.Format.TIME, _seek_flags, selff._seek_position
+                                )
                             if seek_result:
                                 logger.debug("Seek successful in deferred callback")
                                 selff._seek_done = True
@@ -3074,10 +3931,25 @@ class VideoFileFrameGetter:
                     # installed until do_seek removes it on success.
                     return Gst.PadProbeReturn.DROP
 
+                # Pick a pad that actually sees buffers. timestampfilter.sink
+                # works for both REF (filter linked qvideoconvert→videoconvert)
+                # and FSELECT (filter linked fselectq→fselect_videoconvert) —
+                # pad probes fire on every arriving buffer, before any
+                # transform_ip drop. Falls back to fselect_videoconvert.sink
+                # only if timestampfilter is unavailable.
                 if self._timestamp_filter:
                     sink_pad = self._timestamp_filter.get_static_pad("sink")
                     self._seek_probe_id = self._add_gst_pad_probe(
                         sink_pad, Gst.PadProbeType.BUFFER, seek_probe_callback, self
+                    )
+                    logger.debug(
+                        "Installed deferred-seek probe (id=%d) on timestampfilter sink",
+                        self._seek_probe_id,
+                    )
+                elif _fselect_seek and self._fselect_videoconvert is not None:
+                    sink_pad = self._fselect_videoconvert.get_static_pad("sink")
+                    self._seek_probe_id = sink_pad.add_probe(
+                        Gst.PadProbeType.BUFFER, seek_probe_callback, self
                     )
                     logger.debug(
                         "Installed buffer probe (id=%d) on timestampfilter sink pad",
@@ -3086,8 +3958,10 @@ class VideoFileFrameGetter:
 
             # Set the pipeline to PLAYING and wait for end-of-stream or error
             pipeline.set_state(Gst.State.PLAYING)
+            _chunk_decode_start = time.monotonic()
             with TimeMeasure("Decode "):
                 self._loop.run()
+            _chunk_decode_elapsed = time.monotonic() - _chunk_decode_start
             # Pipeline has now advanced past position 0 — any subsequent
             # reuse of this fgetter needs a real seek to rewind, even for
             # a chunk-0 request.
@@ -3096,6 +3970,19 @@ class VideoFileFrameGetter:
             self._file_pipeline_reusable = self._wait_for_paused(pipeline)
             if old_pipeline:
                 self._set_element_null(old_pipeline, "Replaced pipeline")
+
+            # CHOOSE_FSELECT: log wall-clock decode time alongside the
+            # frameselector configuration for tuning.
+            if os.environ.get("CHOOSE_FSELECT", "false") == "true":
+                fsel_cache = (
+                    self._nvdsframeselector.get_property("cache-size")
+                    if self._nvdsframeselector is not None
+                    else -1
+                )
+                logger.info(
+                    "[fselect] Chunk %d decode wall-clock=%.2fs (cache_size=%d)",
+                    self._chunkIdx, _chunk_decode_elapsed, fsel_cache,
+                )
 
         with self._err_msg_lock:
             has_error = self._err_msg is not None
