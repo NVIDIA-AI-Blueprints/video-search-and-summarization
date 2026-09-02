@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from typing import Any
 
@@ -383,6 +384,45 @@ def test_cancellation_after_submission_closes_terminal_record() -> None:
     assert error.result.status == "timeout"
     assert error.result.record == "closed"
     assert memory.service.list_jobs()[0].job.status == "timeout"
+
+
+def test_timeout_does_not_start_terminal_write_while_persist_is_in_flight() -> None:
+    submitted = threading.Event()
+    statuses: list[str] = []
+
+    class _HangingSubmitStore(InMemoryStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.closed = False
+
+        def upsert(self, record: Any) -> Any:
+            statuses.append(record.job.status)
+            if record.job.status == "submitted":
+                submitted.set()
+                time.sleep(2)
+            if self.closed:
+                raise RuntimeError("upsert after store close")
+            return super().upsert(record)
+
+        def close(self) -> None:
+            self.closed = True
+
+    store = _HangingSubmitStore()
+    memory = memory_mod.Memory(MemoryService(store), index="test-memory")
+    started = time.monotonic()
+
+    with pytest.raises(VLMJobError) as caught:
+        _run(_Analyzer(), memory=memory, timeout_seconds=1)
+
+    store.close()
+    submitted.wait(timeout=2)
+
+    assert caught.value.result.status == "timeout"
+    assert caught.value.result.record == "stale"
+    assert time.monotonic() - started < 1.2
+    assert statuses.count("timeout") == 0
+    assert statuses.count("partial") == 0
+    assert statuses.count("failed") == 0
 
 
 def test_later_phases_receive_remaining_timeout_not_a_fresh_budget() -> None:

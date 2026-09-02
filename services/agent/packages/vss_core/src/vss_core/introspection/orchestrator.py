@@ -323,7 +323,7 @@ def _parent_matches_time_scope(parent: UnifiedMemoryRecord, query: MemoryQuery) 
     window = parent.input.window if parent.input is not None else None
     if window is None:
         return True
-    if query.since is not None and window.end.timestamp < query.since:
+    if query.since is not None and window.end is not None and window.end.timestamp < query.since:
         return False
     return query.until is None or window.start.timestamp <= query.until
 

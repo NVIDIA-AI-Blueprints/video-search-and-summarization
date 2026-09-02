@@ -380,6 +380,38 @@ async def test_parent_expansion_keeps_windowless_parent_of_time_scoped_child() -
 
 
 @pytest.mark.asyncio
+async def test_parent_expansion_keeps_open_ended_parent_of_time_scoped_child() -> None:
+    child = _record()
+    parent = _record(record_id=None, query="shift notes", answer="Open warehouse shift.")
+    assert parent.input is not None and parent.input.window is not None
+    parent = parent.model_copy(
+        update={
+            "input": parent.input.model_copy(update={"window": TimeWindow(start=parent.input.window.start, end=None)})
+        }
+    )
+    memory, _ = _memory(parent, child)
+    judge = _Judge(_decision(sufficient=True))
+
+    result = await introspect(
+        IntrospectionRequest(
+            query="forklift",
+            sensor="camera-east",
+            start_time=START,
+            end_time=END,
+        ),
+        memory=memory,
+        judge=judge,
+        synthesizer=_Synthesizer(),
+        vlm_runner=_Runner(),
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert [record.job.is_child for record in judge.records] == [True, False]
+    assert judge.records[1].output.answer == "Open warehouse shift."
+
+
+@pytest.mark.asyncio
 async def test_one_grounded_gap_runs_one_vlm_and_one_final_synthesis() -> None:
     result, judge, synthesizer, runner = await _run()
 

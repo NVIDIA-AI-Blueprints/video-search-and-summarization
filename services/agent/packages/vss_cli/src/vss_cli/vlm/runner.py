@@ -279,80 +279,122 @@ async def run_vlm_job(
     adapter = VLMAdapter()
     persistence_error: str | None = None
     persistence_lock = threading.Lock()
+    persistence_abandoned = threading.Event()
+    in_flight_write: asyncio.Future[object] | None = None
 
-    async def persist_record(record: Any) -> None:
-        """Run a synchronous store write without blocking deadline cancellation."""
-        if memory is None:
-            return
-        target_memory = memory
-        write_finished: asyncio.Future[Exception | None] = loop.create_future()
+    def abandon_persistence() -> None:
+        persistence_abandoned.set()
+
+    def spawn_persistence_write(action: Callable[[], object], *, name: str) -> asyncio.Future[object]:
+        write_finished: asyncio.Future[object] = loop.create_future()
 
         def write() -> None:
-            outcome: Exception | None = None
+            outcome: object = None
             try:
-                with persistence_lock:
-                    target_memory.service.upsert(record)
+                if not persistence_abandoned.is_set():
+                    with persistence_lock:
+                        if not persistence_abandoned.is_set():
+                            outcome = action()
             except Exception as error:
-                outcome = error
+                if not persistence_abandoned.is_set():
+                    outcome = error
 
-            def report(result: Exception | None = outcome) -> None:
+            def report(result: object = outcome) -> None:
                 if not write_finished.done():
                     write_finished.set_result(result)
 
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(report)
 
-        threading.Thread(target=write, name="vss-vlm-persistence-write", daemon=True).start()
-        outcome = await asyncio.shield(write_finished)
-        if outcome is not None:
+        threading.Thread(target=write, name=name, daemon=True).start()
+        return write_finished
+
+    async def await_in_flight_write() -> bool:
+        """Wait for an unfinished persist, or abandon it so no later write starts."""
+        pending = in_flight_write
+        if pending is None or pending.done():
+            return not persistence_abandoned.is_set()
+        write_timeout = min(terminal_write_reserve, max(0.0, deadline - loop.time()))
+        if write_timeout <= 0:
+            abandon_persistence()
+            return False
+        try:
+            async with asyncio.timeout(write_timeout):
+                await asyncio.shield(pending)
+        except TimeoutError:
+            abandon_persistence()
+            return False
+        return not persistence_abandoned.is_set()
+
+    async def persist_record(record: Any) -> None:
+        """Run a synchronous store write without blocking deadline cancellation."""
+        nonlocal in_flight_write
+        if memory is None or persistence_abandoned.is_set():
+            return
+        target_memory = memory
+        write_finished = spawn_persistence_write(
+            lambda: target_memory.service.upsert(record),
+            name="vss-vlm-persistence-write",
+        )
+        in_flight_write = write_finished
+        try:
+            outcome = await asyncio.shield(write_finished)
+        finally:
+            if in_flight_write is write_finished and write_finished.done():
+                in_flight_write = None
+        if isinstance(outcome, Exception):
             raise outcome
 
     async def close(
         status: Literal["failed", "partial", "timeout"],
         detail: str,
     ) -> Literal["absent", "closed", "stale"]:
+        nonlocal in_flight_write
         if memory is None or job_id is None or created_at is None or input_data is None:
             return "absent"
+        if persistence_abandoned.is_set() or not await await_in_flight_write():
+            return "stale"
+        if memory is None:
+            return "absent"
         target_memory = memory
-        write_finished: asyncio.Future[bool] = loop.create_future()
 
-        def write() -> None:
-            with persistence_lock:
-                # Type guards: these are guaranteed non-None by the outer close() check
-                assert job_id is not None
-                assert created_at is not None
-                closed = mark_terminal(
-                    target_memory,
-                    adapter,
-                    job_id=job_id,
-                    created_at=created_at,
-                    input_data=input_data,
-                    status=status,
-                    message=detail,
-                    attempts=1,
-                    backoff_seconds=0,
-                )
-
-            def report() -> None:
-                if not write_finished.done():
-                    write_finished.set_result(closed)
-
-            with contextlib.suppress(RuntimeError):
-                loop.call_soon_threadsafe(report)
+        def mark() -> bool:
+            # Type guards: these are guaranteed non-None by the outer close() check
+            assert job_id is not None
+            assert created_at is not None
+            return mark_terminal(
+                target_memory,
+                adapter,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status=status,
+                message=detail,
+                attempts=1,
+                backoff_seconds=0,
+            )
 
         # A daemon thread prevents a store's normal request timeout from extending
         # the CLI's end-to-end deadline. The write may finish in the background,
         # but the caller waits only for the reserved part of the shared budget.
-        threading.Thread(target=write, name="vss-vlm-terminal-write", daemon=True).start()
+        # Never start this terminal write while an earlier persist is still running:
+        # the caller may close the store as soon as this runner returns.
+        write_finished = spawn_persistence_write(mark, name="vss-vlm-terminal-write")
+        in_flight_write = write_finished
         write_timeout = min(terminal_write_reserve, max(0.0, deadline - loop.time()))
         if write_timeout <= 0:
+            abandon_persistence()
             return "stale"
         try:
             async with asyncio.timeout(write_timeout):
                 closed = await asyncio.shield(write_finished)
         except TimeoutError:
+            abandon_persistence()
             return "stale"
-        return "closed" if closed else "stale"
+        finally:
+            if in_flight_write is write_finished and write_finished.done():
+                in_flight_write = None
+        return "closed" if closed is True else "stale"
 
     def timeout_result(*, record: Literal["absent", "closed", "stale"]) -> VLMJobResult:
         return VLMJobResult(
@@ -479,6 +521,7 @@ async def run_vlm_job(
             )
             raise VLMJobError(result, error) from error
     finally:
+        abandon_persistence()
         if owns_analyzer and analyzer is not None:
             close_analyzer = getattr(analyzer, "aclose", None)
             if close_analyzer is not None:
