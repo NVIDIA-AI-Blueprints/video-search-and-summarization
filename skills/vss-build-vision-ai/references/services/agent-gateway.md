@@ -8,20 +8,22 @@
 
 ## Agent selection contract
 
-This owner is reached when the user selects an external chat owner at the
-mandatory Q3 gate in `SKILL.md`, or when the original request already names one.
-Do not infer the built-in `vss-agent` merely because every stock Foundation
-contains it. Likewise, do not reinterpret a generic request for a vision build
-as an external-harness request without asking Q3.
+This owner is reached when the user answers yes at the mandatory Q3 harness
+gate in `SKILL.md`, or when the original request already names an external
+harness. NemoClaw is Q3's recommended/default yes-path: a bare "yes" provisions
+a new dedicated NemoClaw-managed OpenClaw sandbox. The coding agent must still
+ask Q3 when the original request says nothing about a harness. Do not infer the
+built-in `vss-agent` merely because every stock Foundation contains it.
 
 Before resolution, the selected OpenClaw or Hermes sandbox and its API forward
-must already be running. Ask for the sandbox name, then let
-`attach_vss_agent.py` discover exactly one matching origin from
-`openshell forward list`. Do not ask the user to guess a URL up front. Only when
-discovery reports zero or multiple matching forwards, ask for an absolute API
-origin and pass it through `--agent-api-url`. Attachment validates the live API
-and writes `VSS_AGENT_BACKEND_URL` to the mode-`0600` `agent-gateway.env`; an
-empty value is a resolution blocker.
+must be running. For the default path, provision a build-specific sandbox with
+the checked-in `deploy_nemoclaw.ipynb` lifecycle first. For BYO, ask for the
+existing sandbox name. Then let `attach_vss_agent.py` discover exactly one
+matching origin from `openshell forward list`. Do not ask the user to guess a
+URL up front. Only when discovery reports zero or multiple matching forwards,
+ask for an absolute API origin and pass it through `--agent-api-url`.
+Attachment validates the live API and writes `VSS_AGENT_BACKEND_URL` to the
+mode-`0600` `agent-gateway.env`; an empty value is a resolution blocker.
 
 The protected gateway env is the single source of backend connection values.
 Never copy the URL or either token into `override.env`, chat output, notebook
@@ -126,9 +128,26 @@ the compatible `vss-agent-ui` from the pinned checkout. Do not replace the UI
 with an older registry image: it lacks the same-origin gateway routes and HTTP
 transport lock.
 
+## Default NemoClaw provision
+
+When Q3 selects **Yes — deploy NemoClaw**, provision a new dedicated assistant
+before resolving VSS. Use the checked-in `deploy_nemoclaw.ipynb`; do not
+reimplement its install, onboarding, policy, skill, workspace, gateway, or
+readiness cells. Set `AGENT_RUNTIME=openclaw`, use a build-specific
+`NEMOCLAW_SANDBOX_NAME`, and set `NEMOCLAW_RECREATE_SANDBOX=0`. If that name
+already belongs to an unrelated sandbox, choose a new name or ask the user;
+never destroy it merely to satisfy the default.
+
+The notebook owns its model-provider prerequisites. A missing credential for
+the selected/default provider is a blocker to request, not a reason to silently
+switch providers. Continue only when the notebook reports the sandbox ready and
+its API forward is live. Then run the same host-side capability bootstrap below
+to verify the immutable VSS attachment and emit the protected resolution
+artifacts.
+
 ## Host-side capability bootstrap
 
-Provision an existing OpenClaw or Hermes sandbox through its host CLI before
+Provision or attach the OpenClaw or Hermes sandbox through its host CLI before
 resolving the gateway-enabled Compose graph. Do not add a privileged Compose
 initializer: it would need the host Docker socket and the operator's NemoClaw
 state, crossing the harness security boundary. The native CLI is the supported
@@ -179,10 +198,11 @@ Harbor's task-scoped `/skills` staging is test input, not a production install.
 
 ## Required configuration
 
-For a BYO sandbox, `attach_vss_agent.py` writes these values to the build's
-sensitive `agent-gateway.env`. The resolved Compose artifact contains them too,
-so both files must remain local and mode `0600`. The notebook path passes the
-same values directly to the resolver without displaying them:
+For a provisioned or BYO sandbox, `attach_vss_agent.py` writes these values to
+the build's sensitive `agent-gateway.env`. The resolved Compose artifact
+contains them too, so both files must remain local and mode `0600`. The
+orchestrator-notebook path passes the same values directly to the resolver
+without displaying them:
 
 | Environment variable | Use |
 |---|---|

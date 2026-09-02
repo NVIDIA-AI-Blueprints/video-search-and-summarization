@@ -73,9 +73,10 @@ service outside that closure, including a peer whose only consumer was removed
 requested). A service is retained only because a requested capability reaches it,
 never because the Foundation happened to ship it.
 
-Treat the Q3 chat-owner answer as an explicit closure root. **Built-in VSS
-Agent** reaches `vss-agent`; an external owner reaches `agent-gateway` plus
-`vss-ui`; **No chat** reaches neither. The mere presence of `vss-agent` or
+Treat the Q3 harness/chat-owner answer as an explicit closure root. **Yes —
+deploy NemoClaw** (including a bare yes) and **attach existing harness** reach
+`agent-gateway` plus `vss-ui`; **No — use built-in VSS Agent** reaches
+`vss-agent`; **No chat** reaches neither. The mere presence of `vss-agent` or
 `vss-ui` in the Foundation is never a closure root. An external-owner build may
 still reach `vss-agent` through another capability's Required peers, but that
 retention is internal and does not transfer chat ownership back to it.

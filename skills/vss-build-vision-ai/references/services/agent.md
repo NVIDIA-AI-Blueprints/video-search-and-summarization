@@ -18,9 +18,11 @@ be requested without this tier.
 
 As a capability owner the built-in agent is reached by **agentic
 orchestration** only after the user explicitly selects **Built-in VSS Agent** at
-the Q3 chat-owner gate, or by an explicit request for its `/generate` REST API.
+the Q3 harness gate, or by an explicit request for its `/generate` REST API.
 Generic agentic or Web UI chat intent goes to Q3 and must not inherit this owner
-from the Foundation. The owner is also reached by an explicit request for
+from the Foundation. Q3 recommends deploying NemoClaw; this built-in owner is
+selected only when the user chooses its explicit no-harness option. The owner
+is also reached by an explicit request for
 video-analytics MCP or tracing. It is **not** reached by two verb classes that look
 interactive but are served elsewhere: (a) structured or programmatic query,
 retrieval, and browse — owned by Elasticsearch with the host-CLI read path
