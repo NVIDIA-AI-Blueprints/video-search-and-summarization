@@ -917,6 +917,34 @@ else
 fi
 rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 
+# GHCR acceptance passes VSS_CONTAINER_TAG without VSS_CONTAINER_REGISTRY.
+# state_up must export the registry from containers.env so compose does not
+# fall back to nvstaging/nvidia inline defaults.
+_out_ghcr_channel="$(mktemp)"
+_err_ghcr_channel="$(mktemp)"
+unset VSS_CONTAINER_REGISTRY
+export VSS_CONTAINER_TAG=pr-ghcr-channel-test
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_ghcr_channel}" 2> "${_err_ghcr_channel}"
+_ghcr_channel_exit=$?
+set -e
+unset VSS_CONTAINER_TAG
+if [[ ${_ghcr_channel_exit} -ne 0 ]]; then
+  echo "FAIL: dry-run with VSS_CONTAINER_TAG only exited ${_ghcr_channel_exit}"
+  ((TESTS_FAILED++)) || true
+elif ! grep -Fq "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
+  echo "FAIL: resolved compose images should use GHCR when only VSS_CONTAINER_TAG is exported"
+  ((TESTS_FAILED++)) || true
+elif grep -Fq "nvcr.io/nvstaging/vss-core/vss-agent:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
+  echo "FAIL: resolved compose images should not use nvstaging when GHCR acceptance tag is set"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: resolved compose images use GHCR registry when VSS_CONTAINER_TAG is exported"
+  ((TESTS_PASSED++)) || true
+fi
+rm -f "${_out_ghcr_channel}" "${_err_ghcr_channel}"
+
 # Search: RT-VLM (vss-rtvi-vlm) is always deployed because it serves both the critic and
 # video_understanding. It is activated via the explicit "rtvi-vlm" compose profile (no vlm_
 # NIM profile) and the agent is wired to it with VLM_NAME_SLUG=none, VLM_MODEL_TYPE=rtvi,

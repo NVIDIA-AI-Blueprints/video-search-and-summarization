@@ -1497,6 +1497,30 @@ function print_args() {
   echo "=========================="
 }
 
+function export_managed_container_channel() {
+  local deployment_directory="$1"
+
+  # Read containers.env in a subshell: `set -a` exports everything it defines,
+  # and Compose gives the process environment precedence over every --env-file.
+  # Leaking those exports silently overrode the image tags this script wrote to
+  # generated.env -- including the SBSA tag swap, which appeared to succeed
+  # while Compose kept deploying the default tags.
+  #
+  # GHCR acceptance only exports VSS_CONTAINER_TAG. Export the shared registry
+  # and tag pair here so compose does not fall back to nvstaging/nvidia inline
+  # defaults while still leaving per-image tag overrides in generated.env.
+  eval "$(
+    (
+      set -a
+      # shellcheck disable=SC1091
+      source "${deployment_directory}/containers.env"
+      set +a
+      printf 'export VSS_CONTAINER_REGISTRY=%q\n' "${VSS_CONTAINER_REGISTRY}"
+      printf 'export VSS_CONTAINER_TAG=%q\n' "${VSS_CONTAINER_TAG}"
+    )
+  )"
+}
+
 function state_up() {
   local _profile_dir _source_env _overrides_env _generated_env
   _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${profile}"
@@ -1998,19 +2022,9 @@ function state_up() {
   fi
 
   # Resolve and display the managed container channel before deployment.
-  # Read containers.env in a subshell: `set -a` exports everything it defines,
-  # and Compose gives the process environment precedence over every --env-file.
-  # Leaking those exports silently overrode the image tags this script wrote to
-  # generated.env -- including the SBSA tag swap, which appeared to succeed
-  # while Compose kept deploying the default tags.
-  (
-    set -a
-    # shellcheck disable=SC1091
-    source "${deployment_directory}/containers.env"
-    set +a
-    echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
-    echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
-  )
+  export_managed_container_channel "${deployment_directory}"
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
 
   # -f disables Compose's default file discovery, so the base file must be named
   # explicitly alongside any overlay.
