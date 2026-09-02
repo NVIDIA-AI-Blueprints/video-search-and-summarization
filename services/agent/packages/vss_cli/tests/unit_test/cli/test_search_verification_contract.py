@@ -65,6 +65,26 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert "VERIFY_PIXELS" not in main
 
 
+def test_search_skill_preserves_body_and_validates_completion_marker() -> None:
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    blocks = [block for block in re.findall(r"```bash\n(.*?)```", main, flags=re.DOTALL) if "SEARCH_STREAM=" in block]
+    assert len(blocks) == 1
+    script = f"""set -euo pipefail
+vss_stub() {{
+  printf '%s\n' '{{"data":[],"search_messages":[],"job_id":"search-01","persisted":false,"record":"absent"}}'
+  printf '%s\n' '{{"event":"vss_job_completed","group":"search","job_id":"search-01","asset_id":null,"status":"completed","persisted":false,"exit_hint":0}}'
+}}
+VSS=(vss_stub)
+SEARCH_PATH=embed
+SOURCE_TYPE=video_file
+SOURCE_SCOPED=false
+{blocks[0]}
+test "${{SEARCH_JSON}}" = '{{"data":[],"search_messages":[],"job_id":"search-01","persisted":false,"record":"absent"}}'
+test "${{SEARCH_JOB_ID}}" = search-01
+"""
+    subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+
+
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
     """The recipe maps the synthetic interval and mints the clip through the CLI.
 

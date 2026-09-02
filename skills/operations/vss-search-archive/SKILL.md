@@ -166,13 +166,37 @@ for source in "${VIDEO_SOURCES[@]}"; do
   SEARCH_COMMAND+=(--video-source "${source}")
 done
 # Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+if ! SEARCH_STREAM=$("${SEARCH_COMMAND[@]}"); then
   echo "Search command failed" >&2
   exit 1
 fi
-printf '%s' "${SEARCH_JSON}" |
-  jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
-    echo "Search did not return a SearchOutput object with a data array" >&2
+
+# Every job command writes exactly two JSON documents: its result body on the
+# first line and the compact lifecycle completion marker on the final line.
+# Preserve the first line byte-for-byte for the UI artifact, while requiring
+# the marker to prove that the successful body belongs to a completed search.
+mapfile -t SEARCH_DOCUMENTS <<<"${SEARCH_STREAM}"
+if [ "${#SEARCH_DOCUMENTS[@]}" -ne 2 ]; then
+  echo "Search did not return one result body and one completion marker" >&2
+  exit 1
+fi
+SEARCH_JSON=${SEARCH_DOCUMENTS[0]}
+SEARCH_COMPLETION=${SEARCH_DOCUMENTS[1]}
+SEARCH_JOB_ID=$(printf '%s' "${SEARCH_JSON}" |
+  jq -er 'select(type == "object" and (.data | type == "array")) |
+          .job_id | select(type == "string" and length > 0)') || {
+    echo "Search did not return a SearchOutput object with a data array and job_id" >&2
+    exit 1
+  }
+printf '%s' "${SEARCH_COMPLETION}" |
+  jq -e --arg job_id "${SEARCH_JOB_ID}" '
+    type == "object" and
+    .event == "vss_job_completed" and
+    .group == "search" and
+    .job_id == $job_id and
+    .status == "completed" and
+    .exit_hint == 0' >/dev/null || {
+    echo "Search completion marker did not validate" >&2
     exit 1
   }
 ```

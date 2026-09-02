@@ -91,7 +91,11 @@ windows — expect fewer, longer results with averaged scores.
 
 ## Output and exits
 
-JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
+The first stdout JSON document is the result body (`SearchOutput.data`), and
+the final stdout line is the compact lifecycle completion marker. `--raw`
+keeps the body on one line so callers can preserve it exactly; `--pretty`
+indents it for interactive reading. A successful caller must validate both
+documents and require their `job_id` values to match.
 
 | exit | meaning |
 |---|---|
