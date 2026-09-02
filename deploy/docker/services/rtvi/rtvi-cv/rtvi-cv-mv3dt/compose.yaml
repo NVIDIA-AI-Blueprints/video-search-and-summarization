@@ -92,6 +92,8 @@ services:
       SENSOR_TIMEOUT_MS: "100"
       MAX_EXPECTED_SENSORS: ${NUM_STREAMS:-4}
       BUFFER_DURATION_S: "2.0"
+      FUSION_METHOD: ${FUSION_METHOD:-gated_weighted}
+      VISIBILITY_MIN: ${VISIBILITY_MIN:-0.3}
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if os.path.isfile('/tmp/fusion_ready') else 1)"]
       interval: 2s

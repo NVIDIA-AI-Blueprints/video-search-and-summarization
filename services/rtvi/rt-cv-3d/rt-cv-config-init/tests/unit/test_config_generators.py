@@ -122,6 +122,150 @@ def test_generated_cam_info_is_valid_and_complete(tmp_path, src_dir, calibration
         assert all(isinstance(v, (int, float)) for v in matrix)
 
 
+def _write_one_camera(tmp_path, **fields):
+    """A calibration.json holding a single camera sensor built from ``fields``."""
+    import json
+
+    path = tmp_path / "calibration.json"
+    path.write_text(
+        json.dumps({"sensors": [dict(fields, id="Cam", type="camera")]}),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _first_camera(calibration_json: Path) -> dict:
+    import json
+
+    with calibration_json.open(encoding="utf-8") as fh:
+        return json.load(fh)["sensors"][0]
+
+
+def _written_projection(out_dir: Path):
+    paths = sorted(out_dir.glob("*.yml"))
+    assert len(paths) == 1, f"expected one camInfo file, got {paths}"
+    return yaml.safe_load(paths[0].read_text())["projectionMatrix_3x4_w2p"]
+
+
+def test_projection_prefers_intrinsics_times_extrinsics(tmp_path, src_dir, calibration_json):
+    """K @ Rt wins over a precomputed cameraMatrix, which is a fit and drifts from it."""
+    import numpy as np
+
+    from generate_cam_info_configs import _parse_model_args, generate_cam_info_files
+
+    sensor = _first_camera(calibration_json)
+    out = tmp_path / "camInfo"
+    generate_cam_info_files(
+        _write_one_camera(tmp_path, **sensor), out, _parse_model_args([["0", "1.60", "0.3"]])
+    )
+
+    written = np.array(_written_projection(out)).reshape(3, 4)
+    expected = np.array(sensor["intrinsicMatrix"]) @ np.array(sensor["extrinsicMatrix"])
+    assert np.allclose(written, expected, rtol=0, atol=0)
+    assert not np.allclose(written, np.array(sensor["cameraMatrix"]), rtol=1e-3), (
+        "fixture no longer distinguishes the two sources, so this test proves nothing"
+    )
+
+
+@pytest.mark.parametrize(
+    "fields, match",
+    [
+        ({"intrinsicMatrix": [[1, 0, 0], [0, 1, 0]], "extrinsicMatrix": None},
+         "invalid intrinsicMatrix shape"),
+        ({"intrinsicMatrix": None, "extrinsicMatrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+         "invalid extrinsicMatrix shape"),
+        ({"intrinsicMatrix": [[1662.8, 0, "960"], [0, 1662.8, 540], [0, 0, 1]],
+          "extrinsicMatrix": None},
+         "non-numeric intrinsicMatrix entry"),
+        ({"intrinsicMatrix": [[1662.8, 0, float("nan")], [0, 1662.8, 540], [0, 0, 1]],
+          "extrinsicMatrix": None},
+         "non-finite intrinsicMatrix entry"),
+        ({"cameraMatrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+         "invalid cameraMatrix shape"),
+    ],
+)
+def test_malformed_projection_inputs_are_rejected(
+    tmp_path, src_dir, calibration_json, fields, match
+):
+    """Both projection sources are validated, so neither can smuggle a bad matrix in.
+
+    Nothing may be written: a camInfo carrying a malformed matrix corrupts 3D
+    localisation without any complaint at the point it is generated.
+    """
+    from generate_cam_info_configs import _parse_model_args, generate_cam_info_files
+
+    reference = _first_camera(calibration_json)
+    fields = {k: (reference[k] if v is None else v) for k, v in fields.items()}
+    out = tmp_path / "camInfo"
+
+    with pytest.raises(ValueError, match=match):
+        generate_cam_info_files(
+            _write_one_camera(tmp_path, **fields), out, _parse_model_args([["0", "1.6", "0.3"]])
+        )
+    assert not list(tmp_path.rglob("*.yml"))
+
+
+@pytest.mark.parametrize(
+    "fields, match",
+    [
+        # Rank-deficient left block: no camera centre and no intrinsics to recover.
+        ({"cameraMatrix": [[1, 2, 3, 4], [2, 4, 6, 8], [1, 1, 1, 1]]},
+         "singular or ill-conditioned"),
+        # Intrinsics in metres rather than pixels.
+        ({"intrinsicMatrix": [[0.0037, 0, 0.0021], [0, 0.0037, 0.0012], [0, 0, 1]],
+          "extrinsicMatrix": None},
+         "implausible focal length"),
+        # Principal point far outside any sensor.
+        ({"intrinsicMatrix": [[1662.8, 0, 1e6], [0, 1662.8, 540], [0, 0, 1]],
+          "extrinsicMatrix": None},
+         "implausible principal point"),
+    ],
+)
+def test_projection_that_does_not_decompose_to_a_camera_is_rejected(
+    tmp_path, src_dir, calibration_json, fields, match
+):
+    """A well-formed 3x4 of numbers still has to be a camera.
+
+    P = K [R | -R C], so decomposing it recovers intrinsics, a rotation and a
+    centre; a matrix that is not a camera yields nonsense for at least one of them.
+    """
+    from generate_cam_info_configs import _parse_model_args, generate_cam_info_files
+
+    reference = _first_camera(calibration_json)
+    fields = {k: (reference[k] if v is None else v) for k, v in fields.items()}
+    out = tmp_path / "camInfo"
+
+    with pytest.raises(ValueError, match=match):
+        generate_cam_info_files(
+            _write_one_camera(tmp_path, **fields), out, _parse_model_args([["0", "1.6", "0.3"]])
+        )
+    assert not list(tmp_path.rglob("*.yml"))
+
+
+def test_either_overall_sign_of_the_projection_matrix_is_accepted(
+    tmp_path, src_dir, calibration_json
+):
+    """P and -P project identically, and fitted cameraMatrix blocks carry both signs.
+
+    The validation normalises the sign to decompose; it must not reject on it, nor
+    rewrite the matrix it was given.
+    """
+    import numpy as np
+
+    from generate_cam_info_configs import _parse_model_args, generate_cam_info_files
+
+    negated = (-np.array(_first_camera(calibration_json)["cameraMatrix"])).tolist()
+    out = tmp_path / "camInfo"
+    generate_cam_info_files(
+        _write_one_camera(tmp_path, cameraMatrix=negated),
+        out,
+        _parse_model_args([["0", "1.60", "0.3"]]),
+    )
+
+    written = np.array(_written_projection(out)).reshape(3, 4)
+    assert np.allclose(written, np.array(negated), rtol=0, atol=0)
+
+
 def test_generate_pub_sub_matches_expected(
     tmp_path, src_dir, calibration_json, expected_pub_sub
 ):
