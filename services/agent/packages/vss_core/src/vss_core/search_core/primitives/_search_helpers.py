@@ -354,15 +354,20 @@ async def fusion_search_rerank(
     # No return_exceptions: a systemic LibraryError from any video propagates.
     results_list = await asyncio.gather(*[_get_attribute_results(er) for er in embed_results])
 
-    candidates = _fusion.build_fusion_candidates(list(results_list), len(attributes))
-    final_results = _fusion.apply_fusion(
-        candidates,
-        fusion_method,
-        rrf_k=rrf_k,
-        rrf_w=rrf_w,
-        w_embed=w_embed,
-        w_attribute=w_attribute,
-    )
+    # Timed separately from the enclosing rerank stage: that one wraps the
+    # concurrent per-video attribute lookups, so its own self time is zero and
+    # the actual score combination -- the "fusion" in fusion search -- was not
+    # attributable to anything.
+    with TimeMeasure("search: fusion score combination"):
+        candidates = _fusion.build_fusion_candidates(list(results_list), len(attributes))
+        final_results = _fusion.apply_fusion(
+            candidates,
+            fusion_method,
+            rrf_k=rrf_k,
+            rrf_w=rrf_w,
+            w_embed=w_embed,
+            w_attribute=w_attribute,
+        )
     logger.info(f"{fusion_method.upper()} fusion reranking complete: {len(final_results)} videos reranked")
     return final_results
 
