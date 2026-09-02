@@ -253,6 +253,8 @@ spec:
               value: {{ .Values.rtspReconnectionMaxAttempts | quote }}
             - name: RTVI_RTSP_RECONNECTION_WINDOW
               value: {{ .Values.rtspReconnectionWindow | quote }}
+            - name: RTVI_IPC_FRAME_COPY
+              value: {{ .Values.ipcFrameCopy | quote }}
             - name: ASSET_DOWNLOAD_CONNECT_TIMEOUT
               value: {{ .Values.assetDownloadConnectTimeout | default "10" | quote }}
             - name: ASSET_DOWNLOAD_TOTAL_TIMEOUT
@@ -321,6 +323,10 @@ spec:
             - name: clip-storage
               mountPath: /home/vst/vst_release/streamer_videos
             {{- end }}
+            {{- if .Values.ipcSocketHostPath }}
+            - name: ipc-socket-dir
+              mountPath: /run/rtvi-ipc
+            {{- end }}
       volumes:
         - name: ngc-model-cache
           persistentVolumeClaim:
@@ -348,6 +354,12 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- end }}
+        {{- if .Values.ipcSocketHostPath }}
+        - name: ipc-socket-dir
+          hostPath:
+            path: {{ .Values.ipcSocketHostPath | quote }}
+            type: Directory
         {{- end }}
 ---
 apiVersion: v1

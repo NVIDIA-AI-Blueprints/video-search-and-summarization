@@ -92,6 +92,8 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `RTVI_EMBED_RTSP_RECONNECTION_INTERVAL` | Maps to `RTVI_RTSP_RECONNECTION_INTERVAL` (seconds). | `5` | No |
 | `RTVI_EMBED_RTSP_RECONNECTION_WINDOW` | Maps to `RTVI_RTSP_RECONNECTION_WINDOW` (seconds). | `60` | No |
 | `RTVI_EMBED_RTSP_RECONNECTION_MAX_ATTEMPTS` | Maps to `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS`. | `10` | No |
+| `RTVI_EMBED_IPC_FRAME_COPY` | Maps to `RTVI_IPC_FRAME_COPY`; consume decoded frames from a compatible CV producer for live streams. | `false` | No |
+| `RTVI_EMBED_IPC_SOCKET_HOST_DIR` | Host producer-socket directory mounted at the fixed `/run/rtvi-ipc` path. | (unset; mount skipped) | No |
 | `RTVI_EMBED_ENABLE_OTEL_MONITORING` | Maps to `ENABLE_OTEL_MONITORING`. | `false` | No |
 | `RTVI_EMBED_OTEL_RESOURCE_ATTRIBUTES` | Maps to `OTEL_RESOURCE_ATTRIBUTES`. | (unset) | No |
 | `RTVI_EMBED_OTEL_TRACES_EXPORTER` | Maps to `OTEL_TRACES_EXPORTER`. | `otlp` | No |
@@ -139,6 +141,7 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 - `${RTVI_EMBED_PORT?}` is a required-variable substitution; missing the variable fails the `compose config` parse.
 - First-boot model download requires reachable Hugging Face/NGC and a valid `NGC_API_KEY`. `HF_TOKEN` is optional but recommended — without it, anonymous Hugging Face pulls of `nvidia/Cosmos-Embed1-448p` can be rate-limited (HTTP 429), which leaves the service running but keeps `/v1/ready` from transitioning to 200.
 - The container runs as UID/GID `1001:1001`. Bind-mounted host directories must already be writable by that UID/GID; the service does not chown at startup.
+- Decoded-frame IPC requires a compatible RTVI CV `nvunixfd` producer on the same host, a shared socket directory, and matching camera ID/template. Send the stream processing request to both CV (producer) and Embed (consumer) with that camera ID. IPC camera, sensor, and stream IDs must be non-empty and use only ASCII letters, digits, `.`, `_`, and `-`; standard UUIDs are valid. It applies only to live RTSP video. The Embed Helm chart exposes the consumer configuration and optional hostPath mount, but does not configure or co-locate CV.
 - Kafka and Redis integration flags must match the peer service's reachability — enabling them without a reachable broker will leave `/v1/ready` reporting 503.
 - Embedding model defaults to `cosmos-embed1-448p`. Callers must use the model id returned by `GET /v1/models` in their request bodies.
 
