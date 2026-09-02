@@ -19,7 +19,7 @@
   "setup": [
     {
       "name": "Deploy and verify LVS",
-      "query": "Use the benchmark-unified-memory skill to orchestrate setup and the vss-deploy-profile skill to deploy the LVS profile with Elasticsearch, VIOS, and the VLM. After all required services are healthy, follow the benchmark skill's project-local CLI setup instructions to configure the deployment against `http://localhost:7777` and verify it with `vss configure check`.",
+      "query": "Use the benchmark-unified-memory skill to orchestrate setup and the vss-deploy-profile skill to deploy the LVS profile with Elasticsearch, VIOS, and the VLM. After all required services are healthy, follow the benchmark skill's project-local CLI setup instructions to configure the deployment against `http://localhost:7777`. You must run `vss configure` for `http://localhost:7777`. Then, verify it with `vss configure check`.",
       "checks": [
         "The LVS profile and its required Elasticsearch, VIOS, and VLM services are running and healthy.",
         "The project-local vss CLI is configured for the deployed profile."
@@ -30,7 +30,7 @@
       "inputs": [
         "dataset_video_ids"
       ],
-      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download the pinned benchmark video resource using the temporary NGC instructions in the benchmark skill. Ingest exactly one corresponding video for every supplied `dataset_video_id` into VIOS and verify the result according to the benchmark skill.",
+      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download the pinned benchmark video resource using the video setup instructions in the benchmark skill. Ingest exactly one corresponding video for every supplied `dataset_video_id` into VIOS and verify the result according to the benchmark skill.",
       "checks": [
         "Every supplied dataset video ID has exactly one matching downloaded video.",
         "Every supplied dataset video ID exists as a VIOS video sensor."

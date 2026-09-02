@@ -34,6 +34,7 @@ VSS=(
   vss
 )
 
+# Mandatory step during deployment, run 
 "${VSS[@]}" --help
 "${VSS[@]}" configure --base-url http://localhost:7777
 "${VSS[@]}" configure check
@@ -45,7 +46,7 @@ summarization, and benchmark-question tasks in the same evaluation leg.
 
 ## Video setup
 
-<!-- TEMPORARY INSTRUCTIONS -->
+<!-- NOT YET SUPPORTED
 1. Download the videos:
 ```
 VIDEO_DIR="${TMPDIR:?}/videos"
@@ -66,12 +67,14 @@ tar -xzf \
 ```
 $TMPDIR/videos/
 ├── warehouse_sample.mp4
+├── sample-sim-jaywalking.mp4
 └── sample-sim-traffic.mp4
 ```
 
 3. Consider `$DEST` being this `$TMPDIR/` for the rest of the video setup instructions
+--> 
 
-<!-- NOT YET SUPPORTED
+<!-- TEMPORARY INSTRUCTIONS TO EXECUTE FOR VIDEO SETUP -->
 1. Verify that the dataset-service credentials are available. Do not print
    their values:
 
@@ -95,7 +98,7 @@ nvdataset --version
 nvdataset --help >/dev/null
 ```
 
-3. Download only the benchmark Parquet and the two videos exercised by this
+3. Download only the benchmark Parquet and the three videos exercised by this
    evaluation from the pinned dataset snapshot:
 
 ```bash
@@ -105,12 +108,12 @@ mkdir -p "$DEST"
 for key in \
   "questions.parquet" \
   "videos/warehouse-monitoring/warehouse_sample.mp4" \
+  "videos/traffic-simulation/sample-sim-jaywalking.mp4" \
   "videos/traffic-simulation/sample-sim-traffic.mp4"
 do
   nvdataset download \
     physical-ai-video-mme-v2 \
     "$DEST" \
-    --snapshot-name initial-v1 \
     --filter "key == '$key'"
 done
 ```
@@ -121,10 +124,10 @@ The resulting task-private subset is:
 physical-ai-video-mme-v2/
 ├── questions.parquet
 └── videos/
+    ├── traffic-simulation/sample-sim-jaywalking.mp4
     ├── traffic-simulation/sample-sim-traffic.mp4
     └── warehouse-monitoring/warehouse_sample.mp4
 ```
--->
 
 4. For every supplied `dataset_video_id`:
 
