@@ -1497,6 +1497,36 @@ function print_args() {
   echo "=========================="
 }
 
+function export_managed_container_channel() {
+  local deployment_directory="$1"
+
+  # Read containers.env in a subshell: `set -a` exports everything it defines,
+  # and Compose gives the process environment precedence over every --env-file.
+  # Leaking those exports silently overrode the image tags this script wrote to
+  # generated.env -- including the SBSA tag swap, which appeared to succeed
+  # while Compose kept deploying the default tags.
+  #
+  # ci-vss-oss forwards -e VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-}"
+  # together with VSS_CONTAINER_TAG. GitHub injects only the tag, so the
+  # compose process sees the registry set to empty — not unset. Compose then
+  # interpolates nested NGC fallbacks in containers.env against that empty
+  # value (YAML inline defaults are already GHCR). Bash ${VAR:-default}
+  # treats empty as unset, which is why sourcing containers.env in the parent
+  # shell (develop, blueprint-deploy.sh) rewrites the registry to GHCR.
+  # Export the resolved registry/tag pair so compose sees a real GHCR
+  # registry while per-image tag overrides stay in generated.env.
+  eval "$(
+    (
+      set -a
+      # shellcheck disable=SC1091
+      source "${deployment_directory}/containers.env"
+      set +a
+      printf 'export VSS_CONTAINER_REGISTRY=%q\n' "${VSS_CONTAINER_REGISTRY}"
+      printf 'export VSS_CONTAINER_TAG=%q\n' "${VSS_CONTAINER_TAG}"
+    )
+  )"
+}
+
 function state_up() {
   local _profile_dir _source_env _overrides_env _generated_env
   _profile_dir="${deployment_directory}/developer-profiles/dev-profile-${profile}"
@@ -1998,19 +2028,9 @@ function state_up() {
   fi
 
   # Resolve and display the managed container channel before deployment.
-  # Read containers.env in a subshell: `set -a` exports everything it defines,
-  # and Compose gives the process environment precedence over every --env-file.
-  # Leaking those exports silently overrode the image tags this script wrote to
-  # generated.env -- including the SBSA tag swap, which appeared to succeed
-  # while Compose kept deploying the default tags.
-  (
-    set -a
-    # shellcheck disable=SC1091
-    source "${deployment_directory}/containers.env"
-    set +a
-    echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
-    echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
-  )
+  export_managed_container_channel "${deployment_directory}"
+  echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
+  echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
 
   # -f disables Compose's default file discovery, so the base file must be named
   # explicitly alongside any overlay.

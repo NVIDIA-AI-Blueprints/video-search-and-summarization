@@ -917,6 +917,59 @@ else
 fi
 rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 
+# ci-vss-oss forwards -e VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-}"
+# so compose sees an empty-but-set registry, not an unset one. That empty
+# value is interpolated through nested NGC fallbacks in containers.env
+# (unset would still resolve GHCR via Compose ${VAR:-default}). Restore the
+# prior environment so later tests in this suite are unaffected.
+_out_ghcr_channel="$(mktemp)"
+_err_ghcr_channel="$(mktemp)"
+_ghcr_had_registry=0
+_ghcr_saved_registry=""
+_ghcr_had_tag=0
+_ghcr_saved_tag=""
+if [[ -n "${VSS_CONTAINER_REGISTRY+x}" ]]; then
+  _ghcr_had_registry=1
+  _ghcr_saved_registry="${VSS_CONTAINER_REGISTRY}"
+fi
+if [[ -n "${VSS_CONTAINER_TAG+x}" ]]; then
+  _ghcr_had_tag=1
+  _ghcr_saved_tag="${VSS_CONTAINER_TAG}"
+fi
+export VSS_CONTAINER_REGISTRY=
+export VSS_CONTAINER_TAG=pr-ghcr-empty-registry-test
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_ghcr_channel}" 2> "${_err_ghcr_channel}"
+_ghcr_channel_exit=$?
+set -e
+if [[ ${_ghcr_had_registry} -eq 1 ]]; then
+  export VSS_CONTAINER_REGISTRY="${_ghcr_saved_registry}"
+else
+  unset VSS_CONTAINER_REGISTRY
+fi
+if [[ ${_ghcr_had_tag} -eq 1 ]]; then
+  export VSS_CONTAINER_TAG="${_ghcr_saved_tag}"
+else
+  unset VSS_CONTAINER_TAG
+fi
+_ghcr_agent_ok="ghcr.io/nvidia-ai-blueprints/vss/vss-agent:pr-ghcr-empty-registry-test"
+_ghcr_agent_ngc="nvcr.io/nvstaging/vss-core/vss-agent:pr-ghcr-empty-registry-test"
+if [[ ${_ghcr_channel_exit} -ne 0 ]]; then
+  echo "FAIL: dry-run with empty VSS_CONTAINER_REGISTRY exited ${_ghcr_channel_exit}"
+  ((TESTS_FAILED++)) || true
+elif ! grep -Fq "${_ghcr_agent_ok}" "${_out_ghcr_channel}"; then
+  echo "FAIL: resolved vss-agent should be ${_ghcr_agent_ok} when VSS_CONTAINER_REGISTRY is empty-but-set"
+  ((TESTS_FAILED++)) || true
+elif grep -Fq "${_ghcr_agent_ngc}" "${_out_ghcr_channel}"; then
+  echo "FAIL: resolved vss-agent should not be ${_ghcr_agent_ngc} when VSS_CONTAINER_REGISTRY is empty-but-set"
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: resolved vss-agent uses GHCR when VSS_CONTAINER_REGISTRY is empty-but-set"
+  ((TESTS_PASSED++)) || true
+fi
+rm -f "${_out_ghcr_channel}" "${_err_ghcr_channel}"
+
 # Search: RT-VLM (vss-rtvi-vlm) is always deployed because it serves both the critic and
 # video_understanding. It is activated via the explicit "rtvi-vlm" compose profile (no vlm_
 # NIM profile) and the agent is wired to it with VLM_NAME_SLUG=none, VLM_MODEL_TYPE=rtvi,
