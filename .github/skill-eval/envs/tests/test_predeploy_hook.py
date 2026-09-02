@@ -182,3 +182,46 @@ class PredeployHookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleGatewayReapTests(unittest.TestCase):
+    """An openshell-gateway process can outlive its sandbox record.
+
+    `_destroy_sandbox_command` gated `nemoclaw destroy --cleanup-gateway` on
+    `openshell sandbox get` SUCCEEDING. When the record is gone but the process
+    survives, the port stays bound and every later leg on that box fails with
+    "gateway port N occupied" — run 33599330003, pid 4073256 holding 8991 on
+    vss-eval-l40s-5 with no sandbox container.
+
+    The fix attempts the sanctioned `--cleanup-gateway` even with no record. It
+    deliberately does NOT pkill/sudo whatever owns the port:
+    `test_eval_harness_only_destroys_the_named_sandbox` forbids sudo/docker/pkill
+    in this command, keeping it scoped to the named sandbox.
+    """
+
+    def setUp(self) -> None:
+        self.cmd = nemoclaw_brev_env._destroy_sandbox_command("skill-eval", "8991")
+
+    def test_cleanup_attempted_even_when_the_record_is_gone(self) -> None:
+        # Two invocations: the strict gated one, and the best-effort fallback.
+        self.assertEqual(
+            self.cmd.count("nemoclaw skill-eval destroy --yes --cleanup-gateway"), 2
+        )
+        self.assertIn("|| true", self.cmd)
+
+    def test_strict_path_still_fails_loud_when_the_sandbox_exists(self) -> None:
+        # The gated branch must NOT be suppressed — a real destroy failure has
+        # to surface, or step-1 runs against a half-torn-down sandbox. Assert on
+        # the destroy LINES, not the whole script: `. $HOME/.profile || true`
+        # legitimately contains `|| true`.
+        lines = [l for l in self.cmd.splitlines()
+                 if "destroy --yes --cleanup-gateway" in l]
+        self.assertEqual(len(lines), 2, lines)
+        strict, fallback = lines
+        self.assertNotIn("|| true", strict)
+        self.assertIn("|| true", fallback)
+
+    def test_respects_the_sandbox_scope_invariant(self) -> None:
+        for forbidden in ("sudo", "docker", "pkill"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.cmd)

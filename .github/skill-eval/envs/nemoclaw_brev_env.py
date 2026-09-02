@@ -102,10 +102,24 @@ host_home=$HOME
 export HOME="$host_home/.skill-eval/nemoclaw-home"
 export NEMOCLAW_GATEWAY_PORT={quoted_port}
 if command -v nemoclaw >/dev/null 2>&1 && \
-   command -v openshell >/dev/null 2>&1 && \
-   openshell sandbox get {quoted} >/dev/null 2>&1; then
-  timeout --signal=TERM --kill-after=30 600s \
-    nemoclaw {quoted} destroy --yes --cleanup-gateway
+   command -v openshell >/dev/null 2>&1; then
+  if openshell sandbox get {quoted} >/dev/null 2>&1; then
+    timeout --signal=TERM --kill-after=30 600s \
+      nemoclaw {quoted} destroy --yes --cleanup-gateway
+  else
+    # Sandbox RECORD is gone, but an `openshell-gateway` process can outlive it
+    # and keep the port bound, so every later leg on this box dies with
+    # "gateway port N occupied" (run 33599330003: pid 4073256 holding 8991 on
+    # vss-eval-l40s-5 with no sandbox container). `--cleanup-gateway` is the
+    # sanctioned way to release it, so attempt it even with no record.
+    #
+    # Deliberately NOT force-killing whatever owns the port:
+    # test_eval_harness_only_destroys_the_named_sandbox constrains this command
+    # to the named sandbox's own CLI, so keep it that way.
+    # Best-effort — a missing record is not itself an error.
+    timeout --signal=TERM --kill-after=30 600s \
+      nemoclaw {quoted} destroy --yes --cleanup-gateway >/dev/null 2>&1 || true
+  fi
 fi
 """.strip()
 
