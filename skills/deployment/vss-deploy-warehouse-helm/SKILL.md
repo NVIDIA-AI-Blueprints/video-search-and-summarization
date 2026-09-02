@@ -63,7 +63,12 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
    copied from the chart README, and offer to run it for them:**
    - No `StorageClass` → relay the `local-path-provisioner` install + `kubectl patch storageclass`
      snippet from `warehouse-<mode>-app/README.md` §Prerequisites (bare-metal option) — or ask
-     what StorageClass they intend to use if they already have one in mind.
+     what StorageClass they intend to use if they already have one in mind. Multi-node cluster:
+     `local-path`'s node affinity can strand `vss-vios-nvstreamer`'s PVCs across different nodes
+     (`didn't match PersistentVolume's node affinity`) — relay the same section's
+     `nfs-subdir-external-provisioner` snippet instead, and set `vios.vstStorage.vstData`,
+     `.vstVideo`, and `.streamerVideos` `.storageClass` to `nfs-client` via three separate `--set`
+     flags (or just `global.storageClass`) rather than `local-path`.
    - No `nvidia.com/gpu` allocatable → relay the NVIDIA GPU Operator install steps from
      §Prerequisites (links to the GPU Operator getting-started guide) and the recommended driver
      versions listed there.
@@ -143,6 +148,11 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      reference](../vss-deploy-profile/references/warehouse.md#supported-hardware). If detection
      fails or the GPU isn't in that table, pass `--hardware-profile` explicitly. `IGX-THOR`/
      `DGX-SPARK` edge devices aren't supported by this Helm path.
+   - No local `nvidia-smi` (running `helm`/`kubectl` from a bastion, laptop, or CI runner rather
+     than a GPU node): `kubectl exec` into a GPU Operator daemonset pod (driver or
+     device-plugin, e.g. `kubectl get pods --all-namespaces -l app=nvidia-driver-daemonset`) and
+     run `nvidia-smi --query-gpu=name --format=csv,noheader` there instead, then map the name and
+     pass `--hardware-profile`.
    - It prints the effective (possibly capped) stream count and the `syncFileCount` value to keep
      in step (see [`references/streams.md`](references/streams.md) for why).
    - It never lowers the request silently without saying so — a cap is always logged to stderr.
@@ -169,6 +179,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      --set global.externalHost=<NODE_IP> \
      --set global.storageClass=<STORAGE_CLASS> \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
+     --set vios.vss-vios-nvstreamer.rtsp.instanceCount=<effective-streams> \
      ... \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
 
@@ -178,6 +189,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      -f deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app/values-nodeport.yaml \
      --set global.storageClass=<STORAGE_CLASS> \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
+     --set vios.vss-vios-nvstreamer.rtsp.instanceCount=<effective-streams> \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
    ```
    `...` is the remaining secrets/URL overrides from step 6 — see
