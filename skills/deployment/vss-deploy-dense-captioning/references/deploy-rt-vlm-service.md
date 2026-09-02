@@ -80,7 +80,7 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 export NGC_CLI_API_KEY="<YOUR_NGC_KEY>"
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 
-# Run the Step 0a tag-selection snippet in the standalone copy flow below, then
+# Run the Step 0a tag-selection snippet against the canonical compose below, then
 # verify pull access for the exact image this compose will use.
 : "${RTVI_VLM_IMAGE_TAG:?Run Step 0a below to set RTVI_VLM_IMAGE_TAG first}"
 docker pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG}"
@@ -369,8 +369,9 @@ volumes:
 ## 12. Deployment Flow
 
 This mirrors the compose-centric workflow used by the VSS deploy-profile skill:
-work from a local copy, build a deploy-specific `rtvi-vlm.env`, dry-run, review, deploy, and
-wait for health. Always follow this sequence. Never skip the dry-run.
+start from the canonical checked-in compose, build a deploy-specific `rtvi-vlm.env`,
+dry-run, review, deploy, and wait for health. Only create a normalized scratch copy
+after Compose specifically rejects undefined optional peers. Never skip the dry-run.
 
 This compose declares **6 blueprint profiles**. Service will NOT start under
 plain `docker compose up` — `--profile <name>` is required.
@@ -387,23 +388,18 @@ plain `docker compose up` — `--profile <name>` is required.
 Generic VLM workflow → `rtvi-vlm`.
 
 ```bash
-# Step 0. Get compose (copy from checkout, or fetch the same path from VSS_REF)
-# Keep the checked-in compose read-only; mutate only this standalone copy.
+# Step 0. Select the canonical checked-in compose. Do not start from an existing copy.
 : "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to any writable standalone working directory, e.g. /tmp/rtvi_deploy}"
 mkdir -p "$RTVI_DEPLOY_DIR" && cd "$RTVI_DEPLOY_DIR"
-VSS_CHECKOUT="${VSS_CHECKOUT:-}"
-if [ -n "$VSS_CHECKOUT" ] && [ -f "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" ]; then
-  cp "$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml" .
-else
-  VSS_REF="${VSS_REF:-e9caf1593ffcd4964426c3e481c2f05f880d2d58}" # validated 26.05.4 compose
-  wget -q -O rtvi-vlm-docker-compose.yml \
-    "https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/${VSS_REF}/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
-fi
+: "${VSS_CHECKOUT:?Set VSS_CHECKOUT to the current VSS repository checkout}"
+CANONICAL_COMPOSE="$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
+[ -f "$CANONICAL_COMPOSE" ] || { echo "Canonical RT-VLM compose not found: $CANONICAL_COMPOSE" >&2; exit 1; }
+COMPOSE_FILE="$CANONICAL_COMPOSE"
 
 # Step 0a. Derive the compose default tag, then select the platform variant.
 #          Spark/GB10/SBSA requires the -sbsa tag.
 #          x86_64 and Tegra-based Jetson/AGX/IGX Thor use the normal multiarch tag.
-COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' rtvi-vlm-docker-compose.yml | head -n1)
+COMPOSE_DEFAULT_TAG=$(sed -nE 's/.*RTVI_VLM_IMAGE_TAG:-([^}]+).*/\1/p' "$CANONICAL_COMPOSE" | head -n1)
 : "${COMPOSE_DEFAULT_TAG:?Could not derive RTVI_VLM_IMAGE_TAG default}"
 RTVI_VLM_IMAGE_TAG="${RTVI_VLM_IMAGE_TAG:-$COMPOSE_DEFAULT_TAG}"
 RTVI_VLM_BASE_TAG="${RTVI_VLM_IMAGE_TAG%-sbsa}"
@@ -425,42 +421,8 @@ fi
 echo "Platform: $ARCH → image tag: $VLM_TAG"
 export VSS_DATA_DIR="${VSS_DATA_DIR:-$RTVI_DEPLOY_DIR/vss-data}"
 
-# Step 0b. Standalone fix — recent Docker Compose rejects `depends_on`
-#          references to sibling NIMs that aren't defined in this single-file
-#          project, even with `required: false`. Strip the depends_on block for
-#          standalone deploys. Use yq if available (handles YAML correctly),
-#          otherwise fall back to a small stdlib-only Python edit of this known
-#          compose file:
-if command -v yq >/dev/null; then
-  yq -i 'del(.services.rtvi-vlm.depends_on)' rtvi-vlm-docker-compose.yml
-else
-  python3 - <<'PY'
-from pathlib import Path
-
-p = Path("rtvi-vlm-docker-compose.yml")
-out = []
-skip = False
-base_indent = 4
-for line in p.read_text().splitlines():
-    stripped = line.lstrip()
-    indent = len(line) - len(stripped)
-    if not skip and line.startswith("    depends_on:"):
-        skip = True
-        continue
-    if skip:
-        if stripped and indent <= base_indent:
-            skip = False
-            out.append(line)
-        continue
-    out.append(line)
-p.write_text("\n".join(out) + "\n")
-PY
-fi
-#     Verify it's gone before Compose validates the project:
-if grep -q 'depends_on' rtvi-vlm-docker-compose.yml; then
-  echo "standalone compose still contains depends_on; remove it before up" >&2
-  exit 1
-fi
+# Step 0b. Keep COMPOSE_FILE pointed at the canonical file. Step 3 owns the
+#          one permitted fallback and records the exact validation failure first.
 
 # Step 1. Config — set model vars per §11 (Options A–E)
 #
@@ -528,9 +490,42 @@ if ! sudo -n chown -R 1001:1001 "$CLIP_STORAGE_DIR"; then
   exit 1
 fi
 
-# Step 3. Validate the standalone compose before creating containers.
-docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
-  --profile rtvi-vlm config --quiet
+# Step 3. Validate the canonical compose before creating containers. Only the
+# known optional-peer failure permits a normalized scratch copy.
+if ! COMPOSE_ERROR=$(docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
+  --profile rtvi-vlm config --quiet 2>&1); then
+  case "$COMPOSE_ERROR" in
+    *"depends on undefined service"*)
+      printf '%s\n' "$COMPOSE_ERROR" >&2
+      COMPOSE_FILE="$RTVI_DEPLOY_DIR/rtvi-vlm-docker-compose.yml"
+      cp "$CANONICAL_COMPOSE" "$COMPOSE_FILE"
+      python3 - "$COMPOSE_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+out = []
+skip = False
+for line in p.read_text().splitlines():
+    stripped = line.lstrip()
+    indent = len(line) - len(stripped)
+    if not skip and line.startswith("    depends_on:"):
+        skip = True
+        continue
+    if skip:
+        if stripped and indent <= 4:
+            skip = False
+            out.append(line)
+        continue
+    out.append(line)
+p.write_text("\n".join(out) + "\n")
+PY
+      docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
+        --profile rtvi-vlm config --quiet
+      ;;
+    *) printf '%s\n' "$COMPOSE_ERROR" >&2; exit 1 ;;
+  esac
+fi
 
 # Step 4. NGC auth. Pipe the key from the user shell; do not rely on sudo
 # preserving environment variables.
@@ -541,7 +536,7 @@ printf '%s' "$NGC_CLI_API_KEY" | docker_cmd login nvcr.io -u '$oauthtoken' --pas
 docker_cmd pull "nvcr.io/nvstaging/vss-core/vss-rt-vlm:${VLM_TAG}"
 
 # Step 6. Bring up — plain `up` (no profile) starts nothing
-docker_cmd compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
+docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
   --profile rtvi-vlm up -d
 
 # Step 7. Wait for healthy — start_period is 1200s (20 MIN) on first boot.
@@ -563,27 +558,27 @@ curl -f "http://localhost:${RTVI_VLM_PORT}/v1/health/ready"
 
 ## 13. Dry Run
 
-Run dry-runs from the standalone working directory after §12 Step 0b has stripped
-the dangling `depends_on` block. The raw checked-in compose is valid only inside
-the full VSS/met-blueprints multi-file project where sibling services exist.
+Run dry-runs from the standalone working directory with the `COMPOSE_FILE` selected
+by §12 Step 3. It remains the canonical checked-in file unless Compose produced the
+specific undefined-optional-peer error and the flow created a normalized scratch copy.
 
 ```bash
 cd "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to your standalone working directory}"
 
 # Resolved compose (audit; --no-interpolate keeps ${VAR} literal — no secrets leaked)
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
   --profile rtvi-vlm config --no-interpolate
 
 # Validation only
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
   --profile rtvi-vlm config --quiet && echo "compose valid"
 
 # Create containers + pull + volumes, but don't start
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
   --profile rtvi-vlm up --no-start
 
 # Cleanup
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down
+docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" --profile rtvi-vlm down
 ```
 
 > Note: compose uses `${VAR:+:path}` conditional-bind on `ASSET_STORAGE_DIR` and
@@ -664,9 +659,9 @@ once the service is up):
 | Volume mount error mentioning `data_log/vst/clip_storage` | `VSS_DATA_DIR` unset → malformed mount | Set `VSS_DATA_DIR`; pre-create the `data_log/vst/clip_storage` subtree |
 | `sudo -n chown` reports that a password is required or fails in an agent session | Host path ownership requires user privileges and passwordless sudo is unavailable | Ask the host owner to run `sudo chown -R 1001:1001 "$VSS_DATA_DIR/data_log/vst/clip_storage"`; do not use `chmod 777` |
 | `sudo -n docker ...` reports that a password is required | Docker requires elevated privileges, but the agent cannot satisfy an interactive sudo prompt | Prefer adding the user to the docker group, enable passwordless sudo for Docker, or have the host owner run the printed Docker command manually. Do not retry with interactive sudo. |
-| `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | Remove the `depends_on` block from the local compose copy (§12 step 0b). Only needed for standalone deploys without the full met-blueprints project. |
+| `service "X" depends on undefined service "Y": invalid compose project` | Recent Docker Compose rejects `depends_on` refs to sibling NIM services not defined in this single-file project — even with `required: false`. | After recording this failure against the canonical file, use the normalized scratch copy created by §12 Step 3. |
 | `docker compose pull` → `invalid compose project` | Same `depends_on` validation runs before pull | Use `docker pull nvcr.io/nvstaging/vss-core/vss-rt-vlm:<tag>` directly (§4) |
-| `docker compose pull --no-deps` → `unknown flag: --no-deps` | Compose 2.38 does not support `--no-deps` on `pull` | Use direct `docker pull` (§4), or strip `depends_on` and validate before `up` (§12 step 0b). |
+| `docker compose pull --no-deps` → `unknown flag: --no-deps` | Compose 2.38 does not support `--no-deps` on `pull` | Use direct `docker pull` (§4); Compose validation and its conditional fallback remain in §12 Step 3. |
 | `password is empty` on Docker login | `$NGC_CLI_API_KEY` is not set in the invoking shell, or a previous sudo shell dropped the environment | Export `NGC_CLI_API_KEY` in the user shell and pipe it through the §12 Docker wrapper: `printf '%s' "$NGC_CLI_API_KEY" \| docker_cmd login nvcr.io -u '$oauthtoken' --password-stdin` |
 | `unauthorized` on `docker compose pull` | Missing NGC auth or no org access | `docker login nvcr.io` with a key that has `nvidia/vss-core` access |
 | `Exited (1)` "Error: No GPUs were found" | Container can't see GPUs | Install NVIDIA Container Toolkit; `docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` must work |
@@ -737,8 +732,8 @@ docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml down --rmi
   validates all `depends_on` service references at project load time and rejects
   them with `invalid compose project` if the services aren't defined — regardless
   of `required: false`. For standalone deployments (no full met-blueprints
-  project), strip the `depends_on` block from the local compose copy (§12 step
-  0b). The `required: false` behavior works correctly only when running under
+  project), first record the canonical validation failure, then use §12 Step 3's
+  normalized scratch copy. The `required: false` behavior works correctly only when running under
   the full met-blueprints multi-file project where all sibling services are
   defined.
 - **`sudo docker` drops environment variables**: `NGC_CLI_API_KEY` and other
