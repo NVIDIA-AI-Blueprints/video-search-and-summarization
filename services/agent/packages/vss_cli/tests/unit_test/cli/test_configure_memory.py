@@ -218,7 +218,7 @@ def test_memory_check_reports_backend_reachability_as_exit_three(
     assert "vss configure memory check" in result.output
 
 
-def test_version_one_config_has_actionable_migration_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_older_config_without_memory_remains_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
     tmp_path.joinpath("config.json").write_text(
         json.dumps(
@@ -231,10 +231,7 @@ def test_version_one_config_has_actionable_migration_error(tmp_path: Path, monke
         ),
         encoding="utf-8",
     )
-    with pytest.raises(config_mod.ConfigError) as error:
-        config_mod.load()
-    assert "vss configure --base-url <origin>" in str(error.value)
-    assert "then re-run `vss configure memory" in str(error.value)
+    assert config_mod.load().memory is None
 
 
 def test_main_configure_preserves_memory_policy(
@@ -332,7 +329,7 @@ def test_memory_config_without_markdown_section_uses_disabled_defaults(
     tmp_path.joinpath("config.json").write_text(
         json.dumps(
             {
-                "version": 2,
+                "version": 1,
                 "base_url": "http://example",
                 "services": {"elasticsearch": {"url": "http://example/elasticsearch"}},
                 "memory": {
@@ -620,7 +617,7 @@ def test_custom_embedding_and_retrieval_configuration_round_trip(config_home: Pa
     )
     assert memory_config.retrieval == config_mod.RetrievalConfig(mode="semantic")
     assert config_mod.MemoryConfig.from_json(memory_config.to_json()) == memory_config
-    assert config_mod.CONFIG_VERSION == 2
+    assert config_mod.CONFIG_VERSION == 1
 
 
 def test_disabled_embeddings_force_effective_keyword_retrieval() -> None:

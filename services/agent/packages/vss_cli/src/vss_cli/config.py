@@ -31,6 +31,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 #: Where the resolved deployment lives. Override for tests or for a second
 #: deployment via ``VSS_CONFIG_HOME``.
