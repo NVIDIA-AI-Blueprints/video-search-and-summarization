@@ -48,8 +48,19 @@ def literal_rules(relative_path: str) -> list[tuple[str, str]]:
 
 
 def apply_sequentially(path: str, rules: list[tuple[str, str]]) -> str:
+    """Model one `http-request replace-path` per rule, in annotation order.
+
+    HAProxy replaces the *whole* path whenever the pattern matches anywhere in
+    it, rather than substituting the matched span. An unanchored rule therefore
+    discards everything around its match: with `/storage /vst/storage`, a path
+    of `/vst/storage/clip.mp4` becomes `/vst/storage` and the filename is gone.
+    Modelling this as `re.sub` would substitute in place and hide that, so the
+    replacement has to be applied the way the proxy applies it.
+    """
     for source, replacement in rules:
-        path = re.sub(source, replacement, path)
+        match = re.search(source, path)
+        if match:
+            path = match.expand(replacement)
     return path
 
 
@@ -77,6 +88,31 @@ class HelmIngressRewriteTest(unittest.TestCase):
         self.assertEqual(
             "/v1/video-summarization/jobs",
             apply_sequentially("/lvs/v1/video-summarization/jobs", rules),
+        )
+
+    def test_unanchored_storage_rules_would_discard_the_filename(self):
+        """The anchors are load-bearing, and this test can tell.
+
+        The first pair is the shape the charts rendered before the anchors were
+        added, and it strips a media request down to the bare directory. If the
+        replace-path model above ever drifts back to an in-place substitution
+        this case stops failing, and the collision tests lose their teeth.
+        """
+        unanchored = [
+            ("/storage/(.*)", r"/vst/storage/\1"),
+            ("/storage", "/vst/storage"),
+        ]
+        self.assertEqual(
+            "/vst/storage",
+            apply_sequentially("/storage/clip.mp4", unanchored),
+        )
+        anchored = [
+            ("^/storage/(.*)", r"/vst/storage/\1"),
+            ("^/storage$", "/vst/storage"),
+        ]
+        self.assertEqual(
+            "/vst/storage/clip.mp4",
+            apply_sequentially("/storage/clip.mp4", anchored),
         )
 
     def test_alert_bridge_backend_path_cannot_trigger_va_mcp_rule(self):
