@@ -1654,12 +1654,6 @@ function state_up() {
       echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
-  # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
-  # override into generated.env where it wins during Compose interpolation.
-  if [[ "${hardware_profile}" == "GB300" ]]; then
-    set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
-    echo "[INFO] Selected SBSA RT-VLM image for GB300"
-  fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 
@@ -1727,6 +1721,20 @@ function state_up() {
   # shellcheck disable=SC1091
   source "${deployment_directory}/containers.env"
   set +a
+
+  # rtvi-vlm-docker-compose.yml resolves ${VSS_RT_VLM_IMAGE}:${VSS_RT_VLM_TAG}, and
+  # Compose ranks the exported shell value above every --env-file, so the SBSA
+  # variant has to be selected here, once containers.env has resolved the channel.
+  # GB300 needs it because the generic ARM64 image omits the DeepStream runtime.
+  # VSS_RT_VLM_SBSA_TAG pins a specific build, e.g. 3.3.0-26.08.2-sbsa; that one
+  # is an NGC coordinate, so pin VSS_RT_VLM_IMAGE to the NGC repository with it
+  # rather than leaving the image on the GHCR default, which has no such tag.
+  if [[ "${hardware_profile}" == "GB300" ]] && [[ "${VSS_RT_VLM_TAG}" != *sbsa* ]]; then
+    export VSS_RT_VLM_TAG="${VSS_RT_VLM_SBSA_TAG:-${VSS_RT_VLM_TAG}-sbsa}"
+    set_env_var "VSS_RT_VLM_TAG" "${VSS_RT_VLM_TAG}"
+    echo "[INFO] Selected SBSA RT-VLM image for GB300: ${VSS_RT_VLM_IMAGE}:${VSS_RT_VLM_TAG}"
+  fi
+
   # -f disables Compose's default file discovery, so the base file must be named
   # explicitly alongside any overlay.
   local compose_files=(-f compose.yml)
