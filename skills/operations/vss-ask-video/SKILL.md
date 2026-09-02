@@ -16,11 +16,23 @@ the video, persists the answer to memory, and returns the result. **This skill d
 `POST /generate` on the VSS agent. It requires a **deployed VSS with `vss configure` already run**
 and a reachable `rt_vlm` service.
 
-> **Hard rule — never call `/generate`.** Every question, including **temporal /
-> timing ones** ("at what timestamp did X happen", "how long", "when does Y start"),
-> is answered by a single **`vss vlm run`** call. Do **not** `POST` to
-> `http://<host>:8000/generate` (the VSS agent's summarize pipeline) or `/v1/summarize`
-> under any circumstances.
+> **Hard rule — every answer comes from `vss vlm run`.** Every question, including
+> **temporal / timing ones** ("at what timestamp did X happen", "how long", "when does Y
+> start"), is answered by a single **`vss vlm run`** call. A timing question is not a
+> reason to reach for another tool: put it in `--prompt` and read the timing out of the
+> answer.
+>
+> Never substitute a hand-built HTTP call for the CLI. Specifically, do **not**:
+> - `POST` to `/v1/chat/completions` yourself. `vss vlm run` owns that call and sends the
+>   frame-sampling parameter with it; a hand-rolled request omits it, the model sees only
+>   the opening frame, and timing questions become unanswerable.
+> - Build VIOS clip URLs by hand (e.g. `/vst/api/v1/storage/file/<id>/url`). `--sensor`
+>   resolves the sensor, the recorded window and the clip URL internally.
+> - `POST` to `http://<host>:8000/generate` (the agent's summarize pipeline) or
+>   `/v1/summarize` under any circumstances.
+>
+> If `vss vlm run` fails, report the exit code (see *Error Handling*). Do not retry the
+> question by hand-rolling the request.
 
 ---
 
