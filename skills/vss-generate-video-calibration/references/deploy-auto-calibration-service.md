@@ -333,7 +333,7 @@ set -a
 . industry-profiles/warehouse-operations/.env
 . industry-profiles/warehouse-operations/generated.env
 set +a
-: "${COMPOSE_PROFILES:=${COMPOSE_PROFILES_WH_AUTO_CALIB}}"
+echo "Tearing down COMPOSE_PROFILES=${COMPOSE_PROFILES:-<unset>}" >&2
 test -n "${COMPOSE_PROFILES:-}" || {
   echo "COMPOSE_PROFILES is not set in generated.env" >&2
   exit 1
