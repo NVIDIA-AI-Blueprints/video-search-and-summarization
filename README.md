@@ -1,5 +1,16 @@
 <h2>NVIDIA AI Blueprint: Video Search and Summarization (VSS)</h2>
 
+**Build GPU-accelerated video AI agents that search, analyze, summarize, and reason over live or recorded video using natural language.**
+
+NVIDIA AI Blueprint for Video Search and Summarization (VSS) combines vision-language models, RAG, and NVIDIA NIM microservices to deliver real-time video analytics, visual Q&A, alert verification, clip retrieval, and long-video summarization.
+
+- Search video streams or archives using natural language queries
+- Summarize hours of video
+- Ask visual questions and automatically generate reports
+- Detect and verify real-time alerts with VLMs
+
+**[🚀 Try the Demo](https://build.nvidia.com/nvidia/video-search-and-summarization)** · **[⚡ Quickstart](#quickstart-guide)** · **[📚 Documentation](https://docs.nvidia.com/vss/latest/index.html)** · **[🏗️ Architecture](#software-components)** · **[📦 Latest Release](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/releases/latest)**
+
 ### Table of Contents
 - [Overview](#overview)
 - [Use Case / Problem Description](#use-case--problem-description)
