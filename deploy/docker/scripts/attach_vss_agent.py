@@ -522,22 +522,26 @@ if [ -e "$runtime_dir" ] && [ ! -d "$runtime_dir/.git" ]; then
   exit 2
 fi
 
+fresh_checkout=0
 if [ ! -e "$runtime_dir" ]; then
-  mkdir -p "$(dirname "$runtime_dir")"
-  git clone --filter=blob:none --no-checkout "$repository" "$runtime_dir"
-  git -C "$runtime_dir" sparse-checkout init --cone
+    mkdir -p "$(dirname "$runtime_dir")"
+    git clone --filter=blob:none --no-checkout "$repository" "$runtime_dir"
+    git -C "$runtime_dir" sparse-checkout init --cone
+    fresh_checkout=1
 else
-  current_repository=$(git -C "$runtime_dir" remote get-url origin)
-  [ "$current_repository" = "$repository" ] || {
+    current_repository=$(git -C "$runtime_dir" remote get-url origin)
+    [ "$current_repository" = "$repository" ] || {
     echo "existing VSS checkout uses a different origin; refusing to modify it" >&2
+    exit 2
+    }
+fi
+
+if [ "$fresh_checkout" -eq 0 ]; then
+  test -z "$(git -C "$runtime_dir" status --porcelain=v1 --untracked-files=all)" || {
+    echo "existing VSS checkout has local changes; refusing to execute it" >&2
     exit 2
   }
 fi
-
-test -z "$(git -C "$runtime_dir" status --porcelain=v1 --untracked-files=all)" || {
-  echo "existing VSS checkout has local changes; refusing to execute it" >&2
-  exit 2
-}
 
 # A clean, same-origin managed checkout is safe to advance on a repeated
 # deployment. Fetch the exact immutable commit; never follow a moving branch.

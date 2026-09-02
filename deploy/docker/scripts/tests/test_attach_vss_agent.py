@@ -133,6 +133,30 @@ class ValidationTests(unittest.TestCase):
             "a" * 40,
         )
 
+    def test_fresh_no_checkout_clone_is_validated_after_checkout(self) -> None:
+        runner = RecordingRunner()
+
+        attach.prepare_runtime(
+            runner,
+            attach.PROFILES["openclaw"],
+            "demo",
+            runtime_dir=attach.DEFAULT_RUNTIME_DIR,
+            repository=attach.DEFAULT_RUNTIME_REPOSITORY,
+            runtime_ref="a" * 40,
+            origin=attach.validate_origin("http://host.openshell.internal:7777"),
+        )
+
+        command = next(
+            command for command in runner.commands if "vss-runtime-setup" in command
+        )
+        script = command[command.index("bash") + 2]
+        self.assertIn("fresh_checkout=1", script)
+        self.assertIn('if [ "$fresh_checkout" -eq 0 ]; then', script)
+        self.assertLess(
+            script.index("checkout --detach FETCH_HEAD"),
+            script.rindex("status --porcelain=v1 --untracked-files=all"),
+        )
+
     def test_source_snapshot_rejects_any_uncommitted_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
