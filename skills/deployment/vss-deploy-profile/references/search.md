@@ -239,8 +239,14 @@ RT-VLM shares GPU 0 with RT-CV in the default search layout, so its budget and t
 - **RT-VLM must always be reachable.** Disabling Critique does not remove this requirement because `video_understanding` still uses RT-VLM.
 - **Default local search requires two GPUs.** On a single-GPU host, use the remote-proxy path for the VLM.
 - **L40S search requires a remote LLM.** There is no `hw-L40S-shared.env` for a local-shared NIM, so the LLM cannot share GPU 1 with RT-Embed. Local RT-VLM may share GPU 0 with RT-CV. The LLM and VLM still cannot occupy the same GPU. The L40S row in the [worked example](#worked-example--llm--rt-embed-on-gpu-1) table applies only to layouts that give the LLM its own GPU.
-- **Edge platforms (DGX Spark / Thor) are not supported for `search` yet** — track upstream blueprint for support. Use SBSA image tags (`-sbsa-`) when they land.
+- **Edge platforms (DGX Spark / AGX Thor) support `search` with remote models.** `IGX-THOR` is still rejected.
+  - **Both models run remotely.** Set `LLM_ENDPOINT_URL` and `VLM_ENDPOINT_URL` on the host and pass no model flags. `dev-profile.sh` forces remote placement itself, so `--use-remote-llm` / `--use-remote-vlm` are accepted but redundant; a missing endpoint errors clearly.
+  - **Model names are auto-discovered** from each endpoint's `/v1/models`. Only pass `--use-remote-llm --llm <model>` (or the VLM equivalent) when an endpoint serves more than one model, which `dev-profile.sh` refuses to guess between.
+  - **Asking for either model locally is rejected.** The perception pipeline already owns the GPU, and two vLLM engines cannot share one in any case — each sizes itself as `(fraction × total) − (memory held by every other process)` and then expands its KV cache to fill the remainder, so no pair of fractions works.
+  - **`rtvi-vlm` is dropped from `COMPOSE_PROFILES`** and the agent calls the VLM endpoint directly, so that endpoint must be a real NIM — clips are sent inline rather than as VST links.
+  - SBSA image tags (`-sbsa`) are swapped in automatically for `DGX-SPARK`; Thor uses the Jetson builds.
 - **`RESERVED_DEVICE_IDS` and `FIXED_SHARED_DEVICE_IDS` come from defaults** in `dev-profile-search/.env` (`''` and `'0,1'` respectively). Nothing is reserved because both GPUs are shared, and listing both devices as shared is what makes the LLM and RT-VLM derive `local_shared` memory fractions. The skill works at the env-file level, so leave them as-is unless changing the layout meaningfully (e.g. swapping which GPU hosts RT-CV vs RT-Embed).
+- **`*_ENDPOINT_URL` vs `*_BASE_URL`** — not the same variable. `LLM_ENDPOINT_URL` / `VLM_ENDPOINT_URL` are **host inputs** you export before running `dev-profile.sh`; it derives `LLM_BASE_URL` / `VLM_BASE_URL` from them into `generated.env`, which is what the containers read. Set the `*_ENDPOINT_URL` pair; never hand-edit the `*_BASE_URL` pair.
 - **`/v1` quirk** — `LLM_BASE_URL` / `VLM_BASE_URL` have no `/v1` (the client appends it). In remote-proxy mode, `RTVI_VLM_ENDPOINT` does include `/v1`.
 
 ## Key capabilities
