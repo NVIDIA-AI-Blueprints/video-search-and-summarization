@@ -1,6 +1,8 @@
 {
   "skills": [
-    "vss-deploy-detection-tracking-3d"
+    "vss-build-vision-ai",
+    "vss-deploy-detection-tracking-3d",
+    "vss-deploy-profile"
   ],
   "resources": {
     "platforms": {
@@ -14,17 +16,27 @@
   },
   "expects": [
     {
+      "query": "Set up MCT for the calibrated four-camera sample. Which workflow should be used? Do not run anything.",
+      "checks": [
+        "The agent selects vss-build-vision-ai as the front door for the unqualified MCT request.",
+        "The plan uses mc-tracking as the developer-profile Foundation and does not select the standalone RTVI-CV-3D compose path.",
+        "The agent does not select vss-deploy-profile because the user did not explicitly request the checked-in mc-tracking developer profile as shipped.",
+        "No docker compose up, docker pull, ngc download, or docker run command is executed."
+      ]
+    },
+    {
       "query": "I want to deploy MV3DT. Which skill should I use and what does it deploy? Do not run containers.",
       "checks": [
-        "The agent identifies vss-deploy-detection-tracking-3d as the default skill for generic MV3DT / RTVI-CV-3D intent.",
-        "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml and summarizes perception, BEV Fusion, bundled Mosquitto, bundled Kafka, and kafka-topic-init.",
+        "The agent identifies vss-deploy-detection-tracking-3d for the explicitly named MV3DT intent.",
+        "The answer names the standalone RT-CV-3D compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
+        "The answer lists perception, bev-fusion, bundled mosquitto, bundled kafka, and kafka-topic-init.",
         "The answer does not hardcode a runtime image version and does not infer image tags from the skill version.",
-        "The answer routes to vss-deploy-profile only for explicit warehouse blueprint/profile MV3DT requests.",
+        "The answer does not select vss-deploy-profile unless the user explicitly asked for warehouse.",
         "No docker compose up, docker pull, or docker run command is executed."
       ]
     },
     {
-      "query": "Deploy multi-cam tracking on my calibrated MP4s and save output because I think this server is headless. Do not run anything. Give the high-level standalone RTVI-CV-3D flow, including display probing before choosing saved output.",
+      "query": "Deploy the standalone RTVI-CV-3D stack on my calibrated MP4s and save output because I think this server is headless. Do not run anything. Still include the required real display probe before staging, then use saved output with saved fused BEV if no working display is found.",
       "checks": [
         "The plan uses standalone RTVI-CV-3D / MV3DT with INPUT_MODE=file and validates calibration/camera IDs before staging.",
         "The plan runs a real display probe before deciding on OSD versus saved output; saved/headless output includes the camera grid video and fused BEV video when BEV assets are available.",
@@ -36,26 +48,29 @@
     {
       "query": "Deploy MV3DT on the sample dataset / 4-cam example dataset. Do not run containers. Provide the high-level standalone plan, including display probing before choosing saved output and live OSD plus live fused BEV when display works.",
       "checks": [
-        "The agent uses vss-deploy-detection-tracking-3d and the standalone RT-CV-3D sample-dataset flow, not vss-deploy-profile or warehouse compose unless the user asks for the full warehouse blueprint.",
+        "The agent loads vss-deploy-detection-tracking-3d and references/sample-dataset.md for sample-dataset intent.",
+        "The plan keeps the standalone RT-CV-3D compose path and does not route to vss-deploy-profile unless the user explicitly asks for the checked-in mc-tracking developer profile.",
         "The plan uses NGC warehouse app-data only as the source for sample models/videos and does not infer the app-data or runtime image version from the skill version.",
-        "The plan validates required sample models/videos plus repo sample calibration/map assets before launch, then sets NUM_CAMS=4, INPUT_MODE=file, and the sample video directory.",
-        "The plan probes display before forcing saved output; with a working display it uses both the live OSD camera-grid window and live fused BEV window, and when saved/headless it saves both grid and fused BEV output.",
-        "The sample plan includes bundled resource preflight before config generation/staging and validates file-mode staged latency settings before launch.",
+        "The plan checks that the required sample app-data model files are present before launch.",
+        "The plan uses the repo sample calibration.json and images/Top.png, generates transforms.yml, sets NUM_CAMS=4 and INPUT_MODE=file, and points VIDEO_DIR at warehouse-4cams-20mx20m-synthetic.",
+        "The sample plan runs bundled resource preflight before generate-configs.sh/stage-configs.sh and validates the staged Kafka sink after staging.",
+        "The plan does not force saved output for the generic sample request before probing display availability; it uses both the live OSD camera-grid window and live fused BEV window when a working display is found, starts BEV before file playback, and finalizes live BEV after EOS.",
         "No docker compose up, docker pull, ngc download, or docker run command is executed."
       ]
     },
     {
-      "query": "How do I deploy multi-view 3D tracking on the VSS warehouse stack with the rest of the warehouse blueprint? Also clarify how this differs from a generic MV3DT request.",
+      "query": "Deploy the checked-in mc-tracking developer profile as shipped. Which skill should handle it?",
       "checks": [
-        "The agent treats explicit warehouse intent as the exception and routes to vss-deploy-profile or warehouse compose guidance.",
-        "The answer explains the boundary: generic MV3DT uses standalone RT-CV-3D, while warehouse MV3DT uses warehouse/profile deployment.",
-        "The agent does not claim the standalone compose deploys VST, ELK, agents, LLM, or VLM services."
+        "The agent routes the explicit checked-in-profile lifecycle request to vss-deploy-profile.",
+        "The answer identifies dev-profile-mc-tracking as the full VIOS-backed profile and does not use the standalone compose path.",
+        "The agent does not claim the mc-tracking profile deploys a VSS Agent, LLM, VLM, or agent UI."
       ]
     },
     {
       "query": "I have RTSP URLs and no calibration. How would you run RTVI-CV-3D after calibration? Do not run anything. Include that supplied RTSP URLs should be registered automatically after stream-mode readiness.",
       "checks": [
         "The agent routes missing RTSP calibration through vss-generate-video-calibration before standalone RTVI-CV-3D deployment.",
+        "The standalone skill delegates AMC setup, prerequisites, detector choice, RTSP/VIOS handling, calibration, and result behavior to the current calibration skill instead of duplicating those instructions.",
         "The post-calibration RTSP plan uses standalone config generation/staging with INPUT_MODE=stream, selected broker compose launch, then direct REST stream registration after readiness.",
         "When RTSP URLs are supplied, the plan includes automatic direct REST stream registration instead of asking the user to register streams manually.",
         "The plan verifies exact registered stream set, non-zero FPS, BEV Fusion health, and mdx-raw/mdx-bev offset growth before reporting success."

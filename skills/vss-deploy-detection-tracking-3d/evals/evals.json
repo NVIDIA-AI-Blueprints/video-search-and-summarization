@@ -1,11 +1,24 @@
 [
   {
+    "id": "mct-generic-build-vision-agent-routing",
+    "question": "Set up MCT for the calibrated four-camera sample. Which skill and deployment path should be used? Do not run anything.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Unqualified MCT and multi-camera-tracking requests use vss-build-vision-ai as the front door. It selects mc-tracking as the developer-profile Foundation for an exact capability match or customization. The standalone skill is selected only when the user explicitly requests standalone RTVI-CV-3D/MV3DT.",
+    "expected_behavior": [
+      "Loads vss-build-vision-ai for the unqualified MCT request.",
+      "Uses mc-tracking as the developer-profile Foundation.",
+      "Does not select the standalone services/rtvi/rt-cv-3d/rt-cv-mv3dt compose path.",
+      "Does not select vss-deploy-profile because the exact checked-in profile lifecycle was not requested.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
     "id": "mv3dt-default-standalone-routing",
     "question": "Deploy MV3DT on my calibrated 4-camera MP4 dataset. Which skill and deployment path should be used? Do not run anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "Generic MV3DT requests route to the standalone RT-CV-3D skill. The workflow uses services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml, generates configs from calibration.json, stages INPUT_MODE=file, defaults to bundled mosquitto+kafka, and does not use warehouse compose files.",
+    "ground_truth": "Explicit MV3DT requests route to the standalone RT-CV-3D skill. The workflow uses services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml, generates configs from calibration.json, stages INPUT_MODE=file, defaults to bundled mosquitto+kafka, and does not use the mc-tracking developer-profile Compose path.",
     "expected_behavior": [
-      "Loads vss-deploy-detection-tracking-3d for generic MV3DT intent.",
+      "Loads vss-deploy-detection-tracking-3d for explicitly named MV3DT intent.",
       "Identifies the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
       "Uses bundled broker mode, but for file input runs bundled resource preflight before config generation/staging, verifies staged file-mode latency dropping is disabled, starts support services first, captures Kafka baselines, then starts perception with --no-deps instead of full-stack docker compose up -d.",
       "Reports resolved runtime images only from docker compose config --images and does not hardcode a runtime image version.",
@@ -17,7 +30,7 @@
     "id": "mv3dt-sample-dataset-standalone",
     "question": "Run MV3DT on the sample dataset / 4-cam example dataset. Which workflow should be used? Do not run anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "Sample MV3DT requests route to the standalone RT-CV-3D skill. The workflow uses NGC warehouse app-data for models/videos, repo sample calibration.json and Top.png for calibration and BEV map, generated transforms.yml, INPUT_MODE=file, NUM_CAMS=4, bundled brokers, saved grid video, and saved fused BEV output. It does not use warehouse blueprint compose unless the user explicitly asks for the full warehouse stack.",
+    "ground_truth": "Explicit MV3DT sample requests route to the standalone RT-CV-3D skill. The workflow uses NGC warehouse app-data for models/videos, repo sample calibration.json and Top.png for calibration and BEV map, generated transforms.yml, INPUT_MODE=file, NUM_CAMS=4, bundled brokers, saved grid video, and saved fused BEV output. It does not use the mc-tracking developer-profile Compose path.",
     "expected_behavior": [
       "Loads vss-deploy-detection-tracking-3d and the sample-dataset reference.",
       "Uses the standalone compose path under services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml.",
@@ -32,14 +45,14 @@
     ]
   },
   {
-    "id": "mv3dt-warehouse-explicit-exception",
-    "question": "I want warehouse MV3DT as part of the full warehouse blueprint with the rest of the warehouse services. Which skill should handle that?",
+    "id": "mc-tracking-profile-explicit-exception",
+    "question": "Deploy the checked-in mc-tracking developer profile as shipped. Which skill should handle that?",
     "expected_skill": "vss-deploy-profile",
-    "ground_truth": "Explicit warehouse MV3DT requests route away from the standalone RT-CV-3D skill to the warehouse/profile deployment skill and warehouse compose files.",
+    "ground_truth": "Explicit lifecycle requests for the checked-in mc-tracking developer profile route away from the standalone RT-CV-3D skill to vss-deploy-profile and dev-profile-mc-tracking.",
     "expected_behavior": [
-      "Routes explicit warehouse-blueprint MV3DT intent to vss-deploy-profile or the warehouse deployment references.",
-      "Explains that vss-deploy-detection-tracking-3d is the default for standalone MV3DT but not for combined warehouse deployment.",
-      "Does not instruct the user to use the standalone compose file for the full warehouse blueprint.",
+      "Routes the explicit checked-in-profile request to vss-deploy-profile and references/mc-tracking.md.",
+      "Explains that vss-deploy-detection-tracking-3d is only for explicitly requested standalone RTVI-CV-3D/MV3DT.",
+      "Does not instruct the user to use the standalone compose file for the mc-tracking developer profile.",
       "Does not print plaintext API tokens."
     ]
   },
@@ -62,10 +75,10 @@
     "id": "mv3dt-missing-calibration-handoff",
     "question": "Run rtvi-cv-3d on my synchronized cam_*.mp4 files, but I do not have calibration yet. Walk me through the order without running anything.",
     "expected_skill": "vss-deploy-detection-tracking-3d",
-    "ground_truth": "The skill identifies missing calibration, hands off to vss-generate-video-calibration first, requires successful AMC export, validates camera-only calibration sensors, returns to standalone config generation, staging, bundled broker mode, file-mode support-service/baseline ordering, and verification.",
+    "ground_truth": "The skill identifies missing calibration, preserves the standalone inputs, delegates to the current vss-generate-video-calibration workflow, consumes its current downstream-output contract, validates camera-only calibration sensors, then returns to standalone config generation, staging, bundled broker mode, file-mode support-service/baseline ordering, and verification.",
     "expected_behavior": [
       "Chains to vss-generate-video-calibration because calibration is missing.",
-      "Does not ignore a failed AMC export_calibration POST or silently reuse an old calibration.json.",
+      "Does not reproduce AMC API calls, platform checks, detector selection, VIOS wiring, polling, or output paths; those remain owned by vss-generate-video-calibration.",
       "Validates exported calibration JSON using camera-only sensors with safe unique ids.",
       "Resolves BEV_DATASET_PATH only after map.png and transforms.yml are both present.",
       "Uses standalone compose and bundled brokers for the deployment plan.",

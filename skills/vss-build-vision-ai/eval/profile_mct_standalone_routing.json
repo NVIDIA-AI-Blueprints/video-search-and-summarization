@@ -1,0 +1,32 @@
+{
+  "skills": [
+    "vss-build-vision-ai",
+    "vss-deploy-detection-tracking-3d"
+  ],
+  "profile": "mct-standalone-routing",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1,
+        "modes": [
+          "harbor",
+          "runtime",
+          "shared"
+        ]
+      }
+    }
+  },
+  "env": "A VSS repository at `{{repo_root}}` on `{{platform}}` with Docker, NVIDIA Container Toolkit, NGC credentials, and four already-calibrated local MP4 inputs. This eval checks that Build Vision Agent distinguishes standalone RTVI-CV-3D from the VIOS-backed MCT developer profile. It validates the plan only and does not deploy.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to prepare the smallest standalone multi-camera 3D tracking deployment for four calibrated local MP4 files, with OSD visualization. Do not include VIOS, VST, Behavior Analytics, Elasticsearch, Kibana, or monitoring. Validate the deployment plan but do not start containers or modify files under `deploy/docker/`.",
+      "checks": [
+        "The request is handed off to `vss-deploy-detection-tracking-3d` because it explicitly asks for standalone MCT without VIOS/VST and requests OSD output.",
+        "Build Vision Agent does not select `mc-tracking` as a Foundation, does not create an MCT developer-profile delta, and does not attempt to prune required peers from `vss-rtvi-cv-mc-tracking`.",
+        "The planned stack uses the existing standalone RTVI-CV-3D perception and BEV-fusion setup with only its required broker/configuration components; it excludes MCT developer-profile Configurator, VIOS, Behavior Analytics, ELK/Kibana, Video Analytics API, ingress, monitoring, VSS Agent, LLM, and VLM services.",
+        "The already-supplied calibration is used. `vss-generate-video-calibration` would be invoked only if calibration were missing.",
+        "No file or directory under `{{repo_root}}/deploy/docker/` is created, modified, or deleted, and no containers are started."
+      ]
+    }
+  ]
+}

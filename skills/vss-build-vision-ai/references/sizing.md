@@ -11,7 +11,8 @@ contract.
    device ID, concurrency or stream count, and whether its footprint is fixed
    or elastic.
 3. Place fixed-footprint services first according to the placement and sizing
-   contracts for [RT-CV](services/rt-cv.md) and
+   contracts for [RT-CV](services/rt-cv.md),
+   [RT-CV-3D](services/rt-cv-3d.md), and
    [RT-Embed](services/rt-embed.md).
 4. Place singleton RT-VLM last, into the capacity step 3 leaves behind; never
    displace or co-pack a fixed service to free a GPU for it. When composition
@@ -105,6 +106,7 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | Alerts `2d_vlm` | No RT-CV; default device values co-locate LLM + RT-VLM on GPU 1. Move RT-VLM to the free GPU 0 when possible. | Continuous VLM inference needs more headroom; prefer separate GPUs or a user-approved remote model endpoint. |
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
 | Search | GPU 0: RT-CV + RT-VLM FP8 at `0.40`. GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). |
+| `mc-tracking` | `RT_CV_DEVICE_ID` hosts RT-CV-3D; the stock profile contains no LLM, VLM, Agent, or embedding service. | Preserve the Foundation's reviewed placement and start with the four-camera sample. Inspect `resolved.yml` for any VIOS stream-processing GPU claim before assuming the rest of the host is free. |
 
 RT-VLM placement and utilization starting values:
 
@@ -157,6 +159,10 @@ to 4 if RT-Embed crowds out the LLM.
 RT-CV memory is driven primarily by `NUM_STREAMS`, `DS_MODEL_FAMILY`, and
 `DS_TRACKER_REID`. Start at 16 streams on H100, RTX PRO 6000, or L40S and
 reduce the count on smaller or co-located GPUs.
+
+For `mc-tracking`, start at its validated `NUM_STREAMS=4`; do not apply the 2D
+Search stream ceilings to the MV3DT tracker and BEV-fusion pipeline. Increase
+camera count only after measuring the complete resolved stack under load.
 
 ## Edge and unified memory
 

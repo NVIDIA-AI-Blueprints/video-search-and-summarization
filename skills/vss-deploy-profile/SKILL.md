@@ -1,9 +1,16 @@
 ---
 name: vss-deploy-profile
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill.
+description: >
+  Use this skill when a user asks to configure, deploy, verify, debug, or tear
+  down an exact checked-in VSS profile (base, alerts, search, lvs, mc-tracking,
+  warehouse, edge), including requests to deploy the MCT (`mc-tracking`)
+  developer profile as shipped. For generic MCT setup or capability
+  customization, use vss-build-vision-ai. For an explicitly requested
+  standalone RTVI-CV-3D or MV3DT stack, use
+  vss-deploy-detection-tracking-3d.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
@@ -13,6 +20,8 @@ metadata:
 Do not use this skill for:
 
 - Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
+- Generic MCT setup or a customized MCT application — use `vss-build-vision-ai`.
+- Standalone RTVI-CV-3D/MV3DT with OSD, saved output, or no VIOS/VST — use `vss-deploy-detection-tracking-3d`.
 - Summarizing or querying a video once `lvs` is deployed — use `vss-summarize-video`.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or `vss-deploy-profile` will run it as part of the credential gate.
 
@@ -28,13 +37,19 @@ Do not use this skill for:
 
 Match the user's request to a profile, then load that profile's reference for sizing, services, env recipes, and debugging.
 
+For MCT, use this skill only when the user explicitly asks for the checked-in
+`mc-tracking` developer profile or its lifecycle. Route generic or customized
+MCT application requests to `vss-build-vision-ai`. Route only explicitly
+requested standalone RTVI-CV-3D/MV3DT stacks to
+`vss-deploy-detection-tracking-3d`.
+
 | User says | Profile | Reference |
 |---|---|---|
 | "deploy vss" / "deploy base" | `base` | [`references/base.md`](references/base.md) |
 | "deploy alerts" / "alert verification" / "real-time alerts" / "deploy for incident report" | `alerts` | [`references/alerts.md`](references/alerts.md) |
 | "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
 | "deploy search" / "video search" | `search` | [`references/search.md`](references/search.md) |
-| "deploy mc-tracking" / "multi-camera 3D tracking profile" / "multi-camera tracking with BEV fusion" | `mc-tracking` | [`references/mc-tracking.md`](references/mc-tracking.md) |
+| "deploy the MCT dev profile" / "deploy the mc-tracking profile as shipped" / "verify/debug/tear down mc-tracking profile" | `mc-tracking` | [`references/mc-tracking.md`](references/mc-tracking.md) |
 | "deploy warehouse" / "warehouse blueprint" / "vss warehouse" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
 | "debug warehouse" / "warehouse not working" / "warehouse FPS low" / "warehouse BEV out of sync" | `warehouse` (debug) | [`references/warehouse-debug.md`](references/warehouse-debug.md) |
 

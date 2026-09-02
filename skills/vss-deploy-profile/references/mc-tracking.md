@@ -4,6 +4,13 @@ Profile: `mc-tracking` | Blueprint: `dev_profile_mc_tracking` | Mode: `mc-tracki
 
 Multi-camera 3D tracking with BEV (bird's-eye-view) fusion, calibration import, and behavior analytics, packaged as a standalone developer profile — its own compose file, env files, camera config, calibration assets, and DeepStream/SDR-controller configs all live under `developer-profiles/dev-profile-mc-tracking/`.
 
+This reference owns the exact checked-in profile lifecycle. Its default dataset
+is the already-calibrated bundled sample, and its calibration import container
+imports existing artifacts; it does not run AMC. Route a custom-dataset MCT
+request to `vss-build-vision-ai`. If that workflow finds calibration missing,
+it hands off by skill name to `vss-generate-video-calibration` and follows the
+calibration skill's current instructions rather than duplicating them here.
+
 ## What's different from `base` / `search` / `lvs` / `alerts`
 
 - **No VSS Agent, agent UI, LLM NIM, or VLM NIM.** This profile is perception + tracking + analytics only — there's no conversational/report-generation layer.

@@ -1,5 +1,30 @@
 [
   {
+    "id": "mc-tracking-profile-explicit-routing",
+    "question": "Deploy the checked-in mc-tracking developer profile as shipped. Which skill and deployment path should be used? Do not run anything.",
+    "expected_skill": "vss-deploy-profile",
+    "ground_truth": "An explicit lifecycle request for the checked-in mc-tracking developer profile loads vss-deploy-profile and references/mc-tracking.md. It uses deploy/docker/developer-profiles/dev-profile-mc-tracking with direct Compose and does not use the smaller standalone RTVI-CV-3D path.",
+    "expected_behavior": [
+      "Loads vss-deploy-profile and routes to references/mc-tracking.md.",
+      "Uses deploy/docker/developer-profiles/dev-profile-mc-tracking and its direct Compose flow.",
+      "Does not use services/rtvi/rt-cv-3d/rt-cv-mv3dt as the application deployment path.",
+      "Does not add VSS Agent, LLM, VLM, or agent UI services.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "mc-tracking-custom-dataset-routing",
+    "question": "Set up MCT on my own camera dataset, but I have not provided streams or calibration yet. Which skill should handle it? Do not run anything.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "A custom-dataset MCT request is not the exact checked-in profile lifecycle. It routes to vss-build-vision-ai for dataset intake. If calibration is later found missing, Build Vision AI delegates by skill name to the current vss-generate-video-calibration workflow; vss-deploy-profile does not implement AMC.",
+    "expected_behavior": [
+      "Routes the custom-dataset request to vss-build-vision-ai rather than treating it as the checked-in sample profile.",
+      "Does not silently select the bundled four-camera sample or claim MCT readiness without streams and calibration.",
+      "Does not reproduce AMC setup or calibration instructions in vss-deploy-profile.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
     "id": "base-compose-generate",
     "question": "Generate the docker compose yaml for a VSS base profile deployment.",
     "expected_skill": "vss-deploy-profile",

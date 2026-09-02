@@ -67,7 +67,15 @@ operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
-**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `mc-tracking`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
+**Application setup, profiles, and standalone microservices.** Use
+**`vss-build-vision-ai`** as the front door for generic or capability-driven
+application setup, including unqualified MCT/multi-camera-tracking requests. A
+*profile* is a pre-assembled stack of microservices wired together for one
+workflow; use **`vss-deploy-profile`** when the user explicitly asks to operate
+an exact checked-in profile (`base`, `search`, `lvs`, `alerts`, `mc-tracking`,
+`warehouse`, `edge`) as shipped. Use individual **`vss-deploy-*` /
+`vss-setup-*`** skills only when the user explicitly requests a standalone
+microservice path.
 
 | Profile | Workflow it deploys |
 |---|---|
@@ -86,7 +94,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
-| Stand up a whole VSS workflow (base / search / lvs / alerts / mc-tracking / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
+| Set up or customize a VSS vision application, including generic MCT/multi-camera tracking | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
+| Deploy, verify, debug, or tear down an exact checked-in profile as shipped | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
@@ -96,7 +105,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Read incidents, metrics, or sensor data (incl. Slack/Kafka feeds) | [`vss-query-analytics`](vss-query-analytics/SKILL.md) |
 | Add a camera, extract a clip, grab a snapshot, manage recordings | [`vss-manage-video-io-storage`](vss-manage-video-io-storage/SKILL.md) |
 | Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](vss-deploy-detection-tracking-2d/SKILL.md) |
-| Run standalone RTVI-CV-3D multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
+| Explicitly run standalone RTVI-CV-3D/MV3DT on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](vss-deploy-dense-captioning/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](vss-deploy-video-embedding/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](vss-generate-video-calibration/SKILL.md) |
@@ -109,7 +118,9 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
-- `vss-deploy-profile` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
+- `vss-build-vision-ai` (generic/capability-driven setup) vs.
+  `vss-deploy-profile` (an explicitly named checked-in profile as shipped) vs.
+  `vss-deploy-*` / `vss-setup-*` (an explicitly requested standalone service).
 
 ---
 
@@ -118,14 +129,15 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 ### Deployment & infrastructure
 | Skill | Description |
 |---|---|
-| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `mc-tracking`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-build-vision-ai](vss-build-vision-ai/SKILL.md) | Front door for generic or capability-driven VSS application setup. Routes stock developer profiles or composes a minimal delta; unqualified MCT/multi-camera tracking starts here. |
+| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Configure, deploy, verify, debug, or tear down an explicitly named checked-in VSS **profile** (`base`, `search`, `lvs`, `alerts`, `mc-tracking`, `warehouse`, `edge`) as shipped. |
 | [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence
 | Skill | Description |
 |---|---|
 | [vss-deploy-detection-tracking-2d](vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
-| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; full VIOS-backed `mc-tracking` developer-profile requests route to `vss-deploy-profile`. |
+| [vss-deploy-detection-tracking-3d](vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate an explicitly requested standalone RTVI-CV-3D/MV3DT stack for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Unqualified MCT requests route to `vss-build-vision-ai`; the checked-in `mc-tracking` profile routes to `vss-deploy-profile`. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
 | [vss-deploy-video-embedding](vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 

@@ -15,11 +15,11 @@
   },
   "expects": [
     {
-      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, or modify files. Deploy rtvi-cv-3d on /data/videos/cam_*.mp4 with MODELS_DIR=/data/vss-app-data/models and BEV_DATASET_PATH=/data/mv3dt/bev-dataset, but calibration is missing. Return the high-level ordered plan: identify missing calibration, hand local MP4 calibration to vss-generate-video-calibration, include the AMC platform preflight and failure path, then after calibration use the validated AMC MV3DT export with the standalone RTVI-CV-3D deployment flow.",
+      "query": "Plan only; do not run commands, start containers, call AMC/VIOS, download data, or modify files. Deploy rtvi-cv-3d on /data/videos/cam_*.mp4 with MODELS_DIR=/data/vss-app-data/models and BEV_DATASET_PATH=/data/mv3dt/bev-dataset, but calibration is missing. Return the high-level ordered plan: preserve the standalone inputs, delegate calibration to vss-generate-video-calibration, follow its current downstream-output contract, then validate the returned artifacts and resume standalone RTVI-CV-3D deployment.",
       "checks": [
         "The plan identifies missing calibration before deployment and hands local MP4 calibration to vss-generate-video-calibration instead of inventing calibration files.",
-        "The plan includes the AMC platform preflight before upload/calibration work and says preflight failure stops the flow to request existing/generated calibration artifacts or a supported calibration host.",
-        "After AMC completes, the plan fetches/uses the AMC MV3DT export and validates calibration JSON by filtering sensors to type == camera with at least two non-empty safe unique camera IDs.",
+        "The standalone plan delegates AMC setup, prerequisites, detector choice, input handling, calibration, VIOS needs, and result handling to the current vss-generate-video-calibration instructions instead of reproducing them.",
+        "After the calibration skill completes, the plan follows its current downstream-output contract and validates calibration JSON by filtering sensors to type == camera with at least two non-empty safe unique camera IDs.",
         "The plan stages BEV map/transforms assets and uses standalone RTVI-CV-3D config generation/compose, not warehouse calibration mount paths.",
         "The agent does not actually deploy containers, invoke AMC/VIOS APIs, register RTSP streams, or require the placeholder /data resources to exist."
       ]

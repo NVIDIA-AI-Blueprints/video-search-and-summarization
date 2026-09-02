@@ -7,7 +7,7 @@
 | Elasticsearch storage and initialization | `elasticsearch`, `elasticsearch-init-container` |
 | Kafka broker and topics | `kafka`, `kafka-topic-init-container` |
 | Redis | `redis` |
-| Kibana and profile dashboards | `kibana`, `kibana-init-container-alerts`, `kibana-init-container-lvs`, `kibana-init-container-search` |
+| Kibana and profile dashboards | `kibana`, `kibana-init-container-alerts`, `kibana-init-container-lvs`, `kibana-init-container-search`, `kibana-init-container-mc-tracking` |
 | Log ingestion and broker readiness | `logstash`, `broker-health-check` |
 
 ## Required peers
@@ -58,3 +58,4 @@
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-lvs/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/compose.yml`
+- `deploy/docker/developer-profiles/dev-profile-mc-tracking/compose.yml`

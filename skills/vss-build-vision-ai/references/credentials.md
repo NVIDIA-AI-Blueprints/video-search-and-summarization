@@ -7,10 +7,11 @@ a cold NIM start.
 ## Required By Mode
 
 - `NGC_CLI_API_KEY` or `NGC_API_KEY`: required for any local NIM image pull
-  (`LLM_MODE` or `VLM_MODE` set to `local` / `local_shared`). These are the
-  same underlying NGC personal API key with different consumer conventions:
-  the NGC CLI and build override use `NGC_CLI_API_KEY`; NIM / RT-VLM
-  containers receive the key as `NGC_API_KEY`.
+  (`LLM_MODE` or `VLM_MODE` set to `local` / `local_shared`) and for selected
+  RT-CV profiles that download NGC models at first start, including
+  `vss-rtvi-cv-mc-tracking`. These are the same underlying NGC personal API key
+  with different consumer conventions: the NGC CLI and build override use
+  `NGC_CLI_API_KEY`; NIM / RT-VLM containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
 - `HF_TOKEN`: required only on edge targets that use the standalone
   RT-VLM / RT-Embed Hugging Face checkpoints; no in-tree edge
