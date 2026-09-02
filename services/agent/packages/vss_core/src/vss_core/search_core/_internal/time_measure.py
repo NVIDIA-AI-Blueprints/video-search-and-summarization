@@ -38,6 +38,10 @@ LOG_STATUS_LEVEL = 16
 logging.addLevelName(LOG_PERF_LEVEL, "PERF")
 logging.addLevelName(LOG_STATUS_LEVEL, "STATUS")
 
+#: Slack before calling a negative self time "overlapping children" rather than
+#: float noise from summing many small durations.
+_CONCURRENCY_EPSILON = 1e-6
+
 #: Active timing collector, if a caller opened one.
 #:
 #: A ContextVar rather than a parameter so no ``TimeMeasure`` call site has to
@@ -46,27 +50,55 @@ logging.addLevelName(LOG_STATUS_LEVEL, "STATUS")
 #: churn-heavy diff for something callers usually do not want. asyncio tasks
 #: inherit a copy of the context, and the copy still references the same dict,
 #: so concurrent legs inside one search accumulate into the same collector.
-_timing_collector: ContextVar[dict[str, float] | None] = ContextVar("vss_timing_collector", default=None)
+_timing_collector: ContextVar[dict[str, dict[str, float]] | None] = ContextVar("vss_timing_collector", default=None)
+
+#: Labels currently on the stack, innermost last. Used to attribute a block's
+#: duration to its parent so callers can separate self time from inclusive time.
+_timing_stack: ContextVar[tuple[str, ...]] = ContextVar("vss_timing_stack", default=())
+
+
+def _new_entry() -> dict[str, float]:
+    return {"total_s": 0.0, "_children_s": 0.0, "calls": 0.0}
 
 
 @contextmanager
-def collect_timings() -> Iterator[dict[str, float]]:
+def collect_timings() -> Iterator[dict[str, dict[str, float]]]:
     """Collect every ``TimeMeasure`` duration in this context, in seconds.
 
-    Durations accumulate per label, because some measured blocks run more than
-    once per search -- attribute frame lookups run per hit, for instance -- and
-    the useful number is the total time that stage cost, not the last one.
+    Each label maps to ``{"total_s", "self_s", "calls"}``:
 
-    Nesting is intentionally not modelled: labels are already namespaced by
-    convention ("embed_search: ES search execution"), so the flat mapping is
-    readable and sums that exceed the parent's own total are expected.
+    * ``total_s`` is inclusive -- the block and everything measured inside it.
+    * ``self_s`` excludes nested measured blocks. This is what a "where did the
+      time go" table wants; ``total_s`` alone makes a parent and its children
+      look like separate costs. Self times sum to real elapsed work only where
+      blocks did not overlap -- see ``concurrent_children``.
+    * ``calls`` counts entries, because some blocks run per hit rather than
+      once per search.
+    * ``concurrent_children`` is 1.0 when nested blocks overlapped -- their
+      summed duration exceeded the parent's own elapsed time, which happens
+      whenever children run under ``asyncio.gather`` (fusion runs its embedding
+      and attribute legs that way). Self time is not meaningful for such a
+      block: it is clamped to 0.0 rather than reported negative, and this flag
+      says why.
+
+    Blocks that run more than once accumulate rather than overwrite.
     """
-    sink: dict[str, float] = {}
+    sink: dict[str, dict[str, float]] = {}
     token = _timing_collector.set(sink)
+    stack_token = _timing_stack.set(())
     try:
         yield sink
     finally:
         _timing_collector.reset(token)
+        _timing_stack.reset(stack_token)
+        # Derive self time once every block has closed. Doing it incrementally
+        # is order-dependent: children close before their parent, so the parent
+        # would be clamped before it had added its own elapsed time.
+        for entry in sink.values():
+            children = entry.pop("_children_s", 0.0)
+            self_s = entry["total_s"] - children
+            entry["concurrent_children"] = 1.0 if self_s < -_CONCURRENCY_EPSILON else 0.0
+            entry["self_s"] = max(self_s, 0.0)
 
 
 class TimeMeasure:
@@ -78,6 +110,8 @@ class TimeMeasure:
 
     def __enter__(self) -> TimeMeasure:
         self._start_time = time.perf_counter()
+        if _timing_collector.get() is not None:
+            self._stack_token = _timing_stack.set((*_timing_stack.get(), self._string))
         logger.debug("[START] " + self._string)
         return self
 
@@ -108,8 +142,22 @@ class TimeMeasure:
         # Collected regardless of `print`: the caller asked for timings by
         # opening a collector, which is independent of log verbosity.
         sink = _timing_collector.get()
-        if sink is not None:
-            sink[self._string] = sink.get(self._string, 0.0) + (self._end_time - self._start_time)
+        if sink is None:
+            return
+
+        elapsed = self._end_time - self._start_time
+        stack = _timing_stack.get()
+        _timing_stack.reset(self._stack_token)
+
+        entry = sink.setdefault(self._string, _new_entry())
+        entry["total_s"] += elapsed
+        entry["calls"] += 1
+
+        # Accumulate against whichever measured block encloses this one; self
+        # time is derived from it when the collector closes.
+        if len(stack) > 1:
+            parent = sink.setdefault(stack[-2], _new_entry())
+            parent["_children_s"] += elapsed
 
     @property
     def execution_time(self) -> float:

@@ -132,7 +132,9 @@ class VSSSearch:
             output = await self._verify_results(output, inp)
 
         output.timings = SearchTimings(
-            stages={k: round(v, 6) for k, v in stages.items()},
+            stages={
+                label: {metric: round(value, 6) for metric, value in entry.items()} for label, entry in stages.items()
+            },
             total_s=round(time.perf_counter() - started, 6),
         )
         return output

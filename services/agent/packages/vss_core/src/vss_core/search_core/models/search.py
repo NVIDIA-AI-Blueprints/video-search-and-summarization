@@ -132,13 +132,21 @@ class SearchTimings(BaseModel):
     for, so callers had no way to see where a search spent its time.
 
     ``stages`` keys are the measured block labels, which are namespaced by
-    convention ("embed_search: ES search execution"). Durations accumulate per
-    label, so a stage that runs per hit reports its total. Nesting is not
-    modelled: summing stages can exceed ``total_s``.
+    convention ("embed_search: ES search execution"). Each maps to:
+
+    * ``total_s`` -- inclusive: the block and everything measured inside it.
+    * ``self_s`` -- exclusive: nested measured blocks subtracted. A "where did
+      the time go" table wants this; ``total_s`` alone double counts a parent
+      against its children. Sums to real elapsed work only where blocks did
+      not overlap.
+    * ``calls`` -- entries, since some blocks run per hit rather than per search.
+    * ``concurrent_children`` -- 1.0 when nested blocks overlapped (they ran
+      under ``asyncio.gather``, as fusion's two legs do). Self time is not
+      meaningful for such a block and is reported as 0.0 rather than negative.
     """
 
     model_config = ConfigDict(extra="forbid")
-    stages: dict[str, float] = Field(default_factory=dict)
+    stages: dict[str, dict[str, float]] = Field(default_factory=dict)
     total_s: float = 0.0
 
 
