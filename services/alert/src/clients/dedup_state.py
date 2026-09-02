@@ -204,6 +204,9 @@ class DedupStateHandler:
     # verdict markers. Chosen so it is co-located with the other Alert MS
     # indices and can be governed by the same ILM policy.
     _VERDICT_INDEX_SUFFIX = "confirmed-verdicts"
+    # Max distinct object-sets tracked per end-delta cohort before the oldest
+    # are dropped. Bounds memory when a sensor churns tracker ids.
+    _END_DELTA_MAX_ENTRIES = 64
 
     def __init__(self, config_file="config.yaml", rate_limit=300, clock=time.monotonic, es_client=None):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -321,11 +324,27 @@ class DedupStateHandler:
     # Key building (unchanged from the Redis implementation)
     # ─────────────────────────────────────────────────────────────────────
 
-    def _build_key(self, msg: dict, rate_limit: bool = False, is_last_chunk: bool = False) -> str:
+    def _build_key(
+        self,
+        msg: dict,
+        rate_limit: bool = False,
+        is_last_chunk: bool = False,
+        cohort_only: bool = False,
+    ) -> str:
         """Build a deterministic VLM dedup key from the VLM alert schema.
 
         Required fields: sensorId, timestamp, end, objectIds, category.
         analyticsModule.id is optional and included if present.
+
+        ``cohort_only=True`` additionally drops the two components that change
+        on every successive chunk of one ongoing event -- ``timestamp`` (the
+        chunk's own start time) and ``objectIds`` (which churns when the CV
+        tracker re-acquires an object, common on edge hardware where RT-CV and
+        RT-VLM contend for the same GPU). The end-time-delta filter compares
+        successive ``end`` values *within* a cohort, so its cohort key must stay
+        stable across those chunks; including either component made every chunk
+        look like a brand-new cohort and turned the filter into a no-op,
+        emitting one incident per chunk instead of one per event.
         """
         if 'objectIds' in msg:
             sensor_id = (msg.get('sensorId') or '').strip().lower()
@@ -348,10 +367,14 @@ class DedupStateHandler:
                     category,
                 )
 
-            parts = ["vlm", sensor_id, timestamp]
+            parts = ["vlm", sensor_id]
+            if not cohort_only:
+                parts.append(timestamp)
             if include_end:
                 parts.append(end)
-            parts.extend([obj_digest, category, am_id, str(is_last_chunk).lower()])
+            if not cohort_only:
+                parts.append(obj_digest)
+            parts.extend([category, am_id, str(is_last_chunk).lower()])
             return ':'.join(parts)
         else:
             timestamp = msg.get("timestamp")
@@ -450,10 +473,13 @@ class DedupStateHandler:
         # ``rate_limit=True`` deliberately excludes the ``end``
         # component: end-delta compares successive ``end`` values *within* a
         # cohort, so ``end`` must not be part of the key that identifies the
-        # cohort. ``isComplete`` is included so in-progress and final chunks
-        # remain distinct cohorts, matching dedup.
+        # cohort. ``cohort_only=True`` excludes ``timestamp`` and ``objectIds``
+        # for the same reason — both change on every successive chunk of one
+        # ongoing event, so leaving them in made each chunk its own cohort and
+        # the filter never suppressed anything. ``isComplete`` is included so
+        # in-progress and final chunks remain distinct cohorts, matching dedup.
         cohort_key = self._build_key(
-            msg, rate_limit=True, is_last_chunk=self._is_last_chunk(msg)
+            msg, rate_limit=True, is_last_chunk=self._is_last_chunk(msg), cohort_only=True
         )
         key = f"enddelta:{cohort_key}"
 
@@ -462,25 +488,55 @@ class DedupStateHandler:
         if current_epoch is None:
             return True  # Can't parse, allow through
 
+        # Object identity is matched by *intersection*, not equality. A single
+        # ongoing violation keeps its object across chunks but the tracker may
+        # add or swap ids (``['2']`` then ``['2','3']``), especially on edge
+        # hardware where dropped frames cause re-acquisition; those chunks share
+        # an object and must land in the same cohort. Two genuinely distinct
+        # violations have disjoint object sets and stay independent.
+        current_ids = frozenset(str(x) for x in (msg.get('objectIds') or []))
+
         try:
-            stored = self._enddelta_cache.get(key)
-            if stored is None:
-                self._enddelta_cache.set(key, str(current_epoch), ttl=self._end_delta_ttl)
-                if self._dedup_verbose:
-                    self.logger.debug("End delta: new key, storing end=%s", current_end)
-                return True
+            entries = self._enddelta_cache.get(key)
+            if not isinstance(entries, list):
+                entries = []
 
-            stored_epoch = float(stored)
-            delta = abs(current_epoch - stored_epoch)
+            for index, entry in enumerate(entries):
+                stored_ids, stored_epoch = entry
+                stored_set = set(stored_ids)
+                overlaps = bool(current_ids & stored_set) or (
+                    not current_ids and not stored_set
+                )
+                if not overlaps:
+                    continue
 
-            if delta >= self._end_delta_threshold:
-                self._enddelta_cache.set(key, str(current_epoch), ttl=self._end_delta_ttl)
+                delta = abs(current_epoch - float(stored_epoch))
+                if delta >= self._end_delta_threshold:
+                    # Absorb any newly-seen ids so a later chunk that carries
+                    # only the new id still matches this cohort.
+                    entries[index] = [sorted(stored_set | current_ids), current_epoch]
+                    self._enddelta_cache.set(key, entries, ttl=self._end_delta_ttl)
+                    if self._dedup_verbose:
+                        self.logger.debug(
+                            "End delta: significant change %.2fs, processing", delta
+                        )
+                    return True
                 if self._dedup_verbose:
-                    self.logger.debug("End delta: significant change %.2fs, processing", delta)
-                return True
+                    self.logger.debug(
+                        "End delta: skip, delta %.2fs < %ss",
+                        delta,
+                        self._end_delta_threshold,
+                    )
+                return False
+
+            entries.append([sorted(current_ids), current_epoch])
+            # Bound per-cohort growth; drop the oldest tracked object sets.
+            if len(entries) > self._END_DELTA_MAX_ENTRIES:
+                entries = entries[-self._END_DELTA_MAX_ENTRIES:]
+            self._enddelta_cache.set(key, entries, ttl=self._end_delta_ttl)
             if self._dedup_verbose:
-                self.logger.debug("End delta: skip, delta %.2fs < %ss", delta, self._end_delta_threshold)
-            return False
+                self.logger.debug("End delta: new cohort, storing end=%s", current_end)
+            return True
         except Exception as e:
             self.logger.error("End delta check failed (%s); allowing event", e)
             return True  # Fail-open

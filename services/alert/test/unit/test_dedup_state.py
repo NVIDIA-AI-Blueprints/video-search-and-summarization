@@ -296,8 +296,12 @@ class TestEndDeltaCanonicalKey:
         h = self._handler()
         msg = _incident()
         # end-delta key must be the canonical cohort key (rate_limit=True →
-        # excludes end) namespaced under "enddelta:".
-        expected = "enddelta:" + h._build_key(msg, rate_limit=True, is_last_chunk=False)
+        # excludes end; cohort_only=True → also excludes timestamp/objectIds,
+        # which vary per chunk of one ongoing event) namespaced under
+        # "enddelta:".
+        expected = "enddelta:" + h._build_key(
+            msg, rate_limit=True, is_last_chunk=False, cohort_only=True
+        )
         # Drive one message so the key is stored, then confirm the stored key
         # matches the canonical derivation.
         h.filter_by_end_time_delta([dict(msg)])
