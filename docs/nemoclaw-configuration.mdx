@@ -132,7 +132,7 @@ Hardware overrides under `model_resolution.hardware` apply when `HARDWARE_PROFIL
 | Profile | Setting | Default and purpose |
 | --- | --- | --- |
 | `DGX-SPARK` | `LLM_NAME` / `LLM_NAME_SLUG` | Local Spark NIM FP8 variant when a local LLM is used. |
-| `DGX-SPARK` | `RTVI_VLM_IMAGE_TAG` / `PERCEPTION_TAG` | SBSA image tags for the local VLM and perception services. |
+| `DGX-SPARK` | `PERCEPTION_TAG` | SBSA image tag for perception services. |
 | `DGX-SPARK` / `base` | `VLM_NIM_KVCACHE_PERCENT` | `0.2`. Local VLM KV-cache sizing for the `base` profile. |
 | `DGX-SPARK` / `alerts` | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.4`. GPU memory utilization for the local RTVI VLM on `alerts`. |
 | `IGX-THOR` / `AGX-THOR` | `VLM_NAME`, `RTVI_VLM_*`, `VLM_MODEL_TYPE` | Local Cosmos3 Nano Reasoner VLM settings for Thor edge systems. |

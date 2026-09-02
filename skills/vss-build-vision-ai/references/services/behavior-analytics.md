@@ -77,5 +77,5 @@ there is a config change outside this env-only contract.
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
 - `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
-- `skills/vss-setup-behavior-analytics/references/configuration.md`
-- `skills/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md`
+- `skills/deployment/vss-setup-behavior-analytics/references/configuration.md`
+- `skills/deployment/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md`

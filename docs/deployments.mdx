@@ -5,17 +5,14 @@ position: 3
 ---
 VSS can be deployed in several ways depending on how quickly you want to get started and
 how much control you need over the configuration. This page summarizes the available
-options, from the fastest quickstart script to fully customizable Docker Compose and
+options, from the native Docker Compose quickstart to fully customizable Docker Compose and
 Helm Chart deployments.
 
-## Quickstart Script
+## Docker Compose Quickstart
 
-The fastest way to get started is the quickstart script documented in the
-[Agent Workflows ](/vss/vision-agent/agent-workflows) section. The [Quickstart ](/vss/getting-started/quickstart)
-deploys a basic vision agent in minutes, and the other agent workflows build on it with
-additional capabilities (video summarization, search, alerts). This is the recommended
-starting point, but it offers limited customization compared to the Docker Compose and
-Helm Chart options below.
+The [Quickstart](/vss/getting-started/quickstart) deploys a basic vision agent with native Docker Compose.
+Each profile keeps deployment-specific settings in `user-overrides.env`; the other agent
+workflows build on the same Compose pattern for video summarization, search, and alerts.
 
 ## Other Deployment Options
 

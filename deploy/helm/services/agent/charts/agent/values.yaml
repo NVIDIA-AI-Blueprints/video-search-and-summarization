@@ -148,6 +148,13 @@ env:
   value: '{{- $g := .Values.global | default dict }}{{- $llm := (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim }}{{- if $llm }}remote{{- else }}local{{- end }}'
 - name: VLM_MODE
   value: '{{- $g := .Values.global | default dict }}{{- $vlm := (coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim }}{{- if $vlm }}remote{{- else }}local{{- end }}'
+# How the agent frames media for the VLM, independent of VLM_MODE: 'remote'
+# inlines base64 for a direct endpoint call, 'local_shared' sends a VST URL
+# for RT-VLM to fetch. Deployments that proxy through RT-VLM keep the default
+# even when VLM_MODE=remote. Compose parity:
+# deploy/docker/services/agent/compose.yml.
+- name: VLM_AGENT_MEDIA_MODE
+  value: '{{ .Values.vlmAgentMediaMode | default "local_shared" }}'
 - name: LLM_MODEL_TYPE
   value: nim
 - name: VLM_MODEL_TYPE

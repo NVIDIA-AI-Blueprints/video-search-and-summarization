@@ -201,7 +201,7 @@ Be sure to replace the VST_PUBLIC_URL_BASE listed above with your own VST public
 - Set the NGC CLI API key, then run the deploy commands for your GPU type.
 - Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
   For RTVI-VLM configuration options, see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm).
-- For advanced settings and Agent Customization, see the deploy command help.
+- For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
 ```bash
@@ -209,178 +209,384 @@ Be sure to replace the VST_PUBLIC_URL_BASE listed above with your own VST public
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
 # View all available options
-deploy/docker/scripts/dev-profile.sh --help
+# See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
+
+`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+
+```bash
+PROFILE=alerts
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
+```
+
+For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
+
+```bash
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
+
+**Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+
+**Host-path and service-address overrides (all hardware profiles):**
+
+- `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
+- `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
+- `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+
+
+Set these required placeholder values in the existing assignments:
+
+```ini
+VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
+VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+HOST_IP=<reachable-host-ip-or-name>
+```
+
+**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+
+```bash
+VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/analytics_cache" \
+  "$VSS_DATA_DIR/data_log/calibration_toolkit" \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/agent_eval/dataset" \
+  "$VSS_DATA_DIR/agent_eval/results" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/videos/dev-profile-alerts"
+VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
+mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
+chmod -R 777 "$VSS_APPS_DIR/engines"
+chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+```
+
 
 <Tabs>
 <Tab title="H100">
-</Tab>
+<Tabs>
 <Tab title="Shared GPU">
 
-``bash
-
+```ini
+HARDWARE_PROFILE=H100
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H H100 \
-    --llm-device-id 1 --vlm-device-id 2
-``
-
+```ini
+HARDWARE_PROFILE=H100
+MODE=2d_vlm
+LLM_DEVICE_ID=1
+VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=local
+VLM_MODE=local
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H H100 \
-    --use-remote-llm
-``
+```ini
+HARDWARE_PROFILE=H100
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="GB300">
+<Tabs>
+<Tab title="Default">
 
+```ini
+HARDWARE_PROFILE=GB300
+MODE=2d_vlm
+LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=develop-latest-sbsa
+ALERT_AGENT_ALWAYS_ON=true
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=GB300
+MODE=2d_vlm
+VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=develop-latest-sbsa
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="RTXPRO6000BW">
-</Tab>
+<Tabs>
 <Tab title="Shared GPU">
 
-``bash
-
-# deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H RTXPRO6000BW
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+MODE=2d_vlm
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+ALERT_AGENT_ALWAYS_ON=true
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H RTXPRO6000BW \
-    --llm-device-id 1 --vlm-device-id 2
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+MODE=2d_vlm
+LLM_DEVICE_ID=1
+VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=local
+VLM_MODE=local
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H RTXPRO6000BW \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="RTXPRO4500BW">
 
 <Note>
-On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, causing `-H RTXPRO4500BW` to fail the hardware check. Use NVIDIA driver 580.126.09 or later, or run `export SKIP_HARDWARE_CHECK=true` before the quickstart command.
+On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
 </Note>
 
-</Tab>
+<Tabs>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H RTXPRO4500BW \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=RTXPRO4500BW
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="L40S">
-</Tab>
+<Tabs>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H L40S \
-    --llm-device-id 1 --vlm-device-id 2
-``
-
+```ini
+HARDWARE_PROFILE=L40S
+MODE=2d_vlm
+LLM_DEVICE_ID=1
+VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=local
+VLM_MODE=local
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H L40S \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=L40S
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
-<Tab title="SPARK">
+</Tabs>
 </Tab>
+<Tab title="DGX-SPARK">
+<Tabs>
 <Tab title="Remote LLM">
 See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H DGX-SPARK \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=DGX-SPARK
+MODE=2d_vlm
+VLM_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=develop-latest-sbsa
+PERCEPTION_DOCKERFILE_PREFIX=EDGE-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="IGX-THOR">
-</Tab>
+<Tabs>
 <Tab title="Remote LLM">
 See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H IGX-THOR \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=IGX-THOR
+MODE=2d_vlm
+VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+PERCEPTION_DOCKERFILE_PREFIX=EDGE-
+VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="AGX-THOR">
-</Tab>
+<Tabs>
 <Tab title="Remote LLM">
 See [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H AGX-THOR \
-    --use-remote-llm
-``
-
+```ini
+HARDWARE_PROFILE=AGX-THOR
+MODE=2d_vlm
+VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+PERCEPTION_DOCKERFILE_PREFIX=EDGE-
+VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 <Tab title="OTHER">
 See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) and
 [Local RTVI-VLM deployments on OTHER hardware](/vss/appendix/faq)
 for known limitations and configuration constraints.
 
-</Tab>
+<Tabs>
 <Tab title="Shared GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H OTHER \
-    --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+MODE=2d_vlm
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
+ALERT_AGENT_ALWAYS_ON=true
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Dedicated GPU">
 
-``bash
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H OTHER \
-    --llm-device-id 1 --vlm-device-id 2 \
-    --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+MODE=2d_vlm
+LLM_DEVICE_ID=1
+VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=local
+VLM_MODE=local
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
 </Tab>
 <Tab title="Remote LLM">
 
-``bash
-export LLM_ENDPOINT_URL=https://your-llm-endpoint.com
-deploy/docker/scripts/dev-profile.sh up -p alerts -m real-time -H OTHER \
-    --use-remote-llm --vlm-env-file /path/to/vlm.env
-``
-
+```ini
+HARDWARE_PROFILE=OTHER
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_ENV_FILE=/path/to/vlm.env
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+```
+</Tab>
+</Tabs>
 </Tab>
 </Tabs>
 
-This command will download the necessary containers from the NGC Docker registry and start the agent. Depending on
+Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 **This deployment uses the following defaults:**
 
-- Host IP: src IP from `ip route get 1.1.1.1`
+
 - LLM model: nvidia/nvidia-nemotron-nano-9b-v2
 - VLM model: cosmos-reason3 (served via RTVI VLM container)
-
-**To use a different IP than the one derived:**
-
-- `-i`: Manually specify the host IP address.
-- `-e`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host.
 
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
@@ -450,7 +656,8 @@ Now, use the ID to request generation of the report while also specifying the as
 To tear down the agent, run the following command:
 
 ```bash
-deploy/docker/scripts/dev-profile.sh down
+cd deploy/docker
+docker compose -p vss down -v --remove-orphans
 ```
 
 This command will stop and remove the agent containers.
@@ -472,7 +679,7 @@ Once deployed, the following services are available:
 
 * VSS-RTVI-VLM logs may repeatedly show a "Generated text is empty" warning and result in incomplete/unreliable alert verdicts
 
-* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. As a result, the quickstart command with `-H RTXPRO4500BW` can fail with a hardware mismatch. Upgrade to NVIDIA driver 580.126.09 or later, or run `export SKIP_HARDWARE_CHECK=true` before running the quickstart command.
+* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 

@@ -43,6 +43,7 @@ from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
+from .ipc_frame_source import select_ipc_stream_identity
 from .ngc_model_downloader import download_model, download_model_git
 from .process_base import ProcessBase, _move_cuda_frames_to_cpu, _safe_cuda_empty_cache
 
@@ -227,6 +228,7 @@ class DecoderProcess(ProcessBase):
         self._max_live_streams = max(1, -(-args.max_live_streams // args.num_gpus))
         self._enable_audio = args.enable_audio
         self._use_fps_for_chunking = args.use_fps_for_chunking or False
+        self._ipc_frame_copy = getattr(args, "ipc_frame_copy", False)
 
     def _initialize(self):
         from .video_file_frame_getter import DefaultFrameSelector, VideoFileFrameGetter
@@ -776,6 +778,9 @@ class DecoderProcess(ProcessBase):
         use_vlm_audio = vlm_query.enable_audio and vlm_supports_audio
 
         logger.debug(f"Pipeline for live stream starting up: {asset.asset_id}")
+        live_stream_identity = select_ipc_stream_identity(
+            asset.camera_id, asset.sensor_name, asset.asset_id
+        )
         fgetter.stream(
             live_stream_url=asset.path,
             chunk_duration=vlm_query.chunk_duration,
@@ -783,6 +788,8 @@ class DecoderProcess(ProcessBase):
             username=asset.username,
             password=asset.password,
             live_stream_id=asset.asset_id,
+            live_stream_identity=live_stream_identity,
+            ipc_frame_copy_enabled=self._ipc_frame_copy,
             on_chunk_decoded=(
                 lambda chunk, frames, frame_times, transcripts, error, decode_start_time, decode_end_time, audio_frames, live_stream_id=asset.asset_id, kwargs=kwargs: on_chunk_decoded(  # noqa: E501
                     chunk,
@@ -2378,6 +2385,12 @@ class VlmPipeline:
             action="store_true",
             default=False,
             help="Use FPS for chunking",
+        )
+        parser.add_argument(
+            "--ipc-frame-copy",
+            action="store_true",
+            default=False,
+            help="Consume live RTSP frames from CV-published nvunixfd IPC sockets",
         )
 
 

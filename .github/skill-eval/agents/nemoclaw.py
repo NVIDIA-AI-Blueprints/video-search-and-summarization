@@ -29,7 +29,8 @@ class NemoClaw(OpenClaw):
         return "nemoclaw"
 
     def version(self) -> str | None:
-        return os.environ.get("NEMOCLAW_INSTALL_REF", "v0.0.108")
+        # The checked-in setup notebook owns the NemoClaw version.
+        return None
 
     async def setup(self, environment: BaseEnvironment) -> None:
         # NemoClaw and OpenClaw are installed and configured by the notebooks
@@ -56,6 +57,7 @@ class NemoClaw(OpenClaw):
 host_home=$HOME
 repo="$host_home/video-search-and-summarization"
 export HOME="$host_home/.skill-eval/nemoclaw-home"
+export PATH="$HOME/.local/bin:$PATH"
 cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}

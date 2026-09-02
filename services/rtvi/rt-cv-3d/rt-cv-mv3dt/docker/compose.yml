@@ -32,7 +32,7 @@
 
 services:
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0}
+    image: ${PERCEPTION_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv}:${PERCEPTION_TAG:-develop-latest}
     container_name: vss-rtvi-cv-mv3dt
     network_mode: host
     runtime: nvidia
@@ -72,12 +72,14 @@ services:
       kafka:
         condition: service_healthy
         required: false
-    # Uncomment the following 2 lines docker logs shows "libEGL warning: egl: failed to create dri2 screen"
+    # Uncomment for OSD on x86 if the log shows "Failed to query drm device" or
+    # "failed to create dri[N] screen". Kept commented for hosts with no DRM
+    # node, headless included.
     # devices:
     #   - /dev/dri
 
   bev-fusion:
-    image: ${BEV_FUSION_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_TAG:-3.2.0}
+    image: ${BEV_FUSION_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_TAG:-develop-latest}
     container_name: vss-rtvi-cv-bev-fusion
     network_mode: host
     restart: always
@@ -89,6 +91,8 @@ services:
       SENSOR_TIMEOUT_MS: "100"
       MAX_EXPECTED_SENSORS: ${NUM_CAMS:?set NUM_CAMS in docker/.env}
       BUFFER_DURATION_S: "2.0"
+      FUSION_METHOD: ${FUSION_METHOD:-gated_weighted}
+      VISIBILITY_MIN: ${VISIBILITY_MIN:-0.3}
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if os.path.isfile('/tmp/fusion_ready') else 1)"]
       interval: 2s
