@@ -298,11 +298,39 @@ set -a
 . /secure/path/remote-agent.env
 set +a
 
-getent hosts "${VSS_GATEWAY_HOST}"
+# Resolve the gateway host only when it is a name -- that is the check that
+# catches a missing /etc/hosts entry or private zone. On an IP literal getent
+# does a reverse lookup, which says nothing about reachability and normally
+# finds nothing, so running it there reports a failure that is not one.
+case "${VSS_GATEWAY_HOST}" in
+  *[a-zA-Z]*) getent hosts "${VSS_GATEWAY_HOST}" ;;
+esac
+
 curl -fsS "${VSS_GATEWAY_ORIGIN}/va-mcp/health"
 curl -fsS "${VSS_GATEWAY_ORIGIN}/vst/api/v1/sensor/streams"
 curl -fsS "${VSS_GATEWAY_ORIGIN}/elasticsearch/"
 ```
+
+### The origin callers use has to be declared
+
+The Host ACLs are an allowlist, so the gateway answers only for origins the
+deployment was told about: `VSS_PUBLIC_HOST`, `VSS_GATEWAY_HOST`, `HOST_IP`,
+`EXTERNAL_IP`, `localhost` and `127.0.0.1`, each with and without the port.
+**Reaching a deployment by any other name returns 404 on every path**, however
+correct the route is — the common cases being a public DNS record, a client-side
+`/etc/hosts` alias, and a Brev secure link.
+
+Set `VSS_PUBLIC_HOST` to the hostname callers use and recreate
+`vss-haproxy-ingress`. The IP entries stay valid alongside it, so declaring a
+name does not cost you the address:
+
+```bash
+curl -fsS -o /dev/null -w '%{http_code}\n' "https://${PUBLIC_NAME}/va-mcp/health"
+```
+
+An unrecognised Host is answered with `x-vss-gateway-deny: unknown-host` and a
+plain-text body naming this setting, which is what separates it from a 404 for a
+path no service mounts. Check that header before looking for a routing bug.
 
 Then configure the host-side CLI with the public origin. The CLI does not read
 service endpoints from process environment and must not be pointed at

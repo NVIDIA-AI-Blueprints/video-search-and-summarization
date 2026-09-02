@@ -187,7 +187,13 @@ frontend fe_http
     acl known_host hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl known_host hdr(host) -i 127.0.0.1
     acl known_host hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
-    http-request deny deny_status 404 if !known_host
+    # An origin the deployment was never told about is the most likely remote
+    # access failure: a public DNS name, an /etc/hosts alias, a Brev secure
+    # link. The status stays 404 because callers already branch on it, but a
+    # bare 404 is indistinguishable from a path that no service mounts, which
+    # sends operators looking for a routing bug that is not there. Name the
+    # cause instead.
+    http-request deny deny_status 404 hdr x-vss-gateway-deny unknown-host content-type text/plain string "VSS gateway: this Host is not one of the deployment's known origins. Add the hostname callers use to VSS_PUBLIC_HOST and recreate vss-haproxy-ingress. See deploy/docker/README.md." if !known_host
 
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}"
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}"
