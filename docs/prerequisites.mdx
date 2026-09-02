@@ -241,7 +241,7 @@ The token must have **READ** permission only. Do not commit it to version contro
 </Warning>
 
 <Note>
-`HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the profile `.env` (see inline comments in `dev-profile-base/.env`) and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
+`HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the profile `.env` (see inline comments in `dev-profile-base/.env`) and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 </Note>
 
 ## Development Profile GPU Requirements
@@ -253,60 +253,60 @@ The following tables show the number of GPUs needed for each development profile
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base ](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs ](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search ](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
 
 </Tab>
 <Tab title="RTXPRO6000BW">
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base ](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs ](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search ](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
 
 </Tab>
 <Tab title="L40S">
 
 | **Profile** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- |
-| [dev-profile-base ](/vss/getting-started/quickstart) | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs ](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 0 |
-| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 3 | 2 | 2 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 3 | 2 | — | — |
-| [dev-profile-search ](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 4 | 3 | 3 | 2 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 2 | 1 | 1 | 0 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 0 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 3 | 2 | 2 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 3 | 2 | — | — |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 4 | 3 | 3 | 2 |
 
 </Tab>
 <Tab title="DGX-SPARK">
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
-| [dev-profile-base ](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
 
 </Tab>
 <Tab title="IGX-THOR">
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
-| [dev-profile-base ](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
 
 </Tab>
 <Tab title="AGX-THOR">
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
-| [dev-profile-base ](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
 
 </Tab>
 </Tabs>

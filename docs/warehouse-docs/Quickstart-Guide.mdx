@@ -106,7 +106,7 @@ We recommend RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK
 </Note>
 
 <Note>
-To use different hardware than the ones listed above, you can use the **VSS Configurator**. Add a new hardware profile in `blueprint_config.yml` with stream limits (and optional config overrides), then set `HARDWARE_PROFILE` to that profile name when deploying. For a step-by-step guide and examples, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator ](/vss/system-components/configuration/vss-configurator) documentation.
+To use different hardware than the ones listed above, you can use the **VSS Configurator**. Add a new hardware profile in `blueprint_config.yml` with stream limits (and optional config overrides), then set `HARDWARE_PROFILE` to that profile name when deploying. For a step-by-step guide and examples, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/vss/system-components/configuration/vss-configurator) documentation.
 </Note>
 
 ## Download Warehouse Artifacts
@@ -218,7 +218,7 @@ Determine your `HARDWARE_PROFILE` by running `nvidia-smi -L` to identify your GP
 | DGX-SPARK | `DGX-SPARK` |
 
 <Note>
-To update the existing configs of a hardware profile or to add a GPU which is not present in the above list, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator ](/vss/system-components/configuration/vss-configurator) documentation.
+To update the existing configs of a hardware profile or to add a GPU which is not present in the above list, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/vss/system-components/configuration/vss-configurator) documentation.
 </Note>
 
 #### Deployment Paths and Services
@@ -275,7 +275,7 @@ To increase the retention period, adjust index lifecycle (ILM) time by setting `
 ELASTICSEARCH_ILM_MIN_AGE=4h
 ```
 
-For how ILM policies are defined and other tuning options, see [ELK (Elasticsearch, Logstash, Kibana) ](/vss/system-components/middleware/database/elk).
+For how ILM policies are defined and other tuning options, see [ELK (Elasticsearch, Logstash, Kibana)](/vss/system-components/middleware/database/elk).
 
 #### NIM Deployment Modes
 
@@ -290,7 +290,7 @@ The following modes apply to the `LLM_MODE` environment variable.
 <Note>
 The Warehouse Blueprint uses `rtvi-vlm` for VLM inference. Configure the local `rtvi-vlm` service with `RTVI_VLM_BASE_URL`, `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` in `industry-profiles/warehouse-operations/.env`.
 RTVI-VLM is not supported on DGX-SPARK.
-For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm).
+For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm).
 </Note>
 
 #### Model Configuration
@@ -381,7 +381,7 @@ For detailed testing and validation steps, refer to:
 - [2D Vision AI with Agents Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#testing-and-validation)
 - [3D Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#testing-and-validation)
 - [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#testing-and-validation)
-- [Troubleshooting Guide ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/troubleshooting-guide)
+- [Troubleshooting Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/troubleshooting-guide)
 
 ## Service Access Points
 
@@ -397,8 +397,8 @@ Once deployed, the following service access points are available:
 | Phoenix-UI (Telemetry)(2D Vision AI with Agents Profile) | `http://<HOST_IP>:7777/phoenix` |
 
 <Note>
-- The Phoenix UI is only available when agent telemetry is enabled. For how to enable telemetry and inspect traces, see [VSS Agents Observability ](/vss/vision-agent/vss-agents/observability).
-- Observability stack access details (Grafana, Prometheus, and exporters) are documented in [Observability ](/vss/system-components/middleware/observability).
+- The Phoenix UI is only available when agent telemetry is enabled. For how to enable telemetry and inspect traces, see [VSS Agents Observability](/vss/vision-agent/vss-agents/observability).
+- Observability stack access details (Grafana, Prometheus, and exporters) are documented in [Observability](/vss/system-components/middleware/observability).
 </Note>
 
 | Service | Access Point |
@@ -456,7 +456,7 @@ compose dry-run, bring up the stack, and monitor readiness without requiring the
 to memorize every deployment command.
 
 For the complete VSS Skills catalog and installation model, see
-[Agent Skills ](/vss/vision-agent/agent-skills).
+[Agent Skills](/vss/vision-agent/agent-skills).
 
 <Note>
 The screenshots in this section show the Claude UI. Use the same prompts in Codex or
@@ -607,7 +607,7 @@ directory.
 
 ### Related Documentation
 
-* [Agent Skills ](/vss/vision-agent/agent-skills) - VSS Skills catalog, installation, usage, and update flow.
+* [Agent Skills](/vss/vision-agent/agent-skills) - VSS Skills catalog, installation, usage, and update flow.
 
 For the standalone RTVI-CV-3D / MV3DT stack without the full Warehouse agent,
 LLM, or VLM stack, use the `vss-deploy-detection-tracking-3d` skill instead.
