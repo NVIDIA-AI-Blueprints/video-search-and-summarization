@@ -398,6 +398,14 @@ commons:
       - trim_sample_videos: 'False if "${SENSOR_INFO_SOURCE}" == "file" else True'
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
+      # Synthetic datasets use Sparse4D v2.3; real datasets use v3.0.
+      - sparse4d_onnx_file: "\"/opt/storage/sparse4d/sparse4d_warehouse_v2.3.onnx\" if \"${SAMPLE_VIDEO_DATASET}\".endswith(\"-synthetic\") else \"/opt/storage/sparse4d/sparse4d_warehouse_v3.0.onnx\""
+      - sparse4d_engine_file: "\"/opt/storage/sparse4d/sparse4d_warehouse_v2.3_b${final_stream_count}.engine\" if \"${SAMPLE_VIDEO_DATASET}\".endswith(\"-synthetic\") else \"/opt/storage/sparse4d/sparse4d_warehouse_v3.0_b${final_stream_count}.engine\""
+      - sparse4d_labels_file: "\"/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels_synthetic.txt\" if \"${SAMPLE_VIDEO_DATASET}\".endswith(\"-synthetic\") else \"/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels_real.txt\""
+      - sparse4d_model: "\"nvidia/tao/sparse4d_rn50:deployable_v2.3\" if \"${SAMPLE_VIDEO_DATASET}\".endswith(\"-synthetic\") else \"nvidia/tao/sparse4d_rn50:deployable_v3.0\""
+      - sparse4d_model_source: "\"sparse4d_warehouse_v2.3_r50.onnx\" if \"${SAMPLE_VIDEO_DATASET}\".endswith(\"-synthetic\") else \"sparse4d_warehouse_v3.0_r50.onnx\""
+      - sparse4d_model_destination: "\"sparse4d/sparse4d_warehouse_v2.3.onnx\" if \"${SAMPLE_VIDEO_DATASET}\".endswith(\"-synthetic\") else \"sparse4d/sparse4d_warehouse_v3.0.onnx\""
+
       - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-bev"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
@@ -500,6 +508,27 @@ commons:
         backup: true
         updates:
           num_sensors: ${final_stream_count}
+          onnx_file: "${sparse4d_onnx_file}"
+          engine_file: "${sparse4d_engine_file}"
+          labels_file: "${sparse4d_labels_file}"
+
+      # Download only the Sparse4D model selected for this dataset.
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json"
+        backup: true
+        array_kv_updates:
+          - list_key: downloads
+            match_field: org
+            updates:
+              - match: "nvidia"
+                set_key: model
+                set_value: "${sparse4d_model}"
+              - match: "nvidia"
+                set_key: sourcePath
+                set_value: "${sparse4d_model_source}"
+              - match: "nvidia"
+                set_key: destPath
+                set_value: "${sparse4d_model_destination}"
 
       # Update DeepStream main config
       - operation_type: "text_config_update"
