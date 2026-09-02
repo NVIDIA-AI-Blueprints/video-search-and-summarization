@@ -1,6 +1,6 @@
 ## Shared Calibration Tail (Python)
 
-The linear-media → verify → VGGT/post-process (when available) → AMC/post-process → results sequence is identical across all
+The stage-linear-media → verify → VGGT/post-process when available → AMC/post-process → results sequence is identical across all
 three input modes (videos, RTSP, sample-dataset). The mode-specific
 references stop after their last upload step and reference this snippet.
 
@@ -36,91 +36,78 @@ if info.get("rectification_state") != "COMPLETED":
     elif media_mode == "rectified":
         raise RuntimeError("Complete and commit AMC UI Rectification, then re-run after rectification_state is COMPLETED")
 
-# Verify after linear media is ready. A restored VGGT RUNNING project was
-# already verified; re-verification is rejected while its job is active.
+# Verify after linear media is ready. Do not re-verify a project with an
+# active job: the API rejects verification while work is running. A persisted
+# VGGT job is safe to resume by polling below.
 project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
-running_keys = [key for key in ("rectification_state", "amc_state", "vggt_state", "postprocess_state") if project.get(key) == "RUNNING"]
+running_keys = [
+    key for key in ("rectification_state", "amc_state", "vggt_state", "postprocess_state")
+    if project.get(key) == "RUNNING"
+]
 if running_keys == ["vggt_state"]:
     print("[B] Persisted VGGT job is running; resume its poll without re-verifying")
 elif running_keys:
-    raise RuntimeError(f"Project already has a running job ({', '.join(running_keys)}); wait for its terminal state before continuing")
+    raise RuntimeError(
+        f"Project already has a running job ({', '.join(running_keys)}); "
+        "wait for its terminal state before continuing"
+    )
 else:
-    verified = s.post(f"{BASE_URL}/verify_project/{project_id}")
-    verified.raise_for_status()
-    if verified.json().get("project_state") not in {"READY", "COMPLETED", "ERROR"}:
-        raise RuntimeError(f"Project verification returned an unexpected state: {verified.text[:500]}")
+    s.post(f"{BASE_URL}/verify_project/{project_id}").raise_for_status()
 
-# v3.3.0: VGGT is independent from AMC and is the first/default method when
-# ready because it is faster. Do not invoke it if its model is absent.
-run_vggt = globals().get("RUN_VGGT_IF_READY", True)
-project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
-vggt_state = project.get("vggt_state", "INIT")
-is_multi_camera = project.get("video_files_count", len(project.get("video_files", []))) > 1
-vggt_stats = None
-vggt_postprocessed = False
+def postprocess_if_multicam():
+    project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
+    video_count = int(project.get("video_files_count") or len(project.get("video_files", [])))
+    if video_count <= 1:
+        return
+    s.post(f"{BASE_URL}/postprocess/{project_id}").raise_for_status()
+    post_start = time.time()
+    while time.time() - post_start < 1800:
+        post_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("postprocess_state")
+        if post_state == "COMPLETED":
+            return
+        if post_state == "ERROR":
+            raise RuntimeError(f"Layout post-processing failed for project {project_id}")
+        time.sleep(10)
+    raise RuntimeError("Layout post-processing still running after 30 min")
+
+# Step C — VGGT is independent of AMC. Start or resume it first by default, then
+# post-process every completed run before AMC resets the shared state.
+def wait_for_vggt():
+    started = time.time()
+    while time.time() - started < 900:
+        state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("vggt_state")
+        if state == "COMPLETED":
+            return True
+        if state == "ERROR":
+            print("Independent VGGT calibration failed; continuing with AMC calibration")
+            return False
+        time.sleep(10)
+    raise RuntimeError("Independent VGGT calibration still running after 15 min")
+
 vggt_completed = False
-if is_multi_camera and (vggt_state == "RUNNING" or (run_vggt and vggt_state in {"READY", "COMPLETED"})):
-    if vggt_state == "READY":
-        s.post(f"{BASE_URL}/vggt/calibrate/{project_id}").raise_for_status()
-        print("[C] VGGT calibration started first")
-        vggt_state = "RUNNING"
-    elif vggt_state == "RUNNING":
-        print("[C] Resuming persisted VGGT calibration poll")
-    else:
-        print("[C] Reusing completed VGGT calibration")
-        vggt_completed = True
-
-    if vggt_state == "RUNNING":
-        vggt_start = time.time()
-        while time.time() - vggt_start < 900:
-            project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
-            vggt_state = project.get("vggt_state", "INIT")
-            if vggt_state == "COMPLETED":
-                print("    VGGT completed")
-                vggt_completed = True
-                break
-            if vggt_state == "ERROR":
-                print("    VGGT failed; continuing with independent AMC calibration")
-                break
-            time.sleep(10)
-        else:
-            raise RuntimeError("VGGT still running after 15 min; wait for a terminal state before starting AMC")
-
-    # Required after VGGT and before AMC. A persisted completed run may already
-    # have export artifacts; otherwise run its post-process now. AMC below must
-    # still run a separate post-process pass.
-    if vggt_completed and not project.get("vggt_export_ready", False):
-        s.post(f"{BASE_URL}/postprocess/{project_id}").raise_for_status()
-        post_start = time.time()
-        while time.time() - post_start < 1800:
-            post_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("postprocess_state")
-            if post_state == "COMPLETED":
-                print("    VGGT layout post-processing completed")
-                vggt_postprocessed = True
-                break
-            if post_state == "ERROR":
-                print("    VGGT layout post-processing failed; continuing with independent AMC calibration")
-                break
-            time.sleep(10)
-        else:
-            raise RuntimeError("VGGT layout post-processing still running after 30 min; wait for a terminal state before starting AMC")
-
-    elif vggt_completed:
-        print("    VGGT post-processed export artifacts already available")
-        vggt_postprocessed = True
-
-    if vggt_postprocessed:
-        vggt_metrics = s.get(f"{BASE_URL}/vggt_results/{project_id}/evaluation_statistics")
-        if vggt_metrics.status_code == 200:
-            vggt_stats = vggt_metrics.json().get("statistics", vggt_metrics.json())
-elif not is_multi_camera:
-    print("[C] Single-camera project; VGGT is not supported, continuing AMC")
+vggt_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("vggt_state", "INIT")
+if vggt_state == "READY":
+    s.post(f"{BASE_URL}/vggt/calibrate/{project_id}").raise_for_status()
+    vggt_completed = wait_for_vggt()
+elif vggt_state == "RUNNING":
+    print("Independent VGGT calibration is already running; waiting for it")
+    vggt_completed = wait_for_vggt()
+elif vggt_state == "COMPLETED":
+    vggt_completed = True
 elif vggt_state == "MODEL_MISSING":
-    print("[C] VGGT model missing; skipping VGGT and continuing AMC")
-elif vggt_state == "READY":
-    print("[C] VGGT ready but disabled by RUN_VGGT_IF_READY=False; continuing AMC")
-else:
-    print(f"[C] VGGT unavailable (state={vggt_state}); continuing AMC")
+    print("VGGT model is unavailable; continuing with AMC-only calibration")
+elif vggt_state == "ERROR":
+    print("Independent VGGT calibration previously failed; continuing with AMC calibration")
+
+vggt_stats = None
+if vggt_completed:
+    postprocess_if_multicam()
+    response = s.get(f"{BASE_URL}/vggt_results/{project_id}/evaluation_statistics")
+    vggt_stats = response.json().get("statistics") if response.status_code == 200 else None
+    if vggt_stats:
+        print("VGGT evaluation metrics:")
+        for key, value in vggt_stats.items():
+            print(f"    {key}: {value}")
 
 # Step D — Start AMC calibration (detector_type is a /calibrate argument; not consumed by /v1/config)
 s.post(f"{BASE_URL}/calibrate/{project_id}",
@@ -130,7 +117,7 @@ s.post(f"{BASE_URL}/calibrate/{project_id}",
 _host = urlparse(BASE_URL).hostname or "<HOST_IP>"
 _ui_port = os.environ.get("VSS_AUTO_CALIBRATION_UI_HOST_PORT") or os.environ.get("VSS_AUTO_CALIBRATION_UI_PORT", "5000")
 _root = BASE_URL.rsplit("/v1", 1)[0]
-print("[D] AMC calibration started")
+print("[B] Calibration started")
 print(f"    Project:  {project_id}")
 print(f"    Detector: {DETECTOR_TYPE}")
 print(f"    UI:       http://{_host}:{_ui_port}")
@@ -141,15 +128,13 @@ print(f"    Logs:     GET {BASE_URL}/amc/calibrate/{project_id}/log   (Swagger U
 start, last_state, last_beat = time.time(), "", 0.0
 while time.time() - start < 5400:
     info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
-    st = info["project_info"].get("amc_state")
-    if st is None:
-        raise RuntimeError("Project info did not include required amc_state")
+    st = info["project_info"]["amc_state"]
     mins, secs = divmod(int(time.time() - start), 60)
     if st != last_state or time.time() - last_beat >= 60:
         print(f"    [{mins:>3}m {secs:02d}s] {st}", flush=True)
         last_state, last_beat = st, time.time()
     if st == "COMPLETED":
-        print(f"[E] AMC completed in {mins}m {secs:02d}s"); break
+        print(f"[C] Completed in {mins}m {secs:02d}s"); break
     if st == "ERROR":
         # Surface the tail of the calibration log so the failure is actionable.
         try:
@@ -167,41 +152,27 @@ else:
         f"inspect GET {BASE_URL}/amc/calibrate/{project_id}/log or the UI at http://{_host}:{_ui_port}"
     )
 
-# Step F — Layout post-processing (required after AMC; do not reuse VGGT pass)
-project = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {})
-if project.get("video_files_count", len(project.get("video_files", []))) > 1:
-    post = s.post(f"{BASE_URL}/postprocess/{project_id}")
-    post.raise_for_status()
-    post_start = time.time()
-    while time.time() - post_start < 1800:
-        post_state = s.get(f"{BASE_URL}/get_project_info/{project_id}").json().get("project_info", {}).get("postprocess_state")
-        if post_state == "COMPLETED":
-            break
-        if post_state == "ERROR":
-            raise RuntimeError(f"Layout post-processing failed for project {project_id}")
-        time.sleep(10)
-    else:
-        raise RuntimeError("Layout post-processing still running after 30 min")
+# Step F — AMC resets postprocess_state, so post-process again after AMC.
+postprocess_if_multicam()
 
 # Results + review
 print("\n=== Calibration complete ===")
 print(f"Project:  {project_id}")
 print(f"Detector: {DETECTOR_TYPE}")
-if vggt_stats:
-    print("VGGT evaluation metrics:")
-    for k, v in vggt_stats.items():
-        print(f"    {k}: {v}")
 
 # Evaluation metrics are only produced when a ground-truth GT.zip was uploaded.
 # A missing result here is normal (no GT) — it is not the end of result reporting.
 r = s.get(f"{BASE_URL}/result/{project_id}/evaluation_statistics")
-_stats = r.json().get("statistics") if r.status_code == 200 else None
-if _stats:
-    print("Evaluation metrics:")
-    for k, v in _stats.items():
+amc_stats = r.json().get("statistics") if r.status_code == 200 else None
+if amc_stats:
+    print("AMC evaluation metrics:")
+    for k, v in amc_stats.items():
         print(f"    {k}: {v}")
 else:
-    print("Evaluation metrics: not available — upload a ground-truth GT.zip before calibrating to get L2 / reprojection metrics.")
+    print("AMC evaluation metrics: not available — upload a ground-truth GT.zip before calibrating to get L2 / reprojection metrics.")
+
+if vggt_completed:
+    print("Compare VGGT and AMC metrics plus Results-page overlays, then select the more accurate calibration for export.")
 
 # Always point to the visual overlay so the user can validate calibration quality.
 _projects_dir = os.environ.get(
