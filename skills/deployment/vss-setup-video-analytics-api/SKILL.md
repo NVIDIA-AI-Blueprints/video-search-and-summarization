@@ -107,9 +107,9 @@ The compose-file edits, config options, deploy + verify commands, REST API endpo
 
 Use [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md) for the REST endpoint table and runtime dependency notes.
 
-## Kafka-dependent features (runtime, requires `STREAM_TYPE=kafka` and a broker)
+## Kafka-dependent features (runtime, requires `STREAM_TYPE=kafka` and non-empty `kafka.brokers`)
 
-When `STREAM_TYPE=kafka` and Kafka is configured, the container does not become live until its broker and required topics are available. Once it is live, three additional capabilities are available:
+When `STREAM_TYPE=kafka` and `kafka.brokers` is non-empty, the container does not become live until those brokers and the required topics are available. Once it is live, three additional capabilities are available:
 
 ### Dynamic config
 
