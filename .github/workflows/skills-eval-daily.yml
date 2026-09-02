@@ -76,7 +76,7 @@ jobs:
   # ---------------------------------------------------------------------
   resolve_ref:
     name: Resolve eval ref
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [openshell-h200nvl-active]
     timeout-minutes: 15
     outputs:
       ref: ${{ github.event_name == 'schedule' && steps.resolve.outputs.ref || github.ref }}
@@ -106,7 +106,7 @@ jobs:
   plan:
     name: Plan eval matrix
     needs: resolve_ref
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [openshell-h200nvl-active]
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -138,7 +138,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: [resolve_ref, plan]
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    runs-on: [openshell-h200nvl-active]
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
