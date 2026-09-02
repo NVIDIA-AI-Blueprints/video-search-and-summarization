@@ -108,10 +108,10 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_PORT` | Host REST API port (rewrites to container `8000`) | strict (`${RTVI_VLM_PORT?}`) | **Yes** |
 | `HOST_IP` | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback | — | **Yes (effective)** |
 | `VSS_DATA_DIR` | Bind-mount root for VST clip storage `${VSS_DATA_DIR}/data_log/vst/clip_storage` | — | **Yes** |
-| `NGC_CLI_API_KEY` / `RTVI_VLM_API_KEY` | rewrites to `NGC_API_KEY` + `VIA_VLM_API_KEY` — image pull + NIM auth | — | **Yes** |
+| `NGC_CLI_API_KEY` / `RTVI_VLM_API_KEY` | rewrites to `NGC_API_KEY` + `VIA_VLM_API_KEY` for model download and NIM auth | — | **Yes** |
 | `HF_TOKEN` | Gated HuggingFace pulls (Qwen3-VL, Cosmos3) | — | conditional |
 | `RTVI_VLM_MODEL_TO_USE` → `VLM_MODEL_TO_USE` | Backend selector: `openai-compat` (default), `cosmos-reason1`, `cosmos-reason2`, `cosmos-reason3`, `vllm-compatible`, `custom` | `openai-compat` | **Yes** |
-| `RTVI_VLM_MODEL_PATH` → `MODEL_PATH` | NGC/git path to model when not `openai-compat`. **Override to `:1208-fp8-static-kv8` for cosmos-reason2 to match VSS docs / NIM siblings — compose default `:hf-1208` is a different quant.** | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` (compose) / `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` (rst sample) | conditional |
+| `RTVI_VLM_MODEL_PATH` → `MODEL_PATH` | NGC/git path to the model when not `openai-compat`; override it only when selecting a different backend/model. | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | conditional |
 | `RT_VLM_DEVICE_ID` | GPU `device_ids` entry (breaks `RTVI_VLM_*` pattern by design — fixed by upstream compose) | `0` | optional |
 | `RTVI_VLM_NVIDIA_VISIBLE_DEVICES` → `NVIDIA_VISIBLE_DEVICES` | GPU visibility | `all` | optional |
 | `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
@@ -120,10 +120,10 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
 | `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
 | `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `${HOST_IP}:9092` (host-net) or `kafka:9092` (compose-net) | **Yes (effective)** |
-| `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
+| `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `vision-llm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `RTVI_VLM_IMAGE_TAG` | Compose image-tag override; pick platform-correct tag (`3.3.0-26.08.2` for x86/Tegra; `3.3.0-26.08.2-sbsa` for SBSA Grace/Spark). **Resolve the live default from `dev-profile-base/.env` — do NOT hardcode; the tag stream moves (was `3.2.0-26.04.1`, is `3.3.0-26.08.2` as of 2026-06-02).** | `3.3.0-26.08.2` (per `dev-profile-base/.env`) | optional |
+| `VSS_RT_VLM_TAG` | Compose image-tag override; append `-sbsa` only for SBSA Grace/Spark. Resolve the standalone default from the canonical RT-VLM Compose file; the full VSS project may override it through `deploy/docker/containers.env`. | `develop-latest` (standalone Compose) | optional |
 
 ## Network Requirements
 
@@ -141,12 +141,12 @@ The host-side variable names that the compose interpolates differ from the canon
 
 - **Endpoint rename (3.2.0 breaking change).** `/v1/generate_captions_alerts` was renamed to `/v1/generate_captions`. 3.1.0-era clients break — update before deployment. Source: `real-time-vlm.rst` § Breaking Changes.
 - **Duplicate stream/camera IDs now 409.** Re-adding a stream with the same ID returns HTTP 409 (`DuplicateStreamId` / `DuplicateCameraId`) instead of silently overwriting. Idempotent registration code must remove first or handle 409. Source: `real-time-vlm.rst` § Breaking Changes (lines 99–102).
-- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares **8** sibling-NIM `depends_on` peers, all `required: false`: `cosmos-reason1-7b`, `cosmos-reason1-7b-shared-gpu`, `cosmos-reason2-8b`, `cosmos-reason2-8b-shared-gpu`, `cosmos3-reasoner`, `cosmos3-reasoner-shared-gpu`, `qwen3-vl-8b-instruct`, `qwen3-vl-8b-instruct-shared-gpu` (plus `broker-health-check`, which IS defined when ELK is present and is kept). (Verified live 2026-06-02 — earlier revisions of this doc listed only the cosmos-reason1/2 + qwen3 trio and omitted `cosmos3-reasoner` ± `-shared-gpu`; the upstream peer set has grown.) Recent Compose still validates these refs at project-load time and rejects standalone deploys with `invalid compose project`. A consumer deploying rtvi-vlm standalone must strip whichever NIM peers are undefined in its include graph (all 8 for an in-process backend); the generalized rule "strip any undefined `required:false` peer" is robust to the set changing. Source: `deploy-rt-vlm-service.md` §20 + §4.
-- **Profiles are mandatory.** The upstream rtvi-vlm compose declares 6 compose profiles (`bp_wh_2d`, `bp_developer_alerts_2d_vlm`, `bp_developer_alerts_2d_cv`, `bp_developer_base_2d_IGX-THOR`, `bp_developer_base_2d_AGX-THOR`, `bp_developer_lvs_2d`). `docker compose up` without `--profile` starts **nothing**. A standalone deploy must add its chosen compose-profile flag to the `profiles:` list of its compose copy.
+- **`depends_on.required: false` is NOT enough on recent Docker Compose.** The live compose declares eight sibling-NIM peers plus `broker-health-check`, all `required: false`. Recent Compose still rejects undefined peers during standalone project loading. Follow the guarded fallback in `deploy-rt-vlm-service.md`: normalize only after canonical validation fails, and only when every dependency matches the documented optional-peer allowlist. Reject unknown or required dependencies instead of hiding a Compose regression.
+- **Profiles are mandatory.** The standalone RT-VLM Compose file declares only `rtvi-vlm`; additional blueprint profiles come from the full VSS include graph. Standalone deployment must pass `--profile rtvi-vlm`.
 - **Single-instance.** `container_name: vss-rtvi-vlm` is hardcoded in the upstream compose. A second instance on the same host fails with `Conflict. The container name "/vss-rtvi-vlm" is already in use`. Source: `deploy-rt-vlm-service.md` §20.
 - **NvSchema protobuf must align with Logstash descriptors.** The producer (RT-VLM) and the consumer (Logstash) must agree on the `nv.VisionLLM` and `nv.Incident` proto schema. The shared source-of-truth is the descriptor pair at `deploy/docker/services/infra/elk/pb_definitions/descriptors/{schema.desc, ext.desc}`. Schema drift on one side without the other causes Logstash to write empty/default-valued documents to ES without raising. Source: `integrate-elk.md` § Known Integration Constraints.
 - **Caption topic must be `mdx-vlm-captions` (resolved in VSS 3.2).** VSS 3.2 added the `mdx-lvs` Logstash pipeline (`pipelines/kafka/mdx-lvs-logstash.conf`) that subscribes to `mdx-vlm-captions` and indexes captions into ES using via-ctx-rag's `add_summary` shape (indices named `<collection>_<id>`, not `mdx-vlm-*` date indices). Use `RTVI_VLM_MESSAGE_BUS=kafka` and `RTVI_VLM_MESSAGE_BUS_TOPIC=mdx-vlm-captions` so captions reach ES without any Logstash config patching. Source: live verification 2026-05-23, `met-blueprint-docs/real-time-vlm.rst`, `mdx-lvs-logstash.conf`.
-- **MODEL_PATH tag divergence (must override).** Compose default is `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` but the VSS-docs-matching tag is `:1208-fp8-static-kv8` (the rst sample uses `:0303-fp8-dynamic-kv8`). These tags are NOT interchangeable on a live cache — different quant produces different torch_aot_compile cache hashes. Source: `deploy-rt-vlm-service.md` §20 third bullet.
+- **MODEL_PATH follows the canonical Compose default.** Standalone deployment uses `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` unless the selected backend/model explicitly requires another artifact. Different quantizations are not interchangeable in an existing compile cache.
 - **VOD vs. RTSP timestamp differ.** File uploads (VOD) carry chunk-relative epoch timestamps; if the upload `timestamp` query param is unset, caption docs land in the `mdx-vlm-1970-01-01` ES index. RTSP streams carry wall-clock NTP timestamps and land in the correct date-named index. Affects Kibana dashboards — time picker must include 1970 for VOD-driven captions. Source: `EXAMPLE-PROMPTS.md` § P-006-S1 known edge cases.
 - **Jetson Thor / DGX Spark instability at 8+ vision tokens.** Documented platform issue. Cap streams ≤2 or drop input resolution. Source: `real-time-vlm.rst` § (search "Jetson Thor") + `deploy-rt-vlm-service.md` §9.
 - **First-boot cold-start is 20 minutes.** Model weight download + vLLM warmup + CUDA graph capture fills the `start_period: 1200s`. Warm-cache restart is ~55 s. Pre-warn operators not to kill as "stuck." Source: `real-time-vlm.rst` § Sample docker-compose.yml (line 393).
@@ -154,21 +154,19 @@ The host-side variable names that the compose interpolates differ from the canon
 
 ## Example Compose Snippet
 
-Minimal IN-1-relevant block. Full upstream compose is at `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; a standalone deploy patches a copy (never the upstream tree). Sourced from `real-time-vlm.rst` § Sample docker-compose.yml (lines 272–397) — abbreviated to the IN-1 minimum.
+Minimal standalone-relevant block. The canonical source is `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; use it directly unless canonical validation requires the guarded normalized copy described in `deploy-rt-vlm-service.md`.
 
 ```yaml
 services:
   rtvi-vlm:
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.3.0-26.08.2}   # resolve tag from dev-profile-base/.env; registry is nvstaging in 3.2.0
+    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-vlm}:${VSS_RT_VLM_TAG:-develop-latest}
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
     user: "1001:1001"
     ports:
       - "${RTVI_VLM_PORT?}:8000"
-    profiles:
-      - <your-profile-flag>   # add your deployment's compose-profile flag
-      # ... existing upstream profiles preserved
+    profiles: ["rtvi-vlm"]
     volumes:
       - "${RTVI_VLM_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
@@ -176,15 +174,15 @@ services:
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
-      VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-cosmos-reason2}"
-      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:1208-fp8-static-kv8}"
+      VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
+      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final}"
       KAFKA_ENABLED: "true"
       MESSAGE_BUS: "${RTVI_VLM_MESSAGE_BUS:-kafka}"
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
       KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
-      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-mdx-events}"
+      ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-vision-llm-errors}"
     deploy:
       resources:
         reservations:
