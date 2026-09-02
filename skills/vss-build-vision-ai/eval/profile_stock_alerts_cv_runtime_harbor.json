@@ -1,0 +1,34 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "stock-alerts-cv",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile alerts CV-verification deployment coverage to Build Vision AI.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **alerts** pre-built developer workflow in `2d_cv` mode on `{{platform}}` from `{{repo_root}}`. Keep the alerts CV-verification service set unchanged, write the build artifacts under `_builds/stock-alerts-cv/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",
+      "checks": [
+        "`{{repo_root}}/_builds/stock-alerts-cv/override.env` exists and declares `FOUNDATION=alerts`, `MODE=2d_cv`, and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set matches the stock alerts `2d_cv` profile and includes RT-CV perception, behavior analytics, alert bridge, RT-VLM verification, Video Analytics API, VIOS, Agent, UI, Phoenix, ingress, Elasticsearch/Kafka/Kibana/Logstash, and one LLM profile token without adding an invented `stock-alerts-cv` or aggregate profile key.",
+        "`{{repo_root}}/_builds/stock-alerts-cv/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
+        "The deployment is launched directly from `_builds/stock-alerts-cv/resolved.yml` after validation.",
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0 (Agent backend).",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0 (shared cache/message peer).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-CV perception).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (rule-based alert generation on CV output).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0 (routes CV-generated alerts to VLM verifier).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (video ingestion source).",
+        "`curl -sf --max-time 15 http://localhost:${RTVI_CV_HOST_PORT:-9010}/api/v1/ready` returns exit 0 and reports `ready-info.ds-ready=YES`.",
+        "The agent does not invoke `/vss-deploy-profile` or `scripts/dev-profile.sh`."
+      ]
+    }
+  ]
+}
