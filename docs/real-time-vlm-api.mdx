@@ -37,4 +37,84 @@ The RTVI-VLM API is organized into the following categories:
 * **Metadata**: Service metadata and version information
 * **NIM Compatible**: OpenAI-compatible endpoints for interoperability
 
-## Reference
+## Endpoint catalog
+
+### Metrics
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/metrics` | Get RTVI metrics |
+
+### Health Check
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/ready` | Get RTVI VLM Microservice readiness status |
+| `GET` | `/v1/live` | Get RTVI VLM Microservice liveness status |
+| `GET` | `/v1/startup` | Get RTVI VLM Microservice startup status |
+| `GET` | `/v1/assets/stats` | Get asset storage statistics |
+
+### Metadata
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/metadata` | Get RTVI VLM Microservice metadata |
+
+### Files
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/files` | API for uploading a media file |
+| `GET` | `/v1/files` | Returns list of files |
+| `DELETE` | `/v1/files/{file_id}` | Delete a file |
+| `GET` | `/v1/files/{file_id}` | Returns information about a specific file |
+| `GET` | `/v1/files/{file_id}/content` | Returns the contents of the specified file |
+
+### Live Stream
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/streams/add` | Add live stream(s) |
+| `GET` | `/v1/streams/get-stream-info` | List all live streams |
+| `DELETE` | `/v1/streams/delete/{stream_id}` | Remove a live stream |
+| `DELETE` | `/v1/streams/delete-batch` | Remove multiple live streams |
+| `DELETE` | `/v1/generate_captions/{stream_id}` | Stop a live stream from generating captions and alerts |
+
+### Config
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/config` | Update runtime message bus configuration |
+
+### Stream
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/stream/add` | Add a video stream |
+| `POST` | `/v1/stream/remove` | Remove a video stream |
+| `GET` | `/v1/stream/get-stream-info` | List all streams |
+
+### Models
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/models` | Lists the currently available models, and provides basic information about each one such as the owner and availability |
+
+### Captions
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/generate_captions` | Generate VLM captions and audio transcripts for a video with alerts |
+
+### NIM Compatible
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible chat endpoint |
+| `POST` | `/v1/completions` | OpenAI-compatible completions endpoint |
+| `GET` | `/v1/version` | Version |
+| `GET` | `/v1/manifest` | Manifest |
+| `GET` | `/v1/health/live` | Health Live (NIM compatible) |
+| `GET` | `/v1/health/ready` | Health Ready (NIM compatible) |
+
+The machine-readable OpenAPI specification is `services/rtvi/rt-vlm/api_spec/openapi.json` in this repository.

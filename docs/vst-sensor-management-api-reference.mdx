@@ -1,5 +1,44 @@
 ---
 title: "VST Sensor Management API Reference"
-description: ""
-position: 1
+description: "The Sensor Management Service is a comprehensive system designed to facilitate the administration and control of   sensor-related functionalities. It streamlines sensor operations,"
 ---
+REST endpoints for the VST Sensor Management service. JSON responses from this service are emitted with `Content-Type: text/plain`; parse the body as JSON.
+
+The machine-readable OpenAPI specification is `services/vios/doc/api/vst_sensor_management_ms/swagger.yaml` in this repository.
+
+**Servers:** `https://localhost/api`
+
+## Endpoint catalog
+
+### v1
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/sensor/list` | Get list of sensors |
+| `POST` | `/v1/sensor/scan` | Scan sensors on the network |
+| `GET` | `/v1/sensor/{sensorId}/streams` | Get streams of a sensor |
+| `GET` | `/v1/sensor/streams` | Get streams of all sensors |
+| `POST` | `/v1/sensor/add` | Add sensor manually |
+| `GET` | `/v1/sensor/status` | Get status of all sensors |
+| `GET` | `/v1/sensor/{sensorId}/status` | Get status of a sensor |
+| `POST` | `/v1/sensor/{sensorId}/replace` | Replace inactive sensor with a active sensor |
+| `DELETE` | `/v1/sensor/{sensorId}` | Remove a sensor from VST |
+| `GET` | `/v1/sensor/{sensorId}/info` | Get information of a sensor |
+| `POST` | `/v1/sensor/{sensorId}/info` | Set information of a sensor |
+| `GET` | `/v1/sensor/{sensorId}/settings` | Get sensor settings |
+| `POST` | `/v1/sensor/{sensorId}/settings` | Set sensor settings |
+| `POST` | `/v1/sensor/{sensorId}/credentials` | Set credentials of a sensor |
+| `POST` | `/v1/sensor/debug/unplug` | Simulate sensor unplug |
+| `POST` | `/v1/sensor/debug/plug` | Simulate sensor plug |
+| `GET` | `/v1/sensor/configuration` | Get configuration of sensor management service |
+| `POST` | `/v1/sensor/configuration` | Set configuration for sensor management service |
+| `GET` | `/v1/sensor/debug/status` | Get sensor plug-unplug status |
+| `GET` | `/v1/sensor/qos` | Get QoS stats for all sensors. (Deprecated) |
+| `GET` | `/v1/sensor/debug/system/stats` | Get system stats |
+| `GET` | `/v1/sensor/version` | Get sensor management service version |
+| `GET` | `/v1/sensor/help` | Get list of supported APIs |
+| `GET` | `/v1/sensor/{sensorId}/network` | Get network information of a sensor |
+| `POST` | `/v1/sensor/{sensorId}/network` | Set network information of a sensor |
+| `POST` | `/v1/sensor/{sensorId}/reboot` | Reboot a sensor remotely |
+| `GET` | `/v1/sensor/timelines` | Get recording timelines for all sensors |
+| `GET` | `/v1/sensor/{sensorId}/timelines` | Get recording timelines for a specific sensor |

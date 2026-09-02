@@ -120,7 +120,11 @@ To use RTSP capture via VIOS, ensure the VIOS server is set up and running. Set 
        └── compose.yml
    ```
 
-4. Create a `.env` file in your current directory with the following environment variables:
+### Deployment environment variable setup
+
+<a id="autocalib-env-file-setup" />
+
+Create a `.env` file in your current directory with the following environment variables:
 
    ```bash
    VSS_AUTO_CALIBRATION_PORT=8000
@@ -494,7 +498,7 @@ For each journey it documents the **example prompt** you give the agent and
 <Note>
 Install the skills into your coding agent first (see
 [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the install flow). For
-how each harness loads skills, see [agent-harnesses](/vss/vision-agent/agent-harnesses).
+how each harness loads skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
 </Note>
 
 The agent may pause for user input during the journey. Common prompts include
