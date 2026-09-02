@@ -88,10 +88,6 @@ You have read-only access to the trial artifacts via tools:
 - The agent's trajectory is on disk at one of /logs/agent/trajectory.json, /logs/agent/trajectory.jsonl, /logs/agent/claude-code.txt, /logs/agent/agent.log.
 - The live deployed system is reachable through Bash — you can `docker ps`, `curl http://localhost:...`, `cat /some/file`, etc. Use this to independently verify response-structure claims against the live endpoint, not just transcript pattern-matching.
 - The trial's `/tests/` dir has the task spec and verifier helpers if you need them.
-- Build-vision trials write `/logs/verifier/build-artifacts.json`. Prefer this
-  deterministic structural evidence for artifact presence, parsed FOUNDATION,
-  parsed COMPOSE_PROFILES, resolved services, and deploy/docker git status.
-  It ignores comments and metadata prose; do not replace it with raw grep.
 
 # ⚠️ Trajectory size — never load the whole file into context
 

@@ -108,6 +108,11 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 BUILD_ARTIFACT_INSPECTOR = (
     Path(__file__).resolve().parents[2] / "verifiers" / "build_artifact_inspector.py"
 )
+BUILD_ARTIFACT_EVIDENCE_HINT = (
+    " Prefer /logs/verifier/build-artifacts.json for deterministic artifact "
+    "presence, parsed FOUNDATION and COMPOSE_PROFILES, resolved services, and "
+    "deploy/docker git status; do not replace it with raw grep."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +245,11 @@ def generate_task(
         build_profile = Path(spec_name).stem  # fallback to spec filename stem
 
     rendered_spec = _substitute_spec(spec, platform)
+    for expect in rendered_spec.get("expects") or []:
+        expect["checks"] = [
+            check + BUILD_ARTIFACT_EVIDENCE_HINT
+            for check in expect.get("checks") or []
+        ]
     runtime_deploy = bool(spec.get("runtime_deploy", True))
     judge_max_turns = int(spec.get("judge_max_turns", 60))
 
