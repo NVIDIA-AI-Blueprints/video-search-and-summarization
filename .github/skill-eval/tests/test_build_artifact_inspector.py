@@ -53,7 +53,14 @@ def test_adapter_bundles_and_invokes_inspector(tmp_path: Path) -> None:
         "_source_path": "example.json",
         "profile": "in-1",
         "resources": {"platforms": {"RTXPRO6000BW": {}}},
-        "expects": [{"query": "Build it", "checks": ["Artifacts exist."]}],
+        "expects": [
+            {"query": "Build it", "checks": ["Artifacts exist."]},
+            {
+                "query": "Propose it",
+                "checks": ["Proposal is sound."],
+                "artifact_expected": False,
+            },
+        ],
     }
     skill = tmp_path / "skill"
     skill.mkdir()
@@ -71,10 +78,11 @@ def test_adapter_bundles_and_invokes_inspector(tmp_path: Path) -> None:
         None,
     )
 
-    tests = tmp_path / "out/example/rtxpro6000bw/tests"
+    tests = tmp_path / "out/example/rtxpro6000bw/step-1/tests"
     assert (tests / "build_artifact_inspector.py").is_file()
     script = (tests / "test.sh").read_text()
     assert '--build-dir "$REPO_ROOT/_builds/in-1"' in script
     assert "--out /logs/verifier/build-artifacts.json" in script
     rendered = (tests / "example.json").read_text()
     assert "Artifacts exist. Prefer /logs/verifier/build-artifacts.json" in rendered
+    assert "Proposal is sound. Prefer /logs/verifier/build-artifacts.json" not in rendered

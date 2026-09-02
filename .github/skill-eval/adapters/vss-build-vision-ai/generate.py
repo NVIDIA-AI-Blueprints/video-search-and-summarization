@@ -246,6 +246,8 @@ def generate_task(
 
     rendered_spec = _substitute_spec(spec, platform)
     for expect in rendered_spec.get("expects") or []:
+        if not expect.get("artifact_expected", True):
+            continue
         expect["checks"] = [
             check + BUILD_ARTIFACT_EVIDENCE_HINT
             for check in expect.get("checks") or []
