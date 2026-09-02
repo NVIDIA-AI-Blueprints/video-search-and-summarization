@@ -80,6 +80,25 @@ const intermediateChunk = (
   return `<intermediatestep>${json}</intermediatestep>`;
 };
 
+export const gatewayRunStatusChunk = (
+  runId: string,
+  status: "in_progress" | "complete",
+  payload: string,
+  index = 0
+): string => {
+  const intermediate = {
+    id: `run-status-${runId}`,
+    status,
+    type: "system_intermediate",
+    parent_id: "default",
+    content: { name: "Agent run", payload },
+    time_stamp: new Date().toISOString(),
+    index,
+  };
+  const json = JSON.stringify(intermediate).replace(/</g, "\\u003c");
+  return `<intermediatestep>${json}</intermediatestep>`;
+};
+
 /**
  * Temporary presentation adapter for the existing chat renderer. The browser-facing
  * `/api/agent/*` route remains fully structured; this is removed when the renderer
@@ -90,6 +109,26 @@ export const gatewayEventToLegacyChunks = (
   state: LegacyEventState
 ): string[] => {
   const data = event.data || {};
+  if (event.type === "run.started") {
+    return [
+      gatewayRunStatusChunk(
+        event.run_id,
+        "in_progress",
+        "Waiting for the agent backend...",
+        Number.parseInt(event.id, 10) || 0
+      ),
+    ];
+  }
+  if (event.type === "run.completed") {
+    return [
+      gatewayRunStatusChunk(
+        event.run_id,
+        "complete",
+        "Agent run completed.",
+        Number.parseInt(event.id, 10) || 0
+      ),
+    ];
+  }
   if (event.type === "message.delta") {
     const delta = asString(data.delta);
     return delta ? [delta] : [];
@@ -461,6 +500,7 @@ export const agentGatewayChatHandler = async (
   const controller = new AbortController();
   let runId: string | undefined;
   let terminal = false;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   const onDisconnect = (): void => {
     if (!terminal && !res.writableEnded) {
       controller.abort();
@@ -511,6 +551,22 @@ export const agentGatewayChatHandler = async (
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
+    // Cloudflare and other edge proxies close an otherwise idle response even
+    // though the gateway's SSE stream is alive. Keep the legacy text bridge
+    // active with a renderer-safe status update while the harness is thinking.
+    heartbeat = setInterval(() => {
+      if (!terminal && runId && !res.writableEnded) {
+        res.write(
+          gatewayRunStatusChunk(
+            runId,
+            "in_progress",
+            "Waiting for the agent backend..."
+          )
+        );
+      }
+    }, 15_000);
+    heartbeat.unref?.();
+
     const legacyState = createLegacyEventState();
     terminal = await streamRun(config, runId, controller.signal, (event) => {
       for (const chunk of gatewayEventToLegacyChunks(event, legacyState)) {
@@ -534,6 +590,7 @@ export const agentGatewayChatHandler = async (
     }
     if (runId && !terminal) void cancelRun(config, runId);
   } finally {
+    if (heartbeat) clearInterval(heartbeat);
     req.off("aborted", onDisconnect);
     res.off("close", onDisconnect);
   }

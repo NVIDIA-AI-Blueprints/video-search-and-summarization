@@ -18,6 +18,6 @@ USER gateway
 EXPOSE 8090
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=5 \
-  CMD ["python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=2))['status'] == 'ok'"]
+  CMD ["python", "-c", "import json,os,urllib.request; h=os.environ.get('AGENT_GATEWAY_BIND_HOST','127.0.0.1'); h='127.0.0.1' if h=='0.0.0.0' else h; p=os.environ.get('AGENT_GATEWAY_PORT','8090'); assert json.load(urllib.request.urlopen(f'http://{h}:{p}/healthz', timeout=2))['status'] == 'ok'"]
 
 ENTRYPOINT ["python", "-m", "vss_agent_gateway"]

@@ -6,6 +6,7 @@ import {
   GatewaySseDecoder,
   createLegacyEventState,
   gatewayEventToLegacyChunks,
+  gatewayRunStatusChunk,
   getAgentGatewayConfig,
 } from "../../../utils/server/agentGateway";
 
@@ -108,6 +109,28 @@ describe("agent gateway transport", () => {
     expect(argumentsChunk).toContain("in_progress");
     expect(completed).toContain("complete");
     expect(completed).toContain("q");
+  });
+
+  it("maps run lifecycle and heartbeat status into renderer-safe progress chunks", () => {
+    const state = createLegacyEventState();
+    const started = gatewayEventToLegacyChunks(event("run.started"), state)[0];
+    const completed = gatewayEventToLegacyChunks(
+      event("run.completed", {}, "9"),
+      state
+    )[0];
+    const heartbeat = gatewayRunStatusChunk(
+      "run_1</intermediatestep>",
+      "in_progress",
+      "Waiting for the agent backend..."
+    );
+
+    expect(started).toContain('"id":"run-status-run_1"');
+    expect(started).toContain('"status":"in_progress"');
+    expect(completed).toContain('"status":"complete"');
+    expect(completed).toContain('"index":9');
+    expect(heartbeat).toContain("<intermediatestep>");
+    expect(heartbeat).toContain("Waiting for the agent backend...");
+    expect(heartbeat).toContain("\\u003c/intermediatestep>");
   });
 
   it("keeps credentials server-side and validates the configured URL", () => {
