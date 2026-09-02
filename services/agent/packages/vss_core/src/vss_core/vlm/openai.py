@@ -34,6 +34,7 @@ from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import scrub_log
+from vss_core._foundation.time_measure import TimeMeasure
 
 if TYPE_CHECKING:
     from vss_core.vios.protocols import VSTSnapshot
@@ -127,20 +128,25 @@ class OpenAIVLMAnalyzer:
     ) -> str:
         """Analyze a VST clip and return the VLM's text response."""
         try:
-            clip_url = await self._vst.get_video_clip_url(
-                sensor_id=sensor_id,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp,
-                time_format=time_format,
-                internal=self._video_url_scope == "internal",
-                disable_audio=self._disable_audio,
-            )
+            with TimeMeasure("vlm: resolve VST clip url"):
+                clip_url = await self._vst.get_video_clip_url(
+                    sensor_id=sensor_id,
+                    start_timestamp=start_timestamp,
+                    end_timestamp=end_timestamp,
+                    time_format=time_format,
+                    internal=self._video_url_scope == "internal",
+                    disable_audio=self._disable_audio,
+                )
             duration_seconds = _duration_seconds(start_timestamp, end_timestamp, time_format)
-            content = await self._build_content(
-                prompt=prompt,
-                clip_url=clip_url,
-                duration_seconds=duration_seconds,
-            )
+            # Cost here depends entirely on media_mode: a link is free, while
+            # video_base64 downloads the clip and encodes it, and frame_base64
+            # additionally decodes and samples frames.
+            with TimeMeasure("vlm: prepare media"):
+                content = await self._build_content(
+                    prompt=prompt,
+                    clip_url=clip_url,
+                    duration_seconds=duration_seconds,
+                )
             payload = {
                 "model": self._model,
                 "temperature": 0,
@@ -156,9 +162,10 @@ class OpenAIVLMAnalyzer:
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
 
-            response = await self._request_with_retries(
-                "POST", self._chat_completions_url, headers=headers, json=payload
-            )
+            with TimeMeasure("vlm: inference"):
+                response = await self._request_with_retries(
+                    "POST", self._chat_completions_url, headers=headers, json=payload
+                )
             answer = _extract_chat_content(response.json())
             if not answer.strip():
                 raise ValueError("VLM response contained no text content")
