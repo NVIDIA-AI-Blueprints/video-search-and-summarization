@@ -413,10 +413,10 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     setShowUploadSuccessPopup(true);
   }, [uploadProgress, hasActiveUploads, showUploadSuccessPopup]);
 
-  const handleAddRtspClick = () => {
+  const handleAddRtspClick = useCallback(() => {
     if (isDialogOpenRef.current) return;
     setIsRtspModalOpen(true);
-  };
+  }, []);
 
   const handleRtspDialogClose = () => {
     setIsRtspModalOpen(false);
@@ -671,14 +671,47 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     refetchTimelines,
   ]);
 
+  const toolbarProps = {
+    searchQuery,
+    onSearchChange: handleSearchChange,
+    onSearch: handleSearch,
+    showVideos,
+    showRtsps,
+    onShowVideosChange: setShowVideos,
+    onShowRtspsChange: setShowRtsps,
+    onFilesSelected: handleFilesSelected,
+    onUploadClick: handleUploadClick,
+    onAddRtspClick: handleAddRtspClick,
+    selectedCount: selectedStreams.size,
+    onDeleteSelected: handleDeleteSelected,
+    isDeleting,
+    enableAddRtspButton,
+    enableVideoUpload,
+    hasVideoStreams,
+    hasRtspStreams,
+    isDialogOpen,
+  };
+
   const controlsComponent = useMemo(
-    () => (
-      <VideoManagementSidebarControls
-        onFilesSelected={handleFilesSelected}
-        enableVideoUpload={enableVideoUpload}
-      />
-    ),
-    [handleFilesSelected, enableVideoUpload]
+    () => <VideoManagementSidebarControls {...toolbarProps} />,
+    [
+      searchQuery,
+      handleSearchChange,
+      handleSearch,
+      showVideos,
+      showRtsps,
+      handleFilesSelected,
+      handleUploadClick,
+      handleAddRtspClick,
+      selectedStreams.size,
+      handleDeleteSelected,
+      isDeleting,
+      enableAddRtspButton,
+      enableVideoUpload,
+      hasVideoStreams,
+      hasRtspStreams,
+      isDialogOpen,
+    ]
   );
 
   useEffect(() => {
@@ -730,27 +763,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   return (
     <div className="flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-black dark:text-gray-100">
-      {/* Toolbar */}
-      <Toolbar
-        searchQuery={searchQuery}
-        onSearchChange={handleSearchChange}
-        onSearch={handleSearch}
-        showVideos={showVideos}
-        showRtsps={showRtsps}
-        onShowVideosChange={setShowVideos}
-        onShowRtspsChange={setShowRtsps}
-        onFilesSelected={handleFilesSelected}
-        onUploadClick={handleUploadClick}
-        onAddRtspClick={handleAddRtspClick}
-        selectedCount={selectedStreams.size}
-        onDeleteSelected={handleDeleteSelected}
-        isDeleting={isDeleting}
-        enableAddRtspButton={enableAddRtspButton}
-        enableVideoUpload={enableVideoUpload}
-        hasVideoStreams={hasVideoStreams}
-        hasRtspStreams={hasRtspStreams}
-        isDialogOpen={isDialogOpen}
-      />
+      {!renderControlsInLeftSidebar && <Toolbar {...toolbarProps} />}
 
       {/* Main pane: scrollable grid + upload/progress overlays confined to this tab (not full viewport) */}
       <div className="flex flex-1 min-h-0 flex-col relative">
