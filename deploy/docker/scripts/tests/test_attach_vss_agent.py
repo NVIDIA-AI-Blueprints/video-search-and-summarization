@@ -295,6 +295,8 @@ class AttachFlowTests(unittest.TestCase):
             attach.attach(make_args(self.root), runner)
 
         flattened = [" ".join(command) for command in runner.commands]
+        self.assertIn("nemoclaw demo exec -- true", flattened)
+        self.assertFalse(any(command.endswith(" status") for command in flattened))
         self.assertEqual(sum(" skill install " in command for command in flattened), 2)
         self.assertTrue(any(" policy add " in command for command in flattened))
         policy_commands = [

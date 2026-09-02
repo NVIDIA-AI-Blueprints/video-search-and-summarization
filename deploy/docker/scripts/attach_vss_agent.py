@@ -941,7 +941,12 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> AttachmentResult:
     if shutil.which(profile.cli) is None and not runner.dry_run:
         fail(f"{profile.cli} is not installed")
 
-    runner.run(sandbox_command(profile, sandbox, "status"), timeout=120)
+    # Probe the sandbox execution boundary directly. The harness CLI's status
+    # command may try to recover its preferred host forward, which is both
+    # unnecessary and incorrect when an operator supplied --agent-api-url or
+    # owns that forward separately. The authenticated API probe below verifies
+    # the actual Responses delivery path after attachment.
+    sandbox_exec(runner, profile, sandbox, "true", timeout=60)
     identity_before = identity_digest(runner, profile, sandbox)
     install_policy(runner, profile, sandbox, origin)
     install_skills(runner, profile, sandbox, skills)
