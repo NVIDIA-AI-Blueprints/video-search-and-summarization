@@ -2,7 +2,7 @@
 
 Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill (``../SKILL.md`` (see `../SKILL.md`)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
-Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of the warehouse auto-calibration variant (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` — one list, not `2d`/`3d`/`mv3dt` suffixes). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
+Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of the warehouse auto-calibration variant (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` — one list, not `2d`/`3d`/`mv3dt` suffixes). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
 
 ## What's different from base VSS
 
@@ -16,14 +16,14 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 | Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
 |---|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
-| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `${VSS_AUTO_CALIBRATION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration}:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui}:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
 
 > **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
 ## Env recipe
 
-Set stable service defaults such as container ports in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env). Set host/profile runtime values such as host-published ports, `HOST_IP`, `VSS_APPS_DIR`, `VSS_DATA_DIR`, and credentials in `generated.env` initialized from `overrides.env`:
+Set stable service defaults such as container ports in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../../deploy/docker/industry-profiles/warehouse-operations/.env). Set host/profile runtime values such as host-published ports, `HOST_IP`, `VSS_APPS_DIR`, `VSS_DATA_DIR`, and credentials in `generated.env` initialized from `overrides.env`:
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -88,7 +88,7 @@ echo "AMC platform preflight passed"
 
 ### Step 1 — NGC login
 
-AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
+AMC pulls its images from the `vss-core` namespace on `nvcr.io`. The compose defaults are the **`nvstaging`** org (`nvcr.io/nvstaging/vss-core/…`), overridable via `VSS_AUTO_CALIBRATION_IMAGE` / `VSS_AUTO_CALIBRATION_UI_IMAGE` — read the resolved path from `docker compose config` rather than assuming an org. The user's NGC key must have access to whichever org resolves.
 
 The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell or warehouse `generated.env`. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
