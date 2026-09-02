@@ -52,6 +52,12 @@ _PLACEMENT_OVERRIDES = {
     "remote-vlm": {"VLM_MODE": "remote"},
 }
 
+# `vss_orchestrator__docker_status` validates `tail_lines <= 20` server-side and
+# rejects anything larger, which failed run 33588684082 on both legs. Note
+# `orchestrator_mcp_helper.poll_compose_op` defaults to 200 and would hit the
+# same wall -- another reason this module polls itself rather than calling it.
+MAX_TAIL_LINES = 20
+
 
 def _repo_dir() -> Path:
     return Path(
@@ -134,9 +140,10 @@ def predeploy(
     deploy_mode: str | None = None,
     extra_env_overrides: dict[str, str] | None = None,
     poll_sleep_s: int = 30,
-    tail_lines: int = 200,
+    tail_lines: int = MAX_TAIL_LINES,
 ) -> dict[str, Any]:
     """Run the documented deploy sequence and return the terminal status."""
+    tail_lines = max(1, min(tail_lines, MAX_TAIL_LINES))
     if profile not in SUPPORTED_PROFILES:
         raise ValueError(
             f"unsupported profile {profile!r}; expected one of "

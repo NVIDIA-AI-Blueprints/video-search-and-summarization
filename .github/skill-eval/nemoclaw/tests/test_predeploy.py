@@ -311,3 +311,38 @@ class PreamblePredeployCouplingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TailLinesBoundTests(unittest.TestCase):
+    """`docker_status` validates tail_lines <= 20 server-side.
+
+    Run 33588684082 failed both legs with `tail_lines=200` (validation requires
+    <= 20). `orchestrator_mcp_helper.poll_compose_op` defaults to 200 and has
+    the same latent problem.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.predeploy = _load("predeploy", NEMOCLAW_DIR / "predeploy.py")
+
+    def test_max_is_twenty(self) -> None:
+        self.assertEqual(self.predeploy.MAX_TAIL_LINES, 20)
+
+    def test_default_is_within_the_server_bound(self) -> None:
+        sig = __import__("inspect").signature(self.predeploy.predeploy)
+        self.assertLessEqual(
+            sig.parameters["tail_lines"].default, self.predeploy.MAX_TAIL_LINES
+        )
+
+    def test_oversized_request_is_clamped_not_sent(self) -> None:
+        helper, calls = PredeploySequenceTests()._fake_helper(
+            [{"running": False, "exit_code": 0}]
+        )
+        with (
+            mock.patch.object(self.predeploy, "_load_helper", return_value=helper),
+            mock.patch.object(self.predeploy, "_repo_dir", return_value=Path("/repo")),
+            mock.patch.object(Path, "is_dir", return_value=True),
+        ):
+            self.predeploy.predeploy("base", tail_lines=200)
+        sent = dict(calls)["vss_orchestrator__docker_status"]["tail_lines"]
+        self.assertEqual(sent, 20)
