@@ -135,7 +135,7 @@ RC=0
 RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --media-url "${VIDEO_URL}") || RC=$?
 check_rc "${RC}"
 
-# Local file (inlined as base64):
+# Local file (complete MP4 data URI, not extracted JPEG/image blocks):
 # RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --file "${VIDEO_FILE}") || RC=$?
 ```
 
