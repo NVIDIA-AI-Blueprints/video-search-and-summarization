@@ -278,6 +278,24 @@ def _not_approved_class(row: dict[str, str]) -> str:
     return "third_party"
 
 
+# Canonical identifiers probed against the allowlist to render the summary.
+# The summary is COMPUTED, not written down: a licence only appears here if
+# `is_permissive` actually clears it, so the comment cannot claim a policy the
+# code does not enforce. Adding a licence to PERMISSIVE_LICENSE_PATTERNS
+# without adding its identifier here understates the list, never overstates it.
+_PERMISSIVE_PROBE = (
+    "Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "0BSD", "ISC",
+    "Python-2.0", "PSF-2.0", "CNRI-Python", "Public Domain", "Unlicense",
+    "CC0-1.0", "Zlib", "BSL-1.0", "BlueOak-1.0.0", "MPL-2.0", "LGPL-2.1",
+    "UPL-1.0",
+)
+
+
+def permissive_summary() -> list[str]:
+    """The licences `is_permissive` currently clears, in probe order."""
+    return [name for name in _PERMISSIVE_PROBE if is_permissive(name)]
+
+
 def _needs_no_osrb_review(row: dict[str, str]) -> bool:
     """True when a LICENSE_DRIFT row asks nothing of OSRB.
 
@@ -1328,6 +1346,17 @@ def build_comment(
 
     # -- 6. Footer ---------------------------------------------------------------
     lines.append("---")
+    lines.append("")
+    lines.append(
+        "**Permissive means** "
+        + ", ".join(f"`{name}`" for name in permissive_summary())
+        + " (and their common spellings; an expression clears only when every "
+        "operand does). This is the list `.github/scripts/"
+        "check_python_licenses.py` enforces on every commit -- one definition, "
+        "not a second copy. A package on it needs no OSRB review, so it is "
+        "counted above rather than listed, and recorded in `inventory.csv` and "
+        "the `osrb-compliance` artifact. An OSRB condition on file outranks it."
+    )
     lines.append(
         "Supersedes the internal OSRB reviewer comment for triage; the OSRB "
         "Review check remains the compliance gate until ci-vss-oss retires it."

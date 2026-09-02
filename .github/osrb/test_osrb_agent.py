@@ -890,6 +890,33 @@ class RepoStateSectionTest(unittest.TestCase):
         self.assertIn("4 further licence difference(s)", comment)
         self.assertIn("osrb-compliance", comment)
 
+    def test_permissive_summary_is_computed_from_the_allowlist(self) -> None:
+        """The comment must not claim a policy the code does not enforce.
+
+        A hand-written list would drift the moment PERMISSIVE_LICENSE_PATTERNS
+        changed, and the drift would be invisible: the comment would keep
+        naming a licence the gate had stopped clearing. Deriving it means every
+        name shown is one is_permissive actually returns True for.
+        """
+        summary = agent.permissive_summary()
+        for name in summary:
+            self.assertTrue(agent.is_permissive(name), name)
+        for expected in ("MIT", "Apache-2.0", "BSD-3-Clause", "BlueOak-1.0.0"):
+            self.assertIn(expected, summary)
+        for refused in ("GPL-3.0", "LGPL-3.0", "Elastic-2.0", "WTFPL"):
+            self.assertNotIn(refused, summary)
+
+    def test_comment_states_what_permissive_means(self) -> None:
+        comment = agent.build_comment({"new_deps": [], "license_changes": [],
+            "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
+            "removed": []}, {"validated": [], "rejected": [], "flagged": [],
+            "unverifiable": [], "not_triaged": []})
+        self.assertIn("**Permissive means**", comment)
+        self.assertIn("`BlueOak-1.0.0`", comment)
+        self.assertIn("check_python_licenses.py", comment)
+        # the escape hatch must be stated with the rule
+        self.assertIn("condition on file outranks", comment)
+
     def test_no_repo_state_means_no_section(self) -> None:
         comment = agent.build_comment({"new_deps": [], "license_changes": [],
             "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],
