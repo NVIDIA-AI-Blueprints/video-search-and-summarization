@@ -65,9 +65,25 @@ function_groups:
     - data_log/redis/data
     - data_log/redis/log
     - data_log/vss_video_analytics_api
+    # VIOS/VST and NVStreamer bind these directly (services/vios/vst.env:
+    # VST_VOLUME=${VSS_DATA_DIR}/data_log/vst, VST_DATA_PATH=${VST_VOLUME}/vst_data).
+    # Without them `docker compose up` fails with `invalid mount config for type
+    # "bind": bind source path does not exist` while ensure_data_directories still
+    # reports success -- the `base` profile could not be deployed through the
+    # orchestrator MCP at all. The agent-driven vss-deploy-profile path creates
+    # these itself (SKILL.md Step 1b), which is why the gap stayed hidden.
+    - data_log/vst
+    - data_log/vst/vst_data
+    - data_log/vst/clip_storage
+    - data_log/nvstreamer
+    - data_log/nvstreamer/vst_data
+    - data_log/behavior_learning_data
     - agent_eval/dataset
     - agent_eval/results
     - videos/dev-profile-alerts
+    - videos/dev-profile-lvs
+    - videos/warehouse-2d-app
+    - videos/backup
     - models
     # NGC packages to download per profile. Each entry groups one package_ref
     # with the artifacts to extract from it (src = path inside the downloaded
