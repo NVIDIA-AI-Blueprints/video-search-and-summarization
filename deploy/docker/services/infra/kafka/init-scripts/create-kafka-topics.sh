@@ -15,25 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# installing required binaries
-ARCH=$(uname -m)
-JQ_URL=""
-
-if [ "$ARCH" = "x86_64" ]; then
-    JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"
-elif [ "$ARCH" = "aarch64" ]; then
-    JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64"
-else
-    echo "Unsupported architecture: $ARCH"
-    exit 1
-fi
-
-mkdir -p ~/jqbin
-curl -L -o ~/jqbin/jq "$JQ_URL"
-chmod +x ~/jqbin/jq
-
-export PATH="/home/appuser/jqbin:${PATH}"
-
 # bootstrap kafka hosts
 KAFKA_HOST=${BOOTSTRAP_HOST:-localhost}
 KAFKA_PORT=${KAFKA_PORT:-9092}
@@ -55,12 +36,23 @@ echo "DEFAULT_SEGMENT_MS: $DEFAULT_SEGMENT_MS"
 echo "KAFKA_HOST: $KAFKA_HOST"
 echo "KAFKA_PORT: $KAFKA_PORT"
 
-kafkaTopics=$(echo "$KAFKA_TOPICS" | jq --arg default_partitions "${DEFAULT_PARTITIONS}" \
-  --arg default_retention_ms "${DEFAULT_RETENTION_MS}" \
-  --arg default_replication_factor "${DEFAULT_REPLICATION_FACTOR}" \
-  --arg default_segment_ms "${DEFAULT_SEGMENT_MS}" \
-  --arg kafka_host "${KAFKA_HOST}:${KAFKA_PORT}" \
-  -r '.[] | "kafka-topics --create --bootstrap-server \($kafka_host) --topic \(.name) --partitions \(.partitions // $default_partitions) --replication-factor \(.replication_factor // $default_replication_factor) --if-not-exists --config retention.ms=\(.retention_ms // $default_retention_ms) --config segment.ms=\(.segment_ms // $default_segment_ms)"')
+kafkaTopics=$(python3 - <<PYEOF
+import json, os, sys
+topics = json.loads(os.environ['KAFKA_TOPICS'])
+host   = '${KAFKA_HOST}:${KAFKA_PORT}'
+dp     = '${DEFAULT_PARTITIONS}'
+dr     = '${DEFAULT_RETENTION_MS}'
+drf    = '${DEFAULT_REPLICATION_FACTOR}'
+ds     = '${DEFAULT_SEGMENT_MS}'
+for t in topics:
+    name = t['name']
+    parts = t.get('partitions', dp)
+    rf    = t.get('replication_factor', drf)
+    ret   = t.get('retention_ms', dr)
+    seg   = t.get('segment_ms', ds)
+    print(f"kafka-topics --create --bootstrap-server {host} --topic {name} --partitions {parts} --replication-factor {rf} --if-not-exists --config retention.ms={ret} --config segment.ms={seg}")
+PYEOF
+)
 
 echo "bootstrap-server: $KAFKA_HOST:$KAFKA_PORT"
 
