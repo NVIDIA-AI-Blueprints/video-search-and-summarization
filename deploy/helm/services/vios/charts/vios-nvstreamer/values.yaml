@@ -35,6 +35,13 @@ turnServerUrl: ""
 # (final_stream_count); set it to the stream count or nvstreamer serves no media.
 syncFileCount: 0
 
+# Host clients should use to reach the RTSP servers (rtsp_server_port and up),
+# substituted into vst-config.json server_domain_name. Empty keeps NVStreamer
+# advertising its pod IP, which is the only address the RTSP ports are
+# reachable on: the Service maps the HTTP port only. Set this only together
+# with a Service or ingress that actually exposes the RTSP port range.
+serverDomainName: ""
+
 env:
   ADAPTOR: "streamer"
   HTTP_PORT: "31000"
