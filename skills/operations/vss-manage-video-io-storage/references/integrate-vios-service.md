@@ -434,14 +434,15 @@ services:
 
 (Full upstream definitions live in `deploy/docker/services/vios/{foundational,initiator,streamprocessing}/docker-compose.yaml` + `deploy/docker/services/infra/sdrc/docker-compose.yaml`. Container names use the canonical `vss-vios-*` form, NOT the legacy `*-dev` form. The deprecated `services/vios/sdr/streamprocessing/` tree has been removed — streamprocessing now lives directly under `services/vios/streamprocessing/`, with the legacy `envoy.yaml` + `sdr-config/` bind sources gone.)
 
-For Topology B (NvStreamer file-driven), reuse the centralized `nvstreamer-alerts` service from `deploy/docker/services/nvstreamer/compose.yml` instead of copying or patching its service definition. Add the existing `nvstreamer-alerts` profile to the consuming deployment and launch from the top-level `deploy/docker/compose.yml`:
+For Topology B (NvStreamer file-driven), reuse the centralized `nvstreamer-alerts` service from `deploy/docker/services/nvstreamer/compose.yml` instead of copying or patching its service definition. For the default Kafka-backed deployment, add the complete NvStreamer and broker dependency profile set and launch from the top-level `deploy/docker/compose.yml`:
 
 ```dotenv
-COMPOSE_PROFILES=<existing-profile-list>,nvstreamer-alerts
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=<existing-profile-list>,kafka,kafka-topic-init-container,broker-health-check,nvstreamer-alerts
 NVSTREAMER_ALERTS_VIDEO_DIR=${VSS_DATA_DIR}/videos/<profile-name>
 ```
 
-The image, ports, environment, and configuration mounts are inherited from `deploy/docker/services/nvstreamer/base.yml`. By default, the configuration files come from `${VSS_APPS_DIR}/services/nvstreamer/configs`; set `NVSTREAMER_CONFIG_DIR` only when the deployment requires a custom `vst-config.json`. The shared `vios-apt-cache-init` dependency carries the same `nvstreamer-alerts` profile, so selecting this existing profile activates both services.
+The image, ports, environment, and configuration mounts are inherited from `deploy/docker/services/nvstreamer/base.yml`. By default, the configuration files come from `${VSS_APPS_DIR}/services/nvstreamer/configs`; set `NVSTREAMER_CONFIG_DIR` only when the deployment requires a custom `vst-config.json`. The shared `vios-apt-cache-init` dependency carries the same `nvstreamer-alerts` profile and activates automatically. `broker-health-check` is separately profile-gated, so it must be selected explicitly together with Kafka and `kafka-topic-init-container`, which creates the topics that the health check waits for. The standard Alerts profile lists already include this complete set.
 
 Both topologies emit the same `camera_streaming` Kafka/Redis event downstream.
 

@@ -1405,6 +1405,7 @@ done
 _nvstreamer_base_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/base.yml"
 _nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
 _nvstreamer_vios_compose="${REPO_ROOT}/deploy/docker/services/vios/streamprocessing/docker-compose.yaml"
+_nvstreamer_infra_compose="${REPO_ROOT}/deploy/docker/services/infra/compose.yml"
 if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_base_compose}"; then
   echo "FAIL: shared NVStreamer base Compose should define nvstreamer-base"
   ((_split_failed++)) || true
@@ -1464,12 +1465,20 @@ if grep -Fq 'file: base.yml' "${_nvstreamer_skill_reference}" || grep -Fq '"your
   echo "FAIL: VIOS integration skill should select the shared NVStreamer profile instead of copying its Compose definition"
   ((_split_failed++)) || true
 fi
-if ! grep -Fq 'COMPOSE_PROFILES=<existing-profile-list>,nvstreamer-alerts' "${_nvstreamer_skill_reference}"; then
-  echo "FAIL: VIOS integration skill should select the shared nvstreamer-alerts profile"
+if ! grep -Fq 'COMPOSE_PROFILES=<existing-profile-list>,kafka,kafka-topic-init-container,broker-health-check,nvstreamer-alerts' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should select the complete NvStreamer and broker profile set"
   ((_split_failed++)) || true
 fi
 if ! grep -A4 -E '^  vios-apt-cache-init:' "${_nvstreamer_vios_compose}" | grep -Fq '"nvstreamer-alerts"'; then
   echo "FAIL: vios-apt-cache-init should activate with the nvstreamer-alerts profile"
+  ((_split_failed++)) || true
+fi
+if ! grep -A6 -E '^  broker-health-check:' "${_nvstreamer_infra_compose}" | grep -Fq 'profiles: ["broker-health-check"]'; then
+  echo "FAIL: broker-health-check should retain its documented Compose profile"
+  ((_split_failed++)) || true
+fi
+if ! grep -A8 -E '^  kafka-topic-init-container:' "${_nvstreamer_infra_compose}" | grep -Fq 'profiles: ["kafka-topic-init-container"]'; then
+  echo "FAIL: Kafka topic initialization should retain its documented Compose profile"
   ((_split_failed++)) || true
 fi
 if [[ ${_split_failed} -eq 0 ]]; then
