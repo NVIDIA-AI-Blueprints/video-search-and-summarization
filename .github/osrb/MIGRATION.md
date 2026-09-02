@@ -53,32 +53,31 @@ is a separate, small, reviewable change and should follow this one. Until then t
 
 ## 2. Get the rename onto the default branch
 
-`workflow_run` matches the **name** of the upstream workflow, not its filename,
-and GitHub loads `osrb-review.yml` from the **default branch** (`main`) — never
-from the pull request. So during any window where `main` still carries
-`workflows: ["License Diff"]` while pull requests are already producing a
-workflow named `OSRB Scan`:
+This section described a `workflow_run` ordering hazard: `osrb-review.yml`
+matched the upstream workflow's **name**, was loaded from the **default
+branch**, and so went silently dead in any window where `main` still listened
+for `License Diff` while pull requests already produced `OSRB Scan`.
 
-- OSRB Review never triggers;
-- no check run is created at all;
-- `workflow_run` jobs are not listed in a pull request, so nothing on the PR
-  says the review is missing.
+**That hazard is gone: `osrb-review.yml` has been removed.** OSRB Scan does the
+review in this repository, and nothing triggers the private GitLab OSRB
+pipeline any more. There is no default-branch listener left to keep in step
+with a rename, and no window in which a missing review reports nothing.
 
-Both files change together in this PR, so a merge to `develop` is safe only in
-the sense that the scan keeps working. **The OSRB Review gate is absent — not
-passing — until `develop` is promoted to `main`.** Promote promptly, and treat
-PRs merged in that window as un-reviewed for OSRB purposes.
+What replaces it as the gate is the delta check inside `osrb-scan.yml`, which
+runs on the pull request itself: it fails when the change introduces a
+dependency needing OSRB approval, and when the scanner cannot parse a
+dependency-bearing file the change touched.
 
 ## 3. Do not rename the artifact, the CSV, or the pipeline variables
 
-These are read by the private GitLab OSRB pipeline, which cannot be seen or
-tested from this repository:
+These were read by the private GitLab OSRB pipeline. That pipeline is no longer
+triggered from here, but the names are kept so any consumer still reading the
+artifact keeps working:
 
 | Name | Where |
 |---|---|
 | artifact `license-diff` | upload step in `osrb-scan.yml` |
 | file `license-diff.csv` | `--output` / `--input` of the scan and summary scripts |
-| `GITHUB_LICENSE_RUN_ID`, `GITHUB_LICENSE_RUN_URL` | `DOWNSTREAM_EXTRA_VARIABLES_JSON` in `osrb-review.yml` |
 
 They were deliberately **not** renamed to match the new wording. If a later
 tidy-up renames one, nothing here fails — the downstream job downloads nothing,
@@ -147,49 +146,46 @@ Kept out of this PR deliberately: CODEOWNERS changes who must approve every futu
 those paths, which is an ownership decision for the maintainers, not a side effect of a scanner
 change.
 
-## 7. Follow-up: retire the internal OSRB reviewer
+## 7. The internal OSRB reviewer has been retired from this side
 
-The `triage` job in `osrb-scan.yml` (comment marker `<!-- osrb-triage -->`, agent in
-`.github/osrb/osrb_agent.py`) supersedes the **comment** the private GitLab reviewer posts
-on the same pull requests — the "Hinton" bot in `ci-vss-oss/ci/osrb_review/review.py`,
-marker `<!-- hinton-osrb-review -->`. It does **not** supersede the gate: the OSRB Review
-check that `osrb-review.yml` publishes from the private pipeline's verdict remains the
-compliance gate until the private side is retired.
+The `triage` job in `osrb-scan.yml` (marker `<!-- osrb-triage -->`, agent in
+`.github/osrb/osrb_agent.py`) replaces the comment the private GitLab reviewer posted —
+the "Hinton" bot in `ci-vss-oss/ci/osrb_review/review.py`, marker
+`<!-- hinton-osrb-review -->`. `osrb-review.yml`, the dispatch that rang that pipeline
+and published the **OSRB Review** check, has been removed.
 
-**The private pipeline keeps running until its trigger is removed in ci-vss-oss, and this
-repository cannot do that.** The reviewer's code is loaded from that repository's standing
-`osrb-review-trigger` branch; the dispatch in `osrb-review.yml` here is only the doorbell.
-Deleting `osrb-review.yml` from this repo would stop *ringing* it, but that removes the
-OSRB Review check entirely — a fail-open, not a retirement. So the OSRB Review check
-remains until ci-vss-oss retires its half, **and that is fine**: the two reviewers coexist
-by design. Their comment markers differ, so neither updates, strands, or overwrites the
-other's comment; a pull request in the transition window simply carries both, and the
-triage comment says explicitly that the OSRB Review check is still the gate.
+**Read this before assuming the gate moved cleanly.** An earlier revision of this
+section argued the dispatch should not be deleted until `ci-vss-oss` retired its half,
+because deleting it stops *ringing* the pipeline and removes the OSRB Review check
+without anything taking its place — a fail-open rather than a retirement. That ordering
+was not followed: this side went first, deliberately. So the state today is:
 
-Retirement steps, in order — 1 and 2 are private-side and cannot be done from here:
+- Nothing here triggers the private OSRB pipeline. Its trigger in `ci-vss-oss` (the
+  `osrb-review-trigger` standing branch / the root-job gate in its `.gitlab-ci.yml`) may
+  still exist, but this repository no longer rings it.
+- The **OSRB Review** check no longer appears on pull requests. It was verified not to be
+  a required status check on `develop` — that ruleset requires DCO Sign-off, Check folder
+  structure, Copyright Headers, Security Scan (detect-secrets) and SonarQube — so its
+  absence blocks nothing, and reports nothing either.
+- The replacement gate is the delta check in `osrb-scan.yml`: it fails when the change
+  introduces a dependency needing OSRB approval, and when the scanner cannot parse a
+  dependency-bearing file the change touched.
 
-1. **Parity period.** Let both run on real pull requests and compare: every package the
-   private reviewer blocks should appear in the triage comment's "OSRB review required"
-   section (the reverse need not hold — the triage agent reads the state comparison too,
-   which the private reviewer never had). Divergences are evidence bugs in `approved.csv`
-   / `conditions.csv` and are worth fixing *before* the private record stops being
-   consulted.
-2. **Remove the trigger in ci-vss-oss** (the `osrb-review-trigger` standing branch / the
-   root-job gate in its `.gitlab-ci.yml`). This is the actual retirement, and it happens
-   in a repository this one cannot see or test.
-3. **In the same window, in this repo:** remove `osrb-review.yml` and `osrb_check.py`.
-   Order matters — once step 2 lands, every dispatch from here fails and the check
-   completes as `failure` on every pull request, so step 3 must follow promptly. Removing
-   them *before* step 2 is the silent fail-open described in § 2.
-4. **Clean up the couplings that existed only for the private consumer**, in this order
-   and only after step 3: the `license-diff` artifact/CSV names in `osrb-scan.yml` may
-   then be renamed (today § 3 forbids it), and the assertions pinning them in
-   `test_osrb_dispatch.py` retired alongside. Update the "supersedes" footer wording in
-   the triage comment, and the OSRB Review references in `OSRB_REVIEW.md` and
-   `README.md`.
+**The open item is that this gate is not yet required.** Until
+`OSRB Scan (dependency inventory)` is added to the `Protect develop` ruleset, a pull
+request can merge with it red. That is the fail-open the earlier revision warned about,
+and adding the required check is what closes it. It cannot be added before this branch
+reaches `develop`, because a required context that does not yet exist blocks every pull
+request.
 
-Until step 2 happens, treat a red OSRB Review exactly as before — it is the gate; the
-triage comment is the public, checkable explanation of what it is looking at.
+Still owed on the private side, and not doable from here:
+
+1. **Parity check against history.** Compare what the private reviewer blocked on recent
+   pull requests against what the triage comment reports. Divergences are evidence bugs
+   in `approved.csv` / `conditions.csv` and are worth fixing while the private record is
+   still consultable.
+2. **Remove the trigger in `ci-vss-oss`**, so the private pipeline stops running for a
+   doorbell nobody presses.
 
 ## Verify after merge
 

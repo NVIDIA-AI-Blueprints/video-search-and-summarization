@@ -714,7 +714,13 @@ jobs:
           if [[ "${cross}" == "true" ]]; then
             # GITHUB_TOKEN cannot write to a fork. Nothing to do but say so:
             # the drift is already reported in the triage comment.
-            echo "::warning title=OSRB inventory not synced::this pull request is from a fork, so the refreshed inventory.csv cannot be pushed. Regenerate it with 'python3 .github/osrb/osrb_inventory.py --previous .github/osrb/inventory.csv --output .github/osrb/inventory.csv' and commit."
+            regen="python3 .github/osrb/osrb_inventory.py"
+            regen="${regen} --previous .github/osrb/inventory.csv"
+            regen="${regen} --output .github/osrb/inventory.csv"
+            msg="this pull request is from a fork, so the refreshed"
+            msg="${msg} inventory.csv cannot be pushed. Regenerate it with"
+            msg="${msg} '${regen}' and commit."
+            echo "::warning title=OSRB inventory not synced::${msg}"
             exit 0
           fi
           if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
