@@ -1520,6 +1520,19 @@ def test_vllm_sampling_kwargs_enforces_json_object(monkeypatch):
     assert kwargs["ignore_eos"] is False
 
 
+def test_vllm_sampling_kwargs_enforces_choice(monkeypatch):
+    monkeypatch.setenv("VLLM_IGNORE_EOS", "true")
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+    choices = ["N", "Y collision_happening"]
+
+    kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(
+        VlmGenerationConfig(response_format={"type": "choice", "choices": choices})
+    )
+
+    assert kwargs["structured_outputs"].choice == choices
+    assert kwargs["ignore_eos"] is False
+
+
 def test_cosmos_no_repeat_ngram_is_disabled_for_structured_output():
     params = SimpleNamespace(structured_outputs=object())
 
