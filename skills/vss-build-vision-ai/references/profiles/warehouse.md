@@ -5,9 +5,8 @@ end to end: what the Foundation is made of, what constrains it, how a build is
 resolved, and how the result is reached and verified. The rest of the skill's
 machinery applies unchanged by reference — see Build and resolve below.
 
-`overrides.env` defines further service lists; only the nine below are
-supported. The others are out of scope for this skill — do not compose or deploy
-them.
+`overrides.env` defines further service lists; the fourteen `COMPOSE_PROFILES_WH_*`
+lists below are supported. The others are out of scope for this skill — do not compose or deploy them.
 
 **Warehouse is variant selection, not composition.** Pick the one
 `COMPOSE_PROFILES_WH_*` list that `MODE` + `BP_PROFILE` + size identify, expand
@@ -49,7 +48,7 @@ Resolve block below instead.
 Authoritative source:
 `deploy/docker/industry-profiles/warehouse-operations/overrides.env`. Select one
 list by variant; expand it verbatim into `COMPOSE_PROFILES` and record its name
-in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
+in `FOUNDATION_VARIANT`. Fourteen of the file's lists are in scope:
 
 | `MODE` | `BP_PROFILE` | Extended list | Minimal list |
 |---|---|---|---|
@@ -58,6 +57,20 @@ in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
 | `2d` | `bp_wh_redis` | `…_WH_REDIS_2D` | `…_WH_REDIS_2D_MINIMAL` |
 | `3d` | `bp_wh_kafka` | `…_WH_KAFKA_3D` | `…_WH_KAFKA_3D_MINIMAL` |
 | `3d` | `bp_wh_redis` | `…_WH_REDIS_3D` | `…_WH_REDIS_3D_MINIMAL` |
+| `mv3dt` | `bp_wh_kafka` | `…_WH_KAFKA_MV3DT` | `…_WH_KAFKA_MV3DT_MINIMAL` |
+| `mv3dt` | `bp_wh_redis` | `…_WH_REDIS_MV3DT` | `…_WH_REDIS_MV3DT_MINIMAL` |
+| `auto-calibration` | `bp_wh_auto_calib` | `COMPOSE_PROFILES_WH_AUTO_CALIB` | — |
+
+`mv3dt` is multi-view 3D tracking with BEV fusion — the same analytics shape as
+`3d`, fed by a multi-camera tracker rather than single-view Sparse4D.
+
+**`auto-calibration` is a mode, not a size or a broker choice.** It pairs only
+with `BP_PROFILE=bp_wh_auto_calib`, and it *produces* a calibration for the chosen
+dataset instead of consuming a shipped one — so no `warehouse-auto-calibration-app`
+tree exists and the calibration-presence rule below does not apply to it. It also
+ships **without SDRC**: `init-dirs`, `render-config`, `wdm-env-from-config`,
+`wait-for-redis` and `sdr-controller` are absent by design, so the infrastructure
+floor for this mode is the common set only.
 
 Extended adds ELK, `vss-video-analytics-api`, `vss-haproxy-ingress`,
 `import-calibration-output-container-<mode>`, and monitoring (`dcgm-exporter`,
@@ -115,15 +128,16 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 
 | Constraint | Symptom if violated |
 |---|---|
-| `MODE` must be `2d` or `3d`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis` | routes to a service list this skill does not support |
+| `MODE` must be `2d`, `3d`, `mv3dt` or `auto-calibration`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` | routes to a service list this skill does not support |
 | `BP_PROFILE=bp_wh` is 2D-only | unsupported combination |
+| `BP_PROFILE=bp_wh_auto_calib` pairs only with `MODE=auto-calibration`, and vice versa | routes to a list that is not the one selected |
 | `BP_PROFILE=bp_wh` is rejected on `IGX-THOR` and `DGX-SPARK` | configurator refuses |
 | `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
 | `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
-| Dataset ↔ variant: `nv-warehouse-4cams` only with `bp_wh`+`2d` (4 streams); `warehouse-loading-dock-3cams-synthetic` with 2D kafka/redis (3); `warehouse-4cams-20mx20m-synthetic` with `3d` (4) | short stream count with every container healthy |
+| `NUM_STREAMS` must equal the dataset's camera count: `nv-warehouse-4cams` 4, `warehouse-loading-dock-3cams-synthetic` 3, `warehouse-4cams-20mx20m-synthetic` 4. **Dataset and mode are independent** — every shipped dataset now carries calibration for `2d`, `3d` and `mv3dt`, so any dataset pairs with any analytics mode | short stream count with every container healthy |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
-| `MODE=3d` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
+| `MODE=3d` or `mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
 
 ### Remote VLM is exposed but not wired (Docker path)
 
@@ -159,14 +173,21 @@ checked-in `calibration.json` that Compose bind-mounts by path:
 warehouse-<mode>-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json
 ```
 
-All three shipped datasets carry one. 3D mounts it three ways — behavior
-analytics reads `/resources/calibration.json`, `ds-configurator-3d` and
+All three shipped datasets carry one **for each of `2d`, `3d` and `mv3dt`**, which
+is why dataset and mode are chosen independently. 3D mounts it three ways —
+behavior analytics reads `/resources/calibration.json`, `ds-configurator-3d` and
 perception read `/opt/data/ds-configurator/calibration.json`. Nothing is staged
 under `$VSS_DATA_DIR`.
 
 Only a **custom** dataset needs a calibration run — produced by
-`vss-generate-video-calibration` — dropped at the path above under its dataset
-name. `scripts/validate_warehouse_env.py` fails the build when it is missing.
+`vss-generate-video-calibration`, or by a `MODE=auto-calibration` build — dropped
+at the path above under its dataset name.
+`scripts/validate_warehouse_env.py` fails the build when it is missing.
+
+`MODE=auto-calibration` is the exception to this whole section: it is the run that
+*produces* a calibration, so it has no `warehouse-auto-calibration-app` tree and the
+presence check is skipped for it. Pick the dataset you intend to calibrate and match
+`NUM_STREAMS` to it, exactly as for an analytics mode.
 
 `import-calibration-output-container-<mode>` (extended lists only) imports
 calibration into the analytics store; it does not produce calibration.

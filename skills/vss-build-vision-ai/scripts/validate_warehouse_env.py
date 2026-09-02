@@ -23,21 +23,20 @@ import sys
 from pathlib import Path
 
 
-# (dataset, allowed (mode, bp_profile) pairs, expected NUM_STREAMS)
+# (dataset -> expected NUM_STREAMS). Dataset and mode are independent: every
+# shipped dataset now carries calibration for 2d, 3d and mv3dt, and
+# overrides.env states it outright ("so dataset and mode can be chosen
+# independently"). blueprint_config.yml agrees -- its only dataset rule is that
+# NUM_STREAMS matches the camera count. Calibration presence is still checked
+# per (dataset, mode) further down, which is what actually constrains a pairing.
 DATASETS = {
-    "nv-warehouse-4cams": ({("2d", "bp_wh")}, 4),
-    "warehouse-loading-dock-3cams-synthetic": (
-        {("2d", "bp_wh_kafka"), ("2d", "bp_wh_redis")},
-        3,
-    ),
-    "warehouse-4cams-20mx20m-synthetic": (
-        {("3d", "bp_wh_kafka"), ("3d", "bp_wh_redis")},
-        4,
-    ),
+    "nv-warehouse-4cams": 4,
+    "warehouse-loading-dock-3cams-synthetic": 3,
+    "warehouse-4cams-20mx20m-synthetic": 4,
 }
 
-MODES = {"2d", "3d"}
-BP_PROFILES = {"bp_wh", "bp_wh_kafka", "bp_wh_redis"}
+MODES = {"2d", "3d", "mv3dt", "auto-calibration"}
+BP_PROFILES = {"bp_wh", "bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"}
 
 # The service lists this skill supports, keyed by the (MODE, BP_PROFILE) pair
 # that selects them. overrides.env defines others; selecting one of those is a
@@ -68,6 +67,18 @@ VARIANT_MATRIX = {
         "COMPOSE_PROFILES_WH_REDIS_3D",
         "COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL",
     },
+    ("mv3dt", "bp_wh_kafka"): {
+        "COMPOSE_PROFILES_WH_KAFKA_MV3DT",
+        "COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL",
+    },
+    ("mv3dt", "bp_wh_redis"): {
+        "COMPOSE_PROFILES_WH_REDIS_MV3DT",
+        "COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL",
+    },
+    # auto-calibration is its own MODE, not a bp_profile layered onto 2d/3d/mv3dt:
+    # it produces a calibration instead of consuming a shipped one, and there is
+    # exactly one list for it.
+    ("auto-calibration", "bp_wh_auto_calib"): {"COMPOSE_PROFILES_WH_AUTO_CALIB"},
 }
 
 IN_SCOPE_VARIANTS = {v for variants in VARIANT_MATRIX.values() for v in variants}
@@ -75,17 +86,24 @@ IN_SCOPE_VARIANTS = {v for variants in VARIANT_MATRIX.values() for v in variants
 # Services every warehouse list carries that no capability names. The
 # forward-closure prune in composition.md must not remove them.
 INFRA_FLOOR = [
-    "init-dirs",
-    "render-config",
-    "wdm-env-from-config",
-    "wait-for-redis",
-    "sdr-controller",
     "centralizedb",
     "vst-ingress",
     "sensor-bp-wait-bp-configurator",
     "turnserver-init",
     "turnserver",
     "redis",
+]
+
+# The SDRC chain rides on top of the common floor for the analytics modes.
+# MODE=auto-calibration deliberately ships without it -- overrides.env: "2d/3d/mv3dt
+# warehouse profiles use SDRC. MODE=auto-calibration has no sdr-controller" -- so
+# requiring these of the auto-calibration list would reject a correct build.
+SDRC_FLOOR = [
+    "init-dirs",
+    "render-config",
+    "wdm-env-from-config",
+    "wait-for-redis",
+    "sdr-controller",
 ]
 
 ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
@@ -95,7 +113,7 @@ ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 # a 2D detector in a 3D build resolves cleanly, boots healthy, and publishes to the
 # wrong topic -- 2D writes mdx-raw while vss-behavior-analytics-3d reads mdx-bev, so
 # analytics silently sees nothing.
-MODE_TOKEN = re.compile(r"(?:^|-)(2d|3d)(?:-|$)")
+MODE_TOKEN = re.compile(r"(?:^|-)(2d|3d|mv3dt)(?:-|$)")
 
 
 def strip_value(value: str) -> str:
@@ -282,11 +300,21 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
                 "different broker than the runtime expects"
             )
 
-    # 1/3. bp_wh is 2d-only.
-    if bp == "bp_wh" and mode == "3d":
+    # 1/3. bp_wh is 2d-only, and bp_wh_auto_calib is auto-calibration-only.
+    if bp == "bp_wh" and mode and mode != "2d":
         errors.append(
-            "BP_PROFILE=bp_wh is unsupported with MODE=3d "
+            f"BP_PROFILE=bp_wh is unsupported with MODE={mode} "
             "(agents run in 2d only); use bp_wh_kafka or bp_wh_redis"
+        )
+    if bp == "bp_wh_auto_calib" and mode and mode != "auto-calibration":
+        errors.append(
+            f"BP_PROFILE=bp_wh_auto_calib requires MODE=auto-calibration, got MODE={mode}. "
+            "There is one auto-calibration list (COMPOSE_PROFILES_WH_AUTO_CALIB); it is not "
+            "a variant of the 2d/3d/mv3dt lists"
+        )
+    if mode == "auto-calibration" and bp and bp != "bp_wh_auto_calib":
+        errors.append(
+            f"MODE=auto-calibration requires BP_PROFILE=bp_wh_auto_calib, got {bp!r}"
         )
 
     # 2. bp_wh 2d is rejected on edge platforms.
@@ -320,12 +348,7 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
         if dataset not in DATASETS:
             warnings.append(f"SAMPLE_VIDEO_DATASET={dataset!r} is not a known sample dataset")
         else:
-            allowed, streams = DATASETS[dataset]
-            if mode and bp and (mode, bp) not in allowed:
-                errors.append(
-                    f"SAMPLE_VIDEO_DATASET={dataset!r} is not valid for "
-                    f"MODE={mode} + BP_PROFILE={bp}"
-                )
+            streams = DATASETS[dataset]
             actual = env.get("NUM_STREAMS", "")
             if actual and actual != str(streams):
                 errors.append(
@@ -338,7 +361,7 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
     stream_type = env.get("STREAM_TYPE", "")
     if bp == "bp_wh_redis" and stream_type != "redis":
         errors.append(f"BP_PROFILE=bp_wh_redis requires STREAM_TYPE=redis, got {stream_type!r}")
-    if bp in {"bp_wh", "bp_wh_kafka"} and stream_type not in {"", "kafka"}:
+    if bp in {"bp_wh", "bp_wh_kafka", "bp_wh_auto_calib"} and stream_type not in {"", "kafka"}:
         errors.append(f"BP_PROFILE={bp} requires STREAM_TYPE=kafka, got {stream_type!r}")
 
     # 6b. The selected broker must actually be in the service list. The env
@@ -443,7 +466,10 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
             "FOUNDATION_VARIANT list into COMPOSE_PROFILES as a literal."
         )
     else:
-        missing = [s for s in INFRA_FLOOR if s not in profiles]
+        required_floor = list(INFRA_FLOOR)
+        if mode != "auto-calibration":
+            required_floor += SDRC_FLOOR
+        missing = [s for s in required_floor if s not in profiles]
         if missing:
             errors.append(
                 "COMPOSE_PROFILES is missing warehouse infrastructure services that no "
@@ -457,7 +483,10 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
     # The shipped sample datasets already carry it, so nothing needs generating.
     # Only a custom dataset lacks it -- and a missing bind source makes Docker
     # create a directory where a file is expected.
-    if mode in MODES and dataset:
+    # MODE=auto-calibration is exempt: it *produces* a calibration for the chosen
+    # dataset rather than consuming a shipped one, and there is no
+    # warehouse-auto-calibration-app tree to look in.
+    if mode in MODES and mode != "auto-calibration" and dataset:
         calib = (
             repo
             / "deploy/docker/industry-profiles/warehouse-operations"
