@@ -723,6 +723,24 @@ def index_inventory(
     return index
 
 
+def _is_exactly_permissive(licence: str, package: str = "") -> bool:
+    """Stricter than `is_permissive`, deliberately: no composites at all.
+
+    `is_permissive` answers "does this need OSRB review?", where SPDX
+    semantics apply and "MIT OR GPL-3.0" is permissive because the recipient
+    may elect MIT. This answers a different question -- may an agent's
+    researched licence be written to the committed inventory with no human in
+    the loop -- and there an election is a judgement call, not a lookup. A
+    composite means the agent read a package whose licensing has a choice in
+    it, which is exactly when a person should decide.
+    """
+    if re.search(r"\b(AND|OR|WITH)\b", licence or "", re.IGNORECASE):
+        return False
+    if "," in (licence or ""):
+        return False
+    return is_permissive(licence, package)
+
+
 def validate_permissive_verdict(
     verdict: dict,
     fetched_text: str | None,
@@ -759,7 +777,7 @@ def validate_permissive_verdict(
         hit = _conditions_hits(conditions, package)[0]
         return False, (f"OSRB {hit.get('decision', 'condition')} on file "
                        f"({hit.get('evidence', '')}) — never auto-cleared")
-    if not is_permissive(licence, package):
+    if not _is_exactly_permissive(licence, package):
         return False, (f"licence {licence!r} does not exactly match the "
                        "permissive allowlist")
     if not inventory_rows:
@@ -1352,8 +1370,9 @@ def build_comment(
         + ", ".join(f"`{name}`" for name in permissive_summary())
         + " (and their common spellings; an expression clears only when every "
         "operand does). This is the list `.github/scripts/"
-        "check_python_licenses.py` enforces on every commit -- one definition, "
-        "not a second copy. A package on it needs no OSRB review, so it is "
+        "check_python_licenses.py` defines and its `license_passes` evaluates "
+        "-- one definition, not a second copy. A package on it needs no OSRB "
+        "review, so it is "
         "counted above rather than listed, and recorded in `inventory.csv` and "
         "the `osrb-compliance` artifact. An OSRB condition on file outranks it."
     )

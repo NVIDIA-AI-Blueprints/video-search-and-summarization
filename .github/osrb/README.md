@@ -364,7 +364,7 @@ Three states now exist where there used to be two, because collapsing them misle
 Most of this tree is MIT/Apache/BSD/ISC, and reporting those as "unapproved" buries the rows
 that carry real risk. A package whose licence matches the repo's **own** permissive list —
 `PERMISSIVE_LICENSE_PATTERNS` in `.github/scripts/check_python_licenses.py`, the same list the
-`check_python_licenses.sh` pre-commit hook enforces — is reported `PERMISSIVE_AUTOCLEARED` and
+`check_python_licenses.py` defines — is reported `PERMISSIVE_AUTOCLEARED` and
 kept out of the review comment.
 
 Deliberate limits:

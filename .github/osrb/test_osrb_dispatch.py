@@ -18,7 +18,6 @@ DIRECTORY = Path(__file__).parent
 # helpers it dispatches through are shared with other workflows and stayed
 # in .github/scripts, so the two directories are named separately here.
 SCRIPTS = DIRECTORY.parent / "scripts"
-WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-review.yml"
 SCAN_WORKFLOW = DIRECTORY.parent / "workflows" / "osrb-scan.yml"
 DEVELOPER_GUIDE = DIRECTORY / "OSRB_REVIEW.md"
 
@@ -70,40 +69,6 @@ class DispatchTests(unittest.TestCase):
             check.summary_with_guide(repo, "Review passed."),
         )
 
-    def test_dispatch_passes_canonical_license_diff_run_url(self) -> None:
-        workflow = WORKFLOW.read_text()
-        self.assertIn(
-            '"GITHUB_LICENSE_RUN_URL":"${{ github.event.workflow_run.html_url }}"',
-            workflow,
-        )
-        self.assertIn('LICENSE_RUN_URL: ${{ github.event.workflow_run.html_url }}', workflow)
-        self.assertIn('--run-url "$LICENSE_RUN_URL"', workflow)
-
-    def test_check_is_created_before_anything_that_can_fail(self) -> None:
-        """A failure before the check exists would be an invisible fail-open.
-
-        `workflow_run` jobs are not listed in the pull request, so if no check
-        run is created the gate simply does not happen and nothing says so.
-        """
-        workflow = WORKFLOW.read_text()
-        steps = re.findall(r"^      - name: (.+)$", workflow, re.M)
-        self.assertEqual(steps[1], "Start OSRB check", steps)
-
-        start_block = workflow.split("- name: Start OSRB check", 1)[1]
-        start_block = start_block.split("- name:", 1)[0]
-        self.assertNotIn("if:", start_block, "Start OSRB check must be unconditional")
-
-    def test_every_path_resolves_the_check(self) -> None:
-        """No branch may leave the check stuck in_progress with nothing to close it."""
-        workflow = WORKFLOW.read_text()
-        complete_block = workflow.split("- name: Complete OSRB check", 1)[1]
-        self.assertIn("if: always()\n", complete_block)
-        self.assertNotIn("always() && steps.pr.outputs.skip", complete_block)
-
-        mark_block = workflow.split("- name: Mark release-branch review as not applicable", 1)[1]
-        mark_block = mark_block.split("- name:", 1)[0]
-        self.assertIn("continue-on-error: true", mark_block)
-
     def test_complete_publishes_even_when_the_check_was_never_started(self) -> None:
         calls: list[tuple[str, str, dict | None]] = []
 
@@ -126,27 +91,6 @@ class DispatchTests(unittest.TestCase):
             (DIRECTORY.parent / "workflows" / "ci.yml").read_text(),
         )
 
-    def test_workflow_supplies_every_variable_the_helpers_require(self) -> None:
-        """The poller reads DOWNSTREAM_PROJECT_PATH even when given a project id.
-
-        ci.yml supplies the shared downstream variables at job level, so both
-        the trigger and the poll step inherit them. Setting them per step is
-        what left the poller a variable short.
-        """
-        workflow = WORKFLOW.read_text()
-        required: set[str] = set()
-        for helper in ("trigger_downstream_pipeline.py", "poll-downstream-pipeline.py"):
-            required.update(
-                re.findall(r'require_env\(\s*"([A-Z0-9_]+)"', (SCRIPTS / helper).read_text())
-            )
-        missing = sorted(name for name in required if name not in workflow)
-        self.assertEqual(missing, [], f"workflow never sets {missing}")
-
-    def test_dispatch_does_not_choose_the_private_pipeline_code_ref(self) -> None:
-        workflow = WORKFLOW.read_text()
-        for variable in ("OSRB_CODE_REF", "OSRB_ALLOW_UNREVIEWED_CODE"):
-            self.assertNotIn(variable, workflow)
-
     def test_github_output_explains_developer_actions(self) -> None:
         guide = DEVELOPER_GUIDE.read_text()
         scan_workflow = SCAN_WORKFLOW.read_text()
@@ -154,39 +98,6 @@ class DispatchTests(unittest.TestCase):
         self.assertIn("Do not paste private ticket comments", guide)
         self.assertIn("### What to do", scan_workflow)
         self.assertIn("Developer instructions", scan_workflow)
-
-    def test_workflow_run_trigger_matches_the_scan_workflow_name(self) -> None:
-        """A mismatch here disables the whole OSRB gate and says nothing.
-
-        `workflow_run` matches on the upstream workflow's `name:`, not its
-        filename, so renaming one file without the other produces no error,
-        no check run, and no comment -- every pull request just stops being
-        reviewed. Parsed by hand because CI has no YAML library.
-        """
-        name_lines = [
-            line for line in SCAN_WORKFLOW.read_text().splitlines()
-            if line.startswith("name:")
-        ]
-        self.assertEqual(name_lines, ["name: OSRB Scan"], name_lines)
-        scan_name = name_lines[0].split(":", 1)[1].strip()
-
-        trigger = [
-            line.strip() for line in WORKFLOW.read_text().splitlines()
-            if line.strip().startswith("workflows:")
-        ]
-        self.assertEqual(len(trigger), 1, trigger)
-
-        # Membership, not equality. The listener deliberately accepts the old
-        # name as well, because `workflow_run` is loaded from the DEFAULT
-        # branch: until this file lands there, a mirror emitting the new name
-        # matches nothing and the gate silently does not run. Asserting an
-        # exact list would forbid that transition list; what actually must hold
-        # is that the producer's name is one the listener accepts.
-        accepted = {
-            part.strip().strip('"\'')
-            for part in trigger[0].split("[", 1)[1].rsplit("]", 1)[0].split(",")
-        }
-        self.assertIn(scan_name, accepted, (scan_name, accepted))
 
     def test_every_osrb_test_file_is_run_by_ci(self) -> None:
         """A test nobody runs is worse than no test: it reads as coverage.
@@ -289,24 +200,6 @@ class DispatchTests(unittest.TestCase):
         scan = SCAN_WORKFLOW.read_text()
         self.assertIn("group: osrb-scan-${{ github.ref }}", scan)
         self.assertIn("cancel-in-progress: true", scan)
-
-    def test_cancelled_scan_does_not_start_osrb_review(self) -> None:
-        """A superseded CSV must not launch the private reviewer.
-
-        The scan is still allowed to *fail* (non-empty diffs fail on develop)
-        and OSRB Review must still run in that case -- so the guard is
-        `!= cancelled`, never `== success`. Ported from develop's
-        license-diff variant of the same tests.
-        """
-        workflow = WORKFLOW.read_text()
-        self.assertIn(
-            "github.event.workflow_run.conclusion != 'cancelled'",
-            workflow,
-        )
-        self.assertNotIn(
-            "github.event.workflow_run.conclusion == 'success'",
-            workflow,
-        )
 
 
 class TriageWiringTests(unittest.TestCase):

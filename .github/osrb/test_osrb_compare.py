@@ -921,7 +921,7 @@ class PermissiveGreenGateTest(unittest.TestCase):
     """
 
     def test_it_reuses_the_repo_permissive_list_rather_than_a_private_copy(self) -> None:
-        # A second list would drift from the one check_python_licenses.sh
+        # A second list would drift from the one check_python_licenses.py
         # enforces on every commit, and the two gates would start disagreeing
         # about the same package.
         self.assertGreater(len(compare_mod.PERMISSIVE_LICENSE_PATTERNS), 20)
@@ -1027,16 +1027,35 @@ class PermissiveCompositeTest(unittest.TestCase):
         self.assertFalse(compare_mod.is_permissive("GPL (any variant)"))
         self.assertFalse(compare_mod.is_permissive("BSD (any variant) AND GPL-3.0"))
 
-    def test_one_non_permissive_operand_refuses_the_whole(self) -> None:
+    def test_conjunction_with_a_copyleft_operand_is_refused(self) -> None:
+        """AND means every operand binds, so one copyleft operand refuses."""
         for text in (
             "MIT AND GPL-2.0-or-later",
-            "MIT OR GPL-3.0",
+            "MIT AND GPL-3.0",
+            "(MIT AND GPL-3.0)",
             "MIT, GPL-2.0",
             # trailing prose is not a licence: the real string on pypdfium2
             "BSD-3-Clause, Apache-2.0, dependent on the module",
-            # an exception modifies the licence it attaches to
-            "Apache-2.0 WITH LLVM-exception",
         ):
+            self.assertFalse(compare_mod.is_permissive(text), text)
+
+    def test_disjunction_lets_the_permissive_branch_be_elected(self) -> None:
+        """OR is dual licensing: electing the permissive branch is allowed.
+
+        This follows the repo's own gate (`license_passes`), which this
+        delegates to rather than reimplement. A stricter every-operand rule
+        here would have disagreed with the check that was already deciding
+        what ships.
+        """
+        for text in ("MIT OR GPL-3.0", "GPL-3.0 OR MIT",
+                     "(MIT OR Apache-2.0) AND BSD-3-Clause"):
+            self.assertTrue(compare_mod.is_permissive(text), text)
+
+    def test_an_exception_does_not_relicense_its_base(self) -> None:
+        """WITH attaches an exception; the base licence still decides."""
+        for text in ("GPL-2.0 WITH Classpath-exception-2.0",
+                     "GPL-3.0 WITH GCC-exception-3.1",
+                     "LGPL-3.0 WITH anything"):
             self.assertFalse(compare_mod.is_permissive(text), text)
 
     def test_absence_of_evidence_is_still_not_permissive(self) -> None:

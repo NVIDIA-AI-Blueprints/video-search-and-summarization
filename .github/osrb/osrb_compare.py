@@ -85,7 +85,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # .github/scripts holds check_python_licenses.py, whose PERMISSIVE_LICENSE_PATTERNS
 # is the repo's single definition of "permissive" and is already enforced by the
-# check_python_licenses.sh pre-commit hook. Importing it keeps one list; copying
+# its own `license_passes`. Importing both keeps one list; copying
 # it would let the pre-commit gate and this gate drift apart on the same package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -985,18 +985,20 @@ def unsubmitted_scope(module: str, source_file: str) -> str:
 # Reuse the repo's OWN permissive list rather than writing a second one.
 # `.github/scripts/check_python_licenses.py` already encodes which licences
 # this project treats as permissive, it is enforced by the
-# `check_python_licenses.sh` pre-commit hook, and every entry carries the
+# `license_passes` SPDX evaluator, and every entry carries the
 # reasoning for why it is on the list. A private copy here would drift from it
 # silently and the two gates would start disagreeing about the same package.
 try:
     from check_python_licenses import (  # noqa: E402
         COMPILED_ALLOWLIST as PERMISSIVE_LICENSE_RE,
         PERMISSIVE_LICENSE_PATTERNS,
+        license_passes as _LICENSE_PASSES,
     )
 except ImportError:  # pragma: no cover - exercised when scripts/ is absent
     # Fail CLOSED: with no patterns nothing is auto-cleared, so a broken import
     # makes the report noisier, never quieter. The reverse would hide packages.
     PERMISSIVE_LICENSE_PATTERNS = []
+    _LICENSE_PASSES = None
     PERMISSIVE_LICENSE_RE = None
 
 
@@ -1055,44 +1057,32 @@ def _canonical_licence(text: str) -> str:
 
 
 def is_permissive(license_text: str, package: str = "") -> bool:
-    """True when every licence the text names is on the repo's permissive list.
+    """True when the repo's own licence gate would clear this licence.
 
-    A single label must match the allowlist exactly. A composite ("MIT OR
-    Apache-2.0", "BSD, Public Domain") is permissive only when EVERY operand
-    is: under OR the recipient may pick any branch, under AND they must satisfy
-    all of them, and a bare comma list is ambiguous between the two -- so if
-    each branch is permissive the outcome is permissive under every reading,
-    while a single non-permissive operand ("MIT AND GPL-2.0-or-later",
-    "BSD-3-Clause, Apache-2.0, dependent on the module") still goes to a human.
+    The SPDX evaluation is delegated to `license_passes` in
+    check_python_licenses.py rather than reimplemented: it already handles
+    parentheses, AND/OR/WITH and comma-joined lists, and it is what the repo
+    has been enforcing on every commit. A second implementation here disagreed
+    with it -- on "(MIT OR Apache-2.0) AND BSD-3-Clause" and on WITH-exceptions
+    -- which is exactly the drift two definitions produce.
 
-    WITH is refused outright: an exception modifies the licence it attaches to,
-    so the pair cannot be judged from the operand names alone. That check is
-    belt-and-braces today -- no allowlist pattern contains WITH, so such an
-    operand already fails to match -- and is kept so a future permissive entry
-    spelled with an exception cannot silently start clearing rows. Empty and
-    UNKNOWN are refused too: absence of evidence is not permissiveness, and
-    auto-clearing it would hide exactly the rows most worth reading.
+    Note what the operators mean. "MIT OR GPL-3.0" is dual licensing and the
+    recipient may elect MIT, so it is permissive; AND is the opposite; and
+    "GPL-2.0 WITH Classpath-exception-2.0" stays refused, because an exception
+    does not change the licence it attaches to.
+
+    This wrapper adds only what that evaluator does not cover: the denylist,
+    the empty/UNKNOWN guard, and three registry spellings of licences that are
+    already on the list.
     """
-    if PERMISSIVE_LICENSE_RE is None:
+    if PERMISSIVE_LICENSE_RE is None or _LICENSE_PASSES is None:
         return False
     if package and canonical_package(package) in DENYLISTED:
         return False
     text = (license_text or "").strip().strip('"')
     if not text or text.upper() in {"UNKNOWN", "NOASSERTION", "SEE-LICENSE-TEXT"}:
         return False
-    if re.search(r"\bWITH\b", text, re.IGNORECASE):
-        return False
-    text = _canonical_licence(text)
-    if PERMISSIVE_LICENSE_RE.match(text):
-        return True
-    operands = [
-        _canonical_licence(part.strip())
-        for part in _LICENCE_OPERANDS_RE.split(text)
-        if part and part.strip()
-    ]
-    if len(operands) < 2:
-        return False
-    return all(bool(PERMISSIVE_LICENSE_RE.match(op)) for op in operands)
+    return bool(_LICENSE_PASSES(_canonical_licence(text)))
 
 
 # Verdicts that mean "no approval row was found for this package". Those are
@@ -1279,7 +1269,7 @@ def classify(
     nobody needs to look at. The overwhelming majority of this tree is MIT,
     Apache-2.0, BSD and ISC -- licences this repo already treats as permissive
     in `.github/scripts/check_python_licenses.py`, enforced on every commit by
-    the check_python_licenses.sh hook. Reporting them to OSRB as "unapproved"
+    that same list. Reporting them to OSRB as "unapproved"
     buries the handful of rows that carry actual risk.
 
     It only ever downgrades a verdict that means "no approval row was found".
