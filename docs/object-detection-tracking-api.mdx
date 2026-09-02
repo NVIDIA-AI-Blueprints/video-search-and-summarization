@@ -18,6 +18,10 @@ The API is available at `http://<host>:9000`. All API endpoints are prefixed wit
 | `GET` | `/api/v1/metrics` | Prometheus metrics. Optional headers: `X-REFRESH-PERIOD`, `X-OTLP-URL` |
 | `GET` | `/api/v1/stream/get-stream-info` | List configured streams |
 | `POST` | `/api/v1/stream/add` | Add a stream |
-| `POST` | `/api/v1/generate_text_embeddings` | Generate vector embeddings from text |
+| `POST` | `/api/v1/generate_text_embeddings` | Generate vector embeddings from text. Registered only when `[text-embedder] enable=1` |
+
+<Note>
+Stock warehouse object-detection configs leave `[text-embedder] enable=0`, so `POST /api/v1/generate_text_embeddings` is not registered and returns an endpoint-not-found response until you enable the module. Search-profile configs enable it by default. Refer to [Text embedder (config)](/vss/system-components/vision-microservices/object-detection-and-tracking#text-embedder-config) for the enable flag, model paths, and request examples.
+</Note>
 
 Request and response examples for stream management and embeddings are on [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
