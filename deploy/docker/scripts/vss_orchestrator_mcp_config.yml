@@ -72,12 +72,20 @@ function_groups:
     # reports success -- the `base` profile could not be deployed through the
     # orchestrator MCP at all. The agent-driven vss-deploy-profile path creates
     # these itself (SKILL.md Step 1b), which is why the gap stayed hidden.
+    # Derived in services/vios/vst.env via VST_VOLUME, so they are not visible as
+    # literal ${VSS_DATA_DIR}/... strings in the compose files -- resolve the
+    # variable chain, don't grep for literals, or you find these one failed
+    # deploy at a time (runs 33589639320 -> vst_data, 33590743710 -> vst_video).
     - data_log/vst
     - data_log/vst/vst_data
+    - data_log/vst/vst_data/logs
+    - data_log/vst/vst_video
+    - data_log/vst/temp_files
     - data_log/vst/clip_storage
     - data_log/nvstreamer
     - data_log/nvstreamer/vst_data
     - data_log/behavior_learning_data
+    - videos
     - agent_eval/dataset
     - agent_eval/results
     - videos/dev-profile-alerts
