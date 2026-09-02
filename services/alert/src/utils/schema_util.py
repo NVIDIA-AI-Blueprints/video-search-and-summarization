@@ -18,6 +18,7 @@ import logging
 from datetime import datetime, timedelta
 from mdx.protobuf.ext_pb2 import GeoLocation
 from google.protobuf import json_format
+from google.protobuf.json_format import SerializeToJsonError
 from google.protobuf.message import DecodeError
 from google.protobuf.timestamp_pb2 import Timestamp
 from mdx.protobuf import (
@@ -44,19 +45,113 @@ def protobuf_anomaly_to_json_string(anomaly_pb, message_type):
 
         return message_json
 
-    except DecodeError as e:
-        logging.error("Failed to parse Protobuf message: %s", e)
-        # Log part of the input for inspection
-        logging.debug("Message content (truncated): %s", anomaly_pb[:100])
+    except DecodeError:
+        # Raise without logging: the batch caller owns the reporting, and it
+        # bounds it. Logging here as well made a schema drift emit N+2 error
+        # records per batch -- one per record from this line, plus the caller's
+        # single traceback and summary -- which buries the one useful traceback
+        # and is a load on the log pipeline during the exact incident that needs
+        # it. (There used to be a `logging.debug` of the first 100 payload bytes
+        # here too; alert records carry PII, and skip-and-continue turned at most
+        # one such line per batch into one per bad record.)
         raise
 
 def protobuf_anomalies_to_json_string_list(anomaly_pbs, message_type):
+    """Decode each record, keeping it paired with the record it came from.
+
+    Returns ``(json_str, source_record)`` pairs. The bare list of strings this
+    replaces is where per-record association was actually lost: by the time the
+    caller had JSON it no longer knew which Kafka record produced which string,
+    so a batch carrying several different inbound ``traceparent`` values could
+    not be re-associated. Pairing at the point of decode makes the association
+    unloseable rather than reconstructed: a record that fails to decode is
+    skipped, so a positional zip downstream would read the wrong source for
+    every record after it (REQ-007/SG2-004).
+
+    ``source_record`` is the ``KafkaMessage`` when the broker supplied one, and
+    ``None`` for sources that are not Kafka-shaped.
+    """
     result = []
+    skipped = 0
+    # One traceback per batch, but the *decode* traceback specifically. Sharing
+    # the `skipped` counter with the type-guard below meant whichever failure
+    # came first ate the batch's only detail line: a compacted-topic tombstone
+    # followed by 99 records from an incompatible schema reported the tombstone
+    # and nothing else, so the summary said 100 of 100 failed while the one
+    # diagnostic that explains why was never emitted.
+    decode_reported = False
+    type_reported = False
     for topic in anomaly_pbs.keys():
         sub_anomaly_pbs = anomaly_pbs[topic]
-        for _, anomaly_pb, *__ in sub_anomaly_pbs:  # Ignore key and kafka_ts_ms if present
-            json_str = protobuf_anomaly_to_json_string(anomaly_pb, message_type)
-            result.append(json_str)
+        for record in sub_anomaly_pbs:
+            # Ignore key and kafka_ts_ms; keep the record itself.
+            anomaly_pb = record[1] if isinstance(record, (tuple, list)) else record
+            source = record if isinstance(record, (tuple, list)) else None
+            # A producer may legally publish a null value; confluent-kafka hands
+            # that back as None, and ParseFromString(None) raises TypeError, not
+            # DecodeError -- so a tombstone escaped the skip below and took the
+            # whole batch with it, which is what TS-026 forbids. Guarding the
+            # type here rather than widening the except keeps the narrow catch
+            # doing its job: a TypeError from inside protobuf is still our own
+            # breakage and still belongs to the caller's handler. bytearray and
+            # memoryview parse fine and are left alone.
+            if not isinstance(anomaly_pb, (bytes, bytearray, memoryview)):
+                if not type_reported:
+                    type_reported = True
+                    logger.error(
+                        "Skipping a record whose value is %s, not a protobuf "
+                        "payload; the rest of the batch is unaffected",
+                        type(anomaly_pb).__name__,
+                    )
+                skipped += 1
+                continue
+            try:
+                json_str = protobuf_anomaly_to_json_string(anomaly_pb, message_type)
+            except (DecodeError, SerializeToJsonError):
+                # Skip the record, keep the batch (TS-026). Letting one bad
+                # payload propagate cost every other record: process_batch_vlm
+                # catches around the whole decode and returns without
+                # dispatching, and the offsets were already committed during
+                # polling -- so the surviving alerts were not retried, they were
+                # lost. The pairing above is what lets the survivors keep their
+                # own parents while one drops out.
+                #
+                # Two exception types, both meaning "the producer sent us a
+                # payload we cannot use", and no more. DecodeError comes from
+                # ParseFromString on bytes that are not this message;
+                # SerializeToJsonError comes from MessageToJson on a field the
+                # producer filled with something out of range -- the classic
+                # case being epoch milliseconds in a Timestamp's seconds field,
+                # which is far outside protobuf's permitted range. Both are bad
+                # input, not our breakage, so both skip the record.
+                #
+                # Deliberately not `except Exception`: that turned a protobuf
+                # API change or a message_type of None into a batch that decoded
+                # to nothing and returned normally, offsets committed, service
+                # healthy. Anything that is not a bad payload belongs to the
+                # caller's handler, which logs it as a batch error.
+                #
+                if not decode_reported:
+                    decode_reported = True
+                    logger.exception(
+                        "Skipping a record whose protobuf decode failed; the rest "
+                        "of the batch is unaffected"
+                    )
+                skipped += 1
+                continue
+            result.append((json_str, source))
+
+    if skipped:
+        # Losing the whole batch must stay loud. An empty return is reported
+        # downstream only as "nothing to process", at debug level, which is
+        # indistinguishable from a quiet poll -- so a producer that has started
+        # emitting an incompatible payload for every record would otherwise be
+        # invisible while alerts drain away.
+        (logger.error if not result else logger.warning)(
+            "%d of %d records in this batch failed to decode%s",
+            skipped, skipped + len(result),
+            "; the entire batch was lost" if not result else "",
+        )
 
     return result
 

@@ -45,9 +45,9 @@ limit).
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-summarize-video/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-summarize-video \\
-        --skill-dir skills/vss-summarize-video \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
-        --video-io-skill-dir skills/vss-manage-video-io-storage
+        --skill-dir skills/operations/vss-summarize-video \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --video-io-skill-dir skills/operations/vss-manage-video-io-storage
 """
 from __future__ import annotations
 
@@ -89,11 +89,12 @@ PREAMBLE = (
     "the deployment, or call VLM/RT-VLM inference endpoints such as "
     "/v1/chat/completions or /v1/generate_captions directly. Empty choices, "
     "video_summary, or events are results to report, not reasons to retry. "
-    "The final stdout line is the completion marker: read the job_id and the "
-    "persist object from it, and report that job id. Do not read the record "
-    "back to prove the write landed -- the marker reports it, and recalling "
-    "memory is a different skill's job. Render video_summary and every event "
-    "description verbatim and in full."
+    "Read the operation result from the first stdout JSON document and the "
+    "completion marker from the final stdout line: the result carries the "
+    "persist object, while the marker carries job_id and persisted. Report that "
+    "job id. Do not read the record back to prove the write landed -- those "
+    "two documents report it, and recalling memory is a different skill's job. "
+    "Render video_summary and every event description verbatim and in full."
 )
 
 
@@ -271,11 +272,11 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help="Dataset output root (e.g. .github/skill-eval/datasets/vss-summarize-video)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-summarize-video")
+                        help="Path to skills/operations/vss-summarize-video")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
+                        help="Path to skills/deployment/vss-deploy-profile (optional — included for agent debug)")
     parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
-                        help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for video upload prerequisite)")
+                        help="Path to skills/operations/vss-manage-video-io-storage (optional — referenced by the spec for video upload prerequisite)")
     parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)

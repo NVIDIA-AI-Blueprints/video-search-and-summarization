@@ -119,6 +119,45 @@ class Kafka extends MessageBroker {
         return this.#topicPattern.get(topicType);
     }
 
+    /**
+     * Waits until every explicitly configured Kafka topic is available.
+     * A topic pattern is ready once at least one Kafka topic matches it.
+     * @public
+     * @static
+     * @async
+     * @param {Object} adminClient - Kafka admin client used to inspect topic availability.
+     * @param {Object} [options={}] - Topic readiness options.
+     * @param {number} [options.retryIntervalMs=1000] - Delay between readiness checks.
+     * @returns {Promise<void>} Resolves once all required topics are present.
+     */
+    static async waitForTopics(adminClient, {retryIntervalMs = 1000} = {}){
+        const requiredTopics = Array.from(this.#topics.values());
+        const requiredTopicPatterns = Array.from(this.#topicPattern.values()).map(pattern => new RegExp(pattern));
+
+        while (true) {
+            try {
+                const allTopics = await this.#getAllTopics(adminClient);
+                const missingTopics = requiredTopics.filter(topic => !allTopics.includes(topic));
+                const missingTopicPatterns = requiredTopicPatterns.filter(pattern => !allTopics.some(topic => pattern.test(topic)));
+
+                if (missingTopics.length === 0 && missingTopicPatterns.length === 0) {
+                    logger.info(`[KAFKA TOPIC] Required Kafka topics are present: ${requiredTopics.join(', ')}, matching ${requiredTopicPatterns.map(pattern => pattern.toString()).join(', ')}.`);
+                    return;
+                }
+
+                const missingRequirements = [
+                    ...missingTopics,
+                    ...missingTopicPatterns.map(pattern => `matching ${pattern.toString()}`)
+                ];
+                logger.info(`[KAFKA TOPIC] Required Kafka topics are not present: ${missingRequirements.join(', ')}.`);
+            } catch (error) {
+                logger.info(`[KAFKA TOPIC] Unable to list required Kafka topics: ${error.name} - ${error.message}.`);
+            }
+
+            await Utils.sleep(retryIntervalMs);
+        }
+    }
+
     /** 
      * returns the admin client of kafka.
      * @public

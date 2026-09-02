@@ -258,6 +258,7 @@ workflow:
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_iterations: 15
+  llm_reasoning: false
   planning_enabled: true
   tool_names:
   - video_understanding
@@ -315,8 +316,18 @@ workflow:
 
     Optional parameters for filtering:
       - start_time, end_time: ISO 8601 format (e.g., "2026-01-06T00:00:00.000Z")
-      - incident_type: filter by type (e.g., "collision")
       - max_count: number of incidents to return (default 10)
+
+    Each incident always carries Id, timestamp (start), end and sensorId. It also
+    carries category and info (info.verdict, info.triggerPhrase, info.vlm_response)
+    when the producer set them. Everything beyond Id/timestamp/end/sensorId is
+    OPTIONAL and is often absent.
+
+    RENDERING (CRITICAL): Build your answer from the fields the tool actually
+    returned - derive table columns from the keys present in the response. A missing
+    optional field is normal, NOT an error: never refuse to answer, never report the
+    response as invalid, and never ask the user for a field the tool does not return.
+    If the user asked for a table, always produce the table.
 
     WORKFLOW 5: Generate Incident Report (Detailed Analysis)
     User: "Generate a report for the last incident from Montague-2-HO-6"
@@ -420,8 +431,8 @@ workflow:
          * action="get_sensor_uuid": Get UUID for a sensor name (required before incident_report_agent)
        - For get_incidents, optional parameters:
          * start_time, end_time: ISO 8601 format
-         * incident_type: filter by type (e.g., "collision")
          * max_count: number of incidents (default 10)
+       - Returns: Id, timestamp, end, sensorId, plus category and info when present
        - Use when: User asks "show alerts", "list incidents", "start/stop monitoring"
 
     6. report_agent (for UPLOADED video reports):

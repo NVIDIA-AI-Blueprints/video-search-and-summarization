@@ -427,6 +427,11 @@ run_negative_test "up without --profile" 1 up
 NGC_CLI_API_KEY= run_negative_test "up without ngc key (no env)" 1 up -p base
 run_negative_test "invalid profile" 1 up -p invalid
 run_negative_test "invalid hardware-profile" 1 up -p base -H INVALID
+# --llm validation: a removed model, an unknown model, and a valid model whose
+# sizing does not cover the selected hardware must all fail before any teardown.
+run_negative_test "llm removed from the blueprint is rejected" 1 up -p base -i 127.0.0.1 --llm openai/gpt-oss-20b -d
+run_negative_test "llm unknown id is rejected" 1 up -p base -i 127.0.0.1 --llm typo/not-a-model -d
+run_negative_test "llm without sizing for the hardware is rejected" 1 up -p base -i 127.0.0.1 -H H100 --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
 _mock_nvidia_smi_dir="$(mktemp -d)"
@@ -693,12 +698,22 @@ run_dry_run_test "up base dry-run" up -p base -i 127.0.0.1 -d
 run_dry_run_test "up search dry-run" up -p search -i 127.0.0.1 --dry-run
 run_dry_run_test "up lvs dry-run" up -p lvs -i 127.0.0.1 -d
 run_dry_run_test "up alerts dry-run with mode verification" up -p alerts -i 127.0.0.1 -m verification -d
+run_dry_run_up_and_check_generated_env "alerts verification disables always-on" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "ALERT_AGENT_ALWAYS_ON" "false" \
+  "MODE" "2d_cv" \
+  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+run_dry_run_up_and_check_generated_env "alerts real-time enables always-on" "alerts" \
+  -i 127.0.0.1 -m real-time -d -- \
+  "ALERT_AGENT_ALWAYS_ON" "true" \
+  "MODE" "2d_vlm" \
+  "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
 run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "base" \
-  -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
-  "LLM_NAME" "nvidia/nemotron-3-nano" "LLM_NAME_SLUG" "nemotron-3-nano" \
+  -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8" "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" \
   "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
@@ -963,7 +978,7 @@ if [[ -e "${_helm_job}" ]] \
   ((_warehouse_model_config_failed++)) || true
 fi
 
-_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+_standalone_skill_defaults="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
 if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
   || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
   || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
@@ -1019,7 +1034,7 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+_warehouse_3d_skill="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-3d"
 if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
   "${_warehouse_3d_skill}/SKILL.md" \
   "${_warehouse_3d_skill}/references" \
@@ -1233,8 +1248,8 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE VSS_RT_CV_TAG)
       ;;
     alerts)
-      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE VSS_RT_CV_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME SDR_CONTROLLER_CONFIG_PATH)
-      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(MODE RT_VLM_DEVICE_ID VLM_PORT RTVI_VLM_PORT PERCEPTION_DOCKERFILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE_PREFIX VLM_AS_VERIFIER_CONFIG_FILE VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE NVSTREAMER_CONFIG_DIR NEXT_PUBLIC_APP_SUBTITLE VSS_RT_CV_TAG RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT VSS_VA_MCP_HOST_PORT ALERT_BRIDGE_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
       _expected_stable_keys=()
       ;;
   esac
@@ -1298,7 +1313,7 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_WH_2D
     COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
     COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
-    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
+    COMPOSE_PROFILES_WH_AUTO_CALIB
     COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
     COMPOSE_PROFILES
@@ -1387,9 +1402,19 @@ for _spec in "${_shared_service_env_specs[@]}"; do
     fi
   done
 done
+_nvstreamer_base_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/base.yml"
 _nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
-if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_shared_compose}"; then
-  echo "FAIL: shared NVStreamer Compose should define nvstreamer-base"
+if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_base_compose}"; then
+  echo "FAIL: shared NVStreamer base Compose should define nvstreamer-base"
+  ((_split_failed++)) || true
+fi
+if ! awk '
+  /^  nvstreamer:$/ { found = 1; next }
+  found && /^  [[:alnum:]_-]+:$/ { exit }
+  found && /profiles: !override \["nvstreamer"\]/ { valid = 1 }
+  END { exit !(found && valid) }
+' "${_nvstreamer_shared_compose}"; then
+  echo "FAIL: shared NVStreamer Compose should define the profile-neutral nvstreamer service"
   ((_split_failed++)) || true
 fi
 if grep -Eq '(developer-profiles|industry-profiles)/' "${_nvstreamer_shared_compose}"; then
@@ -1530,6 +1555,26 @@ run_dry_run_up_and_check_generated_env "generated.env LVS defaults to Nemotron 3
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
+run_dry_run_up_and_check_generated_env "generated.env Search defaults to Nemotron 3.5 Lightning on H100" "search" \
+ -i 127.0.0.1 -H H100 -d -- \
+  "HARDWARE_PROFILE" "H100" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
+
+run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects ARM64 LLM and SBSA RT-VLM" "base" \
+ -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
+  "HARDWARE_PROFILE" "GB300" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+  "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
+
+run_dry_run_up_and_check_generated_env "generated.env Base defaults to Nemotron 3.5 Lightning on H100" "base" \
+ -i 127.0.0.1 -H H100 -d -- \
+  "HARDWARE_PROFILE" "H100" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+  "RTVI_VLM_IMAGE_TAG" '"3.3.0-26.08.2"'
+
 for _nemotron_3_5_env in \
   "${REPO_ROOT}"/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-*.env; do
   if grep -Fq -- "--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder" "${_nemotron_3_5_env}"; then
@@ -1541,6 +1586,17 @@ for _nemotron_3_5_env in \
   fi
 done
 
+# H100 shared-GPU: the LLM gets NIM_GPU_MEM_FRACTION=0.5 while co-located with RT-Embed
+# (search) or RT-VLM (base/LVS), so the INT4 tp1 profile must stay pinned — bf16-tp1
+# needs 66 GB and nvfp4 is Blackwell-only.
+_nemotron_3_5_h100_shared="${REPO_ROOT}/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-H100-shared.env"
+if grep -Fq "NIM_MODEL_PROFILE=2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4" "${_nemotron_3_5_h100_shared}"; then
+  echo "PASS: hw-H100-shared.env pins the Nemotron 3.5 INT4 tp1 profile"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: hw-H100-shared.env does not pin the Nemotron 3.5 INT4 tp1 profile"
+  ((TESTS_FAILED++)) || true
+fi
 
 # DGX-SPARK: for each profile, run dry-run with -H DGX-SPARK and assert sbsa variants (keys from profile overrides.env).
 # DGX-SPARK (and IGX-THOR) are only valid for base and alerts
@@ -1549,8 +1605,19 @@ for _profile in base alerts; do
 done
 
 run_dry_run_up_and_check_generated_env "generated.env LLM slugs and names" "base" \
- -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
-  "LLM_NAME_SLUG" "nemotron-3-nano" "LLM_NAME" "nvidia/nemotron-3-nano"
+ -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+
+# Every edge platform keeps the blueprint default now that all three ship Lightning
+# sizing files; nothing rewrites LLM_NAME away from it. Guards the routing in
+# dev-profile.sh, which previously forced the FP8 build on AGX/IGX Thor.
+for _edge_hw in DGX-SPARK AGX-THOR IGX-THOR; do
+  run_dry_run_up_and_check_generated_env "generated.env ${_edge_hw} defaults to Nemotron 3.5 Lightning" "base" \
+   -i 127.0.0.1 -H "${_edge_hw}" -d -- \
+    "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+    "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+    "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0"
+done
 
 run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM integrated checkpoint" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
@@ -1605,11 +1672,23 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "GF_SECURITY_ADMIN_USER" "''" \
   "VST_CONFIG_PATH" "${REPO_ROOT}/deploy/docker/services/vios/configs"
 mv "${_alerts_overrides_env_backup}" "${_alerts_overrides_env}"
-if grep -Fq 'SDR_CONTROLLER_CONFIG_PATH=${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/sdrc/${MODE}' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"; then
-  echo "PASS: alerts SDR_CONTROLLER_CONFIG_PATH stays with override-layer path/mode values"
+if ! grep -Eq '^(SDR_CONTROLLER_CONFIG_PATH|SDRC_CONTROLLER_HOST_PORT|SDRC_PROXY_HOST_PORT)=' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env" \
+  && ! grep -Eq '(^|,)(sdr-controller|init-dirs|render-config|wdm-env-from-config|wait-for-redis|wait-for-docker-workloads)(,|$)' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env" \
+  && [[ ! -d "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/sdrc" ]]; then
+  echo "PASS: alerts profile has no SDRC compose services, ports, or configs"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: alerts SDR_CONTROLLER_CONFIG_PATH should stay in overrides.env with path/mode values"
+  echo "FAIL: alerts profile should not include SDRC services, ports, or configs"
+  ((TESTS_FAILED++)) || true
+fi
+if grep -Fq '#VST_USE_SDRC=true' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  && grep -Fq '#STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  && grep -Fq '#VST_NGINX_MODE=vst-sdrc' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env" \
+  && ! grep -Eq '^VST_USE_SDRC=true' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env"; then
+  echo "PASS: alerts .env keeps SDRC VST overrides commented (direct VIOS mode)"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alerts .env should comment out SDRC VST overrides for direct VIOS mode"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -1637,7 +1716,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 run_dry_run_up_and_check_generated_env "g
   -i 127.0.0.1 --use-remote-llm --llm my-llm --vlm nvidia/cosmos-reason1-7b --vlm-device-id 1 -d -- \
   "LLM_MODE" "remote" "VLM_MODE" "local"
 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_MODE local when VLM remote (llm_device_id not compared to vlm)" "base" \
-  -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3-nano --llm-device-id 1 -d -- \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3.5-lightning-30b-a3b --llm-device-id 1 -d -- \
   "LLM_MODE" "local" "VLM_MODE" "remote"
 
 run_dry_run_up_and_check_generated_env "generated.env EXTERNAL_IP from -e" "base" \
@@ -1771,9 +1850,9 @@ run_dry_run_up_and_check_generated_env "generated.env relative --llm-env-file fr
 rm -f "${_rel_under_repo}"
 rmdir "${REPO_ROOT}/tests" 2>/dev/null || true
 
-run_dry_run_up_and_check_generated_env "generated.env other LLM model openai/gpt-oss-20b" "base" \
- -i 127.0.0.1 --llm openai/gpt-oss-20b -d -- \
-  "LLM_NAME_SLUG" "gpt-oss-20b" "LLM_NAME" "openai/gpt-oss-20b"
+run_dry_run_up_and_check_generated_env "generated.env other LLM model nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8" "base" \
+ -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
 
 run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason1 maps to RT-VLM path+basename" "base" \
  -i 127.0.0.1 --vlm nvidia/cosmos-reason1-7b -d -- \
@@ -1852,6 +1931,39 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# Alerts stream registration: VIOS webhooks (not Agent rtvi_cv_base_url).
+_alerts_agent_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
+_alerts_overrides="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/overrides.env"
+_alerts_cv_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_cv.json"
+_alerts_vlm_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_2d_vlm.json"
+if [[ -f "${_alerts_agent_config}" ]] \
+  && [[ ! -e "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config-real-time.yml" ]] \
+  && ! grep -q 'rtvi_cv_base_url:' "${_alerts_agent_config}" \
+  && grep -q 'notification_config_${MODE}.json' "${_alerts_overrides}" \
+  && grep -q 'vss-rtvi-cv:9010/api/v1/stream/add' "${_alerts_cv_webhook}" \
+  && grep -q 'vss-alert-bridge:9080/api/v1/realtime/always-on' "${_alerts_vlm_webhook}"; then
+  echo "PASS: alerts uses MODE-selected VIOS webhooks for stream registration"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alerts should use notification_config_\${MODE}.json webhooks (no Agent rtvi_cv_base_url)"
+  ((TESTS_FAILED++)) || true
+fi
+
+# Alert Bridge must render the always-on rules config so its model follows the
+# deployment-selected VLM_NAME instead of a hardcoded model id.
+_alert_compose="${REPO_ROOT}/deploy/docker/services/alert/compose.yml"
+_alerts_realtime_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml"
+if grep -Fq 'ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq '/app/configs/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq '/app/runtime/realtime-config.yml' "${_alert_compose}" \
+  && grep -Fq 'model: "${VLM_NAME}"' "${_alerts_realtime_config}"; then
+  echo "PASS: alert-bridge renders always-on rules with deployment-selected VLM_NAME"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: alert-bridge should render always-on rules with deployment-selected VLM_NAME"
+  ((TESTS_FAILED++)) || true
+fi
+
 # Helm passes bare VST host aliases as well as URL-form endpoints; Docker agent needs the same contract.
 _agent_compose="${REPO_ROOT}/deploy/docker/services/agent/compose.yml"
 if grep -Fq "EXTERNAL_IP:" "${_agent_compose}" && grep -Fq "INTERNAL_IP:" "${_agent_compose}" && grep -Fq "VST_BASE_URL:" "${_agent_compose}"; then
@@ -1915,7 +2027,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
-_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,wait-for-docker-workloads,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,dcgm-exporter,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+_expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,dcgm-exporter,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
 
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \

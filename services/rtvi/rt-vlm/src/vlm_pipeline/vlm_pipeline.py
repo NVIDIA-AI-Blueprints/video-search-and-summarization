@@ -43,6 +43,8 @@ from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
+from .ipc_frame_source import DEFAULT_IPC_SOCKET_DIR, select_ipc_stream_identity
+from .model_path_policy import validate_model_config, validate_model_path_source
 from .ngc_model_downloader import download_model, download_model_git
 from .process_base import (
     ProcessBase,
@@ -65,6 +67,10 @@ BUILTIN_MODEL_CLASSES = {
 # Location to download and cache NGC models
 NGC_MODEL_CACHE = os.environ.get("NGC_MODEL_CACHE") or "/opt/nvidia/rtvi/.rtvi/ngc_model_cache/"
 DEFAULT_DECODE_MAX_ATTEMPTS = 2
+FAST_IMAGE_ASSET_CHUNK_DECODE_ENV = "RTVI_FAST_IMAGE_ASSET_CHUNK_DECODE"
+STRICT_FIXED_FRAME_CHUNK_DECODE_ENV = "RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE"
+VLM_QUEUE_MAXSIZE_ENV = "RTVI_VLM_QUEUE_MAXSIZE"
+IMAGE_ASSET_EXTENSIONS = frozenset((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
 
 
 def _decode_max_attempts() -> int:
@@ -87,6 +93,134 @@ def _reuse_file_decoder_pipeline() -> bool:
         "no",
         "off",
     )
+
+
+def _strict_fixed_frame_chunk_decode_enabled() -> bool:
+    return os.environ.get(STRICT_FIXED_FRAME_CHUNK_DECODE_ENV, "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _vlm_queue_maxsize(num_gpus: int) -> int:
+    default = 128 * num_gpus
+    raw_value = os.environ.get(VLM_QUEUE_MAXSIZE_ENV)
+    if raw_value is None:
+        return default
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; using default %d",
+            VLM_QUEUE_MAXSIZE_ENV,
+            raw_value,
+            default,
+        )
+        return default
+
+
+def _fast_image_asset_chunk_decode_enabled() -> bool:
+    return os.environ.get(FAST_IMAGE_ASSET_CHUNK_DECODE_ENV, "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _split_local_image_asset_paths(chunk_file: str) -> Optional[list[str]]:
+    """Return local image paths represented by a chunk file, or None when ineligible."""
+    if not chunk_file or "://" in chunk_file:
+        return None
+
+    paths = [path for path in chunk_file.split(";") if path]
+    if not paths:
+        return None
+
+    for path in paths:
+        if os.path.splitext(path)[1].lower() not in IMAGE_ASSET_EXTENSIONS:
+            return None
+        if not os.path.isfile(path):
+            return None
+    return paths
+
+
+def _required_file_chunk_frame_count(
+    chunk: ChunkInfo,
+    requested_frame_count: float | int | None,
+    use_fps_for_chunking: bool,
+) -> int:
+    if (
+        not _strict_fixed_frame_chunk_decode_enabled()
+        or use_fps_for_chunking
+        or not requested_frame_count
+        or chunk.chunk_type != "video"
+    ):
+        return 1
+
+    try:
+        requested = int(requested_frame_count)
+    except (TypeError, ValueError):
+        return 1
+
+    if requested <= 1:
+        return 1
+
+    try:
+        from .video_file_frame_getter import DefaultFrameSelector
+
+        if requested == DefaultFrameSelector.ALL_FRAMES:
+            return 1
+    except Exception:
+        pass
+
+    return requested
+
+
+def _try_decode_image_asset_chunk(
+    chunk: ChunkInfo,
+    frame_width: int = 0,
+    frame_height: int = 0,
+    enable_audio: bool = False,
+    enable_jpeg_tensors: bool = False,
+) -> Optional[tuple[torch.Tensor, list[float], list, None]]:
+    """Fast-path uploaded image chunks without constructing a video decoder pipeline."""
+    if (
+        not _fast_image_asset_chunk_decode_enabled()
+        or enable_audio
+        or enable_jpeg_tensors
+        or chunk.chunk_type != "video"
+    ):
+        return None
+
+    image_paths = _split_local_image_asset_paths(chunk.file)
+    if image_paths is None:
+        return None
+
+    try:
+        import numpy as np
+        from PIL import Image
+
+        resampling = getattr(getattr(Image, "Resampling", Image), "BILINEAR")
+        arrays = []
+        for image_path in image_paths:
+            with Image.open(image_path) as image:
+                image = image.convert("RGB")
+                if frame_width and frame_height:
+                    image = image.resize((frame_width, frame_height), resampling)
+                arrays.append(np.asarray(image, dtype=np.uint8).copy())
+        if not arrays:
+            return None
+        frames = torch.from_numpy(np.stack(arrays, axis=0))
+        # Static image assets arrive as one-frame files with PTS 0 in the generic
+        # decoder. Preserve that contract so timestamp prompt behavior stays stable.
+        frame_times = [0.0] * len(arrays)
+        return frames, frame_times, [], None
+    except Exception:
+        logger.warning("Fast image asset chunk decode failed for %s", chunk, exc_info=True)
+        return None
 
 
 class VlmModelType(Enum):
@@ -185,6 +319,10 @@ class VlmRequestParams:
             config_kwargs["mm_processor_kwargs"] = vlm_query.mm_processor_kwargs
         if hasattr(vlm_query, "media_io_kwargs") and vlm_query.media_io_kwargs:
             config_kwargs["media_io_kwargs"] = vlm_query.media_io_kwargs
+        if vlm_query.response_format:
+            config_kwargs["response_format"] = vlm_query.response_format.model_dump(
+                by_alias=True, exclude_none=True
+            )
 
         # Create VlmGenerationConfig instance with provided values
         params.vlm_generation_config = VlmGenerationConfig(**config_kwargs)
@@ -233,6 +371,11 @@ class DecoderProcess(ProcessBase):
         self._max_live_streams = max(1, -(-args.max_live_streams // args.num_gpus))
         self._enable_audio = args.enable_audio
         self._use_fps_for_chunking = args.use_fps_for_chunking or False
+        self._ipc_frame_copy = getattr(args, "ipc_frame_copy", False)
+        self._ipc_socket_dir = getattr(args, "ipc_socket_dir", DEFAULT_IPC_SOCKET_DIR)
+        self._ipc_socket_template = getattr(
+            args, "ipc_socket_template", "nvds_ipc_{camera_id}.sock"
+        )
 
     def _initialize(self):
         from .video_file_frame_getter import DefaultFrameSelector, VideoFileFrameGetter
@@ -325,7 +468,7 @@ class DecoderProcess(ProcessBase):
         # transport is full, stage a host copy here and let one dispatcher wait
         # for the multiprocessing queue. The unsaturated CUDA-IPC path remains
         # direct.
-        self._live_output_handoff_queue = queue.Queue()
+        self._live_output_handoff_queue = queue.Queue(maxsize=self._num_decoders_per_gpu)
         self._live_output_handoff_pending = 0
         self._live_output_handoff_lock = Lock()
         self._dropped_live_handoff_stream_ids = set()
@@ -362,21 +505,15 @@ class DecoderProcess(ProcessBase):
                 self._live_output_handoff_pending -= 1
             self._live_output_handoff_queue.task_done()
             if not delivered:
+                # Preserve the completion count used by drain/EOS without
+                # retaining or forwarding frames from a deleted stream.
+                self._final_output_queue.put(
+                    {key: value for key, value in item.items() if key != "frames"}
+                )
                 del item
 
     def _enqueue_live_output(self, item, raw_transport_slots):
         """Enqueue without blocking a live callback that owns CUDA frames."""
-        if _contains_cuda_tensor(item.get("frames")) and (
-            self._output_queue.qsize() >= raw_transport_slots
-            or self._live_output_handoff_pending > 0
-        ):
-            item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
-            logger.debug(
-                "Spilled live decoded CUDA frames to CPU while the "
-                "%d-slot CUDA transport window was full",
-                raw_transport_slots,
-            )
-
         with self._live_output_handoff_lock:
             must_stage = self._live_output_handoff_pending > 0
             if not must_stage:
@@ -385,16 +522,32 @@ class DecoderProcess(ProcessBase):
                     return
                 except queue.Full:
                     pass
+            if self._live_output_handoff_pending >= raw_transport_slots:
+                item.pop("frames", None)
+                item["error"] = "Live decoder backlog exceeded the bounded decoder-to-VLM transport"
+                item["error_status_code"] = 503
+                self._final_output_queue.put(item)
+                logger.warning(
+                    "Dropped a live decoded chunk because the %d-slot host "
+                    "handoff queue was full",
+                    raw_transport_slots,
+                )
+                return
             self._live_output_handoff_pending += 1
 
-        if _contains_cuda_tensor(item.get("frames")):
-            item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
-            logger.debug(
-                "Spilled live decoded CUDA frames to CPU while the "
-                "%d-slot CUDA transport window was full",
-                raw_transport_slots,
-            )
-        self._live_output_handoff_queue.put(item)
+        try:
+            if _contains_cuda_tensor(item.get("frames")):
+                item["frames"] = _spill_cuda_frames_to_cpu(item["frames"])
+                logger.debug(
+                    "Spilled live decoded CUDA frames to CPU while the "
+                    "%d-slot CUDA transport window was full",
+                    raw_transport_slots,
+                )
+            self._live_output_handoff_queue.put(item)
+        except Exception:
+            with self._live_output_handoff_lock:
+                self._live_output_handoff_pending -= 1
+            raise
 
     def _warmup(self):
         chunk = ChunkInfo()
@@ -450,9 +603,65 @@ class DecoderProcess(ProcessBase):
                 use_fps_for_chunking=self._use_fps_for_chunking,
             )
 
+        min_required_frames = _required_file_chunk_frame_count(
+            chunk,
+            num_frames_per_second_or_fixed_frames_chunk or self._nfrms,
+            (
+                use_fps_for_chunking
+                if num_frames_per_second_or_fixed_frames_chunk
+                else self._use_fps_for_chunking
+            ),
+        )
+
         enable_audio = vlm_query.enable_audio
         vlm_input_width = vlm_query.vlm_input_width
         vlm_input_height = vlm_query.vlm_input_height
+
+        fast_decoded = _try_decode_image_asset_chunk(
+            chunk,
+            frame_width=vlm_input_width or self._width,
+            frame_height=vlm_input_height or self._height,
+            enable_audio=enable_audio,
+            enable_jpeg_tensors=self._enable_jpeg_tensors,
+        )
+        if fast_decoded is not None:
+            frames, frame_times, audio_frames, error = fast_decoded
+            if len(frames) < min_required_frames:
+                nvtx.end_range(nvtx_decode_start)
+                self._fgetters.append(fgetter)
+                return {
+                    "chunk": chunk,
+                    "error": (
+                        f"Decode error: decoded {len(frames)} frame(s), "
+                        f"required at least {min_required_frames}"
+                    ),
+                    "error_status_code": 500,
+                    "decode_retry_count": 0,
+                    **kwargs,
+                }
+            nvtx.end_range(nvtx_decode_start)
+            self._fgetters.append(fgetter)
+            decode_end_time = time.time()
+            logger.log(
+                LOG_STATUS_LEVEL,
+                "Chunk (%s) decoded via fast image asset path, frames=%d",
+                chunk,
+                len(frames),
+            )
+            return {
+                "chunk": chunk,
+                "frames": frames,
+                "error": error,
+                "error_status_code": 500,
+                "frame_times": frame_times,
+                "audio_frames": audio_frames,
+                "audio_transcript": [],
+                "decode_start_time": decode_start_time,
+                "decode_end_time": decode_end_time,
+                "decode_retry_count": 0,
+                "is_live_stream": False,
+                **kwargs,
+            }
 
         frames = []
         frame_times = []
@@ -481,7 +690,7 @@ class DecoderProcess(ProcessBase):
                 audio_frames = []
                 break
             decoded_frame_count = len(frames)
-            if not error and decoded_frame_count >= self._minframes:
+            if not error and decoded_frame_count >= min_required_frames:
                 break
             if is_cuda_oom_error(error):
                 error_status_code = CUDA_OOM_STATUS_CODE
@@ -489,7 +698,7 @@ class DecoderProcess(ProcessBase):
             if not error:
                 error = (
                     f"decoded {decoded_frame_count} frame(s), "
-                    f"required at least {self._minframes}"
+                    f"required at least {min_required_frames}"
                 )
             if attempt + 1 >= decode_max_attempts:
                 break
@@ -553,7 +762,7 @@ class DecoderProcess(ProcessBase):
 
         error_msg = f"Decode error: {error}" if error else None
 
-        if len(frames) >= self._minframes:
+        if not error_msg and len(frames) >= min_required_frames:
             return {
                 "chunk": chunk,
                 "frames": frames,
@@ -861,6 +1070,11 @@ class DecoderProcess(ProcessBase):
         use_vlm_audio = vlm_query.enable_audio and vlm_supports_audio
 
         logger.debug(f"Pipeline for live stream starting up: {asset.asset_id}")
+        live_stream_identity = select_ipc_stream_identity(
+            asset.camera_id,
+            asset.sensor_name,
+            asset.asset_id,
+        )
         fgetter.stream(
             live_stream_url=asset.path,
             chunk_duration=vlm_query.chunk_duration,
@@ -868,6 +1082,10 @@ class DecoderProcess(ProcessBase):
             username=asset.username,
             password=asset.password,
             live_stream_id=asset.asset_id,
+            live_stream_identity=live_stream_identity,
+            ipc_frame_copy_enabled=self._ipc_frame_copy,
+            ipc_socket_dir=self._ipc_socket_dir,
+            ipc_socket_template=self._ipc_socket_template,
             on_chunk_decoded=(
                 lambda chunk, frames, frame_times, transcripts, error, decode_start_time, decode_end_time, audio_frames, live_stream_id=asset.asset_id, kwargs=kwargs: on_chunk_decoded(  # noqa: E501
                     chunk,
@@ -997,6 +1215,22 @@ class VlmProcess(ProcessBase):
                     kwargs["stream_id"],
                 )
                 return 0
+        if command == "release-idle-resources":
+            if not hasattr(self._model, "release_idle_resources"):
+                return False
+            try:
+                return bool(
+                    self._model.release_idle_resources(
+                        wait_timeout_sec=kwargs.get("wait_timeout_sec", 0.0)
+                    )
+                )
+            except Exception as ex:
+                logger.error(
+                    "Failed to release idle VLM resources: %s",
+                    ex,
+                    exc_info=True,
+                )
+                return False
 
     def _deinitialize(self):
         self._model = None
@@ -1535,6 +1769,7 @@ class VlmPipeline:
         end_of_stream: bool = False
         total_chunks_at_eos: int = 0
         all_chunks_processed: bool = False
+        abort_requested: bool = False
         gpu_id: int = -1
         decode_signature: tuple = field(default_factory=tuple)
 
@@ -1569,10 +1804,9 @@ class VlmPipeline:
         logger.info(f"Have peer access: {have_peer_access}")
 
         if have_peer_access:
-            # Match the Python pipeline's global 128-request transport queue.
-            # CUDA-IPC producers independently keep only one decoder-window of
-            # queued chunks on device and spill the rest to host memory.
-            self._vlm_q = mp_ctx.Queue(maxsize=(128 * self._args.num_gpus))
+            vlm_queue_maxsize = _vlm_queue_maxsize(self._args.num_gpus)
+            logger.info("VLM queue maxsize set to %d", vlm_queue_maxsize)
+            self._vlm_q = mp_ctx.Queue(maxsize=vlm_queue_maxsize)
             self._vlm_q_lock = mp_ctx.Lock()
         else:
             self._vlm_q = None
@@ -1603,6 +1837,10 @@ class VlmPipeline:
         if args.vlm_model_type == VlmModelType.CUSTOM and not args.model_implementation_path:
             raise Exception("model-implementation-path not provided")
 
+        model_source = args.model_path
+        if model_source:
+            validate_model_path_source(model_source)
+
         if args.model_path and args.model_path.startswith("ngc:"):
             # NGC model path provided, download the model if not found in cache
 
@@ -1629,6 +1867,8 @@ class VlmPipeline:
             args.model_path = model_path_[0]
         if args.model_path and args.model_path.startswith("git:"):
             args.model_path = download_model_git(args.model_path[4:], NGC_MODEL_CACHE)
+        if args.model_path:
+            validate_model_config(args.model_path, model_source=model_source)
         if args.model_path and args.model_repository_script_path:
             logger.info(f"Running model repository script: {args.model_repository_script_path}")
             subprocess.run(
@@ -1810,9 +2050,9 @@ class VlmPipeline:
                     lsinfo.total_chunks_at_eos = item["total_chunks"]
 
                     for subscriber in lsinfo.subscribers.values():
-                        if (
-                            not subscriber.all_chunks_processed
-                            and subscriber.num_chunks_processed
+                        if not subscriber.all_chunks_processed and (
+                            lsinfo.abort_requested
+                            or subscriber.num_chunks_processed
                             >= self._subscriber_expected_chunks_at_eos(
                                 subscriber,
                                 lsinfo.total_chunks_at_eos,
@@ -1962,6 +2202,26 @@ class VlmPipeline:
                 proc.send_command("close-evs-session", stream_id=stream_id)
             except Exception:
                 logger.debug("Failed to close EVS session for stream %s", stream_id, exc_info=True)
+
+    def release_idle_vlm_resources(self, wait_timeout_sec: float = 0.0) -> bool:
+        """Ask every VLM process to release caches while the pipeline is idle."""
+        released = bool(self._vlm_procs)
+        for proc in self._vlm_procs:
+            try:
+                proc_released = bool(
+                    proc.send_command(
+                        "release-idle-resources",
+                        wait_timeout_sec=wait_timeout_sec,
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Idle VLM resource release command failed for one process",
+                    exc_info=True,
+                )
+                proc_released = False
+            released = proc_released and released
+        return released
 
     def abort_chunks(self, stream_id: str):
         for proc in self._decoder_procs + self._vlm_procs + self._asr_procs:
@@ -2290,8 +2550,12 @@ class VlmPipeline:
         if live_stream_lock:
             with live_stream_lock:
                 lsinfo = self._live_stream_id_map.get(live_stream_id)
+                if lsinfo and abort_inflight:
+                    lsinfo.abort_requested = True
         else:
             lsinfo = self._live_stream_id_map.get(live_stream_id)
+            if lsinfo and abort_inflight:
+                lsinfo.abort_requested = True
         if not lsinfo:
             return None
 
@@ -2506,6 +2770,24 @@ class VlmPipeline:
             action="store_true",
             default=False,
             help="Use FPS for chunking",
+        )
+        parser.add_argument(
+            "--ipc-frame-copy",
+            action="store_true",
+            default=False,
+            help="Consume live RTSP frames from CV-published nvunixfd IPC sockets",
+        )
+        parser.add_argument(
+            "--ipc-socket-dir",
+            type=str,
+            default=DEFAULT_IPC_SOCKET_DIR,
+            help="Directory containing nvunixfd IPC sockets for live streams",
+        )
+        parser.add_argument(
+            "--ipc-socket-template",
+            type=str,
+            default="nvds_ipc_{camera_id}.sock",
+            help="Socket filename template; must include {camera_id}, {sensor_id}, or {stream_id}.",
         )
 
 

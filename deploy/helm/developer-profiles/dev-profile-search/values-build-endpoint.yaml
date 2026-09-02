@@ -59,7 +59,7 @@ global:
 # Disable local NIM deployments
 nims:
   enabled: false
-  nemotron:
+  nemotron35:
     enabled: false
   cosmos3:
     enabled: false
@@ -67,12 +67,12 @@ nims:
 # Point agent LLM / eval to hosted endpoint. VLM stays on in-cluster vss-rtvi-vlm (VLM_MODEL_TYPE=rtvi).
 agent:
   vss-agent:
-    llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+    llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
     llmBaseUrl: "https://integrate.api.nvidia.com"
     # Placeholder — override with the model id your own VLM endpoint serves. Must
     # match global.vlmName, which is what rtvi-vlm forwards to that endpoint.
     vlmName: "nvidia/cosmos3-nano-reasoner"
-    evalLlmJudgeName: "nvidia/nvidia-nemotron-nano-9b-v2"
+    evalLlmJudgeName: "nvidia/nemotron-3.5-lightning-30b-a3b"
     evalLlmJudgeBaseUrl: "https://integrate.api.nvidia.com"
 
 # Route remote VLM through vss-rtvi-vlm (same pattern as dev-profile-lvs remote VLM).

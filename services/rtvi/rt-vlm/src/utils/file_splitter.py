@@ -130,30 +130,20 @@ class FileSplitter:
                 # "seek" mode. File is not actually split.
                 # Chunks are generated with start/end time in the original file.
 
-                if self._stream.find(";") != -1:
-                    # This is a list of image files
+                if self._stream.find(";") != -1 or (
+                    media_file_info is not None and media_file_info.is_image
+                ):
                     info = ChunkInfo()
                     info.chunkIdx = 0
                     info.file = self._stream
                     info.pts_offset_ns = 0
-                    info.start_pts = 0
-                    info.end_pts = 0
+                    info.start_pts = max(self._start_pts or 0, 0)
+                    info.end_pts = max(self._end_pts or info.start_pts, info.start_pts)
                     info.start_ntp = get_timestamp_str(self._base_ntp_time + info.start_pts / 1e9)
                     info.end_ntp = get_timestamp_str(self._base_ntp_time + info.end_pts / 1e9)
                     info.is_first = True
                     self._on_new_chunk(info)
-                    return
-                elif media_file_info.is_image:
-                    info = ChunkInfo()
-                    info.chunkIdx = 0
-                    info.file = self._stream
-                    info.pts_offset_ns = 0
-                    info.start_pts = 0
-                    info.end_pts = 0
-                    info.start_ntp = get_timestamp_str(self._base_ntp_time + info.start_pts / 1e9)
-                    info.end_ntp = get_timestamp_str(self._base_ntp_time + info.end_pts / 1e9)
-                    info.is_first = True
-                    self._on_new_chunk(info)
+                    self._on_new_chunk(None)
                     return
 
                 # Calculate the start / end times for chunking

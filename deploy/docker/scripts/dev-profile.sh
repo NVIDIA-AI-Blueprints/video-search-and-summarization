@@ -34,6 +34,9 @@ ngc_cli_api_key="${NGC_CLI_API_KEY:-}"
 nvidia_api_key="${NVIDIA_API_KEY:-}"
 openai_api_key="${OPENAI_API_KEY:-}"
 dry_run="false"
+# Build the VIOS runtime-media packages into a local image instead of installing
+# them on every container start. Env var so CI can set it without a flag.
+prebake_vios_packages="${VSS_VIOS_PREBAKE_PACKAGES:-false}"
 
 # NIM-related defaults
 # LLM configuration
@@ -106,6 +109,7 @@ function host_has_detected_hardware_profile() {
   done < <(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)
   return 1
 }
+
 # Maps requested hardware_profile (CLI/env) to the same canonical type used by get_detected_hardware_profile.
 # AGX-THOR and IGX-THOR both map to THOR; all other profiles map to themselves.
 function get_canonical_hardware_profile() {
@@ -129,12 +133,21 @@ function get_canonical_display_name() {
 function get_llm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
-    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
-    nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
     nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
-    nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
-    openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
+    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Models that used to ship with the blueprint. Returns a migration message for a
+# removed model name, or an empty string for a name that was never bundled. Kept
+# so a stale --llm fails loudly instead of resolving to an empty slug, which
+# Compose renders as zero LLM services with exit 0 (a silent no-LLM deploy).
+function get_removed_llm_message() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, the default on every hardware profile." ;;
     *) echo "" ;;
   esac
 }
@@ -227,6 +240,40 @@ function set_alerts_ui_subtitle_from_mode() {
       echo "[INFO] Set NEXT_PUBLIC_APP_SUBTITLE for alerts (MODE=2d_vlm → Vision (Alerts - VLM))"
       ;;
   esac
+}
+
+# Expose the Manage Alerts editors for the selected pipeline.
+# generated.env overrides the stable .env when --mode real-time is selected
+# (CV verification off). Verification mode keeps both editors.
+function set_alerts_ui_rule_kinds_from_mode() {
+  local _generated_env="${1}"
+  local _mode _realtime _verification
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_cv)
+      _realtime=true
+      _verification=true
+      ;;
+    2d_vlm)
+      _realtime=true
+      _verification=false
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  for _entry in \
+    "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=${_realtime}" \
+    "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=${_verification}"; do
+    local _name="${_entry%%=*}"
+    if grep -q "^${_name}=" "${_generated_env}"; then
+      sed -i "s|^${_name}=.*|${_entry}|" "${_generated_env}"
+    else
+      printf '%s\n' "${_entry}" >> "${_generated_env}"
+    fi
+  done
+  echo "[INFO] Set Alerts Manage tabs for MODE=${_mode} (real-time=${_realtime}, CV verification=${_verification})"
 }
 
 # Alerts RT-VLM Kafka publishing: overrides.env disables it for verification
@@ -527,16 +574,15 @@ function usage() {
   echo ""
   echo "  --llm                            LLM model name."
   echo "                                   • One of (local):"
-  echo "                                     - nvidia/nvidia-nemotron-nano-9b-v2"
-  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-  echo "                                     - nvidia/nemotron-3-nano"
-  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b"
-  echo "                                     - nvidia/llama-3.3-nemotron-super-49b-v1.5"
-  echo "                                     - openai/gpt-oss-20b"
+  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b (default)"
+  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 (edge: DGX-SPARK / AGX-THOR / IGX-THOR)"
   echo "                                   • When --use-remote-llm is passed, any model name can be passed"
   echo "  --llm-device-id                  LLM device ID."
   echo "                                   • Not allowed when --use-remote-llm is passed"
   echo "                                   • DGX-SPARK, IGX-THOR, AGX-THOR: not accepted"
+  echo "  --prebake-vios-packages          Build the VIOS runtime-media packages into a local image instead of"
+  echo "                                   installing them on every container start. Cuts the VIOS start from"
+  echo "                                   ~100 s to ~0.1 s. The image is built locally and never pushed."
   echo "  --use-remote-llm                 Use remote LLM; requires LLM_ENDPOINT_URL on the host (both are required together)."
   echo "  --llm-model-type                 LLM backend type when --use-remote-llm is passed: nim or openai."
   echo "  --llm-env-file                   Path to LLM env file. Absolute or relative to CWD."
@@ -672,6 +718,11 @@ function process_args() {
         shift
         vlm_device_id="${1}"
         options_provided+=("vlm-device-id")
+        shift
+        ;;
+      --prebake-vios-packages)
+        prebake_vios_packages="true"
+        options_provided+=("prebake-vios-packages")
         shift
         ;;
       --use-remote-llm)
@@ -1050,8 +1101,25 @@ function process_args() {
         # Validate LLM model name if provided (only for non-remote modes; known names map to a slug)
         if contains_element "llm" "${options_provided[@]}"; then
           if [[ -z "$(get_llm_slug "${llm}")" ]]; then
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nvidia-nemotron-nano-9b-v2, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8, nvidia/nemotron-3-nano, nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/llama-3.3-nemotron-super-49b-v1.5, openai/gpt-oss-20b"
+            _removed_llm="$(get_removed_llm_message "${llm}")"
+            if [[ -n "${_removed_llm}" ]]; then
+              echo "[ERROR] ${_removed_llm}"
+            else
+              echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+            fi
             ((_all_good++))
+          else
+            # A valid model id still needs sizing for the selected hardware and
+            # mode; without it compose fails later on a missing env_file. The
+            # implicit path is covered by the edge auto-selection below, but an
+            # explicit --llm bypasses that, so check the resolved file here.
+            _hw_suffix=""
+            [[ "${llm_mode}" == "local_shared" ]] && _hw_suffix="-shared"
+            _hw_env="${deployment_directory}/services/nim/$(get_llm_slug "${llm}")/hw-${hardware_profile}${_hw_suffix}.env"
+            if [[ ! -f "${_hw_env}" ]]; then
+              echo "[ERROR] ${llm} has no sizing for ${hardware_profile} in ${llm_mode} mode ($(basename "${_hw_env}") not found). Choose a model that supports this hardware, or pass --use-remote-llm."
+              ((_all_good++))
+            fi
           fi
         fi
         if contains_element "llm-model-type" "${options_provided[@]}"; then
@@ -1349,10 +1417,15 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    set_alerts_ui_rule_kinds_from_mode "${_generated_env}"
     set_alerts_rtvi_vlm_kafka_from_mode "${_generated_env}"
-    # Alerts VLM mode uses a different explicit service list than CV mode.
-    if [[ "${mode_env}" == "2d_vlm" ]]; then
+    # Real-time: VLM service list + always-on gate. Verification keeps overrides defaults
+    # (COMPOSE_PROFILES_CV, ALERT_AGENT_ALWAYS_ON=false).
+    if [[ "$(get_env_value "${_generated_env}" "MODE")" == "2d_vlm" ]]; then
       set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "true"
+    else
+      set_env_var "ALERT_AGENT_ALWAYS_ON" "false"
     fi
   fi
 
@@ -1379,6 +1452,9 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
+    # Every edge platform now ships Lightning sizing files, so none of them needs
+    # the LLM rewritten away from the blueprint default. The FP8 build stays
+    # reachable through an explicit --llm.
   else
     if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"
@@ -1575,7 +1651,7 @@ function state_up() {
       sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
       # Uncomment the commented line for this key when value contains sbsa
       sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (DGX-SPARK): ${_key}"
+      echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
   # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
@@ -1584,7 +1660,6 @@ function state_up() {
     set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
     echo "[INFO] Selected SBSA RT-VLM image for GB300"
   fi
-
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 
@@ -1652,12 +1727,21 @@ function state_up() {
   # shellcheck disable=SC1091
   source "${deployment_directory}/containers.env"
   set +a
+  # -f disables Compose's default file discovery, so the base file must be named
+  # explicitly alongside any overlay.
+  local compose_files=(-f compose.yml)
+  if [[ "${prebake_vios_packages}" == "true" ]]; then
+    compose_files+=(-f services/vios/streamprocessing/docker-compose.prebaked.yaml)
+    echo "[INFO] Prebaking VIOS runtime-media packages into a local image."
+  fi
+
   echo "[INFO] Managed container registry: ${VSS_CONTAINER_REGISTRY}"
   echo "[INFO] Managed container tag:      ${VSS_CONTAINER_TAG}"
   echo "[INFO] Resolved compose images:"
   (
     cd "${deployment_directory}"
     docker compose \
+      "${compose_files[@]}" \
       --env-file containers.env \
       --env-file "developer-profiles/dev-profile-${profile}/.env" \
       --env-file "developer-profiles/dev-profile-${profile}/generated.env" \
@@ -1678,10 +1762,11 @@ function state_up() {
   # Docker compose up
   echo "[INFO] Starting docker compose..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] cd ${deployment_directory} && docker compose --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose ${compose_files[*]} --env-file containers.env --env-file developer-profiles/dev-profile-${profile}/.env --env-file developer-profiles/dev-profile-${profile}/generated.env up --detach --pull always --force-recreate --build"
   else
     if ! (
       cd "${deployment_directory}" && docker compose \
+        "${compose_files[@]}" \
         --env-file containers.env \
         --env-file "developer-profiles/dev-profile-${profile}/.env" \
         --env-file "developer-profiles/dev-profile-${profile}/generated.env" \

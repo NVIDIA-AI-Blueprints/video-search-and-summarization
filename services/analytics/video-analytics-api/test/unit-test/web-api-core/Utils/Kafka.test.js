@@ -19,6 +19,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const Kafka = require('../../../../src/web-api-core/Utils/Kafka.js');
 const MessageBroker = require('../../../../src/web-api-core/Utils/MessageBroker.js');
+const Utils = require('../../../../src/web-api-core/Utils/Utils.js');
 
 describe('Kafka', () => {
 
@@ -94,6 +95,25 @@ describe('Kafka', () => {
         it('should return undefined for unknown topic pattern type', () => {
             const pattern = Kafka.getTopicPattern('unknown');
             expect(pattern).to.be.undefined;
+        });
+    });
+
+    describe('waitForTopics', () => {
+        it('should wait until every explicitly configured topic is present', async () => {
+            const sleepStub = sinon.stub(Utils, 'sleep').resolves();
+            const adminClient = {
+                listTopics: sinon.stub()
+                    .onFirstCall().resolves(['mdx-notification'])
+                    .onSecondCall().resolves(['mdx-notification', 'mdx-amr', 'mdx-rtls'])
+            };
+
+            try {
+                await Kafka.waitForTopics(adminClient, { retryIntervalMs: 0 });
+                expect(adminClient.listTopics.callCount).to.equal(2);
+                expect(sleepStub.calledOnceWith(0)).to.be.true;
+            } finally {
+                sleepStub.restore();
+            }
         });
     });
 

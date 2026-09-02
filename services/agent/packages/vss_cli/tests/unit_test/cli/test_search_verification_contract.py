@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
-SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "vss-search-archive"
-ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "vss-ask-video"
+SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
+ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-ask-video"
 SEARCH_ADAPTER = REPOSITORY_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
 
 
@@ -360,7 +360,7 @@ vss_stub() {{
   esac
 }}
 VSS=(vss_stub)
-AGENT_URL=https://public.example
+VSS_ORIGIN=https://public.example
 ES_URL=http://elasticsearch:9200
 SAVED_SENSOR_ID=sensor-1
 SAVED_SOURCE_NAME=warehouse-ladder
@@ -383,9 +383,9 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
             "--skill-dir",
             str(SEARCH_SKILL),
             "--deploy-skill-dir",
-            str(REPOSITORY_ROOT / "skills/vss-deploy-profile"),
+            str(REPOSITORY_ROOT / "skills/deployment/vss-deploy-profile"),
             "--video-io-skill-dir",
-            str(REPOSITORY_ROOT / "skills/vss-manage-video-io-storage"),
+            str(REPOSITORY_ROOT / "skills/operations/vss-manage-video-io-storage"),
             "--ask-video-skill-dir",
             str(ASK_VIDEO_SKILL),
             "--spec",

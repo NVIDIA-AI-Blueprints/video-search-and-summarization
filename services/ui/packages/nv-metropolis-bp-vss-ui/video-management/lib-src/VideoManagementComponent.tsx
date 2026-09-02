@@ -14,7 +14,7 @@ import {
   type UploadFileConfigTemplate,
   type UploadResultItem,
 } from '@nemo-agent-toolkit/ui';
-import { chunkedUpload, notifyUploadComplete } from './chunkedUpload';
+import { chunkedUpload } from './chunkedUpload';
 import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';
 import { deleteVideo } from './videoDelete';
@@ -40,7 +40,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   registerChatVideoUploadComplete,
 }) => {
   const vstApiUrl = videoManagementData?.vstApiUrl;
-  const agentApiUrl = videoManagementData?.agentApiUrl;
   const chatUploadFileConfigTemplateJson = videoManagementData?.chatUploadFileConfigTemplateJson;
   const enableAddRtspButton = videoManagementData?.enableAddRtspButton ?? true;
   const enableVideoUpload = videoManagementData?.enableVideoUpload ?? true;
@@ -112,7 +111,12 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [enableVideoUpload]);
 
   const { streams, isLoading, error, refetch, waitUntilStreamsRemoved } = useStreams({ vstApiUrl });
-  const { getEndTimeForStream, getLastTimelineForStream, refetch: refetchTimelines } = useStorageTimelines({ vstApiUrl });
+  const {
+    getEndTimeForStream,
+    getTimelineRangeForStream,
+    getLastTimelineForStream,
+    refetch: refetchTimelines,
+  } = useStorageTimelines({ vstApiUrl });
   const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl ?? undefined);
 
   const filteredStreams = useMemo(
@@ -165,7 +169,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     const isSessionValid = () => uploadSessionIdRef.current === currentSessionId;
 
     const uploadSingleFile = async (entry: { id: string; file: File; uploadFilename?: string; formData?: Record<string, any> }): Promise<void> => {
-      const { id, file, uploadFilename, formData } = entry;
+      const { id, file, uploadFilename } = entry;
       const requestFilename = resolveFilename(file, uploadFilename);
 
       if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
@@ -181,12 +185,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         if (!vstApiUrl) {
           throw new Error('VST API URL not configured');
         }
-        if (!agentApiUrl) {
-          throw new Error('Agent API URL not configured');
-        }
-
         const uploadEndpoints = createApiEndpoints(vstApiUrl);
-        const videoUploadApiResponse = await chunkedUpload({
+        await chunkedUpload({
           file,
           fileName: requestFilename,
           uploadUrl: uploadEndpoints.UPLOAD_FILE,
@@ -203,14 +203,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         setUploadProgress((prev) =>
           prev.map((p) => (p.id === id && p.status === 'uploading' ? { ...p, status: 'processing', progress: 100 } : p))
-        );
-
-        await notifyUploadComplete(
-          agentApiUrl,
-          requestFilename,
-          videoUploadApiResponse,
-          formData,
-          abortController.signal,
         );
 
         if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
@@ -263,7 +255,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     setIsUploading(false);
     await Promise.all([refetchRef.current(), refetchTimelinesRef.current()]);
-  }, [vstApiUrl, agentApiUrl, resolveFilename]);
+  }, [vstApiUrl, resolveFilename]);
 
   const handleFilesSelected = useCallback((files: File[]) => {
     if (files.length === 0 || isDialogOpenRef.current) return;
@@ -494,7 +486,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     [streams, selectedStreams]
   );
 
-  // Sensors the agent already accepted a delete for, still listed by VST. This
+  // Sensors VST already accepted a delete for, but still lists. This
   // tracks backend state, not dialog state: any later attempt on these must only
   // resume polling, since re-sending the destructive request would either fail
   // against an already-deleted sensor or hit a resource recreated under the same
@@ -502,7 +494,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const acceptedDeletesRef = useRef<Set<string>>(new Set());
 
   // An acknowledgement only describes the backend that issued it. Once the tab points at
-  // a different VST/agent, a sensor id reused over there has not been deleted, so keeping
+  // a different VST, a sensor id reused over there has not been deleted, so keeping
   // the entry would skip the new backend's delete call and poll until timeout instead.
   // The counter lets a delete already in flight recognise that its result arrived too
   // late to be recorded, which clearing alone cannot prevent.
@@ -511,11 +503,11 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   useEffect(() => {
     backendSessionRef.current += 1;
     acceptedDeletesRef.current.clear();
-  }, [vstApiUrl, agentApiUrl]);
+  }, [vstApiUrl]);
 
   // Once VST stops listing a sensor the delete is fully settled, so drop it here.
   // Without this, a stream later recreated under the same sensor id could never be
-  // deleted — every attempt would skip the agent call and just poll forever.
+  // deleted — every attempt would skip the VST call and just poll forever.
   useEffect(() => {
     if (acceptedDeletesRef.current.size === 0) return;
     const listed = new Set(streams.map((s) => s.sensorId));
@@ -574,20 +566,28 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         const sensorStreams = sensorToStreams.get(sensorId) || [];
         const firstStream = sensorStreams[0];
 
-        // Check if this is an RTSP stream - must use agent API (by sensor name)
+        if (!vstApiUrl) {
+          throw new Error('VST API URL not configured for deletion');
+        }
+
+        // RTSP streams have no uploaded-file storage to remove.
         if (firstStream && isRtspStream(firstStream)) {
-          if (!agentApiUrl) {
-            throw new Error('Agent API URL not configured for RTSP stream deletion');
-          }
-          await deleteRtspStream(agentApiUrl, firstStream.name);
+          await deleteRtspStream(vstApiUrl, sensorId);
           return sensorId;
         }
 
-        // Uploaded videos: use agent delete video API only (same as RTSP - no VST fallback)
-        if (!agentApiUrl) {
-          throw new Error('Agent API URL not configured for video deletion');
+        const timelineRange = sensorStreams
+          .map((stream) => getTimelineRangeForStream(stream.streamId))
+          .find((range) => range !== null);
+        if (!timelineRange) {
+          throw new Error(`No storage timeline found for ${firstStream?.name || sensorId}`);
         }
-        await deleteVideo(agentApiUrl, sensorId);
+        await deleteVideo(
+          vstApiUrl,
+          sensorId,
+          timelineRange.startTime,
+          timelineRange.endTime,
+        );
         return sensorId;
       });
 
@@ -624,7 +624,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
       deletedSensorIds.forEach((sensorId) => acceptedDeletesRef.current.add(sensorId));
 
-      // Agent accepted the delete — wait until VST's streams list agrees before
+      // VST accepted the delete — wait until its streams list agrees before
       // claiming success. Closing early is what left RTSP entries stale in the grid.
       const { remainingSensorIds } = await waitUntilStreamsRemoved(deletedSensorIds);
       if (!isSameBackend()) return;
@@ -661,7 +661,15 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedStreams, streams, isDeleting, agentApiUrl, waitUntilStreamsRemoved, refetchTimelines]);
+  }, [
+    selectedStreams,
+    streams,
+    isDeleting,
+    vstApiUrl,
+    getTimelineRangeForStream,
+    waitUntilStreamsRemoved,
+    refetchTimelines,
+  ]);
 
   const controlsComponent = useMemo(
     () => (
@@ -777,7 +785,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         <AddRtspDialog
           overlay="contained"
           isOpen={isRtspModalOpen}
-          agentApiUrl={agentApiUrl}
+          vstApiUrl={vstApiUrl}
           onClose={handleRtspDialogClose}
           onSuccess={handleRtspSuccess}
         />

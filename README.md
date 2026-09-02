@@ -74,7 +74,7 @@ This blueprint is designed for ease of setup with extensive configuration option
 | `tools/sdg-postprocessing/` | Dataset post-processing utilities for synthetic data generation workflows: semantic labeling helpers, raw data sanity checks, RGB/depth/video conversion, and ground-truth conversion for MTMC-compatible datasets. See [tools/sdg-postprocessing/README.md](tools/sdg-postprocessing/README.md). |
 | `tools/rtvi-cv-mv3dt-utils/` | Offline utilities for generating MV3DT RTVI-CV configuration artifacts, including per-camera `camInfo` projection configs and MQTT publish/subscribe topology files for warehouse MV3DT deployments. See [tools/rtvi-cv-mv3dt-utils/README.md](tools/rtvi-cv-mv3dt-utils/README.md). |
 | `tools/logstash-plugins/` | Custom Logstash plugins for the ELK ingest pipeline. Includes `input/redis-stream/` (`logstash-input-redis_stream`), a Java input plugin that reads from Redis Streams via consumer groups (`XREADGROUP`) with optional Protocol Buffer decoding. See [tools/logstash-plugins/input/redis-stream/README.md](tools/logstash-plugins/input/redis-stream/README.md). |
-| `skills/` | [agentskills.io](https://agentskills.io/specification)-compatible agent skills for VSS: one self-contained subdirectory per skill with `SKILL.md` frontmatter. Covers deploy and usage of search, summarization, alerts, VIOS, RT-VLM, LVS, and other related workflows—see the catalog and install notes in [skills/README.md](skills/README.md). |
+| `skills/` | [agentskills.io](https://agentskills.io/specification)-compatible agent skills for VSS: self-contained skill directories with `SKILL.md` frontmatter, grouped by category (`deployment/`, `operations/`, `tools/`, `benchmarking/`) plus the top-level `vss-build-vision-ai`. Covers deploy and usage of search, summarization, alerts, VIOS, RT-VLM, LVS, and other related workflows—see the catalog and install notes in [skills/README.md](skills/README.md). |
 | `libs/analytics/spatialai-data-utils/` | Spatial AI Data Utils (SDU): NVSchema / ground-truth / calibration / Sparse4D loaders, camera calibration + grouping (BEV group-origin / per-group fan-out), 3D&#x2194;2D geometry, multi-cam 3D-bbox visualization, detection (mAP) + tracking (HOTA, CLEAR, identity, count) evaluators, NVSchema result converters, and video&#x2194;frame utilities. See [libs/analytics/spatialai-data-utils/README.md](libs/analytics/spatialai-data-utils/README.md). |
 
 ## Documentation
@@ -88,6 +88,10 @@ For detailed instructions and additional information about this blueprint, pleas
 - NVIDIA AI Enterprise developer licence required to local host NVIDIA NIM.
 - API catalog keys:
    - NVIDIA [API catalog](https://build.nvidia.com/) or [NGC](https://org.ngc.nvidia.com/setup/api-keys) ([steps to generate key](https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html#generating-api-key))
+
+### Container Image Availability
+
+> **Development Container Notice:** Images tagged `develop-*` or `nightly-*` are pre-release artifacts intended for development and testing only. They may change without notice and are provided “AS IS.” Official release images are published through NVIDIA NGC. For production deployments, use only a versioned release image from NGC that has completed NVIDIA’s release review.
 
 ## Hardware Requirements
 

@@ -31,6 +31,8 @@ services:
             - gpu
             driver: nvidia
             device_ids:
+            # Accepts a GPU index, GPU UUID, or MIG UUID (MIG-... or MIG-GPU-...).
+            # The NVIDIA Container Toolkit exposes only this device to RTVI-VLM.
             - "${RT_VLM_DEVICE_ID:-0}"
     ports:
       - "${RTVI_VLM_PORT?}:8000"
@@ -39,6 +41,7 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-NOAPIKEYSET}"
       OPENAI_API_VERSION: "${OPENAI_API_VERSION:-}"
       VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: "${VLM_NAME:-}"
+      VIA_VLM_OPENAI_TOKEN_PARAM: "${RTVI_VLM_OPENAI_TOKEN_PARAM:-max_tokens}"
       VIA_VLM_ENDPOINT: "${RTVI_VLM_ENDPOINT:-}"
       VIA_VLM_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
       VLM_BATCH_SIZE: "${RTVI_VLM_BATCH_SIZE:-}"
@@ -61,14 +64,20 @@ services:
       VLLM_MOE_BACKEND: "${RTVI_VLLM_MOE_BACKEND:-}"
       # vLLM multimodal preprocessor cache size in GiB.
       VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-1}"
+      VLLM_MM_PROCESSOR_CACHE_TYPE: "${RTVI_VLLM_MM_PROCESSOR_CACHE_TYPE:-shm}"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${RTVI_VLM_GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
       MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final}"
+      RTVI_ENFORCE_MODEL_PATH_ALLOWLIST: "${RTVI_VLM_ENFORCE_MODEL_PATH_ALLOWLIST:-false}"
+      RTVI_MODEL_PATH_ALLOWLIST: "${RTVI_VLM_MODEL_PATH_ALLOWLIST:-}"
       MODEL_IMPLEMENTATION_PATH: "${RTVI_VLM_MODEL_IMPLEMENTATION_PATH:-}"
       NUM_VLM_PROCS: "${RTVI_VLM_NUM_VLM_PROCS:-}"
       NUM_GPUS: "${RTVI_VLM_NUM_GPUS:-}"
       VLM_SYSTEM_PROMPT: "${RTVI_VLM_SYSTEM_PROMPT:-}"
       VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK: "${RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-}"
+      # Default is intentionally "all" for compatibility with existing deployments.
+      # For MIG, set both RT_VLM_DEVICE_ID and RTVI_VLM_NVIDIA_VISIBLE_DEVICES
+      # to the same MIG-... or MIG-GPU-... UUID; the slice appears as logical CUDA device 0.
       NVIDIA_VISIBLE_DEVICES: "${RTVI_VLM_NVIDIA_VISIBLE_DEVICES:-all}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       LOG_LEVEL: "${RTVI_VLM_LOG_LEVEL:-INFO}"
@@ -122,6 +131,7 @@ services:
       HF_TOKEN: "${HF_TOKEN:-}"
       VLM_MODEL_SUPPORTS_AUDIO: "${VLM_MODEL_SUPPORTS_AUDIO:-false}"
       VLM_TRUST_REMOTE_CODE: "${VLM_TRUST_REMOTE_CODE:-false}"
+      RTVI_ALLOW_UNSAFE_MODEL_CONFIG: "${RTVI_VLM_ALLOW_UNSAFE_MODEL_CONFIG:-false}"
       ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
       REDIS_PORT: "${REDIS_PORT:-6379}"

@@ -181,7 +181,7 @@ vss-summarization:
   enabled: true
   elasticsearchHost: ""
   elasticsearchPort: "9200"
-  llmService: "nemotron-3.5-lightning-30b-a3b"
+  llmService: "nemotron-35-lightning-30b-a3b"
   vlmService: "vss-rtvi-vlm"
   # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
   # Values are rendered with `tpl` so {{ .Release.Name }} works when global.useReleaseNamePrefix is enabled.
@@ -200,6 +200,10 @@ agent:
   enabled: true
   vss-agent:
     enabled: true
+    # Search / summarization runs outlast the controller default; this backend
+    # carries its own server timeout instead of the ingress imposing one on
+    # every route.
+    ingressTimeoutServer: "3600s"
     # Subchart: keep `lvs` for deployment/env wiring (not used for ConfigMap paths).
     profile: lvs
     mountConfigEdge: false
@@ -216,7 +220,7 @@ agent:
     vssAgentVersion: "3.3.0-65576357eb80"
     evalLlmJudgeName: ""
     evalLlmJudgeBaseUrl: ""
-    llmServiceName: "nemotron-3.5-lightning-30b-a3b"
+    llmServiceName: "nemotron-35-lightning-30b-a3b"
     reportsBaseUrl: ""
     vstExternalUrl: ""
     externalIp: ""
@@ -283,7 +287,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b" }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmServiceName | default "nemotron-35-lightning-30b-a3b" }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-vlm:8000" .Release.Name) "http://vss-rtvi-vlm:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
       - name: VST_EXTERNAL_URL
@@ -297,7 +301,7 @@ agent:
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nemotron-3.5-lightning-30b-a3b") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b" }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmServiceName | default "nemotron-35-lightning-30b-a3b" }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
       - name: VSS_AGENT_REPORTS_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.reportsBaseUrl (ternary (printf "%s/static/" $globalBase) "" (ne $globalBase "")) (printf "%s/static/" $vssAgentHttp) }}'
       - name: VSS_AGENT_EXTERNAL_URL
@@ -450,18 +454,33 @@ vssIngress:
   enabled: false
   ingressClassName: haproxy
   host: ""
+  # Backend ports for the canonical route table (deploy/helm/services/common).
+  # Every service is mounted at its own name — LVS at /lvs, RT-VLM at
+  # /rtvi-vlm, Elasticsearch at /elasticsearch — which are the paths the Docker
+  # edge publishes and `vss configure` records. Neither LVS nor RT-VLM owns the
+  # origin root any more: use /lvs/v1/summarize and /rtvi-vlm/v1/models.
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
-  # Exact public API paths: /v1/ready and /v1/summarize route to LVS;
-  # /v1/models and /v1/chat/completions route to RT-VLM.
   lvsBackendPort: 38111
   rtviVlmPort: 8000
-  # CLI edge routes for `vss configure` discovery. Off by default -- see the
-  # comment in templates/vss-ingress.yaml for what enabling it exposes.
-  cliRoutes:
-    enabled: false
-    elasticsearchPort: 9200
+  vaMcpPort: 9901
+  # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
+  # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),
+  # not here, so it binds to that one backend. It denies PUT/DELETE,
+  # cluster-admin paths and the two-segment mutating operations, and allows a
+  # PUT to a unified-memory document path — but POST is allowed, so _bulk,
+  # _reindex and /<index>/_doc still reach Elasticsearch, exactly as on the
+  # Docker edge. This is not a read-only endpoint.
+  elasticsearchPort: 9200
+  # Rendered for continuity with earlier releases, but inert: this controller
+  # reads timeout-client only from its own ConfigMap, never from an Ingress
+  # annotation. Raising it is a cluster-wide controller setting, outside this
+  # chart. Server-side timeouts do work per backend and are set on the Services
+  # that need them (vss-summarization, vss-rtvi-vlm, vss-agent); set
+  # timeoutServer only to impose an ingress-wide floor on every backend as well.
+  timeoutClient: "3600s"
+  timeoutServer: ""
   # Optional; default kibana.<global.externalHost or vssIngress.host>.
   kibanaHost: ""
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
@@ -483,6 +502,9 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
+    # Long generations outlast the controller default; this backend carries its
+    # own server timeout instead of the ingress imposing one on every route.
+    ingressTimeoutServer: "3600s"
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
     sharedNimPort: "8000"
     # Wait for the LVS Kafka broker and RTVI topics created by infra.kafka.topicJob.
@@ -617,8 +639,6 @@ nims:
     authSecretName: ngc-api
     storageClass: ""
   # Keep profile values minimal; model defaults live in helm/services/nims.
-  nemotron:
-    enabled: false
   nemotron35:
     enabled: true
   cosmos:

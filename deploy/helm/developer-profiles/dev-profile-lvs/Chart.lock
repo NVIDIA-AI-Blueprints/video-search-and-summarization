@@ -1,4 +1,7 @@
 dependencies:
+- name: common
+  repository: file://../../services/common
+  version: 3.3.0
 - name: infra
   repository: file://../../services/infra
   version: 3.3.0
@@ -23,5 +26,5 @@ dependencies:
 - name: monitoring
   repository: file://../../services/monitoring
   version: 3.3.0
-digest: sha256:d81d2daccd0d524e04e777759cf649bc9341c9129d2aedefc9b70569a75d5e69
-generated: "2026-08-19T11:18:26.69306+05:30"
+digest: sha256:b9addb0227d5e6043b76e14f50c4f3a383af25edd77a84d5e8000ac8db134324
+generated: "2026-08-26T13:53:27.340237035Z"

@@ -57,6 +57,15 @@ go.mod                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Cargo.toml              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Gemfile                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 
+# The OSRB approved baseline and its module mapping.
+# These are the trust anchor of the state comparison: `approved.csv` is what the
+# repo's dependency inventory is judged against, and `module_map.py` decides
+# which repo paths each OSRB module covers. Weakening either silently weakens
+# every verdict the comparison produces, and no automated check can catch that
+# -- a scan cannot validate its own baseline. Route both to OSRB.
+/.github/osrb/approved.csv   @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+/.github/osrb/module_map.py  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+
 # Dockerfiles.
 # A Dockerfile pins the base image, installs system packages (apt/yum), and
 # pulls in toolchain components that don't show up in language-level manifests.

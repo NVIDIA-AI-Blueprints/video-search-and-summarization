@@ -38,7 +38,7 @@ global:
   kibanaPublicUrl: ""
   llmBaseUrl: ""
   vlmBaseUrl: ""
-  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).
@@ -57,6 +57,10 @@ agent:
     cosmosEmbedEnabled: false
     vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
+vss-agent-ui:
+  alertsRealtimeEnabled: true
+  alertsCvVerificationEnabled: true
+
 vssIngress:
   enabled: true
   ingressClassName: haproxy
@@ -65,8 +69,11 @@ vssIngress:
   vssAgentPort: 8000
   vstIngressPort: 30888
   videoAnalyticsApiPort: 8081
+  behaviorAnalyticsPort: 8080
   alertBridgePort: 9080
   vaMcpPort: 9901
+  elasticsearchPort: 9200
+  rtviCvPort: 9010
   kibanaPort: 5601
   phoenixPort: 6006
   streamerPort: 31000

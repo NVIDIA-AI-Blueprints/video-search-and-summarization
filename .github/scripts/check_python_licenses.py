@@ -58,6 +58,13 @@ PERMISSIVE_LICENSE_PATTERNS = [
     # Boost
     r"^Boost Software License(?:[ -]?1\.0)?$",
     r"^BSL[ -]?1\.0$",
+    # Blue Oak Model License 1.0.0 — OSI-approved permissive licence, MIT-like
+    # with an explicit patent grant and no copyleft; its only obligation is to
+    # preserve the notice. Reaches this repo through the npm dependency tree
+    # (tar, minipass, minimatch, path-scurry and the rest of the isaacs
+    # packages), which is why it appears with no OSRB row of its own.
+    r"^BlueOak-1\.0(?:\.0)?$",
+    r"^Blue Oak Model License(?:[ -]?1\.0(?:\.0)?)?$",
     # MPL 2.0 — weak copyleft but Apache-2.0 compatible; commonly cleared
     # at NVIDIA. Accepts "MPL-2.0", "Mozilla Public License 2.0", and the
     # parenthetical "Mozilla Public License 2.0 (MPL 2.0)" form pip-licenses

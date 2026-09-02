@@ -14,15 +14,15 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EVAL_SPEC = REPO_ROOT / "skills/vss-summarize-video/evals/lvs_profile_summarize.json"
+EVAL_SPEC = REPO_ROOT / "skills/operations/vss-summarize-video/evals/lvs_profile_summarize.json"
 ADAPTER = REPO_ROOT / ".github/skill-eval/adapters/vss-summarize-video/generate.py"
-SUMMARIZE_SKILL = REPO_ROOT / "skills/vss-summarize-video/SKILL.md"
+SUMMARIZE_SKILL = REPO_ROOT / "skills/operations/vss-summarize-video/SKILL.md"
 SUMMARIZE_REFERENCES = (
-    REPO_ROOT / "skills/vss-summarize-video/references/end-to-end-example.md",
-    REPO_ROOT / "skills/vss-summarize-video/references/hitl-prompts.md",
-    REPO_ROOT / "skills/vss-summarize-video/references/video-summarization-api.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/end-to-end-example.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/hitl-prompts.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/video-summarization-api.md",
 )
-CLI_REFERENCE = REPO_ROOT / "skills/vss-summarize-video/references/cli_usage.md"
+CLI_REFERENCE = REPO_ROOT / "skills/operations/vss-summarize-video/references/cli_usage.md"
 #: The direct-API filter, for the paths that still call LVS by hand (the API
 #: reference and the approved VLM fallback).
 LVS_RESPONSE_FILTER = """{
@@ -39,8 +39,8 @@ CLI_RESPONSE_FILTER = """{
 }"""
 #: Documents that describe the ordered workflow, which now runs through the CLI.
 CLI_WORKFLOW_REFERENCES = (
-    REPO_ROOT / "skills/vss-summarize-video/references/end-to-end-example.md",
-    REPO_ROOT / "skills/vss-summarize-video/references/hitl-prompts.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/end-to-end-example.md",
+    REPO_ROOT / "skills/operations/vss-summarize-video/references/hitl-prompts.md",
 )
 
 
@@ -80,7 +80,8 @@ def test_preamble_pins_the_cli_to_the_recorded_deployment() -> None:
     assert "vss configure" in preamble
     assert "pass no endpoint, index, or model flag" in preamble
     assert "never hand-roll a POST /v1/summarize" in preamble
-    assert "read the job_id and the persist object from it" in preamble
+    assert "result carries the persist object" in preamble
+    assert "marker carries job_id and persisted" in preamble
     assert "Do not read the record back" in preamble
 
 
@@ -105,10 +106,10 @@ def test_summarization_steps_require_a_persisted_job() -> None:
     """The step must prove the run persisted, not just that it answered.
 
     Persistence is the whole point of routing the skill through the CLI, and
-    it is invisible in the summary text: without a check on the marker's
-    job_id and `persist` object, a run that silently degraded to exit 6 would
-    still look like a pass. The marker carries that evidence itself, so the
-    proof costs no read-back.
+    it is invisible in the summary text: without checks on the result body's
+    `persist` object and the marker's job_id / persisted fields, a run that
+    silently degraded to exit 6 would still look like a pass. Stdout carries
+    that evidence itself, so the proof costs no read-back.
     """
     spec = json.loads(EVAL_SPEC.read_text())
     setup, summarize = spec["expects"][0], spec["expects"][1]
@@ -116,6 +117,10 @@ def test_summarization_steps_require_a_persisted_job() -> None:
     setup_contract = "\n".join([setup["query"], *setup["checks"]])
     assert "--extra cli" in setup_contract
     assert "vss configure --base-url http://localhost:7777" in setup["query"]
+    assert (
+        "vss configure memory --enable --backend elasticsearch "
+        "--index vss-memory --persist-by-default"
+    ) in setup_contract
     # The LVS container port routes no Elasticsearch, so a deployment recorded
     # from it cannot persist -- the trial has to record the ingress origin.
     assert "never the LVS container port 38111" in setup["query"]
@@ -257,7 +262,7 @@ def test_live_lvs_calls_use_runtime_openapi_contract() -> None:
     summarize_skill_text = SUMMARIZE_SKILL.read_text()
     summarize_skill = " ".join(summarize_skill_text.split())
     api_reference = (
-        REPO_ROOT / "skills/vss-summarize-video/references/video-summarization-api.md"
+        REPO_ROOT / "skills/operations/vss-summarize-video/references/video-summarization-api.md"
     ).read_text()
     normalized_reference = " ".join(api_reference.split())
 
@@ -468,18 +473,19 @@ def test_a_failure_marker_is_never_parsed_as_a_summary() -> None:
     guarded = end_to_end_example[dispatch:summary_parse]
     # Exits 3, 5 and 7 leave before the parse; 0 and 6 are the only fall-through.
     assert guarded.count("return 1 2>/dev/null || exit 1") == 2
-    assert "{job_id, status, record, error}" in guarded
+    assert "{job_id, status, persisted}" in guarded
     assert "Only exits 0 and 6 carry a summary" in end_to_end_example
     assert "only exits\n0 and 6 carry a summary to parse" in cli_reference
 
     # Every marker read takes the last line: stdout may carry prose before it,
     # so handing jq the whole file is a parse of something else.
-    assert 'tail -1 "$SUMMARIZE_OUT" | jq -e \'{' in end_to_end_example
-    assert 'tail -1 "$SUMMARIZE_OUT" | jq -e \'.persist\'' in end_to_end_example
-    assert '\' "$SUMMARIZE_OUT"' not in end_to_end_example
+    assert 'COMPLETION_MARKER=$(tail -1 "$SUMMARIZE_OUT")' in end_to_end_example
+    assert '"$COMPLETION_MARKER" | jq -e \'{job_id, status, persisted}\'' in end_to_end_example
+    assert 'SUMMARIZE_RESULT=$(sed -n \'1p\' "$SUMMARIZE_OUT")' in end_to_end_example
+    assert '"$SUMMARIZE_RESULT" | jq \'{persist:' in end_to_end_example
 
 
-def test_the_handles_worth_is_documented_as_present_on_every_marker() -> None:
+def test_the_handles_worth_is_documented_as_present_on_every_result() -> None:
     """`record` is total, so the docs must not present it as a failure-only key.
 
     Documented as something failures add, a reader takes its absence to mean
@@ -489,11 +495,11 @@ def test_the_handles_worth_is_documented_as_present_on_every_marker() -> None:
     cli_reference = " ".join(CLI_REFERENCE.read_text().split())
     summarize_skill = " ".join(SUMMARIZE_SKILL.read_text().split())
 
-    assert "`record` is on every marker" in cli_reference
+    assert "`record` is on every result body" in cli_reference
     assert '"record": "closed"' in cli_reference
     for worth in ("closed", "absent", "stale"):
         assert f"`{worth}`" in cli_reference, worth
-    assert "on every marker, `record`" in summarize_skill
+    assert "`record` says what the `job_id` is worth" in summarize_skill
 
 
 def test_a_summary_is_filed_under_a_sensor_not_a_stream() -> None:

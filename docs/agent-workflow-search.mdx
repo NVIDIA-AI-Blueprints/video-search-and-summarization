@@ -64,12 +64,12 @@ The Vision Agent chat path can run:
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [prerequisites](/prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [prerequisites](/vss/getting-started/prerequisites) for more details.
 
 ## Manual Workflow
 
 <Note>
-For instructions on downloading the deployment package, see [Download the Deployment Package](/quickstart#download-the-deployment-package) in the Quickstart guide.
+For instructions on downloading the deployment package, see [Download the Deployment Package](/vss/getting-started/quickstart#download-the-deployment-package) in the Quickstart guide.
 </Note>
 
 ### Step 1: Deploy the Search Agent
@@ -82,7 +82,7 @@ For instructions on downloading the deployment package, see [Download the Deploy
   export NGC_CLI_API_KEY='your_ngc_api_key'
   ```
 
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss-agent/configure-llm) and [VSS-Agent-Customization-configure-vlm ](/vss-agent/configure-vlm) for all LLM and VLM (local and remote) configuration options.
+- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For advanced settings and Agent Customization, see the deploy command help.
 
   ```bash
@@ -103,11 +103,11 @@ export ENABLE_CRITIC=false
 <Note>
 **Critic Agent**
 
-The [critic agent](/agent-workflow-search#critic-agent-overview) is enabled by default. It uses a VLM (Cosmos3 Nano Reasoner) to verify search results and runs during search in agent/chat mode.
+The [critic agent](/vss/vision-agent/agent-workflows/search#critic-agent-overview) is enabled by default. It uses a VLM (Cosmos3 Nano Reasoner) to verify search results and runs during search in agent/chat mode.
 
-End users can turn the critic agent **on or off on a per-query basis** using the **Enable Critic** toggle in the Vision Agent chat settings (see [Critic Agent Overview](/agent-workflow-search#critic-agent-overview)). This toggle maps to the request-level `use_critic` flag and is on by default.
+End users can turn the critic agent **on or off on a per-query basis** using the **Enable Critic** toggle in the Vision Agent chat settings (see [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview)). This toggle maps to the request-level `use_critic` flag and is on by default.
 
-Ensure that the VLM endpoint URL has been configured for the deployment; see [VLM configuration in deployment commands](/agent-workflow-search) for details.
+Ensure that the VLM endpoint URL has been configured for the deployment; see [VLM configuration in deployment commands](/vss/vision-agent/agent-workflows/search) for details.
 
 To re-enable, unset the variable or set it to `true`:
 
@@ -269,7 +269,7 @@ deploy/docker/scripts/dev-profile.sh up -p search -H L40S \
 
 </Tab>
 <Tab title="OTHER">
-See [Local LLM and VLM deployments on OTHER hardware](/faq) for known limitations and constraints.
+See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
 
 </Tab>
 <Tab title="Default">
@@ -338,7 +338,7 @@ You can now access the agent UI at `http://<HOST_IP>:7777/`.
 **This deployment uses the following defaults:**
 
 - Host IP: src IP from `ip route get 1.1.1.1`
-- LLM model: nvidia/nvidia-nemotron-nano-9b-v2
+- LLM model: nvidia/nemotron-3.5-lightning-30b-a3b
 - VLM model: nvidia/cosmos3-nano-reasoner (critic agent), version `bf16-final` (`ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`)
 - Critic agent: enabled
 
@@ -348,13 +348,13 @@ You can now access the agent UI at `http://<HOST_IP>:7777/`.
 - `-e`: Optionally specify an externally accessible IP address for services that need to be reached from outside the host.
 
 <Note>
-When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
 
 **Embedding Models**
 
 The search profile deploys with `Cosmos-Embed1-448p-anomaly-detection` for RT-Embed and `SigLIP2` for RTVI-CV by default.
-To use different embedding models, see [Changing Embedding Models](/agent-workflow-search#changing-embedding-models) below.
+To use different embedding models, see [Changing Embedding Models](/vss/vision-agent/agent-workflows/search#changing-embedding-models) below.
 
 ### Step 2: Video Management
 
@@ -362,7 +362,7 @@ Click on the **Video Management** tab in the left sidebar to access video manage
 You can add video sources by uploading video files or adding RTSP streams.
 
 <Note>
-For instructions on downloading sample data, see [Download Sample Data From NGC](/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
+For instructions on downloading sample data, see [Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
 </Note>
 
 #### Upload a Video
@@ -435,7 +435,7 @@ The NVStreamer UI is available at `http://<HOST_IP>:31000`, where `<HOST_IP>` is
 
 **Add the RTSP URL to the Agent**
 
-Use the copied RTSP URL (e.g., `rtsp://<HOST_IP>:31556/nvstream/tmp/nv_streamer/videos/warehouse_sample.mp4`) in the **Add RTSP Stream** ([see above](/agent-workflow-search#add-an-rtsp-stream)) dialog to add it as a video source for search queries. Click **Add RTSP** to add the stream, or **Cancel** to close the dialog.
+Use the copied RTSP URL (e.g., `rtsp://<HOST_IP>:31556/nvstream/tmp/nv_streamer/videos/warehouse_sample.mp4`) in the **Add RTSP Stream** ([see above](/vss/vision-agent/agent-workflows/search#add-an-rtsp-stream)) dialog to add it as a video source for search queries. Click **Add RTSP** to add the stream, or **Cancel** to close the dialog.
 
 ![Add RTSP dialog with NVStreamer RTSP URL](/assets/images/agent-workflows/search_add_rtsp.png)
 
@@ -465,7 +465,7 @@ By default, the **Show top K Results** filter is applied to display the top 10 r
 
 ### Step 4: Search with additional filters
 
-To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/agent-workflow-search#upload-a-video)).
+To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
 Navigate to the Search tab to find the following options:
 
 - **Source Type**: Select the type of media source to search within. Choose between 'Video' and 'RTSP'.
@@ -504,7 +504,7 @@ The Search tab includes a **Vision Agent** chat interface on the right side that
 3. Open the chat settings popover next to the chat input and configure:
 
    - **Search media source type**: Select from the dropdown (for example, `video_file` or `rtsp`) to specify which source index to search.
-   - **Enable Critic**: Toggle the [critic agent](/agent-workflow-search#critic-agent-overview) on or off for this query. The toggle is **on by default**; turn it off to skip VLM verification of the results for this request (e.g., for faster responses or when exploring broad results).
+   - **Enable Critic**: Toggle the [critic agent](/vss/vision-agent/agent-workflows/search#critic-agent-overview) on or off for this query. The toggle is **on by default**; turn it off to skip VLM verification of the results for this request (e.g., for faster responses or when exploring broad results).
 
 4. Enter a natural language query in the chat input at the bottom (e.g., `a person with green jacket`).
 5. Press Enter or click the send button to submit your query.
@@ -531,7 +531,7 @@ Each response in the chat window includes:
   - `sensor_id`: Source sensor identifier
   - `screenshot_url`: URL to the clip thumbnail
   - `object_ids`: Detected object identifiers
-  - `critic_result` (only present when the [critic agent](/agent-workflow-search#critic-agent-overview) is enabled for the request): Verification details for the clip:
+  - `critic_result` (only present when the [critic agent](/vss/vision-agent/agent-workflows/search#critic-agent-overview) is enabled for the request): Verification details for the clip:
 
     - `result`: `"confirmed"` or `"rejected"`.
     - `criteria_met`: A map of each criterion extracted from the query to a boolean indicating whether the clip satisfies it (e.g., `{"subject:person": true, "carrying boxes": false, "wearing a yellow safety vest": true}`).
@@ -740,7 +740,7 @@ The critic agent is **enabled by default** in a fresh deployment. You can contro
 
 - **Per-query toggle (chat settings)** — In the Vision Agent chat, open the chat settings popover next to the chat input and use the **Enable Critic** toggle to turn the critic agent on or off for each query. The toggle is **on by default**; turn it off when you want raw search results without VLM verification (for example, for faster responses or when you are exploring broad results). This toggle corresponds to the `use_critic` flag in the search request payload and is decided on a query-by-query basis.
 
-- **Server-level configuration** — The default server config ships with `enable_critic: true`, so the critic agent is available out of the box. To disable it across the entire deployment (so the per-query toggle has no effect), set `enable_critic: false` in the search agent `config.yml`. See [To configure the Critic Agent](/agent-workflow-search#step-1-deploy-the-search-agent) for the file location.
+- **Server-level configuration** — The default server config ships with `enable_critic: true`, so the critic agent is available out of the box. To disable it across the entire deployment (so the per-query toggle has no effect), set `enable_critic: false` in the search agent `config.yml`. See [To configure the Critic Agent](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent) for the file location.
 
 **Partial Verification (num_videos_to_evaluate)**
 
@@ -893,14 +893,14 @@ Once deployed, the following services are available:
 
 ## Using Skills
 
-As an alternative to running the workflow manually, you can use [VSS Agent Skills](/agent-skills) from a coding agent such as Claude Code, Codex, or NemoClaw.
+As an alternative to running the workflow manually, you can use [VSS Agent Skills](/vss/vision-agent/agent-skills) from a coding agent such as Claude Code, Codex, or NemoClaw.
 
-First install the skills as described in [Installing Skills](/agent-skills#installing-skills) and make it accessible to your coding agent.
+First install the skills as described in [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) and make it accessible to your coding agent.
 
 ### Step 1: Deploy the Search Agent
 
 <Note>
-The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile) and must meet the [Prerequisites ](/prerequisites).
+The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile) and must meet the [Prerequisites ](/vss/getting-started/prerequisites).
 </Note>
 
 Once the agent is loaded with the VSS skills, you can use it to deploy the VSS search agent:
@@ -912,7 +912,7 @@ Deploy the VSS search profile.
 ```
 
 <Note>
-The skill will choose the `<platform>` to match your system, as detailed in [Development Profile GPU Requirements](/prerequisites#development-profile-gpu-requirements).
+The skill will choose the `<platform>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 </Note>
 
 What the agent does:
@@ -926,7 +926,7 @@ What the agent does:
 ### Step 2: Video Management
 
 <Note>
-For instructions on downloading sample data, see [Download Sample Data From NGC](/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
+For instructions on downloading sample data, see [Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
 </Note>
 
 The downloaded videos (following the Quickstart guide) are available at `./sample-data/dev-profile-sample-data/`.
@@ -972,7 +972,7 @@ What the agent does:
 4. The agent's critic (VLM) verifies top results against decomposed criteria and returns confirmed/rejected verdicts.
 5. Presents results as a table with time ranges, similarity scores, critic verdicts, and per-criteria breakdown.
 
-The **Critic** column shows the [critic agent's](/agent-workflow-search#critic-agent-overview) verdict for each result — **confirmed** or **rejected** — while the **Criteria** column lists the individual conditions extracted from the query and whether each was satisfied.
+The **Critic** column shows the [critic agent's](/vss/vision-agent/agent-workflows/search#critic-agent-overview) verdict for each result — **confirmed** or **rejected** — while the **Criteria** column lists the individual conditions extracted from the query and whether each was satisfied.
 
 ### Step 4: Search with additional filters
 
@@ -1020,7 +1020,7 @@ This will stop and remove the agent containers.
 
 ### Real-Time Embedding
 
-The Real-Time Embedding microservice ([RT-Embed](/real-time-embedding#supported-models)) supports the `Cosmos-Embed1` model, a joint video-text embedder.
+The Real-Time Embedding microservice ([RT-Embed](/vss/system-components/vision-microservices/video-embedding-generation#supported-models)) supports the `Cosmos-Embed1` model, a joint video-text embedder.
 `Cosmos-Embed1-448p-anomaly-detection` is the default variant deployed with the VSS search profile.
 
 To use a different model, for example, `Cosmos-Embed1-448p` set the environment `RTVI_EMBED_MODEL` and `MODEL_PATH` variables as follows:
@@ -1035,7 +1035,7 @@ MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 
 ### Real-Time Object Embedding
 
-The Real-Time Video Intelligence CV microservice ([RTVI-CV](/object-detection-tracking#supported-models)) supports CLIP-style image (vision encoder) and text embedder models.
+The Real-Time Video Intelligence CV microservice ([RTVI-CV](/vss/system-components/vision-microservices/object-detection-and-tracking#supported-models)) supports CLIP-style image (vision encoder) and text embedder models.
 `SigLIP2` is the default model deployed with the VSS search profile.
 
 To use a different model, for example, `RADIO-CLIP` set the environment `VISION_ENCODER_MODEL` and `VISION_ENCODER_VERSION` variables as follows:
@@ -1077,6 +1077,6 @@ ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=1536
 - Deleting an RTSP stream that has ended, may subsequently fail new stream addition or a new video upload.
 - When a source video is removed from NVStreamer, the corresponding RTSP stream continues to appear as a live input in the VSS UI **Video Management** tab.
 - When the critic agent is enabled and VLM service is not available, the search results may not appear in the main window.
-- For RTSP streams with H265 encoding that have been removed, thumbnail may not be visible in the VSS UI. See [Image capture failure](/vios-microservices#image-capture-failure) for more details.
+- For RTSP streams with H265 encoding that have been removed, thumbnail may not be visible in the VSS UI. See [Image capture failure](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#image-capture-failure) for more details.
 - An 'Index not found' error may occur, when there are no videos corresponding to the source type selected.
-- When uploading a video to VIOS, if the video is larger than the maximum upload size, the upload may fail. See [Why do large file uploads to VIOS fail?](/faq#why-do-large-file-uploads-to-vios-fail) for more details.
+- When uploading a video to VIOS, if the video is larger than the maximum upload size, the upload may fail. See [Why do large file uploads to VIOS fail?](/vss/appendix/faq#why-do-large-file-uploads-to-vios-fail) for more details.

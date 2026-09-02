@@ -26,7 +26,7 @@ interface for live stream processing operations.
 
 * **VLM Caption Generation**: Generate captions and alerts using Vision Language
   Models for live streams
-* **Live Stream Support**: Process RTSP live streams for real-time caption generation and alert detection — see [Supported Inputs](/real-time-vlm#supported-inputs)
+* **Live Stream Support**: Process RTSP live streams for real-time caption generation and alert detection — see [Supported Inputs](/vss/system-components/vision-microservices/real-time-vlm#supported-inputs)
 * **Streaming Responses**: Server-Sent Events (SSE) for streaming output or Kafka messages
 * **Asset Management**: Comprehensive stream lifecycle management
 * **Shared RTSP Decode**: Multiple caption requests can subscribe to one RTSP
@@ -119,7 +119,7 @@ supporting the following schemes:
 * `s3://` — Amazon S3 object paths
 * `file://` — local filesystem paths (requires `FILE_URL_ALLOWED_DIRS`)
 
-See [URL-Based Processing](/real-time-vlm#url-based-processing) for API details and
+See [URL-Based Processing](/vss/system-components/vision-microservices/real-time-vlm#url-based-processing) for API details and
 security constraints.
 
 **Media types**
@@ -146,13 +146,13 @@ security constraints.
 Native audio decoding is available when using Omni models with
 `VLM_MODEL_SUPPORTS_AUDIO=true`. Set `INSTALL_PROPRIETARY_CODECS=true`
 when inputs may contain proprietary audio codecs. See
-[Omni Native Audio Support](/real-time-vlm#omni-native-audio-support) for configuration
+[Omni Native Audio Support](/vss/system-components/vision-microservices/real-time-vlm#omni-native-audio-support) for configuration
 details.
 
 ## API Reference
 
 For complete API documentation including all endpoints, request/response
-schemas, and interactive examples, see the [Real-Time VLM API Reference ](/real-time-vlm-api).
+schemas, and interactive examples, see the [Real-Time VLM API Reference ](/vss/system-components/vision-microservices/real-time-vlm/api-reference/api-reference).
 
 The API is organized into the following categories:
 
@@ -240,6 +240,18 @@ GPUs:
 * **NVIDIA Container Toolkit**: Latest version
 * **Git LFS**: For large file handling
 
+### NVIDIA MIG reference configuration
+
+RTVI-VLM supports deployment on an NVIDIA MIG slice when the host GPU, driver,
+and container runtime or Kubernetes device plugin are configured for MIG. NVIDIA
+defines the supported platforms, profile geometries, and valid instance
+placements in its [Supported MIG Profiles guide](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html).
+Use that guide for the exact GPU model rather than assuming profiles are portable
+between platforms.
+
+RTVI-VLM is validated on the 96 GB **NVIDIA RTX PRO 6000 Blackwell Server
+Edition** using two `MIG 2g.48gb` instances on one physical GPU.
+
 ### Quick Start
 
 Clone the blueprint repository and check out the release tag:
@@ -295,7 +307,7 @@ a custom host port, set `KAFKA_PORT`. To use a different Redis server,
 set `REDIS_HOST` and `REDIS_PORT`. To expose Redis on a custom host
 port, set `REDIS_HOST_PORT`.
 
-If the launch fails due to Out of Memory error, see [Troubleshooting](/real-time-vlm#troubleshooting) (adjust `VLLM_GPU_MEMORY_UTILIZATION`,
+If the launch fails due to Out of Memory error, see [Troubleshooting](/vss/system-components/vision-microservices/real-time-vlm#troubleshooting) (adjust `VLLM_GPU_MEMORY_UTILIZATION`,
 reduce `VLM_MAX_MODEL_LEN`, or set `NVIDIA_VISIBLE_DEVICES=<gpuid>`).
 </Note>
 
@@ -787,8 +799,8 @@ a 404 response.
 The following example demonstrates alert/anomaly detection using the VLM.
 Use a prompt that expects a structured Yes/No response for anomaly detection.
 When anomalies are detected, incidents can be published to the Kafka incident
-topic (see [Kafka Integration](/real-time-vlm#kafka-integration)). The Incident
-message payload is defined in [Incident Messages](/real-time-vlm#incident-messages).
+topic (see [Kafka Integration](/vss/system-components/vision-microservices/real-time-vlm#kafka-integration)). The Incident
+message payload is defined in [Incident Messages](/vss/system-components/vision-microservices/real-time-vlm#incident-messages).
 
 ```python
 import requests
@@ -1184,9 +1196,9 @@ messages to Kafka as each chunk completes VLM inference:
    anomaly is detected. The server detects incidents by checking the VLM
    response for trigger phrases such as `"yes"` or `"true"`
    (case-insensitive). Use prompts that expect structured Yes/No answers (see
-   [Enabling Incidents](/real-time-vlm#enabling-incidents)). For the full
+   [Enabling Incidents](/vss/system-components/vision-microservices/real-time-vlm#enabling-incidents)). For the full
    Incident message payload (protobuf schema and example), see
-   [Incident Messages](/real-time-vlm#incident-messages).
+   [Incident Messages](/vss/system-components/vision-microservices/real-time-vlm#incident-messages).
    When reasoning is available, it is also added to `Incident.info` as both
    `reasoning` and `reasoningDescription`.
 
@@ -1639,7 +1651,7 @@ field in each chunk.
 understanding is available only on Omni models; other VLM models support
 video and text input only.
 
-For LVS integration, see [Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)](/agent-workflow-lvs#optional-use-nemotron-3-nano-omni-audio-aware-vlm).
+For LVS integration, see [Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)](/vss/vision-agent/agent-workflows/video-summarization#optional-use-nemotron-3-nano-omni-audio-aware-vlm).
 
 ### Efficient Video Sampling (EVS and EVS++)
 
@@ -1755,7 +1767,7 @@ settings on NVIDIA RTX 4500, L40S, or Thor systems.
 * **Reduce max model length on lower-memory GPUs**: Reduce `VLM_MAX_MODEL_LEN`
 * **Cap generation length**: Lower `VLM_MAX_GENERATION_TOKENS` (default
   `16384`) to bound peak per-request memory.
-* On Jetson Thor or DGX systems, ensure that the [cache cleaner](/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is running.
+* On Jetson Thor or DGX systems, ensure that the [cache cleaner](/vss/getting-started/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is running.
 
 If the issue persists, reduce the image preprocessor `max_pixels` value for
 the affected model. Replace `<model-cache-directory>` with the directory
@@ -1795,7 +1807,7 @@ VLM_MAX_MODEL_LEN=2560
 VLLM_GPU_MEMORY_UTILIZATION=0.55
 ```
 
-Also ensure that the [cache cleaner](/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is
+Also ensure that the [cache cleaner](/vss/getting-started/prerequisites#cache-cleaner-only-on-dgx-spark-igx-thor-and-agx-thor) script is
 running on Thor.
 
 **System memory grows over time**
