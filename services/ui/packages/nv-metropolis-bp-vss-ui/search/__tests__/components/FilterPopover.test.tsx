@@ -152,4 +152,21 @@ describe('FilterDialog', () => {
     const popover = getByTestId('search-filter-dialog') as HTMLElement;
     expect(popover.style.position).toBe('relative');
   });
+
+  it('applies filter changes immediately in inline mode without Apply', () => {
+    const handleConfirm = jest.fn();
+    render(
+      <FilterDialog {...defaultProps} inline handleConfirm={handleConfirm} />,
+    );
+    expect(screen.queryByText('Apply')).not.toBeInTheDocument();
+
+    const topK = screen.getByTestId('search-filter-topk');
+    const input = topK.querySelector('input');
+    expect(input).toBeTruthy();
+    fireEvent.change(input as HTMLInputElement, { target: { value: '25' } });
+
+    expect(handleConfirm).toHaveBeenCalled();
+    const last = handleConfirm.mock.calls[handleConfirm.mock.calls.length - 1][0];
+    expect(Number(last.topK)).toBe(25);
+  });
 });

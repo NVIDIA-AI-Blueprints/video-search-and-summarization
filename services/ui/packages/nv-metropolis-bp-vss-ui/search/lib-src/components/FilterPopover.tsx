@@ -93,18 +93,22 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
       : { width: 230 }
   ), [inline]);
 
+  const pendingParamsRef = useRef(pendingParams);
+  pendingParamsRef.current = pendingParams;
+
   const updatePendingParams = useCallback(
     (patch: Record<string, unknown>) => {
-      setPendingParams((prev: any) => {
-        const next = { ...prev, ...patch };
-        if (inline) {
-          setFilterParams(next);
-          handleConfirm(next);
-        }
-        return next;
-      });
+      const next = { ...pendingParamsRef.current, ...patch };
+      pendingParamsRef.current = next;
+      setPendingParams(next);
+      // Apply outside the updater: React may replay setState functions, so
+      // tag/storage sync must not live inside them. handleConfirm also
+      // writes filterParams when given newParams.
+      if (inline) {
+        handleConfirm(next);
+      }
     },
-    [inline, setFilterParams, handleConfirm],
+    [inline, handleConfirm],
   );
 
   const handleStartDateChange = useCallback((value: Date | null) =>
