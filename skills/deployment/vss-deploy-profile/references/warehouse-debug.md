@@ -50,10 +50,11 @@ services/infra/compose.yml, not in warehouse-mv3dt-app.yml:
                                     → vss-behavior-analytics-mv3dt
   NOTE: bev-fusion does NOT speak MQTT. It reads mdx-raw from the broker.
 
-Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
-  vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator / vss-configurator-mv3dt
+Warehouse Auto-Calibration (MODE=auto-calibration, BP_PROFILE=bp_wh_auto_calib) — minimal
+footprint, one COMPOSE_PROFILES_WH_AUTO_CALIB list (no per-mode 2d/3d/mv3dt variants):
+  vss-vios-nvstreamer-amc → vss-configurator-base
                       → vss-auto-calibration + vss-auto-calibration-ui
-  (no broker, no perception, no analytics)
+  (no broker, no perception, no analytics; direct VST, no sdr-controller)
 
 VST (VIOS) stack — independent of perception, feeds RTSP into it:
   vss-vios-postgres → vss-vios-sensor / vss-vios-streamprocessing
@@ -88,7 +89,7 @@ vss-haproxy-ingress — BP_PROFILE=bp_wh, BP_PROFILE=bp_wh_auto_calib, or kafka/
 
 ## Full Container List by Variant
 
-`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
+`MODE` (`2d` / `3d` / `mv3dt` / `auto-calibration`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) determine which explicit `COMPOSE_PROFILES_WH_*` service list from `generated.env` is active. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
 The **`-mv3dt` suffix is not universal** — it comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt`. The shared `vss-video-analytics-api` stays unsuffixed in every mode. `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, only referenced by the MV3DT app file via `depends_on`) are unsuffixed, as are the VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check`. Both are MV3DT-only in practice — their profiles appear solely in the MV3DT Kafka/Redis lists.
 
@@ -125,16 +126,16 @@ The **`-mv3dt` suffix is not universal** — it comes from each service's own `c
 
 | Container | Role |
 |---|---|
-| `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt` | RTSP stream server |
-| `vss-configurator` / `vss-configurator-mv3dt` | Blueprint configurator |
+| `vss-vios-nvstreamer-amc` | RTSP stream server |
+| `vss-configurator-base` | Blueprint configurator (`MODE=auto-calibration`) |
 | `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
 | VST stack (subset) | Stream management for calibration |
 
-Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list and the `COMPOSE_PROFILES_WH_AUTO_CALIB_*` warehouse lists start the auto-calibration containers. Regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
+Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list and `COMPOSE_PROFILES_WH_AUTO_CALIB` start the auto-calibration containers. Regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` variants do not.
 
 > **2D:** Auto-Calibration adds blank `group` and `region` fields to `calibration.json`; remove those fields before redeploying. They are not required for 2D calibration.
 
-> **3D / MV3DT:** When deploying calibration for 3D or MV3DT modes, generated calibration files must include a populated `sensors[].group` object on every camera sensor. For MV3DT, after generating `calibration.json`, also run the utility scripts under `tools/rtvi-cv-mv3dt-utils` to refresh `camInfo/<sensor_id>.yml`, `pub_sub_info_config.yml`, and the tracker `ObjectModelProjection.cameraModelFilepath` mappings. Then run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use the standalone AMC service list to upload videos directly, or set `BP_PROFILE=bp_wh_auto_calib` and select `COMPOSE_PROFILES_WH_AUTO_CALIB_3D` / `_MV3DT` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
+> **3D / MV3DT:** When deploying calibration for 3D or MV3DT modes, generated calibration files must include a populated `sensors[].group` object on every camera sensor. For MV3DT, after generating `calibration.json`, also run the utility scripts under `tools/rtvi-cv-mv3dt-utils` to refresh `camInfo/<sensor_id>.yml`, `pub_sub_info_config.yml`, and the tracker `ObjectModelProjection.cameraModelFilepath` mappings. Then run camera clustering with `--n_clusters 1` for the standard single-BEV warehouse setup, and verify the group field is present under sensors in `calibration.json`. Use the standalone AMC service list to upload videos directly, or set `MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
 
 ### Extended Kafka/Redis service lists (non-`_MINIMAL`, any mode) — add
 
@@ -407,7 +408,7 @@ they neither 404 before 3.3.0 ships nor go stale after. (`/latest/` serves 3.2.1
 Before starting, collect two pieces of information (ask if unknown):
 
 1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml --env-file containers.env --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
-2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Read it from the active env file, which is authoritative: Compose interpolates `MODE` from there to select the profile lists, and it works whether or not any container is up.
+2. **`MODE`** — `2d`, `3d`, `mv3dt`, or `auto-calibration`. Read it from the active env file, which is authoritative: Compose interpolates `MODE` from there, and it works whether or not any container is up. `auto-calibration` is a distinct MODE (paired with `BP_PROFILE=bp_wh_auto_calib` and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}`), not a 2d/3d/mv3dt suffix.
 
 ```bash
 grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/generated.env \
@@ -420,9 +421,10 @@ To confirm against what is actually running, inspect the **configurator** — `M
 docker inspect vss-configurator --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
   | grep -i "^MODE="
 # MV3DT: use vss-configurator-mv3dt
+# auto-calibration: use vss-configurator-base
 ```
 
-`vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`.
+`vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`. Auto-calibration deploys neither perception container; `vss-vios-nvstreamer-amc` + `vss-configurator-base` + `vss-auto-calibration` means MODE is `auto-calibration`.
 
 ---
 
@@ -446,7 +448,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | 2D / 3D Kafka/Redis variants | broker (`kafka` and/or `redis`), `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
 | MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
-| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
+| `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer-amc`, `vss-configurator-base`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
 | `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api`; monitoring too, but **2D/3D only** |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, `BP_PROFILE=bp_wh_auto_calib`, **or** kafka/redis extended (any mode) |

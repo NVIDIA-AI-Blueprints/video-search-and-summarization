@@ -647,6 +647,81 @@ start_rtdetr_gdino()
 # ---------------------------------------------------------------------------
 # Sparse4D family (warehouse-3d)
 # ---------------------------------------------------------------------------
+# engine_file: <onnx-basename>_b<num_sensors>.engine, next to the onnx_file
+# (num_sensors is the DeepStream/TensorRT batch dim; sparse4d's own
+# batch_size field describes the model's internal batch, not the engine).
+resolve_sparse4d_engine_file() {
+    local source_config_dir="${SPARSE4D_CONFIG_PATH:-/opt/data/ds-configurator/}"
+    local config_yaml="${source_config_dir}config.yaml"
+    if [[ ! -f "$config_yaml" ]]; then
+        echo "WARNING: Sparse4D config.yaml not found at ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local onnx_model_name
+    onnx_model_name=$(awk -F: '/^[[:space:]]*onnx_file[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    if [[ -z "$onnx_model_name" ]]; then
+        echo "WARNING: onnx_file not set in ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local num_sensors
+    num_sensors=$(awk -F: '/^[[:space:]]*num_sensors[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    num_sensors="${num_sensors:-1}"
+
+    local engine_dir stem engine_file
+    engine_dir="$(dirname "$onnx_model_name")"
+    stem="$(basename "$onnx_model_name" .onnx)"
+    engine_file="${engine_dir}/${stem}_b${num_sensors}.engine"
+
+    # Handle following cases to update the engine_file variable:
+    # 1. if engine does not exist check for higher batch size engine file, if yes then update the engine_file variable
+    if [[ ! -f "$engine_file" ]]; then
+        # TensorRT dynamic shapes let a b<M> engine (M > num_sensors) serve a
+        # b<num_sensors> request; reuse the smallest such M instead of rebuilding.
+        local best_batch="" best_engine="" cand cand_batch
+        shopt -s nullglob
+        for cand in "${engine_dir}/${stem}_b"*".engine"; do
+            cand_batch="$(basename "$cand" .engine)"
+            cand_batch="${cand_batch##*_b}"
+            [[ "$cand_batch" =~ ^[0-9]+$ ]] || continue
+            (( cand_batch > num_sensors )) || continue
+            if [[ -z "$best_batch" || "$cand_batch" -lt "$best_batch" ]]; then
+                best_batch="$cand_batch"
+                best_engine="$cand"
+            fi
+        done
+        shopt -u nullglob
+
+        if [[ -n "$best_engine" ]]; then
+            echo "##### Sparse4D engine cache hit (compatible): reusing b${best_batch} engine -> ${best_engine} #####"
+            engine_file="$best_engine"
+        fi
+    fi
+
+    # config.yaml is never writable in place: Docker bind-mounts it as a single
+    # file (sed -i's rename-over-mountpoint fails with "Device or resource
+    # busy") and the Helm chart mounts it from a ConfigMap with readOnly: true
+    # (fails with "Read-only file system"). Stage a patched copy in the
+    # writable engine dir instead, and repoint SPARSE4D_CONFIG_PATH there so
+    # sparse4d_setup.sh (run right after this function) picks it up.
+    local staged_config_dir="${SPARSE4D_ENGINE_PATH:-/opt/storage/sparse4d/}resolved-config/"
+    mkdir -p "$staged_config_dir"
+    sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "${staged_config_dir}config.yaml"
+
+    # Carry along any sibling files (e.g. calibration.json) config.yaml is
+    # normally staged next to, so consumers of SPARSE4D_CONFIG_PATH still find them.
+    local sibling
+    for sibling in "${source_config_dir}"*; do
+        [[ -f "$sibling" ]] || continue
+        [[ "$(basename "$sibling")" == "config.yaml" ]] && continue
+        cp -f "$sibling" "$staged_config_dir"
+    done
+
+    export SPARSE4D_CONFIG_PATH="$staged_config_dir"
+    echo "##### Updated Sparse4D engine_file -> ${engine_file} (staged at ${staged_config_dir}config.yaml) #####"
+}
+
 start_sparse4d_warehouse()
 {
     echo "##### Sparse4D Warehouse models will be used. #####"
@@ -657,6 +732,8 @@ start_sparse4d_warehouse()
     fi
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$CUSTOM_LIB_PATH"
     export LD_PRELOAD="${LD_PRELOAD:-}:$CUSTOM_PRELOAD_LIB"
+
+    resolve_sparse4d_engine_file
 
     bash sparse4d_setup.sh
 

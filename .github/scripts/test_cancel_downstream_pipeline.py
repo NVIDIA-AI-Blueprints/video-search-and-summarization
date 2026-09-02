@@ -665,11 +665,16 @@ class WorkflowWiringTest(unittest.TestCase):
         )
 
     def test_downstream_trigger_workflows_cancel_gitlab_on_github_cancel(self):
+        """Every workflow that still triggers the GitLab pipeline must cancel it.
+
+        osrb-review.yml was in this list until it was removed: OSRB Scan does
+        that review in the open, so nothing triggers the downstream OSRB
+        pipeline any more and there is nothing left for it to cancel.
+        """
         workflows = Path(__file__).resolve().parent.parent / "workflows"
         for name in (
             "ci.yml",
             "spatialai-data-utils.yml",
-            "osrb-review.yml",
         ):
             text = (workflows / name).read_text()
             self.assertIn(

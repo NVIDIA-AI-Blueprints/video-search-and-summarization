@@ -56,6 +56,7 @@ do not duplicate full workflows from this top-level file.
 | Deploy, size, upgrade, roll back, or tear down standalone RT-Embed with the default Cosmos-Embed1 model | [`references/deploy-vss-deploy-video-embedding.md`](references/deploy-vss-deploy-video-embedding.md) |
 | Call RT-Embed APIs for files, text/video embeddings, live streams, model listing, health, metrics, metadata, or manifests | [`references/rest-api.md`](references/rest-api.md) |
 | Wire RT-Embed into another service or deployment with Redis, Kafka, OpenTelemetry, auth, storage, or env var mapping | [`references/integrate-vss-deploy-video-embedding.md`](references/integrate-vss-deploy-video-embedding.md) and [`references/environment.md`](references/environment.md) |
+| Use decoded-frame IPC from a compatible RTVI CV producer | [`references/environment.md#decoded-frame-ipc`](references/environment.md#decoded-frame-ipc) and [`references/integrate-vss-deploy-video-embedding.md`](references/integrate-vss-deploy-video-embedding.md) |
 | Add, wire, or validate a custom/BYOM embedding backend, with VideoPrism as an example | [`references/byom-custom-model.md`](references/byom-custom-model.md) |
 | Debug readiness, model/cache startup, permissions, Redis/Kafka reachability, API failures, or observability | [`references/troubleshooting.md`](references/troubleshooting.md) |
 
@@ -73,6 +74,12 @@ Selection rules:
   use the BYOM reference first, then deployment/API references only as needed.
 - For direct endpoint calls, use the API reference and reuse deployment context
   only when the service is not already running.
+- Decoded-frame IPC requires a compatible RTVI CV producer on the same host, a
+  shared socket directory accessible to UID/GID `1001`, and a matching camera
+  ID. The consumer uses the fixed `/run/rtvi-ipc/nvds_ipc_{camera_id}.sock`
+  socket contract. IPC camera, sensor, and stream IDs must be non-empty and
+  contain only ASCII letters, digits, `.`, `_`, and `-`; standard UUIDs are
+  valid. It applies only to live RTSP processing.
 - If the request mixes deployment and BYOM, load BYOM first to establish model
   path requirements, then use the deployment reference to run the service.
 

@@ -113,6 +113,12 @@ installProprietaryCodes: false
 rtspReconnectionInterval: "5"
 rtspReconnectionMaxAttempts: "10"
 rtspReconnectionWindow: "60"
+# Optional decoded-frame IPC input for live streams. The producer must run on
+# the same node and publish sockets in ipcSocketHostPath.
+ipcFrameCopy: false
+# Existing host directory containing producer sockets. Leave empty to skip the
+# hostPath mount; the chart does not schedule or configure the producer.
+ipcSocketHostPath: ""
 assetDownloadConnectTimeout: "10"
 assetDownloadTotalTimeout: "300"
 # Max HTTP/data-URI asset download size in GB (ASSET_DOWNLOAD_MAX_FILE_SIZE_GB). Increase for large corpus videos.

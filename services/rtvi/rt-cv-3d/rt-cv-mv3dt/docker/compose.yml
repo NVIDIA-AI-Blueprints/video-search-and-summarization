@@ -72,7 +72,9 @@ services:
       kafka:
         condition: service_healthy
         required: false
-    # Uncomment the following 2 lines docker logs shows "libEGL warning: egl: failed to create dri2 screen"
+    # Uncomment for OSD on x86 if the log shows "Failed to query drm device" or
+    # "failed to create dri[N] screen". Kept commented for hosts with no DRM
+    # node, headless included.
     # devices:
     #   - /dev/dri
 

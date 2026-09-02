@@ -62,6 +62,10 @@ NVIDIA_VISIBLE_DEVICES=0
 MESSAGE_BUS=kafka
 MESSAGE_BUS_TOPIC=mdx-embed
 ERROR_BUS=kafka
+
+# Optional decoded-frame IPC for a compatible RTVI CV producer on this host.
+#RTVI_IPC_FRAME_COPY=true
+#RTVI_IPC_SOCKET_HOST_DIR=/tmp
 ```
 
 Set `RTVI_IMAGE` in `docker/.env` to a promoted or immutable GHCR tag when you need to pin an exact image for your deployment.
@@ -531,7 +535,30 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `RTVI_RTSP_RECONNECTION_INTERVAL` | Time to detect stream interruption and wait for reconnection (seconds) | `5.0` | No |
 | `RTVI_RTSP_RECONNECTION_WINDOW` | Duration to attempt reconnection after interruption before terminating the session (seconds) | `60.0` | No |
 | `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Max attempts for reconnection after interruption before terminating the session (no.) | `10` | No |
+| `RTVI_IPC_FRAME_COPY` | Enable decoded-frame IPC for live streams. | `false` | No |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at the fixed container path `/run/rtvi-ipc` when set. | *(unset)* | No |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete upper bound (seconds) shared by the pre-delete setup wait (while `use_count > 1`) and the pipeline drain of in-flight chunks. On timeout each stage logs a warning and proceeds. Applies to `DELETE /v1/streams/delete-batch`, `DELETE /v1/streams/delete/{stream_id}`, `POST /v1/stream/remove`, `DELETE /v1/generate_video_embeddings/{stream_id}`. | `30` | No |
+
+#### Single decode for multiple microservices
+
+RTVI CV can own the RTSP connection and publish decoded frames through
+`nvunixfd` Unix sockets for RTVI Embed. Set `RTVI_IPC_FRAME_COPY=true` for
+live RTSP streams that consume a compatible CV producer. CV and Embed must run
+on the same host. The producer and consumer must use the same camera ID and
+socket template, so camera `camera-1` resolves to `nvds_ipc_camera-1.sock` by
+default. Send the stream processing request to both RTVI CV (the producer) and
+RTVI Embed (the consumer) with that same camera ID.
+
+IPC camera, sensor, and stream IDs must be non-empty and use only ASCII letters,
+digits, `.`, `_`, and `-` (standard UUIDs are valid). Other characters are
+rejected to prevent distinct stream IDs from selecting the same socket.
+
+Set `RTVI_IPC_SOCKET_HOST_DIR` to the producer's host directory; Compose mounts
+it at the fixed `/run/rtvi-ipc` path.
+Embed resolves each socket as `nvds_ipc_{camera_id}.sock`. The directory and
+socket must be accessible to the Embed container user (UID/GID `1001`). A
+compatible RTVI CV image must provide `ipc-frame-copy` and create the producer
+socket before Embed starts the stream.
 
 #### OpenTelemetry / Monitoring
 | Variable | Description | Default | Required |
