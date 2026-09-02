@@ -26,15 +26,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 from typing import Any
 
+from ._internal.time_measure import collect_timings
 from .models.attribute_search import AttributeSearchInput
 from .models.attribute_search import AttributeSearchOutput
 from .models.embed_search import EmbedSearchInput
 from .models.embed_search import EmbedSearchOutput
 from .models.search import SearchInput
 from .models.search import SearchOutput
+from .models.search import SearchTimings
 from .primitives.attribute_search import AttributeSearch
 from .primitives.embed_search import EmbedSearch
 from .primitives.search import Search
@@ -119,8 +122,20 @@ class VSSSearch:
         if self._search is None:
             self._search = self._build_search()
         inp = SearchInput(**kw)
-        output = await self._search.run(inp)
-        return await self._verify_results(output, inp)
+
+        # Collect around retrieval AND verification: the critic is often the
+        # larger share of a search, so timing only retrieval would explain the
+        # smaller half of the wall clock.
+        started = time.perf_counter()
+        with collect_timings() as stages:
+            output = await self._search.run(inp)
+            output = await self._verify_results(output, inp)
+
+        output.timings = SearchTimings(
+            stages={k: round(v, 6) for k, v in stages.items()},
+            total_s=round(time.perf_counter() - started, 6),
+        )
+        return output
 
     async def _verify_results(self, output: SearchOutput, inp: SearchInput) -> SearchOutput:
         """Best-effort critic pass over retrieved intervals.

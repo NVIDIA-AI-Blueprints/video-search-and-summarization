@@ -21,8 +21,14 @@ this helper's log records are emitted.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,36 @@ LOG_STATUS_LEVEL = 16
 
 logging.addLevelName(LOG_PERF_LEVEL, "PERF")
 logging.addLevelName(LOG_STATUS_LEVEL, "STATUS")
+
+#: Active timing collector, if a caller opened one.
+#:
+#: A ContextVar rather than a parameter so no ``TimeMeasure`` call site has to
+#: change: measured blocks are spread across the search primitives and their
+#: helpers, and threading a sink through every signature would be a large,
+#: churn-heavy diff for something callers usually do not want. asyncio tasks
+#: inherit a copy of the context, and the copy still references the same dict,
+#: so concurrent legs inside one search accumulate into the same collector.
+_timing_collector: ContextVar[dict[str, float] | None] = ContextVar("vss_timing_collector", default=None)
+
+
+@contextmanager
+def collect_timings() -> Iterator[dict[str, float]]:
+    """Collect every ``TimeMeasure`` duration in this context, in seconds.
+
+    Durations accumulate per label, because some measured blocks run more than
+    once per search -- attribute frame lookups run per hit, for instance -- and
+    the useful number is the total time that stage cost, not the last one.
+
+    Nesting is intentionally not modelled: labels are already namespaced by
+    convention ("embed_search: ES search execution"), so the flat mapping is
+    readable and sums that exceed the parent's own total are expected.
+    """
+    sink: dict[str, float] = {}
+    token = _timing_collector.set(sink)
+    try:
+        yield sink
+    finally:
+        _timing_collector.reset(token)
 
 
 class TimeMeasure:
@@ -68,6 +104,12 @@ class TimeMeasure:
                 f"{self._string:s} execution time = {exec_time:.3f} {unit:s}",
             )
             logger.debug(f"{self._string} start={self._start_time!s} end={self._end_time!s}")
+
+        # Collected regardless of `print`: the caller asked for timings by
+        # opening a collector, which is independent of log verbosity.
+        sink = _timing_collector.get()
+        if sink is not None:
+            sink[self._string] = sink.get(self._string, 0.0) + (self._end_time - self._start_time)
 
     @property
     def execution_time(self) -> float:

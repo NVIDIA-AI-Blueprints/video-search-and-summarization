@@ -122,12 +122,35 @@ class SearchResult(BaseModel):
     verification: SearchVerification = Field(default_factory=SearchVerification)
 
 
+class SearchTimings(BaseModel):
+    """Per-stage wall-clock for one search, in seconds.
+
+    The stages are the ``TimeMeasure`` blocks already present in the retrieval
+    primitives -- embedding generation, ES query build and execution, hit
+    processing, attribute lookups, fusion rerank. They were previously only
+    logged at a custom PERF level, which the CLI never configured a handler
+    for, so callers had no way to see where a search spent its time.
+
+    ``stages`` keys are the measured block labels, which are namespaced by
+    convention ("embed_search: ES search execution"). Durations accumulate per
+    label, so a stage that runs per hit reports its total. Nesting is not
+    modelled: summing stages can exceed ``total_s``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    stages: dict[str, float] = Field(default_factory=dict)
+    total_s: float = 0.0
+
+
 class SearchOutput(BaseModel):
     """Output envelope from Search.run()."""
 
     model_config = ConfigDict(extra="forbid")
     data: list[SearchResult] = Field(default_factory=list)
     search_messages: list[str] = Field(default_factory=list)
+    #: Optional so every existing producer and consumer is unaffected: absent
+    #: means nobody collected, not "the search took no time".
+    timings: SearchTimings | None = None
 
     @property
     def results(self) -> list[SearchResult]:
