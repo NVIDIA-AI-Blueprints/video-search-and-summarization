@@ -2487,8 +2487,8 @@ narwhals,2.24.0,MIT,services/configurators/vss-configurator,python,lockfile,serv
 narwhals,2.25.0,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 natural-compare,1.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 natural-compare,1.4.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-nbclient,UNKNOWN,UNKNOWN,.github,python,usage,.github/skill-eval/nemoclaw/notebook_setup_adapter.py,runtime,no,no,no,imported-only,Unknown
-nbformat,UNKNOWN,UNKNOWN,.github,python,usage,.github/skill-eval/nemoclaw/notebook_setup_adapter.py,runtime,no,no,no,imported-only,Unknown
+nbclient,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/scripts/run_setup_notebook.py,runtime,no,no,no,imported-only,Unknown
+nbformat,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/scripts/run_setup_notebook.py,runtime,no,no,no,imported-only,Unknown
 negotiator,0.6.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 neo-async,2.6.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 nest-asyncio,1.6.0,BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
