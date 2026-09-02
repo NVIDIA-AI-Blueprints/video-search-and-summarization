@@ -26,6 +26,8 @@ def make_config(**overrides: object) -> GatewayConfig:
         "run_retention_seconds": 3600,
         "max_runs": 100,
         "max_events_per_run": 1000,
+        "max_event_chars_per_run": 20_000_000,
+        "max_thread_state_chars": 20_000_000,
     }
     values.update(overrides)
     return GatewayConfig(**values)  # type: ignore[arg-type]

@@ -15,6 +15,8 @@ from threading import Event
 
 from ..config import GatewayConfig
 from ..contract import ConnectorEvent, CreateRunRequest
+from ..json_codec import strict_json_loads
+from ..sse import iter_bounded_lines
 from .base import Connector, ConnectorError
 
 
@@ -123,7 +125,7 @@ class LegacyChatConnector(Connector):
             with self._lock:
                 self._active_responses[run_id] = response
             try:
-                for raw_line in response:
+                for raw_line in iter_bounded_lines(response):
                     if cancel_event.is_set():
                         return
                     line = raw_line.decode("utf-8", errors="replace").strip()
@@ -131,8 +133,10 @@ class LegacyChatConnector(Connector):
                         continue
                     if line.startswith("intermediate_data:"):
                         try:
-                            intermediate = json.loads(line.partition(":")[2].strip())
-                        except json.JSONDecodeError:
+                            intermediate = strict_json_loads(
+                                line.partition(":")[2].strip()
+                            )
+                        except ValueError:
                             continue
                         event = self._step_event(intermediate)
                         if event:
@@ -145,8 +149,8 @@ class LegacyChatConnector(Connector):
                         done = True
                         break
                     try:
-                        parsed = json.loads(data)
-                    except json.JSONDecodeError:
+                        parsed = strict_json_loads(data)
+                    except ValueError:
                         continue
                     content = self._content(parsed)
                     if content:

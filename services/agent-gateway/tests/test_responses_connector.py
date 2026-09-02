@@ -172,6 +172,58 @@ class ResponsesConnectorTest(unittest.TestCase):
         texts = [item["content"][0]["text"] for item in captured["input"]]  # type: ignore[index]
         self.assertEqual(texts, ["first", "answer", "next"])
 
+    def test_bounds_saved_thread_transcripts_with_lru_eviction(self) -> None:
+        connector = ResponsesConnector(
+            make_config(max_runs=10, max_thread_state_chars=20)
+        )
+        requests: list[dict[str, object]] = []
+
+        def open_response(request: object, **_kwargs: object) -> FakeResponse:
+            requests.append(json.loads(request.data))  # type: ignore[attr-defined]
+            return response_stream(f"resp_{len(requests)}", "answer")
+
+        def turn(thread_id: str, content: str, run_id: str) -> None:
+            request = CreateRunRequest.from_dict(
+                {
+                    "thread_id": thread_id,
+                    "input": [{"role": "user", "content": content}],
+                },
+            )
+            list(
+                connector.run(
+                    request,
+                    run_id=run_id,
+                    cancel_event=threading.Event(),
+                )
+            )
+
+        with patch("urllib.request.urlopen", side_effect=open_response):
+            turn("thread-1", "first-one", "run_1")
+            turn("thread-2", "second-one", "run_2")
+            turn("thread-1", "first-two", "run_3")
+
+        self.assertNotIn("previous_response_id", requests[2])
+
+    def test_does_not_retain_an_oversized_response_for_continuity(self) -> None:
+        connector = ResponsesConnector(make_config(max_thread_state_chars=10))
+        requests: list[dict[str, object]] = []
+
+        def open_response(request: object, **_kwargs: object) -> FakeResponse:
+            requests.append(json.loads(request.data))  # type: ignore[attr-defined]
+            return response_stream(f"resp_{len(requests)}", "long-response")
+
+        first = CreateRunRequest.from_dict(
+            {"thread_id": "thread-1", "input": [{"role": "user", "content": "one"}]}
+        )
+        second = CreateRunRequest.from_dict(
+            {"thread_id": "thread-1", "input": [{"role": "user", "content": "two"}]}
+        )
+        with patch("urllib.request.urlopen", side_effect=open_response):
+            list(connector.run(first, run_id="run_1", cancel_event=threading.Event()))
+            list(connector.run(second, run_id="run_2", cancel_event=threading.Event()))
+
+        self.assertNotIn("previous_response_id", requests[1])
+
     def test_maps_backend_executed_function_call_and_output(self) -> None:
         connector = ResponsesConnector(make_config())
         payloads = [

@@ -45,6 +45,11 @@ an agent `/api` route**; on a build without one, they belong to
 Resolve and validate the checkout once:
 
 ```bash
+VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+if [ -z "${VSS_REPO_ROOT:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
+  VSS_REPO_ROOT=$(jq -er '.runtime.repo_root | select(type == "string" and length > 0)' \
+    "$VSS_CAPABILITY_RECEIPT") || exit 1
+fi
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
@@ -60,12 +65,23 @@ libraries, while `nvidia-vss-cli` declares the `vss` executable.
 Resolve the deployment through its one public/host origin:
 
 ```bash
+if [ -z "${VSS_ORIGIN:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
+  VSS_RECEIPT_ORIGIN=$(jq -er '(.vss_origin // "") | select(type == "string")' \
+    "$VSS_CAPABILITY_RECEIPT") || exit 1
+  if [ -n "$VSS_RECEIPT_ORIGIN" ]; then
+    VSS_ORIGIN="$VSS_RECEIPT_ORIGIN"
+  fi
+fi
 if [ -z "${VSS_ORIGIN:-}" ]; then
   VSS_ORIGIN=$("${VSS[@]}" configure show 2>/dev/null |
-    jq -er '.base_url | select(type == "string" and length > 0)') || {
-      echo "Provide the Compose or Ingress origin" >&2
-      exit 1
-    }
+    jq -er '.base_url | select(type == "string" and length > 0)') || true
+fi
+if [ -z "${VSS_ORIGIN:-}" ] && [ -n "${HOST_IP:-}" ]; then
+  VSS_ORIGIN="http://${HOST_IP}:7777"
+fi
+if [ -z "${VSS_ORIGIN:-}" ]; then
+  echo "Provide the Compose or Ingress origin" >&2
+  exit 1
 fi
 VSS_ORIGIN="${VSS_ORIGIN%/}"
 VST_URL="${VSS_ORIGIN}"
@@ -188,7 +204,7 @@ The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
 availability. Treat boolean `criteria_met` values as critic evidence only.
 
-7. Format nonempty results without raw JSON:
+7. Format nonempty results without user-visible raw JSON:
 
 ```text
 ## Video Search Results
@@ -207,6 +223,25 @@ entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
 omit it even when other hits are unverified. Never deploy a VLM or call
 `vss-ask-video` automatically during this results turn.
 
+When `${HOME}/.vss/agent-capabilities.json` declares UI artifact protocol
+`1.0`, append one machine-readable envelope after the human answer. Use the
+exact validated `SEARCH_JSON`; do not reconstruct, summarize, fence, or modify
+its fields. The VSS gateway removes this envelope from chat prose and emits a
+structured `artifact.created` event, while the Search tab consumes the same
+payload to render result cards.
+
+```bash
+if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
+   jq -e '.ui_artifacts.version == "1.0"' "$VSS_CAPABILITY_RECEIPT" >/dev/null; then
+  VSS_UI_ARTIFACT=$(jq -cn --argjson payload "$SEARCH_JSON" \
+    '{version:"1.0",kind:"vss.search.results",payload:$payload}') || exit 1
+  printf '<vss-ui-artifact>%s</vss-ui-artifact>\n' "$VSS_UI_ARTIFACT"
+fi
+```
+
+Copy that command's single output line verbatim into the final response. Never
+emit an artifact when the search command or JSON validation failed.
+
 8. If the user explicitly confirms, read
 [search-result verification](references/result_verification.md) completely and
 delegate the displayed hits only after confirming again that every one is
@@ -214,9 +249,11 @@ still `unverified`. Preserve their exact bounded intervals and the complete
 original visual intent. Keep at most three delegations in flight. Never hand
 off a partially verified result set.
 
-9. If `.data` is empty, report zero candidates faithfully. Do not claim that
-the object is absent; offer a specific query or similarity-threshold refinement
-while preserving the source. Never broaden the search silently.
+9. If `.data` is empty, report zero candidates faithfully and emit the same
+   `vss.search.results` artifact with its empty `data` array when UI artifacts
+   are enabled. Do not claim that the object is absent; offer a specific query
+   or similarity-threshold refinement while preserving the source. Never
+   broaden the search silently.
 
 ## Natural-language Agent responses
 

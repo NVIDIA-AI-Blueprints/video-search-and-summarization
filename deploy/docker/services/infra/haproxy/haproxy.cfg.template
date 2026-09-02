@@ -139,6 +139,8 @@ frontend fe_http
     acl known_host hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
     acl known_host hdr(host) -i "${HOST_IP}"
     acl known_host hdr(host) -i "${HOST_IP}:${HAPROXY_PORT}"
+    acl known_host hdr(host) -i "${HOST_INTERNAL_ALIAS}"
+    acl known_host hdr(host) -i "${HOST_INTERNAL_ALIAS}:${HAPROXY_PORT}"
     acl known_host hdr(host) -i localhost
     acl known_host hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl known_host hdr(host) -i 127.0.0.1
@@ -151,6 +153,8 @@ frontend fe_http
     acl h_main hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
     acl h_main hdr(host) -i "${HOST_IP}"
     acl h_main hdr(host) -i "${HOST_IP}:${HAPROXY_PORT}"
+    acl h_main hdr(host) -i "${HOST_INTERNAL_ALIAS}"
+    acl h_main hdr(host) -i "${HOST_INTERNAL_ALIAS}:${HAPROXY_PORT}"
     acl h_main hdr(host) -i localhost
     acl h_main hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl h_main hdr(host) -i 127.0.0.1

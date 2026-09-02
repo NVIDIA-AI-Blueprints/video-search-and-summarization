@@ -287,6 +287,7 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
             "  agent-gateway:\n"
             "    environment:\n"
             "      VSS_AGENT_BACKEND_TOKEN: backend-secret\n"  # pragma: allowlist secret
+            '      AGENT_BACKEND_HEADERS_JSON: \'{"X-API-Key":"header-secret"}\'\n'  # pragma: allowlist secret
             "      AGENT_BACKEND_URL: http://127.0.0.1:18789\n"
         )
 
@@ -298,6 +299,8 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
     assert "NGC_CLI_API_KEY=test" not in result["env_content"]
     assert "VSS_AGENT_BACKEND_TOKEN: <redacted>" in result["compose_yaml_content"]
     assert "backend-secret" not in result["compose_yaml_content"]
+    assert "AGENT_BACKEND_HEADERS_JSON: <redacted>" in result["compose_yaml_content"]
+    assert "header-secret" not in result["compose_yaml_content"]
     assert "AGENT_BACKEND_URL: http://127.0.0.1:18789" in result["compose_yaml_content"]
 
 

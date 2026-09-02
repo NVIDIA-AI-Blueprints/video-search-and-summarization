@@ -40,7 +40,7 @@ export function useChatSidebarMainTabBridge({
   // Tracks tab context for in-flight sidebar turns.
   const pendingSidebarContextTabRef = React.useRef<'search' | 'alerts' | null>(null);
   const sidebarAnswerTargetTabRef = React.useRef<string | null>(null);
-  const sidebarSubmitMessageRef = React.useRef<(message: string) => void>();
+  const sidebarSubmitMessageRef = React.useRef<((message: string) => void) | undefined>(undefined);
 
   const [chatSidebarHighlight, setChatSidebarHighlight] = React.useState(false);
   const [chatSidebarQueryExecuting, setChatSidebarQueryExecuting] = React.useState(false);
@@ -144,10 +144,9 @@ export function useChatSidebarMainTabBridge({
     setChatSidebarHighlight(sidebarCollapsed);
   }, [sidebarCollapsed, sidebarMainTabChatRegistry]);
 
-  const handleSidebarAnswerCompleteWithContent = React.useCallback(
+  const deliverAnswerToMainTabs = React.useCallback(
     (answer: string): CallerInfo | void => {
       const updatedTabIds = sidebarMainTabChatRegistry.emitAnswerToAllAnswerSubscribers(answer);
-      sidebarAnswerTargetTabRef.current = null;
       if (!updatedTabIds.length) return;
       const listItemsHtml = updatedTabIds
         .map((tabId) => {
@@ -160,6 +159,19 @@ export function useChatSidebarMainTabBridge({
     },
     [sidebarMainTabChatRegistry],
   );
+
+  const handleSidebarAnswerCompleteWithContent = React.useCallback(
+    (answer: string): CallerInfo | void => {
+      sidebarAnswerTargetTabRef.current = null;
+      return deliverAnswerToMainTabs(answer);
+    },
+    [deliverAnswerToMainTabs],
+  );
+
+  // The full-page Chat tab uses the same artifact subscribers as the floating
+  // sidebar. Keep its handler separate so completing a main-chat turn cannot
+  // mutate sidebar-only in-flight state.
+  const handleMainChatAnswerCompleteWithContent = deliverAnswerToMainTabs;
 
   const handleSidebarSubmitMessageReady = React.useCallback(
     (submitMessage: (message: string) => void) => {
@@ -224,6 +236,7 @@ export function useChatSidebarMainTabBridge({
     handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
+    handleMainChatAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
     handleSidebarMessageSubmitted,
   };

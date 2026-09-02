@@ -13,7 +13,28 @@ from urllib.parse import urlparse
 
 SUPPORTED_PROTOCOLS = frozenset({"responses", "legacy-chat"})
 RESERVED_UPSTREAM_HEADERS = frozenset(
-    {"authorization", "content-length", "host", "transfer-encoding"}
+    {
+        "accept",
+        "authorization",
+        "connection",
+        "content-length",
+        "content-type",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "user-agent",
+    }
+)
+RESERVED_RESPONSE_FIELDS = frozenset(
+    {"input", "instructions", "model", "previous_response_id", "store", "stream"}
+)
+HTTP_HEADER_NAME = frozenset(
+    "!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 
@@ -79,6 +100,16 @@ def _validated_url(value: str, name: str) -> str:
     return value.rstrip("/")
 
 
+def _safe_header_name(value: str) -> bool:
+    return bool(value) and len(value) <= 128 and set(value) <= HTTP_HEADER_NAME
+
+
+def _safe_header_value(value: str) -> bool:
+    return len(value) <= 8_192 and all(
+        32 <= ord(character) <= 126 for character in value
+    )
+
+
 def _extra_headers() -> dict[str, str]:
     raw = os.environ.get("AGENT_BACKEND_HEADERS_JSON", "{}")
     try:
@@ -91,11 +122,15 @@ def _extra_headers() -> dict[str, str]:
     for key, item in value.items():
         if not isinstance(key, str) or not isinstance(item, str):
             raise ConfigError("AGENT_BACKEND_HEADERS_JSON values must be strings")
+        if not _safe_header_name(key):
+            raise ConfigError(
+                "AGENT_BACKEND_HEADERS_JSON contains an invalid HTTP header name"
+            )
         if key.lower() in RESERVED_UPSTREAM_HEADERS:
             raise ConfigError(f"AGENT_BACKEND_HEADERS_JSON cannot override {key}")
-        if any(character in key + item for character in "\r\n\0"):
+        if not _safe_header_value(item):
             raise ConfigError(
-                "AGENT_BACKEND_HEADERS_JSON cannot contain control characters"
+                "AGENT_BACKEND_HEADERS_JSON contains an invalid HTTP header value"
             )
         headers[key] = item
     return headers
@@ -118,6 +153,8 @@ class GatewayConfig:
     run_retention_seconds: int
     max_runs: int
     max_events_per_run: int
+    max_event_chars_per_run: int
+    max_thread_state_chars: int
 
     @classmethod
     def from_env(cls) -> GatewayConfig:
@@ -151,14 +188,23 @@ class GatewayConfig:
         session_field = (
             os.environ.get("AGENT_BACKEND_SESSION_FIELD", "user").strip() or None
         )
+        if session_field and (
+            len(session_field) > 128
+            or any(ord(character) < 32 for character in session_field)
+            or session_field in RESERVED_RESPONSE_FIELDS
+        ):
+            raise ConfigError(
+                "AGENT_BACKEND_SESSION_FIELD is invalid or would override a Responses field"
+            )
         session_header = (
             os.environ.get("AGENT_BACKEND_SESSION_HEADER", "").strip() or None
         )
-        if session_header and any(
-            character in session_header for character in "\r\n\0"
+        if session_header and (
+            not _safe_header_name(session_header)
+            or session_header.lower() in RESERVED_UPSTREAM_HEADERS
         ):
             raise ConfigError(
-                "AGENT_BACKEND_SESSION_HEADER contains invalid characters"
+                "AGENT_BACKEND_SESSION_HEADER is not a safe HTTP header name"
             )
 
         return cls(
@@ -183,5 +229,17 @@ class GatewayConfig:
             max_runs=_int_env("AGENT_GATEWAY_MAX_RUNS", 1000, 1, 10000),
             max_events_per_run=_int_env(
                 "AGENT_GATEWAY_MAX_EVENTS_PER_RUN", 10000, 100, 100000
+            ),
+            max_event_chars_per_run=_int_env(
+                "AGENT_GATEWAY_MAX_EVENT_CHARS_PER_RUN",
+                20_000_000,
+                1_000_000,
+                100_000_000,
+            ),
+            max_thread_state_chars=_int_env(
+                "AGENT_GATEWAY_MAX_THREAD_STATE_CHARS",
+                20_000_000,
+                1_000_000,
+                100_000_000,
             ),
         )

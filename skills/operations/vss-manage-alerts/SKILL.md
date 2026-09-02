@@ -68,6 +68,14 @@ Requires the VSS **alerts** profile in either `verification` (CV) or `real-time`
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
 fi
+VSS_CAPABILITY_RECEIPT="${HOME}/.vss/agent-capabilities.json"
+if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
+  VSS_RECEIPT_ORIGIN=$(jq -er '(.vss_origin // "") | select(type == "string")' \
+    "$VSS_CAPABILITY_RECEIPT") || exit 1
+  if [ -n "$VSS_RECEIPT_ORIGIN" ]; then
+    VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
+  fi
+fi
 
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
@@ -501,8 +509,9 @@ VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/se
 #    question, and its count is the one that gets misreported as a single sensor's.
 
 # (a) the ask named NO sensor — recent incidents across every sensor
-curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq -e . \
+INCIDENT_JSON=$(curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq -ec .) \
   || { echo "Alert Bridge unreachable — no incidents to report; do NOT read this as empty"; exit 2; }
+printf '%s\n' "$INCIDENT_JSON"
 
 # (b) the ask named a sensor — scope to it, passing the NAME, not a VIOS UUID.
 # Let curl encode it: a name with a space or reserved character breaks a hand-built URL,
@@ -512,9 +521,10 @@ curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq -e . \
 # Omit start_time/end_time for an all-time count — the endpoint applies NO range filter
 # without them. Add them ONLY when the user named a period, and then as real ISO-8601 values,
 # never the literal `<ISO>` (which 422s). A window you invent answers about a different period.
-curl -sfG "$AB/api/v1/realtime/incidents" \
-  --data-urlencode "sensor_id=$NAME" | jq -e . \
+INCIDENT_JSON=$(curl -sfG "$AB/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=$NAME" | jq -ec .) \
   || { echo "Alert Bridge unreachable — no answer; do NOT read this as count 0"; exit 2; }
+printf '%s\n' "$INCIDENT_JSON"
 # windowed ask → add:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 
 # 3. a scoped `count: 0` is not an answer yet: a rule created without `sensor_name` stores the
@@ -532,9 +542,13 @@ UUID=$("${VSS[@]}" vios list --type stream --sensor "$NAME" | jq -r 'first(.sens
 # Carry the SAME window choice as (b): omit start_time/end_time for an all-time count, or
 # add the SAME window the user asked for. Mismatching (b) answers a different question — the
 # endpoint applies no range filter without them, so an all-time total comes back for a "today" ask.
-TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
-  --data-urlencode "sensor_id=$UUID" | jq -e '.total') \
+UUID_INCIDENT_JSON=$(curl -sfG "$AB/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=$UUID" | jq -ec .) \
   || { echo "Alert Bridge unreachable — the alternate-identity check did not run; do NOT report a zero"; exit 2; }
+TOTAL=$(printf '%s' "$UUID_INCIDENT_JSON" | jq -er '.total') || exit 2
+# When this alternate identity is the result being reported, carry its exact
+# response into the presentation contract below.
+INCIDENT_JSON="$UUID_INCIDENT_JSON"
 # windowed ask → add the same:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 # jq -e exits non-zero on null/absent output, so an empty body (Alert Bridge down) fails the
 # assignment rather than yielding "" that reads back as a checked zero.
@@ -572,6 +586,29 @@ TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
 Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. `total` here is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and the response does not carry the flag that tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
 
 **Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident, and so do **on-demand verification results** (incident-kind, `sensorId: "ondemand"` — see Workflow F).
+
+### VSS UI incident artifact
+
+After choosing the one correct Workflow C branch, keep the exact validated
+response in `INCIDENT_JSON`. If an unfiltered VIOS-down fallback required
+client-side sensor filtering, set `INCIDENT_JSON` to a new object containing
+only the rows actually displayed and their correct filtered `count`/`total`;
+never send unrelated sensors to the UI. When the BYO-agent capability receipt
+enables artifact protocol `1.0`, append this envelope after the human answer:
+
+```bash
+if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
+   jq -e '.ui_artifacts.version == "1.0"' "$VSS_CAPABILITY_RECEIPT" >/dev/null; then
+  VSS_UI_ARTIFACT=$(jq -cn --argjson payload "$INCIDENT_JSON" \
+    '{version:"1.0",kind:"vss.alert.incidents",payload:$payload}') || exit 1
+  printf '<vss-ui-artifact>%s</vss-ui-artifact>\n' "$VSS_UI_ARTIFACT"
+fi
+```
+
+Copy that command's single output line verbatim into the final response. The
+gateway turns it into `artifact.created`; the Chat UI renders incident cards
+and the Alerts tab refreshes. Do not emit it for rule inventory, rule mutation,
+or a failed/unvalidated query.
 
 > **Do NOT list subscription rules for an incident query.** The **bare** `GET /api/v1/realtime` (no `/incidents`) lists *rules* (Workflow D) and is wrong for "what happened".
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import unittest
+from unittest.mock import patch
 
 from vss_agent_gateway.contract import ContractError, CreateRunRequest, RunEvent
 from vss_agent_gateway.sse import iter_sse
@@ -56,6 +57,13 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(frames[0].event, "test")
         self.assertEqual(frames[0].id, "7")
         self.assertEqual(frames[0].data, "one\ntwo")
+
+    def test_sse_parser_rejects_an_unbounded_line(self) -> None:
+        with (
+            patch("vss_agent_gateway.sse.MAX_SSE_LINE_BYTES", 8),
+            self.assertRaisesRegex(ValueError, "oversized"),
+        ):
+            list(iter_sse(io.BytesIO(b"data: too-long-without-a-delimiter")))
 
 
 if __name__ == "__main__":

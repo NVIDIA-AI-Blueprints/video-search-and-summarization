@@ -10,12 +10,15 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from threading import Event
 
+from ..artifacts import strip_artifact_envelopes
 from ..config import GatewayConfig
 from ..contract import ConnectorEvent, CreateRunRequest, Message, transcript_digest
+from ..json_codec import strict_json_loads
 from ..sse import iter_sse
 from .base import Connector, ConnectorError
 
@@ -25,6 +28,7 @@ class _ThreadState:
     previous_response_id: str
     transcript: tuple[Message, ...]
     transcript_digest: str
+    transcript_chars: int
 
 
 class ResponsesConnector(Connector):
@@ -34,7 +38,8 @@ class ResponsesConnector(Connector):
         self._config = config
         self._endpoint = f"{config.backend_url}{config.backend_path}"
         self._lock = threading.RLock()
-        self._thread_state: dict[str, _ThreadState] = {}
+        self._thread_state: OrderedDict[str, _ThreadState] = OrderedDict()
+        self._thread_state_chars = 0
         self._active_responses: dict[str, object] = {}
 
     @property
@@ -53,6 +58,8 @@ class ResponsesConnector(Connector):
 
         with self._lock:
             state = self._thread_state.get(request.thread_id)
+            if state is not None:
+                self._thread_state.move_to_end(request.thread_id)
         prefix = request.history_prefix()
         if (
             state is not None
@@ -171,15 +178,30 @@ class ResponsesConnector(Connector):
         output_text: str,
     ) -> None:
         completed_transcript = transcript + (
-            Message(role="assistant", content=output_text),
+            Message(role="assistant", content=strip_artifact_envelopes(output_text)),
         )
         state = _ThreadState(
             previous_response_id=response_id,
             transcript=completed_transcript,
             transcript_digest=transcript_digest(completed_transcript),
+            transcript_chars=sum(
+                len(message.content) for message in completed_transcript
+            ),
         )
         with self._lock:
+            previous = self._thread_state.pop(request.thread_id, None)
+            if previous is not None:
+                self._thread_state_chars -= previous.transcript_chars
+            if state.transcript_chars > self._config.max_thread_state_chars:
+                return
             self._thread_state[request.thread_id] = state
+            self._thread_state_chars += state.transcript_chars
+            while (
+                len(self._thread_state) > self._config.max_runs
+                or self._thread_state_chars > self._config.max_thread_state_chars
+            ):
+                _, evicted = self._thread_state.popitem(last=False)
+                self._thread_state_chars -= evicted.transcript_chars
 
     def run(
         self,
@@ -192,9 +214,24 @@ class ResponsesConnector(Connector):
         response_id: str | None = None
         completed = False
         output_parts: list[str] = []
+        retained_output_chars = sum(len(message.content) for message in transcript)
+        retain_thread_state = (
+            retained_output_chars <= self._config.max_thread_state_chars
+        )
         tool_names: dict[str, str] = {}
         tool_arguments: dict[str, str] = {}
         canonical_tool_ids: dict[str, str] = {}
+
+        def retain_output(delta: str) -> None:
+            nonlocal retained_output_chars, retain_thread_state
+            if not retain_thread_state:
+                return
+            retained_output_chars += len(delta)
+            if retained_output_chars > self._config.max_thread_state_chars:
+                output_parts.clear()
+                retain_thread_state = False
+                return
+            output_parts.append(delta)
 
         try:
             response = urllib.request.urlopen(
@@ -204,8 +241,8 @@ class ResponsesConnector(Connector):
         except urllib.error.HTTPError as error:
             body = error.read(64_000).decode("utf-8", errors="replace")
             try:
-                parsed_error: object = json.loads(body)
-            except json.JSONDecodeError:
+                parsed_error = strict_json_loads(body)
+            except ValueError:
                 parsed_error = {}
             message = self._error_message(
                 parsed_error, f"backend returned HTTP {error.code}"
@@ -226,8 +263,8 @@ class ResponsesConnector(Connector):
                 if "text/event-stream" not in content_type.lower():
                     body = response.read(5_000_000)
                     try:
-                        payload = json.loads(body)
-                    except json.JSONDecodeError as error:
+                        payload = strict_json_loads(body)
+                    except ValueError as error:
                         raise ConnectorError(
                             "backend returned a non-SSE response",
                             code="invalid_backend_response",
@@ -239,7 +276,7 @@ class ResponsesConnector(Connector):
                         else None
                     )
                     if isinstance(output, str) and output:
-                        output_parts.append(output)
+                        retain_output(output)
                         yield ConnectorEvent("message.delta", {"delta": output})
                     completed = True
                 else:
@@ -249,8 +286,8 @@ class ResponsesConnector(Connector):
                         if frame.data.strip() == "[DONE]":
                             break
                         try:
-                            payload = json.loads(frame.data)
-                        except json.JSONDecodeError as error:
+                            payload = strict_json_loads(frame.data)
+                        except ValueError as error:
                             raise ConnectorError(
                                 "backend emitted invalid SSE JSON",
                                 code="invalid_backend_event",
@@ -272,7 +309,7 @@ class ResponsesConnector(Connector):
                                 else None
                             )
                             if isinstance(delta, str) and delta:
-                                output_parts.append(delta)
+                                retain_output(delta)
                                 yield ConnectorEvent("message.delta", {"delta": delta})
                         elif event_type == "response.output_item.added":
                             item = self._function_call(payload)
@@ -380,7 +417,7 @@ class ResponsesConnector(Connector):
                 code="incomplete_backend_stream",
                 retryable=True,
             )
-        if response_id:
+        if response_id and retain_thread_state:
             self._record_state(request, response_id, transcript, "".join(output_parts))
 
     def cancel(self, run_id: str) -> None:

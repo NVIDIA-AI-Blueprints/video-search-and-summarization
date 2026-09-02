@@ -8,6 +8,11 @@ from __future__ import annotations
 import logging
 import threading
 
+from .artifacts import (
+    ARTIFACT_PROTOCOL_VERSION,
+    ArtifactStreamParser,
+    strip_artifacts_from_value,
+)
 from .config import GatewayConfig
 from .connectors.base import Connector, ConnectorError
 from .contract import PROTOCOL_VERSION, CreateRunRequest
@@ -24,6 +29,7 @@ class GatewayService:
             retention_seconds=config.run_retention_seconds,
             max_runs=config.max_runs,
             max_events_per_run=config.max_events_per_run,
+            max_event_chars_per_run=config.max_event_chars_per_run,
         )
 
     def capabilities(self) -> dict[str, object]:
@@ -35,7 +41,12 @@ class GatewayService:
                 "cancellation": True,
                 "idempotent_run_creation": True,
                 "interaction_responses": False,
-                "artifacts": False,
+                "artifacts": True,
+            },
+            "artifact_protocol": {
+                "version": ARTIFACT_PROTOCOL_VERSION,
+                "transport": "agent-text-envelope",
+                "kinds": ["vss.search.results", "vss.alert.incidents"],
             },
             "connector": self.connector.capabilities,
             "event_types": [
@@ -55,6 +66,7 @@ class GatewayService:
             ],
             "limits": {
                 "max_events_per_run": self.config.max_events_per_run,
+                "max_event_chars_per_run": self.config.max_event_chars_per_run,
                 "run_retention_seconds": self.config.run_retention_seconds,
             },
         }
@@ -85,6 +97,30 @@ class GatewayService:
         return record, False
 
     def _run_worker(self, record: RunRecord) -> None:
+        artifact_parser = ArtifactStreamParser()
+
+        def append(event_type: str, data: dict[str, object]) -> None:
+            if event_type == "message.delta":
+                delta = data.get("delta")
+                if isinstance(delta, str):
+                    for parsed in artifact_parser.feed(delta):
+                        record.append(parsed.type, parsed.data)
+                    return
+            if event_type == "tool.completed":
+                output = data.get("output")
+                artifacts = artifact_parser.inspect_complete(output)
+                if output is not None:
+                    data = {**data, "output": strip_artifacts_from_value(output)}
+                record.append(event_type, data)
+                for parsed in artifacts:
+                    record.append(parsed.type, parsed.data)
+                return
+            record.append(event_type, data)
+
+        def flush_artifact_parser() -> None:
+            for parsed in artifact_parser.finish():
+                record.append(parsed.type, parsed.data)
+
         try:
             for event in self.connector.run(
                 record.request,
@@ -98,14 +134,17 @@ class GatewayService:
                         "connector emitted a reserved terminal event",
                         code="connector_contract_error",
                     )
-                record.append(event.type, event.data)
+                append(event.type, event.data)
             if record.cancel_event.is_set():
+                flush_artifact_parser()
                 self.store.finish(
                     record, "run.cancelled", {"reason": "client_cancelled"}
                 )
             else:
+                flush_artifact_parser()
                 self.store.finish(record, "run.completed")
         except ConnectorError as error:
+            flush_artifact_parser()
             if record.cancel_event.is_set():
                 self.store.finish(
                     record, "run.cancelled", {"reason": "client_cancelled"}
@@ -123,6 +162,7 @@ class GatewayService:
                     },
                 )
         except Exception:
+            flush_artifact_parser()
             LOGGER.exception("unexpected connector failure for run %s", record.run_id)
             if record.cancel_event.is_set():
                 self.store.finish(

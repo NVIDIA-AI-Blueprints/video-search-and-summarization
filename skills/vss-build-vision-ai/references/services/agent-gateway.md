@@ -20,6 +20,35 @@ tool on the harness's behalf. Structured tool progress is limited to events the
 upstream protocol exposes; use a richer protocol connector later if interactive
 approvals or backend-private trajectory events are required.
 
+This separates two kinds of portability:
+
+- **Data plane:** any backend that speaks a supported wire protocol can carry a
+  chat turn through the same gateway connector.
+- **VSS capability plane:** the backend is a VSS assistant only after its
+  harness has the complete recursive skill catalog, execution tools, a
+  version-matched `vss` CLI runtime, endpoint configuration, network
+  permissions, and a VSS capability receipt.
+
+Do not inject a large VSS prompt from the gateway as a substitute. That would
+neither install executable tools nor establish their security boundary, and it
+would make prompt/session behavior connector-dependent. For NemoClaw-managed
+OpenClaw or Hermes that already exists, run the additive
+`deploy/docker/scripts/attach_vss_agent.py`; it must preserve the agent's
+persona, canonical workspace documents, memory, provider, model, and chat
+history. Use `deploy_nemoclaw.ipynb` only when creating a new dedicated VSS
+assistant whose identity may intentionally be set by the VSS workspace overlay.
+For another harness, use its native skill/runtime/policy installer to attach the
+same capabilities without replacing identity. An arbitrary Responses endpoint
+with no capability attachment is generic chat only and is not a ready external
+VSS agent.
+
+Search results and alert incidents cross the data-plane boundary as versioned
+VSS UI artifacts. The operational skill emits the exact validated response in
+a `<vss-ui-artifact>` envelope; the gateway extracts it from exposed tool output
+or final text and emits `artifact.created`. The UI uses
+`vss.search.results` for Search result cards and `vss.alert.incidents` for Chat
+incident cards plus Alerts-tab refresh. Do not add a harness-specific renderer.
+
 This owner is reached only by an explicit request to connect an external agent
 harness to VSS UI. It makes the build a Delta even when the underlying vision
 services otherwise match a stock profile.
@@ -44,6 +73,11 @@ Notebook-managed OpenClaw/Hermes API forwards are loopback-only. On Linux,
 `127.0.0.1`, but binds its own listener only to Docker's private bridge gateway.
 The `vss-ui` container reaches it through `host.docker.internal`, mapped with
 Docker's `host-gateway` feature.
+
+When a sandbox uses `http://host.openshell.internal:<ingress-port>` as its VSS
+origin, keep `HOST_INTERNAL_ALIAS=host.openshell.internal` on the HAProxy
+service. The ingress explicitly admits that Host header; TCP reachability alone
+is insufficient because an unrecognized host intentionally returns 404.
 
 Resolve the bind address rather than assuming `172.17.0.1`:
 
@@ -80,6 +114,7 @@ Compose artifact contains them too, so both files must remain local and mode
 | `VSS_AGENT_BACKEND_MODEL` | Harness agent/model selector. |
 | `VSS_AGENT_BACKEND_SESSION_FIELD` | Stable Responses field; use `user`. |
 | `VSS_AGENT_BACKEND_SESSION_HEADER` | Optional harness-specific stable-session header. |
+| `VSS_AGENT_BACKEND_HEADERS_JSON` | Optional upstream header object; treat the entire value as credential-bearing even when it contains only routing metadata. |
 | `NEXT_PUBLIC_ENABLE_CHAT_TAB=true` | Makes the VSS UI chat tab visible. |
 | `NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT=true` | Locks all chat surfaces to same-origin HTTP so a saved WebSocket preference cannot bypass the gateway. Set automatically by the generator. |
 
@@ -100,23 +135,46 @@ Both use `/v1/responses`. For OpenClaw, enable
 before probing. Probe authenticated `/v1/models` before resolution; a failed
 probe is a blocker.
 
+OpenClaw is the primary production-validation preset. Hermes transport is
+compatible, but NVIDIA's current NemoClaw platform-support matrix labels the
+project early-preview alpha and does not assert Hermes production parity with
+OpenClaw. A Hermes build therefore requires staging validation for the selected
+provider, model, skills, long-running tools, restart recovery, and security
+policy before it can be represented as production-ready.
+
 ## Readiness
 
 After Compose Gate 0, require all of these:
 
-1. `agent-gateway` is healthy.
-2. `GET http://<VSS_AGENT_GATEWAY_BIND_HOST>:<port>/healthz` returns `200`.
-3. Authenticated `GET /v1/capabilities` through the gateway returns contract
+1. The capability installer completed without a failed skill and verified that
+   the BYO agent's identity-file hashes did not change. For a newly created
+   dedicated VSS agent only, verify the chosen workspace overlay and archived
+   first-turn `BOOTSTRAP.md` instead.
+2. The harness contains all canonical `skills/**/SKILL.md` names; a one-level
+   `skills/*/SKILL.md` check is invalid. Its
+   `~/.vss/agent-capabilities.json` receipt names the selected origin, runtime
+   commit, installed skills, and artifact protocol.
+3. From inside the harness, the commit-matched project CLI answers
+   `uv run --project "$VSS_REPO_ROOT/services/agent" --no-dev --extra cli vss
+   --version`.
+4. Required routes for the selected capability are reachable from inside the
+   harness: the configured VSS origin for operations, VA-MCP for analytics, and
+   VSS Orchestrator MCP only when deployment management is enabled.
+5. `agent-gateway` is healthy.
+6. `GET http://<VSS_AGENT_GATEWAY_BIND_HOST>:<port>/healthz` returns `200`.
+7. Authenticated `GET /v1/capabilities` through the gateway returns contract
    version `1.0`.
-4. The VSS UI server can reach `VSS_AGENT_GATEWAY_URL`.
-5. Send one harmless chat turn through the VSS UI and confirm the response came
-   from the selected harness. Tool/skill execution should be verified with a
-   separately approved, non-destructive harness task.
+8. The VSS UI server can reach `VSS_AGENT_GATEWAY_URL`.
+9. Send one harmless chat turn through the VSS UI and confirm the response came
+   from the selected harness. Then run a non-destructive VSS query and confirm
+   the harness executed the skill and the corresponding Search or alert
+   artifact rendered in the UI.
 
 ## Sources
 
 - `deploy/docker/services/agent-gateway/compose.yml`
 - `deploy/docker/services/ui/compose.yml`
 - `services/agent-gateway/README.md`
+- `deploy/docker/scripts/attach_vss_agent.py`
 - `deploy/docker/scripts/deploy_nemoclaw.ipynb`
 - `deploy/docker/scripts/deploy_vss_orchestrator.ipynb`

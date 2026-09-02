@@ -76,6 +76,33 @@ describe('extractSearchResultsFromAgentResponse', () => {
     });
   });
 
+  describe('VSS UI artifacts', () => {
+    it('prefers the versioned search artifact over unrelated JSON prose', () => {
+      const artifact = {
+        version: '1.0',
+        kind: 'vss.search.results',
+        payload: validData,
+      };
+      const text = `Diagnostic {"status":"ok"}\n<vss-ui-artifact>${JSON.stringify(artifact)}</vss-ui-artifact>`;
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('clip1.mp4');
+    });
+
+    it('ignores artifacts for another VSS surface', () => {
+      const artifact = {
+        version: '1.0',
+        kind: 'vss.alert.incidents',
+        payload: { incidents: [] },
+      };
+      expect(
+        extractSearchResultsFromAgentResponse(
+          `<vss-ui-artifact>${JSON.stringify(artifact)}</vss-ui-artifact>`,
+        ),
+      ).toBeNull();
+    });
+  });
+
   describe('JSON in plain text (brace matching)', () => {
     it('extracts from raw JSON object in text', () => {
       const text = `Here are your results: ${JSON.stringify(validData)} Done.`;

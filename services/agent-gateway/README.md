@@ -13,6 +13,57 @@ VSS UI  ->  /api/agent/*  ->  VSS run/event contract  ->  protocol connector  ->
 AG-UI is not required. It can be added later as one more connector if an upstream
 only exposes AG-UI; it should not become the UI's internal contract.
 
+## Runtime protocol versus VSS capability attachment
+
+Backend-agnostic chat and backend-agnostic VSS operation are separate
+contracts. Speaking Responses or legacy chat is enough to connect a backend to
+the UI, but it does not turn a generic model endpoint into a VSS agent.
+
+Before an external harness is advertised as VSS-ready, attach the VSS
+capabilities that its existing agent needs:
+
+- every `skills/**/SKILL.md` directory, discovered recursively;
+- the harness-native execution tools those skills use (shell/exec, HTTP, and
+  MCP where applicable);
+- a commit-matched, pre-warmed project `vss` CLI runtime for operational skills;
+- the VSS/OpenShell network policy and the deployment origin or service routes;
+- a capability receipt at `~/.vss/agent-capabilities.json`, including the VSS
+  origin, CLI revision, installed skills, and supported UI artifact version.
+
+Capability attachment must preserve the agent the operator brought: do not
+replace its persona, canonical workspace documents, memory, provider, model, or
+conversation history. This is the external-harness equivalent of granting the
+built-in VSS Agent its tools; it is not a new agent identity and is not a prompt
+prepended to each turn. An operator may separately choose the repository's VSS
+persona overlay when creating a new, dedicated VSS assistant.
+
+For an existing NemoClaw-managed OpenClaw or Hermes agent, use the additive
+installer:
+
+```bash
+python3 deploy/docker/scripts/attach_vss_agent.py \
+  --runtime openclaw \
+  --sandbox my-agent \
+  --vss-origin http://host.openshell.internal:7777
+```
+
+The installer hashes the canonical identity files before and after attachment
+and fails if they changed. `deploy_nemoclaw.ipynb` remains the dedicated-agent
+creation path and intentionally installs the optional VSS persona. Another
+harness needs a capability installer for its skill/runtime/policy locations,
+but no new chat connector when it already speaks a supported wire protocol.
+
+The gateway deliberately neither executes skills nor claims that a connected
+backend has them. An unprovisioned Responses endpoint is valid generic chat, but
+must fail the VSS readiness gate and must not be presented as a VSS-capable
+assistant.
+
+OpenClaw is the primary production-validation target. Hermes has the compatible
+Responses surface, but NVIDIA's current platform-support documentation labels
+NemoClaw early-preview alpha and does not yet assert Hermes production parity;
+stage and qualify that preset for the selected provider and workload before
+calling it production-ready.
+
 ## Contract
 
 The first protocol version is `1.0`:
@@ -52,7 +103,7 @@ Select a wire protocol, not a harness:
 | `AGENT_BACKEND_MODEL`          | Responses/chat model or agent selector | `agent`                           |
 | `AGENT_BACKEND_SESSION_FIELD`  | Stable session request field           | `user`                            |
 | `AGENT_BACKEND_SESSION_HEADER` | Optional stable-session header         | unset                             |
-| `AGENT_BACKEND_HEADERS_JSON`   | Additional non-secret routing headers  | `{}`                              |
+| `AGENT_BACKEND_HEADERS_JSON`   | Additional upstream headers (secret)   | `{}`                              |
 
 The Responses connector sends the full UI transcript only when establishing or
 recovering a chain. On later turns it verifies that the UI transcript still
@@ -100,6 +151,29 @@ Tool visibility is best-effort: the UI can render structured progress that the
 selected upstream protocol emits, while backend-internal steps remain backend
 internal. A richer native connector is appropriate when a harness exposes
 approval, delegation, or tool events that Responses does not carry.
+
+### How VSS search runs
+
+For OpenClaw and Hermes, the harness matches a search request to
+`vss-search-archive`, reads its complete instructions, and invokes the
+project-local `vss search run ...` command through its own exec tool. The CLI
+talks to the VSS routes recorded by `vss configure`; the gateway sees only the
+agent run and whatever progress the upstream Responses implementation exposes.
+Analytics requests similarly use `vss-query-analytics` against VA-MCP, while
+deployment lifecycle requests use the VSS Orchestrator MCP.
+
+Search and incident-query skills preserve their validated service response in a
+small versioned `<vss-ui-artifact>` envelope. The gateway recognizes that
+envelope in exposed tool output or final streamed text, removes it from visible
+prose, and emits `artifact.created`. The same legacy presentation bridge feeds
+the Search tab's result cards and Chat's incident cards; an alert artifact also
+refreshes the Alerts tab. This envelope is a VSS presentation contract, not a
+harness API, so every connector gets the same behavior. Malformed or unsupported
+envelopes remain ordinary text instead of being silently discarded.
+
+`deploy_nemoclaw.ipynb` installs all nested skills and prepares the exact VSS
+CLI revision before chat is exposed. Do not defer a mutable `git clone develop`
+or dependency installation to the first search turn.
 
 ### VSS Agent
 
@@ -172,6 +246,22 @@ without displaying it, generates an independent gateway token, verifies the
 backend, selects `vss-ui` plus `agent-gateway`, and passes the settings into the
 resolved Compose deployment. Generated environment and Compose artifacts are
 written owner-readable (`0600`) because they contain both credentials.
+
+A successful `/v1/models` or chat probe proves transport, not VSS capability.
+Before exposing the UI, verify inside the harness that the capability receipt
+matches the selected VSS origin and source revision, every canonical skill is
+installed, the project CLI answers `vss --version`, and the routes required by
+the selected deployment are reachable. For an attached BYO agent, also verify
+that the identity hashes did not change. Only the optional dedicated-agent path
+uses VSS workspace identity documents and archives its first-turn
+`BOOTSTRAP.md`.
+
+Run replay is bounded by `AGENT_GATEWAY_MAX_EVENT_CHARS_PER_RUN` (20 million
+characters by default) as well as the event-count limit. Responses continuity
+state is kept in memory and bounded by
+`AGENT_GATEWAY_MAX_THREAD_STATE_CHARS` (20 million characters by default) and
+the configured maximum run count. Eviction safely falls back to the recovery
+history supplied by the UI. A gateway restart also uses that recovery path.
 
 Run the dependency-free test suite:
 

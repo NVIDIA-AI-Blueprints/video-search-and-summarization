@@ -37,7 +37,9 @@ class Connector(ABC):
             "protocol": self.protocol,
             "streaming": True,
             "tool_events": "best_effort",
-            "artifacts": False,
+            # Artifact extraction sits above connectors, so every text-streaming
+            # connector supports the same backend-neutral envelope.
+            "artifacts": True,
             "interactions": False,
         }
 

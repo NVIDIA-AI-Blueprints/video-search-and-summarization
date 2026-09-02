@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 from .config import GatewayConfig
 from .connectors import LegacyChatConnector, ResponsesConnector
 from .contract import ContractError, CreateRunRequest
+from .json_codec import strict_json_loads
 from .service import GatewayService
 from .store import (
     EventsExpiredError,
@@ -120,8 +121,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             )
         body = self.rfile.read(length)
         try:
-            return json.loads(body or b"{}")
-        except json.JSONDecodeError as error:
+            return strict_json_loads(body or b"{}")
+        except ValueError as error:
             raise ContractError("request body must be valid JSON") from error
 
     def do_GET(self) -> None:

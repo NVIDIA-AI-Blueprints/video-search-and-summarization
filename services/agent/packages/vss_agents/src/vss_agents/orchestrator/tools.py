@@ -102,7 +102,12 @@ _REDACTED_VALUE: Final[str] = "<redacted>"
 def _sensitive_name(name: object) -> bool:
     if not isinstance(name, str):
         return False
-    return name.lower() in _SENSITIVE_HEADER_NAMES or any(marker in name.upper() for marker in _SECRET_NAME_MARKERS)
+    normalized = name.upper()
+    return (
+        name.lower() in _SENSITIVE_HEADER_NAMES
+        or normalized.endswith("BACKEND_HEADERS_JSON")
+        or any(marker in normalized for marker in _SECRET_NAME_MARKERS)
+    )
 
 
 def _redact_env_artifact(content: str) -> str:

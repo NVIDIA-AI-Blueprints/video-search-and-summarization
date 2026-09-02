@@ -27,6 +27,11 @@ export HOST_IP=host.openshell.internal
 # "Empty VSS_PUBLIC_URL" below before running anything that needs it.
 export VSS_PUBLIC_URL=""
 
+# Exact, setup-managed source checkout used by the operational VSS skills.
+# `deploy_nemoclaw.ipynb` provisions and warms this checkout before chat is
+# exposed; skills must not silently replace it with a mutable branch.
+export VSS_REPO_ROOT="${HOME}/video-search-and-summarization"
+
 # Skills that drive the VSS CLI (vss-search-archive, vss-summarize-video)
 # invoke it as `uv run --project <checkout>/services/agent`, so uv has to
 # resolve. `pip install --user` puts it here, and this directory is not on

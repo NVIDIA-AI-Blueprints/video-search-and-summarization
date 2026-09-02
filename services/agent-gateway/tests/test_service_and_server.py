@@ -16,7 +16,11 @@ from vss_agent_gateway.connectors.base import Connector
 from vss_agent_gateway.contract import ConnectorEvent, CreateRunRequest
 from vss_agent_gateway.server import make_handler
 from vss_agent_gateway.service import GatewayService
-from vss_agent_gateway.store import IdempotencyConflictError
+from vss_agent_gateway.store import (
+    EventsExpiredError,
+    IdempotencyConflictError,
+    RunStore,
+)
 
 
 class FakeConnector(Connector):
@@ -58,6 +62,48 @@ class BlockingConnector(FakeConnector):
             yield ConnectorEvent("message.delta", {"delta": "unreachable"})
 
 
+class ArtifactConnector(FakeConnector):
+    def run(
+        self,
+        request: CreateRunRequest,
+        *,
+        run_id: str,
+        cancel_event: threading.Event,
+    ) -> Iterator[ConnectorEvent]:
+        del request, run_id, cancel_event
+        yield ConnectorEvent("message.delta", {"delta": "Found "})
+        yield ConnectorEvent("message.delta", {"delta": "<vss-ui-art"})
+        yield ConnectorEvent(
+            "message.delta",
+            {
+                "delta": 'ifact>{"version":"1.0","kind":"vss.search.results",'
+                '"payload":{"data":[]}}</vss-ui-artifact> results'
+            },
+        )
+
+
+class ToolArtifactConnector(FakeConnector):
+    def run(
+        self,
+        request: CreateRunRequest,
+        *,
+        run_id: str,
+        cancel_event: threading.Event,
+    ) -> Iterator[ConnectorEvent]:
+        del request, run_id, cancel_event
+        artifact = (
+            '<vss-ui-artifact>{"version":"1.0",'
+            '"kind":"vss.alert.incidents","payload":{"incidents":[]}}'
+            "</vss-ui-artifact>"
+        )
+        yield ConnectorEvent(
+            "tool.completed",
+            {"tool_call_id": "tool_1", "name": "exec", "output": artifact},
+        )
+        # Some harnesses expose the tool output and also copy it into final text.
+        yield ConnectorEvent("message.delta", {"delta": artifact})
+
+
 def wait_terminal(service: GatewayService, run_id: str) -> None:
     record = service.store.get(run_id)
     with record.condition:
@@ -66,6 +112,78 @@ def wait_terminal(service: GatewayService, run_id: str) -> None:
 
 
 class GatewayServiceTest(unittest.TestCase):
+    def test_capabilities_advertise_connector_neutral_artifacts(self) -> None:
+        capabilities = GatewayService(make_config(), FakeConnector()).capabilities()
+
+        self.assertTrue(capabilities["features"]["artifacts"])
+        self.assertTrue(capabilities["connector"]["artifacts"])
+        self.assertEqual(
+            capabilities["artifact_protocol"]["kinds"],
+            ["vss.search.results", "vss.alert.incidents"],
+        )
+
+    def test_run_store_bounds_replay_by_serialized_event_size(self) -> None:
+        store = RunStore(
+            retention_seconds=60,
+            max_runs=10,
+            max_events_per_run=100,
+            max_event_chars_per_run=30,
+        )
+        request = CreateRunRequest.from_dict(
+            {"thread_id": "thread-1", "input": [{"role": "user", "content": "hi"}]},
+        )
+        record, _ = store.create(request, idempotency_key=None)
+        record.append("message.delta", {"delta": "1234567890"})
+        record.append("message.delta", {"delta": "abcdefghij"})
+
+        with self.assertRaises(EventsExpiredError):
+            record.events_after(0)
+        self.assertEqual(record.events_after(1)[0].data["delta"], "abcdefghij")
+
+    def test_normalizes_agent_text_artifacts_for_every_connector(self) -> None:
+        service = GatewayService(make_config(), ArtifactConnector())
+        request = CreateRunRequest.from_dict(
+            {"thread_id": "thread-1", "input": [{"role": "user", "content": "find"}]},
+        )
+        record, _ = service.create_run(request, idempotency_key=None)
+        wait_terminal(service, record.run_id)
+
+        self.assertEqual(
+            [event.type for event in record.events],
+            [
+                "run.started",
+                "message.delta",
+                "artifact.created",
+                "message.delta",
+                "run.completed",
+            ],
+        )
+        self.assertEqual(record.events[1].data["delta"], "Found ")
+        self.assertEqual(record.events[2].data["kind"], "vss.search.results")
+        self.assertEqual(record.events[3].data["delta"], " results")
+
+    def test_extracts_tool_output_artifacts_without_duplicate_final_event(self) -> None:
+        service = GatewayService(make_config(), ToolArtifactConnector())
+        request = CreateRunRequest.from_dict(
+            {
+                "thread_id": "thread-1",
+                "input": [{"role": "user", "content": "show alerts"}],
+            },
+        )
+        record, _ = service.create_run(request, idempotency_key=None)
+        wait_terminal(service, record.run_id)
+
+        self.assertEqual(
+            [event.type for event in record.events],
+            [
+                "run.started",
+                "tool.completed",
+                "artifact.created",
+                "run.completed",
+            ],
+        )
+        self.assertEqual(record.events[2].data["kind"], "vss.alert.incidents")
+
     def test_cancel_interrupts_connector_and_ends_with_cancelled_event(self) -> None:
         connector = BlockingConnector()
         service = GatewayService(make_config(), connector)

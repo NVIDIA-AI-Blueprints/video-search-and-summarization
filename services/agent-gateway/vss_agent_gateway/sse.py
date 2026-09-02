@@ -9,6 +9,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import BinaryIO
 
+MAX_SSE_LINE_BYTES = 2_000_000
+MAX_SSE_FRAME_BYTES = 2_000_000
+
 
 @dataclass(frozen=True, slots=True)
 class SseFrame:
@@ -17,14 +20,30 @@ class SseFrame:
     id: str | None = None
 
 
+def iter_bounded_lines(stream: BinaryIO) -> Iterator[bytes]:
+    """Read protocol lines with an upper bound before a delimiter arrives."""
+
+    while True:
+        raw_line = stream.readline(MAX_SSE_LINE_BYTES + 1)
+        if not raw_line:
+            return
+        if len(raw_line) > MAX_SSE_LINE_BYTES:
+            raise ValueError("backend emitted an oversized streaming line")
+        yield raw_line
+
+
 def iter_sse(stream: BinaryIO) -> Iterator[SseFrame]:
     """Yield complete SSE frames from a binary line stream."""
 
     event: str | None = None
     event_id: str | None = None
     data: list[str] = []
+    frame_bytes = 0
 
-    for raw_line in stream:
+    for raw_line in iter_bounded_lines(stream):
+        frame_bytes += len(raw_line)
+        if frame_bytes > MAX_SSE_FRAME_BYTES:
+            raise ValueError("backend emitted an oversized SSE frame")
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
         if not line:
             if data:
@@ -32,6 +51,7 @@ def iter_sse(stream: BinaryIO) -> Iterator[SseFrame]:
             event = None
             event_id = None
             data = []
+            frame_bytes = 0
             continue
         if line.startswith(":"):
             continue

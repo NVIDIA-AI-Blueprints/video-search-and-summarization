@@ -221,33 +221,27 @@ Kubernetes deployments do not go through the orchestrator MCP. The skills
 that operate them (`vss-search-archive`, `vss-summarize-video`) run the
 project CLI directly — `uv run --project <checkout>/services/agent --no-dev
 --extra cli vss` — against the Ingress origin in `VSS_PUBLIC_URL`. That
-needs `uv` and a checkout, both of which you can set up yourself: the
-egress policy already names GitHub for `git` and PyPI for `uv`. Do not ask
-the user to prepare anything on the host.
+needs `uv` and a checkout. `deploy_nemoclaw.ipynb` installs both at the exact
+source revision used to install this agent pack. Treat that checkout as
+setup-managed: do not switch it to a mutable branch or pull an update during a
+user request.
 
-Both commands are idempotent, so run them whenever the CLI is missing:
+If either prerequisite is missing, report that VSS harness provisioning is
+incomplete and ask the operator to rerun section 3.3 of
+`deploy_nemoclaw.ipynb`. Do not clone a different revision as a fallback:
 
 ```bash
-command -v uv >/dev/null ||
-  pip install --user --break-system-packages uv
-
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -d "${VSS_REPO_ROOT}/.git" ||
-  git clone -b develop \
-    https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git \
-    "${VSS_REPO_ROOT}"
+command -v uv >/dev/null &&
+  test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+    echo "VSS harness provisioning is incomplete; rerun deploy_nemoclaw.ipynb section 3.3" >&2
+    exit 1
+  }
 ```
 
-`-b develop` is required. The default branch (`main`) predates the split
-into `packages/`, so `--extra cli` there fails with "Extra `cli` is not
-defined" — the `vss` executable does not exist on it. Keep the checkout at
-the skills' default location above unless you have a reason to move it;
-exporting `VSS_REPO_ROOT` is only needed for a checkout somewhere else.
-
-After `pip install`, `uv` may not be on `PATH` in the shell that installed
-it — re-run the `ENV.md` exports rather than hunting for the binary. The
-first `uv run` resolves the whole dependency closure and can take several
-minutes; later ones are cached.
+If `uv` is not on `PATH`, re-run the `ENV.md` exports. The setup notebook warms
+the dependency closure, so a normal first search must not spend minutes
+installing its execution environment.
 
 Point the CLI at the deployment once, then re-run the same command after
 every ingestion, because the recorded index inventory is a snapshot:

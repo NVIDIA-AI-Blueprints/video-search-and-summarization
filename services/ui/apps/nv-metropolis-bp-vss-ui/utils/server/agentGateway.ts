@@ -3,8 +3,15 @@
 
 import type { NextApiRequest, NextApiResponse } from "next";
 
-const MAX_SSE_BUFFER_LENGTH = 2_000_000;
+const MAX_SSE_BUFFER_LENGTH = 5_000_000;
+const MAX_ARTIFACT_LENGTH = 1_000_000;
 const GATEWAY_PROTOCOL_MAJOR = "1";
+const ARTIFACT_OPEN = "<vss-ui-artifact>";
+const ARTIFACT_CLOSE = "</vss-ui-artifact>";
+const INCIDENTS_OPEN = "<incidents>";
+const INCIDENTS_CLOSE = "</incidents>";
+const INTERMEDIATE_OPEN = "<intermediatestep>";
+const INTERMEDIATE_CLOSE = "</intermediatestep>";
 
 type JsonObject = Record<string, unknown>;
 
@@ -78,6 +85,241 @@ const intermediateChunk = (
   // A backend string must not be able to terminate the wrapper tag consumed by the legacy renderer.
   const json = JSON.stringify(intermediate).replace(/</g, "\\u003c");
   return `<intermediatestep>${json}</intermediatestep>`;
+};
+
+const vssUiArtifactChunk = (data: JsonObject): string | null => {
+  const version = asString(data.version);
+  const kind = asString(data.kind);
+  const payload = data.payload;
+  if (
+    version !== "1.0" ||
+    !kind?.startsWith("vss.") ||
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  try {
+    const json = JSON.stringify({ version, kind, payload }).replace(
+      /</g,
+      "\\u003c"
+    );
+    return `<vss-ui-artifact>${json}</vss-ui-artifact>`;
+  } catch {
+    return null;
+  }
+};
+
+/** Remove only gateway-generated presentation markup from assistant history. */
+export const sanitizeGatewayHistoryContent = (content: string): string => {
+  let output = "";
+  let cursor = 0;
+  while (cursor < content.length) {
+    const opening = content.indexOf(ARTIFACT_OPEN, cursor);
+    if (opening < 0) {
+      output += content.slice(cursor);
+      break;
+    }
+    const payloadStart = opening + ARTIFACT_OPEN.length;
+    const closing = content.indexOf(ARTIFACT_CLOSE, payloadStart);
+    if (closing < 0) {
+      output += content.slice(cursor);
+      break;
+    }
+
+    let candidate: JsonObject | null = null;
+    if (closing - payloadStart <= MAX_ARTIFACT_LENGTH) {
+      try {
+        const parsed: unknown = JSON.parse(
+          content.slice(payloadStart, closing).trim()
+        );
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          candidate = parsed as JsonObject;
+        }
+      } catch {
+        // Preserve malformed agent text exactly as it was received.
+      }
+    }
+    if (!candidate || !vssUiArtifactChunk(candidate)) {
+      const envelopeEnd = closing + ARTIFACT_CLOSE.length;
+      output += content.slice(cursor, envelopeEnd);
+      cursor = envelopeEnd;
+      continue;
+    }
+
+    output += content.slice(cursor, opening);
+    cursor = closing + ARTIFACT_CLOSE.length;
+    // The legacy bridge appends this card payload immediately after an alert
+    // artifact. It never came from the harness and must not enter its history.
+    if (
+      candidate.kind === "vss.alert.incidents" &&
+      content.startsWith(INCIDENTS_OPEN, cursor)
+    ) {
+      const incidentsEnd = content.indexOf(
+        INCIDENTS_CLOSE,
+        cursor + INCIDENTS_OPEN.length
+      );
+      if (incidentsEnd >= 0) cursor = incidentsEnd + INCIDENTS_CLOSE.length;
+    }
+  }
+
+  // Run status, reasoning, and tool rows are serialized into the legacy text
+  // stream for presentation only. Strip only wrappers whose JSON has the exact
+  // gateway-generated discriminator; malformed or illustrative prose survives.
+  let cleaned = "";
+  cursor = 0;
+  while (cursor < output.length) {
+    const opening = output.indexOf(INTERMEDIATE_OPEN, cursor);
+    if (opening < 0) return cleaned + output.slice(cursor);
+    const payloadStart = opening + INTERMEDIATE_OPEN.length;
+    const closing = output.indexOf(INTERMEDIATE_CLOSE, payloadStart);
+    if (closing < 0) return cleaned + output.slice(cursor);
+
+    let generated = false;
+    if (closing - payloadStart <= MAX_SSE_BUFFER_LENGTH) {
+      try {
+        const parsed: unknown = JSON.parse(
+          output.slice(payloadStart, closing).trim()
+        );
+        generated =
+          !!parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed) &&
+          (parsed as JsonObject).type === "system_intermediate";
+      } catch {
+        // Preserve malformed agent text exactly as it was received.
+      }
+    }
+    if (!generated) {
+      const envelopeEnd = closing + INTERMEDIATE_CLOSE.length;
+      cleaned += output.slice(cursor, envelopeEnd);
+      cursor = envelopeEnd;
+      continue;
+    }
+    cleaned += output.slice(cursor, opening);
+    cursor = closing + INTERMEDIATE_CLOSE.length;
+  }
+  return cleaned;
+};
+
+const alertIncidentsChunk = (data: JsonObject): string | null => {
+  if (data.kind !== "vss.alert.incidents") return null;
+  const payload = data.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return null;
+  const incidents = (payload as JsonObject).incidents;
+  if (!Array.isArray(incidents)) return null;
+  const normalized = incidents
+    .slice(0, 100)
+    .flatMap<JsonObject>((value): JsonObject[] => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        return [];
+      const incident = value as JsonObject;
+      const legacyDetails = incident["Alert Details"];
+      const legacyClip = incident["Clip Information"];
+      const hasLegacyShape =
+        Object.prototype.hasOwnProperty.call(incident, "Alert Details") ||
+        Object.prototype.hasOwnProperty.call(incident, "Clip Information");
+      if (
+        hasLegacyShape &&
+        (!legacyDetails ||
+          typeof legacyDetails !== "object" ||
+          Array.isArray(legacyDetails) ||
+          !legacyClip ||
+          typeof legacyClip !== "object" ||
+          Array.isArray(legacyClip))
+      ) {
+        return [];
+      }
+      if (
+        legacyDetails &&
+        typeof legacyDetails === "object" &&
+        !Array.isArray(legacyDetails) &&
+        legacyClip &&
+        typeof legacyClip === "object" &&
+        !Array.isArray(legacyClip)
+      ) {
+        const details = legacyDetails as JsonObject;
+        const clip = legacyClip as JsonObject;
+        const metadata = clip["CV Metadata"];
+        return [
+          {
+            "Alert Title": asString(incident["Alert Title"]) || "VSS alert",
+            "Alert Details": {
+              "Alert Triggered":
+                asString(details["Alert Triggered"]) || "VSS alert",
+              Validation:
+                typeof details.Validation === "boolean"
+                  ? details.Validation
+                  : false,
+              "Alert Description": asString(details["Alert Description"]) || "",
+            },
+            "Clip Information": {
+              Timestamp: asString(clip.Timestamp) || "",
+              Stream: asString(clip.Stream) || "",
+              Alerts: asString(clip.Alerts) || "VSS alert",
+              "CV Metadata":
+                metadata &&
+                typeof metadata === "object" &&
+                !Array.isArray(metadata)
+                  ? metadata
+                  : {},
+              snapshot_url: asString(clip.snapshot_url) || "",
+              video_url: asString(clip.video_url) || "",
+            },
+          },
+        ];
+      }
+      const info =
+        incident.info &&
+        typeof incident.info === "object" &&
+        !Array.isArray(incident.info)
+          ? (incident.info as JsonObject)
+          : {};
+      const analytics =
+        incident.analyticsModule &&
+        typeof incident.analyticsModule === "object" &&
+        !Array.isArray(incident.analyticsModule)
+          ? (incident.analyticsModule as JsonObject)
+          : {};
+      const description =
+        asString(info.reasoning) ||
+        asString(info.vlm_response) ||
+        asString(analytics.description) ||
+        "";
+      return [
+        {
+          "Alert Title": asString(incident.category) || "VSS alert",
+          "Alert Details": {
+            "Alert Triggered": asString(incident.category) || "VSS alert",
+            Validation: asString(info.verdict) === "confirmed",
+            "Alert Description": description,
+          },
+          "Clip Information": {
+            Timestamp: asString(incident.timestamp) || "",
+            Stream: asString(incident.sensorId) || "",
+            Alerts: asString(incident.category) || "VSS alert",
+            "CV Metadata": {},
+            start_time: asString(incident.timestamp) || "",
+            end_time: asString(incident.end) || "",
+            video_url:
+              asString(info.videoSource) ||
+              asString(info.media_url) ||
+              asString(info.video_url) ||
+              "",
+          },
+        },
+      ];
+    });
+  const json = JSON.stringify({
+    incidents: normalized,
+    total_incidents:
+      typeof (payload as JsonObject).total === "number"
+        ? (payload as JsonObject).total
+        : normalized.length,
+  }).replace(/</g, "\\u003c");
+  return `<incidents>${json}</incidents>`;
 };
 
 export const gatewayRunStatusChunk = (
@@ -177,14 +419,10 @@ export const gatewayEventToLegacyChunks = (
   }
 
   if (event.type === "artifact.created") {
-    return [
-      intermediateChunk(event, {
-        id: asString(data.artifact_id) || `artifact-${event.id}`,
-        name: asString(data.name) || "Artifact created",
-        status: "complete",
-        payload: data,
-      }),
-    ];
+    const artifact = vssUiArtifactChunk(data);
+    if (!artifact) return [];
+    const incidents = alertIncidentsChunk(data);
+    return incidents ? [artifact, incidents] : [artifact];
   }
 
   if (event.type === "interaction.required") {
@@ -344,7 +582,15 @@ const cleanMessages = (value: unknown): ChatMessage[] => {
       typeof content !== "string"
     )
       return [];
-    return [{ role: role as ChatMessage["role"], content }];
+    return [
+      {
+        role: role as ChatMessage["role"],
+        content:
+          role === "assistant"
+            ? sanitizeGatewayHistoryContent(content)
+            : content,
+      },
+    ];
   });
 };
 

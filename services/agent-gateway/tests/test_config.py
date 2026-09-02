@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -45,18 +46,64 @@ class ConfigTest(unittest.TestCase):
             self.assertRaisesRegex(ConfigError, "credentials"),
         ):
             GatewayConfig.from_env()
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "AGENT_BACKEND_URL": "http://agent.local",
-                    "AGENT_BACKEND_HEADERS_JSON": '{"Authorization":"secret"}',
-                },
-                clear=True,
-            ),
-            self.assertRaisesRegex(ConfigError, "cannot override"),
+
+        for header in (
+            "Authorization",
+            "Content-Type",
+            "Connection",
+            "Proxy-Authorization",
         ):
-            GatewayConfig.from_env()
+            with (
+                self.subTest(header=header),
+                patch.dict(
+                    os.environ,
+                    {
+                        "AGENT_BACKEND_URL": "http://agent.local",
+                        "AGENT_BACKEND_HEADERS_JSON": json.dumps({header: "unsafe"}),
+                    },
+                    clear=True,
+                ),
+                self.assertRaisesRegex(ConfigError, "cannot override"),
+            ):
+                GatewayConfig.from_env()
+
+    def test_session_routing_cannot_override_protocol_or_auth_fields(self) -> None:
+        for variable, value in (
+            ("AGENT_BACKEND_SESSION_FIELD", "input"),
+            ("AGENT_BACKEND_SESSION_HEADER", "Authorization"),
+            ("AGENT_BACKEND_SESSION_HEADER", "bad header"),
+        ):
+            with (
+                self.subTest(variable=variable, value=value),
+                patch.dict(
+                    os.environ,
+                    {"AGENT_BACKEND_URL": "http://agent.local", variable: value},
+                    clear=True,
+                ),
+                self.assertRaises(ConfigError),
+            ):
+                GatewayConfig.from_env()
+
+    def test_rejects_malformed_extra_header_names_and_values(self) -> None:
+        for headers in (
+            {"Bad Header": "value"},
+            {"X-Test": "value\nsmuggled"},
+            {"X-Test": "é"},
+            {"X-Test": "x" * 8_193},
+        ):
+            with (
+                self.subTest(headers=headers),
+                patch.dict(
+                    os.environ,
+                    {
+                        "AGENT_BACKEND_URL": "http://agent.local",
+                        "AGENT_BACKEND_HEADERS_JSON": json.dumps(headers),
+                    },
+                    clear=True,
+                ),
+                self.assertRaises(ConfigError),
+            ):
+                GatewayConfig.from_env()
 
 
 if __name__ == "__main__":

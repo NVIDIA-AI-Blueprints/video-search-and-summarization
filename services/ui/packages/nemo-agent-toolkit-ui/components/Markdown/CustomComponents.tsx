@@ -251,6 +251,10 @@ export const getReactMarkDownCustomComponents = (
         () => null,
         () => true,
       ),
+      'vss-ui-artifact': memo(
+        () => null,
+        () => true,
+      ),
       incidents: memo(
         ({ children, data, ...props }) => {
           try {

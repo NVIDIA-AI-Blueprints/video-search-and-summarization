@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 import threading
 import time
@@ -51,8 +52,11 @@ class RunRecord:
     request: CreateRunRequest
     request_digest: str
     max_events: int
+    max_event_chars: int
     status: str = "queued"
     events: list[RunEvent] = field(default_factory=list)
+    event_char_sizes: list[int] = field(default_factory=list)
+    retained_event_chars: int = 0
     next_sequence: int = 1
     cancel_event: threading.Event = field(default_factory=threading.Event)
     condition: threading.Condition = field(default_factory=threading.Condition)
@@ -67,6 +71,18 @@ class RunRecord:
         self, event_type: str, data: dict[str, object] | None = None
     ) -> RunEvent:
         with self.condition:
+            data_chars = len(
+                json.dumps(
+                    data or {},
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+            if data_chars > self.max_event_chars:
+                raise ValueError(
+                    "one gateway event exceeds the per-run character limit"
+                )
             event = RunEvent.create(
                 sequence=self.next_sequence,
                 type=event_type,
@@ -76,8 +92,14 @@ class RunRecord:
             )
             self.next_sequence += 1
             self.events.append(event)
-            if len(self.events) > self.max_events:
+            self.event_char_sizes.append(data_chars)
+            self.retained_event_chars += data_chars
+            while (
+                len(self.events) > self.max_events
+                or self.retained_event_chars > self.max_event_chars
+            ):
                 self.events.pop(0)
+                self.retained_event_chars -= self.event_char_sizes.pop(0)
             if event_type == "run.started":
                 self.status = "running"
             elif event_type == "run.completed":
@@ -118,11 +140,17 @@ class RunRecord:
 
 class RunStore:
     def __init__(
-        self, *, retention_seconds: int, max_runs: int, max_events_per_run: int
+        self,
+        *,
+        retention_seconds: int,
+        max_runs: int,
+        max_events_per_run: int,
+        max_event_chars_per_run: int,
     ) -> None:
         self._retention_seconds = retention_seconds
         self._max_runs = max_runs
         self._max_events_per_run = max_events_per_run
+        self._max_event_chars_per_run = max_event_chars_per_run
         self._lock = threading.RLock()
         self._runs: dict[str, RunRecord] = {}
         self._active_threads: dict[str, str] = {}
@@ -184,6 +212,7 @@ class RunStore:
                 request=request,
                 request_digest=digest,
                 max_events=self._max_events_per_run,
+                max_event_chars=self._max_event_chars_per_run,
             )
             self._runs[run_id] = record
             self._active_threads[request.thread_id] = run_id

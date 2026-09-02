@@ -31,6 +31,7 @@
     "@nemo-agent-toolkit/ui": "0.1.1",
     "@nvidia/foundations-react-core": "0.607.4",
     "@tabler/icons-react": "^3.46.0",
+    "common": "*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

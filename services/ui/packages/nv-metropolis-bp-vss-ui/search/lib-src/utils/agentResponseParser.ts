@@ -3,6 +3,7 @@
  * Extracts Search API–shaped JSON from agent response text and transforms to SearchData[].
  * The agent may return markdown or plain text with an embedded JSON block (e.g. ```json ... ``` or raw { "data": [...] }).
  */
+import { extractVssUiArtifacts } from 'common';
 import type { SearchData } from '../types';
 
 /** Same shape as the Search API response: { data: Array<...> } */
@@ -73,6 +74,11 @@ function transformToSearchData(data: unknown[]): SearchData[] {
 export function extractSearchResultsFromAgentResponse(responseText: string): SearchData[] | null {
   if (!responseText || typeof responseText !== 'string') return null;
   const trimmed = responseText.trim();
+  const artifact = extractVssUiArtifacts(trimmed).find(
+    (candidate) =>
+      candidate.kind === 'vss.search.results' && Array.isArray(candidate.payload.data),
+  );
+  if (artifact) return transformToSearchData(artifact.payload.data as unknown[]);
 
   let parsed = extractJsonFromCodeBlock(trimmed);
   if (!parsed || !Array.isArray(parsed.data)) {
