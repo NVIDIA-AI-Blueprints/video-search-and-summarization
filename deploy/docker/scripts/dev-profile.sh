@@ -1506,9 +1506,19 @@ function export_managed_container_channel() {
   # generated.env -- including the SBSA tag swap, which appeared to succeed
   # while Compose kept deploying the default tags.
   #
-  # GHCR acceptance only exports VSS_CONTAINER_TAG. Export the shared registry
-  # and tag pair here so compose does not fall back to nvstaging/nvidia inline
-  # defaults while still leaving per-image tag overrides in generated.env.
+  # Promote only VSS_CONTAINER_REGISTRY. ci-vss-oss forwards
+  # -e VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-}", so the compose
+  # process sees the registry empty-but-set. Compose interpolates that empty
+  # value through nested NGC fallbacks in containers.env; bash ${VAR:-default}
+  # treats empty as unset, which is why sourcing this file in the parent shell
+  # rewrote the registry to GHCR. Export the resolved registry so compose sees
+  # a real GHCR coordinate.
+  #
+  # Do not export VSS_CONTAINER_TAG. GHCR acceptance already injects the tag
+  # into the process environment. Promoting containers.env's resolved default
+  # would shadow any tag in overrides.env / generated.env, because Compose
+  # gives the process environment precedence over every --env-file. Assign the
+  # resolved tag in this shell only so the INFO line can print it.
   eval "$(
     (
       set -a
@@ -1516,7 +1526,7 @@ function export_managed_container_channel() {
       source "${deployment_directory}/containers.env"
       set +a
       printf 'export VSS_CONTAINER_REGISTRY=%q\n' "${VSS_CONTAINER_REGISTRY}"
-      printf 'export VSS_CONTAINER_TAG=%q\n' "${VSS_CONTAINER_TAG}"
+      printf 'VSS_CONTAINER_TAG=%q\n' "${VSS_CONTAINER_TAG}"
     )
   )"
 }

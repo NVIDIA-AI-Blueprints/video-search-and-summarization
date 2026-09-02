@@ -917,30 +917,55 @@ else
 fi
 rm -f "${_out_compose_env_order}" "${_err_compose_env_order}"
 
-# GHCR acceptance passes VSS_CONTAINER_TAG without VSS_CONTAINER_REGISTRY.
-# state_up must export the registry from containers.env so compose does not
-# fall back to nvstaging/nvidia inline defaults.
+# ci-vss-oss forwards -e VSS_CONTAINER_REGISTRY="${VSS_CONTAINER_REGISTRY:-}"
+# so compose sees an empty-but-set registry, not an unset one. That empty
+# value is interpolated through nested NGC fallbacks in containers.env
+# (unset would still resolve GHCR via Compose ${VAR:-default}). Restore the
+# prior environment so later tests in this suite are unaffected.
 _out_ghcr_channel="$(mktemp)"
 _err_ghcr_channel="$(mktemp)"
-unset VSS_CONTAINER_REGISTRY
-export VSS_CONTAINER_TAG=pr-ghcr-channel-test
+_ghcr_had_registry=0
+_ghcr_saved_registry=""
+_ghcr_had_tag=0
+_ghcr_saved_tag=""
+if [[ -n "${VSS_CONTAINER_REGISTRY+x}" ]]; then
+  _ghcr_had_registry=1
+  _ghcr_saved_registry="${VSS_CONTAINER_REGISTRY}"
+fi
+if [[ -n "${VSS_CONTAINER_TAG+x}" ]]; then
+  _ghcr_had_tag=1
+  _ghcr_saved_tag="${VSS_CONTAINER_TAG}"
+fi
+export VSS_CONTAINER_REGISTRY=
+export VSS_CONTAINER_TAG=pr-ghcr-empty-registry-test
 cd "${REPO_ROOT}"
 set +e
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -d > "${_out_ghcr_channel}" 2> "${_err_ghcr_channel}"
 _ghcr_channel_exit=$?
 set -e
-unset VSS_CONTAINER_TAG
+if [[ ${_ghcr_had_registry} -eq 1 ]]; then
+  export VSS_CONTAINER_REGISTRY="${_ghcr_saved_registry}"
+else
+  unset VSS_CONTAINER_REGISTRY
+fi
+if [[ ${_ghcr_had_tag} -eq 1 ]]; then
+  export VSS_CONTAINER_TAG="${_ghcr_saved_tag}"
+else
+  unset VSS_CONTAINER_TAG
+fi
+_ghcr_agent_ok="ghcr.io/nvidia-ai-blueprints/vss/vss-agent:pr-ghcr-empty-registry-test"
+_ghcr_agent_ngc="nvcr.io/nvstaging/vss-core/vss-agent:pr-ghcr-empty-registry-test"
 if [[ ${_ghcr_channel_exit} -ne 0 ]]; then
-  echo "FAIL: dry-run with VSS_CONTAINER_TAG only exited ${_ghcr_channel_exit}"
+  echo "FAIL: dry-run with empty VSS_CONTAINER_REGISTRY exited ${_ghcr_channel_exit}"
   ((TESTS_FAILED++)) || true
-elif ! grep -Fq "ghcr.io/nvidia-ai-blueprints/vss/vss-agent:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
-  echo "FAIL: resolved compose images should use GHCR when only VSS_CONTAINER_TAG is exported"
+elif ! grep -Fq "${_ghcr_agent_ok}" "${_out_ghcr_channel}"; then
+  echo "FAIL: resolved vss-agent should be ${_ghcr_agent_ok} when VSS_CONTAINER_REGISTRY is empty-but-set"
   ((TESTS_FAILED++)) || true
-elif grep -Fq "nvcr.io/nvstaging/vss-core/vss-agent:pr-ghcr-channel-test" "${_out_ghcr_channel}"; then
-  echo "FAIL: resolved compose images should not use nvstaging when GHCR acceptance tag is set"
+elif grep -Fq "${_ghcr_agent_ngc}" "${_out_ghcr_channel}"; then
+  echo "FAIL: resolved vss-agent should not be ${_ghcr_agent_ngc} when VSS_CONTAINER_REGISTRY is empty-but-set"
   ((TESTS_FAILED++)) || true
 else
-  echo "PASS: resolved compose images use GHCR registry when VSS_CONTAINER_TAG is exported"
+  echo "PASS: resolved vss-agent uses GHCR when VSS_CONTAINER_REGISTRY is empty-but-set"
   ((TESTS_PASSED++)) || true
 fi
 rm -f "${_out_ghcr_channel}" "${_err_ghcr_channel}"
