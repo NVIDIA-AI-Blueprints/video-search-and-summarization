@@ -30,6 +30,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -134,6 +135,74 @@ def _as_env_override_list(overrides: dict[str, str]) -> list[str]:
     return [f"{k}={v}" for k, v in sorted(overrides.items())]
 
 
+
+def _bind_sources(resolved: Any) -> list[str]:
+    """Absolute host bind sources in a resolved compose document.
+
+    Matches BOTH compose forms, because the tree uses both:
+      short: `- /abs/src:/container/dst[:ro]`   (e.g. the sdrc service's
+             `- ./log:/mnt/log`, which docker_generate absolutises)
+      long:  `{type: bind, source: /abs/src, ...}`
+
+    Scoped to paths under the repo checkout or `.mdx_data` on purpose -- never
+    mkdir arbitrary absolute paths that happen to appear in the document.
+    """
+    blob = json.dumps(resolved)
+    found: set[str] = set()
+    # `[^"]*` on the target side, not `[^":]*`: a short-form bind may carry a
+    # mode suffix (`/src:/dst:ro`), which a colon-free target pattern misses.
+    found.update(re.findall(r'"(/[^":]+?):/[^"]*"', blob))           # short form
+    found.update(re.findall(r'"source"\s*:\s*"(/[^"]+)"', blob))     # long form
+    repo = str(_repo_dir())
+    out = []
+    for f in sorted(found):
+        f = f.rstrip("/")
+        if not f or "*" in f:
+            continue
+        if f.startswith(repo + "/") or "/.mdx_data/" in f:
+            out.append(f)
+    return out
+
+
+def _precreate_bind_sources(call, tools, compose_id: str) -> int:
+    """`mkdir -p` every bind source the resolved compose needs.
+
+    Docker auto-creates a missing host path for SHORT-syntax binds but not for
+    long-form `type: bind` (create_host_path defaults false). The harness also
+    scrubs untracked files from the checkout before every leg, so runtime dirs
+    such as `services/infra/sdrc/log` are absent by deploy time.
+
+    Four separate runs died one directory at a time -- vst_data, vst_video,
+    nginx_logs, sdrc/log -- because each fix extended a hand-maintained list.
+    Reading the RESOLVED compose ends the whole class: absolute, relative and
+    ${VAR}-derived sources alike, including any added later.
+
+    Best-effort by design -- if the read or parse fails, fall through and let
+    docker_up report the real error rather than masking it with our own.
+    """
+    try:
+        resolved = call(tools.DOCKER_READ,
+                        arguments={"docker_compose_id": compose_id},
+                        show_response=False)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[predeploy] docker_read failed ({exc}); skipping bind pre-create",
+              flush=True)
+        return 0
+    sources = _bind_sources(resolved)
+    made = 0
+    for src in sources:
+        try:
+            path = Path(src)
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+                made += 1
+        except OSError as exc:
+            print(f"[predeploy] could not create bind source {src}: {exc}", flush=True)
+    print(f"[predeploy] bind sources: {len(sources)} referenced, {made} created",
+          flush=True)
+    return made
+
+
 def predeploy(
     profile: str,
     *,
@@ -206,6 +275,10 @@ def predeploy(
             f"docker_generate returned no docker_compose_id: "
             f"{json.dumps(generated, indent=2)}"
         )
+
+    # 3b. Pre-create every bind source the resolved compose needs. See
+    #     _precreate_bind_sources for why this replaces patching dir lists.
+    _precreate_bind_sources(call, tools, compose_id)
 
     # 4. docker_up -- returns an ops id to poll.
     up = call(

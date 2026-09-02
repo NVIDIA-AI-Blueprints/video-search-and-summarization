@@ -346,3 +346,54 @@ class TailLinesBoundTests(unittest.TestCase):
             self.predeploy.predeploy("base", tail_lines=200)
         sent = dict(calls)["vss_orchestrator__docker_status"]["tail_lines"]
         self.assertEqual(sent, 20)
+
+
+class BindSourcePrecreateTests(unittest.TestCase):
+    """Pre-create bind sources from the RESOLVED compose, not a curated list.
+
+    Four runs died one directory at a time — vst_data, vst_video, nginx_logs,
+    then sdrc/log — because each fix extended a hand-maintained list. The last
+    one was not even a ${VSS_DATA_DIR} path: the sdrc service binds `./log`
+    relative to its compose file, which docker_generate absolutises, so no
+    amount of VSS_DATA_DIR enumeration could ever have found it.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import os
+        os.environ["VSS_REPO_DIR"] = "/repo"
+        cls.predeploy = _load("predeploy", NEMOCLAW_DIR / "predeploy.py")
+
+    def test_finds_short_form_relative_bind_absolutised(self) -> None:
+        # The exact failure from run 33608293917.
+        doc = {"services": {"sdrc": {"volumes": [
+            "/repo/deploy/docker/services/infra/sdrc/log:/mnt/log"]}}}
+        self.assertIn(
+            "/repo/deploy/docker/services/infra/sdrc/log",
+            self.predeploy._bind_sources(doc),
+        )
+
+    def test_finds_long_form_type_bind(self) -> None:
+        doc = {"services": {"vst": {"volumes": [
+            {"type": "bind", "source": "/repo/.mdx_data/data_log/vst/vst_data",
+             "target": "/x"}]}}}
+        self.assertIn(
+            "/repo/.mdx_data/data_log/vst/vst_data",
+            self.predeploy._bind_sources(doc),
+        )
+
+    def test_ignores_named_volumes(self) -> None:
+        doc = {"services": {"a": {"volumes": ["vss_agent-eval:/data"]}}}
+        self.assertEqual(self.predeploy._bind_sources(doc), [])
+
+    def test_never_touches_paths_outside_the_repo(self) -> None:
+        """Scope guard: we mkdir these, so a stray match must not escape."""
+        doc = {"services": {"evil": {"volumes": [
+            "/etc/passwd:/host_passwd",
+            "/var/run/docker.sock:/var/run/docker.sock",
+            "/usr/lib:/lib"]}}}
+        self.assertEqual(self.predeploy._bind_sources(doc), [])
+
+    def test_read_only_suffix_does_not_break_parsing(self) -> None:
+        doc = {"services": {"a": {"volumes": ["/repo/deploy/x:/render.sh:ro"]}}}
+        self.assertIn("/repo/deploy/x", self.predeploy._bind_sources(doc))
