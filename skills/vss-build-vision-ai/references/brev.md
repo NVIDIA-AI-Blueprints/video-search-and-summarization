@@ -73,13 +73,19 @@ sed -i \
   "$BUILD_OVERRIDE"
 ```
 
+On a NemoClaw build other than `alerts`, drop the `EXTERNAL_IP` line above and
+leave that variable to the sandbox ([`agent-harness.md`](agent-harness.md)). The
+rest is unchanged: `VSS_PUBLIC_HOST` already carries the secure link, and the
+`known_host` ACL admits it in its own right.
+
 ## Verifying the deploy is reachable externally
 
 After `docker compose up -d`:
 
 ```bash
-# 1. Nginx proxy is up and routing
-curl -sf http://localhost:7777/health >/dev/null && echo "proxy OK"
+# 1. Proxy is up and routing. Probe /, not /health: the ingress is HAProxy and its
+# route table has no /health, so that path 404s on a perfectly healthy proxy.
+curl -sf -o /dev/null http://localhost:7777/ && echo "proxy OK"
 
 # 2. UI reachable through the proxy (internally)
 curl -sfI http://localhost:7777/ | head -1

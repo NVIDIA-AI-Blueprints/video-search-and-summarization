@@ -109,6 +109,23 @@ the effective service set, carrying the operate route-set. A request that pairs
 NemoClaw with "no ingress" is a **capability contradiction** — take it to the
 clarification gate; do not resolve it by dropping either side.
 
+Shipping the ingress is necessary but not sufficient. HAProxy 404s any `Host`
+header outside its `known_host` allowlist, which admits only `VSS_PUBLIC_HOST`,
+`EXTERNAL_IP`, `HOST_IP`, and localhost ([`services/ingress.md`](services/ingress.md)).
+The sandbox reaches the host as `host.openshell.internal`, so every Compose
+NemoClaw build 404s on its own origin until that name holds one of those slots.
+Set `EXTERNAL_IP=host.openshell.internal` in `_builds/<name>/override.env` before
+resolving, and comment the line. `EXTERNAL_IP` is the slot to spend: `HOST_IP`
+must stay bridge-reachable, and the URLs users follow resolve from
+`VSS_PUBLIC_HOST`. Do not ask the user — it is a mechanical consequence of
+choosing NemoClaw.
+
+Not on `alerts`: `alert-bridge` rewrites clip URLs from `INTERNAL_IP` to
+`EXTERNAL_IP`, so repointing it makes alert evidence unopenable. There, add
+`host.openshell.internal` to a curated `haproxy.cfg` per
+[`services/ingress.md`](services/ingress.md), or accept the origin 404 since
+alerts operate reaches Alert Bridge and VA-MCP on their host ports.
+
 ### Stock stays stock
 
 Since the harness changes no service key, a named profile plus NemoClaw is a
