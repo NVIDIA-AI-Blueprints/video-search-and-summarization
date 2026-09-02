@@ -68,5 +68,5 @@ When the build ships `rtvi-vlm` and the `vss-agent` tier, also probe RT-VLM's
 - `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
-- `skills/vss-deploy-video-embedding/references/environment.md`
-- `skills/vss-deploy-detection-tracking-2d/references/environment.md`
+- `skills/deployment/vss-deploy-video-embedding/references/environment.md`
+- `skills/deployment/vss-deploy-detection-tracking-2d/references/environment.md`

@@ -163,6 +163,17 @@ def _exit_for(exc: Exception) -> Exit | None:
         # back as the client's own ApiError, which is not a TransportError.
         # `memory.write_failures()` says the same thing for the write path.
         "ApiError": Exit.BACKEND_UNREACHABLE,
+        # httpx transport failures that vss_core may not re-wrap as a typed
+        # exception (e.g. warm_media_url on an unreachable clip URL).  Mapped by
+        # class name so the framework does not import httpx at module scope.
+        "ConnectError": Exit.BACKEND_UNREACHABLE,
+        "NetworkError": Exit.BACKEND_UNREACHABLE,
+        "RemoteProtocolError": Exit.BACKEND_UNREACHABLE,
+        "ConnectTimeout": Exit.TIMEOUT,
+        "ReadTimeout": Exit.TIMEOUT,
+        "WriteTimeout": Exit.TIMEOUT,
+        "PoolTimeout": Exit.TIMEOUT,
+        "TimeoutException": Exit.TIMEOUT,
     }
     for klass in type(exc).__mro__:
         code = by_name.get(klass.__name__)
@@ -299,6 +310,24 @@ class CommandGroup(ABC):
         if ctx.memory is None:
             ctx.memory = memory_mod.build(ctx.deployment)
         return ctx.memory
+
+    @final
+    def persist_memory(self, ctx: Context, *, no_persist: bool) -> Any:
+        """Return the memory store when the deployment policy says to persist, else None.
+
+        Delegates the full persistence-policy decision to the memory module so
+        individual commands do not inspect ``memory.enabled`` or
+        ``memory.persist_by_default`` directly.  See
+        :func:`vss_cli.memory.open_for_persist` for the policy semantics.
+
+        An injected :attr:`Context.memory` (e.g. a test double) bypasses the
+        policy check so tests can control the store directly.
+        """
+        if no_persist:
+            return None
+        if ctx.memory is not None:
+            return ctx.memory
+        return memory_mod.open_for_persist(ctx.deployment, no_persist=False)
 
     def status(self, job_id: str, ctx: Context) -> Result:
         return Result(body=self.memory(ctx).status(self.name, job_id), job_id=job_id)

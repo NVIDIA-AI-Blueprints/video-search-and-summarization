@@ -100,7 +100,15 @@ void SensorManagement::onCameraStreaming(const string &streamId, const string &p
                         translateStreamStatusToString(StreamStatus::STREAM_STATUS_STREAMING)));
 
                 stream->live_proxy_url = proxy_url;
-                stream->replay_url = vod_url;
+                /* For Milestone (mms) sensors, recordings live on the external VMS and
+                ** replay must use the VMS VOD URL resolved at discovery (ONVIF
+                ** GetReplayUri), NOT VIOS's local RTSP /vod/ proxy reported here — that
+                ** proxy only serves locally-recorded files and 404s when recording is
+                ** disabled. Mirror the guard on the direct (non-SDRC) proxy path. */
+                if (deviceManager->type != TYPE_MMS)
+                {
+                    stream->replay_url = vod_url;
+                }
 
                 LOG(info) << "Stream status changed to STREAMING for streamId:" << streamId << " live_proxy_url:" << secureUrlForLogging(stream->live_proxy_url)
                 << " replay_url:" << secureUrlForLogging(stream->replay_url) << endl;

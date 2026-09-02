@@ -21,6 +21,7 @@
 #include <string>
 #include <map>
 #include <functional>
+#include <cstdint>
 #include "media_consumer.h"
 
 /**
@@ -124,6 +125,23 @@ public:
      * @return true if has consumers, false otherwise
      */
     virtual bool hasConsumers() const = 0;
+
+    /**
+     * @brief Seek an already-playing stream to an absolute time, in place.
+     * @param identifier The stream identifier/URL used at registerConsumer()
+     * @param targetEpochMs Absolute target time, epoch milliseconds
+     * @return true if the seek was issued, false if unsupported / no active stream
+     *
+     * Default implementation does nothing (returns false). Override in producers
+     * that support in-session seeking (e.g. re-PLAY an RTSP session with a new
+     * Range) so callers can reposition without tearing down the source.
+     */
+    virtual bool seekToTime(const std::string& identifier, int64_t targetEpochMs)
+    {
+        (void)identifier;
+        (void)targetEpochMs;
+        return false;
+    }
 
     /**
      * @brief Register a callback to be notified when the producer finishes (EOS)

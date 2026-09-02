@@ -15,13 +15,16 @@
 
 PREBUILT=$(TOP)/$(PREBUILT_DIR)
 TARGET := $(PREBUILT)libnvvideo_source.so
+DASH_MP4_MUX_PLUGIN := $(PREBUILT)gst-plugins/libgstdashmp4mux.so
+DASH_MP4_MUX_SRC := senders/dashmp4mux.c
 
 arch ?= $(shell uname -p)
 
 # Core video source files
 CORE_SRCS := core/CommonVideoSource.cpp \
 			 core/PipelineConfiguration.cpp \
-			 core/PipelineManager.cpp
+			 core/PipelineManager.cpp \
+			 ../dash/dash_session_manager.cpp
 
 # Builder files
 BUILDER_SRCS := builders/PipelineBuilder.cpp \
@@ -43,7 +46,8 @@ ENCODER_SRCS := encoders/nvvideoencoder.cpp \
 
 # Sender files
 SENDER_SRCS := senders/videowebRTCsender.cpp \
-			   senders/webrtc_sink_consumer.cpp
+			   senders/webrtc_sink_consumer.cpp \
+			   senders/dash_packager_consumer.cpp
 
 # Producer files
 PRODUCER_SRCS := producers/nativestreamproducer.cpp \
@@ -72,6 +76,7 @@ CPPFLAGS += -I $(TOP)/src/framework/media/video_source/core \
 			-I $(TOP)/src/framework/media/media_pipelines \
 			-I $(TOP)/src/framework/media/media_pipelines/cloud_stream \
 			-I $(TOP)/src/framework/media/media_pipelines/local_stream \
+			-I $(TOP)/src/framework/media/dash \
 			-I $(TOP)/src/modules/storage_management \
 			-I $(TOP)/src/framework/media/overlays \
 			-I $(TOP)/src/framework/stream_monitor \
@@ -97,7 +102,7 @@ else
 	LDFLAGS += -lnvdsgst_ipcmeta
 endif
 
-all: $(TARGET)
+all: $(TARGET) $(DASH_MP4_MUX_PLUGIN)
 
 %.o: %.cpp %.d
 	@echo "Compiling: $<"
@@ -107,10 +112,19 @@ $(TARGET): $(OBJS)
 	@echo "Linking: $@"
 	$(CXX) -o $@ $(OBJS) $(CPPFLAGS) $(LDFLAGS)
 
+$(DASH_MP4_MUX_PLUGIN): $(DASH_MP4_MUX_SRC)
+	@echo "Building DASH fMP4 GStreamer plugin: $@"
+	@mkdir -p $(dir $@)
+	$(CROSS_COMPILE)gcc -shared -fPIC -O2 \
+		`pkg-config --cflags gstreamer-1.0 gstreamer-base-1.0` \
+		-DPACKAGE=\"vios\" -DPACKAGE_NAME=\"VIOS\" -DPACKAGE_ORIGIN=\"https://nvidia.com\" \
+		-DVERSION=\"1.0.0\" $< -o $@ \
+		`pkg-config --libs gstreamer-1.0 gstreamer-base-1.0`
+
 -include $(TOP)/Makefile.dep
 
 clean:
-	$(AT)rm -rf $(TARGET) $(OBJS)
+	$(AT)rm -rf $(TARGET) $(DASH_MP4_MUX_PLUGIN) $(OBJS)
 	$(AT)find . -name "*.d" -delete
 
 .PHONY: all clean

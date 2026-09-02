@@ -113,7 +113,7 @@ once there because they are not specific to this package, and two copies drift.
 The CLI covers the operations agents actually need. VIOS's full REST surface —
 WebRTC session control, the proxy, recorder configuration, network scan, device
 settings — is documented in
-`skills/vss-manage-video-io-storage/references/api-reference.md` and is reached
+`skills/operations/vss-manage-video-io-storage/references/api-reference.md` and is reached
 with `curl`. That is also the right tool when you are debugging VIOS itself: when
 the question is *why* the service is failing, a wrapper over it tells you less
 than the status code does.

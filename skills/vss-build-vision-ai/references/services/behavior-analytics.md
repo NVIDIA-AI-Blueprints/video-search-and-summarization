@@ -6,11 +6,21 @@
 |---|---|
 | Alerts behavior rules | `vss-behavior-analytics-alerts` |
 | Search analytics | `vss-search-analytics-2d-fusion` |
+| Warehouse behavior rules (ROI, tripwire, proximity) | `vss-behavior-analytics-<mode>` |
 
 ## Required peers
 
 - Requires the matching profile-owned JSON config mounted by its extending
   service.
+- On `warehouse` the key is mode-suffixed (`vss-behavior-analytics-2d`, `-3d`)
+  and consumes the mode's perception output: `mdx-raw` for `2d`, `mdx-bev` for
+  `3d`. It requires the blueprint configurator for its mounted config — see
+  [`configurator.md`](configurator.md).
+- **`vss-behavior-analytics` publishes no HTTP listener** and declares no ports;
+  it is a broker consumer. The HAProxy `/behavior-analytics` route is defined but
+  its backend never passes health check, so it always returns 503. Read behaviors
+  from the `mdx-behavior` topic or the `mdx-behavior-*` Elasticsearch indices —
+  never by probing that route, and never treat its 503 as a deployment fault.
 - Kafka-backed configs require `kafka`, `kafka-topic-init-container`, and
   `broker-health-check`.
 - Alerts mode consumes RT-CV events; Search mode consumes the Search perception
@@ -67,5 +77,5 @@ there is a config change outside this env-only contract.
 - `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml`
 - `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml`
 - `services/analytics/behavior-analytics/configs/search_and_alerts_config.json`
-- `skills/vss-setup-behavior-analytics/references/configuration.md`
-- `skills/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md`
+- `skills/deployment/vss-setup-behavior-analytics/references/configuration.md`
+- `skills/deployment/vss-setup-behavior-analytics/references/deploy-behavior-analytics-service.md`

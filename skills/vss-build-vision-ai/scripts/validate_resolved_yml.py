@@ -148,7 +148,9 @@ def validate_document(
         source = Path(source_text)
         if not source.is_absolute() or not is_within(source, repo_root):
             continue
-        checked_in_source = read_only or "developer-profiles" in source.parts
+        checked_in_source = read_only or bool(
+            {"developer-profiles", "industry-profiles"} & set(source.parts)
+        )
         if not checked_in_source:
             continue
         if not source.exists():

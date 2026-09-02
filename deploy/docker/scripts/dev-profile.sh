@@ -133,12 +133,21 @@ function get_canonical_display_name() {
 function get_llm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
-    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
-    nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
     nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
-    nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
-    openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
+    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Models that used to ship with the blueprint. Returns a migration message for a
+# removed model name, or an empty string for a name that was never bundled. Kept
+# so a stale --llm fails loudly instead of resolving to an empty slug, which
+# Compose renders as zero LLM services with exit 0 (a silent no-LLM deploy).
+function get_removed_llm_message() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, the default on every hardware profile." ;;
     *) echo "" ;;
   esac
 }
@@ -565,12 +574,8 @@ function usage() {
   echo ""
   echo "  --llm                            LLM model name."
   echo "                                   • One of (local):"
-  echo "                                     - nvidia/nvidia-nemotron-nano-9b-v2"
-  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-  echo "                                     - nvidia/nemotron-3-nano"
-  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b"
-  echo "                                     - nvidia/llama-3.3-nemotron-super-49b-v1.5"
-  echo "                                     - openai/gpt-oss-20b"
+  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b (default)"
+  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 (edge: DGX-SPARK / AGX-THOR / IGX-THOR)"
   echo "                                   • When --use-remote-llm is passed, any model name can be passed"
   echo "  --llm-device-id                  LLM device ID."
   echo "                                   • Not allowed when --use-remote-llm is passed"
@@ -1096,8 +1101,25 @@ function process_args() {
         # Validate LLM model name if provided (only for non-remote modes; known names map to a slug)
         if contains_element "llm" "${options_provided[@]}"; then
           if [[ -z "$(get_llm_slug "${llm}")" ]]; then
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nvidia-nemotron-nano-9b-v2, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8, nvidia/nemotron-3-nano, nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/llama-3.3-nemotron-super-49b-v1.5, openai/gpt-oss-20b"
+            _removed_llm="$(get_removed_llm_message "${llm}")"
+            if [[ -n "${_removed_llm}" ]]; then
+              echo "[ERROR] ${_removed_llm}"
+            else
+              echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+            fi
             ((_all_good++))
+          else
+            # A valid model id still needs sizing for the selected hardware and
+            # mode; without it compose fails later on a missing env_file. The
+            # implicit path is covered by the edge auto-selection below, but an
+            # explicit --llm bypasses that, so check the resolved file here.
+            _hw_suffix=""
+            [[ "${llm_mode}" == "local_shared" ]] && _hw_suffix="-shared"
+            _hw_env="${deployment_directory}/services/nim/$(get_llm_slug "${llm}")/hw-${hardware_profile}${_hw_suffix}.env"
+            if [[ ! -f "${_hw_env}" ]]; then
+              echo "[ERROR] ${llm} has no sizing for ${hardware_profile} in ${llm_mode} mode ($(basename "${_hw_env}") not found). Choose a model that supports this hardware, or pass --use-remote-llm."
+              ((_all_good++))
+            fi
           fi
         fi
         if contains_element "llm-model-type" "${options_provided[@]}"; then
@@ -1430,6 +1452,9 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
+    # Every edge platform now ships Lightning sizing files, so none of them needs
+    # the LLM rewritten away from the blueprint default. The FP8 build stays
+    # reachable through an explicit --llm.
   else
     if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"
