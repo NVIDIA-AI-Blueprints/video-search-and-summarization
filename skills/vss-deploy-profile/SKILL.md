@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-profile
-description: Deprecated compatibility redirect for VSS profile deployments. Use vss-build-vision-ai for base, search, lvs, and alerts developer profiles; warehouse and edge are blocked until vss-build-vision-ai covers those profiles.
+description: Use only as a deprecated compatibility redirect when a legacy request explicitly invokes vss-deploy-profile or asks for the old VSS profile deployment skill. Redirect base, search, lvs, and alerts developer-profile requests to vss-build-vision-ai; block warehouse and edge until replacement coverage is complete.
 license: Apache-2.0
 metadata:
   version: "3.2.1"
@@ -16,6 +16,24 @@ metadata:
 `vss-deploy-profile` is superseded by [`vss-build-vision-ai`](../vss-build-vision-ai/SKILL.md) for current VSS developer-profile deployments.
 
 Do not start new `base`, `search`, `lvs`, or `alerts` deployments from this skill. Redirect those requests to `vss-build-vision-ai`.
+
+## When To Use
+
+Use this skill only when the user or an older eval explicitly names
+`vss-deploy-profile`, `/vss-deploy-profile`, or the deprecated VSS deploy-profile
+skill. Its only job is to redirect supported profile requests and report the
+temporary blocker for unsupported legacy profile coverage.
+
+## Do Not Use This Skill For
+
+- New VSS profile deployments. Use `vss-build-vision-ai` for `base`, `search`,
+  `lvs`, and `alerts`.
+- Custom profile composition, delta overlays, generated `_builds/` artifacts, or
+  resolved-Compose deployment lifecycle. Use `vss-build-vision-ai`.
+- Warehouse or edge profile deployment. Stop with the blocker message below
+  until replacement coverage lands.
+- Standalone microservice deployment or operation of a running stack. Use the
+  matching service or operations skill.
 
 ## Redirect Map
 
