@@ -205,8 +205,8 @@ to the notebook's own (c) build.nvidia.com path:
 | Variable | Default | Note |
 |---|---|---|
 | `NEMOCLAW_PROVIDER` | `custom` | option (a); the only provider that consumes `NEMOCLAW_ENDPOINT_URL` |
-| `NEMOCLAW_MODEL` | `claude-opus-4-6` | matches the notebook's own (a) example; override for a different Opus revision, or for a router **route id** when the endpoint is a model router |
-| `NEMOCLAW_ENDPOINT_URL` | `https://api.anthropic.com/v1/` | any OpenAI-compatible base URL; point it at an internal gateway or router instead when one is in use |
+| `NEMOCLAW_MODEL` | `claude-opus-4-8` | matches the notebook's own (a) example; override for a different Opus revision, or for a router **route id** when the endpoint is a model router |
+| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` | any OpenAI-compatible base URL; point it at an internal gateway or router instead when one is in use |
 | `COMPATIBLE_API_KEY` | **no default** | a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output |
 
 Override the default **only on an explicit request** for a local or different
