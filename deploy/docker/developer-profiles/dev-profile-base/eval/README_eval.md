@@ -9,8 +9,12 @@ trajectories.
 
 ```bash
 # Prerequisites: vss configure already run; rt_vlm ok; NGC_API_KEY for DSS.
+# Judge: a GPT or Claude model from inference hub now that vss-agent's Nemotron
+# endpoint is going away. EVAL_LLM_JUDGE_API_KEY authenticates it; NGC_API_KEY is
+# never sent to a non-NVIDIA judge host.
 export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"
 export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
+export EVAL_LLM_JUDGE_API_KEY="${LLM_API_KEY}"
 ./run_vlm_qa_benchmark.sh
 ```
 

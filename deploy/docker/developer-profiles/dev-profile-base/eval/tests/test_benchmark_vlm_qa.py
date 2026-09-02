@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from benchmark_vlm_qa import is_qa_item
+from benchmark_vlm_qa import judge_api_key
 from benchmark_vlm_qa import judge_completions_url
 from benchmark_vlm_qa import latency_stats
 from benchmark_vlm_qa import parse_score
@@ -184,14 +185,18 @@ def _fake_vss(script: str) -> list[str]:
 def test_run_vlm_item_returns_answer_on_success(tmp_path: Path) -> None:
     video = tmp_path / "clip.mp4"
     video.write_bytes(b"x")
-    emit = "import json; print(json.dumps({'job_id': 'vlm-1', 'status': 'completed', 'answer': 'A box fell.'}))"
+    emit = (
+        "import json; print(json.dumps("
+        "{'job_id': 'vlm-1', 'status': 'completed', 'answer': 'A box fell.', 'model': 'cosmos-reason3'}))"
+    )
     item = QaItem(id="qa_001", query="What happened?", ground_truth="A box fell.", video_path=video)
 
-    answer, elapsed, returncode, error = run_vlm_item(
+    answer, elapsed, returncode, error, served_model = run_vlm_item(
         vss=_fake_vss(emit), item=item, timeout_s=30, num_frames=4, model=None
     )
 
     assert (answer, returncode, error) == ("A box fell.", 0, "")
+    assert served_model == "cosmos-reason3"
     assert elapsed > 0
 
 
@@ -201,19 +206,40 @@ def test_run_vlm_item_reports_failure_without_an_answer(tmp_path: Path) -> None:
     fail = "import sys; print('rt-vlm unreachable', file=sys.stderr); sys.exit(3)"
     item = QaItem(id="qa_002", query="What happened?", ground_truth="A box fell.", video_path=video)
 
-    answer, _elapsed, returncode, error = run_vlm_item(
+    answer, _elapsed, returncode, error, served_model = run_vlm_item(
         vss=_fake_vss(fail), item=item, timeout_s=30, num_frames=4, model=None
     )
 
     assert answer is None
     assert returncode == 3
     assert "rt-vlm unreachable" in error
+    assert served_model is None
 
 
 def test_judge_url_normalizes_base() -> None:
     assert judge_completions_url("http://llm:8000") == "http://llm:8000/v1/chat/completions"
     assert judge_completions_url("http://llm:8000/v1") == "http://llm:8000/v1/chat/completions"
     assert judge_completions_url("http://llm:8000/v1/chat/completions") == "http://llm:8000/v1/chat/completions"
+
+
+def test_judge_key_never_sends_an_nvidia_credential_to_a_third_party() -> None:
+    """A run sets NGC_API_KEY for the dataset download; it must not leak to the judge."""
+    env = {"NGC_API_KEY": "ngc-secret", "NVIDIA_API_KEY": "nvidia-secret"}
+    assert judge_api_key("https://api.openai.com/v1/chat/completions", env) is None
+
+
+def test_judge_key_uses_nvidia_credential_for_nvidia_and_onprem_hosts() -> None:
+    env = {"NGC_API_KEY": "ngc-secret"}
+    assert judge_api_key("https://integrate.api.nvidia.com/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("http://10.86.83.113:30081/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("http://localhost:8000/v1/chat/completions", env) == "ngc-secret"
+
+
+def test_judge_key_prefers_the_explicitly_named_key() -> None:
+    env = {"EVAL_LLM_JUDGE_API_KEY": "judge-key", "OPENAI_API_KEY": "openai-key", "NGC_API_KEY": "ngc-secret"}
+    assert judge_api_key("https://api.openai.com/v1/chat/completions", env) == "judge-key"
+    assert judge_api_key("http://localhost:8000/v1/chat/completions", env) == "judge-key"
+    assert judge_api_key("https://api.openai.com/v1/chat/completions", {"OPENAI_API_KEY": "openai-key"}) == "openai-key"
 
 
 def test_latency_stats() -> None:

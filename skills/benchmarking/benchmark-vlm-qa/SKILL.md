@@ -38,8 +38,12 @@ score tool-calling or trajectories.
 - `uv` and this checkout (CLI via `uv run --project services/agent --no-dev --extra cli vss`).
 - DSS access: `NGC_API_KEY`, plus `NVDATASET_TENANTID=0573334707593577` and
   `NVDATASET_GROUPID=vss-bp-team` (defaults in the script; dataset owner: Jiayi Ni).
-- An OpenAI-compatible judge LLM: `EVAL_LLM_JUDGE_BASE_URL` and `EVAL_LLM_JUDGE_NAME`
-  (typically the same NIM as the profile LLM). Skip with `--skip-judge` for latency only.
+- An OpenAI-compatible judge LLM: `EVAL_LLM_JUDGE_BASE_URL` and `EVAL_LLM_JUDGE_NAME`.
+  The old NAT eval judged with the Nemotron endpoint inside vss-agent; with vss-agent
+  deprecated, prefer a GPT or Claude model from inference hub. Authenticate with
+  `EVAL_LLM_JUDGE_API_KEY`. `NGC_API_KEY` is deliberately **not** sent to non-NVIDIA
+  judge hosts — it is set for the dataset download and must not reach a third party.
+  Skip with `--skip-judge` for latency only.
 
 Bootstrap is in the repo-root [AGENTS.md](../../../AGENTS.md). Do not construct
 RT-VLM URLs; `vss vlm run` reads the recorded config.
@@ -71,7 +75,8 @@ Useful flags (forwarded to `benchmark_vlm_qa.py`):
 
 Outputs under `<dataset>/../../results/vlm_qa/` (or `--output-dir`):
 
-- `summary.json` — mean accuracy, latency mean / p50 / p90 / p95 / p99
+- `summary.json` — mean accuracy, latency mean / p50 / p90 / p95 / p99, and the
+  model the deployment reported serving, so a number is never left unattributable
 - `qa_evaluator_output.json` — per-item judge scores (same shape as NAT QA output)
 - `latency_summary.json` — per-item wall-clock around `vss vlm run`
 - `workflow_output.json` — raw answers

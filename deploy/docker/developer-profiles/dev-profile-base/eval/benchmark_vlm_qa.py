@@ -36,6 +36,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict
 from dataclasses import dataclass
@@ -328,6 +329,26 @@ def judge_completions_url(base_url: str) -> str:
     return f"{trimmed}/v1/chat/completions"
 
 
+def judge_api_key(judge_url: str, env: dict[str, str] | None = None) -> str | None:
+    """Pick the credential for the judge endpoint.
+
+    A run needs ``NGC_API_KEY`` for the dataset download, so it is normally set in
+    the same shell as the judge call. Falling back to it unconditionally would send
+    an NVIDIA credential to whatever third-party host serves the judge -- which both
+    fails auth and discloses the key. NVIDIA keys are therefore only used for NVIDIA
+    or on-premise endpoints; anything else needs a key named for the judge.
+    """
+    env = os.environ if env is None else env
+    explicit = env.get("EVAL_LLM_JUDGE_API_KEY") or env.get("OPENAI_API_KEY")
+    if explicit:
+        return explicit
+    host = (urllib.parse.urlparse(judge_url).hostname or "").lower()
+    nvidia_host = host.endswith("nvidia.com") or host in {"localhost", "127.0.0.1", "::1"} or host.startswith("10.")
+    if nvidia_host:
+        return env.get("NVIDIA_API_KEY") or env.get("NGC_API_KEY")
+    return None
+
+
 def judge_answer(
     *,
     question: str,
@@ -354,7 +375,7 @@ def judge_answer(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    api_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NGC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = judge_api_key(judge_url)
     if api_key:
         request.add_header("Authorization", f"Bearer {api_key}")
     try:
@@ -407,7 +428,7 @@ def run_vlm_item(
     timeout_s: int,
     num_frames: int,
     model: str | None,
-) -> tuple[str | None, float, int, str]:
+) -> tuple[str | None, float, int, str, str | None]:
     cmd = [
         *vss,
         "vlm",
@@ -437,16 +458,18 @@ def run_vlm_item(
             returncode,
             f"benchmark watchdog killed `vss vlm run` after {watchdog_s}s; "
             f"the CLI did not honour its own --timeout {timeout_s}s",
+            None,
         )
     if returncode != 0:
         err = (stderr or stdout or "").strip()
-        return None, elapsed, returncode, err
+        return None, elapsed, returncode, err, None
     try:
         body = parse_vlm_stdout(stdout)
     except ValueError as exc:
-        return None, elapsed, returncode, str(exc)
+        return None, elapsed, returncode, str(exc), None
     answer = strip_think_tags(str(body.get("answer") or ""))
-    return answer, elapsed, returncode, ""
+    served_model = body.get("model")
+    return answer, elapsed, returncode, "", str(served_model) if served_model else None
 
 
 @dataclass
@@ -460,6 +483,9 @@ class ItemResult:
     latency_seconds: float
     error: str
     exit_code: int
+    #: Model the deployment reported serving the answer, as opposed to the one
+    #: requested. A run is not interpretable without knowing which VLM produced it.
+    served_model: str | None = None
 
 
 def write_outputs(output_dir: Path, results: list[ItemResult], extra: dict[str, Any]) -> None:
@@ -610,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
     results: list[ItemResult] = []
     for item in items:
         print(f"running {item.id} on {item.video_path.name} …", file=sys.stderr)
-        answer, latency, exit_code, error = run_vlm_item(
+        answer, latency, exit_code, error, served_model = run_vlm_item(
             vss=vss,
             item=item,
             timeout_s=args.timeout,
@@ -643,18 +669,21 @@ def main(argv: list[str] | None = None) -> int:
                 latency_seconds=latency,
                 error=error,
                 exit_code=exit_code,
+                served_model=served_model,
             )
         )
 
+    served_models = sorted({item.served_model for item in results if item.served_model})
     extra = {
         "dataset_dir": str(dataset_dir),
         "dataset_file": args.dataset_file,
-        "model": args.model,
+        "model_requested": args.model,
+        "model_served": served_models[0] if len(served_models) == 1 else served_models or None,
         "num_frames": args.num_frames,
         "judge_model": None if args.skip_judge else args.judge_model,
         "scope": "video_qa_via_vss_vlm",
         "non_goals": ["tool_calling_accuracy", "trajectory_evaluation"],
-        "backend": "rt_vlm (Cosmos Reason 3 when that is the configured deployment model)",
+        "backend": "rt_vlm",
     }
     write_outputs(output_dir, results, extra)
     scored = [item.score for item in results if item.score is not None]
