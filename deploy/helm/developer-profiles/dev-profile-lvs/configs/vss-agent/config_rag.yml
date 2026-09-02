@@ -263,6 +263,93 @@ functions:
   #       meaning: node_a records are connected to related node_b records.
   # <<< arango_graph reference
 
+  # >>> db_query: reference-only CA-RAG storage query backend (preferred over arango_graph)
+  # Uses NVIDIA context-aware-rag `db_query` via knowledge_retrieval.
+  # Flow: agent LLM authors a native query for the selected db_type → this tool
+  # executes it via CA-RAG (no in-tool NL→query generation).
+  # Install vss-ctx-rag (+ vss-ctx-rag-arango when db_type=arango).
+  # Add carag_db_query to workflow.tool_names and the routing prompt when enabling.
+  #
+  # Select the DB with backend_config.db_type (or CARAG_DB_TYPE):
+  #   neo4j         → Cypher          (default port 7687)
+  #   arango        → AQL             (default port 8529; CA-RAG uses _system DB)
+  #   milvus        → filter expr     (default port 19530)
+  #   elasticsearch → Query DSL JSON  (default port 9200)
+  # Leave db_port empty (quoted "") to use the default for db_type.
+  #
+  # --- Active example (swap schema_description + db_type together) ---
+  # carag_db_query:
+  #   _type: knowledge_retrieval
+  #   backend: db_query
+  #   top_k: 5
+  #   backend_config:
+  #     db_type: ${CARAG_DB_TYPE:-arango}  # neo4j | arango | milvus | elasticsearch
+  #     db_host: ${CARAG_DB_HOST:-127.0.0.1}
+  #     db_port: "${CARAG_DB_PORT:-}"       # empty → default for db_type
+  #     db_user: "${CARAG_DB_USER:-root}"
+  #     db_password: "${CARAG_DB_PASSWORD:-}"
+  #     collection_name: ${CARAG_COLLECTION:-inspection_graph}
+  #     uuid: default
+  #     embedding_enable: false
+  #     # schema_description must match db_type (pick ONE of the examples below).
+  #     schema_description: |
+  #       ArangoDB AQL over collections in _system:
+  #       - inspection_case (case_id)
+  #       - defect (name)
+  #       - image (uri)
+  #       - has_defect edges: inspection_case -> defect
+  #       - has_image edges: inspection_case -> image
+  #       Example:
+  #         FOR c IN inspection_case FILTER c.case_id == @case_id
+  #         FOR v IN 1..1 OUTBOUND c has_image RETURN v.uri
+  #         filters.params: {"case_id": "case_123"}
+  #       Example:
+  #         FOR c IN inspection_case
+  #         FOR d IN 1..1 OUTBOUND c has_defect FILTER d.name == @defect_name
+  #         RETURN c.case_id
+  #         filters.params: {"defect_name": "solder_void"}
+  #
+  # --- Neo4j example (set CARAG_DB_TYPE=neo4j, CARAG_DB_USER=neo4j) ---
+  # # schema_description: |
+  # #   Neo4j Cypher graph:
+  # #   - (:Case {case_id})-[:HAS_IMAGE]->(:Image {uri})
+  # #   - (:Case)-[:HAS_DEFECT]->(:Defect {name})
+  # #   Example:
+  # #     MATCH (c:Case {case_id: $case_id})-[:HAS_IMAGE]->(i:Image)
+  # #     RETURN i.uri
+  # #     filters.params: {"case_id": "case_123"}
+  # #   Example:
+  # #     MATCH (c:Case)-[:HAS_DEFECT]->(d:Defect {name: $defect_name})
+  # #     RETURN c.case_id ORDER BY c.case_id
+  # #     filters.params: {"defect_name": "solder_void"}
+  #
+  # --- Elasticsearch example (set CARAG_DB_TYPE=elasticsearch,
+  # ---   CARAG_COLLECTION=inspection_cases; leave user/password empty) ---
+  # # schema_description: |
+  # #   Elasticsearch index `inspection_cases` documents with fields:
+  # #   - case_id (keyword)
+  # #   - defect_name (keyword)
+  # #   - image_uri (keyword; may be null)
+  # #   Pass an Elasticsearch Query DSL body as `query`.
+  # #   Example (image URI for a case):
+  # #     {"query":{"term":{"case_id":"case_123"}},"_source":["image_uri"]}
+  # #   Example (cases with a defect):
+  # #     {"query":{"term":{"defect_name":"solder_void"}},"_source":["case_id"]}
+  #
+  # --- Milvus example (set CARAG_DB_TYPE=milvus,
+  # ---   CARAG_COLLECTION=inspection_cases; leave user/password empty) ---
+  # # schema_description: |
+  # #   Milvus collection `inspection_cases` with scalar fields:
+  # #   - case_id (string)
+  # #   - defect_name (string)
+  # #   - image_uri (string; may be empty)
+  # #   Pass a Milvus boolean filter expression as `query`.
+  # #   Example (image URI for a case):
+  # #     case_id == "case_123"
+  # #   Example (cases with a defect):
+  # #     defect_name == "solder_void"
+  # <<< db_query reference
+
 llms:
   # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
   nim_llm:
@@ -365,6 +452,17 @@ workflow:
       - Skip for operational queries (list/show videos, snapshots, reports).
       - Pass `filters` only when the user names an exact filename; never invent one.
     # <<< frag
+
+    # >>> carag_db_query: enable with functions.carag_db_query + tool_names
+    #   **carag_db_query** - For relationship / structured DB questions over the
+    #   configured store (neo4j / arango / milvus / elasticsearch via db_type).
+    #   - YOU write the native query language for that db_type (Cypher / AQL /
+    #     Milvus filter / ES DSL) using the tool's schema_description.
+    #   - Pass that statement as `query`. Never pass natural language as `query`.
+    #   - Put bind values in `filters.params` ($name for Cypher, @name for AQL).
+    #   - Examples: "What image URI is linked to case_123?",
+    #     "Which inspection cases share the solder_void defect?"
+    # <<< carag_db_query
 
   tool_call_prompt: |
     - ALWAYS include ALL required parameters when calling tools
