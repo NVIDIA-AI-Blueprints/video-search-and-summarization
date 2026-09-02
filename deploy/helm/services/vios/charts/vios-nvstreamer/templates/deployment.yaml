@@ -141,6 +141,13 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
+            {{- $rtspBasePort := .Values.rtsp.basePort | default 31554 }}
+            {{- $rtspInstanceCount := .Values.rtsp.instanceCount | default 8 }}
+            {{- range $i := until (int $rtspInstanceCount) }}
+            {{- $rtspPort := add (int $rtspBasePort) $i }}
+            - name: rtsp-{{ $rtspPort }}
+              containerPort: {{ $rtspPort }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /home/vst/vst_release/configs/vst_config.json

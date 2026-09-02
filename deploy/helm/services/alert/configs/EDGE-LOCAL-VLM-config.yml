@@ -187,10 +187,14 @@ rtvi_vlm:
     max_event_duration_seconds: 300
     representative: "latest"
 
+{{- $esHosts := .Values.elasticHosts | default (printf "http://%s:9200" $esHost) }}
+{{- if not (regexMatch "^https?://" $esHosts) }}
+{{- $esHosts = printf "http://%s" $esHosts }}
+{{- end }}
 elastic:
   enabled: true
   hosts:
-    - {{ .Values.elasticHosts | default (printf "http://%s:9200" $esHost) | quote }}
+    - {{ $esHosts | quote }}
 
 vlm_enhanced_sink:
   incident:
