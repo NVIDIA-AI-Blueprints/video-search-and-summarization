@@ -190,8 +190,11 @@ def _visibility(obj: schema_pb2.Object) -> float | None:
     """
     raw = obj.info.get("visibility")
     if raw is None: return None
-    try: return float(raw)
-    except ValueError: return None
+    try:
+        value = float(raw)
+        return value if 0.0 <= value <= 1.0 else None
+    except ValueError:
+        return None
 
 
 def _admits(obj: schema_pb2.Object) -> bool:
