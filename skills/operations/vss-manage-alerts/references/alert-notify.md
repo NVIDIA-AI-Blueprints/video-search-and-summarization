@@ -38,9 +38,9 @@ The webhook server is a single relay on `:9090`; Alert Bridge POSTs incidents to
 
 > ⚠️ **The server exits at startup on a bad backend.** A failed Slack `auth_test` (invalid/placeholder `SLACK_BOT_TOKEN`), missing Dashboard credentials, or an unset `VST_ENDPOINT` each terminate the process (`sys.exit(1)`) — there is no degraded half-started mode. Collect real credentials **before** starting; never launch with placeholders to "see if it works".
 >
-> **The credentials gate is not something to get past.** The values in `.env.example`
-> (`xoxb-YOUR-SLACK-BOT-TOKEN`, `C0YOUR_CHANNEL_ID`) are documentation, not credentials — a
-> `.env` you created by copying that file contains no more than a placeholder does. Do not
+> **The credentials gate is not something to get past.** Placeholder values like
+> `xoxb-YOUR-SLACK-BOT-TOKEN` or `C0YOUR_CHANNEL_ID` are documentation, not credentials — an
+> environment populated by copying placeholders contains no more than a placeholder does. Do not
 > point `SLACK_API_URL`/the Slack base URL at a mock, stub, proxy or local server to make
 > `auth_test` succeed, and do not start the relay just to show the wiring works. Without a
 > real bot token and channel id the correct outcome is to **stop and ask the operator for
@@ -75,7 +75,6 @@ scripts/alert-notify/
 ├── open_claw_dashboard_notifier.py    # OpenClaw Dashboard backend (WebSocket RPC)
 ├── incident_utils.py                  # Shared helpers (verdict labels, formatting)
 ├── requirements.txt
-├── .env.example
 ├── .gitignore
 └── .pip-packages/                     # auto-created by pip install --target (Step 2)
 ```
@@ -94,7 +93,7 @@ scripts/alert-notify/
 | `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `10.63.144.174:30888`). Resolved by the agent via `vss-manage-video-io-storage` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
 | `VST_PUBLIC_URL_BASE` | No | Public base URL substituted for the VST host in playback video URLs (e.g. `https://7777-xbrxpi7ia.brevlab.com`). Set when clients reach VST through a Brev tunnel / reverse-proxy. If unset, URLs pass through unchanged. |
 
-**Environment injection:** These variables can be provided in three ways (in order of precedence):
+**Environment injection:** These variables can be provided in two ways (in order of precedence):
 
 1. **OpenClaw config** (`~/.openclaw/openclaw.json`) — preferred for managed deployments:
    ```json
@@ -113,8 +112,7 @@ scripts/alert-notify/
   }
   ```
    `apiKey` injects into `SLACK_BOT_TOKEN` automatically (via `primaryEnv`). Only `SLACK_CHANNEL_ID` needs explicit `env`.
-2. **`.env` file** in `{baseDir}/.env`
-3. **Shell environment** variables already exported
+2. **Shell environment** variables exported before launching the server
 
 Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) are available. If any is missing, resolve it before proceeding:
 - `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` — ask the user to provide them.
@@ -170,7 +168,7 @@ If either command fails, do NOT proceed to Step 4. Report the error to the user.
 
 ### Step 3 — Configure Environment
 
-Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are set (via OpenClaw `skills.entries` injection, `.env` file, or shell env).
+Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are set (via OpenClaw `skills.entries` injection or shell env).
 
 **For Slack credentials** — if `SLACK_BOT_TOKEN` or `SLACK_CHANNEL_ID` is missing, ask the user:
 
@@ -178,29 +176,30 @@ Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACK
 > 1. **Slack Bot Token** (`SLACK_BOT_TOKEN`) — the `xoxb-...` token from your Slack App
 > 2. **Slack Channel ID** (`SLACK_CHANNEL_ID`) — the channel where alerts should be posted
 >
-> You can set them in `~/.openclaw/openclaw.json` under `skills.entries.alert-notify.env`, or in a `.env` file at `{baseDir}/.env`."
+> You can set them in `~/.openclaw/openclaw.json` under `skills.entries.alert-notify.env`, or export them in the shell before starting the server."
 
 **For VST endpoint** — if `VST_ENDPOINT` is missing, use the `vss-manage-video-io-storage` skill to discover it. Follow the skill's availability check to find the VST `host:port`. If VST is not deployed or unreachable, ask the user:
 
 > "I need the VST endpoint (`host:port`) to resolve video clip URLs. What is the VST address?"
 
-Once all four values are available, write the `.env` file:
+Once all four values are available, export them in the shell that will start the server
+in Step 4. Credentials stay in the process environment — do not write them to a file:
 
 ```bash
-cat > {baseDir}/.env << 'EOF'
-SLACK_BOT_TOKEN=<token>
-SLACK_CHANNEL_ID=<channel_id>
-VST_ENDPOINT=<host>:<port>
-NOTIFY_BACKENDS=slack
-EOF
+export SLACK_BOT_TOKEN=<token>
+export SLACK_CHANNEL_ID=<channel_id>
+export VST_ENDPOINT=<host>:<port>
+export NOTIFY_BACKENDS=slack
 ```
-> If `NOTIFY_BACKENDS` includes `dashboard`, add `OPENCLAW_GATEWAY_URL=<url>` and `OPENCLAW_GATEWAY_AUTH_TOKEN=<token>` to the same file — the Dashboard backend exits at startup without them.
+> If `NOTIFY_BACKENDS` includes `dashboard`, also export `OPENCLAW_GATEWAY_URL=<url>` and `OPENCLAW_GATEWAY_AUTH_TOKEN=<token>` — the Dashboard backend exits at startup without them.
 
 **Do not start the server** until `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `VST_ENDPOINT`, and `NOTIFY_BACKENDS` are all set. Omitting `NOTIFY_BACKENDS=slack` (or `slack,dashboard`) is the quiet failure the warning above names: the relay starts and every incident goes to the Dashboard by default, never reaching Slack.
 
 ### Step 4 — Start the Server
 
 Set `PYTHONPATH` so Python finds packages installed in Step 2, then start the server:
+
+Run this in the **same shell** as the Step 3 exports — `nohup` inherits that environment.
 
 ```bash
 cd {baseDir}
@@ -320,6 +319,9 @@ Two methods — API-based (preferred) or process-based (fallback):
 curl -sf -X POST http://localhost:9090/webhook/alert-notify/stop | jq .
 ```
 
+Must be called from the host running the server: the endpoint accepts loopback
+clients only and returns `403` otherwise, so a remote caller cannot shut it down.
+
 ### Method 2 — Stop via Process (fallback)
 
 If the API is unresponsive, kill the process:
@@ -385,7 +387,7 @@ The message attachment color reflects the verdict: red for Confirmed, green for 
 | `GET` | `/webhook/alert-notify/health` | Health check |
 | `GET` | `/webhook/alert-notify/status` | Detailed service status with per-backend breakdown |
 | `POST` | `/webhook/alert-notify/test` | Send test notification through all backends |
-| `POST` | `/webhook/alert-notify/stop` | Gracefully stop the server |
+| `POST` | `/webhook/alert-notify/stop` | Gracefully stop the server (loopback clients only; `403` otherwise) |
 
 ---
 
@@ -408,7 +410,7 @@ All errors must be translated into plain language. Never show raw HTTP responses
 ## Tips
 
 - **Bot must be in channel:** The Slack bot must be invited to the target channel. In Slack, type `/invite @YourBotName` in the channel.
-- **Port conflicts:** If port 9090 is in use, set `WEBHOOK_PORT` to a different value in `.env`.
+- **Port conflicts:** If port 9090 is in use, export `WEBHOOK_PORT` with a different value before starting the server.
 - **Logs:** Server logs are written to `webhook.log` in `{baseDir}` when started via `nohup`.
 - **Multiple channels:** To send to multiple channels, run separate instances with different `SLACK_CHANNEL_ID` values and ports.
 - **Integration with Alert Bridge:** Configure Alert Bridge to send incident webhooks to `http://<webhook-host>:9090/webhook/alert-notify` (legacy `/webhook/alert-notify-slack` also works).
@@ -424,7 +426,7 @@ The webhook server **automatically** resolves video clip URLs for incidents that
 ```
 Agent starts webhook
   └─ Uses vss-manage-video-io-storage to discover VST endpoint (host:port)
-  └─ Sets VST_ENDPOINT in .env (required — server won't start without it)
+  └─ Exports VST_ENDPOINT (required — server won't start without it)
   └─ Starts server.py (reads VST_ENDPOINT on boot)
 
 Alert Bridge sends incident -> webhook server
