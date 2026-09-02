@@ -15,6 +15,20 @@ metadata:
 
 **Two ways in:** **guided intake** (state an open intent like "build a vision agent" / "add vision capabilities" and the skill walks you through capability selection) or **prompt-driven** (name the capability or profile directly). Both land on the same routing and composition flow.
 
+## Do Not Use This Skill For
+
+- Operating an already-running deployment: search, summarize, VIOS, alerts,
+  reports, and video Q&A requests should route to the matching operations skill
+  after `vss configure` has recorded the deployment origin.
+- Deploying a single standalone microservice such as RT-VLM, RT-CV, RT-Embed,
+  VIOS, Video Analytics API, or Alert Bridge by itself. Use the matching
+  `skills/deployment/vss-deploy-*` or setup skill instead.
+- Helm/Kubernetes deployment, notebook-only deployment, model benchmarking, or
+  low-level service development. This skill owns Docker Compose stock profiles,
+  the warehouse industry profile, and delta build artifacts under `_builds/`.
+- Unsupported industry profiles such as `smartcities`; `warehouse` is the only
+  supported industry Foundation.
+
 ## References
 
 - [`references/composition.md`](references/composition.md) — delta-profile rules, Foundation selection, build artifact contract, resolution, and validation.
