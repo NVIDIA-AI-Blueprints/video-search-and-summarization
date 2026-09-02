@@ -326,7 +326,8 @@ def main():
     finally:
         if file_id:
             try:
-                session.delete(f"{backend}/v1/files/delete/{file_id}", timeout=30)
+                response = session.delete(f"{backend}/v1/files/{file_id}", timeout=30)
+                response.raise_for_status()
             except requests.RequestException as exc:
                 report["cleanup_error"] = str(exc)
         session.close()
