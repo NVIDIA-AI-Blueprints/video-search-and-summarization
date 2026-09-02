@@ -346,7 +346,7 @@ class SourceKafka(SourceBase):
         Read data from kafka and return batches, one per source partition.
 
         Shape: [ { 'kind': 'incident'|'alert', 'topic': ..., 'partition': int,
-                   'messages': [(key, value, kafka_ts_ms), ...],
+                   'messages': [KafkaMessage(key, value, timestamp_ms, headers), ...],
                    'kafka_consumed_at': ..., 'kafka_published_at': ... }, ... ]
 
         Split per partition rather than per kind so the partition a message

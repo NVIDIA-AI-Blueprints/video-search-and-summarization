@@ -27,6 +27,8 @@ def es_client():
     with patch("clients.elastic.Elasticsearch") as mock_es_cls:
         mock_instance = MagicMock()
         mock_instance.ping.return_value = True
+        # `.options(...)` returns the client itself, matching elasticsearch-py.
+        mock_instance.options.return_value = mock_instance
         mock_es_cls.return_value = mock_instance
         client = ElasticClient(url="http://localhost:9200")
         yield client
@@ -52,6 +54,7 @@ class TestGetDocument:
 
     def test_get_existing_document(self, es_client):
         es_client.client.get.return_value = {
+            "found": True,
             "_id": "collision",
             "_source": {"alert_type": "collision", "prompt": "detect collisions"},
         }
@@ -62,7 +65,7 @@ class TestGetDocument:
         es_client.client.get.assert_called_once_with(index="ab-alert-configs", id="collision")
 
     def test_get_nonexistent_returns_none(self, es_client):
-        es_client.client.get.side_effect = _make_api_error(404)
+        es_client.client.get.return_value = {"found": False}
 
         result = es_client.get_document("ab-alert-configs", "missing")
 
@@ -175,6 +178,7 @@ class TestGetDocumentWithMeta:
 
     def test_returns_source_and_concurrency_metadata(self, es_client):
         es_client.client.get.return_value = {
+            "found": True,
             "_id": "collision",
             "_source": {"alert_type": "collision", "prompt": "x"},
             "_seq_no": 7,
@@ -190,7 +194,7 @@ class TestGetDocumentWithMeta:
         }
 
     def test_returns_none_on_404(self, es_client):
-        es_client.client.get.side_effect = _make_api_error(404)
+        es_client.client.get.return_value = {"found": False}
 
         assert es_client.get_document_with_meta("ab-alert-configs", "missing") is None
 

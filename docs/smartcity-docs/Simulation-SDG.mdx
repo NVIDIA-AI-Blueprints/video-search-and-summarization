@@ -40,7 +40,7 @@ You can create simulations on real world locations using their digital twins. A 
 
 To create and use your own digital twin, follow these steps:
 
-* Install full CARLA distribution that includes the UE4 Editor and the AVES plugin (see link provided earlier). Follow AVES instructions to select the map area and generate the CARLA map. If you need a very accurate geo-representation of the area for your simulation and [Calibration](/smartcity-docs/Calibration) needs, you can ask AVES to provide you a cleaned up xodr file for your chosen location that you can import into your project and use. Once the map is created, you can package it using CARLA's [packaging instructions](https://carla.readthedocs.io/en/latest/tuto_content_authoring_maps/#exporting-a-map-as-a-separate-package) to generate the tar.gz (similar to the sample) that you can import and install on other CARLA instances for simulation and testing. See section below for setting up CARLA server and importing your generated map.
+* Install full CARLA distribution that includes the UE4 Editor and the AVES plugin (see link provided earlier). Follow AVES instructions to select the map area and generate the CARLA map. If you need a very accurate geo-representation of the area for your simulation and [Calibration](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration) needs, you can ask AVES to provide you a cleaned up xodr file for your chosen location that you can import into your project and use. Once the map is created, you can package it using CARLA's [packaging instructions](https://carla.readthedocs.io/en/latest/tuto_content_authoring_maps/#exporting-a-map-as-a-separate-package) to generate the tar.gz (similar to the sample) that you can import and install on other CARLA instances for simulation and testing. See section below for setting up CARLA server and importing your generated map.
 * You can generate traffic on the digital twin using AVES provided instructions with their additional script. To create custom scenarios for anomalies like collisions, wrong way driving, speeding, stalling, etc., you can install and use RoadRunner tooling. See section below on how to create such scenarios using RoadRunner. They can then be processed with the SDG pipeline to generate data at scale, to fine tune your models for Smart City use cases.
 
 ### Set up CARLA server and Import Custom Map
@@ -114,7 +114,7 @@ services:
 ```
 
 If you have additional services that need to communicate with the CARLA server, you can integrate them into your existing Docker Compose workflow by configuring them accordingly.
-One such use case is running calibration using Digital Twin. For more information refer to ([Calibration](/smartcity-docs/Calibration)).
+One such use case is running calibration using Digital Twin. For more information refer to ([Calibration](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/calibration)).
 
 ### Create Scenarios using RoadRunner
 

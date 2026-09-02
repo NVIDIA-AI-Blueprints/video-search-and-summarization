@@ -30,7 +30,7 @@ The Agent orchestrates MCP servers for Video IO, Video Analytics, and Report Gen
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/warehouse-docs/Prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for more details.
 
 ## Deployment Options
 
@@ -106,7 +106,7 @@ We recommend RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK
 </Note>
 
 <Note>
-To use different hardware than the ones listed above, you can use the **VSS Configurator**. Add a new hardware profile in `blueprint_config.yml` with stream limits (and optional config overrides), then set `HARDWARE_PROFILE` to that profile name when deploying. For a step-by-step guide and examples, see [Adding a New Hardware Profile](/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator ](/vss-configurator) documentation.
+To use different hardware than the ones listed above, you can use the **VSS Configurator**. Add a new hardware profile in `blueprint_config.yml` with stream limits (and optional config overrides), then set `HARDWARE_PROFILE` to that profile name when deploying. For a step-by-step guide and examples, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator ](/vss/system-components/configuration/vss-configurator) documentation.
 </Note>
 
 ## Download Warehouse Artifacts
@@ -158,7 +158,7 @@ After extracting the package, set `VSS_DATA_DIR` in `industry-profiles/warehouse
 
 If you use your own videos or RTSP streams, they must have a resolution of `1920 x 1080` and be encoded without B-frames.
 
-To check for and remove B-frames, see [the FAQ guidance](/warehouse-docs/FAQ#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
+To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
@@ -218,7 +218,7 @@ Determine your `HARDWARE_PROFILE` by running `nvidia-smi -L` to identify your GP
 | DGX-SPARK | `DGX-SPARK` |
 
 <Note>
-To update the existing configs of a hardware profile or to add a GPU which is not present in the above list, see [Adding a New Hardware Profile](/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator ](/vss-configurator) documentation.
+To update the existing configs of a hardware profile or to add a GPU which is not present in the above list, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator ](/vss/system-components/configuration/vss-configurator) documentation.
 </Note>
 
 #### Deployment Paths and Services
@@ -246,7 +246,7 @@ With `ENABLE_PROFILE_CONFIGURATOR=true`, the VSS Configurator uses `STREAM_TYPE`
 - VST: updates notification message broker consumer settings.
 - Video Analytics API: sets `kafka.brokers` to `["localhost:9092"]` for Kafka or `null` for Redis.
 
-For the common configuration pattern and examples of file updates automated by the VSS Configurator, see [VSS Configurator commons and profiles](/vss-configurator#two-part-structure-commons-profiles).
+For the common configuration pattern and examples of file updates automated by the VSS Configurator, see [VSS Configurator commons and profiles](/vss/system-components/configuration/vss-configurator#two-part-structure-commons-profiles).
 </Note>
 
 #### Minimal Profile
@@ -275,7 +275,7 @@ To increase the retention period, adjust index lifecycle (ILM) time by setting `
 ELASTICSEARCH_ILM_MIN_AGE=4h
 ```
 
-For how ILM policies are defined and other tuning options, see [ELK (Elasticsearch, Logstash, Kibana) ](/elk).
+For how ILM policies are defined and other tuning options, see [ELK (Elasticsearch, Logstash, Kibana) ](/vss/system-components/middleware/database/elk).
 
 #### NIM Deployment Modes
 
@@ -290,7 +290,7 @@ The following modes apply to the `LLM_MODE` environment variable.
 <Note>
 The Warehouse Blueprint uses `rtvi-vlm` for VLM inference. Configure the local `rtvi-vlm` service with `RTVI_VLM_BASE_URL`, `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` in `industry-profiles/warehouse-operations/.env`.
 RTVI-VLM is not supported on DGX-SPARK.
-For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM ](/real-time-vlm).
+For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm).
 </Note>
 
 #### Model Configuration
@@ -377,11 +377,11 @@ docker logs -f vss-rtvi-cv-mv3dt
 
 For detailed testing and validation steps, refer to:
 
-- [2D Vision AI Profile](/warehouse-docs/2D-profile#testing-and-validation)
-- [2D Vision AI with Agents Profile](/warehouse-docs/2D-profile-with-agents#testing-and-validation)
-- [3D Vision AI Profile](/warehouse-docs/3D-profile#testing-and-validation)
-- [MV3DT Vision AI Profile](/warehouse-docs/MV3DT-profile#testing-and-validation)
-- [Troubleshooting Guide ](/warehouse-docs/Troubleshooting-Guide)
+- [2D Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#testing-and-validation)
+- [2D Vision AI with Agents Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#testing-and-validation)
+- [3D Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#testing-and-validation)
+- [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#testing-and-validation)
+- [Troubleshooting Guide ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/troubleshooting-guide)
 
 ## Service Access Points
 
@@ -397,8 +397,8 @@ Once deployed, the following service access points are available:
 | Phoenix-UI (Telemetry)(2D Vision AI with Agents Profile) | `http://<HOST_IP>:7777/phoenix` |
 
 <Note>
-- The Phoenix UI is only available when agent telemetry is enabled. For how to enable telemetry and inspect traces, see [VSS Agents Observability ](/vss-agent/vss-agent-Observability).
-- Observability stack access details (Grafana, Prometheus, and exporters) are documented in [Observability ](/observability).
+- The Phoenix UI is only available when agent telemetry is enabled. For how to enable telemetry and inspect traces, see [VSS Agents Observability ](/vss/vision-agent/vss-agents/observability).
+- Observability stack access details (Grafana, Prometheus, and exporters) are documented in [Observability ](/vss/system-components/middleware/observability).
 </Note>
 
 | Service | Access Point |
@@ -441,10 +441,10 @@ bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/ov
 The Blueprint supports several levels of customization, including but not limited to adding new cameras and updating models.
 For details, refer to the following sections under the Blueprint deep dive pages:
 
-* [2D Vision AI Profile Customization](/warehouse-docs/2D-profile#customization)
-* [2D Vision AI with Agents Profile Customization](/warehouse-docs/2D-profile-with-agents#customization)
-* [3D Vision AI Profile Customization](/warehouse-docs/3D-profile#customization)
-* [MV3DT Vision AI Profile Customization](/warehouse-docs/MV3DT-profile#customization)
+* [2D Vision AI Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#customization)
+* [2D Vision AI with Agents Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#customization)
+* [3D Vision AI Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#customization)
+* [MV3DT Vision AI Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#customization)
 
 ## Warehouse Blueprint Skill
 
@@ -456,7 +456,7 @@ compose dry-run, bring up the stack, and monitor readiness without requiring the
 to memorize every deployment command.
 
 For the complete VSS Skills catalog and installation model, see
-[Agent Skills ](/agent-skills).
+[Agent Skills ](/vss/vision-agent/agent-skills).
 
 <Note>
 The screenshots in this section show the Claude UI. Use the same prompts in Codex or
@@ -467,7 +467,7 @@ Blueprint repository.
 ### Installing Skills
 
 Install the Skills the same way as any other VSS Agent Skill. See
-[Installing Skills](/agent-skills#installing-skills) for the full installation flow.
+[Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the full installation flow.
 Follow these steps to install and deploy the Warehouse Blueprint using the Skills:
 
 1. Clone the VSS Blueprint repository and open it in your coding agent.
@@ -561,14 +561,14 @@ that the deployment is serving data.
 ### How the Skill Configures and Runs the Deployment
 
 For the Warehouse Blueprint, `vss-deploy-profile` loads
-`skills/vss-deploy-profile/references/warehouse.md` in the VSS Blueprint repository
+`skills/deployment/vss-deploy-profile/references/warehouse.md` in the VSS Blueprint repository
 as its per-profile playbook. That reference owns the warehouse-specific decisions the
 Skill makes on the operator's behalf:
 
 * **Profile variants** - picks one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or
   `bp_wh_auto_calib` against `MODE=2d|3d|mv3dt`, including the recommended
   `SAMPLE_VIDEO_DATASET` and `NUM_STREAMS` for each combination. See
-  [Deployment Options](/warehouse-docs/Quickstart-Guide#deployment-options).
+  [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options).
 * **Minimal vs extended** - for `bp_wh_kafka` and `bp_wh_redis`, chooses whether to
   deploy ELK, Video Analytics API, and monitoring on top of the core CV pipeline. See
   the Minimal Profile section above for the comparison.
@@ -595,7 +595,7 @@ Skill makes on the operator's behalf:
 
 For warehouse-specific debugging prompts such as "warehouse FPS low", "BEV out of
 sync", or "perception not starting", the Skill loads the companion
-`skills/vss-deploy-profile/references/warehouse-debug.md` reference.
+`skills/deployment/vss-deploy-profile/references/warehouse-debug.md` reference.
 
 After a `git pull` of the VSS Blueprint repository, symlinked Skills automatically
 point at the updated content. If new Skills were added, ask the coding agent:
@@ -607,14 +607,14 @@ directory.
 
 ### Related Documentation
 
-* [Agent Skills ](/agent-skills) - VSS Skills catalog, installation, usage, and update flow.
+* [Agent Skills ](/vss/vision-agent/agent-skills) - VSS Skills catalog, installation, usage, and update flow.
 
 For the standalone RTVI-CV-3D / MV3DT stack without the full Warehouse agent,
 LLM, or VLM stack, use the `vss-deploy-detection-tracking-3d` skill instead.
 That skill covers bundled sample data, custom synchronized videos, live RTSP
 streams, MV3DT verification, and automatic handoff to
 `vss-generate-video-calibration` when calibration is missing. See the
-[MV3DT Agent Skills walkthrough](/warehouse-docs/MV3DT-profile#agent-skills-walkthrough) for
+[MV3DT Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough) for
 sample prompts and expected agent steps.
 
 ## Brev Launchable
@@ -648,9 +648,9 @@ To obtain the required NGC API Key, follow the steps in:
 
 ### Deployment Profiles
 
-The launchable notebook uses the same `MODE`, `BP_PROFILE`, `STREAM_TYPE`, `SAMPLE_VIDEO_DATASET`, and `NUM_STREAMS` values described in the [Deployment Selection](/warehouse-docs/Quickstart-Guide#deployment-selection) section above. In the notebook's first code cell, set them to match your chosen profile.
+The launchable notebook uses the same `MODE`, `BP_PROFILE`, `STREAM_TYPE`, `SAMPLE_VIDEO_DATASET`, and `NUM_STREAMS` values described in the [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection) section above. In the notebook's first code cell, set them to match your chosen profile.
 
-See [Deployment Options](/warehouse-docs/Quickstart-Guide#deployment-options) for full details on each profile.
+See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options) for full details on each profile.
 
 ### Steps to Launch the Blueprint
 
@@ -679,7 +679,7 @@ Browser-facing services are reached through their service ports:
 - **VST UI** → `<secure_link>/vst`
 
 <Note>
-The Brev Launchable has known limitations with VST video playback, 2D with Agent profile, and auto-calibration profiles. See [Brev Launchable Known Limitations](/warehouse-docs/Known-Limitations#brev-launchable).
+The Brev Launchable has known limitations with VST video playback, 2D with Agent profile, and auto-calibration profiles. See [Brev Launchable Known Limitations](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations#brev-launchable).
 </Note>
 
-For the full set of service access points (including direct ports for Video Analytics API, MCP servers, and NIM endpoints), see [Service Access Points](/warehouse-docs/Quickstart-Guide#service-access-points).
+For the full set of service access points (including direct ports for Video Analytics API, MCP servers, and NIM endpoints), see [Service Access Points](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#service-access-points).

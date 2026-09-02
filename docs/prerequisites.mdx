@@ -19,10 +19,10 @@ The VSS Blueprint has been validated and tested on the following NVIDIA GPUs:
 
 For GPUs that are not validated and tested, the OTHER configuration is available (experimental). See the deployment steps in each workflow guide for the GPU tab options.
 
-If you need to know which platforms support your use-case, see the [Performance](/performance) section for benchmark results across models, use cases, and GPU platforms.
+If you need to know which platforms support your use-case, see the [Performance](/vss/appendix/performance) section for benchmark results across models, use cases, and GPU platforms.
 
 <Note>
-If you're looking for a pre-configured environment to try out the VSS Blueprint, please refer to the [Brev Launchable](/cloud-brev) section.
+If you're looking for a pre-configured environment to try out the VSS Blueprint, please refer to the [Brev Launchable](/vss/appendix/additional-deployments/brev-launchable) section.
 </Note>
 
 ## Software Requirements
@@ -48,25 +48,25 @@ The following software must be installed on your system:
 - **NGC CLI:** 4.10.0+
 
 <Note>
-For detailed installation instructions for the software requirements listed above, see the [Appendix](/prerequisites#appendix-software-prerequisites-installation-guide):
+For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
 
 - **x86 systems**
 
-  - [Install NVIDIA Driver](/prerequisites#install-nvidia-driver)
+  - [Install NVIDIA Driver](/vss/getting-started/prerequisites#install-nvidia-driver)
 
-    - [Install Fabric Manager (select systems)](/prerequisites)
-  - [Install Docker](/prerequisites#install-docker)
-  - [Install NVIDIA Container Toolkit](/prerequisites#install-nvidia-container-toolkit)
+    - [Install Fabric Manager (select systems)](/vss/getting-started/prerequisites)
+  - [Install Docker](/vss/getting-started/prerequisites#install-docker)
+  - [Install NVIDIA Container Toolkit](/vss/getting-started/prerequisites#install-nvidia-container-toolkit)
 - **DGX-SPARK, IGX-THOR and AGX-THOR**
 
-  - [Setup DGX-SPARK](/prerequisites#setup-dgx-spark)
-  - [Setup AGX-THOR](/prerequisites#setup-agx-thor)
-  - [Setup IGX-THOR](/prerequisites#setup-igx-thor)
+  - [Setup DGX-SPARK](/vss/getting-started/prerequisites#setup-dgx-spark)
+  - [Setup AGX-THOR](/vss/getting-started/prerequisites#setup-agx-thor)
+  - [Setup IGX-THOR](/vss/getting-started/prerequisites#setup-igx-thor)
 - **all systems**
 
-  - [Configure Docker](/prerequisites#configure-docker)
-  - [Install Docker Compose](/prerequisites#install-docker-compose)
-  - [Install NGC CLI](/prerequisites#install-ngc-cli)
+  - [Configure Docker](/vss/getting-started/prerequisites#configure-docker)
+  - [Install Docker Compose](/vss/getting-started/prerequisites#install-docker-compose)
+  - [Install NGC CLI](/vss/getting-started/prerequisites#install-ngc-cli)
 </Note>
 
 ## Runtime Environment Settings
@@ -154,7 +154,7 @@ The above runs the cache cleaner in the current session only; it does not persis
 
 ### Host firewall and Docker bridge subnets
 
-If a default-deny firewall is enabled on the host, allow inbound traffic from the Docker bridge subnets used by VSS. Otherwise, bridge-networked containers cannot reach host-networked services and the affected workflow silently produces no output. See [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host) for diagnostics and the fix.
+If a default-deny firewall is enabled on the host, allow inbound traffic from the Docker bridge subnets used by VSS. Otherwise, bridge-networked containers cannot reach host-networked services and the affected workflow silently produces no output. See [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host) for diagnostics and the fix.
 
 ## Minimum System Requirements
 
@@ -241,7 +241,7 @@ The token must have **READ** permission only. Do not commit it to version contro
 </Warning>
 
 <Note>
-`HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the profile `.env` (see inline comments in `dev-profile-base/.env`) and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss-agent/configure-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss-agent/configure-vlm).
+`HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the profile `.env` (see inline comments in `dev-profile-base/.env`) and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 </Note>
 
 ## Development Profile GPU Requirements
@@ -253,60 +253,60 @@ The following tables show the number of GPUs needed for each development profile
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base ](/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs ](/agent-workflow-lvs) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-alerts (Alert verification with VLM) ](/agent-workflow-alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/agent-workflow-rt-alert) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search ](/agent-workflow-search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-base ](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-lvs ](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
+| [dev-profile-search ](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
 
 </Tab>
 <Tab title="RTXPRO6000BW">
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base ](/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs ](/agent-workflow-lvs) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-alerts (Alert verification with VLM) ](/agent-workflow-alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/agent-workflow-rt-alert) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search ](/agent-workflow-search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-base ](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-lvs ](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
+| [dev-profile-search ](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
 
 </Tab>
 <Tab title="L40S">
 
 | **Profile** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- |
-| [dev-profile-base ](/quickstart) | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs ](/agent-workflow-lvs) | 2 | 1 | 1 | 0 |
-| [dev-profile-alerts (Alert verification with VLM) ](/agent-workflow-alert-verification) <sup>1</sup> | 3 | 2 | 2 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/agent-workflow-rt-alert) <sup>1</sup> | 3 | 2 | — | — |
-| [dev-profile-search ](/agent-workflow-search) <sup>2</sup> | 4 | 3 | 3 | 2 |
+| [dev-profile-base ](/vss/getting-started/quickstart) | 2 | 1 | 1 | 0 |
+| [dev-profile-lvs ](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 0 |
+| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 3 | 2 | 2 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 3 | 2 | — | — |
+| [dev-profile-search ](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 4 | 3 | 3 | 2 |
 
 </Tab>
-<Tab title="SPARK">
+<Tab title="DGX-SPARK">
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
-| [dev-profile-base ](/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM) ](/agent-workflow-alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/agent-workflow-rt-alert) <sup>1</sup> | 1 |
+| [dev-profile-base ](/vss/getting-started/quickstart) | 1 |
+| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
 
 </Tab>
 <Tab title="IGX-THOR">
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
-| [dev-profile-base ](/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM) ](/agent-workflow-alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/agent-workflow-rt-alert) <sup>1</sup> | 1 |
+| [dev-profile-base ](/vss/getting-started/quickstart) | 1 |
+| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
 
 </Tab>
 <Tab title="AGX-THOR">
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
-| [dev-profile-base ](/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM) ](/agent-workflow-alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM) ](/agent-workflow-rt-alert) <sup>1</sup> | 1 |
+| [dev-profile-base ](/vss/getting-started/quickstart) | 1 |
+| [dev-profile-alerts (Alert verification with VLM) ](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM) ](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
 
 </Tab>
 </Tabs>
@@ -340,7 +340,7 @@ ngc registry model download-version <org>/<team>/<model>:<version>
 mv </downloaded/path/in/ngc/output> </path/to/custom/weights>
 ```
 
-The weights will be downloaded to a local directory. Note the path to this directory, as you'll need to specify it when deploying with the `--vlm-custom-weights` flag.
+The weights will be downloaded to a local directory. Note the path to this directory, then set `VLM_CUSTOM_WEIGHTS` to it in the selected profile's `user-overrides.env` before deploying.
 
 ### Download Custom Weights from Hugging Face
 
@@ -447,7 +447,7 @@ For full details, refer to the official NVIDIA Fabric Manager documentation:
 
 - Installation Guide: https://docs.nvidia.com/datacenter/tesla/fabric-manager-user-guide/index.html
 
-Example setup on Ubuntu 24.04. Use Fabric Manager version **580.105.08** (see [Install NVIDIA Driver](/prerequisites#install-nvidia-driver) for driver requirements):
+Example setup on Ubuntu 24.04. Use Fabric Manager version **580.105.08** (see [Install NVIDIA Driver](/vss/getting-started/prerequisites#install-nvidia-driver) for driver requirements):
 
 ```bash
 # Install Fabric Manager 580.105.08 (version pin may vary by repository; use the package version that matches 580.105.08)
@@ -587,7 +587,7 @@ ngc --version
 ngc config set
 ```
 
-When prompted, enter your NGC API key. For information on obtaining API keys, see [NGC + Hugging Face API Keys](/prerequisites#ngc-hugging-face-api-keys).
+When prompted, enter your NGC API key. For information on obtaining API keys, see [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
 
 <Note>
 NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli
@@ -604,7 +604,7 @@ Setup installs DGX OS (including the NVIDIA driver), Docker with NVIDIA Containe
 DGX Spark deployments require DGX OS 7.5.0 and its NVIDIA driver version 580.159.03.
 
 <Note>
-- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/prerequisites#run-docker-without-sudo).
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/getting-started/prerequisites#run-docker-without-sudo).
 </Note>
 
 ### Setup AGX-THOR
@@ -620,8 +620,8 @@ Use another supported update path for older installations.
 </Note>
 
 <Note>
-- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/prerequisites#install-docker), [Install NVIDIA Container Toolkit](/prerequisites#install-nvidia-container-toolkit).
-- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/prerequisites#run-docker-without-sudo).
+- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/vss/getting-started/prerequisites#install-docker), [Install NVIDIA Container Toolkit](/vss/getting-started/prerequisites#install-nvidia-container-toolkit).
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/getting-started/prerequisites#run-docker-without-sudo).
 </Note>
 
 ### Setup IGX-THOR
@@ -637,8 +637,8 @@ Do not use pre-release builds unless the Tegra team has approved an exception.
 </Note>
 
 <Note>
-- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/prerequisites#install-docker), [Install NVIDIA Container Toolkit](/prerequisites#install-nvidia-container-toolkit).
-- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/prerequisites#run-docker-without-sudo).
+- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/vss/getting-started/prerequisites#install-docker), [Install NVIDIA Container Toolkit](/vss/getting-started/prerequisites#install-nvidia-container-toolkit).
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/getting-started/prerequisites#run-docker-without-sudo).
 </Note>
 
 ### NIM configuration settings
@@ -655,7 +655,7 @@ For each supported NIM and GPU, the deployment includes a corresponding env file
 
 #### Unsupported GPU hardware
 
-For GPU hardware that is not in the default set but is supported by the `OTHER` option in `dev-profile.sh`, the deployment uses a default empty env file. The NIM then falls back to its own defaults.
+For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in the selected profile `user-overrides.env`. The deployment uses a default empty env file and the NIM falls back to its own defaults.
 
 ```bash
 ./deploy/docker/services/nim/cosmos3-reasoner/hw-OTHER.env
@@ -663,8 +663,9 @@ For GPU hardware that is not in the default set but is supported by the `OTHER` 
 
 #### Custom env files at install time
 
-You can define your own env variants for a NIM and pass them when you run the installer. Use `--llm-env-file` and/or `--vlm-env-file` with `dev-profile.sh`. Paths can be absolute or relative to the current directory.
+You can define your own env variants for a NIM in the selected profile `user-overrides.env`. Set `LLM_ENV_FILE` and/or `VLM_ENV_FILE`; paths can be absolute or relative to `deploy/docker`.
 
-```bash
-deploy/docker/scripts/dev-profile.sh up -p base --llm-env-file /path/to/llm.env --vlm-env-file /path/to/vlm.env
+```ini
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
 ```

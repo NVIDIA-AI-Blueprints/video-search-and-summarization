@@ -6,7 +6,7 @@ position: 4
 This recipe describes a minimal network-segmentation pattern for deploying VSS
 when users, services, or networks outside a trusted administrative boundary may
 be present. It complements the current security constraints documented in
-[Known Limitations ](/Known-Limitations).
+[Known Limitations ](/vss/appendix/known-limitations).
 
 ## Deployment Scope
 
@@ -52,4 +52,4 @@ like this:
   untrusted networks.
 * Allow Docker bridge or private-subnet traffic needed for VSS services to call
   each other. If healthy containers cannot reach host services from a Docker
-  bridge network, see [Bridge-network container cannot reach a VSS service on the host](/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
+  bridge network, see [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).

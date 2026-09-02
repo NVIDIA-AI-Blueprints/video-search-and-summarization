@@ -99,6 +99,9 @@ public:
     // Overloaded registerConsumer for time-range playback
     void registerConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier, const std::string& startTime, const std::string& endTime) override;
     void unregisterConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& identifier = "", bool doNotRemoveClient = false) override;
+    // In-session seek: re-PLAY the existing RTSP client for `identifier` at an
+    // absolute time (RTSP Range) without tearing down/recreating the source.
+    bool seekToTime(const std::string& identifier, int64_t targetEpochMs) override;
     void distributeToConsumers(std::shared_ptr<RawFrameParams> frameData) override;
     void distributeToConsumers(FrameParams& frameParams) override;
     

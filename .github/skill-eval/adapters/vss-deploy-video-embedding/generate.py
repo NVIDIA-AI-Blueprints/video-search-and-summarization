@@ -20,7 +20,7 @@ budget without exercising new code paths.
 
 ## Spec shape
 
-`skills/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
+`skills/deployment/vss-deploy-video-embedding/evals/standalone_deploy.json` has a
 single `expects` entry (one bring-up query + 9 checks). The adapter
 therefore emits a flat `base/<platform_short>/` task directory rather
 than a step-chain.
@@ -40,7 +40,7 @@ than a step-chain.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-video-embedding/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-video-embedding \\
-        --skill-dir skills/vss-deploy-video-embedding
+        --skill-dir skills/deployment/vss-deploy-video-embedding
 """
 
 from __future__ import annotations
@@ -252,12 +252,19 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 
 
 def generate_task(
-    platform: str, spec: dict, output_root: Path, skill_dir: Path
+    platform: str, spec: dict, output_root: Path, skill_dir: Path,
+    gpu_count: int | None = None,
 ) -> None:
-    """Emit one Harbor task directory.
+    """Emit Harbor task directories for one (spec, platform).
 
-    The spec has a single `expects` entry, so this collapses to a flat
-    `base/<platform_short>/` (no step-<k>/ subdirs)."""
+    Supports both single-step and multi-step specs:
+    - Single expects entry → flat `base/<platform_short>/` (no step dirs).
+    - Multiple expects entries → `base/<platform_short>/step-<k>/` per entry,
+      following the same step-chain layout as the vss-manage-video-io-storage
+      adapter (AGENTS.md § 4).
+
+    `gpu_count` overrides the platform's default GPU requirement when the
+    spec declares its own (e.g. `gpu_count: 0` for routing-only specs)."""
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
     spec_name = (
@@ -267,106 +274,136 @@ def generate_task(
     spec = _render_spec(spec, platform)
     expects = spec.get("expects") or []
 
-    if len(expects) != 1:
+    if not expects:
         print(
-            f"ERROR: vss-deploy-video-embedding adapter expects exactly one "
-            f"`expects` entry in {spec_name}; got {len(expects)}. "
-            "Switch to a step-chain layout if multi-step.",
+            f"ERROR: vss-deploy-video-embedding adapter: no `expects` entries "
+            f"in {spec_name}.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    expect = expects[0]
-    step_dir = output_root / "base" / platform_short
-    step_dir.mkdir(parents=True, exist_ok=True)
+    # Determine spec kind from modes. Routing specs (modes=["routing"])
+    # are knowledge-only — the agent answers questions using the skill's
+    # reference docs without deploying anything. Deploy specs
+    # (modes=["standalone"] or absent) bring up rtvi-embed.
+    spec_modes = set()
+    for plat_cfg in (spec.get("resources", {}).get("platforms", {}) or {}).values():
+        for m in (plat_cfg.get("modes") or []):
+            spec_modes.add(m)
+    is_routing = "routing" in spec_modes
 
-    # instruction.md — single-step query + environment notes. Do NOT
-    # leak the verifier's `checks[]` into the instruction; the verifier
-    # evaluates those independently from the spec shipped in tests/.
-    lines = [
-        PREAMBLE,
-        "",
-        f"Use the `/vss-deploy-video-embedding` skill on this bare `{platform}` host "
-        "to bring up the RT-Embed microservice standalone via Docker Compose. "
-        "Do not run `/vss-deploy-profile` or `scripts/dev-profile.sh`.",
-        "",
-        "## Query",
-        "",
-        expect.get("query", ""),
-        "",
-        "Run autonomously without prompting for confirmation.",
-        "",
-    ]
-    (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
+    for idx, expect in enumerate(expects, 1):
+        step_dir = output_root / "base" / platform_short
+        if len(expects) > 1:
+            step_dir = step_dir / f"step-{idx}"
+        step_dir.mkdir(parents=True, exist_ok=True)
 
-    meta_lines = [
-        "[task]",
-        f'name = "nvidia-vss/vss-deploy-video-embedding-standalone-{platform_short}"',
-        f'description = "Bring up RT-Embed (rtvi-embed) standalone via Docker Compose on {platform}"',
-        f'keywords = ["vss-deploy-video-embedding", "rtvi-embed", "standalone", "{platform}"]',
-        "",
-        "[agent]",
-        "timeout_sec = 600.0",
-        "",
-        "[environment]",
-        "# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent",
-        "# can invoke /vss-deploy-video-embedding via the skill.",
-        'skills_dir = "/skills"',
-        "",
-        "[verifier.env]",
-        'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
-        'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        # ANTHROPIC_MODEL gives the verifier's judge model cascade
-        # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working fallback
-        # when JUDGE_MODEL is unset.
-        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
-        "",
-        "[metadata]",
-        'skill = "vss-deploy-video-embedding"',
-        # The trial IS the deploy; it brings up rtvi-embed standalone
-        # from a bare instance, not against an existing VSS profile.
-        f'platform = "{platform}"',
-        f'gpu_type = "{pspec["gpu_type"]}"',
-        f'brev_search = "{pspec["brev_search"]}"',
-        f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
-        f"check_count = {len(expect.get('checks') or [])}",
-        "",
-    ]
-    (step_dir / "task.toml").write_text("\n".join(meta_lines))
+        # instruction.md — ONE step's query + environment notes ONLY.
+        # Never leak the verifier's `checks[]` into the instruction the
+        # agent sees — they live in the spec, are copied into tests/, and
+        # the verifier evaluates them independently.
+        if is_routing:
+            # Routing / knowledge-only: use the spec query verbatim.
+            lines = [
+                PREAMBLE,
+                "",
+                f"## Query {idx} of {len(expects)}",
+                "",
+                expect.get("query", ""),
+                "",
+                "Run autonomously without prompting for confirmation.",
+                "",
+            ]
+        else:
+            # Standalone deploy: instruct the agent to bring up rtvi-embed.
+            lines = [
+                PREAMBLE,
+                "",
+                f"Use the `/vss-deploy-video-embedding` skill on this bare `{platform}` host "
+                "to bring up the RT-Embed microservice standalone via Docker Compose. "
+                "Do not run `/vss-deploy-profile` or `scripts/dev-profile.sh`.",
+                "",
+                f"## Query {idx} of {len(expects)}",
+                "",
+                expect.get("query", ""),
+                "",
+                "Run autonomously without prompting for confirmation.",
+                "",
+            ]
+        (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
-    # environment/ placeholder (not used with BrevEnvironment)
-    env_dir = step_dir / "environment"
-    env_dir.mkdir(exist_ok=True)
-    (env_dir / "Dockerfile").write_text("FROM scratch\n")
+        # Derive the spec-stem from the source path for the task name.
+        spec_stem = Path(spec_name).stem if spec_name else "task"
+        step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        meta_lines = [
+            "[task]",
+            f'name = "nvidia-vss/vss-deploy-video-embedding-{spec_stem}-{platform_short}{step_suffix}"',
+            f'description = "vss-deploy-video-embedding {spec_stem} query {idx}/{len(expects)} on {platform}"',
+            f'keywords = ["vss-deploy-video-embedding", "rtvi-embed", "{spec_stem}", "{platform}"]',
+            "",
+            "[agent]",
+            "timeout_sec = 600.0",
+            "",
+            "[environment]",
+            "# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent",
+            "# can invoke /vss-deploy-video-embedding via the skill.",
+            'skills_dir = "/skills"',
+            "",
+            "[verifier.env]",
+            'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
+            'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
+            # ANTHROPIC_MODEL gives the verifier's judge model cascade
+            # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working fallback
+            # when JUDGE_MODEL is unset.
+            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            "",
+            "[metadata]",
+            'skill = "vss-deploy-video-embedding"',
+            f'platform = "{platform}"',
+            f'gpu_type = "{pspec["gpu_type"]}"',
+            f'brev_search = "{pspec["brev_search"]}"',
+            f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
+            f"gpu_count = {gpu_count if gpu_count is not None else 1}",
+            f"step_index = {idx}",
+            f"step_count = {len(expects)}",
+            f"check_count = {len(expect.get('checks') or [])}",
+            "",
+        ]
+        (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
-    # tests/ — wrapper + generic judge + spec
-    tests_dir = step_dir / "tests"
-    tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "test.sh").write_text(generate_test_script(1, spec_name))
-    if GENERIC_JUDGE.exists():
-        shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-    spec_src = skill_dir / "evals" / spec_name
-    if not spec_src.exists():
-        legacy = skill_dir / "eval" / spec_name
-        if legacy.exists():
-            spec_src = legacy
-    if spec_src.exists():
-        shutil.copy(spec_src, tests_dir / spec_name)
-    else:
-        (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
+        # environment/ placeholder (not used with BrevEnvironment)
+        env_dir = step_dir / "environment"
+        env_dir.mkdir(exist_ok=True)
+        (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
-    # solution/
-    solution_dir = step_dir / "solution"
-    solution_dir.mkdir(exist_ok=True)
-    (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
+        # tests/ — wrapper + generic judge + spec
+        tests_dir = step_dir / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        if GENERIC_JUDGE.exists():
+            shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        spec_src = skill_dir / "evals" / spec_name
+        if not spec_src.exists():
+            legacy = skill_dir / "eval" / spec_name
+            if legacy.exists():
+                spec_src = legacy
+        if spec_src.exists():
+            shutil.copy(spec_src, tests_dir / spec_name)
+        else:
+            (tests_dir / spec_name).write_text(json.dumps(spec, indent=2))
 
-    # skills/vss-deploy-video-embedding/ — full copy so the agent has the
-    # whole reference set available at runtime.
-    if skill_dir and skill_dir.exists():
-        skill_dest = step_dir / "skills" / "vss-deploy-video-embedding"
-        if skill_dest.exists():
-            shutil.rmtree(skill_dest)
-        shutil.copytree(skill_dir, skill_dest)
+        # solution/
+        solution_dir = step_dir / "solution"
+        solution_dir.mkdir(exist_ok=True)
+        (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
+
+        # skills/vss-deploy-video-embedding/ — full copy so the agent has the
+        # whole reference set available at runtime.
+        if skill_dir and skill_dir.exists():
+            skill_dest = step_dir / "skills" / "vss-deploy-video-embedding"
+            if skill_dest.exists():
+                shutil.rmtree(skill_dest)
+            shutil.copytree(skill_dir, skill_dest)
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +422,7 @@ def main() -> None:
         "(e.g. .github/skill-eval/datasets/vss-deploy-video-embedding)",
     )
     parser.add_argument(
-        "--skill-dir", required=True, help="Path to skills/vss-deploy-video-embedding"
+        "--skill-dir", required=True, help="Path to skills/deployment/vss-deploy-video-embedding"
     )
     parser.add_argument(
         "--spec",
@@ -418,7 +455,23 @@ def main() -> None:
     spec = json.loads(spec_path.read_text())
     spec["_source_path"] = str(spec_path)
 
-    platforms = [args.platform] if args.platform else [DEFAULT_PLATFORM]
+    # Determine platforms and per-platform gpu_count from the spec's
+    # resources.platforms when available; fall back to CLI --platform
+    # or the adapter default.
+    spec_platforms = (spec.get("resources") or {}).get("platforms") or {}
+    if args.platform:
+        platforms = [args.platform]
+    elif spec_platforms:
+        platforms = [p for p in spec_platforms if p in PLATFORMS]
+        if not platforms:
+            print(
+                f"ERROR: spec declares platforms {list(spec_platforms)} but "
+                f"none are in PLATFORMS {list(PLATFORMS)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        platforms = [DEFAULT_PLATFORM]
 
     print("=== Inputs ===")
     print(f"  output_dir   : {output_root}")
@@ -432,8 +485,11 @@ def main() -> None:
     print()
     for platform in platforms:
         task_id = PLATFORMS[platform]["short_name"]
-        print(f"  GEN  vss-deploy-video-embedding/base/{task_id}")
-        generate_task(platform, spec, output_root, skill_dir)
+        # Read gpu_count from the spec's platform declaration if present.
+        plat_cfg = spec_platforms.get(platform) or {}
+        gpu_count = plat_cfg.get("gpu_count")  # None → generate_task uses default
+        print(f"  GEN  vss-deploy-video-embedding/base/{task_id}  gpu_count={gpu_count}")
+        generate_task(platform, spec, output_root, skill_dir, gpu_count=gpu_count)
     print()
     print(f"Generated {len(platforms)} task(s) under {output_root}/base/")
 

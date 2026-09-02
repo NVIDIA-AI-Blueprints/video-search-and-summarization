@@ -47,7 +47,7 @@ class VideoUrl(CommonBaseModel):
 
     url: str = Field(
         description="URL of the video",
-        max_length=10000000,
+        max_length=100000000,  # Supports CRF-0 base64 video payloads up to ~75 MB raw.
         pattern=ANY_CHAR_PATTERN,
     )
 

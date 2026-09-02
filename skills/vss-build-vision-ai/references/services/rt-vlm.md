@@ -111,5 +111,5 @@ variant profile.
 
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
 - `skills/vss-build-vision-ai/references/composition.md`
-- `skills/vss-deploy-dense-captioning/references/deploy-rt-vlm-service.md`
-- `skills/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`
+- `skills/deployment/vss-deploy-dense-captioning/references/deploy-rt-vlm-service.md`
+- `skills/deployment/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`

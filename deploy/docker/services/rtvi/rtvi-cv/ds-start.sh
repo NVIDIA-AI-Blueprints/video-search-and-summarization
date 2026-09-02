@@ -30,6 +30,7 @@ DS_VISION_ENCODER="${DS_VISION_ENCODER:-false}"
 DS_APP_DIR="${DS_APP_DIR:-/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app}"
 DS_CONFIG_DIR="${DS_APP_DIR}/configs"
 DS_MOUNTED_CONFIGS_DIR="${DS_APP_DIR}/mounted-configs"
+DS_REFERENCE_CONFIGS_DIR="${DS_REFERENCE_CONFIGS_DIR:-${DS_APP_DIR}/reference-configs}"
 
 # Prepend core DeepStream plugin dirs so GStreamer can find nvvideoconvert and
 # other elements required by metropolis_perception_app (e.g. alerts rtdetr-gdino).
@@ -285,6 +286,28 @@ exec_as_runtime_user() {
     exit 1
 }
 
+# The pgie config is only sanity-checked and echoed; the app resolves the real
+# path from [primary-gie] inside ds-main-config.txt. Blueprint config sets name it
+# ds-pgie-config.yml while the in-image reference sets name it
+# ds-ppl-analytics-pgie-config.yml, so accept either rather than asserting one
+# blueprint's filename. Falls back to the canonical name so a genuinely missing
+# config still reports the path operators expect.
+resolve_pgie_config() {
+    local matches=()
+    if [[ -f "${DS_CONFIG_DIR}/ds-pgie-config.yml" ]]; then
+        echo "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+        return 0
+    fi
+    shopt -s nullglob
+    matches=("${DS_CONFIG_DIR}"/*pgie-config.yml)
+    shopt -u nullglob
+    if ((${#matches[@]} > 0)); then
+        echo "${matches[0]}"
+        return 0
+    fi
+    echo "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+}
+
 resolve_config_file() {
     local default_file="$1"
     local configured_file="${DS_CONFIG_FILE:-$default_file}"
@@ -295,22 +318,111 @@ resolve_config_file() {
     fi
 }
 
-stage_mounted_configs_if_present() {
-    local has_files=false
-    if [[ -d "$DS_MOUNTED_CONFIGS_DIR" ]]; then
-        shopt -s nullglob dotglob
-        local mounted_entries=("$DS_MOUNTED_CONFIGS_DIR"/*)
-        shopt -u nullglob dotglob
-        if ((${#mounted_entries[@]} > 0)); then
-            has_files=true
-        fi
-    fi
+dir_has_entries() {
+    local dir="$1"
+    local entries=()
+    [[ -d "$dir" ]] || return 1
+    shopt -s nullglob dotglob
+    entries=("$dir"/*)
+    shopt -u nullglob dotglob
+    ((${#entries[@]} > 0))
+}
 
-    if [[ "$has_files" == "true" ]]; then
+stage_mounted_configs_if_present() {
+    if dir_has_entries "$DS_MOUNTED_CONFIGS_DIR"; then
         mkdir -p "$DS_CONFIG_DIR"
         cp -rL --no-preserve=all "${DS_MOUNTED_CONFIGS_DIR}/." "${DS_CONFIG_DIR}/"
         echo "##### Staged profile configs from ${DS_MOUNTED_CONFIGS_DIR} -> ${DS_CONFIG_DIR} #####"
     fi
+}
+
+# Map the requested model family onto a directory under reference-configs/.
+# RTVI_CV_REFERENCE_CONFIG_SET overrides the mapping for a set that has no
+# family of its own. Echoes nothing when the family has no reference set.
+resolve_reference_config_set() {
+    if [[ -n "${RTVI_CV_REFERENCE_CONFIG_SET:-}" ]]; then
+        echo "${RTVI_CV_REFERENCE_CONFIG_SET}"
+        return 0
+    fi
+    case "$DS_MODEL_FAMILY" in
+        rtdetr-warehouse)   echo "warehouse-2d" ;;
+        sparse4d-warehouse) echo "warehouse-3d" ;;
+        # Mirrors the MODEL_NAME_2D branch in start_rtdetr_gdino.
+        rtdetr-gdino)
+            if [[ "${MODEL_NAME_2D:-}" == "GDINO" ]]; then
+                echo "smartcities/gdino"
+            else
+                echo "smartcities/rt-detr"
+            fi
+            ;;
+        *) echo "" ;;
+    esac
+}
+
+# The shipped reference configs carry <TOKEN> placeholders for deployment paths
+# (model ONNX, engine, labels, anchors). Fill each from RTVI_CV_REF_<TOKEN>, then
+# refuse to start if any remain: an unsubstituted path fails much later inside
+# nvinfer with an error that does not name the config.
+#
+# Only tokens on active lines are required. Reference sets carry commented-out
+# examples (warehouse-2d ships `# model-engine-file: <PATH_TO_ENGINE_FILE>`), and
+# demanding a value for a line DeepStream never reads is pure friction. Detection
+# skips comments; substitution still rewrites them, so a commented example picks
+# up the real path when one is supplied.
+substitute_reference_placeholders() {
+    local -a unresolved=()
+    local token var value
+    : "${RTVI_CV_REF_N:=${NUM_SENSORS:-${NUM_STREAMS:-4}}}"
+
+    while IFS= read -r token; do
+        [[ -n "$token" ]] || continue
+        var="RTVI_CV_REF_${token//[<>]/}"
+        value="${!var:-}"
+        if [[ -z "$value" ]]; then
+            unresolved+=("${token} (set ${var})")
+            continue
+        fi
+        grep -rlZF "$token" "$DS_CONFIG_DIR" 2>/dev/null |
+            xargs -0 -r sed -i "s|${token}|${value//|/\\|}|g"
+    done < <(grep -rhvE '^[[:space:]]*#' "$DS_CONFIG_DIR" 2>/dev/null \
+        | grep -oE '<[A-Z0-9_]+>' | sort -u)
+
+    if ((${#unresolved[@]} > 0)); then
+        echo "ERROR: reference configs seeded from ${DS_REFERENCE_CONFIGS_DIR} still contain placeholders:" >&2
+        printf '  %s\n' "${unresolved[@]}" >&2
+        echo "Hint: set the listed variables, or mount a complete config set via" >&2
+        echo "      mounted-configs/ (RTVI_CV_MOUNTED_CONFIG_DIR) instead." >&2
+        exit 1
+    fi
+}
+
+# Last-resort default so the module is usable without a blueprint's config tree.
+# Deliberately skipped whenever either config source already has files: a
+# deployment that mounts configs owns its configuration, and seeding underneath
+# it would introduce files it never asked for. Every current profile mounts one
+# of the two, so this is inert for them.
+seed_reference_configs_if_empty() {
+    local mode="${RTVI_CV_REFERENCE_CONFIGS:-auto}"
+    [[ "$mode" == "never" ]] && return 0
+
+    if dir_has_entries "$DS_CONFIG_DIR" || dir_has_entries "$DS_MOUNTED_CONFIGS_DIR"; then
+        return 0
+    fi
+
+    local set_name
+    set_name="$(resolve_reference_config_set)"
+    if [[ -z "$set_name" ]] || ! dir_has_entries "${DS_REFERENCE_CONFIGS_DIR}/${set_name}"; then
+        if [[ "$mode" == "require" ]]; then
+            echo "ERROR: no reference config set for DS_MODEL_FAMILY=${DS_MODEL_FAMILY} under ${DS_REFERENCE_CONFIGS_DIR}" >&2
+            exit 1
+        fi
+        return 0
+    fi
+
+    mkdir -p "$DS_CONFIG_DIR"
+    cp -rL --no-preserve=all "${DS_REFERENCE_CONFIGS_DIR}/${set_name}/." "${DS_CONFIG_DIR}/"
+    echo "##### Seeded reference configs from ${DS_REFERENCE_CONFIGS_DIR}/${set_name} -> ${DS_CONFIG_DIR} #####"
+    substitute_reference_placeholders
 }
 
 patch_vision_encoder_configs_if_enabled() {
@@ -346,8 +458,10 @@ patch_vision_encoder_configs_if_enabled() {
 start_rtdetr_warehouse()
 {
     echo "##### RT-DETR Warehouse models will be used. #####"
-    require_file "${DS_CONFIG_DIR}/ds-pgie-config.yml" "Verify model/config mounts for RT-DETR warehouse."
-    cat "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+    local pgie_config
+    pgie_config="$(resolve_pgie_config)"
+    require_file "$pgie_config" "Verify model/config mounts for RT-DETR warehouse."
+    cat "$pgie_config"
 
     local config_file
     config_file="$(resolve_config_file "ds-main-config.txt")"
@@ -533,6 +647,81 @@ start_rtdetr_gdino()
 # ---------------------------------------------------------------------------
 # Sparse4D family (warehouse-3d)
 # ---------------------------------------------------------------------------
+# engine_file: <onnx-basename>_b<num_sensors>.engine, next to the onnx_file
+# (num_sensors is the DeepStream/TensorRT batch dim; sparse4d's own
+# batch_size field describes the model's internal batch, not the engine).
+resolve_sparse4d_engine_file() {
+    local source_config_dir="${SPARSE4D_CONFIG_PATH:-/opt/data/ds-configurator/}"
+    local config_yaml="${source_config_dir}config.yaml"
+    if [[ ! -f "$config_yaml" ]]; then
+        echo "WARNING: Sparse4D config.yaml not found at ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local onnx_model_name
+    onnx_model_name=$(awk -F: '/^[[:space:]]*onnx_file[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    if [[ -z "$onnx_model_name" ]]; then
+        echo "WARNING: onnx_file not set in ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local num_sensors
+    num_sensors=$(awk -F: '/^[[:space:]]*num_sensors[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    num_sensors="${num_sensors:-1}"
+
+    local engine_dir stem engine_file
+    engine_dir="$(dirname "$onnx_model_name")"
+    stem="$(basename "$onnx_model_name" .onnx)"
+    engine_file="${engine_dir}/${stem}_b${num_sensors}.engine"
+
+    # Handle following cases to update the engine_file variable:
+    # 1. if engine does not exist check for higher batch size engine file, if yes then update the engine_file variable
+    if [[ ! -f "$engine_file" ]]; then
+        # TensorRT dynamic shapes let a b<M> engine (M > num_sensors) serve a
+        # b<num_sensors> request; reuse the smallest such M instead of rebuilding.
+        local best_batch="" best_engine="" cand cand_batch
+        shopt -s nullglob
+        for cand in "${engine_dir}/${stem}_b"*".engine"; do
+            cand_batch="$(basename "$cand" .engine)"
+            cand_batch="${cand_batch##*_b}"
+            [[ "$cand_batch" =~ ^[0-9]+$ ]] || continue
+            (( cand_batch > num_sensors )) || continue
+            if [[ -z "$best_batch" || "$cand_batch" -lt "$best_batch" ]]; then
+                best_batch="$cand_batch"
+                best_engine="$cand"
+            fi
+        done
+        shopt -u nullglob
+
+        if [[ -n "$best_engine" ]]; then
+            echo "##### Sparse4D engine cache hit (compatible): reusing b${best_batch} engine -> ${best_engine} #####"
+            engine_file="$best_engine"
+        fi
+    fi
+
+    # config.yaml is never writable in place: Docker bind-mounts it as a single
+    # file (sed -i's rename-over-mountpoint fails with "Device or resource
+    # busy") and the Helm chart mounts it from a ConfigMap with readOnly: true
+    # (fails with "Read-only file system"). Stage a patched copy in the
+    # writable engine dir instead, and repoint SPARSE4D_CONFIG_PATH there so
+    # sparse4d_setup.sh (run right after this function) picks it up.
+    local staged_config_dir="${SPARSE4D_ENGINE_PATH:-/opt/storage/sparse4d/}resolved-config/"
+    mkdir -p "$staged_config_dir"
+    sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "${staged_config_dir}config.yaml"
+
+    # Carry along any sibling files (e.g. calibration.json) config.yaml is
+    # normally staged next to, so consumers of SPARSE4D_CONFIG_PATH still find them.
+    local sibling
+    for sibling in "${source_config_dir}"*; do
+        [[ -f "$sibling" ]] || continue
+        [[ "$(basename "$sibling")" == "config.yaml" ]] && continue
+        cp -f "$sibling" "$staged_config_dir"
+    done
+
+    export SPARSE4D_CONFIG_PATH="$staged_config_dir"
+    echo "##### Updated Sparse4D engine_file -> ${engine_file} (staged at ${staged_config_dir}config.yaml) #####"
+}
+
 start_sparse4d_warehouse()
 {
     echo "##### Sparse4D Warehouse models will be used. #####"
@@ -543,6 +732,8 @@ start_sparse4d_warehouse()
     fi
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$CUSTOM_LIB_PATH"
     export LD_PRELOAD="${LD_PRELOAD:-}:$CUSTOM_PRELOAD_LIB"
+
+    resolve_sparse4d_engine_file
 
     bash sparse4d_setup.sh
 
@@ -562,6 +753,7 @@ echo "DS_MODEL_FAMILY=$DS_MODEL_FAMILY  STREAM_TYPE=$STREAM_TYPE  DS_MODE_FLAG=$
 echo "DS_VISION_ENCODER=$DS_VISION_ENCODER"
 
 ensure_models_from_manifest
+seed_reference_configs_if_empty
 stage_mounted_configs_if_present
 patch_vision_encoder_configs_if_enabled
 

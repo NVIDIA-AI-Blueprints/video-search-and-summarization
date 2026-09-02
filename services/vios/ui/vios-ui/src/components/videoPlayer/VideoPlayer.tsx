@@ -34,7 +34,7 @@ import {
     Tooltip,
 } from '@mui/material';
 import { Settings, Close } from '@mui/icons-material';
-import { VideoPlayerProps, WebRTCStats, Timeline } from '../../interfaces/interfaces';
+import { VideoPlayerProps, WebRTCStats, Timeline, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import StreamManager, {
     StreamConfig,
     StreamType,
@@ -45,9 +45,10 @@ import StreamManager, {
     StreamCompositeOptions,
     WebRTCIssue,
     WebRTCNetworkScores,
+    DashPhase,
+    DashStream,
 } from 'vst-streaming-lib';
 import RangePickerDialog from '../../features/rangePickerDialog/RangePickerDialog';
-import useEffectOnce from '../../hooks/useEffectOnce';
 import LOG from '../../utils/misc/Logger';
 import { pause, resume, rewindOrFastforward, seekBackward, seekForward, seekToTime } from './videoPlayerUtils/trickModesAPIs';
 import { subSeconds, format } from 'date-fns';
@@ -78,6 +79,7 @@ const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
 // Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
 const CONTROLS_HIDE_DELAY_MS = 3000;
+
 
 interface SensorTimelineEntry {
     sensorId?: string;
@@ -159,11 +161,28 @@ const getNextPlaybackSpeed = (type: string, currentSpeed: number): number => {
     return currentSpeed === 1 ? -1 : currentSpeed / 2;
 };
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElementId, onWebRTCStatsUpdate, sensors, onClose }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({
+    sensor,
+    streamType,
+    videoElementId,
+    onWebRTCStatsUpdate,
+    sensors,
+    onClose,
+    protocol,
+}) => {
     // WebRTC and stream management
     const [inboundPeerId, setInboundPeerId] = useState<string>('');
     const [webRTCStats, setWebRTCStats] = useState<WebRTCStats>();
     const [fullWebRTCStats, setFullWebRTCStats] = useState<RTCStatsReport>();
+    // Chosen on the page alongside the sensors.  WebRTC unless the viewer says
+    // otherwise, and kept in step with the page so the two cannot disagree.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>(protocol ?? 'webrtc');
+    useEffect(() => {
+        if (protocol && protocol !== deliveryProtocol) {
+            setDeliveryProtocol(protocol);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [protocol]);
     const bitrate = useBitrate(fullWebRTCStats);
 
     // Video playback controls
@@ -182,6 +201,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     const [isQualityMenuOpen, setIsQualityMenuOpen] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState(true);
     const [connectionPhase, setConnectionPhase] = useState<'initial' | 'connecting' | 'waiting'>('initial');
+    /* DASH reports its own progress.  It does not connect to anything, so the
+     * WebRTC wording does not describe it: it asks the service to start
+     * packaging, waits for a manifest that appears only once enough media has
+     * been written, then fills a buffer before the first frame moves. */
+    const [dashPhase, setDashPhase] = useState<DashPhase | null>(null);
     const [isLoadingTimelines, setIsLoadingTimelines] = useState<boolean>(false);
 
     // Dialog states
@@ -293,6 +317,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     }, [onWebRTCStatsUpdate]);
 
     // Helper function to get the earliest start time from timelines
+    // DASH replay needs a bounded window.  Left open ended, the packager
+    // republishes the whole recording as fast as it can read it while the player
+    // follows a wall clock edge, so the two drift apart and the player asks for
+    // segments that do not exist yet.
+    const getLatestEndTime = (): string | undefined => {
+        if (!timelinesRef.current || timelinesRef.current.length === 0) {
+            return undefined;
+        }
+        return timelinesRef.current.reduce((latest, timeline) => {
+            return new Date(timeline.endTime) > new Date(latest) ? timeline.endTime : latest;
+        }, timelinesRef.current[0].endTime);
+    };
+
     const getEarliestStartTime = (): string => {
         if (!timelinesRef.current || timelinesRef.current.length === 0) {
             LOG.warn('No timelines found, using fallback start time:', FALLBACK_START_TIME);
@@ -391,9 +428,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     }, [videoElementId]);
 
-    useEffectOnce(() => {
+    useEffect(() => {
         runOnceRef.current = false;
-        streamManagerRef.current = new StreamManager();
 
         const onFirstFrameReceived = () => {
             // NOTE: test contract — BDD/sanity scrapes the browser console for this exact string.
@@ -404,6 +440,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             setConnectionPhase('initial');
         };
 
+        // DASH is delivered over HTTP by streaming-lib.  The component only
+        // selects the protocol; StreamManager owns the transport for both.
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay)
+            && !sensor?.streamId) {
+            setHasError(true);
+            setIsLoading(false);
+            setErrorDetails({ message: 'A stream ID is required for DASH playback', code: 400 });
+            return;
+        }
+
+        streamManagerRef.current = new StreamManager();
         const wsEndpoint = toWebSocketUrl(config.liveStreamEndpoint);
 
         const webStreamerConfig: AppConfig = {
@@ -415,6 +463,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             enableLogs: true,
             vstWebsocketEndpoint: wsEndpoint,
             firstFrameReceivedCallback: onFirstFrameReceived,
+            dashPhaseCallback: setDashPhase,
             enableDummyUDPCall: false,
             onPlaybackUpdate: onPlaybackTimeUpdate,
             onStreamStatusUpdate: onStreamStatusUpdate,
@@ -435,7 +484,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 rtptransport: 'udp',
                 timeout: 60,
                 quality: quality,
-                framerate: 15,
+                // Fifteen is a WebRTC era choice and DASH cannot use it: asking
+                // the composite pipeline for half the source rate loses half the
+                // frames somewhere in the encode path, and because the muxer
+                // stamps a nominal duration per frame rather than measuring
+                // arrival, the loss shows up as a timeline advancing at half
+                // real time.  The live edge then runs away from the viewer and
+                // the picture stutters and falls behind without ever recovering.
+                // Measured: 0.5 segments a second at fifteen, 1.05 at the source
+                // rate, with the same one second segments in both.
+                ...(deliveryProtocol === 'dash' ? {} : { framerate: 15 }),
                 overlay: overlaySettings || {
                     bbox: { showAll: false, objectId: [], classType: [] },
                     tripwire: { showAll: false, id: [] },
@@ -470,19 +528,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
             if (streamType === StreamType.Replay) {
                 streamConfig.startTime = getEarliestStartTime();
+                if (deliveryProtocol === 'dash') {
+                    streamConfig.endTime = getLatestEndTime();
+                }
             }
         }
 
-        streamManagerRef.current.startStreaming(streamConfig);
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay
+                || streamType === StreamType.VideoWall)) {
+            streamConfig.options.streamType = 'dash';
+            // The wall is composed from the cameras it names, but the session is
+            // still filed under one of them, so give the request a stream to be
+            // filed under rather than leaving it empty.
+            if (streamType === StreamType.VideoWall && !streamConfig.streamId) {
+                const wall = streamConfig.options.composite as
+                    { streamIds?: string[] } | undefined;
+                streamConfig.streamId = wall?.streamIds?.[0];
+            }
+        }
+
+        startStream(streamConfig);
         setConnectionPhase('connecting');
 
         return () => {
             clearInterval(inboundConnectionQualityWatchdogRef.current);
             if (streamManagerRef.current) {
                 streamManagerRef.current.stopStreaming();
+                streamManagerRef.current = null;
             }
         };
-    });
+        // Stream setup intentionally restarts only when the selected live delivery protocol changes.
+    }, [deliveryProtocol]);
 
     // Effect for fetching live stream configuration
     useEffect(() => {
@@ -528,6 +605,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                     setTimelines(sensorTimelines);
                     timelinesRef.current = sensorTimelines;
                     setDisabledIntervals(getTimelineGaps(sensorTimelines));
+                    // The player can be mounted before the asynchronous
+                    // timeline request finishes.  VST accepts the legacy epoch
+                    // fallback for that initial replay, but relative DASH seek
+                    // controls need a real recording epoch once it is known.
+                    if (deliveryProtocol === 'dash' && (startTimeMs.current === null
+                        || startTimeMs.current === new Date(FALLBACK_START_TIME).getTime())
+                        && sensorTimelines.length > 0) {
+                        startTimeMs.current = new Date(sensorTimelines[0].startTime).getTime();
+                    }
                     LOG.info(`Fetched ${sensorTimelines.length} timeline segments for sensor ${sensor.sensorId}`, {
                         timeRange: formatTimelineRange(calenderStartTime, calenderEndTime),
                     });
@@ -545,7 +631,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         };
 
         fetchTimelines();
-    }, [sensor?.sensorId, streamType, enqueueSnackbar, sensor?.name, calenderStartTime, calenderEndTime]);
+    }, [sensor?.sensorId, streamType, enqueueSnackbar, sensor?.name, calenderStartTime, calenderEndTime, deliveryProtocol]);
 
     // Effect for updating visible time range when zoom changes
     useEffect(() => {
@@ -624,6 +710,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     }, []);
 
     const handleTimeRangeSelect = async (time: string) => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Replay) {
+            try {
+                setIsLoading(true);
+                setConnectionPhase('waiting');
+                await streamManagerRef.current?.seekDashReplay(time);
+                startTimeMs.current = new Date(time).getTime();
+                setPlaybackStatus(StreamState.PLAYING);
+            } catch (error) {
+                LOG.error('Failed to seek DASH replay:', error);
+                setIsLoading(false);
+                enqueueSnackbar('Failed to seek DASH replay', { variant: 'error' });
+            }
+            return;
+        }
         if (streamType === StreamType.Replay && inboundPeerIDRef.current && inboundMediaSessionIDRef.current && sensor?.streamId) {
             const isSuccess = await seekToTime(
                 inboundPeerIDRef.current,
@@ -657,6 +757,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handlePlayPause = async () => {
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
+            if (!videoRef.current) {
+                return;
+            }
+            if (videoRef.current.paused) {
+                await videoRef.current.play();
+                setPlaybackStatus(StreamState.PLAYING);
+            } else {
+                videoRef.current.pause();
+                setPlaybackStatus(StreamState.PAUSED);
+            }
+            return;
+        }
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current) {
             LOG.error('Stream not ready, cant play-pause');
             return;
@@ -732,6 +846,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
     };
 
     const handleSeekForward = async () => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Replay) {
+            if (startTimeMs.current === null || !videoRef.current) {
+                LOG.error('DASH replay is not ready to seek');
+                return;
+            }
+            await handleTimeRangeSelect(new Date(startTimeMs.current
+                + (videoRef.current.currentTime + 10) * 1000).toISOString());
+            return;
+        }
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current || !sensor?.streamId) {
             LOG.error('Stream not ready, cant seek');
             return;
@@ -742,6 +865,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         }
     };
     const handleSeekBackward = async () => {
+        if (deliveryProtocol === 'dash' && streamType === StreamType.Replay) {
+            if (startTimeMs.current === null || !videoRef.current) {
+                LOG.error('DASH replay is not ready to seek');
+                return;
+            }
+            await handleTimeRangeSelect(new Date(startTimeMs.current
+                + Math.max(0, videoRef.current.currentTime - 10) * 1000).toISOString());
+            return;
+        }
         if (!inboundMediaSessionIDRef.current || !inboundPeerIDRef.current || !sensor?.streamId) {
             LOG.error('Stream not ready, cant seek');
             return;
@@ -856,6 +988,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
         };
     }, [isActuallyFullScreen, isAnyOverlayDialogOpen]);
 
+    // Every restart rebuilds the config: changing quality, saving overlay
+    // settings, picking a new replay window.  Each one has to carry the chosen
+    // delivery protocol, and only the protocol-toggle effect used to do so, so
+    // saving overlay settings silently dropped the stream back to WebRTC.
+    // Stamping it here means a new caller cannot forget.
+    const startStream = (config: StreamConfig) => {
+        if (deliveryProtocol === 'dash'
+            && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
+            config.options.streamType = 'dash';
+            // A DASH replay session is packaged for a window, so it needs an end
+            // as well as a start; the WebRTC path never had to supply one.
+            if (streamType === StreamType.Replay && !config.endTime) {
+                // Timelines arrive asynchronously and the first replay can be
+                // requested before their latest bound is known.  Do not leave
+                // DASH open ended in that case: the recorded source then runs
+                // through its catalogue instead of maintaining a seekable
+                // playback window.  A later seek preserves this bound.
+                config.endTime = getLatestEndTime() ?? new Date().toISOString();
+            }
+            if (streamType === StreamType.Replay && config.startTime) {
+                startTimeMs.current = new Date(config.startTime).getTime();
+            }
+        }
+        streamManagerRef.current?.startStreaming(config);
+    };
+
     const createStreamConfig = (options: {
         streamId?: string;
         mainStreamId?: string;
@@ -906,7 +1064,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             isReplay: streamType === StreamType.Replay,
         });
 
-        streamManagerRef.current?.startStreaming(streamConfig);
+        startStream(streamConfig);
     };
 
     const handleCalenderRangePlayback = async (startTime: string, endTime: string) => {
@@ -930,7 +1088,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             overlaySettings,
         });
 
-        streamManagerRef.current?.startStreaming(streamConfig);
+        startStream(streamConfig);
     };
 
     const handleScreenshot = async () => {
@@ -941,24 +1099,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
 
         try {
             if (streamType === StreamType.Replay) {
-                // For replay streams, first query the current timestamp
-                if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current) {
-                    enqueueSnackbar('Stream not ready', { variant: 'error' });
-                    return;
+                /* Both transports answer the same question - what moment is
+                 * being shown - but only WebRTC answers it per peer. A DASH
+                 * session has no peerId, so it is asked by stream instead. */
+                let timestamp: number | undefined;
+                if (deliveryProtocol === 'dash') {
+                    const sessions = await DashStream.querySessions(config.streamRecorderEndpoint, {
+                        replay: true,
+                        streamId: sensor.streamId || sensor.sensorId,
+                    });
+                    /* Several viewers can share one recording; any of them is
+                     * close enough for a snapshot, which is already approximate
+                     * because a player runs behind what the server published. */
+                    const session = sessions.find(
+                        (entry) => entry.streamId === (sensor.streamId || sensor.sensorId),
+                    ) ?? sessions[0];
+                    /* A re-encoded recording is stamped by the encoder, so the
+                     * server cannot say what moment its frames depict and sends
+                     * no ts. It still reports how far it has travelled, and by
+                     * then this player knows where the recording actually
+                     * begins - the epoch this session was opened with is a
+                     * "from the start" request, not a real time. */
+                    timestamp = session?.ts
+                        ?? (startTimeMs.current !== null && session?.positionMs !== undefined
+                            ? startTimeMs.current + session.positionMs
+                            : undefined);
+                } else {
+                    // For replay streams, first query the current timestamp
+                    if (!inboundPeerIDRef.current || !inboundMediaSessionIDRef.current) {
+                        enqueueSnackbar('Stream not ready', { variant: 'error' });
+                        return;
+                    }
+
+                    const queryEndpoint = `${config.streamRecorderEndpoint}/api/v1/replay/stream/query?peerid=${inboundPeerIDRef.current}&mediaSessionId=${inboundMediaSessionIDRef.current}&metadata=false`;
+
+                    const queryResponse = await nvAxios.get(queryEndpoint, {
+                        headers: { streamId: sensor.streamId || sensor.sensorId },
+                    });
+                    timestamp = queryResponse.data.ts;
                 }
 
-                const queryEndpoint = `${config.streamRecorderEndpoint}/api/v1/replay/stream/query?peerid=${inboundPeerIDRef.current}&mediaSessionId=${inboundMediaSessionIDRef.current}&metadata=false`;
-
-                const queryResponse = await nvAxios.get(queryEndpoint, {
-                    headers: { streamId: sensor.streamId || sensor.sensorId },
-                });
-
-                if (!queryResponse.data.ts) {
+                if (!timestamp) {
                     enqueueSnackbar('Invalid timestamp received from stream query', { variant: 'error' });
                     return;
                 }
 
-                const timestamp = queryResponse.data.ts;
                 const utcDateTime = moment(timestamp).toISOString();
                 const endpoint = `${config.streamRecorderEndpoint}/api/v1/replay/stream/${sensor.streamId}/picture?startTime=${utcDateTime}`;
 
@@ -1101,7 +1286,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             }
 
             // Start new stream with updated settings
-            streamManagerRef.current?.startStreaming(streamConfig);
+            startStream(streamConfig);
 
             enqueueSnackbar('Analytics overlay settings updated successfully', {
                 variant: 'success',
@@ -1154,7 +1339,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
             }
         }
 
-        streamManagerRef.current?.startStreaming(streamConfig);
+        startStream(streamConfig);
     };
 
     const handleAnalyticsOverlayToggle = () => {
@@ -1549,6 +1734,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 volume={volume}
                 isMuted={isMuted}
                 streamType={streamType}
+                deliveryProtocol={deliveryProtocol}
                 isAudioTrackPresent={isAudioTrackPresent}
                 onPlayPause={handlePlayPause}
                 onFastForward={() => handleFastForwardAndRewind('fastForward')}
@@ -1574,7 +1760,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                 <QualityMenu
                     onSettingChange={handleQualitySettingChange}
                     currentSetting={quality}
-                    show={streamType !== StreamType.VideoWall}
+                    show={streamType !== StreamType.VideoWall && deliveryProtocol === 'webrtc'}
                     container={fullscreenContainer}
                     onOpenChange={setIsQualityMenuOpen}
                 />
@@ -1892,7 +2078,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                 {isFetchingEvents ? 'Stop Loading' : 'Show Events'}
                             </Button>
                         )}
-                        <BitrateSparkline bitrate={bitrate} />
+                        {deliveryProtocol === 'webrtc' && <BitrateSparkline bitrate={bitrate} />}
                         {onClose && (
                             <IconButton
                                 onClick={onClose}
@@ -2026,7 +2212,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                         streamType={streamType}
                                         setPlaybackStatus={setPlaybackStatus}
                                     />
-                                    {webRTCStats && (
+                                    {deliveryProtocol === 'webrtc' && webRTCStats && (
                                         <NetworkQualityWidget
                                             stats={webRTCStats}
                                             sensorName={sensor?.name}
@@ -2052,13 +2238,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ sensor, streamType, videoElem
                                                     playbackStatus === StreamState.NOT_PLAYING
                                                 ) && <CircularProgress size={60} thickness={4} sx={{ color: 'white', mb: 2 }} />}
                                                 <Typography variant='h6' sx={{ color: 'white' }}>
-                                                    {connectionPhase === 'connecting'
-                                                        ? 'WebRTC Connecting...'
-                                                        : startTimeMs.current &&
-                                                            endTimeMs.current &&
-                                                            playbackStatus === StreamState.NOT_PLAYING
-                                                          ? 'Stream Ended'
-                                                          : 'Waiting For Data...'}
+                                                    {startTimeMs.current &&
+                                                    endTimeMs.current &&
+                                                    playbackStatus === StreamState.NOT_PLAYING
+                                                        ? 'Stream Ended'
+                                                        : deliveryProtocol === 'dash'
+                                                          ? dashPhase === 'buffering'
+                                                              ? 'Buffering...'
+                                                              : 'Loading Stream...'
+                                                          : connectionPhase === 'connecting'
+                                                            ? 'WebRTC Connecting...'
+                                                            : 'Waiting For Data...'}
                                                 </Typography>
                                             </Box>
                                         ))}
