@@ -66,9 +66,9 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      what StorageClass they intend to use if they already have one in mind. Multi-node cluster:
      `local-path`'s node affinity can strand `vss-vios-nvstreamer`'s PVCs across different nodes
      (`didn't match PersistentVolume's node affinity`) — relay the same section's
-     `nfs-subdir-external-provisioner` snippet instead, and set
-     `vios.vstStorage.{vstData,vstVideo,streamerVideos}.storageClass=nfs-client` (or
-     `global.storageClass`) rather than `local-path`.
+     `nfs-subdir-external-provisioner` snippet instead, and set `vios.vstStorage.vstData`,
+     `.vstVideo`, and `.streamerVideos` `.storageClass` to `nfs-client` via three separate `--set`
+     flags (or just `global.storageClass`) rather than `local-path`.
    - No `nvidia.com/gpu` allocatable → relay the NVIDIA GPU Operator install steps from
      §Prerequisites (links to the GPU Operator getting-started guide) and the recommended driver
      versions listed there.
@@ -179,6 +179,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      --set global.externalHost=<NODE_IP> \
      --set global.storageClass=<STORAGE_CLASS> \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
+     --set vios.vss-vios-nvstreamer.rtsp.instanceCount=<effective-streams> \
      ... \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
 
@@ -188,6 +189,7 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      -f deploy/helm/industry-profiles/warehouse-operations/warehouse-<mode>-app/values-nodeport.yaml \
      --set global.storageClass=<STORAGE_CLASS> \
      --set vios.vss-vios-nvstreamer.syncFileCount=<effective-streams> \
+     --set vios.vss-vios-nvstreamer.rtsp.instanceCount=<effective-streams> \
      -f values-stream-cap.generated.yaml   # last: wins on bp-configurator.env
    ```
    `...` is the remaining secrets/URL overrides from step 6 — see
