@@ -71,7 +71,7 @@ For instructions on downloading sample data and the deployment package, see [Dow
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and operate the video summarization workflow.
 First, install the `vss-deploy-profile` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
-and must meet the [Prerequisites ](/vss/getting-started/prerequisites).
+and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
 The `vss-deploy-profile` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
@@ -157,7 +157,7 @@ Stream summary and Q&A are experimental and are not available through Agent Skil
 
 <Note>
 - Set the NGC CLI API key, then run the deploy commands for your GPU type.
-- Refer to [VSS-Agent-Customization-configure-llm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm ](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+- Refer to [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
@@ -820,7 +820,7 @@ Additionally, you can dive deeper into the agent tools for video management, rep
 
 For known issues and limitations, see:
 
-- [vss-agent/VSS-Agent-Known-Issues](/vss/vision-agent/vss-agents/agent-known-issues) - VSS Agent known issues and limitations
+- [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) - VSS Agent known issues and limitations
 - [Known Issues](/vss/system-components/user-interface#known-issues) - VSS Agent UI known issues
 
 ## Troubleshooting
@@ -829,4 +829,4 @@ When encountering issues with the Video Summarization workflow:
 
 1. **View container logs** - See [Viewing Container Logs](/vss/vision-agent/vss-agents/observability#viewing-container-logs) for instructions on viewing and analyzing container logs
 2. **Navigate the Phoenix UI** - See [Navigating the Phoenix UI](/vss/vision-agent/vss-agents/observability#navigating-the-phoenix-ui) for step-by-step guidance on viewing traces and debugging agent workflows
-3. **Check known issues** - Review [vss-agent/VSS-Agent-Known-Issues](/vss/vision-agent/vss-agents/agent-known-issues) (agent) and [Known Issues](/vss/system-components/user-interface#known-issues) (UI) for documented limitations and workarounds
+3. **Check known issues** - Review [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) (agent) and [Known Issues](/vss/system-components/user-interface#known-issues) (UI) for documented limitations and workarounds
