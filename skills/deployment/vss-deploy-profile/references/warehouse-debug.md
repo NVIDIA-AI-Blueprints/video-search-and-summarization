@@ -50,10 +50,11 @@ services/infra/compose.yml, not in warehouse-mv3dt-app.yml:
                                     → vss-behavior-analytics-mv3dt
   NOTE: bev-fusion does NOT speak MQTT. It reads mdx-raw from the broker.
 
-Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
-  vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator / vss-configurator-mv3dt
+Warehouse Auto-Calibration (MODE=auto-calibration, BP_PROFILE=bp_wh_auto_calib) — minimal
+footprint, one COMPOSE_PROFILES_WH_AUTO_CALIB list (no per-mode 2d/3d/mv3dt variants):
+  vss-vios-nvstreamer-amc → vss-configurator-base
                       → vss-auto-calibration + vss-auto-calibration-ui
-  (no broker, no perception, no analytics)
+  (no broker, no perception, no analytics; direct VST, no sdr-controller)
 
 VST (VIOS) stack — independent of perception, feeds RTSP into it:
   vss-vios-postgres → vss-vios-sensor / vss-vios-streamprocessing
