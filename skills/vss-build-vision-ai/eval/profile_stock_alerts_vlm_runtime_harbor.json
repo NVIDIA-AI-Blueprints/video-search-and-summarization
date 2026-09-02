@@ -24,7 +24,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0 (shared cache/message peer).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (video ingestion source).",
-        "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (real-time mode does not run the CV perception pipeline).",
+        "`docker ps --format '{{.Names}}' | awk '$0 == \"vss-rtvi-cv\" { found=1 } END { exit found ? 1 : 0 }'` returns exit 0 (real-time mode does not run the CV perception pipeline).",
         "`curl -sf --max-time 15 http://localhost:8018/v1/health/ready` returns exit 0 (RT-VLM ready).",
         "The agent does not invoke `/vss-deploy-profile` or `scripts/dev-profile.sh`."
       ]
