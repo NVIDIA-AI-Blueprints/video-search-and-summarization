@@ -803,6 +803,12 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
             >
               {APPLICATION_TITLE}
             </h4>
+            <span
+              className="self-end flex-shrink-0 pb-0.5 text-xs text-gray-500 dark:text-gray-400"
+              title={`ver: ${packageJson.version}`}
+            >
+              ver: {packageJson.version}
+            </span>
             <div className="flex-shrink-0 w-[2px] h-[19px] bg-black dark:bg-white" />
             {APPLICATION_SUBTITLE && (
               <div className="flex items-center">
@@ -883,19 +889,6 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
               videoManagementHandlers={videoManagementControlHandlers}
               activeTabLabel={visibleTabs.find(tab => tab.id === activeTab)?.label || ''}
             />
-            
-            {/* Version Display */}
-            <div 
-              className="px-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-neutral-900 flex items-end justify-center"
-              style={{
-                height: '32px',
-                paddingBottom: '4px'
-              }}
-            >
-              <div className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                Version {packageJson.version}
-              </div>
-            </div>
           </aside>
         )}
 
