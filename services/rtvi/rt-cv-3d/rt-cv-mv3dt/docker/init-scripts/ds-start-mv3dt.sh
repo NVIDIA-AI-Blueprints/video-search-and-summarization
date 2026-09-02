@@ -143,17 +143,21 @@ PY
   # pipeline would. Skipped in advisory mode, where no sink is in use.
   if [ "${advisory}" = 1 ]; then
     echo "   display checks passed (advisory)"
+  elif ! command -v gst-launch-1.0 >/dev/null 2>&1; then
+    echo "   EGL sink probe: skipped (gst-launch-1.0 not available)"
   elif timeout 20 gst-launch-1.0 -q videotestsrc num-buffers=1 ! nveglglessink >/tmp/egl-probe.log 2>&1; then
     echo "   EGL sink probe: OK"
     echo "   OSD preflight passed"
   else
-    { echo "** WARNING: the EGL sink could not render a test frame, so OSD will not work."
+    # sink0 is the EGL sink this probe exercises, so a failure here is the
+    # pipeline's failure: stop rather than stall at PAUSED.
+    { echo "** ERROR: the EGL sink could not render a test frame, so OSD will not work."
       grep -iE 'drm|dri2|EGL' /tmp/egl-probe.log 2>/dev/null | tail -3 | sed 's/^/          /'
       # The NVIDIA runtime always exposes a couple of DRI nodes, so their
       # presence says nothing about whether the full set is mapped.
       grep -qiE 'drm|dri2' /tmp/egl-probe.log 2>/dev/null &&
-        echo "          Mesa cannot reach the DRM device: uncomment the devices block in docker/compose.yml"
-      echo "          Continuing; the pipeline may stall at PAUSED."; } >&2
+        echo "          Mesa cannot reach the DRM device: uncomment the devices block in docker/compose.yml"; } >&2
+    return 1
   fi
   return 0
 }
