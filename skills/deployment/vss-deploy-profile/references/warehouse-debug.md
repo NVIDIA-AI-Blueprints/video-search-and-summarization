@@ -408,7 +408,7 @@ they neither 404 before 3.3.0 ships nor go stale after. (`/latest/` serves 3.2.1
 Before starting, collect two pieces of information (ask if unknown):
 
 1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml --env-file containers.env --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env`. Cleanup reads `generated.env` because it carries the runtime data paths. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
-2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Read it from the active env file, which is authoritative: Compose interpolates `MODE` from there to select the profile lists, and it works whether or not any container is up.
+2. **`MODE`** — `2d`, `3d`, `mv3dt`, or `auto-calibration`. Read it from the active env file, which is authoritative: Compose interpolates `MODE` from there, and it works whether or not any container is up. `auto-calibration` is a distinct MODE (paired with `BP_PROFILE=bp_wh_auto_calib` and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}`), not a 2d/3d/mv3dt suffix.
 
 ```bash
 grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/generated.env \
@@ -421,9 +421,10 @@ To confirm against what is actually running, inspect the **configurator** — `M
 docker inspect vss-configurator --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
   | grep -i "^MODE="
 # MV3DT: use vss-configurator-mv3dt
+# auto-calibration: use vss-configurator-base
 ```
 
-`vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`.
+`vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`. Auto-calibration deploys neither perception container; `vss-vios-nvstreamer-amc` + `vss-configurator-base` + `vss-auto-calibration` means MODE is `auto-calibration`.
 
 ---
 
