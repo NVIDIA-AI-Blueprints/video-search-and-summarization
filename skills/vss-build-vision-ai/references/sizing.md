@@ -132,27 +132,30 @@ but "does this hardware support the count this dataset requires".
 `blueprint_config.yml` is authoritative for that ceiling. `HARDWARE_PROFILE`
 selects the section; `MODE` selects the row:
 
-| `HARDWARE_PROFILE` | `2d` | `3d` |
-|---|---:|---:|
-| H100 | 77 | 19 |
-| RTXPRO6000BW | 52 | 21 |
-| RTXPRO6000BW-SE | 47 | 20 |
-| L40S | 29 | 10 |
-| RTXA6000ADA | 28 | 8 |
-| RTXPRO4500BW | 20 | 9 |
-| RTXA6000 | 15 | **4** |
-| L4 | 9 | **3** |
-| IGX-THOR | 9 | 8 |
-| DGX-SPARK | 7 | 7 |
+| `HARDWARE_PROFILE` | `2d` | `3d` | `mv3dt` |
+|---|---:|---:|---:|
+| H100 | 77 | 19 | 61 |
+| RTXPRO6000BW | 52 | 21 | 39 |
+| RTXPRO6000BW-SE | 47 | 20 | 39 |
+| L40S | 29 | 10 | 23 |
+| RTXA6000ADA | 28 | 8 | 22 |
+| RTXPRO4500BW | 20 | 9 | — |
+| RTXA6000 | 15 | **4** | **4** |
+| L4 | 9 | **3** | 7 |
+| IGX-THOR | 9 | 8 | 7 |
+| DGX-SPARK | 7 | 7 | 7 |
 
 Check the dataset's stream count against the cell before deploying:
 
 - `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile.
 - `warehouse-loading-dock-3cams-synthetic` (2D kafka/redis) — 3 streams. Fits
   every profile.
-- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. **Exceeds `L4` (3).**
-  Exactly saturates `RTXA6000` (4), which leaves no margin for a second workload
-  on that GPU.
+- `warehouse-4cams-20mx20m-synthetic` (3D or MV3DT) — 4 streams. In 3D it
+  **exceeds `L4` (3)**. It exactly saturates `RTXA6000` (4) in either mode,
+  which leaves no margin for a second workload on that GPU.
+
+`RTXPRO4500BW` has no MV3DT tuning entry in `blueprint_config.yml`; do not infer
+a stream ceiling for that combination.
 
 `NUM_STREAMS` is an input and is never rewritten — the file-count prerequisite
 that would recompute it from the video directory is `enabled: false` in every
@@ -206,7 +209,7 @@ integrated RT-VLM at an external endpoint):
 
 | Variant | GPU consumers | Layout |
 |---|---|---|
-| `bp_wh_kafka` / `bp_wh_redis`, `2d` or `3d` | RT-CV only | Everything else is CPU-bound (ELK, VIOS, analytics). One GPU at `RT_CV_DEVICE_ID=0` is the whole budget. |
+| `bp_wh_kafka` / `bp_wh_redis`, `2d`, `3d`, or `mv3dt` | RT-CV only | Everything else, including MV3DT BEV Fusion, is CPU-bound (ELK, VIOS, analytics). One GPU at `RT_CV_DEVICE_ID=0` is the whole budget. |
 | `bp_wh`, `2d` | RT-CV, integrated RT-VLM, LLM NIM | Stock layout is `RT_CV_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, `LLM_DEVICE_ID=2`. With fewer GPUs, place RT-CV first (fixed footprint) and apply the RT-VLM placement rules above; a remote LLM removes the third consumer entirely. |
 
 Headless warehouse perception is far lighter than a VLM profile — a measured

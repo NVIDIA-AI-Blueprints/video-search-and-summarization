@@ -86,7 +86,7 @@ esac
 
 # Warehouse perception writes its detector ONNX into models/ at ds-start phase 0.
 case ",$COMPOSE_PROFILES," in
-  *,perception-2d,*|*,perception-3d,*)
+  *,perception-2d,*|*,perception-3d,*|*,vss-rtvi-cv-mv3dt,*)
     required+=(models)
     ;;
 esac
@@ -129,7 +129,7 @@ done
 # 0 streams with every container healthy, so fail here rather than at runtime.
 # ---------------------------------------------------------------------------
 case ",$COMPOSE_PROFILES," in
-  *,nvstreamer-2d,*|*,nvstreamer-3d,*)
+  *,nvstreamer-2d,*|*,nvstreamer-3d,*|*,nvstreamer-mv3dt,*)
     DATASET="$(sed -n 's/^SAMPLE_VIDEO_DATASET=//p' "$ENV_FILE" | tr -d '"')"
     wh_fail=0
     for d in videos models playback data_log; do
@@ -195,7 +195,8 @@ content, and an empty `videos/` turns a clear "no app data" failure into a
 zero-streams symptom. Treat it as a **blocking presence check**, not part of the
 `required=()` list above — run it *before* any `docker compose up`.
 
-When `COMPOSE_PROFILES` contains an `nvstreamer-2d` or `nvstreamer-3d` key,
+When `COMPOSE_PROFILES` contains an `nvstreamer-2d`, `nvstreamer-3d`, or
+`nvstreamer-mv3dt` key,
 verify before deploying:
 
 ```bash

@@ -31,12 +31,17 @@ DATASETS = {
         3,
     ),
     "warehouse-4cams-20mx20m-synthetic": (
-        {("3d", "bp_wh_kafka"), ("3d", "bp_wh_redis")},
+        {
+            ("3d", "bp_wh_kafka"),
+            ("3d", "bp_wh_redis"),
+            ("mv3dt", "bp_wh_kafka"),
+            ("mv3dt", "bp_wh_redis"),
+        },
         4,
     ),
 }
 
-MODES = {"2d", "3d"}
+MODES = {"2d", "3d", "mv3dt"}
 BP_PROFILES = {"bp_wh", "bp_wh_kafka", "bp_wh_redis"}
 
 # The service lists this skill supports, keyed by the (MODE, BP_PROFILE) pair
@@ -68,6 +73,14 @@ VARIANT_MATRIX = {
         "COMPOSE_PROFILES_WH_REDIS_3D",
         "COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL",
     },
+    ("mv3dt", "bp_wh_kafka"): {
+        "COMPOSE_PROFILES_WH_KAFKA_MV3DT",
+        "COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL",
+    },
+    ("mv3dt", "bp_wh_redis"): {
+        "COMPOSE_PROFILES_WH_REDIS_MV3DT",
+        "COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL",
+    },
 }
 
 IN_SCOPE_VARIANTS = {v for variants in VARIANT_MATRIX.values() for v in variants}
@@ -95,7 +108,7 @@ ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 # a 2D detector in a 3D build resolves cleanly, boots healthy, and publishes to the
 # wrong topic -- 2D writes mdx-raw while vss-behavior-analytics-3d reads mdx-bev, so
 # analytics silently sees nothing.
-MODE_TOKEN = re.compile(r"(?:^|-)(2d|3d)(?:-|$)")
+MODE_TOKEN = re.compile(r"(?:^|-)(2d|3d|mv3dt)(?:-|$)")
 
 
 def strip_value(value: str) -> str:
@@ -283,9 +296,9 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
             )
 
     # 1/3. bp_wh is 2d-only.
-    if bp == "bp_wh" and mode == "3d":
+    if bp == "bp_wh" and mode in {"3d", "mv3dt"}:
         errors.append(
-            "BP_PROFILE=bp_wh is unsupported with MODE=3d "
+            f"BP_PROFILE=bp_wh is unsupported with MODE={mode} "
             "(agents run in 2d only); use bp_wh_kafka or bp_wh_redis"
         )
 
@@ -474,9 +487,9 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
                 "vss-generate-video-calibration, or use a shipped sample dataset"
             )
 
-    if mode == "3d" and variant.endswith("_MINIMAL"):
+    if mode in {"3d", "mv3dt"} and variant.endswith("_MINIMAL"):
         warnings.append(
-            "MODE=3d on a _MINIMAL list deploys no Elasticsearch, so the "
+            f"MODE={mode} on a _MINIMAL list deploys no Elasticsearch, so the "
             "mdx-bev index is never persisted and BEV output cannot be verified"
         )
 
