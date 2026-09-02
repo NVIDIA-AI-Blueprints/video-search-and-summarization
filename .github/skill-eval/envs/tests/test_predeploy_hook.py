@@ -131,6 +131,27 @@ class PredeployHookTests(unittest.TestCase):
         # The documented NemoClaw path is the orchestrator MCP, not the script.
         self.assertNotIn("dev-profile.sh", command)
 
+    def test_predeploy_runs_on_python_312_not_the_box_python3(self) -> None:
+        """orchestrator_mcp_helper.py does `from enum import StrEnum` (3.11+).
+
+        The Brev boxes ship python3 == 3.10, so invoking predeploy.py with bare
+        `python3` ImportErrors before a single MCP call. Run 33587758108 failed
+        both legs on exactly this. Must match `_setup_command`'s interpreter.
+        """
+        _, command = self._run(self.base_task)[0]
+        self.assertIn("--python 3.12", command)
+        self.assertNotIn("python3 .github/skill-eval/nemoclaw/predeploy.py", command)
+
+    def test_helper_still_requires_311_so_the_pin_stays_load_bearing(self) -> None:
+        helper = (
+            REPO_ROOT / "deploy/docker/scripts/orchestrator_mcp_helper.py"
+        ).read_text()
+        self.assertIn(
+            "from enum import StrEnum",
+            helper,
+            "if the helper drops StrEnum this pin can be revisited",
+        )
+
     def test_failed_predeploy_fails_the_leg(self) -> None:
         # A silent pre-deploy failure would surface as unexplained check
         # failures in every later step.

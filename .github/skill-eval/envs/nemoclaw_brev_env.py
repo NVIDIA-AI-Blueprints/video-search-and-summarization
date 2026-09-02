@@ -155,6 +155,13 @@ def _predeploy_command(profile: str, deploy_mode: str, timeout: int) -> str:
     `_setup_command` so `uv` resolves the same caches and venv the notebooks
     prepared, and pins VSS_REPO_DIR explicitly -- predeploy.py would otherwise
     derive it from the reassigned HOME and miss the checkout.
+
+    Runs under `uv ... --python 3.12`, NOT the box's bare `python3` (3.10):
+    predeploy.py imports `deploy/docker/scripts/orchestrator_mcp_helper.py`,
+    which does `from enum import StrEnum` -- 3.11+. Run 33587758108 failed both
+    legs on exactly that. Same interpreter contract as `_setup_command`; the
+    helper's own inner `uv run nat mcp client` still resolves the agent
+    project's venv, so this only pins the outer interpreter.
     """
     mode_arg = (
         f" --deploy-mode {shlex.quote(deploy_mode)}" if deploy_mode else ""
@@ -172,7 +179,8 @@ export PATH="$HOME/.local/bin:$host_home/.local/bin:$PATH"
 export VSS_REPO_DIR="$repo"
 cd "$repo"
 timeout --signal=TERM --kill-after=120 {timeout}s \
-  python3 .github/skill-eval/nemoclaw/predeploy.py \
+  uv run --isolated --no-project --python 3.12 -- \
+  python .github/skill-eval/nemoclaw/predeploy.py \
   --profile {shlex.quote(profile)}{mode_arg}
 """.strip()
 
