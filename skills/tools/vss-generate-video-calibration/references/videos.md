@@ -7,9 +7,11 @@ For live RTSP streams, see `rtsp.md`. For verifying the install with the bundled
 ## What to Ask the User
 
 ### Required
-1. **Videos directory** — a folder containing non-empty, valid `1920×1080` MP4 files named `cam_00.mp4`, `cam_01.mp4`, …, covering the same time window and ordered by overlapping FOV. The skill reads `cam_*.mp4` from here and uploads them sorted alphabetically.
+1. **Videos directory** — a folder containing non-empty, readable, time-synchronized MP4 files at the required 1920×1080 resolution with a supported codec and pixel format. The skill uploads them in explicit sorted order; filenames need not be `cam_*.mp4`.
 2. **Microservice URL** — e.g. `http://<HOST_IP>:8010`.
 3. **Project name** — short descriptive string.
+
+The calibration host must provide `ffprobe` for required resolution validation before upload.
 
 ### Auto-Detected (ask only if not found)
 
@@ -17,8 +19,8 @@ The skill scans the **videos directory** and its **parent directory** for these 
 
 | File | Candidate filenames |
 |---|---|
-| Calibration settings | `calibration_settings.json`, `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, apply its supported API configuration; UI Step 3 floor-plan scale/focal lengths and UI Step 4 rectification remain separate. If they don't have a file, ask which detector to use separately (see below). |
-| Alignment JSON | `alignment_data.json`; also identify `coord_space`: `original` for points from pre-rectification frames, `rectified` for points selected on staged linear frames. |
+| Calibration settings | `calibration_settings.json`, `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, this file replaces the entire UI Step 3 Parameters dialog. If they don't have a file, ask which detector to use separately (see below). |
+| Alignment JSON | `alignment_data.json` |
 | Layout PNG | `layout.png` |
 
 See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern) section in SKILL.md for the parsing rule.
@@ -30,10 +32,10 @@ See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-p
 5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d--start-amc-calibration) for the exact prompt.
 
 ### Optional
-6. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
-7. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
+5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
+6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
 
-After verification, [SKILL.md Step C](../SKILL.md#step-c--run-vggt-first-when-available) makes READY VGGT the recommended first calibration. `MODEL_MISSING` is a non-blocking AMC condition: do not invoke VGGT in that state.
+Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c--independent-vggt-calibration). VGGT is default when ready; missing VGGT must not block AMC.
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 
@@ -49,7 +51,7 @@ Create the project with the shared request in [`common-steps.md`](common-steps.m
 
 ### Step 2 — Upload Videos (required)
 
-See [`common-steps.md` § Validate and upload videos](common-steps.md#validate-and-upload-videos).
+See [`common-steps.md` § Upload videos](common-steps.md#upload-videos).
 
 > **Important**: upload sorted alphabetically — the server assigns camera
 > indices by upload order. The `multipart/form-data` part name is `files`.
@@ -79,7 +81,7 @@ After a successful POST, also parse the file for `"detector"` / `"detector_type"
 
 **Alignment JSON**:
 ```
-POST /v1/upload_alignment/<project_id>?coord_space=<original-or-rectified>
+POST /v1/upload_alignment/<project_id>
 alignment_file: ("alignment_data.json", <bytes>, "application/json")
 ```
 
@@ -103,7 +105,7 @@ focal_length=1269.0&focal_length=1099.5&...
 
 ### Step 5 — Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (linear media → verify → VGGT/post-process when available → AMC/post-process → results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
+Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
 
 ---
 
@@ -111,6 +113,8 @@ Once uploads are done (and any UI fallback confirmed on disk), ask whether every
 
 ```python
 import os
+import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -122,16 +126,17 @@ PROJECT_NAME   = "my_calibration_run"
 VIDEO_DIR      = Path("/path/to/videos")
 # Optional explicit overrides (leave as None to trigger auto-scan, then ask-user, then UI fallback)
 CONFIG_FILE    = None                                   # e.g. Path("/path/to/settings.json")
-                                                        # API configuration only; UI Step 3 scale/focal and Step 4 rectification stay separate.
+                                                        # Full settings override — replaces UI Step 3 (rectification, BA, eval, detector, ...).
                                                         # If the file pins a detector, it's also extracted for the calibrate call below.
 ALIGNMENT_JSON = None                                   # e.g. Path("/path/to/alignment_data.json")
-ALIGNMENT_COORD_SPACE = "original"                     # "original" or "rectified"
+ALIGNMENT_COORD_SPACE = "original"                     # "original" or "rectified" for points made on rectified frames
 LAYOUT_PNG     = None                                   # e.g. Path("/path/to/layout.png")
 GT_ZIP         = None                                   # optional: Path("/path/to/GT.zip")
 FOCAL_LENGTHS  = None                                   # optional: [1269.0, 1099.5]
 DETECTOR_TYPE  = "resnet"                               # "resnet" or "transformer" (overridden if CONFIG_FILE pins it)
-RUN_VGGT_IF_READY = True   # Default: run the faster independent VGGT first when the service reports READY.
 MEDIA_MODE = os.environ.get("MEDIA_MODE", "")  # empty prompts for a safe linear/rectification decision in calibration-tail.md
+if ALIGNMENT_COORD_SPACE not in {"original", "rectified"}:
+    raise ValueError("ALIGNMENT_COORD_SPACE must be 'original' or 'rectified'")
 
 # Projects dir on the host (for verifying manual alignment output).
 # Bind-mounted into the MS container from $VSS_APPS_DIR/services/auto-calibration/projects
@@ -139,9 +144,21 @@ MEDIA_MODE = os.environ.get("MEDIA_MODE", "")  # empty prompts for a safe linear
 VSS_APPS_DIR = Path(os.environ.get("VSS_APPS_DIR", Path.cwd()))
 PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", VSS_APPS_DIR / "services" / "auto-calibration" / "projects"))
 
-VIDEO_FILES = sorted(VIDEO_DIR.glob("cam_*.mp4"))
-assert VIDEO_FILES, f"No cam_*.mp4 files under {VIDEO_DIR}"
-assert all(v.is_file() and v.stat().st_size > 0 for v in VIDEO_FILES), "Every input video must be a non-empty readable file"
+VIDEO_FILES = sorted(VIDEO_DIR.glob("*.mp4"))
+assert VIDEO_FILES, f"No MP4 files under {VIDEO_DIR}"
+if not re.fullmatch(r"[A-Za-z0-9_-]{3,50}", PROJECT_NAME):
+    raise ValueError("PROJECT_NAME must be 3-50 characters using only letters, digits, '_' or '-'")
+for video in VIDEO_FILES:
+    if not video.is_file() or not os.access(video, os.R_OK) or video.stat().st_size == 0:
+        raise ValueError(f"Video is missing, unreadable, or empty: {video}")
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(video)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if probe.stdout.strip() != "1920x1080":
+        raise ValueError(f"AMC requires 1920x1080 input; {video} is {probe.stdout.strip() or 'unknown'}")
 
 # --- Auto-scan helper ---
 def _resolve_local(override, candidate_names, scan_dirs, label):
@@ -202,8 +219,7 @@ if CONFIG_FILE and CONFIG_FILE.exists():
 
 if ALIGNMENT_JSON and ALIGNMENT_JSON.exists():
     with open(ALIGNMENT_JSON, "rb") as f:
-        s.post(f"{BASE_URL}/upload_alignment/{project_id}",
-               params={"coord_space": ALIGNMENT_COORD_SPACE},
+        s.post(f"{BASE_URL}/upload_alignment/{project_id}?coord_space={ALIGNMENT_COORD_SPACE}",
                files={"alignment_file": (ALIGNMENT_JSON.name, f, "application/json")}).raise_for_status()
     print(f"[3] Uploaded alignment: {ALIGNMENT_JSON.name}")
 
@@ -235,7 +251,7 @@ if not CONFIG_FILE:
             DETECTOR_TYPE = _choice
         print(f"    Using detector: {DETECTOR_TYPE}")
 if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 5 (Manual Alignment): upload alignment_data.json or mark correspondence points on rectified media, then Save.")
+    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 5 (Manual Alignment): upload alignment_data.json or mark correspondence points, then Save.")
 if ui_tasks:
     print(f"\n[5] UI action required for project {project_id}:")
     for t in ui_tasks:
@@ -248,16 +264,19 @@ if ui_tasks:
         )
         print(f"    Alignment files verified at {manual_dir}")
 
-# Paste references/calibration-tail.md here. It runs READY VGGT first, then AMC,
-# and post-processes each result independently.
+# Paste references/calibration-tail.md here. It runs VGGT first when ready,
+# post-processes it, then runs AMC and post-processes AMC again.
+
+print(f"\nProject: {project_id}")
+print(f"Final camera parameters: ${{VSS_APPS_DIR}}/services/auto-calibration/projects/project_{project_id}/output/multi_view_results/BA_output/results_ba/refined/camInfo_XX.yaml")
 ```
 
 ## Mode-specific Troubleshooting
 
 | Issue | Fix |
 |---|---|
-| `cam_*.mp4` glob finds 0 files | Confirm `VIDEO_DIR` is the directory **containing** the camera files, not a parent. Try `ls "$VIDEO_DIR"/cam_*.mp4`. |
-| Immediate `ERROR` after `/calibrate` | Check video naming: must be `cam_00.mp4`, `cam_01.mp4`, … contiguous, no gaps. |
+| MP4 discovery finds 0 files | Confirm `VIDEO_DIR` is the directory **containing** the camera files, not a parent. Try `ls "$VIDEO_DIR"/*.mp4`. |
+| Immediate `ERROR` after `/calibrate` | Check video readability, synchronized content, overlap, and upload order. |
 | Upload returns 413 | Raise server upload limit, or split files. Most user videos are <500 MB so this is unusual. |
 | Auto-scan finds multiple settings files | Disambiguate by passing `CONFIG_FILE = Path("...")` explicitly. |
 

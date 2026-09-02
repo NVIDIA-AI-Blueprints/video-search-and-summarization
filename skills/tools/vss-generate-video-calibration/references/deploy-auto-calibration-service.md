@@ -44,7 +44,7 @@ Standard compose-centric workflow: initialize `generated.env` from `overrides.en
 
 ### Step 0 — Platform Preflight
 
-Run this before NGC login, image pulls, VIOS checks, capture, upload, or calibration. AMC calibration uses DeepStream detection and requires an `x86_64` calibration host with NVIDIA GPU access and NVENC hardware encoder support. DGX Spark is an `aarch64` system, so it is not a supported AMC calibration host for this flow even though it has NVENC; use an existing `calibration.json`, run calibration on a supported host, or transfer generated calibration artifacts.
+Run this before NGC login, image pulls, VIOS checks, capture, upload, or calibration. AMC 3.3.0 requires Ubuntu 24.04 on an `x86_64` calibration host, NVIDIA Driver 590 or newer, NVIDIA GPU access, NVENC hardware encoder support, non-root Docker access, and NVIDIA Container Toolkit. DGX Spark is an `aarch64` system, so it is not a supported AMC calibration host for this flow even though it has NVENC; use an existing `calibration.json`, run calibration on a supported host, or transfer generated calibration artifacts.
 
 Recommended calibration hosts include RTX PRO 6000 Blackwell Server/Workstation, RTX A6000, L40S/L40/L4, and A40. Hosts such as A100, H100/H200, GB200/HGX B200, and DGX Station Blackwell do not provide NVENC in NVIDIA's Video Encode and Decode Support Matrix; DGX Spark does not meet the `x86_64` host requirement for this flow.
 
@@ -62,6 +62,12 @@ if [ "${ARCH}" != "x86_64" ]; then
   exit 1
 fi
 
+. /etc/os-release
+if [ "${ID:-}" != "ubuntu" ] || [ "${VERSION_ID:-}" != "24.04" ]; then
+  echo "ERROR: AMC calibration requires Ubuntu 24.04." >&2
+  exit 1
+fi
+
 if ! command -v nvidia-smi >/dev/null 2>&1; then
   echo "ERROR: nvidia-smi was not found; NVIDIA GPU access is required before deploying or running AMC calibration." >&2
   echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
@@ -73,6 +79,25 @@ nvidia-smi >/dev/null 2>&1 || {
   echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
   exit 1
 }
+
+DRIVER_MAJOR="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1 | cut -d. -f1)"
+if ! printf '%s\n' "${DRIVER_MAJOR}" | grep -Eq '^[0-9]+$' || [ "${DRIVER_MAJOR}" -lt 590 ]; then
+  echo "ERROR: AMC calibration requires NVIDIA Driver 590 or newer." >&2
+  exit 1
+fi
+
+docker ps >/dev/null 2>&1 || {
+  echo "ERROR: Docker must run without sudo before deploying AMC." >&2
+  exit 1
+}
+DOCKER_RUNTIMES="$(docker info --format '{{json .Runtimes}}' 2>/dev/null)"
+case "${DOCKER_RUNTIMES}" in
+  *nvidia*) ;;
+  *)
+    echo "ERROR: NVIDIA Container Toolkit/runtime is not available to Docker." >&2
+    exit 1
+    ;;
+esac
 
 # AMC MS compose assigns GPU device 0, so check GPU 0 here.
 echo "AMC GPU device: 0"
