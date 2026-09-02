@@ -522,10 +522,15 @@ report_api_lost() {
 
 if [[ "$MODE" == remove ]]; then
   if (( REMOVE_ALL )); then
-    if ! mapfile -t STREAMS < <(registered_camera_ids); then
+    # Assign first, then split. A process substitution reports only mapfile's
+    # own status, so a failed lookup would arrive as an empty list and be
+    # reported as "nothing to remove" rather than as the error it is.
+    if ! registered_ids="$(registered_camera_ids)"; then
       echo "ERROR: cannot reach the perception REST API at ${BASE} to list streams." >&2
       exit 1
     fi
+    STREAMS=()
+    [[ -n "$registered_ids" ]] && mapfile -t STREAMS <<<"$registered_ids"
     (( ${#STREAMS[@]} )) || { echo "No streams are registered; nothing to remove."; exit 0; }
     echo "── ${#STREAMS[@]} registered stream(s) will be removed:"
     printf '     %s\n' "${STREAMS[@]}"
