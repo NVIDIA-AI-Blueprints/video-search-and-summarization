@@ -79,6 +79,10 @@ function_groups:
     - data_log/vst
     - data_log/vst/vst_data
     - data_log/vst/vst_data/logs
+    # Bound as `${VST_LOGS}/nginx_logs` in services/vios/foundational —
+    # a derived var PLUS a subpath, so it appears in neither the env files nor
+    # as a ${VSS_DATA_DIR} literal. Found by run 33592630959.
+    - data_log/vst/vst_data/logs/nginx_logs
     - data_log/vst/vst_video
     - data_log/vst/temp_files
     - data_log/vst/clip_storage
