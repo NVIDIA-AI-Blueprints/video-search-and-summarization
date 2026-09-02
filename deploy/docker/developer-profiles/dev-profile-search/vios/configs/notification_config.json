@@ -97,7 +97,7 @@
                         "method": "POST",
                         "headers": {
                               "Content-Type": "application/json",
-                              "x-camera-id": "{{event.camera_id}}"
+                              "x-stream-id": "{{event.camera_id}}"
                         },
                         "query_params": {"change": "{{event.change}}"},
                         "camera_type": ["rtsp", "file"],
