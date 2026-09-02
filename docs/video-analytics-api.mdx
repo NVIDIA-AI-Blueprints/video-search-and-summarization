@@ -1,5 +1,124 @@
 ---
 title: "Video Analytics API Reference"
-description: ""
-position: 1
+description: "REST API endpoints in Video Analytics API microservice"
 ---
+REST API endpoints for the Video Analytics API microservice, grouped the same way as the OpenAPI tags (metrics, tracker, frames, behavior, clustering, events, sensor, config, livez, alerts, and incidents).
+
+The machine-readable OpenAPI specification is `services/analytics/video-analytics-api/src/app/specification/openapi.json` in this repository.
+
+The service listens on port `8081` by default (`http://<host>:8081`).
+
+**Servers:** `https://ai.nvidia.com/api/v3.3/analytics`
+
+## Endpoint catalog
+
+### metrics
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/metrics/average-speed` | Get Average Speed |
+| `GET` | `/metrics/flowrate` | Get Flowrate |
+| `GET` | `/metrics/average-speed-with-flowrate` | Get Average Speed and Flowrate |
+| `GET` | `/metrics/average-speed-with-travel-time` | Get Average Speed and Travel Time |
+| `GET` | `/metrics/tripwire/counts` | Get effective and actual tripwire counts for a sensor. |
+| `GET` | `/metrics/occupancy/tripwire` | It is used to calculate occupancy based on IN/OUT tripwire events and the value of reset occupancy. It is advised to reset a place's occupancy by using '/occupancy/reset' endpoint. This helps in keeping the occupancy calculated to be accurate. |
+| `POST` | `/metrics/occupancy/reset` | Reset the occupancy of a place |
+| `GET` | `/metrics/tripwire/histogram` | Get a histogram of tripwire counts. Please check the input descriptions to check its dependencies. |
+| `GET` | `/metrics/occupancy/fov` | Get Fov Occupancy of a sensor. |
+| `GET` | `/metrics/occupancy/fov/histogram` | Get Fov Histogram of a sensor. Please check the input descriptions to check its dependencies. |
+| `GET` | `/metrics/occupancy/roi` | Get Roi Occupancy of a sensor. |
+| `GET` | `/metrics/occupancy/roi/histogram` | Get Roi Histogram of a sensor. Please check the input descriptions to check its dependencies. |
+| `GET` | `/metrics/occupancy/roi/mutually-exclusive` | Get occupancy of a place based on mutually exclusive rois |
+| `GET` | `/metrics/occupancy/tracker` | Get the count of different object types at a given place and timestamp |
+| `GET` | `/metrics/occupancy/tracker/histogram` | Calculates the histogram of average occupancy of each object type at a given place within a time range |
+| `GET` | `/metrics/space-utilization/histogram` | Get Space Utilization Histogram of roi(s). Please check the input descriptions to check its dependencies. |
+| `GET` | `/metrics/last-processed-timestamp` | Get Last Processed Timestamp |
+| `GET` | `/metrics/road-network/segment-speed` | Calculate segment speed data |
+
+### tracker
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/tracker/unique-object-count` | Unique Object Count for a given Place. The data from multiple sensors are processed to estimate an approximate number of Objects / Persons in a given place |
+| `GET` | `/tracker/unique-object-count-with-locations` | Unique Object Count with locations for a given Place. The data from multiple sensors are processed to estimate an approximate number of Objects / Persons and their locations in a given place |
+| `GET` | `/tracker/unique-objects` | Unique Objects, represents an Object tracked across multiple sensors, Each object comprise of list of Behavior or Tracklets. The Behavior represents an object traversal/appearance etc in a given sensor with respect to time and space. Please check the input descriptions to check its dependencies. |
+| `GET` | `/tracker/behavior-locations` | List of behaviors and their corresponding locations. Please check the input descriptions to check its dependencies. |
+| `GET` | `/tracker/last-record` | Get the last record either from RTLS or AMR(mission control) source. The record can be further filtered based on objectType that can be obtained from a particular source. Example: 'Person' objectType can be used in case of RTLS source, 'AMR' objectType can be used in case of AMR source |
+
+### frames
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/frames` | Get raw frame metadata |
+| `GET` | `/frames/enhanced` | Get enhanced frame metadata |
+| `GET` | `/frames/bev` | Get bev frame metadata |
+| `GET` | `/frames/alerts` | Get frame based alerts |
+| `GET` | `/frames/high-confidence-objects` | Get frame based objects with high confidence. These object detections can be used for reference embedding, based on which object search can be done. Please check the input descriptions to check its dependencies. |
+| `GET` | `/frames/proximity-detection` | Get the latest proximity clusters for a given sensorId and time range. |
+| `GET` | `/frames/pts` | It is used to calculate pts in milliseconds for a given frameId. It can also be used to calculate estimated pts for a given timestamp. This endpoint is used for video files (sensors) that are streamed using nvstreamer. |
+
+### behavior
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/behavior` | Retrieves behavior(s) from database. |
+| `GET` | `/behavior/pts` | It is used to get the start and end pts of a behavior in milliseconds. This endpoint is used for video files (sensors) that are streamed using nvstreamer. |
+
+### alerts
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/alerts` | Get Alerts |
+| `GET` | `/alerts/severe` | Get Places or sensor with severe Alerts |
+
+### incidents
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/incidents` | Get Incidents |
+| `GET` | `/incidents/severe` | Get Places or sensor with severe Incidents |
+
+### clustering
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/clustering/behavior` | Get Clustering Results of behaviors belonging to a sensor. |
+| `POST` | `/clustering/add-label` | Adds label to a behavior cluster. |
+
+### events
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/events/tripwire` | Get Tripwire Events. Please check the input descriptions to check its dependencies. |
+| `GET` | `/events/amr` | Provides the list of events sent by mission control (AMR) which have occurred within a given timerange at a particular place |
+| `GET` | `/events/roi` | Get Roi Events. Please check the input descriptions to check its dependencies. |
+
+### config
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/config/upload-file/{docType}` | Upload config file. |
+| `POST` | `/config/update/{docType}` | Update configs of microservices. |
+| `GET` | `/config/update/status/{docType}/{referenceId}` | Get status of a behavior analytics config update request. |
+| `POST` | `/config/calibration/upsert` | Insert/Update calibration of sensor(s). If calibration attributes like: 'version', 'calibrationType' or 'osmURL' needs to be changed, then use '/config/upload-file/{docType}' to upload the calibration file. |
+| `POST` | `/config/calibration/delete-sensor` | Delete calibration of sensor(s). |
+| `GET` | `/config/calibration` | Gets calibration config from database |
+| `GET` | `/config/calibration/last-modified-timestamp` | Gets the last modification timestamp of calibration data |
+| `GET` | `/config/road-network` | Gets road network config from database |
+| `GET` | `/config/usd-assets` | Gets usd assets config from database |
+| `POST` | `/config/calibration/images` | Upload calibration images. |
+| `GET` | `/config/calibration/image` | Retrieves calibration image. |
+| `GET` | `/config/calibration/image-metadata` | Retrieves metadata of calibration images. |
+| `POST` | `/config/calibration/delete-images` | Delete calibration images. |
+
+### sensor
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/sensor/lookup` | Provides the list of sensors that overlooks a co-ordinate in the floorplan of a given place |
+
+### livez
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/livez` | Responds if api server is alive. |

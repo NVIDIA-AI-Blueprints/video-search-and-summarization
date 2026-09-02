@@ -14,7 +14,7 @@ Afterwards, you can explore adding agent workflows such as video summarization, 
 <Note>
 **Before you start:** Use `28.3.3 <= Docker Engine < 29.5.0`.
 Unsupported Docker Engine versions can fail when pulling some NGC-hosted image tags.
-See [prerequisites](/vss/getting-started/prerequisites) for Docker setup and the supported version band.
+See [Prerequisites](/vss/getting-started/prerequisites) for Docker setup and the supported version band.
 </Note>
 
 The following diagram illustrates a conceptual architecture of the base vision agent that you'll deploy:
@@ -45,7 +45,7 @@ The default VSS Agent is built on the **NVIDIA NeMo Agent Toolkit (NAT)** and is
 | **NeMo Agent Toolkit (NAT)** — VSS Agent (default) | The shipped reference agent (`services/agent`). YAML-driven workflow with built-in MCP client, function groups, FastAPI front-end, and Phoenix telemetry. Powers the Reference Agentic UI via `/chat/stream` and `/generate/stream` endpoints. See [VSS Agents](/vss/vision-agent/vss-agents). | Native NIM and MCP integration out of the box; declarative `config.yml` for tools, sub-agents, and prompts; first-class sub-agent hierarchy (`report_agent`, `multi_report_agent`); built-in Phoenix tracing; UI compatibility guaranteed. | YAML can become verbose for highly custom flows; tied to NAT's runtime model. |
 | **NemoClaw (OpenClaw sandbox)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
-| **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
+| **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
 <Note>
 These harnesses are **not mutually exclusive**. A common pattern is to run the default NAT-based VSS Agent for end-user chat, while a separate service (NemoClaw, a custom MCP client, or a REST integration) handles deployment automation or back-office workflows against the same VSS microservices.
@@ -53,7 +53,7 @@ These harnesses are **not mutually exclusive**. A common pattern is to run the d
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [prerequisites](/vss/getting-started/prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/getting-started/prerequisites) for more details.
 
 ## Download Sample Data and Deployment Package
 
@@ -112,8 +112,8 @@ the per-profile `overrides.env` templates used by these commands.
 
 <Note>
 - Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
-- Refer to [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [VSS-Agent-Customization-configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
-- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [configure-vlm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
+- Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
@@ -456,8 +456,8 @@ RTVI_VLM_MODEL_PATH=none
 <Tab title="DGX-SPARK">
 <Tabs>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
-and [edge-deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
 ```ini
 HARDWARE_PROFILE=DGX-SPARK
@@ -477,8 +477,8 @@ LLM_MODEL_TYPE=<nim-or-openai>
 <Tab title="IGX-THOR">
 <Tabs>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
-and [edge-deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
 ```ini
 HARDWARE_PROFILE=IGX-THOR
@@ -497,8 +497,8 @@ LLM_MODEL_TYPE=<nim-or-openai>
 <Tab title="AGX-THOR">
 <Tabs>
 <Tab title="Remote LLM">
-See [VSS-Agent-Customization-configure-llm](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
-and [edge-deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
 ```ini
 HARDWARE_PROFILE=AGX-THOR

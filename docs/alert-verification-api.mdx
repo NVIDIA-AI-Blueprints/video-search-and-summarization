@@ -23,7 +23,57 @@ The Alert Verification API does not currently require authentication. Requests a
 When deployed behind an API Gateway, authentication may be enforced at the gateway level. Consult your deployment configuration for details.
 </Note>
 
-## Reference
+## Endpoint catalog
+
+### realtime
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/api/v1/realtime` | Create a real-time VLM alert rule |
+| `GET` | `/api/v1/realtime` | List active alert rules |
+| `DELETE` | `/api/v1/realtime/{alert_rule_id}` | Delete an alert rule |
+| `GET` | `/api/v1/realtime/{alert_rule_id}` | Get a single alert rule |
+| `GET` | `/api/v1/realtime/incidents` | List incidents from Elasticsearch |
+| `POST` | `/api/v1/realtime/replay` | Replay all persisted active or failed rules onto RTVI VLM |
+| `POST` | `/api/v1/realtime/always-on` | Start/stop always-on alert rules for an incoming camera event |
+
+### verification
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/api/v1/verification/ondemand` | Verify alert on demand |
+
+### alert-verification-config
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/api/v1/verification/config` | List All Configs |
+| `POST` | `/api/v1/verification/config` | Create Alert Type Config |
+| `GET` | `/api/v1/verification/config/{alert_type}` | Get Config |
+| `PUT` | `/api/v1/verification/config/{alert_type}` | Update Config |
+| `DELETE` | `/api/v1/verification/config/{alert_type}` | Delete Config |
+
+### alert-submission
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/api/v1/alerts` | Submit Alert for Processing |
+| `GET` | `/api/v1/alerts/health` | Alert Submission Health Check |
+
+### incident-submission
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/api/v1/incidents` | Submit Incident for Processing |
+
+### General
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/health` | Health Check |
+| `GET` | `/metrics` | Metrics |
+
+The machine-readable OpenAPI specification is `services/alert/openapi.json` in this repository.
 
 ## Schema References
 

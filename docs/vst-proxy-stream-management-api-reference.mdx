@@ -1,5 +1,23 @@
 ---
 title: "VST Proxy Stream Management API Reference"
-description: ""
-position: 1
+description: "VST Replay Stream MS is used to manage proxy RTSP URLs sensors NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself i"
 ---
+REST endpoints for the VST Proxy Stream Management service.
+
+The machine-readable OpenAPI specification is `services/vios/doc/api/vst_rtsp_proxy_stream_ms/swagger.yaml` in this repository.
+
+**Servers:** `https://localhost/api`
+
+## Endpoint catalog
+
+### v1
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/proxy/streams` | Get list of available replay streams |
+| `POST` | `/v1/proxy/stream/add` | Add RTSP streams |
+| `DELETE` | `/v1/proxy/stream/{streamId}` | Remove RTSP URL (full unregister — terminates client sessions, frees LB slot) |
+| `DELETE` | `/v1/proxy/session/{streamId}` | Alias of DELETE /v1/proxy/stream/{streamId} |
+| `GET` | `/v1/proxy/info` | Get RTSP proxy info |
+| `GET` | `/v1/proxy/debug/qos` | Get QoS stats for all streams |
+| `GET` | `/v1/proxy/configuration` | Get RTSP Proxy service configuration |

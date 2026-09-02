@@ -1,26 +1,23 @@
 ---
 title: "API Reference"
-description: ""
-position: 1
+description: "REST endpoints for the Real Time Video Intelligence CV (RTVI-CV) microservice."
 ---
 This page provides API reference for the **Real Time Video Intelligence CV (RTVI-CV) Microservice**.
 
 ## Base URL
 
-The API is available at:
+The API is available at `http://<host>:9000`. All API endpoints are prefixed with `/api/v1`.
 
-* **REST API**: `http://<host>:9000`
+## Endpoint catalog
 
-All API endpoints are prefixed with `/api/v1`.
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/live` | Liveness probe |
+| `GET` | `/api/v1/ready` | Readiness probe |
+| `GET` | `/api/v1/startup` | Startup probe |
+| `GET` | `/api/v1/metrics` | Prometheus metrics. Optional headers: `X-REFRESH-PERIOD`, `X-OTLP-URL` |
+| `GET` | `/api/v1/stream/get-stream-info` | List configured streams |
+| `POST` | `/api/v1/stream/add` | Add a stream |
+| `POST` | `/api/v1/generate_text_embeddings` | Generate vector embeddings from text |
 
-## API Categories
-
-The RTVI-CV API is organized into the following categories:
-
-* **Health Check**: Liveness, readiness, and startup probes (Kubernetes-compatible)
-* **Stream Management**: Add, remove, and query video streams dynamically
-* **Monitoring**: Metrics and telemetry with Prometheus and OpenTelemetry support
-* **Metadata**: Service version and license information
-* **AI/ML Operations**: Text embedding generation and other ML capabilities
-
-## Reference
+Request and response examples for stream management and embeddings are on [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).

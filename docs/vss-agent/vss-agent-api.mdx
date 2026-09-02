@@ -1,5 +1,16 @@
 ---
 title: "API Reference"
-description: ""
-position: 1
+description: "REST endpoints for the VSS Agent FastAPI front end."
 ---
+The VSS Agent exposes HTTP endpoints for chat, workflow execution, and video management. The default listen port is `8000`.
+
+## Endpoint catalog
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/generate` | Execute workflow (non-streaming) |
+| `POST` | `/generate/stream` | Execute workflow (streaming) |
+| `POST` | `/chat` | OpenAI-compatible chat (non-streaming) |
+| `POST` | `/chat/stream` | OpenAI-compatible chat (streaming) |
+
+Additional video-management routes (`/api/v1/videos` and related) are served by the same process when the agent UI is enabled. Refer to the running service OpenAPI document at `http://<host>:8000/openapi.json` for the complete live surface.

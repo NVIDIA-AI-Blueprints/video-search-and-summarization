@@ -22,4 +22,48 @@ The API supports Bearer token authentication. Include your token in the `Authori
 Authorization: Bearer <your-token>
 ```
 
-## Reference
+## Endpoint catalog
+
+### Metrics
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/metrics` | Get LVS metrics |
+
+### Health Check
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/live` | Get LVS liveness status |
+| `GET` | `/v1/ready` | Get LVS readiness status |
+| `GET` | `/v1/startup` | Get LVS startup status |
+| `GET` | `/v1/healthz` | Get VIA service health status |
+| `GET` | `/v1/metadata` | Get LVS service metadata |
+
+### Models
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/models` | Lists the currently available models, and provides basic information about each one such as the owner and availability |
+
+### Summarization
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/summarize` | Summarize a video file |
+| `POST` | `/summarize` | Summarize a video file |
+
+### Stream
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/generate_captions` | Start stream captioning |
+| `POST` | `/v1/stream_summarize` | Summarize a stream |
+
+### Recommended Config
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/recommended_config` | Recommend config for a video |
+
+The machine-readable OpenAPI specification is `services/video-summarization/api_spec/openapi.json` in this repository.

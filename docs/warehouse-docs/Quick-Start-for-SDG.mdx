@@ -35,16 +35,17 @@ The configuration file format differs between Isaac Sim 5.1 and 6.0. Please refe
 - Set scene asset path to the warehouse_20x20 USD file.
 - Enable the following necessary fields under IRABasicWriter.
 
-``yaml
+```yaml
 IRABasicWriter:
-output_dir: [Path to the output directory]
-object_info_bounding_box_3d: true
-object_info_bounding_box_2d_tight: true
-object_info_bounding_box_2d_loose: true
-semantic_filter_predicate: class:character|flatbox|multidepthbox|whitecorrugatedbox|printersbox|basket|woodencrate|cardbox|officepaperbox|cubebox|longbox|blockpallet|wooddrumpallet|rackablepallet|exportpallet|pallet|rack|barel|bottle|nova_carter|iw_hub|forklift|GR1_T2|Agility_Digit|crate|cart;id:*
-image_output_format: jpg
-rgb: true
-camera_params: true
+  output_dir: [Path to the output directory]
+  object_info_bounding_box_3d: true
+  object_info_bounding_box_2d_tight: true
+  object_info_bounding_box_2d_loose: true
+  semantic_filter_predicate: class:character|flatbox|multidepthbox|whitecorrugatedbox|printersbox|basket|woodencrate|cardbox|officepaperbox|cubebox|longbox|blockpallet|wooddrumpallet|rackablepallet|exportpallet|pallet|rack|barel|bottle|nova_carter|iw_hub|forklift|GR1_T2|Agility_Digit|crate|cart;id:*
+  image_output_format: jpg
+  rgb: true
+  camera_params: true
+```
 
 </Note>
 
