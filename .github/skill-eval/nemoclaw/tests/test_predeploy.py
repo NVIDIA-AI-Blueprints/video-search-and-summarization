@@ -430,7 +430,16 @@ class BindSourcePrecreateTests(unittest.TestCase):
             DOCKER_READ = "docker_read"
 
         made = pd._precreate_bind_sources(lambda tool, **kw: payload, T, "cid")
-        self.assertEqual(made, 1)
+        # log/ and .wdm-env are DIRECTORIES (sdrc-init-dirs populates both);
+        # render-config.sh is a script and must not be mkdir'd over.
+        self.assertEqual(made, 2)
         self.assertTrue(P(root, "svc/log").is_dir())
+        self.assertTrue(P(root, "svc/.wdm-env").is_dir())
         self.assertFalse(P(root, "svc/render-config.sh").exists())
-        self.assertFalse(P(root, "svc/.wdm-env").exists())
+
+    def test_dotfile_directory_is_created(self) -> None:
+        """`.wdm-env` has no Path.suffix and IS a directory. A cruder
+        `"." in name` test skipped it and run 33615692498 failed on it."""
+        from pathlib import Path as P
+        self.assertEqual(P("/a/.wdm-env").suffix, "")
+        self.assertEqual(P("/a/render-config.sh").suffix, ".sh")

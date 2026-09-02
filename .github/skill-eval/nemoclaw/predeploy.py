@@ -204,12 +204,14 @@ def _precreate_bind_sources(call, tools, compose_id: str) -> int:
     sources = _bind_sources(resolved)
     made = 0
     for src in sources:
-        # Only create DIRECTORY bind sources. A dot in the basename means a file
-        # (`render-config.sh`, `.wdm-env`), and mkdir there would mount an empty
-        # directory over a script the container needs -- quieter and worse than
-        # the missing-path error. Erring toward not-creating keeps the status quo
-        # for those rather than regressing them.
-        if "." in Path(src).name:
+        # Skip paths with a real file EXTENSION (`render-config.sh`): mkdir there
+        # would mount an empty directory over a script the container needs.
+        # Path.suffix, not "." in name -- a dotfile like `.wdm-env` has no
+        # suffix and IS a directory here (sdrc-init-dirs populates it), so the
+        # cruder test wrongly skipped it and run 33615692498 failed on it.
+        # Files that are tracked in git already exist, so exists() covers them
+        # anyway; this only guards untracked ones.
+        if Path(src).suffix:
             continue
         try:
             path = Path(src)
