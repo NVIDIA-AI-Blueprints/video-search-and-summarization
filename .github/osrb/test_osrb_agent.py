@@ -492,19 +492,26 @@ class CommentTests(unittest.TestCase):
         self.assertIn("switcher", osrb)           # risk-band licence change
         self.assertIn("drifting", osrb)           # usage drift with source
         self.assertIn("services/agent/Dockerfile", osrb)
-        # Section 2 verdicts.
+        # Section 2 lists only what OSRB must review. mit-dep is permissive
+        # and mystery is agent-cleared permissive, so both are counted, not
+        # listed; ffmpeg carries a condition and is listed despite LGPL-2.1
+        # being on the allowlist.
         deps = comment[comment.index("## New dependencies")
                        :comment.index("## Licence changes")]
-        self.assertIn("auto-cleared (permissive)", deps)
-        self.assertIn("auto-cleared (agent-verified permissive)", deps)
         self.assertIn("needs review (licence not permissive)", deps)
         self.assertIn("OSRB review required (condition on file)", deps)
-        # Section 3: risky change listed, same-risk change listed too,
-        # relabels normalised away upstream.
+        self.assertIn("ffmpeg", deps)
+        self.assertNotIn("mit-dep", deps)
+        self.assertNotIn("mystery", deps)
+        self.assertIn("2 new dependencies are permissively licensed", deps)
+        # Section 3: a bump landing on GPL-2.0 is listed; one landing on
+        # BSD-2-Clause is not, however it got there.
         changes = comment[comment.index("## Licence changes")
                           :comment.index("## Usage drift")]
         self.assertIn("switcher", changes)
-        self.assertIn("relabel", changes)
+        self.assertNotIn("relabel", changes)
+        self.assertIn("1 licence change landed on a permissive licence",
+                      changes)
         # Section 5 collapsed with evidence.
         self.assertIn("<details>", comment)
         self.assertIn("https://pypi.org/pypi/mystery/1.0.0/json", comment)

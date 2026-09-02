@@ -1190,38 +1190,59 @@ def build_comment(
     # -- 2. New dependencies --------------------------------------------------
     lines.append("## New dependencies")
     lines.append("")
-    if triage["new_deps"]:
-        rows = []
-        for row in triage["new_deps"]:
-            licence = row.get("new_license", "")
-            pkg = row.get("package", "")
-            if canonical_package(pkg) in conditioned:
-                verdict = "OSRB review required (condition on file)"
-            elif is_permissive(licence, pkg):
-                verdict = "auto-cleared (permissive)"
-            elif dep_key(row) in cleared_keys:
-                cleared = next(
-                    v for v in validated
-                    if (canonical_package(v["package"]), v["version"]) == dep_key(row)
-                )
-                licence = cleared["license"]
-                verdict = "auto-cleared (agent-verified permissive)"
-            elif license_is_unknown(licence):
-                verdict = "needs review (licence unknown)"
-            else:
-                verdict = "needs review (licence not permissive)"
-            rows.append([pkg, row.get("new_version", ""), licence,
-                         row.get("module", ""), verdict])
+    # A permissively licensed new dependency is allowed, so it is not
+    # something OSRB is being asked to review: it is counted here and carried
+    # in the inventory the run commits. A condition on file always outranks
+    # the licence -- ffmpeg and mkl look permissive and are still not cleared.
+    new_dep_rows = []
+    permissive_new = 0
+    for row in triage["new_deps"]:
+        licence = row.get("new_license", "")
+        pkg = row.get("package", "")
+        if canonical_package(pkg) in conditioned:
+            verdict = "OSRB review required (condition on file)"
+        elif is_permissive(licence, pkg):
+            permissive_new += 1
+            continue
+        elif dep_key(row) in cleared_keys:
+            permissive_new += 1
+            continue
+        elif license_is_unknown(licence):
+            verdict = "needs review (licence unknown)"
+        else:
+            verdict = "needs review (licence not permissive)"
+        new_dep_rows.append([pkg, row.get("new_version", ""), licence,
+                             row.get("module", ""), verdict])
+    if new_dep_rows:
         lines += _table(["Package", "Version", "Licence", "Module", "Verdict"],
-                        rows)
+                        new_dep_rows)
     else:
-        lines.append("None.")
+        lines.append("None that need OSRB review."
+                     if permissive_new else "None.")
+    if permissive_new:
+        lines.append("")
+        lines.append(
+            f"{permissive_new} new dependenc"
+            f"{'y is' if permissive_new == 1 else 'ies are'} permissively "
+            "licensed and not listed; "
+            f"{'it is' if permissive_new == 1 else 'they are'} recorded in "
+            "`inventory.csv` and the `osrb-compliance` artifact."
+        )
     lines.append("")
 
     # -- 3. Licence changes on version updates -------------------------------
     lines.append("## Licence changes on version updates")
     lines.append("")
-    if triage["license_changes"]:
+    # Judged on the licence the update lands on, not on the fact that it
+    # moved: a version bump that ends permissive needs no OSRB review, however
+    # it got there. A condition on file still outranks the licence.
+    changed = [
+        row for row in triage["license_changes"]
+        if canonical_package(row.get("package", "")) in conditioned
+        or not is_permissive(row.get("new_license", ""), row.get("package", ""))
+    ]
+    permissive_changes = len(triage["license_changes"]) - len(changed)
+    if changed:
         rows = [
             [
                 row.get("package", ""),
@@ -1231,12 +1252,23 @@ def build_comment(
                 f"{license_risk(row.get('new_license', ''))}",
                 row.get("module", ""),
             ]
-            for row in triage["license_changes"]
+            for row in changed
         ]
         lines += _table(["Package", "Version", "Licence", "Risk", "Module"], rows)
     else:
-        lines.append("None. (Normalised comparison: a relabel like "
-                     "\"MIT License\" → \"MIT\" is not a change.)")
+        lines.append("None that need OSRB review."
+                     if permissive_changes
+                     else "None. (Normalised comparison: a relabel like "
+                          "\"MIT License\" → \"MIT\" is not a change.)")
+    if permissive_changes:
+        lines.append("")
+        lines.append(
+            f"{permissive_changes} licence change"
+            f"{'' if permissive_changes == 1 else 's'} landed on a permissive "
+            "licence and "
+            f"{'is' if permissive_changes == 1 else 'are'} not listed; see the "
+            "`osrb-compliance` artifact."
+        )
     lines.append("")
 
     # -- 4. Usage drift --------------------------------------------------------
