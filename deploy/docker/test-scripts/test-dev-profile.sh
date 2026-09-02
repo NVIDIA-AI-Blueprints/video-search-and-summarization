@@ -1421,32 +1421,36 @@ if grep -Eq '(developer-profiles|industry-profiles)/' "${_nvstreamer_shared_comp
   echo "FAIL: shared NVStreamer Compose should not reference blueprint directories"
   ((_split_failed++)) || true
 fi
-_nvstreamer_service_definition_specs=(
-  "nvstreamer-alerts:deploy/docker/developer-profiles/dev-profile-alerts/compose.yml deploy/docker/industry-profiles/smartcities/compose.yml"
-  "nvstreamer-lvs:deploy/docker/developer-profiles/dev-profile-lvs/compose.yml"
-  "nvstreamer-2d-fusion:deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml"
-  "nvstreamer-2d:deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml"
-  "nvstreamer-3d:deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml"
-  "nvstreamer-mv3dt:deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"
+_nvstreamer_shared_services=(
+  nvstreamer-alerts
+  nvstreamer-lvs
+  nvstreamer-2d-fusion
+  nvstreamer-2d
+  nvstreamer-3d
+  nvstreamer-mv3dt
 )
-for _spec in "${_nvstreamer_service_definition_specs[@]}"; do
-  _service="${_spec%%:*}"
-  _expected_definition_paths="${_spec#*:}"
-  _expected_definition_count="$(wc -w <<< "${_expected_definition_paths}")"
-  _definition_count="$(grep -R -E --include='*.yml' --include='*.yaml' "^  ${_service}:" \
-    "${REPO_ROOT}/deploy/docker/developer-profiles" \
-    "${REPO_ROOT}/deploy/docker/industry-profiles" | wc -l)"
-  if [[ "${_definition_count}" -ne "${_expected_definition_count}" ]]; then
-    echo "FAIL: ${_service} should have ${_expected_definition_count} blueprint-owned Compose definition(s) (found ${_definition_count})"
+for _service in "${_nvstreamer_shared_services[@]}"; do
+  if ! grep -Eq "^  ${_service}:" "${_nvstreamer_shared_compose}"; then
+    echo "FAIL: shared NVStreamer Compose should define ${_service}"
     ((_split_failed++)) || true
   fi
-  for _definition_path in ${_expected_definition_paths}; do
-    if ! grep -Eq "^  ${_service}:" "${REPO_ROOT}/${_definition_path}"; then
-      echo "FAIL: ${_service} definition missing from ${_definition_path}"
-      ((_split_failed++)) || true
-    fi
-  done
 done
+if grep -R -E --include='*.yml' --include='*.yaml' \
+  '^  (nvstreamer-alerts|nvstreamer-lvs|nvstreamer-2d-fusion|nvstreamer-2d|nvstreamer-3d|nvstreamer-mv3dt):' \
+  "${REPO_ROOT}/deploy/docker/developer-profiles" \
+  "${REPO_ROOT}/deploy/docker/industry-profiles" >/dev/null; then
+  echo "FAIL: blueprint Compose files should not redefine shared NVStreamer services"
+  ((_split_failed++)) || true
+fi
+_nvstreamer_skill_reference="${REPO_ROOT}/skills/operations/vss-manage-video-io-storage/references/integrate-vios-service.md"
+if ! grep -Fq 'deploy/docker/services/nvstreamer/configs/vst-config.json' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should reference the shared NVStreamer config"
+  ((_split_failed++)) || true
+fi
+if grep -Fq 'deploy/docker/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should not reference the retired profile-specific NVStreamer config"
+  ((_split_failed++)) || true
+fi
 if [[ ${_split_failed} -eq 0 ]]; then
   echo "PASS: developer profile env split keeps profile-specific override-layer values isolated"
   ((TESTS_PASSED++)) || true
