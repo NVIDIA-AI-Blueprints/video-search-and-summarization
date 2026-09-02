@@ -67,6 +67,7 @@ services:
       CALL_SENSOR_ADD_API: true
       SEND_CONFIG_TO_SDR: true
       ENABLE_CALIBRATION_PROCESS: true
+      PORT: 5001
     env_file:
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
@@ -76,6 +77,16 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection((\"127.0.0.1\", 5001), 3); s.close()"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
   ds-configurator-3d:
     image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
@@ -124,7 +135,8 @@ services:
      - $VSS_DATA_DIR/models/:/opt/storage/
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json:/opt/config/models-download.json:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
-     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt:ro
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels-real.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels_real.txt:ro
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels-synthetic.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels_synthetic.txt:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
 
@@ -156,8 +168,8 @@ services:
         condition: service_started
       broker-health-check:
         condition: service_completed_successfully
-      # bp-configurator:
-      #   condition: service_started
+      bp-configurator-3d:
+        condition: service_healthy
 
   kibana-init-container-3d:
     build:
