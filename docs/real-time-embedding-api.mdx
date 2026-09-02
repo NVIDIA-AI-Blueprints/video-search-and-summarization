@@ -1,7 +1,6 @@
 ---
 title: "API Reference"
-description: ""
-position: 1
+description: "REST endpoints for the Real-Time Embedding microservice."
 ---
 This page provides the complete API reference for the Real-Time Embedding Microservice.
 
@@ -12,4 +11,31 @@ The microservice provides the following API endpoints:
 * **Swagger UI**: `http://<host>:<port>/docs`
 * **OpenAPI JSON**: `http://<host>:<port>/openapi.json`
 
-## Reference
+## Endpoint catalog
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/v1/metrics` | `GET` | Get Prometheus-format RTVI metrics |
+| `/v1/ready` | `GET` | Get RTVI Embed Microservice readiness status |
+| `/v1/live` | `GET` | Get RTVI Embed Microservice liveness status |
+| `/v1/startup` | `GET` | Get RTVI Embed Microservice startup status |
+| `/v1/assets/stats` | `GET` | Get asset storage statistics |
+| `/v1/metadata` | `GET` | Get RTVI Embed Microservice metadata |
+| `/v1/files` | `POST` | Upload a media file or register media by path |
+| `/v1/files` | `GET` | List uploaded files |
+| `/v1/files/{file_id}` | `DELETE` | Delete a file |
+| `/v1/files/{file_id}` | `GET` | Get file information |
+| `/v1/files/{file_id}/content` | `GET` | Get file content |
+| `/v1/streams/add` | `POST` | Add one or more live streams |
+| `/v1/streams/get-stream-info` | `GET` | List live streams |
+| `/v1/streams/delete/{stream_id}` | `DELETE` | Remove a live stream |
+| `/v1/streams/delete-batch` | `DELETE` | Remove multiple live streams |
+| `/v1/stream/add` | `POST` | Add a stream using the RTVI-CV compatible format |
+| `/v1/stream/remove` | `POST` | Remove a stream using the RTVI-CV compatible format |
+| `/v1/stream/get-stream-info` | `GET` | List streams using the RTVI-CV compatible format |
+| `/v1/models` | `GET` | List available models |
+| `/v1/generate_video_embeddings` | `POST` | Generate embeddings for a video, image, or live stream |
+| `/v1/generate_video_embeddings/{stream_id}` | `DELETE` | Stop live stream embedding generation |
+| `/v1/generate_text_embeddings` | `POST` | Generate embeddings for text input |
+| `/v1/version` | `GET` | Get release and API versions |
+| `/v1/manifest` | `GET` | Get service manifest information |

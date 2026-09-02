@@ -150,7 +150,7 @@ The Real Time Video Intelligence CV Microservice supports both 2D single-camera 
 
 The **Real Time Video Intelligence CV (RTVI-CV) Microservice** exposes a REST API for stream management, health checks, metrics, and AI/ML operations.
 
-For complete API documentation, including all endpoints, request/response schemas, and interactive examples, see the [Object Detection and Tracking API Reference](/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference/api-reference).
+For complete API documentation, including all endpoints, request/response schemas, and interactive examples, see the [Object Detection and Tracking API Reference](/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference).
 
 **API categories:**
 
@@ -1350,7 +1350,7 @@ The `camera_url` can be a local file path (`file:///opt/storage/videos/sample.mp
 **MV3DT only:** all input streams must be time-synchronized across cameras. MV3DT fuses per-sensor measurements by timestamp, so unsynchronized streams (drifting timestamps, or different frame rates) will cause cross-camera tracklet matching, ID adoption and BEV fusion to break down. For this reason, local file paths (`file:///...`) are **not** supported as `camera_url` for MV3DT — use synchronized RTSP sources instead.
 </Info>
 
-For the complete stream management API, see the [API Reference](/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference/api-reference).
+For the complete stream management API, see the [API Reference](/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference).
 
 **Use static sources instead:**
 

@@ -55,7 +55,7 @@ The alert verification workflow uses a 6-step process:
 
 5. **Result Publishing**: Verified alerts are persisted to Elasticsearch and optionally published to Kafka (enabled via configuration). Results include the original alert fields plus verification metadata.
 
-6. **Alert Retrieval**: Verified alerts are retrieved using the [video analytics microservice API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference/video-analytics-api-reference) call to `GET /alerts/`.
+6. **Alert Retrieval**: Verified alerts are retrieved using the [video analytics microservice API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) call to `GET /alerts/`.
 
 For a complete description of APIs, see the [API Reference](/vss/appendix/api-reference).
 
@@ -126,7 +126,7 @@ Each alert type requires a configuration with the following components:
 
 Prompts are stored in RedisJSON at startup and selected based on the alert type during processing.
 
-`vlm_params` may also be updated at runtime via `PUT /api/v1/verification/config/{alert_type}` (see the [Alert Verification API](/vss/system-components/analytics-microservices/alerts-microservice/api-reference/alert-verification-api)) without restarting the container. At request time the service merges all sources with the following precedence:
+`vlm_params` may also be updated at runtime via `PUT /api/v1/verification/config/{alert_type}` (see the [Alert Verification API](/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api)) without restarting the container. At request time the service merges all sources with the following precedence:
 
 1. Runtime overrides set via the API and persisted in Redis under `alert_config:{alert_type}` — applied without restart.
 2. Static `vlm_params` from `alert_type_config.json` — requires container restart to take effect.
@@ -874,7 +874,7 @@ The Alerts Microservice is configured via a YAML-based configuration file. The f
 ### VLM Configuration
 
 <Note>
-For detailed VLM API documentation, refer to the [Cosmos3 Nano Reasoner NIM](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner).
+For detailed VLM API documentation, refer to the [Cosmos3 Nano Reasoner NIM](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner).
 </Note>
 
 | Parameter | Default | Description |

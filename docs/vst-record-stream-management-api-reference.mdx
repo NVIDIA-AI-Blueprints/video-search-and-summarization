@@ -1,5 +1,32 @@
 ---
 title: "VST Record Stream Management API Reference"
-description: ""
-position: 1
+description: "VST Stream Recorder MS is used to manage recording of sensors NOTE: All JSON responses from this service are emitted with HTTP header `Content-Type: text/plain`. The body itself is"
 ---
+REST endpoints for the VST Record Stream Management service.
+
+The machine-readable OpenAPI specification is `services/vios/doc/api/vst_stream_recorder_ms/swagger.yaml` in this repository.
+
+**Servers:** `https://localhost/api`
+
+## Endpoint catalog
+
+### v1
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `GET` | `/v1/record/streams` | Get list of available record streams |
+| `POST` | `/v1/record/stream/add` | Add stream to VST recorder MS |
+| `DELETE` | `/v1/record/{streamId}` | Remove stream from VST recorder MS |
+| `POST` | `/v1/record/{streamId}/start` | Start recording |
+| `POST` | `/v1/record/{streamId}/stop` | Stop recording |
+| `POST` | `/v1/record/{streamId}/event` | Trigger event recording |
+| `GET` | `/v1/record/{streamId}/schedule` | Get device record schdule for particular device |
+| `POST` | `/v1/record/{streamId}/schedule` | Sets/Update device record schdule for particular sensor |
+| `DELETE` | `/v1/record/{streamId}/schedule` | Un-schedule device record schdule for particular device |
+| `GET` | `/v1/record/{streamId}/timelines` | Get timeline of recorded video between specified time |
+| `GET` | `/v1/record/{streamId}/status` | Get device record states |
+| `GET` | `/v1/record/configuration` | Get Stream Recorder service configuration |
+| `GET` | `/v1/record/version` | Get MS version |
+| `GET` | `/v1/record/help` | Get supported API list |
+| `GET` | `/v1/record/status` | Get recording status for all streams |
+| `GET` | `/v1/record/timelines` | Get recording timelines for all streams or given streams |
