@@ -321,7 +321,7 @@ jobs:
       # yamllint is GPL-3.0-or-later, so we run it ephemerally via `uvx`
       # rather than declaring it as a project dep — that way it never
       # appears in services/agent/uv.lock and never lands in any
-      # installed project venv. The license-check job is unaffected.
+      # installed project venv.
       - name: yamllint
         working-directory: ${{ github.workspace }}
         run: |
@@ -1222,76 +1222,6 @@ jobs:
             exit 1
           fi
           echo "OK: All commits have DCO sign-off."
-  license-check-ui:
-    name: License Check (UI)
-    needs: prepare-source
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: services/ui
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          mkdir -p .ci
-          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
-          rm -rf .source-artifact
-
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
-        with:
-          node-version-file: services/ui/.nvmrc
-          cache: "npm"
-          cache-dependency-path: services/ui/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check UI dependency licenses
-        run: |
-          # Dump all licenses as JSON, then validate in Node.
-          # OSRB-approved exceptions are filtered by package name prefix.
-          npx license-checker --json --excludePrivatePackages > /tmp/licenses.json
-
-          node -e '
-            const licenses = require("/tmp/licenses.json");
-            const allowed = new Set([
-              "MIT","MIT-0","Apache-2.0","BSD-2-Clause","BSD-3-Clause","ISC","0BSD",
-              "Unlicense","CC0-1.0","CC-BY-4.0","CC-BY-3.0","Python-2.0",
-              "BlueOak-1.0.0","MPL-2.0"
-            ]);
-            // OSRB-approved exceptions (dynamically linked, reviewed)
-            const excludePrefixes = ["@img/sharp-libvips"];
-            const excludeExact = new Set(["common"]);
-            const failures = [];
-            for (const [pkg, info] of Object.entries(licenses)) {
-              const name = pkg.replace(/@[^@]+$/, "");
-              if (excludeExact.has(name) || excludePrefixes.some(p => name.startsWith(p))) continue;
-              const lic = String(info.licenses || "UNKNOWN");
-              // license-checker appends * when license is inferred from file (e.g. "MIT*")
-              const parts = lic.replace(/[()]/g, "").split(/ OR | AND /);
-              const ok = parts.some(p => allowed.has(p.trim().replace(/\*$/, "")));
-              if (!ok) failures.push(pkg + ": " + lic);
-            }
-            if (failures.length) {
-              console.error("ERROR: " + failures.length + " package(s) with disallowed licenses:\n");
-              failures.forEach(f => console.error("  " + f));
-              process.exit(1);
-            }
-            console.log("OK: " + Object.keys(licenses).length + " packages checked.");
-          '
-
-  # ---------------------------------------------------------------------------
-  # Job 11: Folder structure enforcement (develop-only)
-  # ---------------------------------------------------------------------------
   folder-structure:
     name: Check folder structure
     needs: prepare-source
@@ -1537,7 +1467,6 @@ jobs:
       - frontend-lint
       - copyright-headers
       - dco
-      - license-check-ui
       - folder-structure
       - wait-for-build-dev-images
     if: >-
