@@ -74,6 +74,9 @@ spec:
             - index.js
             - --config
             - /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+          env:
+            - name: STREAM_TYPE
+              value: {{ .Values.streamType | quote }}
           volumeMounts:
             - name: config
               mountPath: /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
