@@ -97,6 +97,16 @@ class SandboxHostCidrsTests(unittest.TestCase):
         with mock.patch.object(helper.subprocess, "run", side_effect=run):
             self.assertEqual(helper.sandbox_host_cidrs("demo"), [])
 
+    def test_returns_empty_when_docker_stops_responding(self) -> None:
+        def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            self.assertEqual(kwargs.get("timeout"), helper.DOCKER_QUERY_TIMEOUT_S)
+            if cmd[1] == "ps":
+                return subprocess.CompletedProcess(cmd, 0, stdout="openshell-demo-abc\n")
+            raise subprocess.TimeoutExpired(cmd, helper.DOCKER_QUERY_TIMEOUT_S)
+
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), [])
+
     def test_returns_empty_when_the_container_has_no_networks(self) -> None:
         def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
             if cmd[1] == "ps":
