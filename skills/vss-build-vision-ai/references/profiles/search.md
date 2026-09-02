@@ -39,7 +39,8 @@ compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 
 | Knob | Purpose |
 |---|---|
-| `VST_USE_SDRC`, `VST_NGINX_MODE`, `STREAM_PROCESSOR_MODULE_ENDPOINT`, `VST_ENABLE_NOTIFICATION` | Pin VIOS to direct routing (`false` / `vst` / `http://vss-vios-streamprocessing:30001` / `false`). All four move together — see `services/vios.md`. A build that reintroduces SDRC must flip all four and re-add the SDRC compose tokens plus `SDR_CONTROLLER_CONFIG_PATH` / `SDRC_*_HOST_PORT`. |
+| `VST_USE_SDRC`, `VST_NGINX_MODE`, `STREAM_PROCESSOR_MODULE_ENDPOINT` | Pin VIOS to direct routing (`false` / `vst` / `http://vss-vios-streamprocessing:30001`). All three move together — see `services/vios.md`. A build that reintroduces SDRC must flip all three and re-add the SDRC compose tokens plus `SDR_CONTROLLER_CONFIG_PATH` / `SDRC_*_HOST_PORT`. |
+| `VST_ENABLE_NOTIFICATION` | Independent publish toggle for `vst.event` (Redis/Kafka) — not a routing knob. VIOS composes default it to `${VST_USE_SDRC:-false}`, so it follows the routing mode unless pinned; this profile pins it `false` explicitly since nothing here consumes `vst.event`. See `services/vios.md`. |
 | `RT_CV_DEVICE_ID`, `RTVI_CV_HOST_PORT`, `DS_MODEL_FAMILY` | Configure the perception pipeline. |
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the vision encoder NGC artifact downloaded by ds-start phase 0; the checked-in RT-CV config uses the fixed RT-DETR warehouse artifact. |
 | `RT_EMBED_DEVICE_ID`, `RTVI_EMBED_PORT`, `MODEL_PATH`, `HF_TOKEN` | Place and configure RT-Embed. |
