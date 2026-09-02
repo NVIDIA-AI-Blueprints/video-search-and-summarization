@@ -76,7 +76,7 @@ def discover_model(session, backend, timeout):
 def upload_video(session, backend, video_path, timeout):
     with open(video_path, "rb") as video:
         response = session.post(
-            f"{backend}/v1/files/add",
+            f"{backend}/v1/files",
             files={"file": (os.path.basename(video_path), video)},
             timeout=timeout,
         )
