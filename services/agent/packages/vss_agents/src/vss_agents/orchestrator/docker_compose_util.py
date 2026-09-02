@@ -561,6 +561,11 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     merged["VSS_AGENT_GATEWAY_ENABLED"] = "true"
     merged["VSS_AGENT_GATEWAY_BIND_HOST"] = bind_host
     merged["VSS_AGENT_GATEWAY_PORT"] = str(port)
+    # The gateway is an HTTP/SSE transport. Lock every UI chat surface to the
+    # same-origin HTTP API so a persisted WebSocket preference cannot bypass it.
+    merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] = "true"
+    merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] = "false"
+    merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] = "false"
     defaults = {
         "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",
         "VSS_AGENT_BACKEND_PROTOCOL": "responses",
@@ -876,7 +881,7 @@ def _compose_subprocess_env_for_config(
     return compose_env
 
 
-def resolve_compose(config: DryRunRecipe) -> str:
+def resolve_compose(config: DryRunRecipe, *, agent_gateway_enabled: bool = False) -> str:
     env_file_args = _compose_env_file_args(config, config.output_env_file)
     compose_env = _compose_subprocess_env_for_config(config)
     try:
@@ -891,7 +896,10 @@ def resolve_compose(config: DryRunRecipe) -> str:
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
     if result.returncode != 0:
         raise RuntimeError(f"docker compose config failed.\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}")
-    return sanitize_resolved_compose(result.stdout)
+    return sanitize_resolved_compose(
+        result.stdout,
+        agent_gateway_ui_source_root=(config.deployments_dir.parent.parent if agent_gateway_enabled else None),
+    )
 
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
@@ -917,8 +925,12 @@ def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path
         )
 
 
-def sanitize_resolved_compose(compose_text: str) -> str:
-    """Remove dangling depends_on references from resolved compose output."""
+def sanitize_resolved_compose(
+    compose_text: str,
+    *,
+    agent_gateway_ui_source_root: Path | None = None,
+) -> str:
+    """Normalize a resolved graph and add source builds required by gateway mode."""
 
     parsed = yaml.safe_load(compose_text)
     if not isinstance(parsed, dict):
@@ -927,6 +939,18 @@ def sanitize_resolved_compose(compose_text: str) -> str:
     services = parsed.get("services")
     if not isinstance(services, dict):
         return compose_text
+
+    # Gateway-mode UI routes are part of this source checkout. Until a
+    # compatible released UI image is pinned, build the selected UI service
+    # from the same checkout as the locally built gateway.
+    if agent_gateway_ui_source_root is not None and "agent-gateway" in services:
+        ui_service = services.get("vss-ui")
+        if isinstance(ui_service, dict) and "build" not in ui_service:
+            ui_service["build"] = {
+                "context": str(agent_gateway_ui_source_root),
+                "dockerfile": "services/ui/Dockerfile",
+                "args": {"BUILD_TYPE": "prod"},
+            }
 
     defined_services = set(services.keys())
     for service_def in services.values():
@@ -976,7 +1000,11 @@ def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Pa
     )
     compose_file.parent.mkdir(parents=True, exist_ok=True)
     write_private_text(  # NOSONAR S2083: --output-compose-file is an intentional CLI destination
-        compose_file, resolve_compose(config)
+        compose_file,
+        resolve_compose(
+            config,
+            agent_gateway_enabled=resolved_env.get("VSS_AGENT_GATEWAY_ENABLED") == "true",
+        ),
     )
     return resolved_env, env_file, compose_file
 

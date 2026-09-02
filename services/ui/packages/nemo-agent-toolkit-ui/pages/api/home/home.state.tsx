@@ -21,6 +21,8 @@ export interface HomeInitialState {
   searchTerm: string;
   chatHistory: boolean;
   chatCompletionURL?: string;
+  /** When true, disable the legacy WebSocket transport and keep chat on the HTTP API. */
+  forceHttpTransport: boolean;
   webSocketMode?: boolean;
   webSocketConnected?: boolean;
   webSocketURL?: string;
@@ -106,6 +108,12 @@ const getChatMessageCopyEnabled = (): boolean => {
   return String(v || '') !== 'false';
 };
 
+const getForceHttpTransport = (): boolean =>
+  env('NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT') === 'true' ||
+  process?.env?.NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT === 'true';
+
+const forceHttpTransport = getForceHttpTransport();
+
 export const initialState: HomeInitialState = {
   loading: false,
   lightMode: getDefaultLightMode(),
@@ -128,9 +136,11 @@ export const initialState: HomeInitialState = {
     env('NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL') ||
     process?.env?.NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL ||
     'http://127.0.0.1:8000/chat/stream',
+  forceHttpTransport,
   webSocketMode:
-    env('NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON') === 'true' ||
-    process?.env?.NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON === 'true'
+    !forceHttpTransport &&
+    (env('NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON') === 'true' ||
+      process?.env?.NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON === 'true')
       ? true
       : false,
   webSocketConnected: false,

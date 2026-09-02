@@ -53,6 +53,7 @@ export type TabChatInitialStateOverride = {
   showChatbar?: boolean;
   chatHistory?: boolean;
   chatCompletionURL?: string;
+  forceHttpTransport?: boolean;
   webSocketMode?: boolean;
   webSocketURL?: string;
   enableIntermediateSteps?: boolean;
@@ -78,6 +79,11 @@ export type TabChatInitialStateOverride = {
 export function getTabChatInitialStateOverride(
   tabKey: string,
 ): TabChatInitialStateOverride {
+  const forceHttpTransport = getBool(
+    tabKey,
+    'FORCE_HTTP_TRANSPORT',
+    'NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT',
+  );
   const lightMode = getBool(tabKey, 'DARK_THEME_DEFAULT', 'NEXT_PUBLIC_DARK_THEME_DEFAULT')
     ? 'dark'
     : 'light';
@@ -98,11 +104,14 @@ export function getTabChatInitialStateOverride(
     chatCompletionURL:
       get(tabKey, 'HTTP_CHAT_COMPLETION_URL', 'NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL') ||
       undefined,
-    webSocketMode: getBool(
-      tabKey,
-      'WEB_SOCKET_DEFAULT_ON',
-      'NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON',
-    ),
+    forceHttpTransport,
+    webSocketMode:
+      !forceHttpTransport &&
+      getBool(
+        tabKey,
+        'WEB_SOCKET_DEFAULT_ON',
+        'NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON',
+      ),
     webSocketURL:
       get(tabKey, 'WEBSOCKET_CHAT_COMPLETION_URL', 'NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL') ||
       undefined,

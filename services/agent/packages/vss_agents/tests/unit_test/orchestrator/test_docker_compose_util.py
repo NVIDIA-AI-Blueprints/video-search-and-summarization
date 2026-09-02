@@ -385,6 +385,9 @@ class TestApplyAgentGatewayEnv:
         assert merged["VSS_AGENT_GATEWAY_ENABLED"] == "true"
         assert merged["VSS_AGENT_GATEWAY_PORT"] == "18090"
         assert merged["VSS_AGENT_GATEWAY_URL"] == "http://host.docker.internal:18090"
+        assert merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] == "true"
+        assert merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] == "false"
+        assert merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] == "false"
         assert merged["VSS_AGENT_BACKEND_PROTOCOL"] == "responses"
         assert merged["VSS_AGENT_BACKEND_MODEL"] == "agent"
         assert merged["NEXT_PUBLIC_ENABLE_CHAT_TAB"] == "true"
@@ -475,6 +478,63 @@ class TestLoadProfileEnv:
 
 
 class TestSanitizeResolvedCompose:
+    def test_gateway_service_does_not_change_ui_without_enabled_source_root(self):
+        compose_text = """
+ services:
+   agent-gateway:
+     image: gateway
+   vss-ui:
+     image: ui
+ """
+
+        sanitized = yaml.safe_load(dcu.sanitize_resolved_compose(compose_text))
+
+        assert "build" not in sanitized["services"]["vss-ui"]
+
+    def test_gateway_mode_builds_compatible_ui_from_source(self, tmp_path: Path):
+        compose_text = """
+ services:
+   agent-gateway:
+     image: gateway
+     build:
+       context: /src/services/agent-gateway
+   vss-ui:
+     image: ui
+ """
+
+        sanitized = yaml.safe_load(
+            dcu.sanitize_resolved_compose(
+                compose_text,
+                agent_gateway_ui_source_root=tmp_path,
+            )
+        )
+
+        assert sanitized["services"]["vss-ui"]["build"] == {
+            "context": str(tmp_path),
+            "dockerfile": "services/ui/Dockerfile",
+            "args": {"BUILD_TYPE": "prod"},
+        }
+
+    def test_gateway_mode_preserves_explicit_ui_build(self, tmp_path: Path):
+        compose_text = """
+ services:
+   agent-gateway:
+     image: gateway
+   vss-ui:
+     image: ui
+     build:
+       context: /custom
+ """
+
+        sanitized = yaml.safe_load(
+            dcu.sanitize_resolved_compose(
+                compose_text,
+                agent_gateway_ui_source_root=tmp_path,
+            )
+        )
+
+        assert sanitized["services"]["vss-ui"]["build"] == {"context": "/custom"}
+
     def test_sanitize_resolved_compose_removes_dangling_depends_on(self):
         compose_text = """
  services:
@@ -1935,6 +1995,31 @@ class TestComposeEnvFileLayering:
 
 
 class TestGenerateDryRunArtifacts:
+    def test_gateway_mode_requests_compatible_ui_source_build(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(tmp_path, "MODE=2d")
+        resolve_calls: list[bool] = []
+
+        monkeypatch.setattr(
+            dcu,
+            "build_resolved_env",
+            lambda _config: {"VSS_AGENT_GATEWAY_ENABLED": "true"},
+        )
+        monkeypatch.setattr(
+            dcu,
+            "render_generated_env",
+            lambda _source, _resolved: "VSS_AGENT_GATEWAY_ENABLED=true\n",
+        )
+
+        def fake_resolve(_config, *, agent_gateway_enabled=False):
+            resolve_calls.append(agent_gateway_enabled)
+            return "services: {}\n"
+
+        monkeypatch.setattr(dcu, "resolve_compose", fake_resolve)
+
+        dcu.generate_dry_run_artifacts(recipe)
+
+        assert resolve_calls == [True]
+
     def test_generate_dry_run_artifacts_persists_profile_mode_in_generated_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -1965,7 +2050,11 @@ class TestGenerateDryRunArtifacts:
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
         monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
-        monkeypatch.setattr(dcu, "resolve_compose", lambda _config: "services: {}\n")
+        monkeypatch.setattr(
+            dcu,
+            "resolve_compose",
+            lambda _config, **_kwargs: "services: {}\n",
+        )
 
         resolved_env, env_path, compose_path = dcu.generate_dry_run_artifacts(recipe)
 

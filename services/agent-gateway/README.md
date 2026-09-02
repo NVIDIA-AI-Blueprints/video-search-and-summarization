@@ -150,15 +150,21 @@ export VSS_AGENT_GATEWAY_TOKEN="$(openssl rand -hex 32)"
 export VSS_AGENT_BACKEND_URL=http://127.0.0.1:8642
 export VSS_AGENT_BACKEND_TOKEN="..."
 export VSS_AGENT_BACKEND_MODEL=hermes-agent
+export NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT=true
 export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}agent-gateway"
 ```
 
-The root Compose graph includes a local `build:` definition, so the standard
-deployment lifecycle (`pull --ignore-buildable`, then `up -d --build`) works
-from a pinned source checkout before a registry image is published. The image
-variables name/tag that build. Once a released image is available, a
-registry-only deployment should remove the `build:` block in its deployment
-overlay and pin the released image by digest.
+The generator sets the HTTP transport lock and disables both WebSocket defaults
+whenever the gateway is enabled. This applies to the main Chat tab and the
+app-wide chat sidebar, including browsers with a previously saved WebSocket
+preference.
+
+The generated gateway-mode Compose graph includes local source builds for both
+the gateway and the compatible VSS UI, so the standard deployment lifecycle
+(`pull --ignore-buildable`, then `up -d --build`) works from a pinned source
+checkout before registry images are published. The image variables name/tag
+those builds. A later registry-only deployment may omit the `build:` entries
+only when it pins released gateway and UI images containing this contract.
 
 `deploy_nemoclaw.ipynb` enables OpenClaw's Responses endpoint. The companion
 `deploy_vss_orchestrator.ipynb` obtains the selected OpenClaw/Hermes API token

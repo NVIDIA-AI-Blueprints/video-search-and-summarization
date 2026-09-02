@@ -41,6 +41,8 @@ services:
       # Server-only backend-neutral agent transport. Credentials must never use NEXT_PUBLIC_*.
       AGENT_GATEWAY_URL: ${VSS_AGENT_GATEWAY_URL:-}
       AGENT_GATEWAY_TOKEN: ${VSS_AGENT_GATEWAY_TOKEN:-}
+      # Prevent a saved browser preference from bypassing the gateway via the legacy WebSocket.
+      NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT: ${NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT:-${VSS_AGENT_GATEWAY_ENABLED:-false}}
       # === App wide chat sidebar ===
       NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: ${NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR:-true}
       NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT: ${NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT:-false}

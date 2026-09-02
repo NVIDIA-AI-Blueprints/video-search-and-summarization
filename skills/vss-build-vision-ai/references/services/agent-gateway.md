@@ -56,6 +56,11 @@ single Linux Docker host; an HA/multi-node deployment requires a durable run
 store and an explicit private service network instead of this host-loopback
 bridge.
 
+The orchestrator's resolved gateway-mode graph builds both `agent-gateway` and
+the compatible `vss-agent-ui` from the pinned checkout. Do not replace the UI
+with an older registry image: it lacks the same-origin gateway routes and HTTP
+transport lock.
+
 ## Required configuration
 
 Write these values to the build's sensitive `override.env`; the resolved
@@ -76,6 +81,7 @@ Compose artifact contains them too, so both files must remain local and mode
 | `VSS_AGENT_BACKEND_SESSION_FIELD` | Stable Responses field; use `user`. |
 | `VSS_AGENT_BACKEND_SESSION_HEADER` | Optional harness-specific stable-session header. |
 | `NEXT_PUBLIC_ENABLE_CHAT_TAB=true` | Makes the VSS UI chat tab visible. |
+| `NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT=true` | Locks all chat surfaces to same-origin HTTP so a saved WebSocket preference cannot bypass the gateway. Set automatically by the generator. |
 
 Generate `VSS_AGENT_GATEWAY_TOKEN` independently from the harness token. Obtain
 the backend token with the selected sandbox CLI's `gateway-token --quiet` path

@@ -32,6 +32,7 @@ import {
   shouldAppendResponseContent,
 } from '@/types/websocket';
 import { getEndpoint } from '@/utils/app/api';
+import { resolveWebSocketMode } from '@/utils/app/chatTransport';
 import { webSocketMessageTypes } from '@/utils/app/const';
 import {
   saveConversation,
@@ -169,6 +170,7 @@ export const Chat = () => {
       chatHistory,
       webSocketConnected,
       webSocketMode,
+      forceHttpTransport,
       webSocketURL,
       webSocketSchema,
       chatCompletionURL,
@@ -249,24 +251,30 @@ export const Chat = () => {
   const [interactionMessage, setInteractionMessage] = useState(null);
   const webSocketRef = useRef<WebSocket | null>(null);
   const webSocketConnectedRef = useRef(false);
-  // Initialize with state value, will be properly set in useEffect after checking sessionStorage
-  const webSocketModeRef = useRef<boolean | undefined>(webSocketMode);
+  // Initialize with state value, unless the deployment locks chat to HTTP.
+  const webSocketModeRef = useRef<boolean | undefined>(
+    forceHttpTransport ? false : webSocketMode,
+  );
   let websocketLoadingToastId: string | null = null;
   
   // Sync webSocketModeRef with sessionStorage and state changes
   // This runs on mount and whenever webSocketMode state changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storedValue = sessionStorage.getItem('webSocketMode');
-      if (storedValue !== null) {
-        // User has a stored preference from toggling - respect it
-        webSocketModeRef.current = storedValue === 'true';
-      } else {
-        // No stored preference - use the env-based default from state
-        webSocketModeRef.current = webSocketMode ?? false;
+      if (forceHttpTransport) {
+        sessionStorage.removeItem('webSocketMode');
+        if (webSocketMode) {
+          homeDispatch({ field: 'webSocketMode', value: false });
+        }
       }
+      const storedValue = sessionStorage.getItem('webSocketMode');
+      webSocketModeRef.current = resolveWebSocketMode({
+        forceHttpTransport,
+        storedWebSocketMode: storedValue,
+        configuredWebSocketMode: webSocketMode,
+      });
     }
-  }, [webSocketMode]);
+  }, [forceHttpTransport, homeDispatch, webSocketMode]);
   const lastScrollTop = useRef(0); // Store last known scroll position
 
   // Add these variables near the top of your component
@@ -389,7 +397,11 @@ export const Chat = () => {
   }, [selectedConversation?.id]);
 
   useEffect(() => {
-    if (webSocketModeRef?.current && !webSocketConnectedRef.current) {
+    if (
+      !forceHttpTransport &&
+      webSocketModeRef?.current &&
+      !webSocketConnectedRef.current
+    ) {
       connectWebSocket();
     }
 
@@ -405,9 +417,11 @@ export const Chat = () => {
       }
     };
     // Use webSocketMode state instead of ref in dependencies - refs don't trigger re-renders
-  }, [webSocketMode, webSocketURL]);
+  }, [forceHttpTransport, webSocketMode, webSocketURL]);
 
   const connectWebSocket = async (retryCount = 0) => {
+    if (forceHttpTransport) return false;
+
     const maxRetries = 3;
     const retryDelay = 1000; // 1-second delay between retries
 
@@ -479,7 +493,7 @@ export const Chat = () => {
           retryCount++;
 
           // Retry and capture the result
-          if (webSocketModeRef?.current) {
+          if (!forceHttpTransport && webSocketModeRef?.current) {
             // Wait for retry delay
             await new Promise(res => setTimeout(res, retryDelay));
 

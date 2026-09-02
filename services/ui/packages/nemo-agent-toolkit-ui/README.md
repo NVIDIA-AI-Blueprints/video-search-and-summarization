@@ -81,6 +81,7 @@ The application supports the following environment variables for configuration:
 | `NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON` | Enable chat history by default | `false` | `true` |
 | `NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL` | Default HTTP API endpoint | `http://127.0.0.1:8000/chat/stream` | `http://localhost:8080/chat/stream` |
 | `NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON` | Enable WebSocket mode by default | `false` | `true` |
+| `NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT` | Disable and hide WebSocket mode, ignoring saved browser preferences | `false` | `true` |
 | `NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL` | Default WebSocket endpoint | `ws://127.0.0.1:8000/websocket` | `ws://localhost:8080/websocket` |
 | `NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS` | Enable intermediate steps by default | `false` | `true` |
 | `NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED` | Show Cancel button in WebSocket (HITL) interaction popup | `true` | `false` |
