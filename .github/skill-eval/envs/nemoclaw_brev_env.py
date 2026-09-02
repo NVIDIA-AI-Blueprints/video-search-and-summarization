@@ -13,6 +13,12 @@ from envs.brev_env import BrevEnvironment, _run_brev_exec
 logger = logging.getLogger(__name__)
 
 _SETUP_KEYS = (
+    "SKILLS_EVAL_HARNESS",
+    "EVAL_AGENT",
+    "SKILLS_EVAL_PROVIDER",
+    "SKILLS_EVAL_MODEL",
+    "SKILLS_EVAL_ENDPOINT_URL",
+    "SKILLS_EVAL_API_KEY",
     "NGC_CLI_API_KEY",
     "NGC_API_KEY",
     "NVIDIA_API_KEY",
@@ -28,7 +34,6 @@ _SETUP_KEYS = (
     "PR_HEAD_SHA",
     "PR_REPO",
     "GITHUB_RUN_ID",
-    "NEMOCLAW_INSTALL_REF",
     "NEMOCLAW_SANDBOX_NAME",
     "NEMOCLAW_GATEWAY_PORT",
     "NEMOCLAW_DASHBOARD_PORT",
@@ -38,11 +43,11 @@ _SETUP_KEYS = (
     "VSS_ORCHESTRATOR_MCP_PORT",
     "VSS_ORCHESTRATOR_MCP_URL",
     "NEMOCLAW_AGENT_TIMEOUT_SEC",
+    "NEMOCLAW_AGENT_THINKING",
     "RTSP_SAMPLE_URL",
 )
 
 _NEMOCLAW_DEFAULTS = {
-    "NEMOCLAW_INSTALL_REF": "v0.0.108",
     "NEMOCLAW_SANDBOX_NAME": "skill-eval",
     "NEMOCLAW_GATEWAY_PORT": "8991",
     "NEMOCLAW_POLICY_MODE": "skip",
@@ -134,17 +139,34 @@ class NemoClawBrevEnvironment(BrevEnvironment):
         super().__init__(**kwargs)
         self._nemoclaw_ready = False
 
+    def _is_first_trial(self) -> bool:
+        """True for a single-step spec or `step-1` of a multi-step chain.
+
+        Mirrors the predicate BrevEnvironment.start() uses to gate the docker
+        reset: `environment_dir.parent` is the task dir, named `step-N` for a
+        multi-step spec and the platform for a single-step one.
+        """
+        task_dir_name = self.environment_dir.parent.name
+        return not (task_dir_name.startswith("step-") and task_dir_name != "step-1")
+
     async def start(self, force_build: bool) -> None:
         if self._nemoclaw_ready:
             return
 
-        # Use one stable CI sandbox name per locked worker. Destroying it
-        # before the base provider resets Docker gives onboarding a clean
-        # lifecycle without teaching this harness how to repair host state.
+        # Onboard once per leg, not once per step. Each step is a separate
+        # `harbor run` -> separate start(), and destroying the sandbox here
+        # would re-run `nemoclaw onboard` plus both setup notebooks for every
+        # step -- minutes of rebuild per step on a multi-step spec, to arrive
+        # at the state step-1 already established. The base class gates its
+        # docker reset on the same predicate, so step-2+ already keeps the
+        # deployment; keeping the sandbox and the orchestrator MCP alongside it
+        # is the matching behaviour, and step N's checks assume step N-1's
+        # environment anyway (AGENTS.md "Multi-step specs").
+        first_trial = self._is_first_trial()
         instance = self._resolve_instance_name()
         sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
         gateway_port = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8991")
-        if instance:
+        if instance and first_trial:
             destroyed = await _run_brev_exec(
                 instance,
                 _destroy_sandbox_command(sandbox, gateway_port),
@@ -160,6 +182,16 @@ class NemoClawBrevEnvironment(BrevEnvironment):
         await super().start(force_build)
         if self._instance_name is None:
             raise RuntimeError("NemoClaw setup requires an explicit Brev instance")
+
+        if not first_trial:
+            logger.info(
+                "Reusing the NemoClaw sandbox and orchestrator MCP established "
+                "by step-1 on %s (task=%s); skipping onboard and notebook setup",
+                self._instance_name,
+                self.environment_dir.parent.name,
+            )
+            self._nemoclaw_ready = True
+            return
 
         env_block = _forwarded_nemoclaw_env()
         append = (

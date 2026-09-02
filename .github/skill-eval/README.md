@@ -21,7 +21,7 @@ The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill
 - **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
 - **Python 3.12** — the workflows pin this runtime for the coordinator, adapters, `run_leg.py`, and Harbor. Each matrix leg installs Claude Agent SDK 0.2.128 in its own virtual environment so parallel jobs never mutate a shared interpreter.
-- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.
+- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the credentials below — each eval leg sources it once before resolving the user-selected agent configuration.
 
 ### GPU targets (operator-managed `vss-eval-*` pool)
 
@@ -40,9 +40,15 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Claude Code authentication (NVIDIA inference API key works) |
-| `ANTHROPIC_BASE_URL` | Custom API base (e.g. `https://inference-api.nvidia.com`) |
-| `ANTHROPIC_MODEL` | Model ID (e.g. `aws/anthropic/bedrock-claude-sonnet-4-6`) |
+| `SKILLS_EVAL_HARNESS` | Evaluated agent harness: `claude-code` or `nemoclaw` |
+| `SKILLS_EVAL_PROVIDER` | NemoClaw provider selected by manual CI: `nvidia-inference`, `nvidia-build`, or `custom`; Claude Code requires `default` |
+| `SKILLS_EVAL_MODEL` | Model used by the agent under evaluation; optional only when the selected harness has a configured default |
+| `SKILLS_EVAL_ENDPOINT_URL` | Custom NemoClaw endpoint supplied by the manual workflow |
+| `SKILLS_EVAL_API_KEY` | Runner-managed API key used with a custom NemoClaw endpoint |
+| `ANTHROPIC_API_KEY` | Native Claude Code agent, Claude coordinator, and Harbor judge authentication |
+| `ANTHROPIC_BASE_URL` | Coordinator and judge endpoint override; never forwarded to the native Claude Code agent under evaluation |
+| `ANTHROPIC_MODEL` | Existing Claude coordinator and Harbor judge model; also the default evaluated-agent model |
+| `NVIDIA_API_KEY` | NVIDIA Build authentication for `agent=nemoclaw`, `provider=nvidia-build` |
 | `NGC_CLI_API_KEY` | Pull VSS NIM containers from `nvcr.io` |
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
@@ -50,6 +56,14 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
+
+For Claude Code, select `agent=claude-code`, keep `provider=default`, and set
+only the Anthropic model ID; provider and endpoint overrides are rejected. To
+evaluate NemoClaw with a hosted NVIDIA Build model, select `agent=nemoclaw`,
+`provider=nvidia-build`, and pass the build.nvidia.com model ID. For a custom
+NemoClaw backend, select `provider=custom` and provide `endpoint_url`; the API
+key remains runner-managed. These choices affect only the evaluated agent;
+the CI coordinator and Harbor judge retain their existing configuration.
 
 ## Layout
 

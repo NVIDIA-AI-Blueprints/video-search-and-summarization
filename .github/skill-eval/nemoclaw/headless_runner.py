@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import uuid
@@ -18,6 +19,16 @@ from typing import Any
 
 _SESSION_PATH = re.compile(
     r"/sandbox/\.openclaw/agents/main/sessions/[A-Za-z0-9._-]+\.jsonl"
+)
+
+# GatewayClientRequestError when a route does not accept the requested thinking
+# level, e.g. `Thinking level "low" is not supported for
+# inference/aws/anthropic/bedrock-claude-opus-5. Use one of: off.` The capture
+# group holds the comma-separated levels the gateway does advertise.
+# The route id may itself contain dots (nvidia/nvidia/nemotron-3.5-lightning),
+# so match lazily up to the level list rather than to the first period.
+_THINKING_UNSUPPORTED = re.compile(
+    r"Thinking level \"[^\"]*\" is not supported.*?Use one of:\s*([^.]+)\."
 )
 
 
@@ -230,21 +241,54 @@ def _run_openclaw(
 ) -> tuple[dict[str, Any], str]:
     session_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex}"
     no_proxy = "localhost,127.0.0.1,::1,10.200.0.1"
-    command = (
-        "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
-        f"export NO_PROXY={shlex.quote(no_proxy)}; "
-        f"export no_proxy={shlex.quote(no_proxy)}; "
-        "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
-        "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
-        "openclaw agent --agent main --thinking off --json "
-        f"--timeout {int(timeout)} "
-        f"--session-id {shlex.quote(session_id)} "
-        f"--message {shlex.quote(prompt)}"
-    )
-    result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
+    # Thinking is OFF by default. `--thinking on` resolves to level "low" before
+    # it reaches the gateway, and the NemoClaw routes we eval against advertise
+    # only "off" -- both nvidia/nvidia/nemotron-3.5-lightning and
+    # aws/anthropic/bedrock-claude-opus-5 reject "low" with
+    # GatewayClientRequestError, so the agent exits 1 having taken zero turns.
+    # Overridable via NEMOCLAW_AGENT_THINKING (on|off); _run_openclaw falls back
+    # to a level the gateway advertises if the requested one is refused, so this
+    # default can be flipped back once the routes support a thinking level.
+    thinking = (os.environ.get("NEMOCLAW_AGENT_THINKING") or "off").strip() or "off"
+
+    def agent_command(level: str) -> str:
+        return (
+            "unset BREV_INSTANCE NEMOCLAW_BREV_INSTANCE; "
+            f"export NO_PROXY={shlex.quote(no_proxy)}; "
+            f"export no_proxy={shlex.quote(no_proxy)}; "
+            "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
+            "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
+            f"openclaw agent --agent main --thinking {shlex.quote(level)} --json "
+            f"--timeout {int(timeout)} "
+            f"--session-id {shlex.quote(session_id)} "
+            f"--message {shlex.quote(prompt)}"
+        )
+
+    result = _nemoclaw_exec(sandbox, agent_command(thinking), timeout=timeout + 120)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "")[-1000:]
-        raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
+        # The gateway names the levels it accepts. Retry once on the first one
+        # rather than failing the leg on a route capability we can read off the
+        # error -- the agent exits before taking a turn, so nothing is repeated.
+        offered = _THINKING_UNSUPPORTED.search(detail)
+        levels = (
+            [item.strip() for item in offered.group(1).split(",") if item.strip()]
+            if offered
+            else []
+        )
+        if not levels or levels[0] == thinking:
+            raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
+        print(
+            f"Gateway refused thinking level {thinking!r}; "
+            f"retrying with {levels[0]!r} (advertised: {', '.join(levels)})",
+            file=sys.stderr,
+            flush=True,
+        )
+        thinking = levels[0]
+        result = _nemoclaw_exec(sandbox, agent_command(thinking), timeout=timeout + 120)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "")[-1000:]
+            raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
     envelope = _json_object(result.stdout)
     session = _sandbox_exec(
         sandbox,
@@ -256,6 +300,33 @@ def _run_openclaw(
     normalized, totals = _normalize_session(session.stdout)
     _set_native_usage(envelope, totals)
     return envelope, normalized
+
+
+def _collect_orchestrator_log(agent_log_dir: Path) -> None:
+    """Copy the VSS Orchestrator MCP log into this trial's agent logs.
+
+    The server opens this file with mode "w" on every start, and each step of a
+    multi-step spec re-runs the setup notebooks -- so a step's trace is gone the
+    moment the next step begins, and a failing step-1 leaves no orchestrator
+    evidence at all by the time the run ends. It is the only host-side record of
+    each `[mcp:<tool>] -> args` / `<- result` call and the raw `docker compose`
+    output behind a deploy, so collect it here, where it still exists.
+
+    Diagnostics must never fail a trial: a missing or unreadable log is
+    reported and ignored.
+    """
+    repo_root = Path(
+        os.environ.get("VSS_REPO_DIR") or Path(__file__).resolve().parents[3]
+    )
+    source = repo_root / ".orchestrator-artifacts" / "vss_orchestrator_mcp.log"
+    try:
+        if not source.is_file():
+            print(f"No orchestrator log at {source}", file=sys.stderr)
+            return
+        shutil.copyfile(source, agent_log_dir / "orchestrator_mcp.log")
+        print(f"Collected orchestrator log from {source}", file=sys.stderr)
+    except OSError as exc:
+        print(f"Could not collect {source}: {exc}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -298,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    finally:
+        # Runs on the failure path too -- that is the case the log is for.
+        _collect_orchestrator_log(agent_log_dir)
 
 
 if __name__ == "__main__":

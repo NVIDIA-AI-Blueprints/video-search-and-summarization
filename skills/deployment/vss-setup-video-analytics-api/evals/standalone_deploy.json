@@ -4,14 +4,14 @@
   ],
   "resources": {
     "platforms": {
-      "ANY": {
-        "gpu_count": 0
+      "RTXPRO6000BW": {
+        "gpu_count": 1
       }
     }
   },
   "expects": [
     {
-      "query": "Deploy `vss-video-analytics-api` standalone using the `/vss-setup-video-analytics-api` skill end-to-end and autonomously. Use the compose file's default service-shipped config at `services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`; do NOT swap to the image-baked default config or mount a custom config. Bring up Elasticsearch and its ingest-pipeline initializer if they are not already ready. Bring up Kafka and create `mdx-notification`, `mdx-amr`, and one topic matching `mdx-rtls*`. Leave the API running for verifier probes.\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. This spec exercises the skill's standalone-deploy flow against `deploy/docker/services/analytics/video-analytics-api/compose.yml`. `vss-video-analytics-api` is CPU-only. The API requires Elasticsearch at `http://localhost:9200`, `insertion-timestamp-pipeline`, and configured Kafka topics before `/livez` becomes ready. Set `VSS_APPS_DIR={{repo_root}}/deploy/docker` and set `VSS_DATA_DIR` to a writable host path with `data_log/vss_video_analytics_api` pre-created so the default data-log bind mount is valid. `gpu_count: 0` means to skip the GPU-type / GPU-count enforcement; the `ANY` platform key is a no-constraint pool selector.",
+      "query": "Deploy `vss-video-analytics-api` standalone using the `/vss-setup-video-analytics-api` skill end-to-end and autonomously. Use the compose file's default service-shipped config at `services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`; do NOT swap to the image-baked default config or mount a custom config. Bring up Elasticsearch and its ingest-pipeline initializer if they are not already ready. Bring up Kafka and create `mdx-notification`, `mdx-amr`, and one topic matching `mdx-rtls*`. Leave the API running for verifier probes.\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. This spec exercises the skill's standalone-deploy flow against `deploy/docker/services/analytics/video-analytics-api/compose.yml`. `vss-video-analytics-api` is CPU-only. The API requires Elasticsearch at `http://localhost:9200`, `insertion-timestamp-pipeline`, and configured Kafka topics before `/livez` becomes ready. Set `VSS_APPS_DIR={{repo_root}}/deploy/docker` and set `VSS_DATA_DIR` to a writable host path with `data_log/vss_video_analytics_api` pre-created so the default data-log bind mount is valid. The `RTXPRO6000BW` platform selects an RTX PRO worker; the service itself does not use its GPU.",
       "checks": [
         "The agent used `deploy/docker/services/analytics/video-analytics-api/compose.yml` to start only `vss-video-analytics-api` standalone, not a full VSS profile.",
         "The agent set `VSS_APPS_DIR` to `{{repo_root}}/deploy/docker` and set `VSS_DATA_DIR` to a writable host path with `data_log/vss_video_analytics_api` present before `docker compose up`.",

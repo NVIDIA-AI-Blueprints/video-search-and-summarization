@@ -43,18 +43,18 @@ general:
 
 function_groups:
   vss_orchestrator:
-    mdx_data_dir: "~/video-search-and-summarization/.mdx_data"
+    mdx_data_dir: "${VSS_REPO_DIR}/.mdx_data"
     # Required output directory for docker_generate artifacts.
-    output_dir: "~/video-search-and-summarization/.orchestrator-artifacts"
+    output_dir: "${VSS_REPO_DIR}/.orchestrator-artifacts"
     # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
     _type: vss_orchestrator
     # Absolute path to the deploy/docker root. Set HOST_IP separately via env
     # overrides in the docker_generate tool call, or pre-populate the selected profile .env.
-    deployments_dir: "~/video-search-and-summarization/deploy/docker"
+    deployments_dir: "${VSS_REPO_DIR}/deploy/docker"
     # Absolute source compose yaml path.
-    source_compose_yaml: "~/video-search-and-summarization/deploy/docker/compose.yml"
+    source_compose_yaml: "${VSS_REPO_DIR}/deploy/docker/compose.yml"
     # Absolute source profile env path. Supports {profile}.
-    source_env: "~/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
+    source_env: "${VSS_REPO_DIR}/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
     # VSS_DATA_DIR base directory used by orchestrator (profile .env VSS_DATA_DIR is ignored).
     mdx_data_directories:
     - data_log/analytics_cache

@@ -589,11 +589,21 @@ single-step task or ordered `step-1..N` tasks; dispatches one Harbor
 task at a time with the fixed flags below; writes multi-step skip
 markers; and releases the lock when it exits.
 
-`EVAL_AGENT` selects the Harbor runtime (`claude-code` by default,
-`codex`, or `nemoclaw`). NemoClaw still uses this exact wrapper and task
-dispatch. The only runtime-specific pieces are its Harbor agent adapter and
-the Brev environment that executes the checked-in setup notebooks. Like every
-other runtime, NemoClaw leaves worker selection and locking to `run_leg.py`.
+`SKILLS_EVAL_HARNESS` selects the Harbor runtime (`claude-code` by default,
+`codex`, or `nemoclaw`); `EVAL_AGENT` is the legacy internal alias. NemoClaw
+still uses this exact wrapper and task dispatch. The only runtime-specific
+pieces are its Harbor agent adapter and the Brev environment that executes the
+checked-in setup notebooks. Like every other runtime, NemoClaw leaves worker
+selection and locking to `run_leg.py`.
+
+`SKILLS_EVAL_MODEL` selects the model used by that Harbor agent. With
+`EVAL_AGENT=claude-code`, `SKILLS_EVAL_PROVIDER` must be `default`: the agent
+uses `ANTHROPIC_API_KEY` and the native Anthropic endpoint, and endpoint
+overrides are rejected. With `EVAL_AGENT=nemoclaw`, `default` resolves to
+`nvidia-inference`; `nvidia-build` and `custom` are also supported. `custom`
+requires `SKILLS_EVAL_ENDPOINT_URL`, `SKILLS_EVAL_API_KEY`, and an explicit
+model. These selections do not change the Claude model driving the outer CI
+coordinator or the Harbor judge.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`

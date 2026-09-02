@@ -29,7 +29,7 @@ class NemoClaw(OpenClaw):
         return "nemoclaw"
 
     def version(self) -> str | None:
-        return os.environ.get("NEMOCLAW_INSTALL_REF", "v0.0.108")
+        return None
 
     async def setup(self, environment: BaseEnvironment) -> None:
         # NemoClaw and OpenClaw are installed and configured by the notebooks
@@ -56,6 +56,11 @@ class NemoClaw(OpenClaw):
 host_home=$HOME
 repo="$host_home/video-search-and-summarization"
 export HOME="$host_home/.skill-eval/nemoclaw-home"
+# openshell / nemoclaw / openshell-gateway are installed under the nemoclaw-home
+# (the same HOME the onboarding reassigns to), i.e. $HOME/.local/bin AFTER the
+# export above — NOT the box user's ~/.local/bin. Put it on PATH so
+# headless_runner can find `openshell` (else FileNotFoundError: 'openshell').
+export PATH="$HOME/.local/bin:$PATH"
 cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
