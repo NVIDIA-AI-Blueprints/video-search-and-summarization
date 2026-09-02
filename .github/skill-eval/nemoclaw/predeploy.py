@@ -138,11 +138,19 @@ def predeploy(
     profile: str,
     *,
     deploy_mode: str | None = None,
+    placement_mode: str | None = None,
     extra_env_overrides: dict[str, str] | None = None,
     poll_sleep_s: int = 30,
     tail_lines: int = MAX_TAIL_LINES,
 ) -> dict[str, Any]:
-    """Run the documented deploy sequence and return the terminal status."""
+    """Run the documented deploy sequence and return the terminal status.
+
+    `deploy_mode` and `placement_mode` are DIFFERENT axes and both may apply at
+    once. The alerts adapter emits both: `deploy_mode` is the pipeline mode
+    (`verification` / `real-time` -> `profile_mode`), while `mode` is LLM/VLM
+    placement (`remote-all` -> env overrides). Folding them into one argument
+    would silently drop whichever came second.
+    """
     tail_lines = max(1, min(tail_lines, MAX_TAIL_LINES))
     if profile not in SUPPORTED_PROFILES:
         raise ValueError(
@@ -176,6 +184,14 @@ def predeploy(
 
     # 3. docker_generate -- resolve env + compose artifacts.
     profile_mode, placement = _split_deploy_mode(profile, deploy_mode)
+    if placement_mode:
+        extra_placement, _ = _split_deploy_mode(profile, placement_mode)
+        if extra_placement:
+            raise ValueError(
+                f"placement_mode={placement_mode!r} resolved to a pipeline mode; "
+                "pass it as deploy_mode instead"
+            )
+        placement = {**placement, **_PLACEMENT_OVERRIDES.get(placement_mode, {})}
     overrides = {**placement, **(extra_env_overrides or {})}
     generate_args: dict[str, Any] = {
         "profile": profile,
@@ -246,6 +262,12 @@ def main(argv: list[str] | None = None) -> int:
              "placement mode such as remote-all.",
     )
     parser.add_argument(
+        "--placement-mode",
+        default="",
+        help="LLM/VLM placement: remote-all | remote-llm | remote-vlm. "
+             "Separate axis from --deploy-mode; the alerts adapter sets both.",
+    )
+    parser.add_argument(
         "--env-override",
         action="append",
         default=[],
@@ -266,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         predeploy(
             args.profile,
             deploy_mode=args.deploy_mode,
+            placement_mode=args.placement_mode,
             extra_env_overrides=extra,
             poll_sleep_s=args.poll_sleep_sec,
         )

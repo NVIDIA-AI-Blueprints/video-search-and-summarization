@@ -161,7 +161,9 @@ def _bounded_predeploy_timeout() -> int:
     return value
 
 
-def _predeploy_command(profile: str, deploy_mode: str, timeout: int) -> str:
+def _predeploy_command(
+    profile: str, deploy_mode: str, timeout: int, placement_mode: str = ""
+) -> str:
     """Drive the documented orchestrator-MCP deploy sequence on the box.
 
     Runs AFTER the setup notebooks because the MCP server it calls is what
@@ -180,6 +182,11 @@ def _predeploy_command(profile: str, deploy_mode: str, timeout: int) -> str:
     mode_arg = (
         f" --deploy-mode {shlex.quote(deploy_mode)}" if deploy_mode else ""
     )
+    # `mode` in [metadata] is LLM/VLM PLACEMENT (remote-all), a different axis
+    # from `deploy_mode` (the alerts pipeline mode). The alerts adapter emits
+    # both; passing only one silently drops the other.
+    if placement_mode:
+        mode_arg += f" --placement-mode {shlex.quote(placement_mode)}"
     return f"""
 set -e
 set +u
@@ -317,18 +324,20 @@ class NemoClawBrevEnvironment(BrevEnvironment):
             )
             return
         deploy_mode = str(metadata.get("deploy_mode") or "").strip()
+        placement_mode = str(metadata.get("mode") or "").strip()
         timeout = _bounded_predeploy_timeout()
         logger.info(
-            "Pre-deploying VSS profile %r (mode=%s) on %s via the orchestrator "
-            "MCP (timeout=%ss)",
+            "Pre-deploying VSS profile %r (deploy_mode=%s placement=%s) on %s "
+            "via the orchestrator MCP (timeout=%ss)",
             profile,
             deploy_mode or "-",
+            placement_mode or "-",
             self._instance_name,
             timeout,
         )
         result = await _run_brev_exec(
             self._instance_name,
-            _predeploy_command(profile, deploy_mode, timeout),
+            _predeploy_command(profile, deploy_mode, timeout, placement_mode),
             timeout=timeout + 60,
         )
         if result.return_code != 0:

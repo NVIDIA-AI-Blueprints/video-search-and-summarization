@@ -66,6 +66,24 @@ PREAMBLE = (
     "(no user will answer here)."
 )
 
+# Used instead of PREAMBLE once this adapter emits `profile` into task.toml
+# [metadata] -- i.e. once NemoClawBrevEnvironment._predeploy_vss owns the deploy.
+# Rendering the stock PREAMBLE then contradicts the queries and is actively
+# destructive: `/vss-deploy-profile` Step 0 is a teardown, so an agent that obeys
+# it wipes the stack the harness just brought up.
+PREDEPLOYED_PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. The VSS "
+    "profile this trial needs is ALREADY DEPLOYED and healthy — the harness "
+    "brought it up before your turn. Do NOT run `/vss-deploy-profile`, do NOT "
+    "tear the stack down, and do NOT redeploy: that would destroy the "
+    "environment the checks run against. Inspect the running stack instead. "
+    "This pre-authorization covers setup ONLY. It does not extend to a "
+    "destructive call — no interactive user exists to consent to one — so where "
+    "the skill gates an action behind a user confirmation, or requires a real "
+    "operator-supplied credential, follow the skill up to that gate and stop: "
+    "ask, and do not perform the gated action (no user will answer here)."
+)
+
 # ---------------------------------------------------------------------------
 # Platforms
 # ---------------------------------------------------------------------------
@@ -200,6 +218,13 @@ def _task_toml(
         "",
         "[metadata]",
         'skill = "vss-manage-alerts"',
+        # Opts this skill into the harness VSS pre-deploy
+        # (NemoClawBrevEnvironment._predeploy_vss). `profile` is the switch;
+        # `deploy_mode` is the alerts pipeline mode (-> docker_generate
+        # profile_mode) and `mode` below is LLM/VLM PLACEMENT (-> env
+        # overrides). They are separate axes and both are consumed.
+        f'profile = "{profile}"',
+        f'deploy_mode = "{deploy_mode}"',
         f'platform = "{platform}"',
         f'mode = "{mode}"',
         f'gpu_type = "{pspec["gpu_type"]}"',
@@ -269,7 +294,7 @@ def generate_platform_mode(
             ]
 
         instruction_lines = [
-            PREAMBLE,
+            PREDEPLOYED_PREAMBLE,
             "",
             *leading,
             "",

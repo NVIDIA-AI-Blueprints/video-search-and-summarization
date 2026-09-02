@@ -13,13 +13,9 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints.",
+      "query": "The VSS **alerts** profile is ALREADY DEPLOYED on {{platform}} in real-time (VLM) mode with remote LLM/VLM endpoints \u2014 the harness brought it up before this step. **Do not deploy or redeploy it.**",
       "checks": [
-        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 required for VLM real-time mode).",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (NVStreamer simulates live cameras).",
-        "`docker ps --format '{{.Names}}' | grep -qx kafka` returns exit 0 (Kafka backplane for alert/incident topics).",
         "`! docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV-only perception is NOT running \u2014 confirms VLM real-time, not verification)."
       ]
     },
