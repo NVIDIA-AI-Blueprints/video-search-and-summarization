@@ -118,15 +118,18 @@ def resolve_model_config(
             env.get("ANTHROPIC_BASE_URL"),
             env.get("LLM_REMOTE_URL") if runtime == "nemoclaw" else "",
         )
+        # ANTHROPIC_API_KEY stays in the nemoclaw chain ON PURPOSE, unlike
+        # ANTHROPIC_MODEL above. `nvidia-inference` is NVIDIA's
+        # Anthropic-compatible proxy (ANTHROPIC_BASE_URL=inference-api.nvidia.com)
+        # serving routes like `aws/anthropic/bedrock-claude-opus-5`, so this is
+        # that proxy's credential, not a vendor key being leaked to a third
+        # party. Dropping it made resolution fall through to OPENAI_API_KEY /
+        # NVIDIA_API_KEY, which the proxy rejects: run 33585455113 failed both
+        # legs with `NemoClaw onboard failed — inference endpoint HTTP 401`.
         api_key = _first(
             env.get("SKILLS_EVAL_API_KEY"),
             env.get("COMPATIBLE_API_KEY") if runtime == "nemoclaw" else "",
-            # Same reasoning as the model chain above: skills-eval.yml overwrites
-            # ANTHROPIC_API_KEY with the `secrets.ANTHROPIC_API_KEY` GitHub
-            # secret, so leaving it in the nemoclaw chain transmitted the
-            # Anthropic CI credential to an NVIDIA-hosted endpoint. Codex still
-            # resolves through it.
-            env.get("ANTHROPIC_API_KEY") if runtime != "nemoclaw" else "",
+            env.get("ANTHROPIC_API_KEY"),
             env.get("OPENAI_API_KEY") if runtime == "nemoclaw" else "",
             env.get("NVIDIA_API_KEY") if runtime == "nemoclaw" else "",
         )
@@ -187,10 +190,12 @@ def main() -> int:
                 f"\nThe `{runtime}` runtime has no default model. On a manual "
                 "run, set the workflow's `model` input (e.g. "
                 "`nvidia/nemotron-3.5-lightning-30b-a3b`), or have the "
-                "coordinator .env define NEMOCLAW_MODEL + COMPATIBLE_API_KEY.\n"
-                "The orchestrator's ANTHROPIC_MODEL / ANTHROPIC_API_KEY are "
-                "deliberately NOT used here — reusing them sent an Anthropic "
-                "model id and the Anthropic CI key to the NVIDIA endpoint.",
+                "coordinator .env define NEMOCLAW_MODEL.\n"
+                "The orchestrator's ANTHROPIC_MODEL is deliberately NOT used as "
+                "a fallback here — reusing it silently sent an Anthropic model "
+                "id to the NVIDIA endpoint. (ANTHROPIC_API_KEY *is* still used: "
+                "nvidia-inference is NVIDIA's Anthropic-compatible proxy and "
+                "that is its credential.)",
                 file=sys.stderr,
             )
         return 1

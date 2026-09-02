@@ -192,19 +192,35 @@ def test_nemoclaw_nvidia_inference_requires_an_explicit_model() -> None:
         model_config.resolve_model_config(env)
 
 
-def test_nemoclaw_does_not_reuse_the_anthropic_ci_key() -> None:
-    """skills-eval.yml overwrites ANTHROPIC_API_KEY with the GitHub secret, so
-    reusing it here transmitted the Anthropic CI credential to NVIDIA."""
-    env = {
+def test_nemoclaw_resolves_the_proxy_key_from_anthropic_api_key() -> None:
+    """`nvidia-inference` is NVIDIA's Anthropic-compatible proxy, so
+    ANTHROPIC_API_KEY is its credential — not a vendor key leaking to a third
+    party. Dropping it from this chain broke NemoClaw onboarding with HTTP 401
+    on run 33585455113; the model chain is where reuse actually had to stop.
+    """
+    config = model_config.resolve_model_config({
+        "EVAL_AGENT": "nemoclaw",
+        "SKILLS_EVAL_PROVIDER": "nvidia-inference",
+        "SKILLS_EVAL_MODEL": "aws/anthropic/bedrock-claude-opus-5",
+        "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "nvidia-proxy-key",
+    })
+
+    assert config.api_key == "nvidia-proxy-key"
+    assert config.model == "aws/anthropic/bedrock-claude-opus-5"
+
+
+def test_compatible_api_key_still_wins_for_nemoclaw() -> None:
+    config = model_config.resolve_model_config({
         "EVAL_AGENT": "nemoclaw",
         "SKILLS_EVAL_PROVIDER": "nvidia-inference",
         "SKILLS_EVAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
-        "ANTHROPIC_API_KEY": "sk-ant-ci-secret",
-    }
+        "ANTHROPIC_API_KEY": "proxy-key",
+        "COMPATIBLE_API_KEY": "nvapi-preferred",
+    })
 
-    with pytest.raises(ValueError, match="no API key is configured"):
-        model_config.resolve_model_config(env)
+    assert config.api_key == "nvapi-preferred"
 
 
 def test_codex_still_resolves_through_anthropic_api_key() -> None:
