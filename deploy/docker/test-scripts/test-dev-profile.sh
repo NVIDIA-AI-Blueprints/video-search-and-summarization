@@ -1404,6 +1404,7 @@ for _spec in "${_shared_service_env_specs[@]}"; do
 done
 _nvstreamer_base_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/base.yml"
 _nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
+_nvstreamer_vios_compose="${REPO_ROOT}/deploy/docker/services/vios/streamprocessing/docker-compose.yaml"
 if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_base_compose}"; then
   echo "FAIL: shared NVStreamer base Compose should define nvstreamer-base"
   ((_split_failed++)) || true
@@ -1457,6 +1458,18 @@ if grep -Fq 'deploy/docker/developer-profiles/dev-profile-alerts/compose.yml' "$
 fi
 if grep -Fq './nvstreamer/configs/' "${_nvstreamer_skill_reference}"; then
   echo "FAIL: VIOS integration skill should not use retired profile-local NVStreamer config mounts"
+  ((_split_failed++)) || true
+fi
+if grep -Fq 'file: base.yml' "${_nvstreamer_skill_reference}" || grep -Fq '"your-profile-flag"' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should select the shared NVStreamer profile instead of copying its Compose definition"
+  ((_split_failed++)) || true
+fi
+if ! grep -Fq 'COMPOSE_PROFILES=<existing-profile-list>,nvstreamer-alerts' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should select the shared nvstreamer-alerts profile"
+  ((_split_failed++)) || true
+fi
+if ! grep -A4 -E '^  vios-apt-cache-init:' "${_nvstreamer_vios_compose}" | grep -Fq '"nvstreamer-alerts"'; then
+  echo "FAIL: vios-apt-cache-init should activate with the nvstreamer-alerts profile"
   ((_split_failed++)) || true
 fi
 if [[ ${_split_failed} -eq 0 ]]; then

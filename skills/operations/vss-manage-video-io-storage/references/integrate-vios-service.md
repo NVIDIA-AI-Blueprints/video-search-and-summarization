@@ -434,25 +434,14 @@ services:
 
 (Full upstream definitions live in `deploy/docker/services/vios/{foundational,initiator,streamprocessing}/docker-compose.yaml` + `deploy/docker/services/infra/sdrc/docker-compose.yaml`. Container names use the canonical `vss-vios-*` form, NOT the legacy `*-dev` form. The deprecated `services/vios/sdr/streamprocessing/` tree has been removed — streamprocessing now lives directly under `services/vios/streamprocessing/`, with the legacy `envoy.yaml` + `sdr-config/` bind sources gone.)
 
-For Topology B (NvStreamer file-driven), reuse the centralized `nvstreamer-alerts` service from `deploy/docker/services/nvstreamer/compose.yml` instead of defining a profile-local service. Add the consuming deployment's profile flag to a patched copy:
+For Topology B (NvStreamer file-driven), reuse the centralized `nvstreamer-alerts` service from `deploy/docker/services/nvstreamer/compose.yml` instead of copying or patching its service definition. Add the existing `nvstreamer-alerts` profile to the consuming deployment and launch from the top-level `deploy/docker/compose.yml`:
 
-```yaml
-# deploy/docker/services/nvstreamer/compose.yml
-services:
-  nvstreamer-alerts:
-    extends:
-      file: base.yml
-      service: nvstreamer-base
-    profiles: !override ["nvstreamer-alerts", "your-profile-flag"]
-    volumes:
-      - ${NVSTREAMER_ALERTS_VIDEO_DIR:-${NVSTREAMER_VIDEO_DIR:-${VSS_DATA_DIR}}/videos/dev-profile-alerts}:/home/vst/vst_release/streamer_videos
-      - ${VSS_DATA_DIR}/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
+```dotenv
+COMPOSE_PROFILES=<existing-profile-list>,nvstreamer-alerts
+NVSTREAMER_ALERTS_VIDEO_DIR=${VSS_DATA_DIR}/videos/<profile-name>
 ```
 
-The image, ports, environment, and configuration mounts are inherited from `deploy/docker/services/nvstreamer/base.yml`. By default, the configuration files come from `${VSS_APPS_DIR}/services/nvstreamer/configs`; set `NVSTREAMER_CONFIG_DIR` only when the deployment requires a custom `vst-config.json`.
+The image, ports, environment, and configuration mounts are inherited from `deploy/docker/services/nvstreamer/base.yml`. By default, the configuration files come from `${VSS_APPS_DIR}/services/nvstreamer/configs`; set `NVSTREAMER_CONFIG_DIR` only when the deployment requires a custom `vst-config.json`. The shared `vios-apt-cache-init` dependency carries the same `nvstreamer-alerts` profile, so selecting this existing profile activates both services.
 
 Both topologies emit the same `camera_streaming` Kafka/Redis event downstream.
 
