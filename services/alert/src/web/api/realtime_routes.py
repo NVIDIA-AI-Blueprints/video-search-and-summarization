@@ -33,6 +33,7 @@ tests) without going through HTTP.
 """
 
 import json
+import threading
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -55,6 +56,8 @@ from ..schemas.realtime_schemas import (
     RealtimeAlertResponse,
     RealtimeReplayResponse,
 )
+from realtime.config import ErrorCode
+from realtime.services.elastic_factory import build_elastic_client
 from realtime import (
     AlertRuleConfig,
     AlwaysOnReason,
@@ -145,61 +148,38 @@ def _always_on_response(
 # ---------------------------------------------------------------------------
 
 
-@lru_cache()
+_ELASTIC_CLIENT = None
+_ELASTIC_CLIENT_LOCK = threading.Lock()
+
+
 def get_elastic_client():
     """Shared Elasticsearch client for the realtime API.
 
-    Returns None if ES is disabled in config, allowing the service to
-    return 503 gracefully.
+    Delegates so the folding job, which runs in the pipeline process and cannot
+    import the web layer, builds its client from the same configuration.
+    Returns None if ES is disabled, letting callers answer 503 rather than
+    pretending the store is empty.
+
+    Only a *successful* build is remembered. Memoising the failure — which an
+    ``lru_cache`` here did — pins every route that depends on this at 503 for
+    the life of the process because one request happened to arrive during an
+    Elasticsearch restart, long after the cluster is healthy again. The retry
+    costs one connection attempt per request while the cluster is down, which
+    is the state in which nothing else is happening anyway.
     """
-    config = load_config()
-    es_cfg = config.get("elastic", {}) or {}
+    global _ELASTIC_CLIENT
 
-    if not es_cfg.get("enabled", False):
-        return None
-
-    hosts_config = es_cfg.get("hosts", [])
-    if isinstance(hosts_config, str):
-        hosts = (hosts_config,)
-    elif isinstance(hosts_config, (list, tuple)):
-        hosts = tuple(str(h).strip() for h in hosts_config if h)
-    else:
-        hosts = tuple()
-
-    if not hosts:
-        logger.warning("Elasticsearch enabled but no hosts configured")
-        return None
-
-    try:
-        from clients.elastic import ElasticClient, ElasticConfig
-
-        return ElasticClient(
-            config=ElasticConfig(
-                hosts=hosts,
-                username=es_cfg.get("username"),
-                password=es_cfg.get("password"),
-                api_key=es_cfg.get("api_key"),
-                verify_certs=es_cfg.get("verify_certs", False),
-                ca_certs=es_cfg.get("ca_certs"),
-                request_timeout=es_cfg.get("request_timeout", 10),
-            )
-        )
-    except ConnectionError as exc:
-        logger.error(
-            "Elasticsearch cluster unreachable at %s: %s", hosts, exc
-        )
-        return None
-    except (ValueError, TypeError) as exc:
-        logger.error(
-            "Invalid Elasticsearch configuration: %s", exc
-        )
-        return None
-    except Exception:
-        logger.exception("Unexpected error creating Elasticsearch client")
-        return None
+    if _ELASTIC_CLIENT is not None:
+        return _ELASTIC_CLIENT
+    # This runs on the anyio worker threadpool, so N concurrent first requests
+    # would otherwise each build a client with its own connection pool, and all
+    # but one would be orphaned with nothing left to close it.
+    with _ELASTIC_CLIENT_LOCK:
+        if _ELASTIC_CLIENT is None:
+            _ELASTIC_CLIENT = build_elastic_client()
+    return _ELASTIC_CLIENT
 
 
-@lru_cache()
 def get_rule_store() -> Optional[RuleStore]:
     """Build the :class:`ESRuleStore` backed by the shared persistence layer.
 
@@ -231,6 +211,9 @@ def get_rule_store() -> Optional[RuleStore]:
         )
         return None
 
+    # Not cached, for the same reason as :func:`get_incident_service`: a
+    # store built while Elasticsearch was briefly unreachable would otherwise
+    # be memoised, and every later request would keep using it.
     es_client = get_elastic_client()
     store = create_persistence_store(config, es_client=es_client)
 
@@ -276,8 +259,17 @@ def get_always_on_service() -> AlwaysOnService:
 
 
 @lru_cache()
-def get_incident_service() -> IncidentService:
-    """Create IncidentService with shared ES client."""
+def _incident_service_settings():
+    """The parts of the incident service that come from the config file.
+
+    Cached separately from the service itself so the client is resolved per
+    request: memoising the service captures whatever ``get_elastic_client``
+    returned the first time it was called, which for one request arriving
+    during an Elasticsearch restart is ``None`` — and every later request then
+    gets that same ``None``-backed service, for the life of the process. That
+    is the failure ``get_elastic_client`` stopped memoising in order to avoid,
+    and caching here instead of there simply moved it.
+    """
     config = load_config()
     sink_cfg = config.get("vlm_enhanced_sink", {})
     incident_cfg = sink_cfg.get("incident", {})
@@ -286,7 +278,12 @@ def get_incident_service() -> IncidentService:
         index_base = incident_cfg.get("elastic", {}).get("index", index_base)
 
     consolidation = config.get("rtvi_vlm", {}).get("consolidation", {})
+    return index_base, consolidation
 
+
+def get_incident_service() -> IncidentService:
+    """Create IncidentService with the shared ES client, resolved per request."""
+    index_base, consolidation = _incident_service_settings()
     return IncidentService(
         es_client=get_elastic_client(),
         index_base=index_base,
@@ -632,7 +629,7 @@ async def list_incidents(
             status_code=400,
             content={
                 "status": "error",
-                "error": "validation_failed",
+                "error": ErrorCode.VALIDATION_FAILED,
                 "message": (
                     "consolidate=true requires both start_time and end_time "
                     "(a bounded time window)"
