@@ -14,6 +14,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlparse
 
 import yaml
 
@@ -39,6 +40,12 @@ FILE_TARGET_SUFFIXES = {
 GENERATED_BIND_NAMES = {".wdm-env"}
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
+AGENT_BACKEND_SCHEMES = {
+    "openclaw-ws": frozenset({"ws", "wss"}),
+    "responses": frozenset({"http", "https"}),
+    "legacy-chat": frozenset({"http", "https"}),
+}
+TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
@@ -83,6 +90,98 @@ def iter_env(service: dict[str, Any]) -> Iterator[tuple[str, Any]]:
             if isinstance(item, str):
                 key, separator, value = item.partition("=")
                 yield key, (value if separator else None)
+
+
+def _absolute_url_error(
+    value: Any,
+    name: str,
+    schemes: frozenset[str],
+) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return f"{name} must resolve to a non-empty absolute URL"
+
+    try:
+        parsed = urlparse(value.strip())
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        allowed = ", ".join(sorted(schemes))
+        return f"{name} must be an absolute URL with scheme {allowed}"
+    if parsed.scheme not in schemes or not parsed.netloc or not hostname:
+        allowed = ", ".join(sorted(schemes))
+        return f"{name} must be an absolute URL with scheme {allowed}"
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        return f"{name} must not contain credentials, a query, or a fragment"
+    return None
+
+
+def _is_true(value: Any) -> bool:
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().lower() in TRUE_VALUES
+
+
+def agent_gateway_errors(document: dict[str, Any]) -> list[str]:
+    """Validate the cross-service contract for external chat ownership."""
+
+    services = document.get("services") or {}
+    gateway = services.get("agent-gateway")
+    if not isinstance(gateway, dict):
+        return []
+
+    errors: list[str] = []
+    gateway_env = dict(iter_env(gateway))
+    protocol_value = gateway_env.get("AGENT_BACKEND_PROTOCOL")
+    protocol = (
+        protocol_value.strip().lower()
+        if isinstance(protocol_value, str)
+        else ""
+    )
+    if protocol not in AGENT_BACKEND_SCHEMES:
+        supported = ", ".join(sorted(AGENT_BACKEND_SCHEMES))
+        errors.append(
+            "service 'agent-gateway' environment 'AGENT_BACKEND_PROTOCOL' "
+            f"must be one of: {supported}"
+        )
+    backend_schemes = AGENT_BACKEND_SCHEMES.get(
+        protocol, frozenset({"http", "https", "ws", "wss"})
+    )
+    backend_error = _absolute_url_error(
+        gateway_env.get("AGENT_BACKEND_URL"),
+        "service 'agent-gateway' environment 'AGENT_BACKEND_URL'",
+        backend_schemes,
+    )
+    if backend_error:
+        errors.append(backend_error)
+
+    ui = services.get("vss-ui")
+    if not isinstance(ui, dict):
+        errors.append(
+            "service 'agent-gateway' requires service 'vss-ui' as its chat surface"
+        )
+        return errors
+
+    ui_env = dict(iter_env(ui))
+    gateway_url_error = _absolute_url_error(
+        ui_env.get("AGENT_GATEWAY_URL"),
+        "service 'vss-ui' environment 'AGENT_GATEWAY_URL'",
+        frozenset({"http", "https"}),
+    )
+    if gateway_url_error:
+        errors.append(gateway_url_error)
+    if not _is_true(ui_env.get("NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT")):
+        errors.append(
+            "service 'vss-ui' environment "
+            "'NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT' must resolve true when "
+            "agent-gateway is present"
+        )
+    if not _is_true(ui_env.get("NEXT_PUBLIC_ENABLE_CHAT_TAB")):
+        errors.append(
+            "service 'vss-ui' environment 'NEXT_PUBLIC_ENABLE_CHAT_TAB' must "
+            "resolve true when agent-gateway owns chat"
+        )
+
+    return errors
 
 
 def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[str]:
@@ -168,6 +267,7 @@ def validate_document(
             )
 
     errors.extend(secret_errors(document, extra_required or set()))
+    errors.extend(agent_gateway_errors(document))
 
     return errors
 
@@ -215,7 +315,8 @@ def main() -> None:
 
     print(
         f"Validated {args.resolved_yml}: no stale placeholders, invalid "
-        "checked-in bind sources, or empty mode-required credentials"
+        "checked-in bind sources, empty mode-required credentials, or invalid "
+        "external-agent routing"
     )
 
 

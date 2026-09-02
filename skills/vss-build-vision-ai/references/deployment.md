@@ -40,6 +40,14 @@ env_args=(
   --env-file "$BUILD_DIR/override.env"
 )
 
+if [[ -f "$BUILD_DIR/agent-gateway.env" ]]; then
+  [[ "$(stat -c '%a' "$BUILD_DIR/agent-gateway.env")" == "600" ]] || {
+    echo "agent-gateway.env must have mode 0600" >&2
+    exit 1
+  }
+  env_args+=(--env-file "$BUILD_DIR/agent-gateway.env")
+fi
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
@@ -82,6 +90,12 @@ build's own `override.env` — and do **not** pass `--profile`: `resolved.yml` i
 already self-contained, and re-reading any env file or supplying a profile flag
 re-injects `COMPOSE_PROFILES`/`FOUNDATION` and breaks the runtime deploy
 contract.
+
+`agent-gateway.env`, when present, is likewise a resolution-only input. It
+contains the external harness credential, gateway credential, and verified VSS
+capability receipt. Never source it, print it, commit it, or pass it to `pull`,
+`up`, `ps`, or `down`; its values are already baked into the mode-`0600`
+`resolved.yml`.
 
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
 `docker compose config` baked the project `name`, each service `env_file`, and

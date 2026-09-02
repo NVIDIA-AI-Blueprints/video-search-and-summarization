@@ -16,10 +16,12 @@ orchestration, its own agent REST API, video-analytics MCP, Web UI, and tracing.
 Its public front door is a separate owner (`ingress.md`), so browse ingress can
 be requested without this tier.
 
-As a capability owner the agent is reached only by **agentic orchestration** — a
-request that needs an LLM to plan across tools and services (the agent's
-`/generate`), or an explicit request for the agent REST API, video-analytics
-MCP, Web UI, or tracing. It is **not** reached by two verb classes that look
+As a capability owner the built-in agent is reached by **agentic
+orchestration** only after the user explicitly selects **Built-in VSS Agent** at
+the Q3 chat-owner gate, or by an explicit request for its `/generate` REST API.
+Generic agentic or Web UI chat intent goes to Q3 and must not inherit this owner
+from the Foundation. The owner is also reached by an explicit request for
+video-analytics MCP or tracing. It is **not** reached by two verb classes that look
 interactive but are served elsewhere: (a) structured or programmatic query,
 retrieval, and browse — owned by Elasticsearch with the host-CLI read path
 (`vss configure` / `vss search run`), Kibana for dashboards, and each backend's
@@ -37,8 +39,10 @@ Video-analytics MCP (`vss-va-mcp`), Web UI (`vss-ui`), and tracing (`phoenix`)
 are independently gated: each is reached only by an explicit request for that
 surface, carries no capability another owner needs, and is never retained merely
 because `vss-agent` — or a Foundation that ships it — is present. Prune each
-unless itself requested. The video-analytics MCP is an agent-tier tool surface;
-browsing or operating analytics is served elsewhere and does not reach it.
+unless itself requested. When Web UI chat is requested, Q3 selects either this
+built-in owner or the external gateway owner; `vss-ui` alone never decides.
+The video-analytics MCP is an agent-tier tool surface; browsing or operating
+analytics is served elsewhere and does not reach it.
 
 ## Required peers
 
