@@ -262,7 +262,7 @@ the better option for latency — see
   crash-loops on missing `libnvbufsurface.so.1.0.0` / `libnvrm_mem.so`. When
   writing the build override for `HARDWARE_PROFILE=DGX-SPARK`, set each image
   tag to its `-sbsa` variant (the commented
-  `# …-sbsa` line in the profile's `.env`): `RTVI_VLM_IMAGE_TAG` (RT-VLM),
+  `# …-sbsa` line in the profile's `.env`): `VSS_RT_VLM_TAG` (RT-VLM),
   `VSS_RT_CV_TAG` (RT-CV), and `LVS_TAG` (LVS).
 - **The FP8 fallback is raw vLLM, not a NIM.** This applies only if you select
   it with `--llm`; the default Lightning NIM reads its `NIM_*` keys normally. On
