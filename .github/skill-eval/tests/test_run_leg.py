@@ -340,6 +340,39 @@ class HarborEnvironment(unittest.TestCase):
 
         self.assertEqual(int(env["BREV_EXEC_TIMEOUT"]), configured)
 
+    def test_local_gpu_pin_uses_runner_name_not_brev_pool(self):
+        with mock.patch.dict(
+            run_leg.os.environ,
+            {"SKILL_EVAL_LOCAL_GPU": "1", "RUNNER_NAME": "gpu-node-h200nvl-2"},
+            clear=False,
+        ):
+            self.assertEqual(
+                run_leg.resolve_instance_pin(
+                    "vss-eval-rtx-1g", {"brev_instance": "vss-eval-l40s"},
+                ),
+                "gpu-node-h200nvl-2",
+            )
+
+    def test_local_gpu_pin_falls_back_to_local(self):
+        env = {
+            k: v for k, v in os.environ.items()
+            if k not in {"SKILL_EVAL_LOCAL_GPU", "RUNNER_NAME", "BREV_INSTANCE"}
+        }
+        env["SKILL_EVAL_LOCAL_GPU"] = "1"
+        with mock.patch.dict(run_leg.os.environ, env, clear=True):
+            self.assertEqual(run_leg.resolve_instance_pin(None, {}), "local")
+
+    def test_pool_pin_unchanged_without_local_gpu(self):
+        with mock.patch.dict(
+            run_leg.os.environ, {"SKILL_EVAL_LOCAL_GPU": ""}, clear=False,
+        ):
+            self.assertEqual(
+                run_leg.resolve_instance_pin(
+                    None, {"brev_instance": "vss-eval-l40s"},
+                ),
+                "vss-eval-l40s",
+            )
+
     def test_transfer_timeout_overrides_a_larger_inherited_cap(self):
         with mock.patch.dict(
             run_leg.os.environ,

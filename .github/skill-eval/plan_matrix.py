@@ -25,13 +25,11 @@ A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
 of an adapterless skill don't race to commit it N times.
 
-Each leg also carries `runs_on`: the runner label set implied by the
-spec's own `resources.platforms.<PLATFORM>` block (see runs_on_labels).
-This resolves the spec -> hardware mapping at PLAN time, where today
-run_leg.py re-derives it at LEG time from `brev ls` under a flock.
-Nothing consumes `runs_on` yet — it is emitted so the mapping can be
-reviewed against current placement before the GPU boxes are registered
-as runners in their own right.
+Each leg also carries `runs_on` (full label set) and `gpu_runner` (the
+single SKU label Skills Eval Daily uses as `runs-on`). Both come from
+the spec's `resources.platforms.<PLATFORM>` block (see runs_on_labels /
+gpu_runner_label). That mapping is resolved at PLAN time so an RTX
+leg cannot land on an H200 NVL host.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
@@ -166,8 +164,13 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
 # and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
 # .github/skill-eval/adapters/*/generate.py.
+# OpenShell H200 NVL VMs advertise `gpu-h200-nvl` (pool) or
+# `gpu-node-h200nvl-N` (one box). The pool label is what the daily
+# workflow's eval job asks for; do not send RTXPRO6000BW legs there.
 PLATFORM_LABELS: dict[str, str | None] = {
     "H100": "gpu-h100",
+    "H200": "gpu-h200-nvl",
+    "H200NVL": "gpu-h200-nvl",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
     "DGX-SPARK": "gpu-dgx-spark",
@@ -236,6 +239,22 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
             labels.append(label)
     labels.append(f"gpus-{count}")
     return labels
+
+
+def gpu_runner_label(platform: str, config: dict | None) -> str:
+    """Single Actions `runs-on` label for one matrix leg.
+
+    OpenShell GPU VMs match on the SKU label alone (`gpu-h200-nvl`,
+    `gpu-rtxpro6000bw`, …). The fuller `runs_on` set still includes
+    `self-hosted` / `vss-eval` / `gpus-N`, which that fleet does not
+    advertise — consuming it would queue forever or, with a hardcoded
+    cohort, land the wrong SKU.
+    """
+    count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
+    if count <= 0 or not platform:
+        return "ubuntu-latest"
+    label = _platform_label(platform)
+    return label or "ubuntu-latest"
 
 
 def list_changed_files() -> list[str]:
@@ -435,6 +454,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
                 "runs_on": list(BASE_LABELS),
+                "gpu_runner": "ubuntu-latest",
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
@@ -452,6 +472,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
                     "runs_on": runs_on_labels(
+                        platform, platform_config.get(platform)
+                    ),
+                    "gpu_runner": gpu_runner_label(
                         platform, platform_config.get(platform)
                     ),
                 })
@@ -505,7 +528,11 @@ def emit(include: list[dict]) -> None:
         # without it must not fail the plan — unlike slug, which is checked
         # strictly above because downstream paths depend on it.
         runs_on = " ".join(leg.get("runs_on") or []) or "-"
-        print(f"  - {leg['name']}  [{leg['kind']}]  runs_on={runs_on}")
+        gpu_runner = leg.get("gpu_runner") or "-"
+        print(
+            f"  - {leg['name']}  [{leg['kind']}]  "
+            f"gpu_runner={gpu_runner}  runs_on={runs_on}"
+        )
     print(f"matrix={matrix}")
 
 

@@ -29,6 +29,7 @@ import logging
 import os
 from pathlib import Path
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -42,6 +43,26 @@ logger = logging.getLogger(__name__)
 # The pre-existing Brev instance to connect to.
 # CLI env var > task.toml metadata > None (error).
 DEFAULT_INSTANCE = os.environ.get("BREV_INSTANCE")
+
+# When set, Harbor exec/copy run on this process's host (the OpenShell GHA
+# guest) instead of `brev exec` to a vss-eval-* worker. GitHub already
+# placed the job on the matching SKU via matrix.gpu_runner.
+_LOCAL_GPU_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def local_gpu_enabled() -> bool:
+    raw = os.environ.get("SKILL_EVAL_LOCAL_GPU", "").strip().lower()
+    return raw in _LOCAL_GPU_TRUTHY
+
+
+def local_gpu_instance_name() -> str:
+    """Lock / BREV_INSTANCE name for a local-GPU guest (no slashes)."""
+    raw = (
+        os.environ.get("RUNNER_NAME")
+        or os.environ.get("BREV_INSTANCE")
+        or "local"
+    ).strip() or "local"
+    return raw.replace("/", "-")
 
 # Timeout for brev exec commands (seconds).  Set high for long deploys.
 BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
@@ -109,7 +130,8 @@ class BrevEnvironment(BaseEnvironment):
 
     Lifecycle:
         start()    → validate instance is reachable (no provisioning)
-        exec()     → brev exec <instance> <command>
+        exec()     → brev exec <instance> <command> (or local bash when
+                     SKILL_EVAL_LOCAL_GPU is set)
         upload()   → brev copy local:<path> <instance>:<path>
         download() → brev copy <instance>:<path> local:<path>
         stop()     → no-op (instance stays running for reuse)
@@ -137,6 +159,8 @@ class BrevEnvironment(BaseEnvironment):
         return False
 
     def _validate_definition(self) -> None:
+        if local_gpu_enabled():
+            return
         if not _which("brev"):
             raise RuntimeError(
                 "brev CLI not found. Install from https://docs.brev.dev/"
@@ -156,6 +180,8 @@ class BrevEnvironment(BaseEnvironment):
 
     def _resolve_instance_name(self) -> str | None:
         """Resolve instance name: env var > task.toml > None (error)."""
+        if local_gpu_enabled():
+            return local_gpu_instance_name()
         if DEFAULT_INSTANCE:
             return DEFAULT_INSTANCE
         meta = self._read_task_metadata()
@@ -181,7 +207,13 @@ class BrevEnvironment(BaseEnvironment):
 
         self._instance_name = self._resolve_instance_name()
 
-        if self._instance_name:
+        if local_gpu_enabled() and self._instance_name:
+            logger.info(
+                "Local-GPU mode: Harbor worker is this host (%s); "
+                "skipping brev ls. Task requirements %s still checked live.",
+                self._instance_name, requirements,
+            )
+        elif self._instance_name:
             # Mode 1: validate existing instance's GPU fits task requirements
             logger.info("Validating Brev instance '%s' against task requirements %s",
                         self._instance_name, requirements)
@@ -1753,6 +1785,70 @@ async def _run_scp(
     )
 
 
+def _copy_endpoint_path(endpoint: str) -> Path:
+    """Map a brev-copy endpoint (`local:/x`, `instance:/x`, or `/x`) to a path."""
+    if endpoint.startswith("local:"):
+        return Path(endpoint[6:])
+    if ":" in endpoint and not endpoint.startswith("/"):
+        host, _, rest = endpoint.partition(":")
+        if host and "/" not in host and rest:
+            return Path(rest)
+    return Path(endpoint)
+
+
+async def _run_local_exec(command: str, timeout: int) -> ExecResult:
+    """Run a Harbor command on this GHA guest instead of `brev exec`."""
+    logger.debug("local exec: %s", command[:200])
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "-c", command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    _register_transport_process(proc)
+    try:
+        stdout, stderr = await _communicate_with_cancellation_cleanup(
+            proc,
+            input_data=b"\n",
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        _kill_proc_group(proc)
+        stdout, stderr = await proc.communicate()
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="Command timed out",
+            return_code=124,
+        )
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
+async def _run_local_copy(src: str, dst: str, timeout: int) -> ExecResult:
+    src_p = _copy_endpoint_path(src)
+    dst_p = _copy_endpoint_path(dst)
+
+    def _do() -> None:
+        dst_p.parent.mkdir(parents=True, exist_ok=True)
+        if src_p.is_dir():
+            shutil.copytree(src_p, dst_p, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src_p, dst_p)
+
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_do), timeout=timeout)
+        return ExecResult(stdout="", stderr=None, return_code=0)
+    except Exception as exc:  # noqa: BLE001 — map to Harbor ExecResult
+        logger.warning("local copy %s -> %s failed: %s", src_p, dst_p, exc)
+        return ExecResult(
+            stdout=None, stderr=str(exc), return_code=1,
+        )
+
+
 async def _run_brev_exec(
     instance: str,
     command: str,
@@ -1767,16 +1863,17 @@ async def _run_brev_exec(
     a single command string.  Stdin is piped with empty input so the
     brev CLI doesn't enter interactive mode.
     """
+    command = f". ~/.eval_env 2>/dev/null || true; {command}"
+    if local_gpu_enabled():
+        return await _run_local_exec(command, timeout)
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
-        command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
     # are invisible to every command. Source it inline, same as SSH nodes.
-    command = f". ~/.eval_env 2>/dev/null || true; {command}"
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
     logger.debug("brev exec: %s", command[:200])
@@ -1843,6 +1940,8 @@ async def _run_brev_copy_once(
     For registered external nodes, transparently falls back to ``scp``
     using the ssh alias (same host:path convention, just with lowercase
     name)."""
+    if local_gpu_enabled():
+        return await _run_local_copy(src, dst, timeout)
     # Detect registered-node endpoint on either side: "<name>:<path>"
     for endpoint in (src, dst):
         if ":" not in endpoint:

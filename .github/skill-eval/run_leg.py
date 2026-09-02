@@ -381,6 +381,8 @@ def harbor_env(instance: str) -> dict[str, str]:
     env["PATH"] = f"{Path.home() / '.local' / 'bin'}:{env.get('PATH', '')}"
     env["BREV_INSTANCE"] = instance
     env["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+    if os.environ.get("SKILL_EVAL_LOCAL_GPU"):
+        env["SKILL_EVAL_LOCAL_GPU"] = os.environ["SKILL_EVAL_LOCAL_GPU"]
     try:
         configured_brev_timeout = int(env.get("BREV_EXEC_TIMEOUT", "0"))
     except ValueError as exc:
@@ -1558,6 +1560,25 @@ def run_invocations(
     return overall_rc
 
 
+def local_gpu_enabled() -> bool:
+    raw = os.environ.get("SKILL_EVAL_LOCAL_GPU", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def resolve_instance_pin(
+    args_instance: str | None, metadata: dict,
+) -> str | None:
+    """CLI/--instance > local-GPU guest > task.toml brev_instance > pool."""
+    if local_gpu_enabled():
+        raw = (
+            os.environ.get("RUNNER_NAME")
+            or args_instance
+            or "local"
+        ).strip() or "local"
+        return raw.replace("/", "-")
+    return args_instance or metadata.get("brev_instance") or None
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1649,9 +1670,10 @@ def main(argv: list[str] | None = None) -> int:
                 "whole-leg deadline cannot fit one complete Harbor invocation"
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
-        # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
-        # > task.toml brev_instance > pool selection.
-        pinned = args.instance or metadata.get("brev_instance") or None
+        # Pin precedence: local-GPU guest (this OpenShell VM) >
+        # CLI/--instance (incl. BREV_INSTANCE env default) >
+        # task.toml brev_instance > pool selection.
+        pinned = resolve_instance_pin(args.instance, metadata)
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)

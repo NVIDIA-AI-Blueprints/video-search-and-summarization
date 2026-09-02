@@ -142,10 +142,37 @@ class RunsOnLabels(unittest.TestCase):
         )
 
     def test_every_known_platform_has_a_label(self):
-        for platform in ("H100", "L40S", "RTXPRO6000BW", "DGX-SPARK", "IGX-THOR"):
+        for platform in (
+            "H100", "H200", "H200NVL", "L40S", "RTXPRO6000BW",
+            "DGX-SPARK", "IGX-THOR",
+        ):
             labels = plan_matrix.runs_on_labels(platform, {"gpu_count": 1})
             self.assertEqual(len(labels), 4, platform)
             self.assertTrue(labels[2].startswith("gpu-"), platform)
+
+    def test_h200_nvl_uses_the_openshell_sku_label(self):
+        self.assertEqual(
+            plan_matrix.gpu_runner_label("H200NVL", {"gpu_count": 1}),
+            "gpu-h200-nvl",
+        )
+        self.assertEqual(
+            plan_matrix.gpu_runner_label("H200", {"gpu_count": 1}),
+            "gpu-h200-nvl",
+        )
+
+    def test_gpu_runner_is_the_sku_label_only(self):
+        self.assertEqual(
+            plan_matrix.gpu_runner_label("RTXPRO6000BW", {"gpu_count": 2}),
+            "gpu-rtxpro6000bw",
+        )
+        self.assertEqual(
+            plan_matrix.gpu_runner_label("RTXPRO6000BW", {"gpu_count": 0}),
+            "ubuntu-latest",
+        )
+        self.assertEqual(
+            plan_matrix.gpu_runner_label("ANY", {"gpu_count": 1}),
+            "ubuntu-latest",
+        )
 
 
 class EvalScope(unittest.TestCase):
@@ -333,6 +360,7 @@ class BuildMatrix(unittest.TestCase):
         self.assertEqual(inc[0]["slug"], "vss-no-adapter__missing-adapter")
         # Commits an adapter, runs no trial — must not claim a GPU.
         self.assertEqual(inc[0]["runs_on"], ["self-hosted", "vss-eval"])
+        self.assertEqual(inc[0]["gpu_runner"], "ubuntu-latest")
 
     def test_every_leg_carries_runs_on(self):
         inc = plan_matrix.build_matrix([
@@ -343,11 +371,13 @@ class BuildMatrix(unittest.TestCase):
         for leg in inc:
             self.assertIn("runs_on", leg)
             self.assertEqual(leg["runs_on"][:2], ["self-hosted", "vss-eval"])
+            self.assertIn("gpu_runner", leg)
 
     def test_runs_on_tracks_the_spec_declaration(self):
         plan_matrix.spec_platform_config = lambda p: {
             "L40S": {"gpu_count": 1},
             "RTXPRO6000BW": {"gpu_count": 2},
+            "H200NVL": {"gpu_count": 1},
         }
         inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(
@@ -357,6 +387,15 @@ class BuildMatrix(unittest.TestCase):
                 "RTXPRO6000BW": [
                     "self-hosted", "vss-eval", "gpu-rtxpro6000bw", "gpus-2",
                 ],
+                "H200NVL": ["self-hosted", "vss-eval", "gpu-h200-nvl", "gpus-1"],
+            },
+        )
+        self.assertEqual(
+            {leg["platform"]: leg["gpu_runner"] for leg in inc},
+            {
+                "L40S": "gpu-l40s",
+                "RTXPRO6000BW": "gpu-rtxpro6000bw",
+                "H200NVL": "gpu-h200-nvl",
             },
         )
 

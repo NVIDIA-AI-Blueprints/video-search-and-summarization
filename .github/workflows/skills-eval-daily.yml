@@ -76,7 +76,7 @@ jobs:
   # ---------------------------------------------------------------------
   resolve_ref:
     name: Resolve eval ref
-    runs-on: [openshell-h200nvl-active]
+    runs-on: [gpu-h200-nvl]
     timeout-minutes: 15
     outputs:
       ref: ${{ github.event_name == 'schedule' && steps.resolve.outputs.ref || github.ref }}
@@ -106,7 +106,7 @@ jobs:
   plan:
     name: Plan eval matrix
     needs: resolve_ref
-    runs-on: [openshell-h200nvl-active]
+    runs-on: [gpu-h200-nvl]
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -138,7 +138,10 @@ jobs:
     name: ${{ matrix.name }}
     needs: [resolve_ref, plan]
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [openshell-h200nvl-active]
+    # SKU label from plan_matrix.gpu_runner_label — RTXPRO6000BW ->
+    # gpu-rtxpro6000bw, H200/H200NVL -> gpu-h200-nvl. A hardcoded H200
+    # cohort would keep running RTX-tagged legs on the wrong SKU.
+    runs-on: ${{ matrix.gpu_runner }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
@@ -182,12 +185,37 @@ jobs:
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
-          # The runner host (vss-skill-validator-v2) keeps coordinator
-          # secrets in a single .env. Don't echo contents.
+          # OpenShell guests keep keys in $HOME/.eval_env. The coordinator
+          # host uses /home/ubuntu/eval-coordinator/.env, which this runner
+          # user cannot read (Permission denied). Don't echo contents.
+          env_file=""
+          for candidate in \
+            "${HOME}/.eval_env" \
+            "${HOME}/eval-coordinator/.env" \
+            /home/ubuntu/eval-coordinator/.env
+          do
+            if [ -r "$candidate" ]; then
+              env_file="$candidate"
+              break
+            fi
+          done
+          if [ -z "$env_file" ]; then
+            echo "No readable coordinator env for user $(id -un) HOME=${HOME}" >&2
+            for candidate in \
+              "${HOME}/.eval_env" \
+              "${HOME}/eval-coordinator/.env" \
+              /home/ubuntu/eval-coordinator/.env
+            do
+              ls -ld "$candidate" 2>&1 || true
+            done
+            exit 1
+          fi
           set -a
-          source /home/ubuntu/eval-coordinator/.env
+          # shellcheck disable=SC1090
+          source "$env_file"
           set +a
           printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          printf "COORDINATOR_ENV_FILE=%s\n" "$env_file" >> "$GITHUB_ENV"
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
 
       - name: Run skills eval agent (single spec)
@@ -215,7 +243,8 @@ jobs:
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           set -a
-          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          # shellcheck disable=SC1090
+          source "${COORDINATOR_ENV_FILE:?}"   # Anthropic / NGC / Brev
           set +a
           # Keep the per-leg venv ahead of any operator-provided PATH so the
           # SDK's Bash children resolve adapters and run_leg.py with 3.12.
@@ -231,6 +260,12 @@ jobs:
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
           fi
+          # Harbor worker is this OpenShell GHA guest, not a Brev vss-eval-*
+          # box. Re-export after the coordinator .env so a leftover
+          # BREV_INSTANCE cannot send trials off-host. RUNNER_NAME is unique
+          # per VM so /tmp/brev/<name>.lock stays on this machine.
+          export SKILL_EVAL_LOCAL_GPU=1
+          export BREV_INSTANCE="${RUNNER_NAME:-local}"
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
           # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
