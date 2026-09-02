@@ -33,11 +33,11 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 
 # VSS Generate Video Calibration
 
-Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. Input collection differs per source; linear-media staging through results is shared and lives in this file. Pick the right input-mode reference and pair it with the [Shared Calibration Tail](#shared-calibration-tail) below.
+Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. The input-resolution work differs per source; everything from `verify_project` onward is identical and lives in this file. Pick the right input-mode reference and pair it with the [Shared Calibration Tail](#shared-calibration-tail) below.
 
 Shared helper references are loaded only when needed:
 - Read [`references/common-steps.md`](references/common-steps.md) when a mode reference needs the shared `create_project`, video-upload, or handoff snippets.
-- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the linear-media → verify → VGGT/post-process (when available) → AMC/post-process → results tail.
+- Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the stage-linear-media → verify → VGGT/post-process → AMC/post-process → compare-results tail.
 
 ## Input Routing
 
@@ -46,7 +46,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 | User says / has | Mode | Reference |
 |---|---|---|
 | "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib" / "start AMC microservice" | `deploy` | [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) |
-| "calibrate my videos" / "calibrate from video files" / local `cam_*.mp4` files | `videos` | [`references/videos.md`](references/videos.md) |
+| "calibrate my videos" / "calibrate from video files" / local MP4 files | `videos` | [`references/videos.md`](references/videos.md) |
 | "calibrate RTSP streams" / "calibrate from live cameras" / live RTSP URLs | `rtsp` | [`references/rtsp.md`](references/rtsp.md) |
 | "test sample dataset" / "verify AMC install" / "launch and test" | `sample-dataset` | [`references/sample-dataset.md`](references/sample-dataset.md) |
 
@@ -54,7 +54,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 
 ## Prerequisites (shared across calibration modes)
 
-- Platform preflight from [`references/deploy-auto-calibration-service.md` Step 0](references/deploy-auto-calibration-service.md#step-0--platform-preflight) passes before any AMC deploy or calibration API work. The calibration host needs `x86_64`, NVIDIA GPU access, and NVENC hardware encoder support. If the preflight fails, stop immediately, tell the user which requirement was not met, and ask them to provide an existing `calibration.json`, run calibration on a supported `x86_64` dGPU host, or transfer generated calibration artifacts. Do not continue AMC setup, VIOS probing, capture, upload, or calibration automatically. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
+- Platform preflight from [`references/deploy-auto-calibration-service.md` Step 0](references/deploy-auto-calibration-service.md#step-0--platform-preflight) passes before any AMC deploy or calibration API work. The calibration host needs Ubuntu 24.04 on `x86_64`, NVIDIA Driver 590 or newer, NVIDIA GPU access, and NVENC hardware encoder support. If the preflight fails, stop immediately, tell the user which requirement was not met, and ask them to provide an existing `calibration.json`, run calibration on a supported `x86_64` dGPU host, or transfer generated calibration artifacts. Do not continue AMC setup, VIOS probing, capture, upload, or calibration automatically. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
 - Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` → `{"code":0,...}`.
 - Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5--confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
@@ -64,22 +64,18 @@ Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) l
 
 ## Shared Calibration Tail
 
-The linear-media → verify → VGGT/post-process (when available) → AMC/post-process → results sequence is identical regardless of input mode. After the mode-specific reference has uploaded videos / ingested RTSP clips / uploaded the bundled sample, run this tail. Use [`references/calibration-tail.md`](references/calibration-tail.md) for the shared Python snippet.
+The shared sequence is stage-linear-media → verify → VGGT (when ready) → post-process → AMC → post-process → results. After the mode-specific reference has uploaded videos / automatically ingested RTSP clips / uploaded the bundled sample, run this tail. Use [`references/calibration-tail.md`](references/calibration-tail.md) for the shared Python snippet.
 
-AMC UI numbering is fixed: **1 Project Setup → 2 Video Configuration → 3 Parameters → 4 Rectification → 5 Manual Alignment → 6 Execute Calibration → 7 Results**. Skill Steps A–F below are shared API workflow labels, not replacement UI step numbers: A–B complete prerequisites for UI Step 6, C–F execute there, and review happens in UI Step 7.
+AMC UI sequence: Step 1 Project Setup, Step 2 Video Configuration, Step 3 Parameters, Step 4 Rectification, Step 5 Manual Alignment, Step 6 Execute, Step 7 Results.
 
 ### Step A — Stage Linear Media
 
 AMC v3.3.0 cannot calibrate raw media. After the mode-specific workflow has uploaded videos or completed RTSP ingest, explicitly choose one path before verification:
 
-- **Already-linear/pinhole media** — call `POST /v1/linear_media/<project_id>` or choose UI Step 4 **Videos Are Rectified**, then require `rectification_state == "COMPLETED"`.
-- **Distorted media** — open AMC UI **Step 4: Rectification**. Choose Auto Rectification or Manual Rectification; for either path review every camera preview, tune the supported distortion model/parameters when needed, and click **Generate rectified videos**. Auto/manual estimation first reaches `READY_FOR_REVIEW`; only the generated-video commit reaches `rectification_state == "COMPLETED"`.
+- **Already-linear/pinhole media** — call `POST /v1/linear_media/<project_id>` and require `rectification_state == "COMPLETED"`.
+- **Distorted media** — open AMC UI Step 4: Rectification; select Auto, Manual, or Videos Are Rectified; review the estimate; then click Generate Rectified Videos. Auto supports `simple_divisional` (default), `simple_radial`, and `radial`; Manual supports per-camera `model`, `k1`, and `k2` for `radial`. `READY_FOR_REVIEW` is not complete: require `rectification_state == "COMPLETED"` before continuing. Re-rectification invalidates verification, calibration, and post-processing outputs.
 
-The Step 4 UI supports `simple_radial`, `radial`, and `simple_divisional` distortion models, live preview/grid review, per-project committed parameters, rectification logs, and a download of the generated rectified videos. Do not treat `READY_FOR_REVIEW` as calibrated or continue to alignment from it.
-
-Rectification produces `rectified.mp4` and `rectified.jpg`. UI interactive alignment uses rectified-image coordinates. External alignment upload defaults to `coord_space=original`; pass `coord_space=rectified` only when its camera points already match rectified frames. Never call `/v1/calibrate/<project_id>` before linear-media staging and alignment are complete. Re-rectification invalidates verification, AMC/VGGT outputs, and post-processing: verify again, relaunch desired calibration(s), then re-run post-processing after each completed result.
-
-Before alignment, set the floor-plan world scale in UI **Step 3: Parameters**. Upload `layout.png` in Step 2 first, then either enter a positive layout pixels-per-metre value or use the UI’s two-point measurement with a known physical distance. This scale controls world/layout conversion and post-processing; do not guess it when an on-site measurement is available. Changing scale or alignment after calibration likewise requires a new post-process pass. Step 3 also exposes optional focal lengths, virtual-GT floor-grid spacing, and red-pole/person height.
+Rectification produces `rectified.mp4` and `rectified.jpg`. External alignment files normally use `coord_space=original`; use `rectified` only for points created on AMC rectified media. Never call `/v1/calibrate/<project_id>` before the linear-media or rectification state is complete.
 
 ### Step B — Verify Project
 
@@ -87,27 +83,19 @@ Before alignment, set the floor-plan world scale in UI **Step 3: Parameters**. U
 POST /v1/verify_project/<project_id>
 ```
 
-Fresh-project response: `{"project_state": "READY"}` — must be `READY` before first calibration. A persisted project with completed raw results can remain aggregate `COMPLETED`; its pipeline-specific state determines rerun/export handling. If fresh verification is not READY, re-check videos, linear-media state, alignment, and layout.
+Response: `{"project_state": "READY"}` — must be `READY` before calibrating. If not READY, re-check that videos + alignment + layout are present (either via API or via UI manual alignment).
 
-### Step C — Run VGGT First When Available
+### Step C — Independent VGGT Calibration
 
-After project verification, check `vggt_state` before starting AMC. VGGT is an independent, multi-camera-only method. When available, make it first/default because it normally completes faster; then run AMC independently for comparison. These are separate choices in UI **Step 6: Execute Calibration**; VGGT does not depend on AMC output.
-
-- `READY` — run VGGT first unless user explicitly requests AMC-only.
-- `RUNNING` — resume polling persisted run; never start AMC concurrently.
-- `COMPLETED` — reuse raw VGGT result and run post-processing if `vggt_export_ready` is still false.
-- `MODEL_MISSING` — do not call VGGT or claim it is ready. Report the absent model and continue AMC. Stage the licensed model only when VGGT is requested; see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2.
-- `ERROR` or another non-ready terminal state — skip VGGT and preserve exact state in report.
+After verification and before AMC, inspect `vggt_state`. Start VGGT by default from `READY`, resume and wait from `RUNNING`, and always post-process a `COMPLETED` multi-camera result, including one completed before the current invocation. `MODEL_MISSING` or `ERROR` is reported as an AMC-only fallback. Check `amc_state`, `vggt_state`, and `postprocess_state` independently.
 
 ```
 POST /v1/vggt/calibrate/<project_id>
 GET  /v1/get_project_info/<project_id>                    # poll vggt_state
-POST /v1/postprocess/<project_id>                          # mandatory after successful multi-camera VGGT
-GET  /v1/get_project_info/<project_id>                    # poll postprocess_state
-GET  /v1/vggt_results/<project_id>/evaluation_statistics  # only when GT exists
+POST /v1/postprocess/<project_id>                          # multi-camera only, after VGGT
+GET  /v1/get_project_info/<project_id>                    # require postprocess_state == COMPLETED
+GET  /v1/vggt_results/<project_id>/evaluation_statistics  # VGGT metrics when GT exists
 ```
-
-Run the shared post-process immediately after successful VGGT. Require `postprocess_state == "COMPLETED"` before using or exporting VGGT-derived artifacts. A failed VGGT or VGGT post-process does not invalidate AMC; report that failure and continue AMC only after no VGGT/post-process job remains running.
 
 ### Step D — Start AMC Calibration
 
@@ -138,7 +126,9 @@ UI Step 3 (Parameters) does NOT cover detector choice; never assume the user pic
 - **Proceed with the default parameters** — well-suited to typical warehouse scenes; recommended unless the user has specific tuning in mind.
 - **Adjust parameters in the UI first** — open the project, go to Step 3: Parameters, change values, and click Save; then continue.
 
-Wait for the user's choice — and, if they choose to tune, for them to confirm they've Saved — before calling `/calibrate`. Finish all parameter and rectification edits before either calibration starts; UI settings are disabled while AMC or VGGT is running.
+In Step 3, set `layout_px_per_m` directly or measure a known two-point distance. Re-run post-processing after a scale or alignment change.
+
+Wait for the user's choice — and, if they choose to tune, for them to confirm they've Saved — before calling `/calibrate`.
 
 ### Step E — Poll for AMC Completion
 
@@ -146,7 +136,7 @@ Wait for the user's choice — and, if they choose to tune, for them to confirm 
 GET /v1/get_project_info/<project_id>
 ```
 
-Poll every 10 s. Use pipeline-specific `project_info.amc_state`, not aggregate `project_state` (a completed VGGT result can keep the aggregate project successful even if AMC later fails):
+Poll every 10 s. Use `project_info.amc_state` for AMC completion; aggregate `project_state` is not a pipeline-success signal.
 
 | State | Meaning |
 |---|---|
@@ -158,16 +148,16 @@ When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:$
 
 Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample).
 
-### Step F — Post-process AMC and Compare Results
+### Step F — AMC Post-process and Results
 
-For multi-camera projects, layout post-processing is mandatory after **each** successful calibration: run it immediately after VGGT, then call it again after AMC. The shared endpoint regenerates derived artifacts for every raw result tree currently available; the second call is still required because AMC resets `postprocess_state` and adds/changes its raw result tree.
+For multi-camera projects, run layout post-processing after AMC calibration. VGGT, when available, runs first and is post-processed before AMC.
 
 ```
 POST /v1/postprocess/<project_id>
 GET  /v1/get_project_info/<project_id>  # poll postprocess_state until COMPLETED
 ```
 
-Do not report or export a derived multi-camera result until the post-process call following that calibration reaches `COMPLETED`; raw AMC/VGGT results may remain valid when post-processing fails.
+Do not report a multi-camera project as successful until `postprocess_state == "COMPLETED"`; raw AMC results may exist even when post-processing fails.
 
 ```
 GET /v1/get_project_info/<project_id>                    # project state
@@ -176,11 +166,11 @@ GET /v1/result/<project_id>/overlay_image                # visual overlay (PNG)
 GET /v1/amc/calibrate/<project_id>/log                   # calibration log
 ```
 
-Evaluation response includes `Average L2 distance(m)` and `Average reprojection error 0(px)`. Evaluation metrics are produced **only when a ground-truth `GT.zip` was uploaded** — a missing `evaluation_statistics` result is normal otherwise and is not the end of result reporting.
+Evaluation response includes `Average L2 distance(m)` and `Average reprojection error 0(px)`. Evaluation metrics are produced **only when a ground-truth `GT.zip` was uploaded** — a missing `evaluation_statistics` result is normal otherwise and is not the end of result reporting. When VGGT also completed, compare both methods' metrics and Results-page overlays, then select the more accurate calibration for export.
 
-After `COMPLETED`, always give the user a way to review result for that exact project, regardless of whether metrics exist:
+After `COMPLETED`, always give the user a way to review the result for that exact project, regardless of whether metrics exist:
 
-- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`; open project, then **Step 7: Results** to compare AMC and VGGT metrics, camera parameters, and exports and select more accurate method. Trajectory overlay depends on AMC tracklets; a VGGT-only run can validly have no trajectory overlay.
+- **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`; open the project, then the Results page to view the overlay.
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 
@@ -195,7 +185,7 @@ Content-Type: application/json
 <file contents, posted as-is>
 ```
 
-The file applies its supported API configuration. UI **Step 3** owns floor-plan scale/focal-length settings; UI **Step 4** owns rectification. After a successful POST, **also** parse the file for `"detector"` / `"detector_type"` — if it's `"resnet"` or `"transformer"`, use that value for the `/calibrate` call (detector is a separate API parameter, not consumed by `/config`).
+The file replaces what the user would otherwise tune in UI Step 3 (rectification, bundle-adjustment, evaluation knobs, detector, …). After a successful POST, **also** parse the file for `"detector"` / `"detector_type"` — if it's `"resnet"` or `"transformer"`, use that value for the `/calibrate` call in Step D (detector is a separate API parameter, not consumed by `/config`).
 
 Non-2xx is surfaced — do not silently fall back. Skip this call entirely if the user chose the UI-fallback path.
 
@@ -205,7 +195,7 @@ When alignment / layout files aren't on disk, direct the user to the appropriate
 
 - **Settings missing** → "Open UI project `<project_id>`, go to **Step 3: Parameters**, tune via the settings dialog (or accept defaults), click Save." **Also**: before the `/calibrate` call, ask the user via `AskUserQuestion` whether to use the `resnet` or `transformer` detector — Step 3 doesn't cover detector choice.
 - **Layout missing** → "Open UI project `<project_id>`, go to **Step 2: Video Configuration**, upload `layout.png` only (do NOT re-upload videos — they're already attached via API/RTSP), click Save."
-- **Alignment missing** → "Open UI project `<project_id>`, go to **Step 5: Manual Alignment**, either upload `alignment_data.json` or mark correspondence points on the rectified frame/layout, click Save."
+- **Alignment missing** → "Open UI project `<project_id>`, go to **Step 5: Manual Alignment**, either upload `alignment_data.json` or mark correspondence points on the layout, click Save."
 
 Wait for user confirmation. For alignment/layout, verify on disk before continuing:
 
@@ -221,11 +211,10 @@ ls "$HOST_PROJECTS/project_<project_id>/manual_adjustment/"
 
 ## Success Criteria
 
-- Every requested pipeline reaches its own terminal success state (`amc_state == "COMPLETED"`; and `vggt_state == "COMPLETED"` when VGGT was requested/run).
-- For multi-camera runs, `postprocess_state == "COMPLETED"` after the post-process call following each successful calibration.
+- `amc_state == "COMPLETED"` after polling; if VGGT ran, `vggt_state == "COMPLETED"` too.
 - If manual alignment was used: `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/manual_adjustment/` contains `alignment_data.json` + `layout.png`.
-- If GT was uploaded: evaluation returns typical thresholds (`Average L2 distance(m)` < 1.5, `Average reprojection error 0(px)` < 5 for your data; < 10 for the bundled sample).
-- Requested pipeline(s) have no unreported `ERROR`; failure in one independent method does not erase a successful result from the other.
+- If GT was uploaded: fetch both available methods' evaluation statistics and compare their metrics plus overlays before selecting the result to export. Typical thresholds are `Average L2 distance(m)` < 1.5 and `Average reprojection error 0(px)` < 5 for your data or < 10 for the bundled sample.
+- No `ERROR` state.
 
 ## Key Output Files
 
@@ -257,9 +246,9 @@ Mode-specific issues live in each reference's own troubleshooting table.
 | `verify_project` state not `READY` | Confirm videos uploaded/ingested and alignment + layout are present (either via API or via UI manual alignment). Mode-specific upload steps in the reference. |
 | Manual alignment files missing after UI step | User didn't click Save; also verify `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/manual_adjustment/` exists. |
 | Calibration stuck `RUNNING` > 90 min | `GET /v1/amc/calibrate/<id>/log` — usually insufficient tracklets (scene too static). See "Custom Dataset" guidelines in root `README.md`. |
-| Immediate `ERROR` state | Check video naming: must be `cam_00.mp4`, `cam_01.mp4`, … contiguous (videos mode) / camera_name labels (RTSP mode). |
+| Immediate `ERROR` state | Check video readability, synchronization, overlapping fields of view, and camera order; upload order defines indices. |
 | Low L2 but high reprojection | Provide explicit `focal_length` override during input upload (see videos / rtsp references). |
-| VGGT `MODEL_MISSING` | Model is absent. Do not invoke VGGT; report this state and continue AMC, or stage the licensed model only if the user wants VGGT. |
+| VGGT `INIT`, never `READY` | VGGT model not loaded — see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2. |
 | Upload timeout | Large videos — bump `timeout=300` to e.g. `600` in the per-mode Python script. |
 | Port scan finds no backend | Backend not running — walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first. |
 
@@ -272,7 +261,7 @@ GET /v1/result/{project_id}/mv3dt_result?result_type=amc
 # Response: application/zip — mv3dt_output.zip containing transforms.yml
 ```
 
-For independent VGGT output (only available if VGGT ran to `COMPLETED`, see Step F):
+For independent VGGT output (only available if VGGT ran to `COMPLETED`, see Step C):
 
 ```
 GET /v1/result/{project_id}/mv3dt_result?result_type=vggt
@@ -281,7 +270,7 @@ GET /v1/result/{project_id}/mv3dt_result?result_type=vggt
 
 Downstream skill flow:
 1. Call this skill with the user's inputs; capture the printed `project_id`.
-2. Wait for skill to return; it polls each requested pipeline-specific state and required post-process pass to a terminal state.
+2. Wait for the skill to return (it polls until `COMPLETED` internally).
 3. `GET /v1/result/{project_id}/mv3dt_result?result_type=amc` — save the ZIP locally.
 4. If independent VGGT calibration also ran, optionally fetch `?result_type=vggt` for the VGGT MV3DT result.
 
@@ -290,3 +279,5 @@ Downstream skill flow:
 - [`vss-manage-video-io-storage`](../../operations/vss-manage-video-io-storage/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
 
 Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.
+
+bump:1
