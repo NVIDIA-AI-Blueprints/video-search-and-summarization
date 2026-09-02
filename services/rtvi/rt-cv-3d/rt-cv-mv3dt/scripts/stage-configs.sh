@@ -129,9 +129,15 @@ if [ "$INPUT_MODE" = "file" ]; then
   for cam in "${CAMS[@]}"; do URIS+="file:///videos/${cam}.mp4;"; IDS+="${cam};"; done
 fi
 
-# Adaptive tiled-display grid: rows = floor(sqrt(b)), cols = ceil(b/rows) — a
-# landscape rectangle that fits all sources with the fewest empty tiles.
-read -r ROWS COLS < <(python3 -c "import math,sys;b=max(1,int(sys.argv[1]));r=max(1,math.isqrt(b));print(r, -(-b//r))" "$NUM_CAMS")
+# Adaptive tiled-display grid: grow the shorter side until every source has a slot.
+# Produces the squarest landscape grid that fits (2->1x2, 6->2x3, 8->3x3, 12->3x4).
+ROWS=1; COLS=1; SLOTS=1; TILE_WIDTH=1920; TILE_HEIGHT=1080
+while [ "$SLOTS" -lt "$NUM_CAMS" ]; do
+  if [ "$COLS" -gt "$ROWS" ]; then ROWS=$((ROWS + 1)); else COLS=$((COLS + 1)); fi
+  SLOTS=$((ROWS * COLS))
+done
+# 2-cam is special-cased to 720p to avoid excessive letterboxing.
+if [ "$NUM_CAMS" = 2 ]; then TILE_HEIGHT=720; fi
 
 echo "── Staging configs → $STAGE  (NUM_CAMS=$NUM_CAMS grid=${ROWS}x${COLS} port=$DS_HTTP_PORT kafka=$KAFKA_HOST:$KAFKA_PORT_ONLY OSD=$OSD INPUT_MODE=$INPUT_MODE SAVE_VIDEO=$SAVE_VIDEO)"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
@@ -181,6 +187,8 @@ set_ini() {
 
 set_ini tiled-display rows "$ROWS"
 set_ini tiled-display columns "$COLS"
+set_ini tiled-display width "$TILE_WIDTH"
+set_ini tiled-display height "$TILE_HEIGHT"
 set_ini tiled-display enable 1                  # tiler on: on-screen grid + SAVE_VIDEO grid sink
 set_ini source-list  max-batch-size "$NUM_CAMS"
 set_ini source-list  http-port "$DS_HTTP_PORT"

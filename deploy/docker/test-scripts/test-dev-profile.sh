@@ -435,6 +435,11 @@ run_negative_test "up without --profile" 1 up
 NGC_CLI_API_KEY= run_negative_test "up without ngc key (no env)" 1 up -p base
 run_negative_test "invalid profile" 1 up -p invalid
 run_negative_test "invalid hardware-profile" 1 up -p base -H INVALID
+# --llm validation: a removed model, an unknown model, and a valid model whose
+# sizing does not cover the selected hardware must all fail before any teardown.
+run_negative_test "llm removed from the blueprint is rejected" 1 up -p base -i 127.0.0.1 --llm openai/gpt-oss-20b -d
+run_negative_test "llm unknown id is rejected" 1 up -p base -i 127.0.0.1 --llm typo/not-a-model -d
+run_negative_test "llm without sizing for the hardware is rejected" 1 up -p base -i 127.0.0.1 -H H100 --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
 _mock_nvidia_smi_dir="$(mktemp -d)"
@@ -487,8 +492,8 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "RT_CV_DEVICE_ID" "1" \
   "RT_EMBED_DEVICE_ID" "1" \
   "RT_VLM_DEVICE_ID" "1" \
-  "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2" \
-  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm" \
+  "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
   "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN" \
   "VSS_RT_EMBED_TAG" '"develop-latest-sbsa"' \
@@ -559,7 +564,7 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= VLM_ENDPOINT_U
   "RT_CV_DEVICE_ID" "1" \
   "RT_EMBED_DEVICE_ID" "1" \
   "RT_VLM_DEVICE_ID" "1" \
-  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm" \
+  "LLM_NAME_SLUG" "none" \
   "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" \
   "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env \
@@ -595,7 +600,7 @@ for _edge_hw in DGX-SPARK AGX-THOR; do
     up -p search -i 127.0.0.1 -H "${_edge_hw}" -d
   VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
     run_negative_test "${_edge_hw} search rejects a local LLM" 1 \
-    up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/nvidia-nemotron-nano-9b-v2 --use-remote-vlm --vlm y -d
+    up -p search -i 127.0.0.1 -H "${_edge_hw}" --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 --use-remote-vlm --vlm y -d
   LLM_ENDPOINT_URL=http://127.0.0.1:8000 \
     run_negative_test "${_edge_hw} search rejects a local VLM" 1 \
     up -p search -i 127.0.0.1 -H "${_edge_hw}" --use-remote-llm --llm x --vlm nvidia/cosmos3-reasoner-fp8 -d
@@ -878,8 +883,8 @@ run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "base" \
-  -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
-  "LLM_NAME" "nvidia/nemotron-3-nano" "LLM_NAME_SLUG" "nemotron-3-nano" \
+  -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8" "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" \
   "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_NAME_SLUG" "none" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi"
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
@@ -1144,7 +1149,7 @@ if [[ -e "${_helm_job}" ]] \
   ((_warehouse_model_config_failed++)) || true
 fi
 
-_standalone_skill_defaults="${REPO_ROOT}/skills/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
+_standalone_skill_defaults="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml"
 if grep -E 'vss-warehouse-app-data/models/(mtmc|sparse4d/ov)' "${_standalone_skill_defaults}" >/dev/null \
   || ! grep -q 'ref: *nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2' "${_standalone_skill_defaults}" \
   || ! grep -q 'ref: *nvidia/tao/sparse4d_rn50:deployable_v2.2' "${_standalone_skill_defaults}" \
@@ -1200,7 +1205,7 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-_warehouse_3d_skill="${REPO_ROOT}/skills/vss-deploy-detection-tracking-3d"
+_warehouse_3d_skill="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-3d"
 if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
   "${_warehouse_3d_skill}/SKILL.md" \
   "${_warehouse_3d_skill}/references" \
@@ -1482,7 +1487,7 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     COMPOSE_PROFILES_WH_2D
     COMPOSE_PROFILES_WH_KAFKA_2D COMPOSE_PROFILES_WH_REDIS_2D COMPOSE_PROFILES_WH_KAFKA_3D COMPOSE_PROFILES_WH_REDIS_3D
     COMPOSE_PROFILES_WH_KAFKA_MV3DT COMPOSE_PROFILES_WH_REDIS_MV3DT
-    COMPOSE_PROFILES_WH_AUTO_CALIB_2D COMPOSE_PROFILES_WH_AUTO_CALIB_3D COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT
+    COMPOSE_PROFILES_WH_AUTO_CALIB
     COMPOSE_PROFILES_PLAYBACK_KAFKA_2D COMPOSE_PROFILES_PLAYBACK_REDIS_2D COMPOSE_PROFILES_PLAYBACK_KAFKA_3D COMPOSE_PROFILES_PLAYBACK_REDIS_3D
     COMPOSE_PROFILES_PLAYBACK_KAFKA_MV3DT COMPOSE_PROFILES_PLAYBACK_REDIS_MV3DT
     COMPOSE_PROFILES
@@ -1730,10 +1735,9 @@ run_dry_run_up_and_check_generated_env "generated.env Search defaults to Nemotro
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
-# GB300 search falls back to the Nano 9B v2 DLFW vLLM service because that NIM has
-# no SBSA build. Lightning ships an arm64 manifest and must NOT be swapped out:
-# without the scoping guard in state_up() this asserts nvidia-nemotron-nano-9b-v2-vllm
-# and fails, which is the point — the substitution is otherwise silent at runtime.
+# GB300 search runs the profile's default LLM. Lightning ships hw-GB300{,-shared}.env
+# and an arm64 manifest, so nothing substitutes it -- the Nano 9B v2 DLFW fallback
+# that used to fire here went away with the model itself.
 run_dry_run_up_and_check_generated_env "generated.env Search keeps Nemotron 3.5 Lightning on GB300" "search" \
  -i 127.0.0.1 -H GB300 -d -- \
   "HARDWARE_PROFILE" "GB300" \
@@ -1784,8 +1788,19 @@ for _profile in base alerts search; do
 done
 
 run_dry_run_up_and_check_generated_env "generated.env LLM slugs and names" "base" \
- -i 127.0.0.1 --llm nvidia/nemotron-3-nano -d -- \
-  "LLM_NAME_SLUG" "nemotron-3-nano" "LLM_NAME" "nvidia/nemotron-3-nano"
+ -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+
+# Every edge platform keeps the blueprint default now that all three ship Lightning
+# sizing files; nothing rewrites LLM_NAME away from it. Guards the routing in
+# dev-profile.sh, which previously forced the FP8 build on AGX/IGX Thor.
+for _edge_hw in DGX-SPARK AGX-THOR IGX-THOR; do
+  run_dry_run_up_and_check_generated_env "generated.env ${_edge_hw} defaults to Nemotron 3.5 Lightning" "base" \
+   -i 127.0.0.1 -H "${_edge_hw}" -d -- \
+    "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
+    "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
+    "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0"
+done
 
 run_dry_run_up_and_check_generated_env "generated.env base local VLM uses RT-VLM integrated checkpoint" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
@@ -1884,7 +1899,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 run_dry_run_up_and_check_generated_env "g
   -i 127.0.0.1 --use-remote-llm --llm my-llm --vlm nvidia/cosmos-reason1-7b --vlm-device-id 1 -d -- \
   "LLM_MODE" "remote" "VLM_MODE" "local"
 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_MODE local when VLM remote (llm_device_id not compared to vlm)" "base" \
-  -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3-nano --llm-device-id 1 -d -- \
+  -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3.5-lightning-30b-a3b --llm-device-id 1 -d -- \
   "LLM_MODE" "local" "VLM_MODE" "remote"
 
 run_dry_run_up_and_check_generated_env "generated.env EXTERNAL_IP from -e" "base" \
@@ -2018,9 +2033,9 @@ run_dry_run_up_and_check_generated_env "generated.env relative --llm-env-file fr
 rm -f "${_rel_under_repo}"
 rmdir "${REPO_ROOT}/tests" 2>/dev/null || true
 
-run_dry_run_up_and_check_generated_env "generated.env other LLM model openai/gpt-oss-20b" "base" \
- -i 127.0.0.1 --llm openai/gpt-oss-20b -d -- \
-  "LLM_NAME_SLUG" "gpt-oss-20b" "LLM_NAME" "openai/gpt-oss-20b"
+run_dry_run_up_and_check_generated_env "generated.env other LLM model nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8" "base" \
+ -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
+  "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
 
 run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason1 maps to RT-VLM path+basename" "base" \
  -i 127.0.0.1 --vlm nvidia/cosmos-reason1-7b -d -- \

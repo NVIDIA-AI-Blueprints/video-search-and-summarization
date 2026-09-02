@@ -45,12 +45,18 @@ env:
     value: "NOAPIKEYSET"
   - name: OPENAI_API_VERSION
     value: ""
+  - name: VIA_VLM_OPENAI_TOKEN_PARAM
+    value: "max_tokens"
   - name: NVIDIA_API_KEY
     value: "NOAPIKEYSET"
   - name: NVIDIA_VISIBLE_DEVICES
     value: "all"
   - name: VLM_MODEL_TO_USE
     value: "cosmos-reason3"
+  - name: RTVI_ENFORCE_MODEL_PATH_ALLOWLIST
+    value: "false"
+  - name: RTVI_MODEL_PATH_ALLOWLIST
+    value: ""
   - name: KAFKA_ENABLED
     value: "false"
   - name: KAFKA_INCIDENT_TOPIC
@@ -163,6 +169,8 @@ env:
   # Required for Nemotron Nano Omni models.
   - name: VLM_TRUST_REMOTE_CODE
     value: "false"
+  - name: RTVI_ALLOW_UNSAFE_MODEL_CONFIG
+    value: "false"
   # EVS pruning rate 0.0-1.0.
   - name: VLM_VIDEO_PRUNING_RATE
     value: "0.0"
@@ -181,6 +189,8 @@ env:
   # vLLM multimodal preprocessor cache size in GiB.
   - name: VLLM_MM_PROCESSOR_CACHE_GB
     value: "1"
+  - name: VLLM_MM_PROCESSOR_CACHE_TYPE
+    value: "shm"
   - name: VLLM_ENABLE_PREFIX_CACHING
     value: "false"
   - name: VLLM_DISABLE_MM_PREPROCESSOR_CACHE

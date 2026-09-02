@@ -17,10 +17,11 @@
 import LOG from '../../utils/misc/Logger';
 import useVSTUIStore from '../../services/StateManagement';
 import SensorSelector from '../../components/sensorSelector/MultipleSensorSelector';
+import DeliveryProtocolSelector from '../../components/deliveryProtocol/DeliveryProtocolSelector';
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { Box, Grid2 as Grid, Stack, Alert, CircularProgress, Typography } from '@mui/material';
 import VSTStreamManager from '../../features/streamManager/StreamManager';
-import { Sensor } from '../../interfaces/interfaces';
+import { Sensor, LiveDeliveryProtocol } from '../../interfaces/interfaces';
 import { StreamType } from 'vst-streaming-lib';
 import { getSensorsWithTimeline } from '../../utils/misc/sensorUtils';
 import { useLocation } from 'react-router';
@@ -33,6 +34,9 @@ const ReplayStream = () => {
     const vstAdaptorType = useVSTUIStore(state => state.vstAdaptorType);
 
     // Add state for available sensors since getSensorsWithTimeline is async
+    // Picked before anything plays, because switching afterwards tears the
+    // stream down and builds a new one.
+    const [deliveryProtocol, setDeliveryProtocol] = useState<LiveDeliveryProtocol>('webrtc');
     const [availableSensors, setAvailableSensors] = useState<Sensor[]>([]);
     const [selectedSensors, setSelectedSensors] = useState<Sensor[] | undefined>();
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -110,7 +114,14 @@ const ReplayStream = () => {
     return (
         <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
-                <h1>Replay Streaming</h1>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <h1>Replay Streaming</h1>
+                    <DeliveryProtocolSelector
+                        value={deliveryProtocol}
+                        onChange={setDeliveryProtocol}
+                        disabled={Boolean(selectedSensors && selectedSensors.length)}
+                    />
+                </Box>
                 {!isReplayServiceAvailable && (
                     <Box mb={2}>
                         <Alert severity='error'>Replay service is not available. Replay streaming features are disabled.</Alert>
@@ -196,6 +207,7 @@ const ReplayStream = () => {
                                                 <VSTStreamManager
                                                     sensor={sensor}
                                                     streamType={StreamType.Replay}
+                                                    protocol={deliveryProtocol}
                                                     onClose={() => handleCloseVideo(sensor.streamId!)}
                                                 />
                                             </Grid>

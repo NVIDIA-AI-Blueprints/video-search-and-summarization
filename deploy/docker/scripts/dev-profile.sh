@@ -170,12 +170,21 @@ function get_canonical_display_name() {
 function get_llm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/nvidia-nemotron-nano-9b-v2) echo "nvidia-nemotron-nano-9b-v2" ;;
-    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
-    nvidia/nemotron-3-nano) echo "nemotron-3-nano" ;;
     nvidia/nemotron-3.5-lightning-30b-a3b) echo "nemotron-3.5-lightning-30b-a3b" ;;
-    nvidia/llama-3.3-nemotron-super-49b-v1.5) echo "llama-3.3-nemotron-super-49b-v1.5" ;;
-    openai/gpt-oss-20b) echo "gpt-oss-20b" ;;
+    nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8) echo "nvidia-nemotron-nano-9b-v2-fp8" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Models that used to ship with the blueprint. Returns a migration message for a
+# removed model name, or an empty string for a name that was never bundled. Kept
+# so a stale --llm fails loudly instead of resolving to an empty slug, which
+# Compose renders as zero LLM services with exit 0 (a silent no-LLM deploy).
+function get_removed_llm_message() {
+  local _name="${1}"
+  case "${_name}" in
+    nvidia/nvidia-nemotron-nano-9b-v2|nvidia/nemotron-3-nano|nvidia/llama-3.3-nemotron-super-49b-v1.5|openai/gpt-oss-20b)
+      echo "'${_name}' was removed from the blueprint. Use nvidia/nemotron-3.5-lightning-30b-a3b, the default on every hardware profile." ;;
     *) echo "" ;;
   esac
 }
@@ -615,12 +624,8 @@ function usage() {
   echo ""
   echo "  --llm                            LLM model name."
   echo "                                   • One of (local):"
-  echo "                                     - nvidia/nvidia-nemotron-nano-9b-v2"
-  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
-  echo "                                     - nvidia/nemotron-3-nano"
-  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b"
-  echo "                                     - nvidia/llama-3.3-nemotron-super-49b-v1.5"
-  echo "                                     - openai/gpt-oss-20b"
+  echo "                                     - nvidia/nemotron-3.5-lightning-30b-a3b (default)"
+  echo "                                     - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 (edge: DGX-SPARK / AGX-THOR / IGX-THOR)"
   echo "                                   • When --use-remote-llm is passed, any model name can be passed"
   echo "  --llm-device-id                  LLM device ID."
   echo "                                   • Not allowed when --use-remote-llm is passed"
@@ -992,9 +997,8 @@ function process_args() {
           vlm_device_id="${hardware_device_id}"
         fi
         if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
-          && [[ "${llm}" != "nvidia/nvidia-nemotron-nano-9b-v2" ]] \
           && [[ "${llm}" != "nvidia/nemotron-3.5-lightning-30b-a3b" ]]; then
-          echo "[ERROR] GB300 search supports only the local LLMs nvidia/nvidia-nemotron-nano-9b-v2 and nvidia/nemotron-3.5-lightning-30b-a3b"
+          echo "[ERROR] GB300 search supports only the local LLM nvidia/nemotron-3.5-lightning-30b-a3b"
           ((_all_good++))
         fi
       fi
@@ -1300,8 +1304,25 @@ function process_args() {
         # Validate LLM model name if provided (only for non-remote modes; known names map to a slug)
         if contains_element "llm" "${options_provided[@]}"; then
           if [[ -z "$(get_llm_slug "${llm}")" ]]; then
-            echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nvidia-nemotron-nano-9b-v2, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8, nvidia/nemotron-3-nano, nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/llama-3.3-nemotron-super-49b-v1.5, openai/gpt-oss-20b"
+            _removed_llm="$(get_removed_llm_message "${llm}")"
+            if [[ -n "${_removed_llm}" ]]; then
+              echo "[ERROR] ${_removed_llm}"
+            else
+              echo "[ERROR] Invalid LLM model name: ${llm}. Must be one of: nvidia/nemotron-3.5-lightning-30b-a3b, nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+            fi
             ((_all_good++))
+          else
+            # A valid model id still needs sizing for the selected hardware and
+            # mode; without it compose fails later on a missing env_file. The
+            # implicit path is covered by the edge auto-selection below, but an
+            # explicit --llm bypasses that, so check the resolved file here.
+            _hw_suffix=""
+            [[ "${llm_mode}" == "local_shared" ]] && _hw_suffix="-shared"
+            _hw_env="${deployment_directory}/services/nim/$(get_llm_slug "${llm}")/hw-${hardware_profile}${_hw_suffix}.env"
+            if [[ ! -f "${_hw_env}" ]]; then
+              echo "[ERROR] ${llm} has no sizing for ${hardware_profile} in ${llm_mode} mode ($(basename "${_hw_env}") not found). Choose a model that supports this hardware, or pass --use-remote-llm."
+              ((_all_good++))
+            fi
           fi
         fi
         if contains_element "llm-model-type" "${options_provided[@]}"; then
@@ -1631,42 +1652,15 @@ function state_up() {
     set_env_var "LLM_NAME" "${llm}"
     set_env_var "LLM_NAME_SLUG" "$(get_llm_slug "${llm}")"
   fi
-  # Nano 9B v2's NIM image has no SBSA build for the validated GB300 host, so
-  # search on GB300 falls back to the BF16 DLFW vLLM service. Nemotron 3.5
-  # Lightning publishes an arm64 manifest and runs as a NIM there, so let it
-  # through instead of forcing every GB300 search deployment onto Nano 9B v2.
-  if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]] && [[ "${llm_mode}" != "remote" ]]; then
-    local _gb300_llm_slug
-    _gb300_llm_slug="$(get_env_value "${_generated_env}" "LLM_NAME_SLUG")"
-    if [[ "${_gb300_llm_slug}" != "nemotron-3.5-lightning-30b-a3b" ]]; then
-      set_env_var "LLM_NAME" "nvidia/nvidia-nemotron-nano-9b-v2"
-      set_env_var "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-vllm"
-    fi
-  fi
-
-  # A local LLM reads services/nim/<dir>/hw-<HARDWARE_PROFILE>[-shared].env as a
-  # Compose env_file. Not every model ships one for every board -- the edge boards
-  # in particular are only covered by nvidia-nemotron-nano-9b-v2-fp8. A missing
-  # file surfaces as an opaque Compose error after the stack has begun coming up,
-  # so fail here with the actual reason instead.
-  #
-  # <dir> is usually LLM_NAME_SLUG, but the slug is a Compose *profile* name and
-  # does not always name a directory: the GB300 BF16 DLFW fallback uses slug
-  # nvidia-nemotron-nano-9b-v2-vllm while its services live in -- and read their
-  # env_file from -- services/nim/nvidia-nemotron-nano-9b-v2. Map the slug to the
-  # owning directory before probing, or this guard rejects the one local LLM
-  # configuration GB300 search actually supports.
-  local _llm_slug_final _llm_hw_env _llm_hw_suffix _llm_nim_dir
+  # A local LLM reads services/nim/<slug>/hw-<HARDWARE_PROFILE>[-shared].env as a
+  # Compose env_file. A missing file surfaces as an opaque Compose error after the
+  # stack has begun coming up, so fail here with the actual reason instead.
+  local _llm_slug_final _llm_hw_env _llm_hw_suffix
   _llm_slug_final="$(get_env_value "${_generated_env}" "LLM_NAME_SLUG")"
   if [[ "${llm_mode}" != "remote" ]] && [[ -n "${_llm_slug_final}" ]] && [[ "${_llm_slug_final}" != "none" ]]; then
     _llm_hw_suffix=""
     [[ "${llm_mode}" == "local_shared" ]] && _llm_hw_suffix="-shared"
-    case "${_llm_slug_final}" in
-      # DLFW vLLM variants ship inside the base model's directory.
-      *-vllm) _llm_nim_dir="${_llm_slug_final%-vllm}" ;;
-      *) _llm_nim_dir="${_llm_slug_final}" ;;
-    esac
-    _llm_hw_env="${deployment_directory}/services/nim/${_llm_nim_dir}/hw-${hardware_profile}${_llm_hw_suffix}.env"
+    _llm_hw_env="${deployment_directory}/services/nim/${_llm_slug_final}/hw-${hardware_profile}${_llm_hw_suffix}.env"
     if [[ ! -f "${_llm_hw_env}" ]]; then
       echo "[ERROR] LLM '${_llm_slug_final}' has no tuning file for hardware profile '${hardware_profile}' in ${llm_mode} mode."
       echo "[ERROR] Expected: ${_llm_hw_env}"
@@ -1677,6 +1671,10 @@ function state_up() {
   if contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "LLM_DEVICE_ID" "0"
     set_env_var "VLM_DEVICE_ID" "0"
+    # Every edge platform now ships Lightning sizing files, so none of them needs
+    # the LLM rewritten away from the blueprint default. The FP8 build stays
+    # reachable through an explicit --llm.
+    #
     # Search's profile .env pins a 2-GPU layout (RT-CV on 0, RT-Embed on 1).
     # These boards have one GPU, and a device_ids entry of "1" is a hard startup
     # failure, so collapse every placement onto device 0.

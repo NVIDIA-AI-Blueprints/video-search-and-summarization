@@ -196,7 +196,10 @@ class AdvanceTest(unittest.TestCase):
     def _update(self):
         return alias_plan(release_set(), "develop-abc123abc123", ALL_CONTENT)[0]
 
-    def test_creates_from_the_content_tag_then_verifies(self):
+    def test_verifies_source_before_creating_alias(self):
+        """Inspect the SOURCE (stable content tag) before creating the alias,
+        not the TARGET after -- GHCR eventual consistency makes post-create
+        inspect of the new tag unreliable."""
         commands: list[list[str]] = []
 
         def runner(command: list[str]) -> str:
@@ -204,15 +207,20 @@ class AdvanceTest(unittest.TestCase):
             return json.dumps({"digest": DIGEST}) if "inspect" in command else ""
 
         advance(self._update(), runner)
-        self.assertEqual(commands[0][3], "create")
-        self.assertTrue(commands[0][-1].endswith(f":tree-{TREE}"))
-        self.assertEqual(commands[1][3], "inspect")
+        # First call: inspect the SOURCE content tag.
+        self.assertEqual(commands[0][3], "inspect")
+        self.assertTrue(commands[0][4].endswith(f":tree-{TREE}"))
+        # Second call: create the alias.
+        self.assertEqual(commands[1][3], "create")
+        # No third call -- we do not inspect the target after creation.
+        self.assertEqual(len(commands), 2)
 
     def test_advance_rejects_digest_drift(self):
+        """Source digest != release-set digest → refuse to create the alias."""
         def runner(command: list[str]) -> str:
             return json.dumps({"digest": MIRROR_DIGEST}) if "inspect" in command else ""
 
-        with self.assertRaisesRegex(RuntimeError, "alias digest"):
+        with self.assertRaisesRegex(RuntimeError, "content tag digest"):
             advance(self._update(), runner)
 
     def test_digestless_entry_reports_the_resolved_digest(self):

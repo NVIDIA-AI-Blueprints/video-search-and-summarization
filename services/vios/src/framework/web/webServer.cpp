@@ -149,6 +149,9 @@ WebServer::WebServer()
     #ifdef LIVE_STREAM_MODULE
     m_civetServer->addWebSocketHandler("/api/v1/live/ws", *m_websocket);
     m_civetServer->addWebSocketHandler(URL_PREFIX + "/api/v1/live/ws", *m_websocket);
+    m_dashHttpHandler = std::make_unique<DashHttpHandler>();
+    m_civetServer->addHandler("/dash/", *m_dashHttpHandler);
+    m_civetServer->addHandler(URL_PREFIX + "/dash/", *m_dashHttpHandler);
     #endif
 
     #ifdef REPLAY_STREAM_MODULE

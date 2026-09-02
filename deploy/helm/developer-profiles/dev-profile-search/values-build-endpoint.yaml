@@ -59,8 +59,6 @@ global:
 # Disable local NIM deployments
 nims:
   enabled: false
-  nemotron:
-    enabled: false
   nemotron35:
     enabled: false
   cosmos3:

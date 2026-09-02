@@ -1,5 +1,5 @@
 import { FC, useMemo } from 'react';
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'next-i18next/pages';
 import { isQueryProcessing } from '@/utils/app/queryProcessing';
 import { ChatSidebarControlHandlers } from '../../../pages/api/home/home';
 import HomeContext from '../../../pages/api/home/home.context';

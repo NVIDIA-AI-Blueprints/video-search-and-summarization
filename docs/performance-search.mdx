@@ -6,10 +6,10 @@ position: 3
 
 ## Overview
 
-The [Search Workflow ](/agent-workflow-search) lets you query indexed video archives in
+The [Search Workflow ](/vss/vision-agent/agent-workflows/search) lets you query indexed video archives in
 natural language. During ingestion, uploaded clips are embedded through
-[RTVI-Embed ](/performance-rt-embed) (Cosmos-Embed1-448p) and
-[RTVI-CV ](/performance-rt-cv)/Behavior Analytics; during query execution, the Vision
+[RTVI-Embed ](/vss/appendix/performance/microservices/rt-embed-performance) (Cosmos-Embed1-448p) and
+[RTVI-CV ](/vss/appendix/performance/microservices/rt-cv-performance)/Behavior Analytics; during query execution, the Vision
 Agent decomposes each request, routes to embed search and attribute search as needed, and
 optionally verifies candidates with the critic agent (Cosmos3 Nano Reasoner VLM) before
 returning timestamped results.
