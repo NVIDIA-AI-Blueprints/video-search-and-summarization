@@ -83,10 +83,13 @@ def upload_video(session, backend, video_path, timeout):
         )
     response.raise_for_status()
     payload = response.json()
-    results = payload.get("results", [])
-    if not results or not results[0].get("id"):
+    file_id = payload.get("id")
+    if not file_id:
+        results = payload.get("results", [])
+        file_id = results[0].get("id") if results else None
+    if not file_id:
         raise RuntimeError(f"file upload returned no ID: {payload}")
-    return results[0]["id"]
+    return file_id
 
 
 def extract_contents(payload):
