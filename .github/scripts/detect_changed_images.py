@@ -48,10 +48,12 @@ BUILD_CONTRACT_PATHS = (
     "deploy/docker/container-inventory.json",
 )
 
-# Agent, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
+# Agent, gateway, UI, and alert share VSS_CONTAINER_TAG and must move as one set.
 # Analytics/configurator images have independent tag variables and build only when
 # their own service source changes.
-SHARED_TAG_IMAGE_NAMES = frozenset({"vss-agent", "vss-agent-ui", "vss-alert-ms"})
+SHARED_TAG_IMAGE_NAMES = frozenset(
+    {"vss-agent", "vss-agent-gateway", "vss-agent-ui", "vss-alert-ms"}
+)
 
 # Behavior analytics native-runner routing predates the SDR/configurator GHCR
 # onboarding. New native-build images should declare native_platform_build in

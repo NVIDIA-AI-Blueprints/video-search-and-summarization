@@ -14,6 +14,8 @@
 # limitations under the License.
 """Tests for agent/orchestrator/docker_compose_util.py."""
 
+import base64
+import hashlib
 import json
 from pathlib import Path
 from typing import ClassVar
@@ -22,6 +24,18 @@ import pytest
 import yaml
 
 from vss_agents.orchestrator import docker_compose_util as dcu
+
+_GATEWAY_RECEIPT_BYTES = b'{"schema_version":1}'
+_GATEWAY_RECEIPT_B64 = base64.b64encode(_GATEWAY_RECEIPT_BYTES).decode("ascii")
+_GATEWAY_RECEIPT_SHA256 = hashlib.sha256(_GATEWAY_RECEIPT_BYTES).hexdigest()
+
+
+def _gateway_receipt_env() -> dict[str, str]:
+    return {
+        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": _GATEWAY_RECEIPT_B64,
+        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": _GATEWAY_RECEIPT_SHA256,
+        "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "a" * 40,
+    }
 
 
 def _env_text(*lines: str) -> str:
@@ -377,6 +391,7 @@ class TestApplyAgentGatewayEnv:
             "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
             "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
             "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
+            **_gateway_receipt_env(),
         }
 
         dcu.apply_agent_gateway_env(merged)
@@ -385,6 +400,7 @@ class TestApplyAgentGatewayEnv:
         assert merged["VSS_AGENT_GATEWAY_ENABLED"] == "true"
         assert merged["VSS_AGENT_GATEWAY_PORT"] == "18090"
         assert merged["VSS_AGENT_GATEWAY_URL"] == "http://host.docker.internal:18090"
+        assert merged["VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"] == "true"
         assert merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] == "true"
         assert merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] == "false"
         assert merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] == "false"
@@ -397,6 +413,14 @@ class TestApplyAgentGatewayEnv:
         [
             ({"VSS_AGENT_GATEWAY_TOKEN": ""}, "VSS_AGENT_GATEWAY_TOKEN is required"),
             ({"VSS_AGENT_BACKEND_URL": ""}, "VSS_AGENT_BACKEND_URL is required"),
+            (
+                {"VSS_AGENT_GATEWAY_CAPABILITIES_B64": ""},
+                "VSS_AGENT_GATEWAY_CAPABILITIES_B64 is required",
+            ),
+            (
+                {"VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "develop"},
+                "EXPECTED_RUNTIME_REF must be a full Git commit ID",
+            ),
             ({"VSS_AGENT_GATEWAY_BIND_HOST": "127.0.0.1"}, "private, non-loopback IPv4"),
             ({"VSS_AGENT_GATEWAY_PORT": "80"}, "between 1024 and 65535"),
         ],
@@ -408,6 +432,7 @@ class TestApplyAgentGatewayEnv:
             "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
             "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
             "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
+            **_gateway_receipt_env(),
             **overrides,
         }
 
@@ -581,6 +606,7 @@ class TestBuildResolvedEnv:
                 "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:8642",
                 "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret
                 "VSS_AGENT_BACKEND_MODEL": "hermes-agent",
+                **_gateway_receipt_env(),
             },
         )
         _patch_network(monkeypatch)

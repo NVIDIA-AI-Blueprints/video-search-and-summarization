@@ -46,6 +46,17 @@
       "tag_variables": ["VSS_AGENT_VERSION"]
     },
     {
+      "name": "vss-agent-gateway",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/agent-gateway",
+      "context": "services/agent-gateway",
+      "dockerfile": "services/agent-gateway/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-agent-gateway"],
+      "tag_variables": ["VSS_AGENT_GATEWAY_TAG"]
+    },
+    {
       "name": "vss-agent-ui",
       "strategy": "build",
       "ghcr_build": true,

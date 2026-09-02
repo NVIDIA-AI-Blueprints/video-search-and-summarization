@@ -12,10 +12,13 @@ agent's persona, memory, provider, model, or canonical workspace documents.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import ipaddress
 import json
+import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -52,6 +55,7 @@ class HarnessProfile:
     model: str
     identity_root: str
     enable_responses: bool
+    session_header: str
 
 
 PROFILES = {
@@ -62,6 +66,7 @@ PROFILES = {
         model="openclaw",
         identity_root="/sandbox/.openclaw/workspace",
         enable_responses=True,
+        session_header="x-openclaw-session-key",
     ),
     "hermes": HarnessProfile(
         runtime="hermes",
@@ -70,6 +75,7 @@ PROFILES = {
         model="hermes-agent",
         identity_root="/sandbox/.hermes",
         enable_responses=False,
+        session_header="X-Hermes-Session-Key",
     ),
 }
 
@@ -91,6 +97,19 @@ class Origin:
     port: int
 
 
+@dataclass(frozen=True, slots=True)
+class ApiReadiness:
+    origin: str
+    token: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class AttachmentResult:
+    receipt: dict[str, object]
+    api: ApiReadiness | None
+
+
 class CommandRunner:
     def __init__(self, *, dry_run: bool = False) -> None:
         self.dry_run = dry_run
@@ -100,6 +119,7 @@ class CommandRunner:
         command: list[str],
         *,
         capture: bool = False,
+        sensitive_output: bool = False,
         timeout: int = 900,
     ) -> str:
         if self.dry_run:
@@ -123,7 +143,9 @@ class CommandRunner:
                 f"command timed out after {timeout}s: {command[0]}"
             ) from error
         except subprocess.CalledProcessError as error:
-            detail = (error.stderr or error.stdout or "").strip()
+            detail = (
+                "" if sensitive_output else (error.stderr or error.stdout or "").strip()
+            )
             suffix = f": {detail}" if detail else ""
             raise AttachError(
                 f"command failed ({error.returncode}): {command[0]}{suffix}"
@@ -243,7 +265,7 @@ def verify_source_snapshot(root: Path, runtime_ref: str) -> None:
             capture_output=True,
             timeout=30,
         ).stdout.strip()
-        dirty_skills = subprocess.run(
+        dirty_source = subprocess.run(
             [
                 "git",
                 "-C",
@@ -251,8 +273,6 @@ def verify_source_snapshot(root: Path, runtime_ref: str) -> None:
                 "status",
                 "--porcelain=v1",
                 "--untracked-files=all",
-                "--",
-                "skills",
             ],
             check=True,
             text=True,
@@ -265,8 +285,8 @@ def verify_source_snapshot(root: Path, runtime_ref: str) -> None:
         fail("--repo-root must be the root of the VSS Git checkout")
     if head.lower() != runtime_ref:
         fail("runtime ref must match the VSS source checkout HEAD")
-    if dirty_skills:
-        fail("VSS skills have uncommitted changes; commit them before attachment")
+    if dirty_source:
+        fail("VSS source has uncommitted changes; commit them before attachment")
 
 
 def build_policy(origin: Origin) -> dict[str, object]:
@@ -506,15 +526,7 @@ if [ ! -e "$runtime_dir" ]; then
   mkdir -p "$(dirname "$runtime_dir")"
   git clone --filter=blob:none --no-checkout "$repository" "$runtime_dir"
   git -C "$runtime_dir" sparse-checkout init --cone
-  git -C "$runtime_dir" sparse-checkout set services/agent
-  git -C "$runtime_dir" fetch --depth 1 origin "$runtime_ref"
-  git -C "$runtime_dir" checkout --detach FETCH_HEAD
 else
-  current_ref=$(git -C "$runtime_dir" rev-parse HEAD)
-  [ "$current_ref" = "$runtime_ref" ] || {
-    echo "existing VSS checkout is at $current_ref, expected $runtime_ref; refusing to modify it" >&2
-    exit 2
-  }
   current_repository=$(git -C "$runtime_dir" remote get-url origin)
   [ "$current_repository" = "$repository" ] || {
     echo "existing VSS checkout uses a different origin; refusing to modify it" >&2
@@ -526,6 +538,14 @@ test -z "$(git -C "$runtime_dir" status --porcelain=v1 --untracked-files=all)" |
   echo "existing VSS checkout has local changes; refusing to execute it" >&2
   exit 2
 }
+
+# A clean, same-origin managed checkout is safe to advance on a repeated
+# deployment. Fetch the exact immutable commit; never follow a moving branch.
+git -C "$runtime_dir" sparse-checkout set services/agent
+git -C "$runtime_dir" fetch --filter=blob:none --depth 1 origin "$runtime_ref"
+git -C "$runtime_dir" checkout --detach FETCH_HEAD
+test "$(git -C "$runtime_dir" rev-parse HEAD)" = "$runtime_ref"
+test -z "$(git -C "$runtime_dir" status --porcelain=v1 --untracked-files=all)"
 
 test -f "$runtime_dir/services/agent/pyproject.toml"
 export PATH="$HOME/.local/bin:/tmp/.local/bin:$PATH"
@@ -560,8 +580,7 @@ python_bin=/usr/bin/python3.13
     )
 
 
-def write_receipt(
-    runner: CommandRunner,
+def build_receipt(
     profile: HarnessProfile,
     sandbox: str,
     *,
@@ -569,8 +588,8 @@ def write_receipt(
     runtime_dir: str,
     runtime_ref: str,
     skills: tuple[Path, ...],
-) -> None:
-    receipt = {
+) -> dict[str, object]:
+    return {
         "schema_version": 1,
         "attached_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "sandbox": sandbox,
@@ -585,6 +604,40 @@ def write_receipt(
             "kinds": ["vss.search.results", "vss.alert.incidents"],
         },
     }
+
+
+def write_private_text(path: Path, content: str) -> None:
+    """Atomically write a deployment artifact without a world-readable window."""
+
+    path = path.expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary_path.replace(path)
+        path.chmod(0o600)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def write_receipt(
+    runner: CommandRunner,
+    profile: HarnessProfile,
+    sandbox: str,
+    receipt: dict[str, object],
+) -> None:
     with tempfile.TemporaryDirectory(prefix="vss-agent-receipt-") as temporary:
         path = Path(temporary) / "agent-capabilities.json"
         path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
@@ -617,6 +670,96 @@ def write_receipt(
             RECEIPT_PATH,
             timeout=60,
         )
+
+
+def validate_gateway_bind_host(value: str) -> str:
+    try:
+        address = ipaddress.ip_address(value.strip())
+    except ValueError as error:
+        raise AttachError("gateway bind host must be a private IPv4 address") from error
+    if (
+        address.version != 4
+        or not address.is_private
+        or address.is_loopback
+        or address.is_unspecified
+    ):
+        fail("gateway bind host must be a private, non-loopback IPv4 address")
+    return str(address)
+
+
+def resolve_gateway_bind_host(runner: CommandRunner, explicit_host: str | None) -> str:
+    if explicit_host:
+        return validate_gateway_bind_host(explicit_host)
+    output = runner.run(
+        [
+            "docker",
+            "network",
+            "inspect",
+            "bridge",
+            "--format",
+            "{{(index .IPAM.Config 0).Gateway}}",
+        ],
+        capture=True,
+        timeout=30,
+    )
+    if not output:
+        fail(
+            "could not discover Docker's private bridge gateway; pass "
+            "--gateway-bind-host"
+        )
+    return validate_gateway_bind_host(output.splitlines()[-1])
+
+
+def encode_receipt(receipt: dict[str, object]) -> tuple[str, str]:
+    raw = json.dumps(
+        receipt,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii"), hashlib.sha256(raw).hexdigest()
+
+
+def dotenv_quote(value: str) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def write_gateway_env(
+    path: Path,
+    *,
+    profile: HarnessProfile,
+    api: ApiReadiness,
+    receipt: dict[str, object],
+    runtime_ref: str,
+    bind_host: str,
+    port: int,
+) -> None:
+    encoded_receipt, receipt_digest = encode_receipt(receipt)
+    gateway_token = secrets.token_hex(32)
+    values = {
+        "VSS_AGENT_GATEWAY_ENABLED": "true",
+        "VSS_AGENT_GATEWAY_BIND_HOST": bind_host,
+        "VSS_AGENT_GATEWAY_PORT": str(port),
+        "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",
+        "VSS_AGENT_GATEWAY_TOKEN": gateway_token,
+        "VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true",
+        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": encoded_receipt,
+        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": receipt_digest,
+        "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": runtime_ref,
+        "VSS_AGENT_BACKEND_PROTOCOL": "responses",
+        "VSS_AGENT_BACKEND_URL": api.origin,
+        "VSS_AGENT_BACKEND_PATH": "/v1/responses",
+        "VSS_AGENT_BACKEND_TOKEN": api.token,
+        "VSS_AGENT_BACKEND_MODEL": api.model,
+        "VSS_AGENT_BACKEND_SESSION_FIELD": "user",
+        "VSS_AGENT_BACKEND_SESSION_HEADER": profile.session_header,
+        "NEXT_PUBLIC_ENABLE_CHAT_TAB": "true",
+        "NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT": "true",
+        "NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON": "false",
+        "NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON": "false",
+    }
+    content = "".join(f"{key}={dotenv_quote(value)}\n" for key, value in values.items())
+    write_private_text(path, content)
 
 
 def enable_api(runner: CommandRunner, profile: HarnessProfile, sandbox: str) -> None:
@@ -677,13 +820,14 @@ def verify_api(
     profile: HarnessProfile,
     sandbox: str,
     api_url: str,
-) -> str | None:
+) -> ApiReadiness | None:
     if runner.dry_run:
         print(f"DRY-RUN: verify authenticated GET {api_url}/v1/models")
         return None
     token = runner.run(
         sandbox_command(profile, sandbox, "gateway-token", "--quiet"),
         capture=True,
+        sensitive_output=True,
         timeout=120,
     )
     token_lines = [
@@ -725,7 +869,11 @@ def verify_api(
     ]
     if not model_ids:
         fail("agent Responses API returned no usable model IDs")
-    return profile.model if profile.model in model_ids else model_ids[0]
+    return ApiReadiness(
+        origin=api_url.rstrip("/"),
+        token=token,
+        model=profile.model if profile.model in model_ids else model_ids[0],
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -745,11 +893,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--runtime-dir", default=DEFAULT_RUNTIME_DIR)
     parser.add_argument("--agent-api-url", help="Forwarded harness API origin")
     parser.add_argument("--skip-api-check", action="store_true")
+    parser.add_argument(
+        "--receipt-output",
+        type=Path,
+        help="Optional protected host copy of the installed capability receipt",
+    )
+    parser.add_argument(
+        "--gateway-env-output",
+        type=Path,
+        help=(
+            "Write a protected Compose env overlay containing gateway/backend "
+            "settings and the verified capability receipt"
+        ),
+    )
+    parser.add_argument(
+        "--gateway-bind-host",
+        help=(
+            "Private Docker bridge address for the gateway listener; discovered "
+            "from the default bridge when omitted"
+        ),
+    )
+    parser.add_argument("--gateway-port", type=int, default=18090)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
 
-def attach(args: argparse.Namespace, runner: CommandRunner) -> None:
+def attach(args: argparse.Namespace, runner: CommandRunner) -> AttachmentResult:
     profile = PROFILES[args.runtime]
     sandbox = validate_sandbox_name(args.sandbox)
     origin = validate_origin(args.vss_origin)
@@ -758,6 +927,17 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> None:
     runtime_ref = resolve_runtime_ref(root, args.runtime_ref)
     verify_source_snapshot(root, runtime_ref)
     runtime_dir = validate_runtime_dir(args.runtime_dir)
+    if args.gateway_env_output and args.skip_api_check:
+        fail("--gateway-env-output cannot be combined with --skip-api-check")
+    if args.gateway_env_output and runner.dry_run:
+        fail("--gateway-env-output is unavailable during --dry-run")
+    if not 1024 <= args.gateway_port <= 65535:
+        fail("gateway port must be between 1024 and 65535")
+    gateway_bind_host = (
+        resolve_gateway_bind_host(runner, args.gateway_bind_host)
+        if args.gateway_env_output
+        else None
+    )
     if shutil.which(profile.cli) is None and not runner.dry_run:
         fail(f"{profile.cli} is not installed")
 
@@ -782,7 +962,7 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> None:
         fail("agent identity files changed during VSS attachment")
 
     api_origin = discover_api_origin(runner, profile, sandbox, args.agent_api_url)
-    model = (
+    api = (
         None
         if args.skip_api_check
         else verify_api(runner, profile, sandbox, api_origin.url)
@@ -790,8 +970,7 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> None:
     # The receipt is the success marker consumed by VSS-aware skills. Publish it
     # only after every mutation and readiness check has passed, so a failed
     # first-time attachment cannot advertise capabilities it did not finish.
-    write_receipt(
-        runner,
+    receipt = build_receipt(
         profile,
         sandbox,
         origin=origin,
@@ -799,14 +978,38 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> None:
         runtime_ref=runtime_ref,
         skills=skills,
     )
+    write_receipt(runner, profile, sandbox, receipt)
+    if args.receipt_output:
+        write_private_text(
+            args.receipt_output,
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        )
+        print(f"Host capability receipt: {args.receipt_output.expanduser()}")
+    if args.gateway_env_output:
+        if api is None or gateway_bind_host is None:  # pragma: no cover - guarded above
+            fail("verified agent API and gateway bind host are required")
+        write_gateway_env(
+            args.gateway_env_output,
+            profile=profile,
+            api=api,
+            receipt=receipt,
+            runtime_ref=runtime_ref,
+            bind_host=gateway_bind_host,
+            port=args.gateway_port,
+        )
+        print(
+            "Protected agent-gateway Compose overlay: "
+            f"{args.gateway_env_output.expanduser()}"
+        )
     print(
         "VSS capabilities attached; existing agent identity and memory were preserved."
     )
     print(f"Harness API: {api_origin.url}")
-    print(f"Gateway protocol: responses; model: {model or profile.model}")
+    print(f"Gateway protocol: responses; model: {api.model if api else profile.model}")
     print(f"Capability receipt: {RECEIPT_PATH}")
     if profile.runtime == "hermes":
         print("Start a new Hermes chat session to load the newly installed skills.")
+    return AttachmentResult(receipt=receipt, api=api)
 
 
 def main(argv: list[str] | None = None) -> int:

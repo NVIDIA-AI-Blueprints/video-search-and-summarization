@@ -11,6 +11,7 @@ import urllib.request
 from collections.abc import Iterator
 from http.server import ThreadingHTTPServer
 
+from vss_agent_gateway.capabilities import CapabilityReceipt
 from vss_agent_gateway.connectors.base import Connector
 from vss_agent_gateway.contract import ConnectorEvent, CreateRunRequest
 from vss_agent_gateway.server import make_handler
@@ -22,6 +23,7 @@ from vss_agent_gateway.store import (
 )
 
 from tests.helpers import make_config
+from tests.test_capabilities import valid_receipt
 
 
 class FakeConnector(Connector):
@@ -122,6 +124,18 @@ class GatewayServiceTest(unittest.TestCase):
             capabilities["artifact_protocol"]["kinds"],
             ["vss.search.results", "vss.alert.incidents"],
         )
+        self.assertEqual(capabilities["vss"], {"attached": False, "ready": False})
+
+    def test_capabilities_advertise_verified_vss_readiness(self) -> None:
+        receipt = CapabilityReceipt.from_payload(valid_receipt())
+
+        capabilities = GatewayService(
+            make_config(vss_capabilities=receipt), FakeConnector()
+        ).capabilities()
+
+        self.assertTrue(capabilities["vss"]["ready"])
+        self.assertEqual(capabilities["vss"]["harness"], "openclaw")
+        self.assertEqual(capabilities["vss"]["runtime_commit"], "a" * 40)
 
     def test_run_store_bounds_replay_by_serialized_event_size(self) -> None:
         store = RunStore(

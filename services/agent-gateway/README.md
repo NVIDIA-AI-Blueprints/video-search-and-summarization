@@ -27,7 +27,7 @@ capabilities that its existing agent needs:
   MCP where applicable);
 - a commit-matched, pre-warmed project `vss` CLI runtime for operational skills;
 - the VSS/OpenShell network policy and the deployment origin or service routes;
-- a capability receipt at `~/.vss/agent-capabilities.json`, including the VSS
+- a capability receipt at `/sandbox/.vss/agent-capabilities.json`, including the VSS
   origin, CLI revision, installed skills, and supported UI artifact version.
 
 Capability attachment must preserve the agent the operator brought: do not
@@ -44,11 +44,17 @@ installer:
 python3 deploy/docker/scripts/attach_vss_agent.py \
   --runtime openclaw \
   --sandbox my-agent \
-  --vss-origin http://host.openshell.internal:7777
+  --vss-origin http://host.openshell.internal:7777 \
+  --receipt-output _builds/my-build/agent-capabilities.json \
+  --gateway-env-output _builds/my-build/agent-gateway.env
 ```
 
 The installer hashes the canonical identity files before and after attachment
-and fails if they changed. `deploy_nemoclaw.ipynb` remains the dedicated-agent
+and fails if they changed. The two host artifacts are written mode `0600`; the
+gateway overlay includes independent credentials plus a digest-bound receipt
+and the exact expected VSS source commit. Pass it last when resolving Compose,
+never print/source/commit it, and do not pass it again when deploying the
+standalone `resolved.yml`. `deploy_nemoclaw.ipynb` remains the dedicated-agent
 creation path and intentionally installs the optional VSS persona. Another
 harness needs a capability installer for its skill/runtime/policy locations,
 but no new chat connector when it already speaks a supported wire protocol.
@@ -104,6 +110,15 @@ Select a wire protocol, not a harness:
 | `AGENT_BACKEND_SESSION_FIELD`  | Stable session request field           | `user`                            |
 | `AGENT_BACKEND_SESSION_HEADER` | Optional stable-session header         | unset                             |
 | `AGENT_BACKEND_HEADERS_JSON`   | Additional upstream headers (secret)   | `{}`                              |
+
+Production gateway mode also sets `AGENT_REQUIRE_VSS_CAPABILITIES=true` and
+supplies `AGENT_VSS_CAPABILITIES_B64`, `AGENT_VSS_CAPABILITIES_SHA256`, and
+`AGENT_EXPECTED_VSS_RUNTIME_REF`. Startup fails closed if the receipt is
+missing, malformed, incomplete, digest-mismatched, or from another VSS commit.
+`GET /v1/capabilities` then exposes only its non-secret readiness summary.
+That summary reports verified capability attachment; because the gateway does
+not cross the harness policy boundary to probe VSS, deployment readiness must
+still test the configured routes from inside the harness.
 
 The Responses connector sends the full UI transcript only when establishing or
 recovering a chain. On later turns it verifies that the UI transcript still

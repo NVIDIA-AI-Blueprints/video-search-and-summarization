@@ -33,7 +33,7 @@ class GatewayService:
         )
 
     def capabilities(self) -> dict[str, object]:
-        return {
+        capabilities: dict[str, object] = {
             "protocol_version": PROTOCOL_VERSION,
             "transport": "sse",
             "features": {
@@ -70,6 +70,12 @@ class GatewayService:
                 "run_retention_seconds": self.config.run_retention_seconds,
             },
         }
+        capabilities["vss"] = (
+            self.config.vss_capabilities.public_summary()
+            if self.config.vss_capabilities is not None
+            else {"attached": False, "ready": False}
+        )
+        return capabilities
 
     def create_run(
         self,

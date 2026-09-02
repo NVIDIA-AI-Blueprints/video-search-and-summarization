@@ -225,10 +225,12 @@ Compose model used directly for validation, deployment, readiness, and teardown:
 or `down`, and deploy with `pull --ignore-buildable && up -d --build`
 (see [`deployment.md`](deployment.md)).
 
-All three primary files are required in stock and delta mode. `_builds/` is
-gitignored because `override.env` and `resolved.yml` can contain credentials.
-Keep them local, set both credential-bearing files to mode `0600`, and never
-commit them.
+All three primary files are required in stock and delta mode. An existing
+external harness also requires `agent-capabilities.json` and the protected
+`agent-gateway.env` final resolution layer produced by its host-side bootstrap.
+`_builds/` is gitignored because `override.env`, `agent-gateway.env`, and
+`resolved.yml` can contain credentials. Keep them local, set every
+credential-bearing file to mode `0600`, and never commit them.
 
 ## Resolve
 
@@ -258,6 +260,16 @@ env_args=(
   --env-file "$FOUNDATION_DIR/overrides.env"
   --env-file "$BUILD_DIR/override.env"
 )
+
+# Existing OpenClaw/Hermes builds receive this protected final layer from the
+# host-side capability bootstrap. Use it for config resolution only.
+if [[ -f "$BUILD_DIR/agent-gateway.env" ]]; then
+  [[ "$(stat -c '%a' "$BUILD_DIR/agent-gateway.env")" == "600" ]] || {
+    echo "agent-gateway.env must have mode 0600" >&2
+    exit 1
+  }
+  env_args+=(--env-file "$BUILD_DIR/agent-gateway.env")
+fi
 
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \

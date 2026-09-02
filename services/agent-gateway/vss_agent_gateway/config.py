@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from .capabilities import CapabilityError, CapabilityReceipt, decode_receipt
+
 SUPPORTED_PROTOCOLS = frozenset({"responses", "legacy-chat"})
 RESERVED_UPSTREAM_HEADERS = frozenset(
     {
@@ -136,6 +138,43 @@ def _extra_headers() -> dict[str, str]:
     return headers
 
 
+def _vss_capability_receipt() -> CapabilityReceipt | None:
+    required = _bool_env("AGENT_REQUIRE_VSS_CAPABILITIES", False)
+    encoded = os.environ.get("AGENT_VSS_CAPABILITIES_B64", "").strip()
+    digest = os.environ.get("AGENT_VSS_CAPABILITIES_SHA256", "").strip()
+    expected_runtime_commit = os.environ.get(
+        "AGENT_EXPECTED_VSS_RUNTIME_REF", ""
+    ).strip()
+    if not encoded:
+        if digest:
+            raise ConfigError(
+                "AGENT_VSS_CAPABILITIES_B64 is required when its digest is set"
+            )
+        if required:
+            raise ConfigError(
+                "AGENT_VSS_CAPABILITIES_B64 is required when "
+                "AGENT_REQUIRE_VSS_CAPABILITIES=true"
+            )
+        return None
+    if not digest:
+        raise ConfigError(
+            "AGENT_VSS_CAPABILITIES_SHA256 is required with a capability receipt"
+        )
+    if required and not expected_runtime_commit:
+        raise ConfigError(
+            "AGENT_EXPECTED_VSS_RUNTIME_REF is required when "
+            "AGENT_REQUIRE_VSS_CAPABILITIES=true"
+        )
+    try:
+        return decode_receipt(
+            encoded,
+            digest,
+            expected_runtime_commit or None,
+        )
+    except CapabilityError as error:
+        raise ConfigError(str(error)) from error
+
+
 @dataclass(frozen=True, slots=True)
 class GatewayConfig:
     bind_host: str
@@ -155,6 +194,7 @@ class GatewayConfig:
     max_events_per_run: int
     max_event_chars_per_run: int
     max_thread_state_chars: int
+    vss_capabilities: CapabilityReceipt | None
 
     @classmethod
     def from_env(cls) -> GatewayConfig:
@@ -242,4 +282,5 @@ class GatewayConfig:
                 1_000_000,
                 100_000_000,
             ),
+            vss_capabilities=_vss_capability_receipt(),
         )

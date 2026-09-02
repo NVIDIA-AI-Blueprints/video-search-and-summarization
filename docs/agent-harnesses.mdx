@@ -92,7 +92,15 @@ There are two integration modes:
   `deploy/docker/scripts/attach_vss_agent.py`. The additive installer grants the
   VSS skills, project CLI, deployment route, network policy, and UI-artifact
   contract while preserving that agent's persona, memory, model, provider,
-  workspace identity, and chat history.
+  workspace identity, and chat history. When VSS UI chat is part of a Compose
+  build, have it also write the protected `agent-gateway.env` overlay and pass
+  that overlay last while resolving the standalone deployment model.
+
+The NemoClaw Harbor evaluation environment executes the same two checked-in
+notebooks before a trial, so notebook and Harbor validation receive the same
+recursive VSS skill catalog and commit-pinned CLI. Harbor's isolated
+task-specific Skills directory is evaluation input and is not a substitute for
+provisioning a production sandbox.
 
 Both harnesses expose their agent turn through the same Responses-protocol
 connector. From VSS UI chat they can manage cameras and streams, query

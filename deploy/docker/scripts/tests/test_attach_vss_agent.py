@@ -7,6 +7,8 @@ import argparse
 import contextlib
 import importlib.util
 import io
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -36,9 +38,10 @@ class RecordingRunner:
         command: list[str],
         *,
         capture: bool = False,
+        sensitive_output: bool = False,
         timeout: int = 900,
     ) -> str:
-        del capture, timeout
+        del capture, sensitive_output, timeout
         self.commands.append(command)
         if command[:3] == ["openshell", "forward", "list"]:
             return "SANDBOX BIND PORT PID STATUS\ndemo 127.0.0.1 18789 123 running"
@@ -71,11 +74,34 @@ def make_args(root: Path, runtime: str = "openclaw") -> argparse.Namespace:
         runtime_dir=attach.DEFAULT_RUNTIME_DIR,
         agent_api_url="http://127.0.0.1:18789",
         skip_api_check=False,
+        receipt_output=None,
+        gateway_env_output=None,
+        gateway_bind_host=None,
+        gateway_port=18090,
         dry_run=False,
     )
 
 
 class ValidationTests(unittest.TestCase):
+    def test_sensitive_command_failure_never_includes_captured_output(self) -> None:
+        failure = subprocess.CalledProcessError(
+            1,
+            ["nemoclaw", "demo", "gateway-token", "--quiet"],
+            output="secret-token",
+            stderr="secret-token",
+        )
+        with (
+            mock.patch.object(attach.subprocess, "run", side_effect=failure),
+            self.assertRaises(attach.AttachError) as raised,
+        ):
+            attach.CommandRunner().run(
+                failure.cmd,
+                capture=True,
+                sensitive_output=True,
+            )
+
+        self.assertNotIn("secret-token", str(raised.exception))
+
     def test_validates_bare_origins_and_rejects_credentials_or_paths(self) -> None:
         origin = attach.validate_origin("https://vss.example.test:8443/")
         self.assertEqual(origin.url, "https://vss.example.test:8443")
@@ -105,6 +131,45 @@ class ValidationTests(unittest.TestCase):
             attach.resolve_runtime_ref(Path("/unused"), "A" * 40),
             "a" * 40,
         )
+
+    def test_source_snapshot_rejects_any_uncommitted_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "skills/example").mkdir(parents=True)
+            (root / "skills/example/SKILL.md").write_text(
+                "---\nname: example\n---\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(root), "add", "."], check=True, capture_output=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "user.name=VSS Test",
+                    "-c",
+                    "user.email=vss-test@example.invalid",
+                    "commit",
+                    "-m",
+                    "fixture",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            runtime_ref = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            attach.verify_source_snapshot(root, runtime_ref)
+            (root / "README.md").write_text("uncommitted\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(attach.AttachError, "uncommitted changes"):
+                attach.verify_source_snapshot(root, runtime_ref)
 
     def test_recursively_discovers_nested_skills(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -216,7 +281,15 @@ class AttachFlowTests(unittest.TestCase):
         with (
             mock.patch.object(attach.shutil, "which", return_value="/usr/bin/nemoclaw"),
             mock.patch.object(attach, "verify_source_snapshot"),
-            mock.patch.object(attach, "verify_api", return_value="openclaw/default"),
+            mock.patch.object(
+                attach,
+                "verify_api",
+                return_value=attach.ApiReadiness(
+                    origin="http://127.0.0.1:18789",
+                    token="backend-token",
+                    model="openclaw/default",
+                ),
+            ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             attach.attach(make_args(self.root), runner)
@@ -263,7 +336,15 @@ class AttachFlowTests(unittest.TestCase):
                 attach.shutil, "which", return_value="/usr/bin/nemohermes"
             ),
             mock.patch.object(attach, "verify_source_snapshot"),
-            mock.patch.object(attach, "verify_api", return_value="hermes-agent"),
+            mock.patch.object(
+                attach,
+                "verify_api",
+                return_value=attach.ApiReadiness(
+                    origin="http://127.0.0.1:8642",
+                    token="backend-token",
+                    model="hermes-agent",
+                ),
+            ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             attach.attach(args, runner)
@@ -279,12 +360,66 @@ class AttachFlowTests(unittest.TestCase):
         with (
             mock.patch.object(attach.shutil, "which", return_value="/usr/bin/nemoclaw"),
             mock.patch.object(attach, "verify_source_snapshot"),
-            mock.patch.object(attach, "verify_api", return_value="openclaw/default"),
+            mock.patch.object(
+                attach,
+                "verify_api",
+                return_value=attach.ApiReadiness(
+                    origin="http://127.0.0.1:18789",
+                    token="backend-token",
+                    model="openclaw/default",
+                ),
+            ),
             contextlib.redirect_stdout(io.StringIO()),
             self.assertRaisesRegex(attach.AttachError, "identity files changed"),
         ):
             attach.attach(make_args(self.root), runner)
         self.assertFalse(any("upload" in command for command in runner.commands))
+
+    def test_gateway_overlay_is_protected_and_binds_the_verified_receipt(self) -> None:
+        runner = RecordingRunner()
+        args = make_args(self.root)
+        args.gateway_env_output = self.root / "agent-gateway.env"
+        args.receipt_output = self.root / "agent-capabilities.json"
+        args.gateway_bind_host = "172.17.0.1"
+        api = attach.ApiReadiness(
+            origin="http://127.0.0.1:18789",
+            token="backend-token",
+            model="openclaw/default",
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(attach.shutil, "which", return_value="/usr/bin/nemoclaw"),
+            mock.patch.object(attach, "verify_source_snapshot"),
+            mock.patch.object(attach, "verify_api", return_value=api),
+            contextlib.redirect_stdout(output),
+        ):
+            result = attach.attach(args, runner)
+
+        overlay = args.gateway_env_output.read_text(encoding="utf-8")
+        values = {
+            key: json.loads(value)
+            for key, value in (
+                line.split("=", 1) for line in overlay.splitlines() if line
+            )
+        }
+        encoded, digest = attach.encode_receipt(result.receipt)
+        self.assertEqual(values["VSS_AGENT_GATEWAY_CAPABILITIES_B64"], encoded)
+        self.assertEqual(values["VSS_AGENT_GATEWAY_CAPABILITIES_SHA256"], digest)
+        self.assertEqual(values["VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"], "a" * 40)
+        self.assertEqual(values["VSS_AGENT_BACKEND_TOKEN"], "backend-token")
+        self.assertNotIn("backend-token", output.getvalue())
+        self.assertEqual(args.gateway_env_output.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(args.receipt_output.stat().st_mode & 0o777, 0o600)
+
+    def test_gateway_overlay_requires_a_verified_api(self) -> None:
+        args = make_args(self.root)
+        args.gateway_env_output = self.root / "agent-gateway.env"
+        args.skip_api_check = True
+        with (
+            mock.patch.object(attach, "verify_source_snapshot"),
+            self.assertRaisesRegex(attach.AttachError, "cannot be combined"),
+        ):
+            attach.attach(args, RecordingRunner())
 
 
 if __name__ == "__main__":

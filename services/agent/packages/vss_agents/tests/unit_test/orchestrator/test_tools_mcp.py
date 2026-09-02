@@ -287,6 +287,7 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
             "  agent-gateway:\n"
             "    environment:\n"
             "      VSS_AGENT_BACKEND_TOKEN: backend-secret\n"  # pragma: allowlist secret
+            "      VSS_AGENT_GATEWAY_CAPABILITIES_B64: receipt-payload\n"
             '      AGENT_BACKEND_HEADERS_JSON: \'{"X-API-Key":"header-secret"}\'\n'  # pragma: allowlist secret
             "      AGENT_BACKEND_URL: http://127.0.0.1:18789\n"
         )
@@ -299,6 +300,8 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
     assert "NGC_CLI_API_KEY=test" not in result["env_content"]
     assert "VSS_AGENT_BACKEND_TOKEN: <redacted>" in result["compose_yaml_content"]
     assert "backend-secret" not in result["compose_yaml_content"]
+    assert "VSS_AGENT_GATEWAY_CAPABILITIES_B64: <redacted>" in result["compose_yaml_content"]
+    assert "receipt-payload" not in result["compose_yaml_content"]
     assert "AGENT_BACKEND_HEADERS_JSON: <redacted>" in result["compose_yaml_content"]
     assert "header-secret" not in result["compose_yaml_content"]
     assert "AGENT_BACKEND_URL: http://127.0.0.1:18789" in result["compose_yaml_content"]
@@ -695,6 +698,10 @@ async def test_docker_generate_applies_external_agent_settings_from_runtime(
         "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
         "VSS_AGENT_GATEWAY_PORT": "18090",
         "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
+        "VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true",
+        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": "eyJzY2hlbWFfdmVyc2lvbiI6MX0=",
+        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": "a9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",
+        "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "a" * 40,
         "VSS_AGENT_BACKEND_PROTOCOL": "responses",
         "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
         "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret

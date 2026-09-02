@@ -16,9 +16,13 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
+import hashlib
+import hmac
 import ipaddress
 import os
 import re
@@ -100,6 +104,7 @@ _COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VL
 _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off", ""})
 DEFAULT_AGENT_GATEWAY_PORT: Final[int] = 18090
+MAX_AGENT_CAPABILITY_RECEIPT_BYTES: Final[int] = 256_000
 
 
 class ValidationError(ValueError):
@@ -532,6 +537,29 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     if not merged.get("VSS_AGENT_BACKEND_URL", "").strip():
         raise ValidationError("VSS_AGENT_BACKEND_URL is required when VSS_AGENT_GATEWAY_ENABLED=true.")
 
+    encoded_receipt = merged.get("VSS_AGENT_GATEWAY_CAPABILITIES_B64", "").strip()
+    receipt_digest = merged.get("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256", "").strip().lower()
+    if not encoded_receipt:
+        raise ValidationError(
+            "VSS_AGENT_GATEWAY_CAPABILITIES_B64 is required when "
+            "VSS_AGENT_GATEWAY_ENABLED=true; run attach_vss_agent.py before resolution."
+        )
+    if not re.fullmatch(r"[0-9a-f]{64}", receipt_digest):
+        raise ValidationError("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256 must be a lowercase SHA-256 digest.")
+    try:
+        raw_receipt = base64.b64decode(encoded_receipt, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValidationError("VSS_AGENT_GATEWAY_CAPABILITIES_B64 must be strict base64.") from exc
+    if not raw_receipt or len(raw_receipt) > MAX_AGENT_CAPABILITY_RECEIPT_BYTES:
+        raise ValidationError(
+            f"Decoded VSS agent capability receipt must be 1..{MAX_AGENT_CAPABILITY_RECEIPT_BYTES} bytes."
+        )
+    if not hmac.compare_digest(hashlib.sha256(raw_receipt).hexdigest(), receipt_digest):
+        raise ValidationError("VSS agent capability receipt digest does not match.")
+    expected_runtime_ref = merged.get("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF", "").strip().lower()
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", expected_runtime_ref):
+        raise ValidationError("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF must be a full Git commit ID.")
+
     bind_host = merged.get("VSS_AGENT_GATEWAY_BIND_HOST", "").strip()
     if not bind_host:
         raise ValidationError(
@@ -561,6 +589,7 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     merged["VSS_AGENT_GATEWAY_ENABLED"] = "true"
     merged["VSS_AGENT_GATEWAY_BIND_HOST"] = bind_host
     merged["VSS_AGENT_GATEWAY_PORT"] = str(port)
+    merged["VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"] = "true"
     # The gateway is an HTTP/SSE transport. Lock every UI chat surface to the
     # same-origin HTTP API so a persisted WebSocket preference cannot bypass it.
     merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] = "true"

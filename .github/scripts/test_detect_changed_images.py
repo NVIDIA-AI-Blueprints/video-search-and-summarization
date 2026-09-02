@@ -217,6 +217,10 @@ class SelectImagesTest(unittest.TestCase):
                 "context": "services/analytics/behavior-analytics",
                 "source_path": "services/analytics/behavior-analytics",
             },
+            "vss-agent-gateway": {
+                "context": "services/agent-gateway",
+                "source_path": "services/agent-gateway",
+            },
             "sdr-mw-l": {
                 "context": "services/sdrc",
                 "source_path": "services/sdrc",
@@ -288,7 +292,15 @@ class SelectImagesTest(unittest.TestCase):
         )
         self.assertEqual(
             [entry["name"] for entry in agent_entries],
-            ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
+            ["vss-agent", "vss-agent-gateway", "vss-agent-ui", "vss-alert-ms"],
+        )
+
+        gateway_entries, _ = dci.select_images(
+            inventory, ["services/agent-gateway/vss_agent_gateway/server.py"]
+        )
+        self.assertEqual(
+            [entry["name"] for entry in gateway_entries],
+            ["vss-agent", "vss-agent-gateway", "vss-agent-ui", "vss-alert-ms"],
         )
 
     def test_repository_inventory_builds_rtvi_embed_with_lfs_assets(self):

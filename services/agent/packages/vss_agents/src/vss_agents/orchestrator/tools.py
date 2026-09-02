@@ -94,6 +94,7 @@ _SECRET_NAME_MARKERS: Final[tuple[str, ...]] = (
     "PASSWORD",
     "PASSWD",
     "CREDENTIAL",
+    "CAPABILITIES",
 )
 _SENSITIVE_HEADER_NAMES: Final[frozenset[str]] = frozenset({"authorization", "cookie", "set-cookie"})
 _REDACTED_VALUE: Final[str] = "<redacted>"
@@ -356,6 +357,16 @@ class OrchestratorRuntimeSettings(BaseSettings):
     vss_agent_gateway_token: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_TOKEN")
     vss_agent_gateway_port: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_PORT")
     vss_agent_gateway_bind_host: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_BIND_HOST")
+    vss_agent_gateway_require_capabilities: str = Field(
+        default="", validation_alias="VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"
+    )
+    vss_agent_gateway_capabilities_b64: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_CAPABILITIES_B64")
+    vss_agent_gateway_capabilities_sha256: str = Field(
+        default="", validation_alias="VSS_AGENT_GATEWAY_CAPABILITIES_SHA256"
+    )
+    vss_agent_gateway_expected_runtime_ref: str = Field(
+        default="", validation_alias="VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"
+    )
     vss_agent_backend_protocol: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PROTOCOL")
     vss_agent_backend_url: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_URL")
     vss_agent_backend_path: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PATH")
@@ -387,6 +398,10 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "vss_agent_gateway_token",
         "vss_agent_gateway_port",
         "vss_agent_gateway_bind_host",
+        "vss_agent_gateway_require_capabilities",
+        "vss_agent_gateway_capabilities_b64",
+        "vss_agent_gateway_capabilities_sha256",
+        "vss_agent_gateway_expected_runtime_ref",
         "vss_agent_backend_protocol",
         "vss_agent_backend_url",
         "vss_agent_backend_path",
