@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from http.server import ThreadingHTTPServer
+from unittest import mock
 
 from vss_agent_gateway.capabilities import CapabilityReceipt
 from vss_agent_gateway.connectors.base import Connector
@@ -283,6 +284,52 @@ class GatewayServiceTest(unittest.TestCase):
             self.assertNotIn("event: run.started", stream)
             self.assertIn("event: message.delta", stream)
             self.assertIn("event: run.completed", stream)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_http_stream_reports_expiry_that_occurs_after_headers(self) -> None:
+        config = make_config(gateway_token="gateway-secret")
+        service = GatewayService(config, FakeConnector())
+        request = CreateRunRequest.from_dict(
+            {"thread_id": "thread-1", "input": [{"role": "user", "content": "hi"}]},
+        )
+        record, _ = service.store.create(request, idempotency_key=None)
+        record.append("run.started")
+        delta = record.append("message.delta", {"delta": "partial"})
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(service))
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            waits: list[object] = [
+                ([delta], False),
+                EventsExpiredError("requested events are no longer retained"),
+            ]
+            with mock.patch.object(type(record), "wait_for_events", side_effect=waits):
+                events = urllib.request.Request(
+                    f"{base}/v1/runs/{record.run_id}/events",
+                    headers={
+                        "Authorization": "Bearer gateway-secret",
+                        "Last-Event-ID": "1",
+                    },
+                )
+                with urllib.request.urlopen(events) as response:
+                    stream = response.read().decode()
+
+            payloads = [
+                json.loads(line.removeprefix("data: "))
+                for line in stream.splitlines()
+                if line.startswith("data: ")
+            ]
+            self.assertEqual(
+                [payload["type"] for payload in payloads],
+                ["message.delta", "run.failed"],
+            )
+            self.assertEqual(payloads[-1]["data"]["error"]["code"], "events_expired")
+            self.assertFalse(record.terminal)
         finally:
             server.shutdown()
             server.server_close()

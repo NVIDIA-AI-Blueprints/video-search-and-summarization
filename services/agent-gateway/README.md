@@ -93,6 +93,9 @@ Normalized events include:
 
 Errors are terminal `run.failed` events, never assistant prose. Event IDs are
 monotonic per run and can be replayed during the configured retention window.
+If a consumer falls behind that window after its SSE response has started, the
+gateway sends a connection-local `run.failed` event with code `events_expired`;
+it does not fail or cancel the backend run for other consumers.
 Recovery `history` may contain only the messages before `input`, or a UI's full
 transcript ending in the same `input`; the gateway normalizes both forms.
 

@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .config import GatewayConfig
 from .connectors import LegacyChatConnector, ResponsesConnector
-from .contract import ContractError, CreateRunRequest
+from .contract import ContractError, CreateRunRequest, RunEvent
 from .json_codec import strict_json_loads
 from .service import GatewayService
 from .store import (
@@ -285,6 +285,30 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
                 if terminal and sequence >= record.next_sequence - 1:
                     return
+        except EventsExpiredError:
+            # A slow consumer can fall behind after the HTTP 200 response has
+            # started. End only this connection; another client may still be
+            # consuming the same healthy run. This event is deliberately not
+            # persisted in the shared RunRecord.
+            failure = RunEvent.create(
+                sequence=sequence + 1,
+                type="run.failed",
+                run_id=record.run_id,
+                thread_id=record.request.thread_id,
+                data={
+                    "error": {
+                        "code": "events_expired",
+                        "message": "requested events are no longer retained",
+                        "retryable": False,
+                    },
+                },
+            )
+            try:
+                self.wfile.write(failure.to_sse())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         except (BrokenPipeError, ConnectionResetError):
             return
 
