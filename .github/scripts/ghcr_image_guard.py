@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -151,14 +152,24 @@ def cmd_reuse(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    labels, reason, _ = read_image_manifest_labels(args.ref)
-    ok, message = verify_decision(
-        labels,
-        reason,
-        expected_tree_sha=args.expect_tree_sha,
-        expected_source_path=args.expect_source_path,
-        expected_image_name=args.expect_image_name,
-    )
+    # retry transient 404s (GHCR read-after-write lag)
+    retry_delays = (5, 10, 20, 40, 60, 90)
+    for attempt, delay in enumerate((0, *retry_delays)):
+        if delay:
+            time.sleep(delay)
+        labels, reason, _ = read_image_manifest_labels(args.ref)
+        ok, message = verify_decision(
+            labels,
+            reason,
+            expected_tree_sha=args.expect_tree_sha,
+            expected_source_path=args.expect_source_path,
+            expected_image_name=args.expect_image_name,
+        )
+        transient = labels is None and reason and "returned 404" in reason
+        if ok or not transient or attempt == len(retry_delays):
+            break
+        print(f"{args.ref}: not found yet (attempt {attempt + 1}); retrying in {retry_delays[attempt]}s")
+
     print(f"{args.ref}: {'OK' if ok else 'FAIL'} — {message}")
     return 0 if ok else 1
 
