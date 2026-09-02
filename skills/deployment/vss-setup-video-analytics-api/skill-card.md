@@ -1,5 +1,5 @@
 ## Description: <br>
-Use to deploy the vss-video-analytics-api REST service standalone with Elasticsearch ingest-pipeline and configured Kafka-topic readiness gates. Not for full warehouse deploy. <br>
+Use to deploy the vss-video-analytics-api REST service standalone with Elasticsearch ingest-pipeline, selectable Kafka/Redis stream type, and Kafka-topic readiness gates when Kafka is selected. Not for full warehouse deploy. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
