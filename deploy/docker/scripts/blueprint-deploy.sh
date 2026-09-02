@@ -477,8 +477,8 @@ function usage() {
   echo "  --llm-env-file                 Path to LLM env file"
   echo "  --vlm-env-file                 Path to VLM env file"
   echo "  --use-sbsa-images              Use SBSA-tagged image variants (e.g. RTVI CV) from commented lines in .env"
-  echo "                                   • Enabled automatically for -H DGX-SPARK"
-  echo "                                   • Use with -H OTHER on GB300/Spark-class hosts that need SBSA images"
+  echo "                                   • Enabled automatically for -H DGX-SPARK, -H GB200, and -H GB300"
+  echo "                                   • Use with -H OTHER on other Spark-class hosts that need SBSA images"
   echo ""
   echo "Options for 'up' and 'down':"
   echo "  -n, --dry-run                    Print commands without executing them"
@@ -513,7 +513,8 @@ function disable_sdrc_routing_in_env() {
   done
 }
 
-# Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env (DGX-SPARK or --use-sbsa-images).
+# Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env
+# (DGX-SPARK, GB200, GB300, or --use-sbsa-images).
 function apply_sbsa_image_tags_to_env() {
   local _generated_env="${1}"
   local _reason="${2}"
@@ -999,9 +1000,9 @@ function print_args() {
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
       echo "hardware-profile:          ${hardware_profile}"
     fi
-    if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${use_sbsa_images}" == "true" ]]; then
-      if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
-        echo "use-sbsa-images:           true (DGX-SPARK)"
+    if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${hardware_profile}" == "GB200" ]] || [[ "${hardware_profile}" == "GB300" ]] || [[ "${use_sbsa_images}" == "true" ]]; then
+      if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${hardware_profile}" == "GB200" ]] || [[ "${hardware_profile}" == "GB300" ]]; then
+        echo "use-sbsa-images:           true (${hardware_profile})"
       else
         echo "use-sbsa-images:           true (--use-sbsa-images)"
       fi
@@ -1257,8 +1258,8 @@ function state_up() {
     echo "[INFO] Warehouse COMPOSE_PROFILES=\${${compose_profiles_selector}}"
   fi
 
-  if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
-    apply_sbsa_image_tags_to_env "${_generated_env}" "DGX-SPARK"
+  if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${hardware_profile}" == "GB200" ]] || [[ "${hardware_profile}" == "GB300" ]]; then
+    apply_sbsa_image_tags_to_env "${_generated_env}" "${hardware_profile}"
   elif [[ "${use_sbsa_images}" == "true" ]]; then
     apply_sbsa_image_tags_to_env "${_generated_env}" "${hardware_profile:-OTHER} (--use-sbsa-images)"
   fi

@@ -89,6 +89,7 @@ function get_detected_hardware_profile() {
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
     *gb300*|*b300*) echo "GB300" ;;
+    *gb200*|*b200*) echo "GB200" ;;
     *l40s*) echo "L40S" ;;
     *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
@@ -464,7 +465,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      DGX-SPARK|GB300|H100|RTXPRO6000BW) echo "0.4" ;;
+      DGX-SPARK|GB200|GB300|H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -553,6 +554,7 @@ function usage() {
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
   echo "                                     - H100"
+  echo "                                     - GB200"
   echo "                                     - GB300"
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
@@ -864,9 +866,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'GB300' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'GB200' 'GB300' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, GB200, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
@@ -1641,9 +1643,9 @@ function state_up() {
   fi
 
   # ARM64 GPU systems use explicit SBSA image tags where profiles provide them.
-  # This includes DGX-SPARK and GB300 (Grace Blackwell), whose generic image
+  # This includes DGX-SPARK, GB200, and GB300 (Grace Blackwell), whose generic image
   # manifests do not include the required DeepStream/Tegra runtime libraries.
-  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" ]]; then
+  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB200" || "${hardware_profile}" == "GB300" ]]; then
     local _key
     while IFS= read -r _key; do
       [[ -z "${_key}" ]] && continue
@@ -1656,9 +1658,9 @@ function state_up() {
   fi
   # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
   # override into generated.env where it wins during Compose interpolation.
-  if [[ "${hardware_profile}" == "GB300" ]]; then
+  if [[ "${hardware_profile}" == "GB200" || "${hardware_profile}" == "GB300" ]]; then
     set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
-    echo "[INFO] Selected SBSA RT-VLM image for GB300"
+    echo "[INFO] Selected SBSA RT-VLM image for ${hardware_profile}"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
