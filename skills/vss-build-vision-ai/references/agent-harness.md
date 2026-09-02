@@ -143,9 +143,12 @@ rather than discover them:
   [`sizing.md`](sizing.md) — and note that a NemoClaw-managed local model claims
   every visible GPU unless pinned (see [Prerequisites](#prerequisites)).
 - **Two conversational surfaces.** The build's own Web UI and the sandbox chat UI
-  both answer, and they do not share session state. Name NemoClaw as the intended
-  driver when reporting the deployment so nobody splits work across both and
-  wonders why context is missing.
+  both answer, and they do not share session state. Report **both as markdown
+  links** — the build's browse origin next to the Agent UI — and name NemoClaw as
+  the intended driver. The build's origin is `VSS_PUBLIC_HOST`; on Brev that is
+  the FQDN the context file publishes for the ingress port, resolved rather than
+  constructed ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw
+  build holds `host.openshell.internal` and resolves only inside the sandbox.
 
 ## Ordering
 
@@ -265,8 +268,21 @@ uv run --isolated --no-project --python 3.12 \
   --with nbformat --with nbclient --with ipykernel -- \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
-    --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready."
+    --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
+  2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
 ```
+
+**Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
+`| tail`, `| head`, or a dropped stream loses section 3.7's `Agent UI:` line and
+the `WARNING:` that cell prints — without failing — when the dashboard forward
+does not come up. A clean exit does not mean the link is usable. Read the link
+from the `tee`d log.
+
+Do not reconstruct the URL from the notebook source. Its origin branches on
+whether the Brev context file publishes a secure link for the dashboard port.
+Outside the notebook, resolve that FQDN from the context file
+([`brev.md`](brev.md) → *Resolving a secure link*) rather than assembling a
+hostname.
 
 ### Leave `VSS_PUBLIC_URL` unset on a Compose build
 
@@ -322,6 +338,16 @@ Confirm the two things that exit code cannot cover:
    lands on an unauthenticated page. On Brev the host is the secure-link FQDN. A
    `127.0.0.1` URL only resolves on the deployment host, so pair the link with
    the SSH tunnel the same section prints rather than offering it alone.
+
+   Confirm the forward behind it is bound as that origin requires:
+
+   ```bash
+   openshell forward list   # BIND column for the dashboard port
+   ```
+
+   On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
+   probe and still `503`s behind the secure link. On loopback, re-run the
+   notebook and take the new link — do not publish the localhost URL instead.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters

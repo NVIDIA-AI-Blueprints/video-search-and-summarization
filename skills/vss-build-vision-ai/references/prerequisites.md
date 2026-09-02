@@ -183,6 +183,27 @@ If the VPN branch fires — or the host is multi-NIC and the right IP is ambiguo
 **prompt the user for the LAN IP instead of guessing.** Verify the pick with the
 bridge→host probe in [`troubleshooting.md`](troubleshooting.md#vlm-500--fetch_video_async-timeouterror--bridge-nim-cant-reach-host-vst).
 
+**Detect Brev before choosing an address below — file check, not a question.**
+A Brev instance publishes an environment context file mapping each exposed port
+to its FQDN, and sets `BREV_ENV_ID` in `/etc/environment`. On a hit,
+[`brev.md`](brev.md) owns the browse address: its secure-link values are
+mandatory, and no LAN or public/elastic IP is offered as an option.
+
+```bash
+BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+jq -e '.ports' "$BREV_CTX" 2>/dev/null \
+  || grep -h '^BREV_ENV_ID=' /etc/environment 2>/dev/null \
+  || echo "not a Brev instance"
+```
+
+Take the browse host from that file's `fqdn` for the ingress port
+([`brev.md`](brev.md) → *Resolving a secure link*). Never assemble one from
+`BREV_ENV_ID` and a domain.
+
+A public/elastic IP is wrong here: the browser arrives over the secure link, so
+a host-IP origin serves `http://…:7777` URLs into an `https://` page and the
+browser blocks them as mixed content.
+
 **`EXTERNAL_IP` — the browser-facing address.** Keep it equal to `HOST_IP` for
 a plain LAN box. Set it explicitly only when the browser path differs from the
 internal one:
@@ -191,14 +212,15 @@ internal one:
 |---|---|
 | Plain LAN | same as `HOST_IP` (the LAN IP) |
 | Cloud VM (AWS/GCP/Azure) | the **public/elastic IP** — **not on the NIC** (provider NAT, so `ip route`/`ip addr` can't see it). Read from instance metadata, e.g. AWS IMDSv1: `curl -s --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4` (`--max-time` so it fails fast off-AWS; IMDSv2-only instances must first fetch an `X-aws-ec2-metadata-token`). **Prompt the user** to confirm the public IP and that the security group opens the port. |
-| Brev | the `…brevlab.com` secure-link domain from `brev.md` |
+| Brev | the secure-link FQDN the environment context file publishes for the ingress port — resolved, not constructed (`brev.md`) |
 | Reach over a tunnel | the tunnel address (Tailscale `100.x`, cloudflared/ngrok hostname) |
 
 A private `192.168.x` / `10.x` `EXTERNAL_IP` (including a GlobalProtect VPN IP) is
 only reachable on that LAN/VPN, never the public internet — and corp VPNs usually
 block client-to-client, so a VPN IP rarely works even for VPN peers. For real remote
 access use the cloud public IP or a mesh VPN (Tailscale). **When unsure where the
-user will browse from, ask before setting `EXTERNAL_IP`.**
+user will browse from, ask before setting `EXTERNAL_IP` — but only when the Brev
+check above came back empty.**
 
 ## Firewall — Docker bridge → host services
 <a id="firewall"></a>
