@@ -318,6 +318,9 @@ async def run_vlm_job(
 
         def write() -> None:
             with persistence_lock:
+                # Type guards: these are guaranteed non-None by the outer close() check
+                assert job_id is not None
+                assert created_at is not None
                 closed = mark_terminal(
                     target_memory,
                     adapter,
