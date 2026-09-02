@@ -82,19 +82,6 @@ vss configure check
 # Expected: rt_vlm   ok   http://<origin>/rtvi-vlm   HTTP 200
 ```
 
-If `rt_vlm` is not listed as `ok`, the deployment does not expose `/rtvi-vlm` on the configured
-origin. On Kubernetes, `/rtvi-vlm` is included in the Ingress route table when both
-`rtvi.vss-rtvi-vlm.enabled: true` (workload enabled) **and** `vssIngress.enabled: true` (Ingress
-resource rendered). `rtvi.vss-rtvi-vlm.enabled` defaults to `true` in all shipped profiles, but
-`vssIngress.enabled` defaults to `false` — it must be set explicitly (see `values-base.yaml`
-comment: "set vssIngress.enabled true"). If the pod runs but the route is absent, set
-`vssIngress.enabled: true` and re-deploy. Upgrade to the latest chart if you
-are on an older release; if the route exists but the probe still fails, check that the `rtvi-vlm`
-pod is running. Note that `vss configure` probes a single origin:
-both `vst` and `rt_vlm` must be reachable under the same `<base-url>` — exposing RT-VLM at a
-separate URL from the VST ingress means only one will be recorded. On Docker, HAProxy exposes
-`/rtvi-vlm` by default.
-
 Bootstrap detail, exit codes and the rules that go with them are in
 [AGENTS.md](../../AGENTS.md).
 
@@ -303,13 +290,13 @@ report template.
 - If `vss vlm run` exits non-zero, stop and report the error. The code says what to do next:
   - `2` — invalid input: conflicting or missing media source, a time window without `--sensor`, an unreadable `--file`, or a URL RT-VLM rejected (e.g. SSRF-blocked). Fix the request; do not retry it unchanged.
   - `3` — backend unreachable: rt_vlm returned 5xx, refused the connection, or replied with an unusable or empty answer. Infrastructure rather than the request — retrying is reasonable.
-  - `4` — required service missing from the recorded config: `rt_vlm` for every request, or `vst` when using `--sensor`. Re-run `vss configure` against an origin that exposes every required service; on Kubernetes see the Prerequisites section for ingress guidance.
+  - `4` — required service missing from the recorded config: `rt_vlm` for every request, or `vst` when using `--sensor`. Re-run `vss configure` against an origin that exposes every required service.
   - `5` — the sensor name is not in VIOS. Do not retry as-is: list the sensors (see *Sensor check*) and confirm the intended name with the user.
   - `6` — the answer was produced but could not be written to memory. The answer on stdout is valid; only the memory write failed.
   - `7` — timeout (raise `--timeout`).
 - If **no video is available** (neither a URL/file nor a sensor), stop and ask the user for one.
-- If `rt_vlm` is not listed as `ok` in `vss configure check`, the deployment does not expose
-  `/rtvi-vlm`. See the Prerequisites section for the profile-specific Kubernetes fix.
+- If `rt_vlm` is not listed as `ok` in `vss configure check`, the deployment does not serve it.
+  Stop and report that; standing the service up is a deployment task (see *Cross-Reference*).
 
 ---
 
