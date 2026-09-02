@@ -1,6 +1,6 @@
 ---
 name: vss-setup-video-analytics-api
-description: Use to deploy the vss-video-analytics-api REST service standalone with its Elasticsearch ingest-pipeline and, when configured, Kafka-topic readiness gates. Not for full warehouse deploy.
+description: Use to deploy the vss-video-analytics-api REST service standalone with its Elasticsearch ingest-pipeline, selectable Kafka/Redis stream type, and Kafka-topic readiness gates when Kafka is selected. Not for full warehouse deploy.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -10,7 +10,7 @@ metadata:
 ---
 ## Purpose
 
-Deploy the video-analytics-api REST service standalone with the user's chosen config and data-log bind. The service exposes port 8081 and `/livez` only after Elasticsearch, the `insertion-timestamp-pipeline`, and any configured Kafka topic requirements are ready.
+Deploy the video-analytics-api REST service standalone with the user's chosen config and data-log bind. The service exposes port 8081 and `/livez` only after Elasticsearch, the `insertion-timestamp-pipeline`, and, when `STREAM_TYPE=kafka`, the configured Kafka topic requirements are ready.
 
 ## Instructions
 
@@ -85,8 +85,9 @@ The full operational walkthrough — config-source options, data-log volume beha
    > rotate immediately.
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
 4. **Elasticsearch and ingest pipeline** — the endpoint in `elasticsearch.node` must be reachable and contain `insertion-timestamp-pipeline`. Elasticsearch port availability alone is insufficient: the API deliberately waits for that pipeline before binding port 8081. When using the infra compose, start both `elasticsearch` and `elasticsearch-init-container`.
-5. **Kafka is optional only when disabled in the config.** With `kafka.brokers: []` or `null`, the API skips Kafka. With brokers configured, it waits before listening until `mdx-notification`, `mdx-amr`, and at least one `mdx-rtls*` topic exist. The service-shipped config enables Kafka, so choose either a broker-less config or provision those topics.
-6. **`$VSS_DATA_DIR` for the default compose.** The base compose bind-mounts `$VSS_DATA_DIR/data_log/vss_video_analytics_api` for multipart upload handling and file-backed assets such as calibration images. Set the directory to a writable host path and pre-create it, or remove that mount if image uploads are not needed.
+5. **`STREAM_TYPE`** — Compose passes this environment variable to the API. It accepts only `kafka` or `redis`; unset defaults to `kafka`, and any other value makes the API exit at startup. With `STREAM_TYPE=kafka`, the API waits for configured Kafka topics. With `STREAM_TYPE=redis`, it skips Kafka startup work and topic readiness gates; the API does not create a Redis client.
+6. **Kafka configuration when `STREAM_TYPE=kafka`.** With `kafka.brokers: []` or `null`, Kafka startup work is skipped. With brokers configured, the API waits before listening until `mdx-notification`, `mdx-amr`, and at least one `mdx-rtls*` topic exist. The service-shipped config enables Kafka, so provision those topics when selecting Kafka.
+7. **`$VSS_DATA_DIR` for the default compose.** The base compose bind-mounts `$VSS_DATA_DIR/data_log/vss_video_analytics_api` for multipart upload handling and file-backed assets such as calibration images. Set the directory to a writable host path and pre-create it, or remove that mount if image uploads are not needed.
 
 If any required prerequisite fails, surface the gap before going further.
 
@@ -94,10 +95,11 @@ If any required prerequisite fails, surface the gap before going further.
 
 Hand the user [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md) and walk them through its steps in order:
 
-1. Choose a config — image-baked default, service-shipped, or custom.
-2. Decide whether a data-log volume is needed for file uploads.
-3. Confirm readiness dependencies — Elasticsearch plus `insertion-timestamp-pipeline`; and, if Kafka is configured, the required topics.
-4. Deploy + verify with `docker compose up` and health check.
+1. Choose `STREAM_TYPE`: `kafka` or `redis`; omit it only to use the Kafka default.
+2. Choose a config — image-baked default, service-shipped, or custom.
+3. Decide whether a data-log volume is needed for file uploads.
+4. Confirm readiness dependencies — Elasticsearch plus `insertion-timestamp-pipeline`; and, only for `STREAM_TYPE=kafka` with configured brokers, the required topics.
+5. Deploy + verify with `docker compose up` and health check.
 
 The compose-file edits, config options, deploy + verify commands, REST API endpoint table, and troubleshooting table all live in that reference — don't duplicate them here.
 
@@ -105,9 +107,9 @@ The compose-file edits, config options, deploy + verify commands, REST API endpo
 
 Use [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md) for the REST endpoint table and runtime dependency notes.
 
-## Kafka-dependent features (runtime, requires broker)
+## Kafka-dependent features (runtime, requires `STREAM_TYPE=kafka` and non-empty `kafka.brokers`)
 
-When Kafka is configured, the container does not become live until its broker and required topics are available. Once it is live, three additional capabilities are available:
+When `STREAM_TYPE=kafka` and `kafka.brokers` is non-empty, the container does not become live until those brokers and the required topics are available. Once it is live, three additional capabilities are available:
 
 ### Dynamic config
 
@@ -129,7 +131,7 @@ The API consumes real-time location (`mdx-rtls`) and AMR (`mdx-amr`) messages fr
 
 - If the user wants "the full stack" (UI / agent / perception): hand off to `vss-deploy-profile` with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
 - If the user wants to deploy the analytics pipeline (behavior creation, incident detection): hand off to `vss-setup-behavior-analytics`.
-- If the user wants to publish a runtime config / calibration update through the REST API: confirm Kafka is reachable, then use the `/config` or calibration endpoints and point them at the behavior-analytics dynamic-update references for the consumer wire contract.
+- If the user wants to publish a runtime config / calibration update through the REST API: confirm `STREAM_TYPE=kafka` and Kafka are reachable, then use the `/config` or calibration endpoints and point them at the behavior-analytics dynamic-update references for the consumer wire contract.
 - If the user wants to understand the dynamic config / dynamic calibration wire contract from the **consumer** (behavior-analytics) side: point them at the `vss-setup-behavior-analytics` dynamic-config and dynamic-calibration references.
 - If the user wants to query or interact with the REST API endpoints: the deploy reference endpoint table covers what's available. For the full OpenAPI spec, see `src/app/specification/openapi.json` in the `video-analytics-api` repo.
 

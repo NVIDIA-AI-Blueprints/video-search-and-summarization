@@ -6,7 +6,7 @@ For local MP4s instead, see `videos.md`. For verifying the install with the bund
 
 ## Mode-specific Prerequisites
 
-- **AMC platform preflight passes** — Step 1 runs the deploy reference Step 0 first. The host used for calibration needs `x86_64`, NVIDIA GPU access, and NVENC support. If the preflight fails, stop before VIOS probing/capture and ask the user to provide existing calibration artifacts or run calibration on a supported `x86_64` dGPU host. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
+- **AMC platform preflight passes** — Step 1 runs the deploy reference Step 0 first. The host used for calibration needs Ubuntu 24.04 on `x86_64`, NVIDIA Driver 590 or newer, NVIDIA GPU access, NVIDIA Container Toolkit, and NVENC support. If the preflight fails, stop before VIOS probing/capture and ask the user to provide existing calibration artifacts or run calibration on a supported `x86_64` dGPU host. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
 - **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill, else ask them to deploy VIOS.
 - **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in `deploy/docker/industry-profiles/warehouse-operations/generated.env`). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
@@ -80,14 +80,14 @@ Because there's no local videos directory to anchor the scan, ask the user for t
 UI fallback details for any of these live in [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern).
 
 ### Required when no calibration-settings file is provided
-6. **Detector type** — see [SKILL.md § Step B — Start Calibration](../SKILL.md#step-b--start-calibration) for the choice and the AskUserQuestion fallback.
-7. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step B](../SKILL.md#step-b--start-calibration) for the exact prompt.
+6. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d--start-amc-calibration) for the choice and the AskUserQuestion fallback.
+7. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d--start-amc-calibration) for the exact prompt.
 
 ### Optional
 7. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
 8. **Ground truth zip** (`GT.zip`) and **focal lengths** — same options as the videos mode.
 
-VGGT refinement is handled after AMC completes by [SKILL.md Step E](../SKILL.md#step-e--vggt-refinement). Do not collect a separate RTSP-mode VGGT flag; staging the model is optional during deployment, and missing VGGT must not block the AMC run.
+Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c--independent-vggt-calibration). VGGT runs when ready; missing VGGT must not block AMC.
 
 For nvstreamer setup details and sensor pre-registration, see your VIOS deployment docs.
 
@@ -116,26 +116,20 @@ Response shape: `{"code": 0, "message": "...", "session": {"session_id": "...", 
 
 **Session lifecycle:**
 ```
-STARTING → RECORDING → COMPLETED → INGESTING → INGESTED
-                                ↘ ERROR
-RECORDING → CANCELLED (via /stop)
+STARTING → RECORDING → STOPPING → INGESTING → INGESTED
+Any state → ERROR
+STARTING → CANCELLED (no usable recording window)
 ```
 
-## Step 5 — Poll Capture Status, Then Ingest
+## Step 5 — Poll Automatic Ingest
 
-Poll every ~10 s until session state is `COMPLETED`:
+Poll every ~10 s until session state is `INGESTED`:
 
 ```
 GET /v1/rtsp/capture/<project_id>/<session_id>
 ```
 
-Then ingest the recorded clips as the project's video files:
-
-```
-POST /v1/rtsp/capture/<project_id>/<session_id>/ingest
-```
-
-When this returns successfully, the project has the clips attached — same state as if you'd called `/v1/upload_video_files/<project_id>` with local MP4s.
+AMC ingests recorded clips automatically. Do not call a separate ingest endpoint; once `INGESTED`, the project has the clips attached.
 
 **Need to stop early?** `POST /v1/rtsp/capture/<project_id>/<session_id>/stop` — the partial clip can still be ingested.
 
@@ -151,7 +145,7 @@ Resolve the config path (asked in Step 2) and use it as the anchor to scan for a
 
 **Alignment + layout** (resolved via same-dir scan of the config path, or user-provided, or UI fallback):
 ```
-POST /v1/upload_alignment/<project_id>    alignment_file=<alignment_data.json>
+POST /v1/upload_alignment/<project_id>?coord_space=<original|rectified>    alignment_file=<alignment_data.json>
 POST /v1/upload_layout/<project_id>       layout_file=<layout.png>
 ```
 
@@ -165,7 +159,7 @@ UI fallback details — see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallba
 
 ## Step 7 — Hand off to the Shared Calibration Tail
 
-Continue with [SKILL.md Step A onward](../SKILL.md#step-a--verify-project) (verify → calibrate → poll → results). Use [`calibration-tail.md`](calibration-tail.md) for the shared Python snippet; [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail) has the reusable handoff note.
+After ingest, ask whether every captured clip is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely. [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail) has the reusable handoff note.
 
 ---
 
@@ -174,6 +168,7 @@ Continue with [SKILL.md Step A onward](../SKILL.md#step-a--verify-project) (veri
 ```python
 from pathlib import Path
 import os
+import re
 import time
 
 import requests
@@ -187,16 +182,24 @@ STREAMS = [
     {"rtsp_url": "rtsp://<host>:31556/.../cam_00.mp4", "camera_name": "cam_00", "sensor_id": None},
     {"rtsp_url": "rtsp://<host>:31557/.../cam_01.mp4", "camera_name": "cam_01", "sensor_id": None},
 ]
-DURATION_SECONDS = 180                 # >= 60
+DURATION_SECONDS = 180                 # 60–1200
+if not 60 <= DURATION_SECONDS <= 1200:
+    raise ValueError("DURATION_SECONDS must be between 60 and 1200")
+if not re.fullmatch(r"[A-Za-z0-9_-]{3,50}", PROJECT_NAME):
+    raise ValueError("PROJECT_NAME must be 3-50 characters using only letters, digits, '_' or '-'")
 
 # Anchor file — ask user for this path. Leave None if they don't have one (→ UI Step 3 fallback).
 CONFIG_FILE    = None                                   # e.g. Path("/path/to/settings.json")
 # If CONFIG_FILE is set, the skill scans its parent directory for alignment + layout.
 ALIGNMENT_JSON = None
+ALIGNMENT_COORD_SPACE = "original"                     # "original" or "rectified" for points made on rectified frames
 LAYOUT_PNG     = None
 GT_ZIP         = None                                   # optional
 FOCAL_LENGTHS  = None                                   # optional: [1269.0, 1099.5]
 DETECTOR_TYPE  = "resnet"                               # overridden below if CONFIG_FILE pins it
+MEDIA_MODE = os.environ.get("MEDIA_MODE", "")  # empty prompts for a safe linear/rectification decision in calibration-tail.md
+if ALIGNMENT_COORD_SPACE not in {"original", "rectified"}:
+    raise ValueError("ALIGNMENT_COORD_SPACE must be 'original' or 'rectified'")
 
 VSS_APPS_DIR = Path(os.environ.get("VSS_APPS_DIR", Path.cwd()))
 PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", VSS_APPS_DIR / "services" / "auto-calibration" / "projects"))
@@ -249,7 +252,7 @@ while time.time() - start < DURATION_SECONDS + 600:
     elapsed = int(time.time() - start)
     if state != last:
         print(f"    [{elapsed:>4}s] {state}", flush=True); last = state
-    if state == "COMPLETED":
+    if state == "INGESTED":
         break
     if state in {"ERROR", "CANCELLED"}:
         raise RuntimeError(f"Capture {state}: {info}")
@@ -257,10 +260,8 @@ while time.time() - start < DURATION_SECONDS + 600:
 else:
     raise RuntimeError("Capture poll timed out")
 
-# Step 5b — Ingest clips into project
-r = s.post(f"{BASE_URL}/rtsp/capture/{project_id}/{session_id}/ingest")
-r.raise_for_status()
-print(f"[5] Ingested clips: {r.json()}")
+# Step 5b — Clips are automatically ingested when state is INGESTED.
+print("[5] Clips automatically ingested")
 
 # Step 6 — Config + alignment + layout + optional extras
 if CONFIG_FILE and Path(CONFIG_FILE).exists():
@@ -281,7 +282,7 @@ if CONFIG_FILE and Path(CONFIG_FILE).exists():
 
 if ALIGNMENT_JSON and ALIGNMENT_JSON.exists():
     with open(ALIGNMENT_JSON, "rb") as f:
-        s.post(f"{BASE_URL}/upload_alignment/{project_id}",
+        s.post(f"{BASE_URL}/upload_alignment/{project_id}?coord_space={ALIGNMENT_COORD_SPACE}",
                files={"alignment_file": (ALIGNMENT_JSON.name, f, "application/json")}).raise_for_status()
 if LAYOUT_PNG and LAYOUT_PNG.exists():
     with open(LAYOUT_PNG, "rb") as f:

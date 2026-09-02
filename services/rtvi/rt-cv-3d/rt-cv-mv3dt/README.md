@@ -306,7 +306,9 @@ Register your RTSP streams via the perception REST API — one
 ./scripts/add-streams.sh --file my-streams.txt
 
 # runtime removal / inspection:
-./scripts/add-streams.sh --remove <sensor_id_2>
+./scripts/add-streams.sh --remove <sensor_id_2>   # one stream, by the id --list shows
+./scripts/add-streams.sh --remove-all             # every registered stream, after confirming
+./scripts/add-streams.sh --remove-all --yes       # same, unattended
 ./scripts/add-streams.sh --list
 ```
 

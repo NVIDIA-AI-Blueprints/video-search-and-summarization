@@ -12,7 +12,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile on the target host: VST reachable at http://localhost:30888/vst/api/v1, VLM endpoint reachable at either ${VLM_BASE_URL}/v1 (NIM Cosmos, picked when VLM_BASE_URL non-empty and VLM_MODE != none) or ${RTVI_VLM_BASE_URL}/v1 (RT-VLM Cosmos, picked otherwise; base default port 30082, alerts default 8018). Read VLM_BASE_URL / VLM_NAME / VLM_MODE / RTVI_VLM_BASE_URL off the vss-agent container env. The skill answers a visual question by calling the resolved VLM endpoint's /v1/chat/completions directly with a video_url block (it does NOT call POST /generate). The chosen VLM endpoint must be able to fetch the VST clip URL; prefer local NIM/RT-VLM unless the clip URL is externally reachable by the remote VLM. Set Brev secure-link vars if checks validate media URLs. (See `skills/operations/vss-ask-video/SKILL.md`).",
+      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile on the target host: VST reachable at http://localhost:30888/vst/api/v1. After deploying, run `vss configure` (from the vss-ask-video SKILL.md setup block) to discover the rt_vlm endpoint — the skill uses `vss vlm run` to call it, it does NOT call POST /generate directly. Set Brev secure-link vars if checks validate media URLs. (See `skills/vss-ask-video/SKILL.md`).",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
@@ -40,8 +40,8 @@
     {
       "query": "Is the worker in warehouse_safety_0001 wearing PPE?",
       "checks": [
-        "The run obtained the clip URL through `vss vios clip --sensor <name>` and used its `media_url`. The command resolves the sensor by name, reads the recorded range and mints the URL in one call, so the mandatory startTime/endTime cannot be dropped or invented. A hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check: its bounds are mandatory and the only source for them is a separate /storage/timelines read, which is the step this skill exists to remove.",
-        "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint (either ${VLM_BASE_URL}/v1 for NIM Cosmos or ${RTVI_VLM_BASE_URL}/v1 for RT-VLM Cosmos), with Content-Type application/json, a JSON body containing the resolved model id and a messages array whose first user content list contains both a text block with the user's question and a video_url block referencing the clip URL from the prior step; HTTP 2xx.",
+        "The run used `vss vlm run --sensor warehouse_safety_0001` (Path B of vss-ask-video) to send the question and the VIOS-resolved clip to RT-VLM in one call. The CLI resolves the sensor by name, reads the recorded range, mints the clip URL, and sends it to the VLM endpoint internally — no separate clip-URL step is required. The command exited 0. A bare hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check.",
+        "The `vss vlm run` command output (the body JSON line) contains `\"status\": \"completed\"` and a non-empty `\"answer\"` field, confirming that the CLI successfully POSTed to the rt_vlm /v1/chat/completions endpoint and received a 2xx response with a valid answer.",
         "The run did NOT POST to http://localhost:8000/generate.",
         "The final assistant reply answers in plain text or light markdown whether the worker is wearing PPE according to the user question, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
       ]
@@ -49,8 +49,8 @@
     {
       "query": "At what timestamp did the worker climb up the ladder in warehouse_safety_0001? Answer from the clip recorded on that VIOS sensor — not from a local copy of the file and not from any pre-extracted frames left on this host.",
       "checks": [
-        "The run obtained the clip URL through `vss vios clip --sensor <name>` and used its `media_url`. The command resolves the sensor by name, reads the recorded range and mints the URL in one call, so the mandatory startTime/endTime cannot be dropped or invented. A hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check: its bounds are mandatory and the only source for them is a separate /storage/timelines read, which is the step this skill exists to remove.",
-        "The run performed at least one successful POST to /v1/chat/completions on the resolved VLM endpoint with a video_url block referencing that clip URL and the user's question as a text block; HTTP 2xx.",
+        "The run used `vss vlm run --sensor warehouse_safety_0001` (Path B of vss-ask-video) to send the question and the VIOS-resolved clip to RT-VLM in one call. The CLI resolves the sensor by name, reads the recorded range, mints the clip URL, and sends it to the VLM endpoint internally. The command exited 0. A bare hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check.",
+        "The `vss vlm run` command output (the body JSON line) contains `\"status\": \"completed\"` and a non-empty `\"answer\"` field, confirming that the CLI successfully POSTed to the rt_vlm /v1/chat/completions endpoint and received a 2xx response with a valid answer.",
         "The run did NOT POST to http://localhost:8000/generate.",
         "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
       ]

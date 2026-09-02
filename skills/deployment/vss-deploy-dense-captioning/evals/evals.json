@@ -3,11 +3,11 @@
     "id": "dense-captioning-standalone-deploy",
     "question": "Deploy standalone RT-VLM dense captioning and verify the service is ready for API calls.",
     "expected_skill": "vss-deploy-dense-captioning",
-    "ground_truth": "Loads vss-deploy-dense-captioning, follows the standalone RT-VLM deploy reference, uses a writable compose copy, selects the correct RT-VLM image tag for the platform, validates compose before starting rtvi-vlm, verifies readiness/models/OpenAPI on the configured port, and avoids the full VSS profile flow.",
+    "ground_truth": "Loads vss-deploy-dense-captioning, follows the standalone RT-VLM deploy reference, starts from the canonical checked-in compose and creates a writable normalized copy only for known undefined optional peers, selects the correct RT-VLM image tag for the platform, validates compose before starting rtvi-vlm, verifies readiness/models/OpenAPI on the configured port, and avoids the full VSS profile flow.",
     "expected_behavior": [
       "Loads vss-deploy-dense-captioning rather than vss-deploy-profile.",
-      "Copies the RT-VLM compose into a writable standalone directory before editing it.",
-      "Derives RTVI_VLM_IMAGE_TAG from the compose default and chooses the -sbsa variant only for Spark, GB10, or SBSA-class hosts.",
+      "Uses the canonical checked-in RT-VLM compose directly and creates a writable normalized copy only after validation reports known undefined optional peers.",
+      "Derives VSS_RT_VLM_TAG from the compose default and chooses the -sbsa variant only for Spark, GB10, or SBSA-class hosts.",
       "Runs docker compose config before starting rtvi-vlm and checks /v1/health/ready, /v1/models, and /openapi.json after startup.",
       "Keeps NGC_CLI_API_KEY and RTVI_VLM_API_KEY out of logs and final responses."
     ]

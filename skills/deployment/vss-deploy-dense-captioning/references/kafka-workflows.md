@@ -295,7 +295,7 @@ done
 The RT-VLM compose maps `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to the container-side `KAFKA_BOOTSTRAP_SERVERS`, defaulting to `kafka:29092`. Set the prefixed host variable in `rtvi-vlm.env` before recreating RT-VLM when using an external broker.
 
 ```bash
-docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml \
+docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
   --profile rtvi-vlm up -d --force-recreate rtvi-vlm
 ```
 

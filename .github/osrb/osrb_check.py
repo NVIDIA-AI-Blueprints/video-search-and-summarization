@@ -24,7 +24,7 @@ class CheckError(RuntimeError):
 
 
 def guide_url(repo: str) -> str:
-    return f"https://github.com/{repo}/blob/main/.github/OSRB_REVIEW.md"
+    return f"https://github.com/{repo}/blob/main/.github/osrb/OSRB_REVIEW.md"
 
 
 def summary_with_guide(repo: str, summary: str) -> str:

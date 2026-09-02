@@ -18,9 +18,10 @@ You only edit the existing service compose:
 ```
 
 1. **`command:`** — which config file the Node server loads at startup.
-2. **`volumes:`** — what config (required) and what data-log directory (optional) to mount.
+2. **`environment.STREAM_TYPE`:** — `kafka` or `redis`; omitted defaults to `kafka`.
+3. **`volumes:`** — what config (required) and what data-log directory (optional) to mount.
 
-Walk steps 1-3 below to decide each one; the bring-it-up command lives in [Deploy + verify](#deploy--verify) at the end. For a field-by-field JSON config reference, see the [Configuration Guide](configuration.md).
+Walk steps 1-4 below to decide each one; the bring-it-up command lives in [Deploy + verify](#deploy--verify) at the end. For a field-by-field JSON config reference, see the [Configuration Guide](configuration.md).
 
 ---
 
@@ -85,7 +86,25 @@ Top-level shape:
 
 ---
 
-## Step 2 — Data log volume
+## Step 2 — Select the stream type
+
+Compose passes `STREAM_TYPE` into the server:
+
+- `kafka` — the default when `STREAM_TYPE` is unset. With configured `kafka.brokers`, the server waits for Kafka topics and starts its Kafka workers.
+- `redis` — skips Kafka topic readiness and Kafka workers. It does not configure a Redis client; Elasticsearch-backed API endpoints remain available.
+
+Any other value is invalid and makes the server exit at startup. Set the value in Compose:
+
+```yaml
+services:
+  vss-video-analytics-api:
+    environment:
+      STREAM_TYPE: ${STREAM_TYPE:-kafka}
+```
+
+---
+
+## Step 3 — Data log volume
 
 The compose mounts a data-log directory for multipart upload handling and file-backed assets such as calibration images:
 
@@ -105,7 +124,7 @@ If you don't need image upload endpoints, you can drop this mount — the contai
 
 ---
 
-## Step 3 — Infrastructure dependencies
+## Step 4 — Infrastructure dependencies
 
 ### Elasticsearch (required)
 
@@ -125,16 +144,16 @@ Wait for ES to be healthy before starting the API:
 curl -sf http://localhost:9200/_cluster/health
 ```
 
-### Kafka (optional only when disabled)
+### Kafka (only for `STREAM_TYPE=kafka`)
 
-Kafka is optional only when `kafka.brokers` is empty or null in the config; then the server skips Kafka entirely.
+`STREAM_TYPE` accepts only `kafka` or `redis`; it defaults to `kafka` when unset. The Redis setting skips Kafka startup work and does not configure a Redis client. For the Kafka setting, empty or null `kafka.brokers` skips Kafka startup work.
 
 When brokers are configured and reachable, the API gains:
 - **Dynamic config** — produces/consumes config update notifications on `mdx-notification` (Kafka key `behavior-analytics-config`). This is how the UI pushes config changes to `behavior-analytics` through the API.
 - **Dynamic calibration** — produces calibration update notifications on `mdx-notification` (Kafka key `calibration`).
 - **RTLS / AMR** — consumes real-time location and AMR messages from `mdx-rtls` / `mdx-amr` topics and exposes them via REST.
 
-If brokers are configured, the server waits before listening until it can list topics and finds `mdx-notification`, `mdx-amr`, and at least one topic matching `^mdx-rtls.*`. Its logs identify the missing topic or failed topic-list request on each retry. If you want the API to run broker-less, set `kafka.brokers` to an empty array (`[]`) or `null`.
+With `STREAM_TYPE=kafka` and configured brokers, the server waits before listening until it can list topics and finds `mdx-notification`, `mdx-amr`, and at least one topic matching `^mdx-rtls.*`. Its logs identify the missing topic or failed topic-list request on each retry. To skip Kafka startup work, select `STREAM_TYPE=redis`, or select `STREAM_TYPE=kafka` with `kafka.brokers` set to an empty array (`[]`) or `null`.
 
 ---
 
@@ -205,7 +224,7 @@ While the ingest pipeline is absent, the API emits:
 {"message":"[ELASTICSEARCH] Ingest pipeline is not present.","pipelineId":"insertion-timestamp-pipeline"}
 ```
 
-The API checks once per second until the pipeline exists, then performs the same loop for configured Kafka requirements. This is expected when the API starts before its infrastructure; wait for `/livez` rather than treating the container's running state or Elasticsearch port 9200 as API readiness.
+The API checks once per second until the pipeline exists, then, only with `STREAM_TYPE=kafka` and configured brokers, performs the same loop for Kafka requirements. This is expected when the API starts before its infrastructure; wait for `/livez` rather than treating the container's running state or Elasticsearch port 9200 as API readiness.
 
 ## Teardown
 
@@ -222,7 +241,7 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` te
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | API never exposes `/livez`; logs say `Ingest pipeline is not present` | Elasticsearch is reachable but `insertion-timestamp-pipeline` has not been created. | Start or repair `elasticsearch-init-container`; verify with `curl -sf http://localhost:9200/_ingest/pipeline/insertion-timestamp-pipeline`. |
-| API never exposes `/livez`; logs say `Required Kafka topics are not present` | Kafka is enabled but one or more requirements are absent. | Create `mdx-notification`, `mdx-amr`, and a topic matching `mdx-rtls*`, or disable Kafka with `kafka.brokers: []`. |
+| API never exposes `/livez`; logs say `Required Kafka topics are not present` | `STREAM_TYPE=kafka` with configured brokers, but one or more requirements are absent. | Create `mdx-notification`, `mdx-amr`, and a topic matching `mdx-rtls*`; select `STREAM_TYPE=redis`; or set `kafka.brokers: []`. |
 | `[INPUT ERROR] Invalid path for bootstrap config file.` | The `--config` path doesn't exist inside the container. | Verify the volume mount target matches the `--config` flag path. Use an absolute path. |
 | Compose tries to mount `/data_log/vss_video_analytics_api` from the filesystem root | `$VSS_DATA_DIR` is unset while the default data-log bind mount is still present. | Export `VSS_DATA_DIR` to a writable host path and create `$VSS_DATA_DIR/data_log/vss_video_analytics_api`, or remove the `/web-api-app/files` mount if image uploads are not needed. |
 | `EADDRINUSE` | Port 8081 (or your configured port) is already in use. | Check with `ss -tlnp | grep :8081`. Stop the conflicting process or change `server.port` in the config. |

@@ -257,10 +257,10 @@ Serves the LLM and the VLM from outside the cluster, so neither needs a local GP
 mode it is an OpenAI-compatible proxy that forwards VLM calls to the remote endpoint rather than
 loading a local checkpoint. See [GPU Requirements](#with-remote-llm-and-vlm-endpoints-option-b).
 
-The LLM and the evaluation judge can use the hosted `nvidia/nvidia-nemotron-nano-9b-v2` on
-`https://integrate.api.nvidia.com`, whose free endpoint NVIDIA has scheduled for deprecation on
-**2026-08-25** — after that date, pick a current model from the
-[API catalog](https://build.nvidia.com) or point `llmBaseUrl` at your own LLM as well.
+The LLM and the evaluation judge can use the hosted `nvidia/nemotron-3.5-lightning-30b-a3b`
+on `https://integrate.api.nvidia.com` ([catalog entry](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b)),
+matching the in-cluster default. If that hosted endpoint is ever retired, pick a current model
+from the [API catalog](https://build.nvidia.com) or point `llmBaseUrl` at your own LLM.
 **The VLM must be an endpoint you provide**: the Cosmos3 VLM
 (`nvidia/cosmos3-nano-reasoner`) has no working hosted endpoint on `https://integrate.api.nvidia.com`,
 so critic verification and `video_understanding` fail if you leave the VLM pointed there. Supply your

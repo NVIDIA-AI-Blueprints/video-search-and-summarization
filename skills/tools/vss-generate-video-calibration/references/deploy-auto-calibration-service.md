@@ -2,7 +2,7 @@
 
 Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill (``../SKILL.md`` (see `../SKILL.md`)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
-Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of a warehouse auto-calibration variant (`BP_PROFILE=bp_wh_auto_calib` with mode `2d`/`3d`/`mv3dt`). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
+Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of the warehouse auto-calibration variant (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` — one list, not `2d`/`3d`/`mv3dt` suffixes). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
 
 ## What's different from base VSS
 
@@ -10,14 +10,14 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 - **AMC piggybacks on the `warehouse-operations` industry profile.** Warehouse calibration variants load the env automatically; running the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list requires the same env to be present.
 - **Default ports**: MS container at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**) published on `${VSS_AUTO_CALIBRATION_HOST_PORT}` (default **8010**); UI container port `5000` published on `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` (default `5000`).
 - **VIOS auto-wired.** When deployed with the warehouse auto-calibration variant, `VIOS_BASE_URL` is fetched from `${VST_INTERNAL_URL}`. No manual VIOS config is needed when VST runs in the same compose deployment.
-- **Optional VGGT model.** AMC works without VGGT, but model-based refinement needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
+- **Optional VGGT model.** AMC works without VGGT, but independent VGGT calibration needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
 
 ## What gets deployed
 
 | Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
 |---|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
-| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `${VSS_AUTO_CALIBRATION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration}:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui}:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
 
 > **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
@@ -33,7 +33,7 @@ Set stable service defaults such as container ports in [`deploy/docker/industry-
 | `VSS_AUTO_CALIBRATION_UI_HOST_PORT` | UI host-published port. Change the active `generated.env` if `5000` conflicts. | `5000` |
 | `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). For host access, set to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
-| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when a warehouse variant with VST is running; for calibration-only RTSP set `BP_PROFILE=bp_wh_auto_calib`, choose `MODE`, and select the matching `COMPOSE_PROFILES_WH_AUTO_CALIB_*` list. | `${VST_INTERNAL_URL}` |
+| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when the warehouse auto-calibration variant with VST is running; for calibration-only RTSP set `MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}`. | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
 | `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The `overrides.env` template ships with a placeholder `/path/to/deploy/docker`; replace it in the active `generated.env` with the absolute path to your checkout's `deploy/docker`, otherwise the dry-run fails with `couldn't find env file: …/services/vios/vst.env`. | (no default — must be set) |
 | `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. | (no default — must be set) |
@@ -44,7 +44,7 @@ Standard compose-centric workflow: initialize `generated.env` from `overrides.en
 
 ### Step 0 — Platform Preflight
 
-Run this before NGC login, image pulls, VIOS checks, capture, upload, or calibration. AMC calibration uses DeepStream detection and requires an `x86_64` calibration host with NVIDIA GPU access and NVENC hardware encoder support. DGX Spark is an `aarch64` system, so it is not a supported AMC calibration host for this flow even though it has NVENC; use an existing `calibration.json`, run calibration on a supported host, or transfer generated calibration artifacts.
+Run this before NGC login, image pulls, VIOS checks, capture, upload, or calibration. AMC 3.3.0 requires Ubuntu 24.04 on an `x86_64` calibration host, NVIDIA Driver 590 or newer, NVIDIA GPU access, NVENC hardware encoder support, non-root Docker access, and NVIDIA Container Toolkit. DGX Spark is an `aarch64` system, so it is not a supported AMC calibration host for this flow even though it has NVENC; use an existing `calibration.json`, run calibration on a supported host, or transfer generated calibration artifacts.
 
 Recommended calibration hosts include RTX PRO 6000 Blackwell Server/Workstation, RTX A6000, L40S/L40/L4, and A40. Hosts such as A100, H100/H200, GB200/HGX B200, and DGX Station Blackwell do not provide NVENC in NVIDIA's Video Encode and Decode Support Matrix; DGX Spark does not meet the `x86_64` host requirement for this flow.
 
@@ -62,6 +62,12 @@ if [ "${ARCH}" != "x86_64" ]; then
   exit 1
 fi
 
+. /etc/os-release
+if [ "${ID:-}" != "ubuntu" ] || [ "${VERSION_ID:-}" != "24.04" ]; then
+  echo "ERROR: AMC calibration requires Ubuntu 24.04." >&2
+  exit 1
+fi
+
 if ! command -v nvidia-smi >/dev/null 2>&1; then
   echo "ERROR: nvidia-smi was not found; NVIDIA GPU access is required before deploying or running AMC calibration." >&2
   echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
@@ -73,6 +79,25 @@ nvidia-smi >/dev/null 2>&1 || {
   echo "Choose one path: provide an existing calibration.json, run calibration on a supported x86_64 dGPU host, or transfer generated calibration artifacts." >&2
   exit 1
 }
+
+DRIVER_MAJOR="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1 | cut -d. -f1)"
+if ! printf '%s\n' "${DRIVER_MAJOR}" | grep -Eq '^[0-9]+$' || [ "${DRIVER_MAJOR}" -lt 590 ]; then
+  echo "ERROR: AMC calibration requires NVIDIA Driver 590 or newer." >&2
+  exit 1
+fi
+
+docker ps >/dev/null 2>&1 || {
+  echo "ERROR: Docker must run without sudo before deploying AMC." >&2
+  exit 1
+}
+DOCKER_RUNTIMES="$(docker info --format '{{json .Runtimes}}' 2>/dev/null)"
+case "${DOCKER_RUNTIMES}" in
+  *nvidia*) ;;
+  *)
+    echo "ERROR: NVIDIA Container Toolkit/runtime is not available to Docker." >&2
+    exit 1
+    ;;
+esac
 
 # AMC MS compose assigns GPU device 0, so check GPU 0 here.
 echo "AMC GPU device: 0"
@@ -88,7 +113,7 @@ echo "AMC platform preflight passed"
 
 ### Step 1 — NGC login
 
-AMC pulls its images from the `vss-core` namespace on `nvcr.io` (the exact org — e.g. `nvidia` for published releases — is whatever the compose files in the table above reference). The user's NGC key must have access to that namespace.
+AMC pulls its images from the `vss-core` namespace on `nvcr.io`. The compose defaults are the **`nvstaging`** org (`nvcr.io/nvstaging/vss-core/…`), overridable via `VSS_AUTO_CALIBRATION_IMAGE` / `VSS_AUTO_CALIBRATION_UI_IMAGE` — read the resolved path from `docker compose config` rather than assuming an org. The user's NGC key must have access to whichever org resolves.
 
 The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell or warehouse `generated.env`. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
@@ -97,14 +122,15 @@ if [ -f deploy/docker/industry-profiles/warehouse-operations/generated.env ]; th
   set -a; . deploy/docker/industry-profiles/warehouse-operations/generated.env; set +a
 fi
 echo "NGC_CLI_API_KEY: $([ -n "${NGC_CLI_API_KEY}" ] && echo SET || echo 'NOT SET')"
-echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+# printenv takes the variable *name*; the value never appears in argv (unlike echo "$NGC_CLI_API_KEY").
+printenv NGC_CLI_API_KEY | docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
-> **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key (`--password-stdin` keeps it out of argv and shell history; keep it out of any file you write).
+> **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key. Use `printenv NGC_CLI_API_KEY | docker login … --password-stdin` — do **not** `echo "$NGC_CLI_API_KEY"` (that expands the secret into echo's argv). Keep the key out of any file you write.
 
 ### Step 2 — (Optional) Stage the VGGT model
 
-Skip this step unless the user explicitly asks for VGGT-refined output. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
+Skip this step unless the user explicitly asks for independent VGGT calibration. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
 
 **2a. Accept the model license** (one-time, manual): visit https://huggingface.co/facebook/VGGT-1B-Commercial and click "Agree and access repository".
 
@@ -163,7 +189,7 @@ Pick the deployment variant that matches the intent, initialize the runtime env 
 
 | Intent | `COMPOSE_PROFILES` value |
 |---|---|
-| Warehouse auto-calibration (RTSP via nvstreamer/VST) | `${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}` / `_3D` / `_MV3DT` (the variant service list) |
+| Warehouse auto-calibration (RTSP via nvstreamer/VST) | `MODE=auto-calibration` and `${COMPOSE_PROFILES_WH_AUTO_CALIB}` (one list) |
 | Standalone AMC only (no warehouse agent/UI stack) | `vss-auto-calibration,vss-auto-calibration-ui` |
 
 ```bash
@@ -173,18 +199,25 @@ grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/gene
   || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
 
 # In generated.env, replace the active COMPOSE_PROFILES assignment with exactly
-# one selector. Also set BP_PROFILE=bp_wh_auto_calib and the matching MODE for a
-# warehouse deployment.
+# one selector. For warehouse RTSP auto-calib also set MODE=auto-calibration
+# and BP_PROFILE=bp_wh_auto_calib (do not leave MODE=2d from the template).
 #
 # Standalone AMC:
 # COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui
 #
-# Warehouse auto-calibration, MODE=2d:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}
-# Warehouse auto-calibration, MODE=3d:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}
-# Warehouse auto-calibration, MODE=mv3dt:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT}
+# Warehouse auto-calibration (MODE=auto-calibration; one service list):
+# MODE=auto-calibration
+# BP_PROFILE=bp_wh_auto_calib
+# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
+
+# Warehouse auto-calibration uses direct VST, not SDRC. These three ship
+# uncommented in overrides.env (2d/3d/mv3dt need them). Comment them in
+# generated.env — blueprint-deploy.sh does this for -p bp_wh_auto_calib;
+# this skill's compose path does not:
+GEN=industry-profiles/warehouse-operations/generated.env
+for _k in VST_USE_SDRC STREAM_PROCESSOR_MODULE_ENDPOINT VST_NGINX_MODE; do
+  grep -qE "^${_k}=" "$GEN" && sed -i -E "s/^(${_k}=.*)/# \1/" "$GEN"
+done
 
 # Resolve and export the selected list before every Compose command.
 set -a
@@ -309,14 +342,14 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 
 | Issue | Symptoms | Solution |
 |---|---|---|
-| NGC key logs in but can't pull AMC images | The Step 3 access check stops with "Access Denied" / 401 on `docker pull` of a `vss-core` AMC image, before the stack starts | The key authenticates but lacks `vss-core` access. Ask the user for an NGC key with access to the `vss-core` namespace (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), re-run `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`, then retry Step 3. |
+| NGC key logs in but can't pull AMC images | The Step 3 access check stops with "Access Denied" / 401 on `docker pull` of a `vss-core` AMC image, before the stack starts | The key authenticates but lacks `vss-core` access. Ask the user for an NGC key with access to the `vss-core` namespace (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), re-run `printenv NGC_CLI_API_KEY \| docker login nvcr.io --username '$oauthtoken' --password-stdin`, then retry Step 3. |
 | `docker login` itself is rejected | Step 1 login returns an authentication error | The key is invalid or expired. Ask the user for a current NGC key and log in again before continuing. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
 | UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/generated.env` and set it to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_HOST_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS host port fails. Fix by either: (i) moving the MS host publication to a port the browser can reach — set `VSS_AUTO_CALIBRATION_HOST_PORT=8080` (or another allowed port) in `generated.env`, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different host port: edit `VSS_AUTO_CALIBRATION_HOST_PORT` or `VSS_AUTO_CALIBRATION_UI_HOST_PORT` in `industry-profiles/warehouse-operations/generated.env`, then re-run dry-run + up. |
-| VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
+| VGGT model not found in MS logs | Project info reports `vggt_state=MODEL_MISSING` and MS log shows the model is absent | Do not invoke VGGT or report it as ready. AMC works without it. Stage the licensed model in Step 2 only if VGGT is requested, then re-check project state. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
-| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy `BP_PROFILE=bp_wh_auto_calib` with the mode-specific `COMPOSE_PROFILES_WH_AUTO_CALIB_*` service list so VST is present, or set `VIOS_BASE_URL` explicitly in `generated.env` and `docker compose up -d` again. |
+| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy `MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` so VST is present, or set `VIOS_BASE_URL` explicitly in `generated.env` and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
 | `create_project` returns `[Errno 13] Permission denied` | First `POST /v1/create_project` after a fresh deploy fails writing `projects/project_<id>` | The host `services/auto-calibration/projects` directory isn't writable by the container user (UID 1000). Run the Step 5 write test, then grant access with `setfacl -m u:1000:rwx ${VSS_APPS_DIR}/services/auto-calibration/projects` and retry. |
 
@@ -326,18 +359,19 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 cd deploy/docker
 COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
 
-# Or, if running as part of warehouse auto-calibration, resolve the list for
-# the MODE stored in generated.env, then tear it down:
+# Or, if running as part of warehouse auto-calibration: always use the
+# auto-calib list. Do not reuse COMPOSE_PROFILES from generated.env — the
+# template default is COMPOSE_PROFILES_WH_2D, and := would leave that in
+# place (tearing down the agent stack, not AMC).
 set -a
 . industry-profiles/warehouse-operations/.env
 . industry-profiles/warehouse-operations/generated.env
 set +a
-case "${MODE}" in
-  2d)    COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}" ;;
-  3d)    COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}" ;;
-  mv3dt) COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT}" ;;
-  *) echo "Unsupported auto-calibration MODE: ${MODE}" >&2; exit 1 ;;
-esac
+COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB}"
+test -n "${COMPOSE_PROFILES}" || {
+  echo "COMPOSE_PROFILES_WH_AUTO_CALIB is empty after sourcing warehouse env files" >&2
+  exit 1
+}
 export COMPOSE_PROFILES
 docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
 ```
