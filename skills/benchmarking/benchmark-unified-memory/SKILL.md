@@ -45,6 +45,33 @@ summarization, and benchmark-question tasks in the same evaluation leg.
 
 ## Video setup
 
+<!-- TEMPORARY INSTRUCTIONS -->
+1. Download the videos:
+```
+VIDEO_DIR="${TMPDIR:?}/videos"
+mkdir -p "${VIDEO_DIR}"
+cd "${VIDEO_DIR}"
+
+ngc registry resource download-version \
+  nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
+  --org nvidia \
+  --team vss-developer
+
+tar -xzf \
+  dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz \
+  --strip-components=1
+```
+
+2. This should produce:
+```
+$TMPDIR/videos/
+├── warehouse_sample.mp4
+└── sample-sim-traffic.mp4
+```
+
+3. Consider `$DEST` being this `$TMPDIR/` for the rest of the video setup instructions
+
+<!-- NOT YET SUPPORTED
 1. Verify that the dataset-service credentials are available. Do not print
    their values:
 
@@ -97,6 +124,7 @@ physical-ai-video-mme-v2/
     ├── traffic-simulation/sample-sim-traffic.mp4
     └── warehouse-monitoring/warehouse_sample.mp4
 ```
+-->
 
 4. For every supplied `dataset_video_id`:
 

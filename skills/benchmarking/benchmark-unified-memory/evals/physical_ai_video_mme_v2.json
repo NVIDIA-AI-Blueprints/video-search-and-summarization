@@ -30,7 +30,7 @@
       "inputs": [
         "dataset_video_ids"
       ],
-      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. From the `physical-ai-video-mme-v2` dataset, download only the benchmark Parquet plus the warehouse and traffic-simulation videos selected by the benchmark skill. Ingest every supplied benchmark video into VIOS and verify the result according to the benchmark skill.",
+      "query": "Use the benchmark-unified-memory and vss-manage-video-io-storage skills. Download the pinned benchmark video resource using the temporary NGC instructions in the benchmark skill. Ingest every supplied benchmark video into VIOS and verify the result according to the benchmark skill.",
       "checks": [
         "Every supplied dataset video ID has exactly one matching downloaded video.",
         "Every supplied dataset video ID exists as a VIOS video sensor."
