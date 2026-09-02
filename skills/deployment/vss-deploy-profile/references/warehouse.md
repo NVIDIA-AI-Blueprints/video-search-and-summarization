@@ -862,7 +862,8 @@ echo "${HOST_IP} 30888-${BREV_ENV_ID}.brevlab.com" | sudo tee -a /etc/hosts
 > "Which mode?
 > - **2d** — 2D detection/tracking with **RT-DETR**, no depth
 > - **3d** — 3D perception with depth using **Sparse4D**, requires 4-camera dataset
-> - **mv3dt** — Multi-View 3D Tracking: per-camera DeepStream perception + **BEV Fusion** across cameras via MQTT, requires 4-camera dataset"
+> - **mv3dt** — Multi-View 3D Tracking: per-camera DeepStream perception + **BEV Fusion** across cameras via MQTT, requires 4-camera dataset
+> - **auto-calibration** — AMC only (`BP_PROFILE=bp_wh_auto_calib`, one `COMPOSE_PROFILES_WH_AUTO_CALIB` list). No perception. If the user wants this, set MODE here; do not leave MODE at 2d/3d/mv3dt and only change `BP_PROFILE`."
 
 #### Q2 — Blueprint variant (`BP_PROFILE`)
 

@@ -97,10 +97,11 @@ if [ -f deploy/docker/industry-profiles/warehouse-operations/generated.env ]; th
   set -a; . deploy/docker/industry-profiles/warehouse-operations/generated.env; set +a
 fi
 echo "NGC_CLI_API_KEY: $([ -n "${NGC_CLI_API_KEY}" ] && echo SET || echo 'NOT SET')"
-echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+# printenv takes the variable *name*; the value never appears in argv (unlike echo "$NGC_CLI_API_KEY").
+printenv NGC_CLI_API_KEY | docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
-> **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key (`--password-stdin` keeps it out of argv and shell history; keep it out of any file you write).
+> **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key. Use `printenv NGC_CLI_API_KEY | docker login … --password-stdin` — do **not** `echo "$NGC_CLI_API_KEY"` (that expands the secret into echo's argv). Keep the key out of any file you write.
 
 ### Step 2 — (Optional) Stage the VGGT model
 
@@ -185,11 +186,13 @@ grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/gene
 # COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
 
 # Warehouse auto-calibration uses direct VST, not SDRC. These three ship
-# uncommented (2d/3d/mv3dt need them), so comment them out in generated.env
-# yourself — nothing on this path does it for you:
-# # VST_USE_SDRC=true
-# # STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
-# # VST_NGINX_MODE=vst-sdrc
+# uncommented in overrides.env (2d/3d/mv3dt need them). Comment them in
+# generated.env — blueprint-deploy.sh does this for -p bp_wh_auto_calib;
+# this skill's compose path does not:
+GEN=industry-profiles/warehouse-operations/generated.env
+for _k in VST_USE_SDRC STREAM_PROCESSOR_MODULE_ENDPOINT VST_NGINX_MODE; do
+  grep -qE "^${_k}=" "$GEN" && sed -i -E "s/^(${_k}=.*)/# \1/" "$GEN"
+done
 
 # Resolve and export the selected list before every Compose command.
 set -a
@@ -314,7 +317,7 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 
 | Issue | Symptoms | Solution |
 |---|---|---|
-| NGC key logs in but can't pull AMC images | The Step 3 access check stops with "Access Denied" / 401 on `docker pull` of a `vss-core` AMC image, before the stack starts | The key authenticates but lacks `vss-core` access. Ask the user for an NGC key with access to the `vss-core` namespace (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), re-run `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`, then retry Step 3. |
+| NGC key logs in but can't pull AMC images | The Step 3 access check stops with "Access Denied" / 401 on `docker pull` of a `vss-core` AMC image, before the stack starts | The key authenticates but lacks `vss-core` access. Ask the user for an NGC key with access to the `vss-core` namespace (do not silently reuse a key from earlier in the conversation — see Step 1 § Credential handling), re-run `printenv NGC_CLI_API_KEY \| docker login nvcr.io --username '$oauthtoken' --password-stdin`, then retry Step 3. |
 | `docker login` itself is rejected | Step 1 login returns an authentication error | The key is invalid or expired. Ask the user for a current NGC key and log in again before continuing. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
 | UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/generated.env` and set it to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_HOST_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS host port fails. Fix by either: (i) moving the MS host publication to a port the browser can reach — set `VSS_AUTO_CALIBRATION_HOST_PORT=8080` (or another allowed port) in `generated.env`, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
