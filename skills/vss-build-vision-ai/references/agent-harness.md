@@ -250,6 +250,8 @@ Set the environment, then run the notebook:
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
 ```bash
+set -o pipefail   # report the notebook's status, not `tee`'s
+
 REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
@@ -271,6 +273,11 @@ uv run --isolated --no-project --python 3.12 \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
   2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
 ```
+
+**Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
+read `${PIPESTATUS[0]}` on the line right after the pipeline. Non-zero is a
+blocker: report it with the log path and stop, rather than going on to the UI
+link.
 
 **Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
 `| tail`, `| head`, or a dropped stream loses section 3.7's `Agent UI:` line and
