@@ -232,15 +232,30 @@ docker compose -f compose.yml \
   --env-file developer-profiles/dev-profile-alerts/.env \
   --env-file developer-profiles/dev-profile-alerts/overrides.env \
   config vss-agent vss-va-mcp vss-haproxy-ingress
-docker exec vss-agent getent hosts vss.local
-docker exec vss-agent curl -fsS http://vss.local:7777/va-mcp/health
-docker exec vss-agent curl -fsS http://vss.local:7777/elasticsearch/
+
+# The agent image is distroless: no shell, no curl, no getent. Use the same
+# interpreter its own healthcheck uses, so the probe runs in the real agent
+# container rather than a stand-in.
+docker exec vss-agent /usr/local/bin/python3 -c \
+  "import urllib.request as u; r=u.urlopen('http://vss.local:7777/va-mcp/health', timeout=10); print(r.status, r.read().decode()[:200])"
+docker exec vss-agent /usr/local/bin/python3 -c \
+  "import urllib.request as u; r=u.urlopen('http://vss.local:7777/elasticsearch/', timeout=10); print(r.status, r.read().decode()[:200])"
 ```
 
-The last two prove the rewrite, not just the route: `/va-mcp/health` must return
-the MCP server's own health body and `/elasticsearch/` the cluster banner. A 404
+Those two prove the rewrite, not just the route: `/va-mcp/health` must return the
+MCP server's own health body and `/elasticsearch/` the cluster banner. A 404
 means HAProxy matched the path but rewrote it into something the backend does
 not serve.
+
+For an interactive shell against the same routes — or to check DNS, which the
+agent has no tool for — attach a throwaway client to the deployment network
+instead of trying to get one out of the agent:
+
+```bash
+docker run --rm --network "$(docker inspect vss-agent \
+  --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')" \
+  curlimages/curl:latest -fsS http://vss.local:7777/va-mcp/health
+```
 
 From the host, the same front door on the published port:
 
@@ -427,11 +442,11 @@ its own change so a regression there is attributable.
 
 That decision has a consequence for the soak numbers. Every media URL `vss`
 mints is on `/vst/storage`, so **the CLI is itself a significant legacy-prefix
-caller** and its responses carry `Deprecation: true`. Nothing is wrong here —
-it follows directly from leaving the CLI on the stable prefixes — but a large
-share of legacy traffic during the window will be self-generated, and that has
-to be subtracted before the totals are read as evidence about third-party
-callers.
+caller** and its `GET` responses carry `Deprecation: @1787702400`. Nothing is
+wrong here — it follows directly from leaving the CLI on the stable prefixes —
+but a large share of legacy traffic during the window will be self-generated,
+and that has to be subtracted before the totals are read as evidence about
+third-party callers.
 
 ### Elasticsearch through the gateway
 
