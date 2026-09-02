@@ -11,7 +11,6 @@ import urllib.request
 from collections.abc import Iterator
 from http.server import ThreadingHTTPServer
 
-from tests.helpers import make_config
 from vss_agent_gateway.connectors.base import Connector
 from vss_agent_gateway.contract import ConnectorEvent, CreateRunRequest
 from vss_agent_gateway.server import make_handler
@@ -21,6 +20,8 @@ from vss_agent_gateway.store import (
     IdempotencyConflictError,
     RunStore,
 )
+
+from tests.helpers import make_config
 
 
 class FakeConnector(Connector):

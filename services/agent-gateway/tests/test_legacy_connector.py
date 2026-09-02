@@ -8,9 +8,10 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from tests.helpers import FakeResponse, make_config
 from vss_agent_gateway.connectors.legacy_chat import LegacyChatConnector
 from vss_agent_gateway.contract import CreateRunRequest
+
+from tests.helpers import FakeResponse, make_config
 
 
 class LegacyChatConnectorTest(unittest.TestCase):

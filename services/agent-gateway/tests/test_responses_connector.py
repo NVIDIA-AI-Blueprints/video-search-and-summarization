@@ -8,9 +8,10 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from tests.helpers import FakeResponse, make_config
 from vss_agent_gateway.connectors.responses import ResponsesConnector
 from vss_agent_gateway.contract import CreateRunRequest
+
+from tests.helpers import FakeResponse, make_config
 
 
 def response_stream(response_id: str, text: str) -> FakeResponse:
