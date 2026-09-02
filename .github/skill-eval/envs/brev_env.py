@@ -393,7 +393,8 @@ class BrevEnvironment(BaseEnvironment):
         # instance's ~/.eval_env (sourced by ~/.profile, which every
         # brev exec then sources).  Harbor's claude-code agent only
         # propagates ANTHROPIC_* env vars, so anything else needed
-        # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
+        # during deploy and setup (NGC_CLI_API_KEY, NGC_API_KEY,
+        # NVIDIA_API_KEY) must land on
         # the instance out-of-band.
         forwarded: list[tuple[str, str]] = [
             # The verifier's LLM judge (claude-agent-sdk) runs on the instance
@@ -417,7 +418,9 @@ class BrevEnvironment(BaseEnvironment):
             ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
         for key in (
-            "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
+            "NGC_CLI_API_KEY", "NGC_API_KEY",
+            "NVDATASET_TENANTID", "NVDATASET_GROUPID",
+            "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
             # Pin the eval's deploy step to the PR's actual head SHA on

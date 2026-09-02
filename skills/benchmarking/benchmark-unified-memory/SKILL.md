@@ -45,31 +45,68 @@ summarization, and benchmark-question tasks in the same evaluation leg.
 
 ## Video setup
 
-1. Download and extract the pinned NGC video fixture into `$TMPDIR/videos`:
+1. Verify that the dataset-service credentials are available. Do not print
+   their values:
 
 ```bash
-VIDEO_DIR="${TMPDIR:?}/videos"
-mkdir -p "${VIDEO_DIR}"
-cd "${VIDEO_DIR}"
-
-ngc registry resource download-version \
-  nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
-  --org nvidia \
-  --team vss-developer
-
-tar -xzf \
-  dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz \
-  --strip-components=1
+: "${NGC_API_KEY:?NGC_API_KEY is required}"
+: "${NVDATASET_TENANTID:?NVDATASET_TENANTID is required}"
+: "${NVDATASET_GROUPID:?NVDATASET_GROUPID is required}"
 ```
 
-2. For every supplied `dataset_video_id`:
+2. Install the SDK, which also provides the `nvdataset` CLI, if the command is
+   not already available on the Brev worker:
 
-   1. Find exactly one downloaded video whose filename stem equals the ID.
+```bash
+if ! command -v nvdataset >/dev/null 2>&1; then
+  python3 -m pip install \
+    --extra-index-url https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple \
+    nvdataset
+fi
+
+nvdataset --version
+nvdataset --help >/dev/null
+```
+
+3. Download only the benchmark Parquet and the two videos exercised by this
+   evaluation from the pinned dataset snapshot:
+
+```bash
+DEST="${TMPDIR:?}/videos/physical-ai-video-mme-v2"
+mkdir -p "$DEST"
+
+for key in \
+  "questions.parquet" \
+  "videos/warehouse-monitoring/warehouse_sample.mp4" \
+  "videos/traffic-simulation/sample-sim-traffic.mp4"
+do
+  nvdataset download \
+    physical-ai-video-mme-v2 \
+    "$DEST" \
+    --snapshot-name initial-v1 \
+    --filter "key == '$key'"
+done
+```
+
+The resulting task-private subset is:
+
+```text
+physical-ai-video-mme-v2/
+├── questions.parquet
+└── videos/
+    ├── traffic-simulation/sample-sim-traffic.mp4
+    └── warehouse-monitoring/warehouse_sample.mp4
+```
+
+4. For every supplied `dataset_video_id`:
+
+   1. Search recursively under `$DEST/videos` and find exactly one downloaded
+      video whose filename stem equals the ID.
    2. Fail if no file or more than one file matches.
    3. Ingest the matching file with the project-local `vss vios add` CLI.
    4. Use the exact filename stem as the VIOS sensor name.
 
-3. Run `vss vios list --type video` and confirm that every supplied ID exists as a VIOS video sensor before completing the task.
+5. Run `vss vios list --type video` and confirm that every supplied ID exists as a VIOS video sensor before completing the task.
 
 Notes:
 - Do not open or parse the question Parquet. Use only the safe video IDs

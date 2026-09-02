@@ -20,6 +20,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import types
@@ -179,6 +180,20 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("workspace-attestations", combined)
         self.assertNotIn('rm -rf "$HOME/.openclaw/workspace"', combined)
+
+    async def test_nvdataset_credentials_are_forwarded(self):
+        credentials = {
+            "NGC_API_KEY": "dataset-service-test-key",
+            "NVDATASET_TENANTID": "test-tenant",
+            "NVDATASET_GROUPID": "test-group",
+        }
+        with mock.patch.dict(os.environ, credentials, clear=False):
+            commands = await self._record_start_commands("step-2")
+
+        combined = "\n".join(commands)
+        self.assertIn("export NGC_API_KEY=dataset-service-test-key", combined)
+        self.assertIn("export NVDATASET_TENANTID=test-tenant", combined)
+        self.assertIn("export NVDATASET_GROUPID=test-group", combined)
 
 if __name__ == "__main__":
     unittest.main()
