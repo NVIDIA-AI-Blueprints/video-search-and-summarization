@@ -1451,6 +1451,14 @@ if grep -Fq 'deploy/docker/developer-profiles/dev-profile-alerts/nvstreamer/conf
   echo "FAIL: VIOS integration skill should not reference the retired profile-specific NVStreamer config"
   ((_split_failed++)) || true
 fi
+if grep -Fq 'deploy/docker/developer-profiles/dev-profile-alerts/compose.yml' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should not cite the retired profile-specific NVStreamer service"
+  ((_split_failed++)) || true
+fi
+if grep -Fq './nvstreamer/configs/' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should not use retired profile-local NVStreamer config mounts"
+  ((_split_failed++)) || true
+fi
 if [[ ${_split_failed} -eq 0 ]]; then
   echo "PASS: developer profile env split keeps profile-specific override-layer values isolated"
   ((TESTS_PASSED++)) || true

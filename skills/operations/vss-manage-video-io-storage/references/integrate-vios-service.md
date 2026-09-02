@@ -252,7 +252,7 @@ component_services:
   **Endpoint (consumed downstream):** `rtsp://${HOST_IP}:30554/live/<sensorId>` — the VIOS live proxy of the registered NvStreamer stream.
   **Sequence:** stage a sample video into `${VSS_DATA_DIR}/videos/<build-name>/` → NvStreamer auto-discovers it (`sensorId == streamId == name == filename-stem`) → `GET http://${HOST_IP}:31000/vst/api/v1/sensor/<stem>/streams` returns `.[0].url` = `rtsp://${HOST_IP}:315xx/nvstream/…` (read the port from the API — do NOT construct it) → `POST http://${HOST_IP}:30888/vst/api/v1/sensor/add` with `{"sensorUrl":"<that-url>"}` (field is `sensorUrl`, NOT `url`) → VIOS re-publishes at `rtsp://${HOST_IP}:30554/live/<sensorId>` → feed THAT (using `${HOST_IP}`, not `localhost` — Finding 12) to RT-VLM `POST :8018/v1/streams/add`.
   **Trigger:** validation-harness only — the build-vision-ai skill emits NvStreamer when the capability has a live/streaming path and no real camera/RTSP URL was supplied. NvStreamer is NOT a `sensor_topology` variant and NOT in this doc's `component_services:` block. Allow ~5 s after staging for the streams list to populate; retry with backoff.
-  Source: `vss-build-vision-ai/references/validation-harness.md § 4` + `references/nvstreamer-api-reference.md § Canonical workflow: NvStreamer → VIOS handoff` + `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml § nvstreamer-alerts`.
+  Source: `vss-build-vision-ai/references/validation-harness.md § 4` + `references/nvstreamer-api-reference.md § Canonical workflow: NvStreamer → VIOS handoff` + `deploy/docker/services/nvstreamer/compose.yml § nvstreamer-alerts`.
 
 - **Method:** RTSP recorded-replay playback (VOD)
   **Endpoint:** `rtsp://<host>:30564/vod/<sensorId>`
@@ -434,22 +434,25 @@ services:
 
 (Full upstream definitions live in `deploy/docker/services/vios/{foundational,initiator,streamprocessing}/docker-compose.yaml` + `deploy/docker/services/infra/sdrc/docker-compose.yaml`. Container names use the canonical `vss-vios-*` form, NOT the legacy `*-dev` form. The deprecated `services/vios/sdr/streamprocessing/` tree has been removed — streamprocessing now lives directly under `services/vios/streamprocessing/`, with the legacy `envoy.yaml` + `sdr-config/` bind sources gone.)
 
-For Topology B (NvStreamer file-driven), use this service shape instead of `vss-vios-sensor`:
+For Topology B (NvStreamer file-driven), reuse the centralized `nvstreamer-alerts` service from `deploy/docker/services/nvstreamer/compose.yml` instead of defining a profile-local service. Add the consuming deployment's profile flag to a patched copy:
 
 ```yaml
-  vss-vios-nvstreamer:         # developer-profiles/dev-profile-alerts/compose.yml § nvstreamer-alerts
-    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
-    profiles: [..., <your-profile-flag>]
-    network_mode: host
-    environment:
-      ADAPTOR: streamer          # NvStreamer mode — auto-scans video_path for files
-      HTTP_PORT: ${NVSTREAMER_HTTP_PORT}   # default 31000; RTSP server defaults to 31554
+# deploy/docker/services/nvstreamer/compose.yml
+services:
+  nvstreamer-alerts:
+    extends:
+      file: base.yml
+      service: nvstreamer-base
+    profiles: !override ["nvstreamer-alerts", "your-profile-flag"]
     volumes:
-      - ./nvstreamer/configs/vst-config.json:${VST_CONTAINER_ROOT}/configs/vst_config.json
-      - ./nvstreamer/configs/vst-storage.json:${VST_CONTAINER_ROOT}/configs/vst_storage.json
-      - ${VSS_DATA_DIR}/videos/<profile-name>:${VST_CONTAINER_ROOT}/streamer_videos
-      - ${VSS_DATA_DIR}/data_log/nvstreamer/vst_data:${VST_CONTAINER_ROOT}/vst_data
+      - ${NVSTREAMER_ALERTS_VIDEO_DIR:-${NVSTREAMER_VIDEO_DIR:-${VSS_DATA_DIR}}/videos/dev-profile-alerts}:/home/vst/vst_release/streamer_videos
+      - ${VSS_DATA_DIR}/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 ```
+
+The image, ports, environment, and configuration mounts are inherited from `deploy/docker/services/nvstreamer/base.yml`. By default, the configuration files come from `${VSS_APPS_DIR}/services/nvstreamer/configs`; set `NVSTREAMER_CONFIG_DIR` only when the deployment requires a custom `vst-config.json`.
 
 Both topologies emit the same `camera_streaming` Kafka/Redis event downstream.
 
