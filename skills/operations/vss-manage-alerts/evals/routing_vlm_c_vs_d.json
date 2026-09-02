@@ -5,10 +5,11 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "H200NVL": {
         "modes": [
           "remote-all"
-        ]
+        ],
+        "gpu_count": 1
       }
     }
   },

@@ -286,6 +286,49 @@ class RealSpecCorpus(unittest.TestCase):
                         any(x.startswith("gpus-") for x in labels), f"{rel} {platform}"
                     )
 
+    def test_one_gpu_openshell_targets_dispatch_to_h200_nvl(self):
+        """1-GPU OpenShell legs must ask for gpu-h200-nvl, not RTX/L40S."""
+        expected = {
+            "skills/operations/vss-ask-video/evals/base_profile_video_understanding.json",
+            "skills/operations/vss-ask-video/evals/direct_vlm_video_understanding.json",
+            "skills/operations/vss-generate-video-report/evals/base_profile_report.json",
+            "skills/operations/vss-query-analytics/evals/query_analytics.json",
+            "skills/operations/vss-summarize-video/evals/lvs_api_ops.json",
+            "skills/operations/vss-summarize-video/evals/lvs_profile_summarize.json",
+            "skills/operations/vss-manage-video-io-storage/evals/nvstreamer_ops.json",
+            "skills/operations/vss-manage-video-io-storage/evals/vios_ops.json",
+            "skills/operations/vss-manage-alerts/evals/alerts_vlm_real_time.json",
+            "skills/operations/vss-manage-alerts/evals/always_on_operate.json",
+            "skills/operations/vss-manage-alerts/evals/cv_mode_gate.json",
+            "skills/operations/vss-manage-alerts/evals/ondemand_verification.json",
+            "skills/operations/vss-manage-alerts/evals/routing_e_gate_negative.json",
+            "skills/operations/vss-manage-alerts/evals/routing_vlm_c_vs_d.json",
+            "skills/operations/vss-manage-alerts/evals/slack_notify_ops.json",
+            "skills/operations/vss-manage-alerts/evals/subscriptions_create_phrasings.json",
+            "skills/operations/vss-manage-alerts/evals/subscriptions_edge_cases.json",
+            "skills/operations/vss-manage-alerts/evals/subscriptions_lifecycle.json",
+            "skills/operations/vss-manage-alerts/evals/verification_flow.json",
+            "skills/vss-build-vision-ai/eval/profile_in_1_streaming_dense_captions.json",
+            "skills/vss-build-vision-ai/eval/profile_sop_1_compliance_monitoring.json",
+        }
+        found = set()
+        for spec in self.specs:
+            rel = spec.relative_to(plan_matrix.REPO_ROOT).as_posix()
+            if rel not in expected:
+                continue
+            found.add(rel)
+            cfg = plan_matrix.spec_platform_config(rel)
+            self.assertEqual(set(cfg), {"H200NVL"}, rel)
+            self.assertEqual(
+                plan_matrix._gpu_count(cfg["H200NVL"]), 1, rel
+            )
+            self.assertEqual(
+                plan_matrix.gpu_runner_label("H200NVL", cfg["H200NVL"]),
+                "gpu-h200-nvl",
+                rel,
+            )
+        self.assertEqual(found, expected)
+
 
 class BuildMatrix(unittest.TestCase):
     def setUp(self):

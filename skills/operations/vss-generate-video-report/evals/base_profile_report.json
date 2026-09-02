@@ -6,7 +6,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "H200NVL": {
         "gpu_count": 1
       }
     }

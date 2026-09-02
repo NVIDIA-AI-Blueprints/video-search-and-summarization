@@ -5,7 +5,7 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
+      "H200NVL": {
         "gpu_count": 1
       }
     }
