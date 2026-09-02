@@ -77,6 +77,7 @@ def upload_video(session, backend, video_path, timeout):
     with open(video_path, "rb") as video:
         response = session.post(
             f"{backend}/v1/files",
+            data={"purpose": "vision", "media_type": "video"},
             files={"file": (os.path.basename(video_path), video)},
             timeout=timeout,
         )
