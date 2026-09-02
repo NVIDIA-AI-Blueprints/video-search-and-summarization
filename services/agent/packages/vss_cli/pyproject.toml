@@ -43,6 +43,7 @@ configure = "vss_cli.configure:CONFIGURE"
 memory = "vss_cli.memory_cmd:MEMORY"
 search = "vss_cli.search.register:GROUP"
 summarize = "vss_cli.summarize.register:GROUP"
+vlm = "vss_cli.vlm.register:GROUP"
 vios = "vss_cli.vios_group:VIOS"
 
 # Values here are read as raw strings for `vss --help` and are never imported.
@@ -51,6 +52,7 @@ configure = "Resolve and record a VSS deployment"
 memory = "Unified memory store surface"
 search = "Search indexed video"
 summarize = "Summarize video and persist to memory"
+vlm = "Ask a visual question about video"
 vios = "Sensors, timelines, clips and snapshots (no jobs)"
 
 [tool.uv.sources]

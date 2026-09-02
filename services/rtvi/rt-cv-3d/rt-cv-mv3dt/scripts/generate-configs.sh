@@ -52,7 +52,7 @@ TOOLS="$REPO_ROOT/tools/rtvi-cv-mv3dt-utils"
 NEIGHBOR_CRITERIA="${NEIGHBOR_CRITERIA:-overlap_threshold:1e-6}"
 MQTT_BROKERS="${MQTT_BROKERS:-${MQTT_HOST:-localhost}:${MQTT_PORT:-1883}}"
 # Warehouse RT-DETR classes (person, humanoid x2, cart, box, forklift) — height/radius in m.
-CLASS_SPECS="${CLASS_SPECS:-0 1.60 0.3,1 1.60 0.3,2 1.60 0.3,3 0.48 0.3,4 0.2 0.52,5 2.2 0.9}"
+CLASS_SPECS="${CLASS_SPECS:-0 1.60 0.3,1 1.60 0.3,2 1.60 0.3,3 0.48 0.3,4 0.2 0.52,5 2.75 1.00}"
 
 CAMINFO="$ROOT/generated/camInfo"
 GEN="$ROOT/generated"

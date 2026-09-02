@@ -119,6 +119,7 @@ add_common_files() {
 	mappings+=("prebuilts/${ARCH}/libnvds_redis_proto.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvds_redis_proto.so")
 	mappings+=("prebuilts/${ARCH}/libnvds_logger.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libnvds_logger.so")
 	mappings+=("prebuilts/${ARCH}/gst-plugins/libgstcuosd.so=${PACKAGE_DIR}/prebuilts/${ARCH}/gst-plugins/libgstcuosd.so")
+	mappings+=("prebuilts/${ARCH}/gst-plugins/libgstdashmp4mux.so=${PACKAGE_DIR}/prebuilts/${ARCH}/gst-plugins/libgstdashmp4mux.so")
 	mappings+=("prebuilts/${ARCH}/libcuosd.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libcuosd.so")
 	mappings+=("prebuilts/${ARCH}/libllosd.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libllosd.so")
 	mappings+=("prebuilts/${ARCH}/libgstcuosdmeta.so=${PACKAGE_DIR}/prebuilts/${ARCH}/libgstcuosdmeta.so")

@@ -38,7 +38,7 @@ Options:
   -h, --help                   Show this help.
 
 Examples:
-  .github/scripts/sign-agent-skill.sh verify skills/vss-setup-behavior-analytics
+  .github/scripts/sign-agent-skill.sh verify skills/deployment/vss-setup-behavior-analytics
 
   .github/scripts/sign-agent-skill.sh sign skills/my-skill \
     --private-key /secure/agent-skills-signing.key \

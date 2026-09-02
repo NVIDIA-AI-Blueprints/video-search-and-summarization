@@ -19,7 +19,6 @@ import argparse
 import io
 import json
 import os
-import subprocess
 import sys
 import threading
 import traceback
@@ -56,6 +55,7 @@ _NOTEBOOK_PARAMETERS = (
     "ROUTER_TARGET_CAPABLE",
     "ROUTER_TARGET_EFFICIENT",
     "ROUTER_PORT",
+    "ROUTER_NETWORK",
     "ROUTER_CONTAINER",
     "ROUTER_TEARDOWN",
 )
@@ -64,20 +64,14 @@ _NOTEBOOK_PARAMETERS = (
 _READINESS_MARKERS = (
     "ROUTER_VERIFIED:",
     "VSS_ROUTING_COMPOSE: valid",
+    "NEMOCLAW_ROUTING_READY:",
+    "ROUTER_POLICY_LIFECYCLE:",
     "ROUTER_TEARDOWN: done",
 )
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
-
-
-def _docker_bridge_gateway() -> str:
-    result = subprocess.run(
-        ["docker", "network", "inspect", "bridge", "--format",
-         "{{(index .IPAM.Config 0).Gateway}}"],
-        capture_output=True, text=True)
-    return result.stdout.strip() or "172.17.0.1"
 
 
 class _MockUpstreamHandler(BaseHTTPRequestHandler):
@@ -116,7 +110,14 @@ def start_mock_upstream(env) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(("0.0.0.0", 0), _MockUpstreamHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]
-    env["UPSTREAM_BASE_URL"] = f"http://{_docker_bridge_gateway()}:{port}/v1"
+    # CI runs the router with --network host so this loopback URL works from
+    # inside the container. Container-to-host transports proved unreliable
+    # across the runner fleet: host.docker.internal only writes /etc/hosts,
+    # which the router's own resolver bypasses, and direct bridge-gateway
+    # addressing is dropped by some runners' host firewalls. Loopback in a
+    # shared network namespace has neither failure mode.
+    env["ROUTER_NETWORK"] = "host"
+    env["UPSTREAM_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
     env["ROUTER_TARGET_CAPABLE"] = "mock/capable"
     env["ROUTER_TARGET_EFFICIENT"] = "mock/efficient"
     env.setdefault("NVIDIA_API_KEY", "mock-ci-key")

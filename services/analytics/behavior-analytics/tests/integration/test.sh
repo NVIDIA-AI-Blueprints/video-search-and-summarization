@@ -91,10 +91,9 @@ cd "$MDX_SAMPLE_APPS_DIR"
 echo "Starting Docker Compose services..."
 
 # Compose command base (same for build and up)
-COMPOSE_BASE="docker compose -f infra/compose.yml -f apps/mdx-apps.yml"
-if [[ "$STREAMING_SERVICE" != "kafka" ]]; then
-    COMPOSE_BASE="$COMPOSE_BASE --profile $STREAMING_SERVICE"
-fi
+# Service selection comes from COMPOSE_PROFILES in the generated env file, which
+# names exactly the deployment services this suite needs.
+COMPOSE_BASE="docker compose --env-file infra/.env -f infra/compose.yml -f apps/mdx-apps.yml"
 
 COMPOSE_CMD="$COMPOSE_BASE up -d --build --force-recreate"
 
@@ -103,8 +102,8 @@ dump_compose_debug() {
     (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE ps -a 2>/dev/null) || true
     echo "--- Docker Compose logs (debug) ---"
     (cd "$MDX_SAMPLE_APPS_DIR" && $COMPOSE_BASE logs --tail=120 2>/dev/null) || true
-    echo "--- mdx-kafka inspect (debug) ---"
-    docker inspect mdx-kafka 2>/dev/null || true
+    echo "--- kafka inspect (debug) ---"
+    docker inspect kafka 2>/dev/null || true
     echo "--- end Docker Compose debug ---"
 }
 

@@ -15,7 +15,7 @@ Authoritative source:
 `deploy/docker/developer-profiles/dev-profile-search/overrides.env`.
 
 ```text
-kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api-fusion,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}
+kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
 ## Capability owners present
@@ -68,5 +68,5 @@ When the build ships `rtvi-vlm` and the `vss-agent` tier, also probe RT-VLM's
 - `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
-- `skills/vss-deploy-video-embedding/references/environment.md`
-- `skills/vss-deploy-detection-tracking-2d/references/environment.md`
+- `skills/deployment/vss-deploy-video-embedding/references/environment.md`
+- `skills/deployment/vss-deploy-detection-tracking-2d/references/environment.md`

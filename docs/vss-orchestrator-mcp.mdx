@@ -5,7 +5,7 @@ position: 2
 ---
 The **VSS Orchestrator MCP server** is the host-side process that NemoClaw's agent calls to deploy and operate VSS. It exposes a Model Context Protocol function group named `vss_orchestrator` that generates Docker Compose artifacts, runs `docker compose` operations in the background, lists containers, and fetches logs.
 
-The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the [notebook flow ](/nemoclaw-deploy-vss-and-skills), Section 6.1 starts it on port `9988` and polls the `profiles` tool until healthy.
+The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the [notebook flow ](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills), Section 6.1 starts it on port `9988` and polls the `profiles` tool until healthy.
 
 ## Configuration
 

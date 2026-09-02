@@ -15,6 +15,7 @@ TargetManagement:
   maxShadowTrackingAge: 131
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
+  outputVisibility: 1
 
 DataAssociator:
   dataAssociatorType: 0
@@ -54,6 +55,7 @@ PoseEstimator:
 
 ObjectModelProjection:
   outputFootLocation: 1
+  outputConvexHull: 1
   minPoseConfidence: 0.95
   cameraModelFilepath:
     Camera: /tmp/camInfo/Camera.yml

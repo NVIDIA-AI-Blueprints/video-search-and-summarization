@@ -1,6 +1,6 @@
 {
 	"mqtt": {
-		"host": "localhost",
+		"host": "mosquitto",
 		"port": 1883,
 		"clientId": "mdx-spatial-analytics-3d-app",
 		"keepAliveSec": 60,

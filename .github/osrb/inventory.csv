@@ -4,6 +4,7 @@ ${NVSTREAMER_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vio
 ${POSTGRES_IMAGE},UNKNOWN,UNKNOWN,deploy,container,compose,deploy/docker/services/vios/foundational/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${POSTGRES_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${REDIS_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
+${VSS_VIOS_STREAMPROCESSING_BASE},UNKNOWN,UNKNOWN,deploy,container,container,deploy/docker/services/vios/streamprocessing/Dockerfile.prebaked,runtime,no,no,yes,container-base,Unknown
 ${VST_SENSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 @acemir/cssom,0.9.31,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3161,6 +3162,7 @@ pywin32,311,Python Software Foundation License,services/video-summarization,pyth
 pywin32,312,PSF-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,312,PSF-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,312,PSF-2.0,services/rtvi/rt-vlm,python,lockfile,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock,runtime,no,no,no,declared-manifest,None
+PyYAML,UNKNOWN,MIT License,deploy,python,usage,deploy/helm/scripts/verify-ingress-routes.py,runtime,no,no,no,imported-only,None
 PyYAML,UNKNOWN,MIT License,skills/vss-build-vision-ai,python,usage,skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py,runtime,no,no,no,imported-only,None
 PyYAML,UNKNOWN,MIT License,skills/vss-deploy-profile,python,usage,skills/vss-deploy-profile/scripts/normalize_resolved_yml.py,runtime,no,no,no,imported-only,None
 pyyaml,6.0.2,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-config-init/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-config-init/tests/requirements.txt,runtime,no,no,no,declared-manifest,None

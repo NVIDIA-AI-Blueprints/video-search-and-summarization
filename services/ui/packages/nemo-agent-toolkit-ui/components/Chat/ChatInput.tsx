@@ -28,7 +28,7 @@ import {
 } from 'react';
 import toast from 'react-hot-toast';
 
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'next-i18next/pages';
 
 import { useWorkflowName } from '@/contexts/RuntimeConfigContext';
 import { appConfig } from '@/utils/app/const';

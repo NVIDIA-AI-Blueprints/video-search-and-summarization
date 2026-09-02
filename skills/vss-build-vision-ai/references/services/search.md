@@ -20,7 +20,7 @@
   `vss-agent`) has no consumer for `rtvi-vlm` — the retrieval CLI never calls
   it — so omit both. Do **not** introduce an `ENABLE_CRITIC` (or equivalent)
   env delta; the search profile no longer honors one.
-- `vss-video-analytics-api-fusion` is a **separate** service key from
+- `vss-video-analytics-api` is a **separate** service key from
   `vss-search-analytics-2d-fusion`. The analytics API (`:9901`) provides the
   REST query/browse surface over ES indices; the search-analytics service is the
   Behavior-Analytics container that produces `mdx-embed-filtered` and
@@ -28,9 +28,8 @@
   confuse or substitute one for the other. Like the ingress, the analytics API is
   an exposed read surface — include it only when the request asks to expose a
   query/browse/REST surface, and prune it otherwise even though the Foundation
-  ships it. It is a per-Foundation singleton — when included, use the selected
-  Foundation's key, never a second key for the same container; on `search` that
-  key is `vss-video-analytics-api-fusion`.
+  ships it. It is a shared singleton: include `vss-video-analytics-api` when
+  required, and never introduce a second API key or container.
 - When this container also serves another capability on one shared instance (a
   combined build), it is the shared **Behavior-Analytics** instance — converge its
   mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md); its
@@ -40,7 +39,7 @@
 
 Surface this topic-level flow in the architecture preview (SKILL.md step 6
 requires principal data flows and topics); it is authoritatively defined in
-`skills/vss-setup-behavior-analytics/references/integrate-behavior-analytics-service.md`.
+`skills/deployment/vss-setup-behavior-analytics/references/integrate-behavior-analytics-service.md`.
 
 - Detection: `perception-2d-fusion -> mdx-raw`.
 - Embeddings: `rtvi-embed -> mdx-embed -> vss-search-analytics-2d-fusion ->

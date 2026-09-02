@@ -19,13 +19,13 @@ NVIDIA NIM Deployments
 This chart deploys NIM models via the NVIDIA NIM Operator CRDs (NIMCache + NIMService).
 Ensure the NIM Operator is installed in the cluster before deploying.
 
-{{- if .Values.nemotron.enabled }}
+{{- if .Values.nemotron35.enabled }}
 
-Nemotron Nano 9B v2 (LLM):
-  NIMCache:   {{ include "nims.nemotron.fullname" . }}
-  NIMService: {{ include "nims.nemotron.fullname" . }}
-  Endpoint:   http://{{ include "nims.nemotron.fullname" . }}:8000/v1
-  GPU count:  {{ .Values.nemotron.resources.limits | dig "nvidia.com/gpu" "1" }}
+Nemotron 3.5 Lightning 30B-A3B (LLM):
+  NIMCache:   {{ include "nims.nemotron35.fullname" . }}
+  NIMService: {{ include "nims.nemotron35.fullname" . }}
+  Endpoint:   http://{{ include "nims.nemotron35.fullname" . }}:8000/v1
+  GPU count:  {{ .Values.nemotron35.resources.limits | dig "nvidia.com/gpu" "1" }}
 {{- end }}
 
 {{- if .Values.cosmos.enabled }}

@@ -6,16 +6,16 @@ position: 1
 The **Real Time Video Intelligence CV Microservice** leverages [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to generate metadata for each stream that downstream microservices can use to generate spatial metrics and alerts.
 
 The microservice features `metropolis-perception-app`, a DeepStream pipeline that builds on the built-in [deepstream-test5 app](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) in the DeepStream SDK.
-This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/Protobuf-Schema).
+This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/vss/system-components/middleware/nvschema/protobuf-schema).
 
 The application features a modular architecture that integrates preprocessing plugins and RT-DETR (Real-Time Detection Transformer), specifically designed for 2D single-camera object detection and tracking in warehouse environments.
 
-RT-DETR is an advanced real-time detection transformer that generates precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment. The model features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments. Refer to the [TAO RT-DETR fine-tuning ](/models/rt-detr) page for more details on the model architecture and training process.
+RT-DETR is an advanced real-time detection transformer that generates precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment. The model features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments. Refer to the [TAO RT-DETR fine-tuning ](/vss/system-components/models/rt-detr-2d-warehouse-detection) page for more details on the model architecture and training process.
 
 The pipeline ingests single-camera video streams, performs real-time 2D object detection, and utilizes DeepStream's tracking capabilities to maintain object identity across frames.
 Detection results include 2D bounding boxes, class labels, confidence scores, and instance IDs, enabling sophisticated tracking and analytics capabilities.
 
-For detailed information on all components, APIs, and customization options, refer to the [../object-detection-tracking](/object-detection-tracking).
+For detailed information on all components, APIs, and customization options, refer to the [../object-detection-tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
 The diagram below shows the perception pipeline used in the microservice:
 
@@ -235,7 +235,7 @@ Ensure your new model meets these requirements:
 
 #### Update RT-DETR Configuration
 
-1. Place your new model file and label file in the appropriate directories on the host. The container accesses them through the volume mounts shown in [Docker Compose Volume Mounts](/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR#docker-compose-volume-mounts):
+1. Place your new model file and label file in the appropriate directories on the host. The container accesses them through the volume mounts shown in [Docker Compose Volume Mounts](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr#docker-compose-volume-mounts):
 
 - Place your new ONNX model (for example, `your_new_rtdetr_model.onnx`) in `$VSS_DATA_DIR/models/mtmc/` on the host.
 - Place your new labels file (for example, `your_new_labels.txt`) in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/` on the host.
@@ -320,4 +320,4 @@ property:
   output-blob-names: pred_boxes;pred_logits  # TAO RT-DETR default output names
 ```
 
-After making these changes, restart the Perception microservice for the changes to take effect. For detailed instructions on fine-tuning RT-DETR models via TAO Toolkit, refer to the [TAO RT-DETR fine-tuning ](/models/rt-detr) page.
+After making these changes, restart the Perception microservice for the changes to take effect. For detailed instructions on fine-tuning RT-DETR models via TAO Toolkit, refer to the [TAO RT-DETR fine-tuning ](/vss/system-components/models/rt-detr-2d-warehouse-detection) page.

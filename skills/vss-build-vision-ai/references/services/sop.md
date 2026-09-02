@@ -50,7 +50,7 @@ Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
   DS-SOP Compose block in `sop/integrate-ds-sop.md § Example Compose Snippet`; and
   `sop-kibana-init` (SOP data-view + dashboard one-shot).
 - **remove** `rtvi-vlm` (DS-SOP takes the perception slot), and the parts SOP does
-  not use: `vss-agent`, `vss-ui`, `alert-bridge`, `vss-video-analytics-api-alerts`,
+  not use: `vss-agent`, `vss-ui`, `alert-bridge`, `vss-video-analytics-api`,
   `vss-behavior-analytics-alerts`, `perception-alerts`, `kibana-init-container-alerts`,
   and the `llm_${LLM_MODE}_${LLM_NAME_SLUG}` token (SOP reports are rendered by the
   `vss-generate-video-report` skill — no report LLM / agent / UI).
@@ -222,7 +222,7 @@ need handling:
   `sop/sop-vlm-captions-json-logstash.conf`. The `get_sop_*` patch + VA-MCP config are
   **downloaded at build time** from the public SOP repo (see § Patch specifics) — **not shipped
   in this repo**.
-- **Report rendering**: `skills/vss-generate-video-report/` (Mode C; `references/report-templates/sop-compliance-report.md`).
+- **Report rendering**: `skills/operations/vss-generate-video-report/` (Mode C; `references/report-templates/sop-compliance-report.md`).
 - **Upstream**: `deploy/docker/services/agent/compose.yml` (`vss-va-mcp`), ELK / Kafka / VIOS Compose.
 - **SOP source**: `NVIDIA/sop-monitoring-blueprints` (public, branch `main`, `0dd472f`) —
   DS-SOP image + Kibana dashboard + the VA-MCP report patch (`…/vss-agent/patches/`,

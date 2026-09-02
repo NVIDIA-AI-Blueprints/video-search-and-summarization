@@ -93,11 +93,9 @@ class TestRTVIVLMAlertInput:
             start_time="2026-01-06T00:00:00.000Z",
             end_time="2026-01-07T00:00:00.000Z",
             max_count=5,
-            incident_type="collision",
         )
         assert inp.action == "get_incidents"
         assert inp.max_count == 5
-        assert inp.incident_type == "collision"
 
     def test_defaults(self):
         inp = RTVIVLMAlertInput(action="start")
@@ -108,7 +106,6 @@ class TestRTVIVLMAlertInput:
         assert inp.start_time is None
         assert inp.end_time is None
         assert inp.max_count == 10
-        assert inp.incident_type is None
 
     def test_invalid_action_raises(self):
         with pytest.raises(ValidationError):
