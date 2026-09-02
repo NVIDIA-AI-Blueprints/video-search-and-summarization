@@ -508,40 +508,40 @@ allowed = {
 }
 lines = p.read_text().splitlines()
 dependencies = {}
-in_block = False
+try:
+    service_start = lines.index("  rtvi-vlm:")
+except ValueError as exc:
+    raise SystemExit("Refusing to normalize: rtvi-vlm service not found") from exc
+service_end = next(
+    (i for i in range(service_start + 1, len(lines))
+     if lines[i].strip() and len(lines[i]) - len(lines[i].lstrip()) <= 2),
+    len(lines),
+)
+try:
+    depends_start = lines.index("    depends_on:", service_start + 1, service_end)
+except ValueError as exc:
+    raise SystemExit("Refusing to normalize: rtvi-vlm depends_on block not found") from exc
+depends_end = next(
+    (i for i in range(depends_start + 1, service_end)
+     if lines[i].strip() and len(lines[i]) - len(lines[i].lstrip()) <= 4),
+    service_end,
+)
+
 current = None
-for line in lines:
+for line in lines[depends_start + 1:depends_end]:
     stripped = line.lstrip()
     indent = len(line) - len(stripped)
-    if not in_block and line.startswith("    depends_on:"):
-        in_block = True
-        continue
-    if in_block and stripped and indent <= 4:
-        break
-    if in_block and indent == 6 and stripped.endswith(":"):
+    if indent == 6 and stripped.endswith(":"):
         current = stripped[:-1]
         dependencies[current] = False
-    elif in_block and current and indent == 8 and stripped == "required: false":
+    elif current and indent == 8 and stripped == "required: false":
         dependencies[current] = True
 
 unsafe = sorted(name for name, optional in dependencies.items() if name not in allowed or not optional)
 if not dependencies or unsafe:
     raise SystemExit(f"Refusing to remove unknown or required dependencies: {unsafe or 'none found'}")
 
-out = []
-skip = False
-for line in lines:
-    stripped = line.lstrip()
-    indent = len(line) - len(stripped)
-    if not skip and line.startswith("    depends_on:"):
-        skip = True
-        continue
-    if skip:
-        if stripped and indent <= 4:
-            skip = False
-            out.append(line)
-        continue
-    out.append(line)
+out = lines[:depends_start] + lines[depends_end:]
 p.write_text("\n".join(out) + "\n")
 PY
       docker_cmd compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" \
