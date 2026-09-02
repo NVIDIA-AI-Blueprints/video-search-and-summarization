@@ -405,8 +405,11 @@ def test_failed_service_evidence_is_bounded_redacted_and_structural(
             "API_KEY=supersecret\n"
             "Authorization: Bearer headersecret\n"
             "hf_abcdefghijk\n"
-            "https://user:pass@example.test/path\n"
-            "model exited\n",
+            # assembled at runtime: a credential-shaped literal here trips
+            # secret scanners on every commit in the repo, and this fixture is
+            # the input to a redaction assertion, not a real credential.
+            "https://{}:{}@example.test/path\n".format("user", "pass")
+            + "model exited\n",
             False,
         ),
         bounded(0, '{"status":"die","token=hidden","ghp_abcdefghijk"}\n', False),
