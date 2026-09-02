@@ -2,7 +2,7 @@
 
 Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill (``../SKILL.md`` (see `../SKILL.md`)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
-Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of a warehouse auto-calibration variant (`BP_PROFILE=bp_wh_auto_calib` with mode `2d`/`3d`/`mv3dt`). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
+Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC runs under its own `vss-auto-calibration` / `vss-auto-calibration-ui` profiles — standalone, or as part of the warehouse auto-calibration variant (`BP_PROFILE=bp_wh_auto_calib` with `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}`; one list for 2d/3d/mv3dt, not per-mode suffixes). AMC is a service inside the `warehouse-operations` industry profile. Stable service defaults live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env), while host/profile runtime values are applied through `generated.env` initialized from `overrides.env`.
 
 ## What's different from base VSS
 
@@ -16,14 +16,14 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 | Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
 |---|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
-| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `nvcr.io/nvidia/vss-core/vss-auto-calibration-ui:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
 
 > **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
 ## Env recipe
 
-Set stable service defaults such as container ports in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../../deploy/docker/industry-profiles/warehouse-operations/.env). Set host/profile runtime values such as host-published ports, `HOST_IP`, `VSS_APPS_DIR`, `VSS_DATA_DIR`, and credentials in `generated.env` initialized from `overrides.env`:
+Set stable service defaults such as container ports in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env). Set host/profile runtime values such as host-published ports, `HOST_IP`, `VSS_APPS_DIR`, `VSS_DATA_DIR`, and credentials in `generated.env` initialized from `overrides.env`:
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -33,7 +33,7 @@ Set stable service defaults such as container ports in [`deploy/docker/industry-
 | `VSS_AUTO_CALIBRATION_UI_HOST_PORT` | UI host-published port. Change the active `generated.env` if `5000` conflicts. | `5000` |
 | `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). For host access, set to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_HOST_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
-| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when a warehouse variant with VST is running; for calibration-only RTSP set `BP_PROFILE=bp_wh_auto_calib`, choose `MODE`, and select the matching `COMPOSE_PROFILES_WH_AUTO_CALIB_*` list. | `${VST_INTERNAL_URL}` |
+| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when the warehouse auto-calibration variant with VST is running; for calibration-only RTSP set `BP_PROFILE=bp_wh_auto_calib` and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}`. | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
 | `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The `overrides.env` template ships with a placeholder `/path/to/deploy/docker`; replace it in the active `generated.env` with the absolute path to your checkout's `deploy/docker`, otherwise the dry-run fails with `couldn't find env file: …/services/vios/vst.env`. | (no default — must be set) |
 | `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. | (no default — must be set) |
@@ -163,7 +163,7 @@ Pick the deployment variant that matches the intent, initialize the runtime env 
 
 | Intent | `COMPOSE_PROFILES` value |
 |---|---|
-| Warehouse auto-calibration (RTSP via nvstreamer/VST) | `${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}` / `_3D` / `_MV3DT` (the variant service list) |
+| Warehouse auto-calibration (RTSP via nvstreamer/VST) | `${COMPOSE_PROFILES_WH_AUTO_CALIB}` (one list; `MODE` does not change it) |
 | Standalone AMC only (no warehouse agent/UI stack) | `vss-auto-calibration,vss-auto-calibration-ui` |
 
 ```bash
@@ -173,18 +173,19 @@ grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/gene
   || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
 
 # In generated.env, replace the active COMPOSE_PROFILES assignment with exactly
-# one selector. Also set BP_PROFILE=bp_wh_auto_calib and the matching MODE for a
-# warehouse deployment.
+# one selector. For warehouse RTSP auto-calib also set BP_PROFILE=bp_wh_auto_calib.
 #
 # Standalone AMC:
 # COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui
 #
-# Warehouse auto-calibration, MODE=2d:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}
-# Warehouse auto-calibration, MODE=3d:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}
-# Warehouse auto-calibration, MODE=mv3dt:
-# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT}
+# Warehouse auto-calibration (one list; MODE does not change it):
+# COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
+
+# Warehouse auto-calibration uses direct VST, not SDRC. In generated.env,
+# comment out the three inherited SDRC overrides:
+# # VST_USE_SDRC=true
+# # STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+# # VST_NGINX_MODE=vst-sdrc
 
 # Resolve and export the selected list before every Compose command.
 set -a
@@ -316,7 +317,7 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different host port: edit `VSS_AUTO_CALIBRATION_HOST_PORT` or `VSS_AUTO_CALIBRATION_UI_HOST_PORT` in `industry-profiles/warehouse-operations/generated.env`, then re-run dry-run + up. |
 | VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
-| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy `BP_PROFILE=bp_wh_auto_calib` with the mode-specific `COMPOSE_PROFILES_WH_AUTO_CALIB_*` service list so VST is present, or set `VIOS_BASE_URL` explicitly in `generated.env` and `docker compose up -d` again. |
+| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy `BP_PROFILE=bp_wh_auto_calib` with `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}` so VST is present, or set `VIOS_BASE_URL` explicitly in `generated.env` and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
 | `create_project` returns `[Errno 13] Permission denied` | First `POST /v1/create_project` after a fresh deploy fails writing `projects/project_<id>` | The host `services/auto-calibration/projects` directory isn't writable by the container user (UID 1000). Run the Step 5 write test, then grant access with `setfacl -m u:1000:rwx ${VSS_APPS_DIR}/services/auto-calibration/projects` and retry. |
 
@@ -326,18 +327,19 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 cd deploy/docker
 COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
 
-# Or, if running as part of warehouse auto-calibration, resolve the list for
-# the MODE stored in generated.env, then tear it down:
+# Or, if running as part of warehouse auto-calibration: always use the
+# auto-calib list. Do not reuse COMPOSE_PROFILES from generated.env — the
+# template default is COMPOSE_PROFILES_WH_2D, and := would leave that in
+# place (tearing down the agent stack, not AMC).
 set -a
 . industry-profiles/warehouse-operations/.env
 . industry-profiles/warehouse-operations/generated.env
 set +a
-case "${MODE}" in
-  2d)    COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_2D}" ;;
-  3d)    COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_3D}" ;;
-  mv3dt) COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB_MV3DT}" ;;
-  *) echo "Unsupported auto-calibration MODE: ${MODE}" >&2; exit 1 ;;
-esac
+COMPOSE_PROFILES="${COMPOSE_PROFILES_WH_AUTO_CALIB}"
+test -n "${COMPOSE_PROFILES}" || {
+  echo "COMPOSE_PROFILES_WH_AUTO_CALIB is empty after sourcing warehouse env files" >&2
+  exit 1
+}
 export COMPOSE_PROFILES
 docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
 ```
