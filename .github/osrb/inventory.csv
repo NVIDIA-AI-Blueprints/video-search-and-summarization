@@ -703,6 +703,7 @@ actions/upload-artifact,b7c566a772e6b6bfb58ed0dc250532a479d7789f,UNKNOWN,.github
 actions/upload-artifact,ea165f8d65b6e75b540449e92b4886f43607fa02,MIT,.github,github-action,ci,.github/workflows/build-dev-images.yml,ci,no,no,no,ci-tooling,None
 actions/upload-artifact,v4,MIT,.github,github-action,ci,.github/workflows/skills-eval-daily.yml,ci,no,no,no,ci-tooling,None
 address,2.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+affine,2.4.0,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 agent-base,6.0.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 agent-base,7.1.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 agent-base,7.1.4,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -740,9 +741,11 @@ ajv-formats,2.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,servi
 alpine,3.23.4,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/sdrc/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 alpine,3.24.1,UNKNOWN,deploy,container,compose;container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile;deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-base;container-image,Unknown
 annotated-doc,0.0.4,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+annotated-doc,0.0.4,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 annotated-doc,0.0.4,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 annotated-doc,0.0.5,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 annotated-types,0.7.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
+annotated-types,0.7.0,MIT License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 annotated-types,0.7.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 annotated-types,0.7.0,MIT License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 annotated-types,0.7.0,MIT License,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -769,6 +772,7 @@ antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;m
 any-promise,1.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 anyio,4.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 anyio,4.12.1,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
+anyio,4.13.0,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 anyio,UNKNOWN,UNKNOWN,.github,python,usage,.github/skills-review/review_agent.py,runtime,no,no,no,imported-only,Unknown
@@ -836,7 +840,9 @@ attrs,26.1.0,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analyt
 attrs,26.1.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 attrs,26.1.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 attrs,26.1.0,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+attrs,26.1.0,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 attrs,26.1.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+audioop-lts,0.2.2,PSF-2.0,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 audioread,3.1.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 auditwheel,UNKNOWN,MIT License,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 auditwheel,UNKNOWN,MIT License,services/analytics/behavior-analytics,python,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-pip,None
@@ -896,6 +902,7 @@ bison,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile
 bleach,6.4.0,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 blinker,1.9.0,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 blinker,1.9.0,MIT,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+blinker,1.9.0,MIT License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 blinker,1.9.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 bluebird,3.7.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 body-parser,1.20.6,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -921,6 +928,7 @@ brace-expansion,5.0.9,MIT,services/vios,node,lockfile,services/vios/ui/streaming
 braces,3.0.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 braces,3.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 braces,3.0.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+brotli,1.2.0,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 browser-stdout,1.3.1,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 browserslist,4.28.7,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 browserslist,4.28.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -949,6 +957,7 @@ byte-counter,0.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,r
 bytes,3.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 bytestreamjs,2.0.1,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ca-certificates,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+ca-certificates,UNKNOWN,UNKNOWN,services/dt-based-calibration,deb,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/video-summarization,deb,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/aarch64/devel/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -974,10 +983,12 @@ camelcase-css,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,
 caniuse-lite,1.0.30001806,CC-BY-4.0,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 caniuse-lite,1.0.30001810,CC-BY-4.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 canvas-color-tracker,1.3.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+carla,0.9.16,UNKNOWN,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 cbor2,5.9.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 ccount,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 certifi,2025.10.5,Mozilla Public License 2.0 (MPL 2.0),services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,Medium
 certifi,2026.2.25,Mozilla Public License 2.0 (MPL 2.0),services/video-summarization,python,lockfile,services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,Medium
+certifi,2026.4.22,MPL-2.0,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Medium
 certifi,2026.4.22,MPL-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,Medium
 certifi,2026.5.20,MPL-2.0,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,Medium
 certifi,2026.5.20,MPL 2.0,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,Medium
@@ -1004,6 +1015,7 @@ charenc,0.0.2,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,
 charset-normalizer,3.4.4,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 charset-normalizer,3.4.7,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 charset-normalizer,3.4.7,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
+charset-normalizer,3.4.7,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 charset-normalizer,3.4.7,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 charset-normalizer,3.4.7,MIT,services/video-summarization,python,lockfile,services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
 charset-normalizer,3.4.9,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -1027,12 +1039,15 @@ classnames,2.5.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,run
 claude_agent_sdk,UNKNOWN,UNKNOWN,.github,python,usage,.github/helm-sync/helm_sync_agent.py,runtime,no,no,no,imported-only,Unknown
 clean-stack,2.2.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 click,8.3.3,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+click,8.3.3,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 click,8.4.0,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 click,8.4.2,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 click,8.4.2,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 click,8.4.2,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 click,8.4.2,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+click-plugins,1.1.1.2,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 client-only,0.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+cligj,0.7.2,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 cliui,6.0.0,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 cliui,7.0.4,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 cliui,8.0.1,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1064,6 +1079,7 @@ color-string,2.1.4,MIT,services/analytics/video-analytics-api,node,lockfile,serv
 colorama,0.4.6,BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 colorama,0.4.6,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 colorama,0.4.6,BSD License,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+colorama,0.4.6,BSD License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 colorama,0.4.6,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 colorama,0.4.6,BSD License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 colorama,0.4.6,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -1108,11 +1124,13 @@ confluentinc/cp-kafka,8.3.0,UNKNOWN,deploy,container,compose;container,deploy/do
 content-disposition,0.5.4,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 content-disposition,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 content-type,1.0.5,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+contourpy,1.3.2,BSD License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.2,BSD License,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.3,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.3,BSD 3-Clause License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.3,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.3,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+contourpy,1.3.3,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.3,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 contourpy,1.3.3,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 convert-hrtime,5.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1175,6 +1193,7 @@ curl,8.21.0-r0,UNKNOWN,deploy,apk,container,deploy/docker/services/infra/Dockerf
 curl,UNKNOWN,UNKNOWN,deploy,apk,container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,deb,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+curl,UNKNOWN,UNKNOWN,services/dt-based-calibration,deb,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/test/bdd_tests/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curlimages/curl,latest,UNKNOWN,services/video-summarization,container,compose,services/video-summarization/docker/deploy/compose.yaml,runtime,no,no,yes,container-image,Unknown
@@ -1184,6 +1203,7 @@ cycler,0.12.1,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile,l
 cycler,0.12.1,"Copyright (c) 2015, matplotlib project",services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 cycler,0.12.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 cycler,0.12.1,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+cycler,0.12.1,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 cycler,0.12.1,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 cycler,0.12.1,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 cycler,0.12.1,BSD-3-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1346,6 +1366,7 @@ ecdsa-sig-formatter,1.0.11,Apache-2.0,services/ui,node,lockfile,services/ui/pack
 eclipse-mosquitto,2,UNKNOWN,deploy,container,compose,deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-image,Unknown
 eclipse-mosquitto,2,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
 ee-first,1.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+egm96-15.zip,UNKNOWN,UNKNOWN,services/dt-based-calibration,source,container,services/dt-based-calibration/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 einops,0.8.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 einops,0.8.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 ejs,3.1.10,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1455,6 +1476,7 @@ events-universal,1.0.1,Apache-2.0,services/ui,node,lockfile,services/ui/package-
 eventsource-parser,0.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 exa-py,1.16.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 exceptiongroup,1.3.0,MIT License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
+exceptiongroup,1.3.1,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 execa,5.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 execa,8.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 execa,9.6.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1486,6 +1508,7 @@ fast-levenshtein,2.0.6,MIT,services/vios,node,lockfile,services/vios/ui/streamin
 fast-safe-stringify,2.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-uri,3.1.5,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-uri,3.1.5,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+fastapi,0.136.1,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 fastapi,0.136.3,UNKNOWN,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 fastapi,0.139.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 fastapi,0.141.1,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
@@ -1511,6 +1534,7 @@ file-entry-cache,8.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streamin
 file-saver,2.0.5,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 file-type,21.3.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 filelist,1.0.6,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+filelock,3.29.0,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 filelock,3.29.7,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 filelock,3.32.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 filelock,3.32.4,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
@@ -1532,6 +1556,7 @@ find-up,5.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/pac
 find-versions,6.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 flask,3.1.0,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile;manifest,services/configurators/vss-configurator/pyproject.toml;services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 flask,3.1.0,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile;manifest,services/configurators/vss-rt-config-adaptor/pyproject.toml;services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+flask,3.1.3,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 flask,3.1.3,BSD-3-Clause,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 flask,UNKNOWN,BSD-3-Clause,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 flask-kafka,0.0.3,MIT,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -1549,6 +1574,7 @@ follow-redirects,1.16.0,MIT,services/ui,node,lockfile,services/ui/package-lock.j
 follow-redirects,1.16.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fonttools,4.61.1,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 fonttools,4.61.1,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+fonttools,4.62.1,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 fonttools,4.63.0,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 fonttools,4.63.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 fonttools,4.63.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
@@ -1588,6 +1614,7 @@ fs.realpath,1.0.0,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/packa
 fsevents,2.3.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 fsevents,2.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fsevents,2.3.3,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+fsspec,2026.4.0,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 fsspec,2026.6.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 fsspec,2026.6.0,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 fsspec,2026.7.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1633,6 +1660,7 @@ get-tsconfig,4.14.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,
 ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-configurator,container,container,services/configurators/vss-configurator/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+ghcr.io/astral-sh/uv,latest,UNKNOWN,services/dt-based-calibration,container,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/google/cadvisor,0.60.5,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 gherkin-official,29.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -1685,12 +1713,15 @@ gpt-3-encoder,1.1.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,
 graceful-fs,4.2.11,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 graceful-fs,4.2.11,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 graceful-fs,4.2.11,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+gradio,6.20.0,Apache-2.0,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
+gradio-client,2.5.0,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 graphemer,1.4.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 greenlet,3.5.4,MIT AND PSF-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 greenlet,3.5.4,MIT AND PSF-2.0,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 griffe,2.1.0,ISC,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 griffecli,2.1.0,ISC,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 griffelib,2.1.0,ISC,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+groovy,0.1.2,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 grpc/grpc,v1.50.0,UNKNOWN,services/vios,source,container,services/vios/cicd_files/x86_64/devel/Dockerfile.devel,runtime,no,no,no,build-fetch,Unknown
 grpcio,1.67.1,Apache-2.0,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 grpcio,1.78.0,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1711,6 +1742,7 @@ gstreamer1.0-python3-plugin-loader,UNKNOWN,UNKNOWN,services/rtvi/rt-cv,deb,conta
 gstreamer1.0-tools,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/x86_64/Dockerfile.base,runtime,no,no,yes,container-apt,Unknown
 gunicorn,23.0.0,MIT,services/configurators/vss-configurator,python,lockfile;manifest,services/configurators/vss-configurator/pyproject.toml;services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 h11,0.16.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+h11,0.16.0,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 h11,0.16.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 h11,0.16.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 h11,0.16.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -1754,6 +1786,8 @@ he,1.2.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analy
 hedley,UNKNOWN,MIT,services/vios,c,vendored,services/vios/include/3rdparty/minio/nlohmann/thirdparty/hedley,runtime,yes,UNKNOWN,no,vendored-source,None
 hermes-estree,0.25.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 hermes-parser,0.25.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+hf-gradio,0.4.1,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
+hf-xet,1.4.3,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 hf-xet,1.5.1,Apache-2.0,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 hf-xet,1.6.0,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 hf-xet,1.6.0.dev0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -1785,6 +1819,7 @@ http-proxy-agent,7.0.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/
 http2-wrapper,1.0.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 http2-wrapper,2.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 httpcore,1.0.9,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+httpcore,1.0.9,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 httpcore,1.0.9,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpcore,1.0.9,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpcore,1.0.9,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -1793,6 +1828,7 @@ https-proxy-agent,7.0.6,MIT,services/ui,node,lockfile,services/ui/package-lock.j
 https-proxy-agent,7.0.6,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 httptools,0.8.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 httpx,0.28.1,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+httpx,0.28.1,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 httpx,0.28.1,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpx,0.28.1,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 httpx,0.28.1,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -1802,6 +1838,7 @@ httpx,UNKNOWN,BSD License,skills/operations,python,manifest,skills/operations/vs
 httpx-sse,0.4.3,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 httpx-sse,0.4.3,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 huggingface-hub,0.36.2,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+huggingface-hub,1.13.0,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 huggingface-hub,1.24.0,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 huggingface-hub,1.28.0,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 huggingface_hub,0.36.2,Apache,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
@@ -1818,6 +1855,7 @@ iconv-lite,0.6.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,run
 idb,8.0.3,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 identity-obj-proxy,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 idna,3.11,BSD-3-Clause,services/video-summarization,python,lockfile,services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
+idna,3.13,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 idna,3.15,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 idna,3.16,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 idna,3.18,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
@@ -1968,6 +2006,7 @@ its-fine,2.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runti
 its-fine,2.0.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 itsdangerous,2.2.0,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 itsdangerous,2.2.0,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+itsdangerous,2.2.0,BSD License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 itsdangerous,2.2.0,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 jackspeak,3.4.3,BlueOak-1.0.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 jackspeak,3.4.3,BlueOak-1.0.0,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
@@ -2007,6 +2046,7 @@ jinja2,3.1.4,BSD-3-Clause,services/sdrc,python,container;lockfile;manifest,servi
 jinja2,3.1.6,BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.6,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.6,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+jinja2,3.1.6,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 jinja2,3.1.6,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 jiter,0.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -2106,6 +2146,7 @@ kiwisolver,1.5.0,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfil
 kiwisolver,1.5.0,=========================,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 kiwisolver,1.5.0,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 kiwisolver,1.5.0,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+kiwisolver,1.5.0,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 kiwisolver,1.5.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 kiwisolver,1.5.0,BSD-3-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 kmod,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/aarch64/Dockerfile.base,runtime,no,no,yes,container-apt,Unknown
@@ -2171,6 +2212,8 @@ libgdal-dev,3.10.3+dfsg-1,MIT,libs/analytics/spatialai-data-utils,deb,container,
 libgdal-dev,UNKNOWN,UNKNOWN,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 libgirepository-2.0-dev,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 libgl1,1.7.0-1+b2,MIT,libs/analytics/spatialai-data-utils,deb,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-apt,None
+libgl1-mesa-glx,UNKNOWN,UNKNOWN,services/dt-based-calibration,deb,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+libglib2.0-0,UNKNOWN,UNKNOWN,services/dt-based-calibration,deb,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 libglib2.0-0t64,2.84.4-3~deb13u3,LGPL-2.1-or-later,libs/analytics/spatialai-data-utils,deb,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-apt,Medium
 libglib2.0-dev,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,deb,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 libglib2.0-dev,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -2316,6 +2359,7 @@ makeerror,1.0.12,BSD-3-Clause,services/ui,node,lockfile,services/ui/package-lock
 mako,1.3.12,MIT License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 markdown,3.10.2,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 markdown-it,14.3.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
+markdown-it-py,4.0.0,MIT License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 markdown-it-py,4.0.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 markdown-it-py,4.2.0,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 markdown-it-py,4.2.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2324,6 +2368,7 @@ markupsafe,2.1.5,BSD License,services/vios,python,lockfile,services/vios/test/bd
 markupsafe,3.0.3,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 markupsafe,3.0.3,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 markupsafe,3.0.3,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+markupsafe,3.0.3,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 markupsafe,3.0.3,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 marshmallow,3.26.2,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 matcher,3.0.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2332,6 +2377,7 @@ math-intrinsics,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.jso
 math-intrinsics,1.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 mathjax-full,3.2.1,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 mathjs,15.2.0,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+matplotlib,3.10.8,UNKNOWN,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 matplotlib,3.10.9,Matplotlib License,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,Unknown
 matplotlib,3.10.9,Matplotlib License,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 matplotlib,3.11.0,Matplotlib License,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
@@ -2362,6 +2408,7 @@ mdast-util-to-markdown,2.1.2,MIT,services/ui,node,lockfile,services/ui/package-l
 mdast-util-to-string,4.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 mdn-data,2.27.1,CC0-1.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 mdurl,0.1.2,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+mdurl,0.1.2,MIT License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 mdurl,0.1.2,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 mdurl,0.1.2,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 mdurl,2.1.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2545,6 +2592,7 @@ numpy,1.26.4,BSD-3-Clause,services/configurators/vss-configurator,python,lockfil
 numpy,1.26.4,BSD-3-Clause,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 numpy,2.1.0,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 numpy,2.1.0,BSD License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+numpy,2.2.6,BSD-3-Clause,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 numpy,2.2.6,BSD-3-Clause,services/rtvi/rt-cv-3d/rt-cv-config-init,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-config-init/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-config-init/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
 numpy,2.2.6,BSD-3-Clause,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,None
 numpy,2.2.6,BSD-3-Clause,tools/rtvi-cv-mv3dt-utils,python,manifest,tools/rtvi-cv-mv3dt-utils/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2573,6 +2621,7 @@ nvcr.io/nvidia/deepstream,rtvi_ds9.1plus-triton,UNKNOWN,services/rtvi/rt-cv,cont
 nvcr.io/nvidia/distroless/node,22-v4.1.2,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.2-dev,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.12-v3.5.2,UNKNOWN,services/dt-based-calibration,container,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v3.1.10,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2582,6 +2631,7 @@ nvcr.io/nvidia/distroless/python,3.13-v4.0.8,UNKNOWN,services/alert,container,co
 nvcr.io/nvidia/distroless/python,3.13-v4.0.8,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.9,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.1,UNKNOWN,services/configurators/vss-configurator,container,container,services/configurators/vss-configurator/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.14-v4.0.9,UNKNOWN,services/dt-based-calibration,container,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/k8s/dcgm-exporter,4.2.0-4.1.0-ubuntu22.04,UNKNOWN,services/rtvi/rt-embed,container,compose,services/rtvi/rt-embed/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/k8s/dcgm-exporter,4.2.0-4.1.0-ubuntu22.04,UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/pytorch,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2684,11 +2734,13 @@ opencv-python,4.10.0.84,Apache Software License,services/rtvi/rt-embed,python,lo
 opencv-python,UNKNOWN,Apache Software License,libs/analytics/spatialai-data-utils,python,usage,libs/analytics/spatialai-data-utils/spatialai_data_utils/utils/optional_dependencies.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/tools/s3_picture_url.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,services/analytics/behavior-analytics,python,usage,services/analytics/behavior-analytics/src/mdx/analytics/core/tools/space_utilization.py,runtime,no,no,no,imported-only,None
+opencv-python,UNKNOWN,Apache Software License,services/dt-based-calibration,python,manifest,services/dt-based-calibration/src/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencv-python,UNKNOWN,Apache Software License,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencv-python,UNKNOWN,Apache Software License,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/models/openai_compat/openai_compat_model.py,runtime,no,no,no,imported-only,None
 opencv-python,UNKNOWN,Apache Software License,tools/rtvi-cv-mv3dt-utils,python,manifest,tools/rtvi-cv-mv3dt-utils/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencv-python,UNKNOWN,Apache Software License,tools/sdg-postprocessing,python,usage,tools/sdg-postprocessing/data_conversion/convert_ground_truth.py,runtime,no,no,no,imported-only,None
 opencv-python-headless,4.13.0.92,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
+opencv-python-headless,4.13.0.92,Apache Software License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 opencv-python-headless,4.13.0.92,Apache Software License,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 opencv-python-headless,5.0.0.93,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 opencv/opencv-python,86,UNKNOWN,libs/analytics/spatialai-data-utils,source,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,no,build-fetch,Unknown
@@ -2755,6 +2807,7 @@ org.apache.commons:commons-lang3,3.7,Apache-2.0,tools/logstash-plugins,java,mani
 org.apache.logging.log4j:log4j-api,2.25.4,Apache-2.0,tools/logstash-plugins,java,manifest,tools/logstash-plugins/input/redis-stream/build.gradle,runtime,no,no,no,declared-manifest,None
 org.apache.logging.log4j:log4j-core,2.25.4,Apache-2.0,tools/logstash-plugins,java,manifest,tools/logstash-plugins/input/redis-stream/build.gradle,runtime,no,no,no,declared-manifest,None
 orjson,3.11.2,UNKNOWN,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
+orjson,3.11.8,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 orjson,3.11.9,MPL-2.0 AND (Apache-2.0 OR MIT),services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Medium
 orjson,3.12.0,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 ormsgpack,1.12.2,Apache-2.0 OR MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -2791,11 +2844,14 @@ packaging,26.2,Apache-2.0 OR BSD-2-Clause,libs/analytics/spatialai-data-utils,py
 packaging,26.2,Apache-2.0 OR BSD-2-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 packaging,26.2,Apache-2.0 OR BSD-2-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 packaging,26.2,Apache-2.0 OR BSD-2-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+packaging,26.2,Apache-2.0 OR BSD-2-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 packaging,26.2,Apache-2.0 OR BSD-2-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 paho-mqtt,2.1.0,EPL-2.0 + EDL-1.0 (Eclipse Distribution License 1.0 is BSD-3-Clause-equivalent).,services/analytics/behavior-analytics,python,container;lockfile,services/analytics/behavior-analytics/Pipfile.lock;services/analytics/behavior-analytics/tests/integration/docker_compose/infra/Dockerfiles/Dockerfile.mqttbridge,runtime,no,no,no,container-pip;declared-manifest,Medium
 pandas,2.3.3,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
 pandas,2.3.3,BSD 3-Clause License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pandas,2.3.3,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+pandas,2.3.3,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
+pandas,3.0.2,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 pandas,3.0.3,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 pandas,UNKNOWN,BSD License,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 pandas,UNKNOWN,BSD License,skills/benchmarking,python,manifest,skills/benchmarking/benchmark-video-summarization/scripts/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -2845,6 +2901,7 @@ picomatch,2.3.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runt
 picomatch,2.3.2,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 picomatch,4.0.5,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 picomatch,4.0.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+pillow,12.2.0,MIT-CMU,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 pillow,12.2.0,MIT-CMU,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 pillow,12.2.0,MIT-CMU,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pillow,12.3.0,MIT (HPND / MIT-CMU (CMU variant of MIT)),libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
@@ -2998,6 +3055,7 @@ pycparser,3.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,service
 pycparser,3.0,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 pycryptodome,3.23.0,"BSD, Public Domain",services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pycryptodome,3.23.0,"BSD, Public Domain",services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
+pydantic,2.13.3,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 pydantic,2.13.4,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 pydantic,2.13.4,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pydantic,2.13.4,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -3006,6 +3064,7 @@ pydantic,2.14.0a1,MIT,services/agent,python,lockfile,services/agent/uv.lock,runt
 pydantic,2.14.0b1,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pydantic,UNKNOWN,MIT,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 pydantic,UNKNOWN,MIT,services/video-summarization,python,usage,services/video-summarization/src/chunk_info.py,runtime,no,no,no,imported-only,None
+pydantic-core,2.46.3,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 pydantic-core,2.46.4,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 pydantic-core,2.46.4,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pydantic-core,2.46.4,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -3017,9 +3076,11 @@ pydantic-settings,2.15.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,servi
 pydantic_core,2.46.4,MIT,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyds,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/utils/file_splitter.py,runtime,no,no,no,imported-only,Unknown
 pyds,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/utils/file_splitter.py,runtime,no,no,no,imported-only,Unknown
+pydub,0.25.1,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 pyee,13.0.0,MIT License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 pygments,2.19.2,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pygments,2.20.0,BSD-2-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+pygments,2.20.0,BSD-2-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 pygments,2.20.0,BSD-2-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 pygments,2.21.0,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 PyGObject,3.48.2,GNU Lesser General Public License v2 or later (LGPLv2+),services/rtvi/rt-vlm,python,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-pip,Medium
@@ -3027,6 +3088,7 @@ PyGObject,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-e
 PyGObject,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/server/alert_verification_server.py,runtime,no,no,no,imported-only,Unknown
 pyhanko,0.35.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyhanko-certvalidator,0.31.1,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+pyinstaller,UNKNOWN,UNKNOWN,services/dt-based-calibration,python,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 pyjwt,2.13.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyjwt,2.13.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyjwt,2.13.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -3050,11 +3112,13 @@ pyparsing,3.3.2,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/ana
 pyparsing,3.3.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyparsing,3.3.2,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 pyparsing,3.3.2,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+pyparsing,3.3.2,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 pyparsing,3.3.2,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyparsing,3.3.2,MIT,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 pypdf,6.14.2,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pypdfium2,5.12.1,"BSD-3-Clause, Apache-2.0, dependency licenses",services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 pypika,0.51.1,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+pyproj,3.7.1,UNKNOWN,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 pyproj,3.7.2,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 pyproject-hooks,1.2.0,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyquaternion,0.9.9,MIT,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
@@ -3072,6 +3136,7 @@ pytest-repeat,0.9.4,Mozilla Public License 2.0 (MPL 2.0),services/vios,python,lo
 pytest-timeout,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,manifest,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
 pytest-timeout,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,manifest,services/rtvi/rt-cv-3d/rt-cv-config-init/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
 pytest-xdist,3.8.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
+python,3.12-bookworm,UNKNOWN,services/dt-based-calibration,container,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.12-slim,UNKNOWN,services/vios,container,container,services/vios/test/bdd_tests/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-bookworm,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -3089,6 +3154,7 @@ python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,libs/analytics/spatialai-
 python-dateutil,2.9.0.post0,Dual License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause.,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Apache-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3103,6 +3169,7 @@ python-gi-dev,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/r
 python-multipart,0.0.30,UNKNOWN,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-multipart,0.0.30,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-multipart,0.0.32,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+python-multipart,0.0.32,Apache-2.0,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 python-multipart,0.0.32,Apache-2.0,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 python-rapidjson,1.23,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 python-redis-lock,4.0.0,BSD-2-Clause,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3123,6 +3190,7 @@ python3.12-venv,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,deb,container,services/rt
 pytorch3d,UNKNOWN,UNKNOWN,libs/analytics/spatialai-data-utils,python,usage,libs/analytics/spatialai-data-utils/spatialai_data_utils/utils/optional_dependencies.py,runtime,no,no,no,imported-only,Unknown
 pytz,2024.2,MIT,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
 pytz,2024.2,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+pytz,2026.1.post1,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 pytz,2026.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,311,Python Software Foundation License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pywin32,311,Python Software Foundation License,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3140,6 +3208,7 @@ pyyaml,6.0.3,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analyt
 pyyaml,6.0.3,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyyaml,6.0.3,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 pyyaml,6.0.3,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+pyyaml,6.0.3,MIT,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 pyyaml,6.0.3,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyyaml,6.0.3,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyyaml,6.0.3,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3162,6 +3231,7 @@ quick-lru,5.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package
 radix-ui,1.6.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 randombytes,2.1.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 range-parser,1.2.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+rasterio,1.4.4,UNKNOWN,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 raw-body,2.5.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 ray,2.54.0,Apache 2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 react,19.2.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3255,6 +3325,7 @@ requests,2.31.0,Apache 2.0,services/alert,python,manifest,services/alert/require
 requests,2.32.3,Apache-2.0,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
 requests,2.32.3,Apache-2.0,services/configurators/vss-configurator,python,lockfile;manifest,services/configurators/vss-configurator/pyproject.toml;services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 requests,2.32.3,Apache-2.0,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
+requests,2.33.1,Apache Software License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 requests,2.33.1,Apache Software License,services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
 requests,2.34.2,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 requests,2.34.2,Apache-2.0,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
@@ -3298,6 +3369,7 @@ reusify,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtim
 reusify,1.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 rich,14.1.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 rich,14.3.4,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+rich,15.0.0,MIT License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 rich,15.0.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 rimraf,2.6.3,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 rimraf,3.0.2,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3344,6 +3416,7 @@ safe-buffer,5.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,ru
 safe-push-apply,1.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 safe-regex-test,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 safe-stable-stringify,2.5.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+safehttpx,0.1.7,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 safer-buffer,2.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 safer-buffer,2.1.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 safetensors,0.8.0,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3365,6 +3438,7 @@ scikit-learn,1.9.0,BSD-3-Clause,services/configurators/vss-configurator,python,l
 scikit-learn,1.9.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 scipy,1.15.3,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
 scipy,1.15.3,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+scipy,1.15.3,BSD-3-Clause,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 scipy,1.15.3,BSD-3-Clause,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 scipy,1.17.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 scipy,1.18.0,"Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.",services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
@@ -3374,6 +3448,7 @@ sdp,3.2.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package
 secure-json-parse,4.1.0,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 seedrandom,3.0.5,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 seek-bzip,2.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+semantic-version,2.10.0,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 semver,3.0.4,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 semver,3.0.4,BSD License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 semver,5.7.2,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3408,6 +3483,7 @@ setuptools,80.10.2,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runti
 setuptools,82.0.1,MIT,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 setuptools,83.0.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 setuptools,UNKNOWN,MIT,services/analytics/behavior-analytics,python,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-pip,None
+setuptools,UNKNOWN,MIT,services/dt-based-calibration,python,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-pip,None
 setuptools,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-pip,None
 setuptools,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-pip,None
 shapely,2.0.7,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
@@ -3423,6 +3499,7 @@ shebang-regex,3.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-l
 shell-quote,1.10.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 shell-quote,1.9.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 shellingham,1.5.4,ISC License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+shellingham,1.5.4,ISC License,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 shellingham,1.5.4,ISC License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 shortuuid,1.0.13,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 shortuuid,1.0.13,BSD License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3448,6 +3525,7 @@ six,1.17.0,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytic
 six,1.17.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 six,1.17.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 six,1.17.0,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+six,1.17.0,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 six,1.17.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 six,1.17.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 six,1.17.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3498,6 +3576,7 @@ stable-hash,0.0.5,MIT,services/ui,node,lockfile,services/ui/package-lock.json,ru
 stack-trace,0.0.10,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 stack-utils,2.0.6,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 starlette,1.3.1,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+starlette,1.3.1,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 starlette,1.3.1,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 starlette,1.3.1,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 starlette,1.3.1,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -3551,6 +3630,7 @@ sumchecker,3.0.1,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui
 super-regex,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 superagent,10.3.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 supertest,7.2.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+supervisor,4.2.5,UNKNOWN,services/dt-based-calibration,python,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 supports-color,7.2.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 supports-color,7.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 supports-color,7.2.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3632,6 +3712,7 @@ tokenizers,0.22.2,Apache Software License,services/rtvi/rt-embed,python,lockfile
 tokenizers,0.23.0rc0,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 tomli,2.3.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 tomli,UNKNOWN,UNKNOWN,.github,python,usage,.github/skill-eval/envs/brev_env.py,runtime,no,no,no,imported-only,Unknown
+tomlkit,0.14.0,UNKNOWN,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 toolz,1.1.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 toposort,2.0.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 torch,2.10.0+cpu,Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
@@ -3656,6 +3737,7 @@ tqdm,4.67.1,MIT,services/configurators/vss-configurator,python,lockfile,services
 tqdm,4.67.1,MIT / MPL-2.0,services/rtvi/rt-cv-3d/rt-cv-config-init,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-config-init/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-config-init/tests/requirements.txt,runtime,no,no,no,declared-manifest,Medium
 tqdm,4.67.1,MPL-2.0 AND MIT,services/rtvi/rt-cv-3d/rt-cv-mv3dt,python,manifest,services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/requirements.txt,runtime,no,no,no,declared-manifest,Medium
 tqdm,4.67.1,MPL-2.0 AND MIT,tools/rtvi-cv-mv3dt-utils,python,manifest,tools/rtvi-cv-mv3dt-utils/requirements.txt,runtime,no,no,no,declared-manifest,Medium
+tqdm,4.67.3,MPL-2.0 AND MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Medium
 tqdm,4.67.3,MPL-2.0 AND MIT,services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,Medium
 tqdm,4.67.3,MPL-2.0 AND MIT,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,Medium
 tqdm,4.68.4,MPL-2.0 AND MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Medium
@@ -3673,6 +3755,7 @@ transformers,UNKNOWN,UNKNOWN,services/rtvi/rt-cv,python,usage,services/rtvi/rt-c
 tree-kill,1.2.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 tree-kill,1.2.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 trim-lines,3.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+trimesh,4.10.1,UNKNOWN,services/dt-based-calibration,python,lockfile;manifest,services/dt-based-calibration/pyproject.toml;services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 triple-beam,1.4.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 triton,3.7.1,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 triton_python_backend_utils,UNKNOWN,UNKNOWN,services/rtvi/rt-cv,python,usage,services/rtvi/rt-cv/TritonGdino/triton_model_repo/gdino_postprocess/1/model.py,runtime,no,no,no,imported-only,Unknown
@@ -3712,6 +3795,7 @@ typed-function,4.2.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/pa
 typedarray,0.0.6,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 typedarray-to-buffer,3.1.5,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 typedoc,0.28.20,Apache-2.0,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
+typer,0.25.1,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 typer,0.27.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 typer,0.27.1,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 typescript,5.5.4,Apache-2.0,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3720,6 +3804,7 @@ typescript,5.9.3,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui
 typescript-eslint,8.66.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 typescript-eslint,8.68.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 typing-extensions,4.15.0,Python Software Foundation License (PSF-2.0),services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
+typing-extensions,4.15.0,Python Software Foundation License (PSF-2.0),services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 typing-extensions,4.15.0,PSF-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 typing-extensions,4.15.0,Python Software Foundation License (PSF-2.0),services/video-summarization,python,lockfile,services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
 typing-extensions,4.16.0,PSF-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3729,6 +3814,7 @@ typing-extensions,4.16.0,PSF-2.0,services/vios,python,lockfile,services/vios/tes
 typing-inspect,0.9.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 typing-inspection,0.4.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 typing-inspection,0.4.2,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
+typing-inspection,0.4.2,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 typing-inspection,0.4.2,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 typing-inspection,0.4.2,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 typing-inspection,0.4.2,MIT,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3736,6 +3822,7 @@ typing-inspection,0.4.4,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,se
 typing_extensions,4.15.0,PSF-2.0,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 tzdata,2025.3,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 tzdata,2026.2,Apache-2.0,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
+tzdata,2026.2,Apache-2.0,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 tzdata,2026.3,Apache-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 tzlocal,5.4.4,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 uc.micro,2.1.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3774,6 +3861,7 @@ urllib3,2.7.0,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analy
 urllib3,2.7.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
+urllib3,2.7.0,MIT,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3803,6 +3891,7 @@ uuid-utils,0.17.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.
 uuid-utils,0.17.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 uv,0.11.26,Apache-2.0 OR MIT,services/sdrc,python,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-pip,None
 uvicorn,0.32.0,BSD License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+uvicorn,0.46.0,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 uvicorn,0.51.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 uvicorn,0.52.4,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 uvicorn,UNKNOWN,BSD-3-Clause,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3856,8 +3945,10 @@ websockets,UNKNOWN,BSD-3-Clause,skills/operations,python,manifest,skills/operati
 werkzeug,3.0.3,BSD License,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 werkzeug,3.1.8,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 werkzeug,3.1.8,BSD-3-Clause,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
+werkzeug,3.1.8,BSD-3-Clause,services/dt-based-calibration,python,lockfile,services/dt-based-calibration/uv.lock,runtime,no,no,no,declared-manifest,None
 werkzeug,3.1.8,BSD-3-Clause,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 wget,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+wget,UNKNOWN,UNKNOWN,services/dt-based-calibration,deb,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 wget,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,deb,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 wget,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/aarch64/devel/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 whatwg-encoding,3.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3954,6 +4045,7 @@ yocto-queue,0.1.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib
 yoctocolors,2.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 yup,1.7.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 zict,3.0.0,BSD,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+zip,UNKNOWN,UNKNOWN,services/dt-based-calibration,deb,container,services/dt-based-calibration/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 zipp,3.23.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 zipp,4.1.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 zipp,4.1.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None

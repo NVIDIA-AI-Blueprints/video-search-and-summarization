@@ -1,0 +1,14 @@
+{
+  "host": "127.0.0.1",
+  "port": 2000,
+  "timeout": 60.0,
+  "time_factor": 1.0,
+  "generate_videos": true,
+  "limit_distance": 100.0,
+  "area_threshold": 100,
+  "class_filter_config": "config/filter_semantic_classes.yaml",
+  "ignore_hero": false,
+  "move_spectator": false,
+  "detect_collisions": true,
+  "output_dir": "/tmp/sdg"
+}

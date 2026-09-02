@@ -1,0 +1,7 @@
+{
+  "source_scenario": "auto-calibration",
+  "start_time": 0.0,
+  "duration": 30.0,
+  "collision_actor_ids": [
+  ]
+}

@@ -1,0 +1,19 @@
+# Output directory - ignore generated files
+output/*.npy
+output/*.png
+output/*.ply
+output/*.json
+output/
+
+# Python
+__pycache__/
+
+.DS_Store
+**/.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

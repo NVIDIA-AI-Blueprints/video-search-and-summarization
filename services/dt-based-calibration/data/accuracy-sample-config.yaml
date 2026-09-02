@@ -1,0 +1,31 @@
+# --- Google Maps Static API Configuration ---
+
+# Required Parameters for the URL
+center_lat: 22.624377
+center_lon: 120.286935
+center_carla_z: 120
+zoom: 19
+size: "1920x1080"
+fov: 90
+yaw: -90
+maptype: "satellite"
+
+# API Key (CRITICAL: Replace with your actual key)
+api_key: ""
+
+# Optional Path Styling Parameters
+# path_color: "0xFF0000FF"
+# path_weight: 5
+# Road Segment Coordinates (List of [lat, lon] pairs)
+# These would typically be dynamically generated from your CARLA script
+path_coordinates:
+  - [22.624738, 120.286149]
+  - [22.624364, 120.286882]
+  - [22.623423, 120.286410]
+  - [22.623373, 120.286535]
+  - [22.624403, 120.287070]
+  - [22.624830, 120.286210]
+
+carla_map: "Kaohsiung"
+host: "carla-server"
+port: 2000

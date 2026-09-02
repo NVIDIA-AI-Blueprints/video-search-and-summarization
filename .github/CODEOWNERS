@@ -13,8 +13,9 @@
 # manifests, Dockerfiles) inside these directories still route to
 # VSS_OSRB_Approvers — CODEOWNERS is last-match-wins, so the OSRB rules that
 # follow take precedence over these directory rules for those specific files.
-/skills/                @NVIDIA-AI-Blueprints/VSS-Skill-Developers
-/services/agent/        @NVIDIA-AI-Blueprints/VSS-Agent-Developers
+/skills/                        @NVIDIA-AI-Blueprints/VSS-Skill-Developers
+/services/agent/                @NVIDIA-AI-Blueprints/VSS-Agent-Developers
+/services/dt-based-calibration/ @tnoumessi @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 
 # CI, workflows, and repository automation.
 # A workflow edit can silently disable a gate for every PR in the repo
