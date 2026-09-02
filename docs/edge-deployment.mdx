@@ -111,6 +111,8 @@ docker compose -f compose.yml \
    # developer-profiles/dev-profile-base/user-overrides.env
    HARDWARE_PROFILE=DGX-SPARK
    VSS_RT_VLM_TAG=develop-latest-sbsa
+   VLM_DEVICE_ID=0
+   RT_VLM_DEVICE_ID=0
    RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
    LLM_MODE=remote
    LLM_NAME_SLUG=none
@@ -133,6 +135,10 @@ In this case, you can skip running the vLLM container entirely, as the blueprint
 # Free up GPU for a full blueprint deployment first:
 # docker stop nemotron-edge && docker rm nemotron-edge
 HARDWARE_PROFILE=DGX-SPARK
+VSS_RT_VLM_TAG=develop-latest-sbsa
+LLM_DEVICE_ID=0
+VLM_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
 LLM_MODE=local
 LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
 LLM_NAME_SLUG=nemotron-nano
@@ -172,6 +178,8 @@ must be tuned to coexist.
    ```ini
    # developer-profiles/dev-profile-base/user-overrides.env
    HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
+   VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+   RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
    RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
    LLM_MODE=remote
    LLM_NAME_SLUG=none
@@ -191,6 +199,9 @@ In this case, you can skip running the vLLM container entirely, as the blueprint
 # Free up GPU for a full blueprint deployment first:
 # docker stop nemotron-edge && docker rm nemotron-edge
 HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
+LLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 # To choose a local model, set LLM_NAME and LLM_NAME_SLUG in this file.
 ```
 

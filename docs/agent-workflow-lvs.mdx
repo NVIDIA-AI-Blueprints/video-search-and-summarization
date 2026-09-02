@@ -243,11 +243,11 @@ HARDWARE_PROFILE=H100
 
 ```ini
 HARDWARE_PROFILE=H100
-LLM_MODE=local
 LLM_DEVICE_ID=0
-VLM_MODE=local
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -300,27 +300,25 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 <Tab title="GB300">
 <Tabs>
-<Tab title="Shared GPU">
+<Tab title="Default">
 
 ```ini
 HARDWARE_PROFILE=GB300
-```
-</Tab>
-<Tab title="Dedicated GPU">
-
-```ini
-HARDWARE_PROFILE=GB300
-LLM_MODE=local
-LLM_DEVICE_ID=0
-VLM_MODE=local
-VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
-RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
 ```
 </Tab>
 <Tab title="Remote LLM">
 
 ```ini
 HARDWARE_PROFILE=GB300
+VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -332,6 +330,10 @@ LLM_MODEL_TYPE=<nim-or-openai>
 
 ```ini
 HARDWARE_PROFILE=GB300
+LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -347,6 +349,9 @@ RTVI_VLM_MODEL_PATH=none
 
 ```ini
 HARDWARE_PROFILE=GB300
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -377,11 +382,11 @@ HARDWARE_PROFILE=RTXPRO6000BW
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
-LLM_MODE=local
 LLM_DEVICE_ID=0
-VLM_MODE=local
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -438,11 +443,11 @@ RTVI_VLM_MODEL_PATH=none
 
 ```ini
 HARDWARE_PROFILE=L40S
-LLM_MODE=local
 LLM_DEVICE_ID=0
-VLM_MODE=local
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -509,11 +514,11 @@ VLM_ENV_FILE=/path/to/vlm.env
 
 ```ini
 HARDWARE_PROFILE=OTHER
-LLM_MODE=local
 LLM_DEVICE_ID=0
-VLM_MODE=local
 VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
 LLM_ENV_FILE=/path/to/llm.env
 VLM_ENV_FILE=/path/to/vlm.env
 ```
