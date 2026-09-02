@@ -351,11 +351,12 @@ class TailLinesBoundTests(unittest.TestCase):
 class BindSourcePrecreateTests(unittest.TestCase):
     """Pre-create bind sources from the RESOLVED compose, not a curated list.
 
-    Four runs died one directory at a time — vst_data, vst_video, nginx_logs,
-    then sdrc/log — because each fix extended a hand-maintained list. The last
-    one was not even a ${VSS_DATA_DIR} path: the sdrc service binds `./log`
-    relative to its compose file, which docker_generate absolutises, so no
-    amount of VSS_DATA_DIR enumeration could ever have found it.
+    Five runs died one directory at a time — vst_data, vst_video, nginx_logs,
+    then sdrc/log twice — because each fix extended a hand-maintained list, and
+    then because the first version of this parser assumed the wrong payload
+    shape. `docker_read` returns `compose_yaml_content` as a RAW YAML STRING
+    (orchestrator/tools.py::_docker_read), so a JSON-oriented parser matched
+    nothing and silently created zero directories.
     """
 
     @classmethod
@@ -364,36 +365,72 @@ class BindSourcePrecreateTests(unittest.TestCase):
         os.environ["VSS_REPO_DIR"] = "/repo"
         cls.predeploy = _load("predeploy", NEMOCLAW_DIR / "predeploy.py")
 
-    def test_finds_short_form_relative_bind_absolutised(self) -> None:
-        # The exact failure from run 33608293917.
-        doc = {"services": {"sdrc": {"volumes": [
-            "/repo/deploy/docker/services/infra/sdrc/log:/mnt/log"]}}}
-        self.assertIn(
-            "/repo/deploy/docker/services/infra/sdrc/log",
-            self.predeploy._bind_sources(doc),
-        )
+    def _payload(self, body: str) -> dict:
+        return {"status": "success", "compose_yaml_content": body}
 
-    def test_finds_long_form_type_bind(self) -> None:
-        doc = {"services": {"vst": {"volumes": [
-            {"type": "bind", "source": "/repo/.mdx_data/data_log/vst/vst_data",
-             "target": "/x"}]}}}
-        self.assertIn(
-            "/repo/.mdx_data/data_log/vst/vst_data",
-            self.predeploy._bind_sources(doc),
-        )
+    def test_parses_raw_yaml_string_not_json(self) -> None:
+        """The regression: payload is a YAML STRING under compose_yaml_content."""
+        got = self.predeploy._bind_sources(self._payload(
+            "services:\n  a:\n    volumes:\n      - /repo/x/log:/mnt/log\n"))
+        self.assertEqual(got, ["/repo/x/log"])
+
+    def test_finds_the_sdrc_case_that_broke_five_runs(self) -> None:
+        got = self.predeploy._bind_sources(self._payload(
+            "    volumes:\n"
+            "      - /repo/deploy/docker/services/infra/sdrc/log:/mnt/log\n"))
+        self.assertIn("/repo/deploy/docker/services/infra/sdrc/log", got)
+
+    def test_finds_long_form_source_key(self) -> None:
+        got = self.predeploy._bind_sources(self._payload(
+            "    volumes:\n      - type: bind\n"
+            "        source: /repo/.mdx_data/data_log/vst/clip_storage\n"
+            "        target: /clips\n"))
+        self.assertIn("/repo/.mdx_data/data_log/vst/clip_storage", got)
+
+    def test_read_only_suffix_is_handled(self) -> None:
+        got = self.predeploy._bind_sources(self._payload(
+            "    volumes:\n      - /repo/deploy/x/conf:/conf:ro\n"))
+        self.assertIn("/repo/deploy/x/conf", got)
 
     def test_ignores_named_volumes(self) -> None:
-        doc = {"services": {"a": {"volumes": ["vss_agent-eval:/data"]}}}
-        self.assertEqual(self.predeploy._bind_sources(doc), [])
+        self.assertEqual(
+            self.predeploy._bind_sources(self._payload(
+                "    volumes:\n      - vss_agent-eval:/data\n")), [])
 
-    def test_never_touches_paths_outside_the_repo(self) -> None:
-        """Scope guard: we mkdir these, so a stray match must not escape."""
-        doc = {"services": {"evil": {"volumes": [
-            "/etc/passwd:/host_passwd",
-            "/var/run/docker.sock:/var/run/docker.sock",
-            "/usr/lib:/lib"]}}}
-        self.assertEqual(self.predeploy._bind_sources(doc), [])
+    def test_never_escapes_the_repo_or_mdx_data(self) -> None:
+        """Scope guard: these get mkdir'd, so a stray match must not escape."""
+        got = self.predeploy._bind_sources(self._payload(
+            "    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n"
+            "      - /etc/passwd:/x\n      - /usr/lib:/lib\n"))
+        self.assertEqual(got, [])
 
-    def test_read_only_suffix_does_not_break_parsing(self) -> None:
-        doc = {"services": {"a": {"volumes": ["/repo/deploy/x:/render.sh:ro"]}}}
-        self.assertIn("/repo/deploy/x", self.predeploy._bind_sources(doc))
+    def test_file_bind_sources_are_not_mkdired(self) -> None:
+        """mkdir on a FILE source mounts an empty dir over a script the
+        container needs — quieter and worse than the missing-path error."""
+        import tempfile, os
+        from pathlib import Path as P
+        root = tempfile.mkdtemp()
+        # Restore afterwards: this class shares os.environ, and leaving
+        # VSS_REPO_DIR pointing at a temp dir silently breaks every sibling
+        # test that sorts after this one.
+        prev = os.environ.get("VSS_REPO_DIR")
+        self.addCleanup(
+            lambda: os.environ.__setitem__("VSS_REPO_DIR", prev)
+            if prev is not None else os.environ.pop("VSS_REPO_DIR", None)
+        )
+        os.environ["VSS_REPO_DIR"] = root
+        pd = _load("predeploy2", NEMOCLAW_DIR / "predeploy.py")
+        payload = {"compose_yaml_content":
+                   f"    volumes:\n"
+                   f"      - {root}/svc/log:/mnt/log\n"
+                   f"      - {root}/svc/render-config.sh:/r.sh:ro\n"
+                   f"      - {root}/svc/.wdm-env:/mnt/wdm-env\n"}
+
+        class T:
+            DOCKER_READ = "docker_read"
+
+        made = pd._precreate_bind_sources(lambda tool, **kw: payload, T, "cid")
+        self.assertEqual(made, 1)
+        self.assertTrue(P(root, "svc/log").is_dir())
+        self.assertFalse(P(root, "svc/render-config.sh").exists())
+        self.assertFalse(P(root, "svc/.wdm-env").exists())

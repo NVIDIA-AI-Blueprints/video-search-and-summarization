@@ -137,29 +137,42 @@ def _as_env_override_list(overrides: dict[str, str]) -> list[str]:
 
 
 def _bind_sources(resolved: Any) -> list[str]:
-    """Absolute host bind sources in a resolved compose document.
+    """Absolute host bind sources in a docker_read payload.
 
-    Matches BOTH compose forms, because the tree uses both:
-      short: `- /abs/src:/container/dst[:ro]`   (e.g. the sdrc service's
-             `- ./log:/mnt/log`, which docker_generate absolutises)
-      long:  `{type: bind, source: /abs/src, ...}`
+    `docker_read` returns `compose_yaml_content` as a RAW YAML STRING (see
+    services/agent/.../orchestrator/tools.py::_docker_read), not a nested
+    structure. An earlier version of this parsed the payload as JSON and
+    required quote-delimited paths, so it matched nothing and silently created
+    no directories -- run 33611712532 failed on sdrc/log exactly as before.
 
-    Scoped to paths under the repo checkout or `.mdx_data` on purpose -- never
-    mkdir arbitrary absolute paths that happen to appear in the document.
+    Parsed as text rather than with a YAML loader: the pre-deploy runs under
+    `uv --isolated --no-project`, which has no third-party deps available.
+
+    Both compose forms appear in the tree:
+        - /abs/src:/dst[:ro]          short
+        - type: bind                  long
+          source: /abs/src
     """
-    blob = json.dumps(resolved)
+    if isinstance(resolved, dict):
+        text = "\n".join(
+            str(resolved.get(k) or "")
+            for k in ("compose_yaml_content", "env_content")
+        ) or json.dumps(resolved)
+    else:
+        text = str(resolved)
+
     found: set[str] = set()
-    # `[^"]*` on the target side, not `[^":]*`: a short-form bind may carry a
-    # mode suffix (`/src:/dst:ro`), which a colon-free target pattern misses.
-    found.update(re.findall(r'"(/[^":]+?):/[^"]*"', blob))           # short form
-    found.update(re.findall(r'"source"\s*:\s*"(/[^"]+)"', blob))     # long form
+    # short form: a list item whose value is `/src:/dst` (optional :mode)
+    found.update(re.findall(r'^\s*-\s+"?(/[^\s:"]+):/[^\s"]*"?\s*$', text, re.M))
+    # long form: an explicit `source:` key
+    found.update(re.findall(r'^\s*source:\s*"?(/[^\s"]+)"?\s*$', text, re.M))
+
     repo = str(_repo_dir())
     out = []
     for f in sorted(found):
         f = f.rstrip("/")
-        if not f or "*" in f:
-            continue
-        if f.startswith(repo + "/") or "/.mdx_data/" in f:
+        # Scope guard -- we mkdir these, so never escape the checkout/.mdx_data.
+        if f and "*" not in f and (f.startswith(repo + "/") or "/.mdx_data/" in f):
             out.append(f)
     return out
 
@@ -191,6 +204,13 @@ def _precreate_bind_sources(call, tools, compose_id: str) -> int:
     sources = _bind_sources(resolved)
     made = 0
     for src in sources:
+        # Only create DIRECTORY bind sources. A dot in the basename means a file
+        # (`render-config.sh`, `.wdm-env`), and mkdir there would mount an empty
+        # directory over a script the container needs -- quieter and worse than
+        # the missing-path error. Erring toward not-creating keeps the status quo
+        # for those rather than regressing them.
+        if "." in Path(src).name:
+            continue
         try:
             path = Path(src)
             if not path.exists():
