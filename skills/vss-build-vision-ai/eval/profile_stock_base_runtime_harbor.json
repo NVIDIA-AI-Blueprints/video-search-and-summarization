@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile base deployment coverage to Build Vision AI.",
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile base deployment coverage to Build Vision AI. Coverage boundary: no existing Build Vision AI eval validates a stock base runtime deployment with the base profile's Agent, UI, Redis, VIOS, Phoenix, LLM, and RT-VLM service set left unchanged.",
   "expects": [
     {
       "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **base** pre-built developer workflow on `{{platform}}` from `{{repo_root}}`. Keep the base profile's authoritative service set unchanged, write the build artifacts under `_builds/stock-base/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",

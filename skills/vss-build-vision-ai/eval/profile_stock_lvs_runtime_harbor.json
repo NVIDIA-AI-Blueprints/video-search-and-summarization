@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile LVS deployment coverage to Build Vision AI.",
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile LVS deployment coverage to Build Vision AI. Coverage boundary: this is stock LVS deployment/readiness parity with the profile service set unchanged; it does not replace the `an-1` LVS API build eval or the `an-1-runtime` stored-video summarization round-trip, which exercise a custom LVS build shape and API behavior.",
   "expects": [
     {
       "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **lvs** pre-built developer workflow on `{{platform}}` from `{{repo_root}}`. Keep the lvs profile's authoritative service set unchanged, write the build artifacts under `_builds/stock-lvs/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",

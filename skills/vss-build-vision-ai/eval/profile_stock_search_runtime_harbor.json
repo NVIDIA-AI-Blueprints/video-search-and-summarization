@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, remote VLM credentials/endpoints supplied by the harness, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile search deployment coverage to Build Vision AI.",
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, remote VLM credentials/endpoints supplied by the harness, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile search deployment coverage to Build Vision AI. Coverage boundary: this is the stock search runtime parity check with Agent/UI retained and RT-VLM kept as a remote-backed proxy; it is distinct from the headless `profile_search_standalone_harbor` and combined alerts/search composition evals.",
   "expects": [
     {
       "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **search** pre-built developer workflow on this two-GPU `{{platform}}` host from `{{repo_root}}`. Use the current `search` developer profile unchanged as the Foundation, write artifacts under `_builds/stock-search/`, override the default local RT-VLM backend to use the configured remote VLM endpoint while keeping local `vss-rtvi-vlm` as the OpenAI-compatible proxy, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running.",

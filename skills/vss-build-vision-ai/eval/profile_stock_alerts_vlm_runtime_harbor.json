@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile alerts VLM real-time deployment coverage to Build Vision AI.",
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile alerts VLM real-time deployment coverage to Build Vision AI. Coverage boundary: this is the stock alerts `2d_vlm` runtime parity check and specifically guards the real-time VLM variant where RT-CV and behavior analytics must stay absent.",
   "expects": [
     {
       "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **alerts** pre-built developer workflow in `2d_vlm` mode on `{{platform}}` from `{{repo_root}}`. Keep the alerts real-time VLM service set unchanged, write the build artifacts under `_builds/stock-alerts-vlm/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",

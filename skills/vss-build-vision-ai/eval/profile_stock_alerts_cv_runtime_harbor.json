@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile alerts CV-verification deployment coverage to Build Vision AI.",
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile alerts CV-verification deployment coverage to Build Vision AI. Coverage boundary: this is stock alerts `2d_cv` deployment/readiness parity only; the existing `profile_at_1_alert_verification` eval remains the deeper alert-verification round-trip and Elasticsearch/Kafka verdict test.",
   "expects": [
     {
       "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **alerts** pre-built developer workflow in `2d_cv` mode on `{{platform}}` from `{{repo_root}}`. Keep the alerts CV-verification service set unchanged, write the build artifacts under `_builds/stock-alerts-cv/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",
