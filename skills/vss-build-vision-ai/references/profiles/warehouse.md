@@ -5,7 +5,7 @@ end to end: what the Foundation is made of, what constrains it, how a build is
 resolved, and how the result is reached and verified. The rest of the skill's
 machinery applies unchanged by reference — see Build and resolve below.
 
-`overrides.env` defines further service lists; only the nine below are
+`overrides.env` defines further service lists; only the thirteen below are
 supported. The others are out of scope for this skill — do not compose or deploy
 them.
 
@@ -36,8 +36,9 @@ Resolve block below instead.
 
 ## Capabilities and routing cues
 
-- Multi-camera warehouse perception — RT-DETR (2D) or Sparse4D (3D) — with
-  behavior analytics over ROI, tripwire, and proximity events.
+- Multi-camera warehouse perception — RT-DETR (2D), Sparse4D (3D), or MV3DT
+  multi-view 3D tracking — with behavior analytics over ROI, tripwire, and
+  proximity events.
 - Choose for warehouse, loading-dock, forklift/pallet, or depth-aware
   multi-camera requests. Do **not** choose it for generic detection or search —
   `search` is the developer Foundation for those.
@@ -49,7 +50,7 @@ Resolve block below instead.
 Authoritative source:
 `deploy/docker/industry-profiles/warehouse-operations/overrides.env`. Select one
 list by variant; expand it verbatim into `COMPOSE_PROFILES` and record its name
-in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
+in `FOUNDATION_VARIANT`. Thirteen of the file's lists are in scope:
 
 | `MODE` | `BP_PROFILE` | Extended list | Minimal list |
 |---|---|---|---|
@@ -58,6 +59,8 @@ in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
 | `2d` | `bp_wh_redis` | `…_WH_REDIS_2D` | `…_WH_REDIS_2D_MINIMAL` |
 | `3d` | `bp_wh_kafka` | `…_WH_KAFKA_3D` | `…_WH_KAFKA_3D_MINIMAL` |
 | `3d` | `bp_wh_redis` | `…_WH_REDIS_3D` | `…_WH_REDIS_3D_MINIMAL` |
+| `mv3dt` | `bp_wh_kafka` | `…_WH_KAFKA_MV3DT` | `…_WH_KAFKA_MV3DT_MINIMAL` |
+| `mv3dt` | `bp_wh_redis` | `…_WH_REDIS_MV3DT` | `…_WH_REDIS_MV3DT_MINIMAL` |
 
 Extended adds ELK, `vss-video-analytics-api`, `vss-haproxy-ingress`,
 `import-calibration-output-container-<mode>`, and monitoring (`dcgm-exporter`,
@@ -70,12 +73,12 @@ of these.
 
 ## Capability owners present
 
-`<mode>` is `2d` or `3d`; the suffix is on the compose *service* name only
+`<mode>` is `2d`, `3d`, or `mv3dt`; the suffix is on the compose *service* name only
 ([`../services/vios.md`](../services/vios.md)).
 
 | Owner | Service profile keys |
 |---|---|
-| RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d` |
+| RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d`; MV3DT uses `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, and `mosquitto` |
 | Behavior Analytics | `vss-behavior-analytics-<mode>` |
 | Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` |
 | ELK | `kafka`, `kafka-topic-init-container`, `redis`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`, `kibana-init-container-<mode>` |
@@ -115,15 +118,15 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 
 | Constraint | Symptom if violated |
 |---|---|
-| `MODE` must be `2d` or `3d`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis` | routes to a service list this skill does not support |
+| `MODE` must be `2d`, `3d`, or `mv3dt`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis` | routes to a service list this skill does not support |
 | `BP_PROFILE=bp_wh` is 2D-only | unsupported combination |
 | `BP_PROFILE=bp_wh` is rejected on `IGX-THOR` and `DGX-SPARK` | configurator refuses |
 | `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
 | `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
-| Dataset ↔ variant: `nv-warehouse-4cams` only with `bp_wh`+`2d` (4 streams); `warehouse-loading-dock-3cams-synthetic` with 2D kafka/redis (3); `warehouse-4cams-20mx20m-synthetic` with `3d` (4) | short stream count with every container healthy |
+| Dataset ↔ variant: `nv-warehouse-4cams` only with `bp_wh`+`2d` (4 streams); `warehouse-loading-dock-3cams-synthetic` with 2D kafka/redis (3); `warehouse-4cams-20mx20m-synthetic` with `3d` or `mv3dt` (4) | short stream count with every container healthy |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
-| `MODE=3d` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
+| `MODE=3d` or `MODE=mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
 
 ### Remote VLM is exposed but not wired (Docker path)
 
@@ -161,8 +164,9 @@ warehouse-<mode>-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration
 
 All three shipped datasets carry one. 3D mounts it three ways — behavior
 analytics reads `/resources/calibration.json`, `ds-configurator-3d` and
-perception read `/opt/data/ds-configurator/calibration.json`. Nothing is staged
-under `$VSS_DATA_DIR`.
+perception read `/opt/data/ds-configurator/calibration.json`. MV3DT uses its
+mode-specific calibration and camera configuration under
+`warehouse-mv3dt-app`. Nothing is staged under `$VSS_DATA_DIR`.
 
 Only a **custom** dataset needs a calibration run — produced by
 `vss-generate-video-calibration` — dropped at the path above under its dataset
@@ -358,8 +362,10 @@ unchanged. Warehouse additionally needs a **liveness** check — every container
 can be `Up` while zero streams are processed:
 
 ```bash
-docker logs --since 60s vss-rtvi-cv 2>&1 | grep -aE "stream_name" | tail -8
-docker logs --since 60s vss-rtvi-cv 2>&1 | grep -a "Active sources" | tail -1
+RT_CV_CONTAINER=vss-rtvi-cv             # MODE=2d or MODE=3d
+# RT_CV_CONTAINER=vss-rtvi-cv-mv3dt     # MODE=mv3dt
+docker logs --since 60s "$RT_CV_CONTAINER" 2>&1 | grep -aE "stream_name" | tail -8
+docker logs --since 60s "$RT_CV_CONTAINER" 2>&1 | grep -a "Active sources" | tail -1
 ```
 
 Expect one `stream_name` line per source at roughly source framerate, and an
@@ -386,7 +392,7 @@ curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 - `deploy/docker/industry-profiles/warehouse-operations/.env`
 - `deploy/docker/industry-profiles/warehouse-operations/overrides.env`
 - `deploy/docker/industry-profiles/warehouse-operations/compose.yml`
-- `deploy/docker/industry-profiles/warehouse-operations/warehouse-{2d,3d}-app/`
+- `deploy/docker/industry-profiles/warehouse-operations/warehouse-{2d,3d,mv3dt}-app/`
 - `deploy/docker/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`
 - `deploy/docker/services/infra/compose-no-turn-tcp-relay.yml`
 - `deploy/docker/services/infra/haproxy/haproxy.cfg.template`

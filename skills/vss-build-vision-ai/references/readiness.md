@@ -106,10 +106,11 @@ output; on a warehouse `MODE=3d` build it stays flat at `0` forever while the
 stack is perfectly healthy, so snapshotting it reports a dead data plane on a
 working deployment. There is no universal topic to poll:
 
-| Build | Perception topic | Analytics topics |
+| Build | Data-plane topic(s) | Analytics topics |
 |---|---|---|
 | Warehouse `MODE=2d`, Alerts, Search (RT-CV 2D) | `mdx-raw` | `mdx-behavior`, `mdx-incidents` |
-| Warehouse `MODE=3d` (Sparse4D / MV3DT) | `mdx-bev` | `mdx-behavior`, `mdx-incidents` |
+| Warehouse `MODE=3d` (Sparse4D) | `mdx-bev` | `mdx-behavior`, `mdx-incidents` |
+| Warehouse `MODE=mv3dt` | `mdx-raw`, then fused `mdx-bev` | `mdx-behavior`, `mdx-incidents` |
 
 Confirm rather than assume: `kafka-topics --bootstrap-server localhost:29092
 --list` shows every topic the build created (a warehouse stack creates ~20

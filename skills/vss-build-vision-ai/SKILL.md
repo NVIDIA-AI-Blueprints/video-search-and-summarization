@@ -1,7 +1,7 @@
 ---
 name: vss-build-vision-ai
 description: >-
-  Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill when a developer or agent wants to give their app vision: pick capabilities via guided intake ("build a vision agent", "add vision capabilities") or describe them in natural language ("create a profile for streaming dense captioning", "add agentic search to my base deployment", "deploy warehouse 3d"). Route, compose, configure, and deploy stock base, alerts, LVS, search developer profiles, or the warehouse industry profile and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation.
+  Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill when a developer or agent wants to give their app vision: pick capabilities via guided intake ("build a vision agent", "add vision capabilities") or describe them in natural language ("create a profile for streaming dense captioning", "add agentic search to my base deployment", "deploy warehouse MV3DT"). Route, compose, configure, and deploy stock base, alerts, LVS, search developer profiles, or the warehouse industry profile and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -62,7 +62,7 @@ Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until 
 **Q1 — Starting point.** *"How would you like to start?"*
 
 - **Deploy a pre-built developer workflow** *(recommended for a first run / quickstart)* — Choose from a ready-made, validated VSS developer profile. Fastest path to a running system; no composition needed. Deploys as-is; you can customize it afterward. → **Q2a**
-- **Deploy a pre-built industry blueprint** — Warehouse multi-camera perception (2D RT-DETR or 3D Sparse4D) with behavior analytics. Deployed as-is. → **Q2w**
+- **Deploy a pre-built industry blueprint** — Warehouse multi-camera perception (2D RT-DETR, 3D Sparse4D, or MV3DT) with behavior analytics. Deployed as-is. → **Q2w**
 - **Build a custom configuration** — pick the specific vision capabilities you need and let the skill compose the smallest delta overlay for them. → **Q2b**
 
 ### Mode: Pre-built workflow (quickstart)
@@ -103,7 +103,7 @@ its service lists here, or this table drifts from the one that is authoritative:
 
 | Question | Options |
 |---|---|
-| **Q2w-mode** — *"Which warehouse perception mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) |
+| **Q2w-mode** — *"Which warehouse perception mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) · `mv3dt` (multi-view 3D tracking) |
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
 
@@ -111,7 +111,7 @@ Filter the remaining options rather than validating the answers afterwards.
 Both filters below are warehouse.md's to state; it is the source of truth for
 why, and this list only says when to apply them:
 
-- **Omit `bp_wh` from Q2w-profile when Q2w-mode is `3d`** — Hard constraints:
+- **Omit `bp_wh` from Q2w-profile when Q2w-mode is `3d` or `mv3dt`** — Hard constraints:
   `bp_wh` is 2D-only. Leaving it selectable turns an impossible deployment into
   a late runtime failure.
 - **Skip Q2w-size entirely for `bp_wh`** — the Profile Service Set table lists
