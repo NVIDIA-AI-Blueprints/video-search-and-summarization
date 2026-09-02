@@ -1171,7 +1171,6 @@ cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,
 cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/video-analytics-api,deb,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
-curl,8.21.0-r0,UNKNOWN,deploy,apk,container,deploy/docker/services/infra/Dockerfiles/kafka-health-check.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,apk,container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,deb,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown

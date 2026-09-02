@@ -151,32 +151,43 @@ commons:
           - "*sbsa*"
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
+      # SAMPLE_VIDEO_DATASET selects a directory under
+      # <app>/calibration/sample-data/, and only matters when the sample videos
+      # are the stream source. Other sensor sources take their sensors from
+      # elsewhere and are left unconstrained.
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "nv-warehouse-4cams"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "2d"
-            - variable: NUM_STREAMS
-              equals: "4"
-            - variable: BP_PROFILE
-              equals: "bp_wh"
+        condition:
+          variable: SENSOR_INFO_SOURCE
+          equals: "nvstreamer"
+        required: true
+        disallowed_values: [""]
+        error_message: "SENSOR_INFO_SOURCE=nvstreamer streams the sample dataset, so SAMPLE_VIDEO_DATASET must name a directory under <app>/calibration/sample-data (for example nv-warehouse-4cams). Set NUM_STREAMS to the camera count of the dataset you pick."
 
-      - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-loading-dock-3cams-synthetic"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "2d"
-            - variable: NUM_STREAMS
-              equals: "3"
-            - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+      # NUM_STREAMS must match the camera count of the selected dataset. It
+      # drives nv_streamer_sync_file_count, which decides how many video files
+      # nvstreamer waits for, as well as the DS batch size, the pgie engine
+      # name, and on 3d the fusion sensor count and preprocess input shape. A
+      # value larger than the dataset has leaves nvstreamer waiting for a file
+      # that does not exist; smaller silently drops cameras the calibration
+      # still describes.
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "nv-warehouse-4cams"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=nv-warehouse-4cams has 4 cameras, so NUM_STREAMS must be 4."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-loading-dock-3cams-synthetic"
+        allowed_values: ["3"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-loading-dock-3cams-synthetic has 3 cameras, so NUM_STREAMS must be 3."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-4cams-20mx20m-synthetic"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic has 4 cameras, so NUM_STREAMS must be 4."
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -237,21 +248,43 @@ commons:
           - "*sbsa*"
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
+      # SAMPLE_VIDEO_DATASET selects a directory under
+      # <app>/calibration/sample-data/, and only matters when the sample videos
+      # are the stream source. Other sensor sources take their sensors from
+      # elsewhere and are left unconstrained.
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-4cams-20mx20m-synthetic"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "3d"
-            - variable: NUM_STREAMS
-              equals: "4"
-            - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+        condition:
+          variable: SENSOR_INFO_SOURCE
+          equals: "nvstreamer"
+        required: true
+        disallowed_values: [""]
+        error_message: "SENSOR_INFO_SOURCE=nvstreamer streams the sample dataset, so SAMPLE_VIDEO_DATASET must name a directory under <app>/calibration/sample-data (for example nv-warehouse-4cams). Set NUM_STREAMS to the camera count of the dataset you pick."
+
+      # NUM_STREAMS must match the camera count of the selected dataset. It
+      # drives nv_streamer_sync_file_count, which decides how many video files
+      # nvstreamer waits for, as well as the DS batch size, the pgie engine
+      # name, and on 3d the fusion sensor count and preprocess input shape. A
+      # value larger than the dataset has leaves nvstreamer waiting for a file
+      # that does not exist; smaller silently drops cameras the calibration
+      # still describes.
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "nv-warehouse-4cams"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=nv-warehouse-4cams has 4 cameras, so NUM_STREAMS must be 4."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-loading-dock-3cams-synthetic"
+        allowed_values: ["3"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-loading-dock-3cams-synthetic has 3 cameras, so NUM_STREAMS must be 3."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-4cams-20mx20m-synthetic"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic has 4 cameras, so NUM_STREAMS must be 4."
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -308,21 +341,43 @@ commons:
           - "*sbsa*"
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
+      # SAMPLE_VIDEO_DATASET selects a directory under
+      # <app>/calibration/sample-data/, and only matters when the sample videos
+      # are the stream source. Other sensor sources take their sensors from
+      # elsewhere and are left unconstrained.
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-4cams-20mx20m-synthetic"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "mv3dt"
-            - variable: NUM_STREAMS
-              equals: "4"
-            - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+        condition:
+          variable: SENSOR_INFO_SOURCE
+          equals: "nvstreamer"
+        required: true
+        disallowed_values: [""]
+        error_message: "SENSOR_INFO_SOURCE=nvstreamer streams the sample dataset, so SAMPLE_VIDEO_DATASET must name a directory under <app>/calibration/sample-data (for example nv-warehouse-4cams). Set NUM_STREAMS to the camera count of the dataset you pick."
+
+      # NUM_STREAMS must match the camera count of the selected dataset. It
+      # drives nv_streamer_sync_file_count, which decides how many video files
+      # nvstreamer waits for, as well as the DS batch size, the pgie engine
+      # name, and on 3d the fusion sensor count and preprocess input shape. A
+      # value larger than the dataset has leaves nvstreamer waiting for a file
+      # that does not exist; smaller silently drops cameras the calibration
+      # still describes.
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "nv-warehouse-4cams"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=nv-warehouse-4cams has 4 cameras, so NUM_STREAMS must be 4."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-loading-dock-3cams-synthetic"
+        allowed_values: ["3"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-loading-dock-3cams-synthetic has 3 cameras, so NUM_STREAMS must be 3."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-4cams-20mx20m-synthetic"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic has 4 cameras, so NUM_STREAMS must be 4."
 
   variables:
     2d:
