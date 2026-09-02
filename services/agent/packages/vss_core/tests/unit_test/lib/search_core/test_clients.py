@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import aiohttp
 import pytest
@@ -15,6 +16,13 @@ from vss_core.search_core.errors import BackendUnreachableError
 from vss_core.vios import VSTClient
 from vss_core.vios import VSTError
 import vss_core.vios.client as vst_module
+
+
+def test_vst_sessions_honor_operator_proxy_environment() -> None:
+    timeout = aiohttp.ClientTimeout(total=5)
+    with patch.object(vst_module.aiohttp, "ClientSession") as session:
+        assert vst_module._client_session(timeout) is session.return_value
+    session.assert_called_once_with(timeout=timeout, trust_env=True)
 
 
 class _MalformedResponse:

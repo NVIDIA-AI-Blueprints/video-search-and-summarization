@@ -72,6 +72,19 @@ _VST_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 _VST_BOUNDARY_ERRORS: tuple[type[Exception], ...] = (aiohttp.ClientError, TimeoutError)
 
 
+def _client_session(timeout: aiohttp.ClientTimeout) -> aiohttp.ClientSession:
+    """Create a VST session that honors operator-managed proxy routing.
+
+    OpenShell and enterprise hosts expose reviewed egress through the standard
+    HTTP(S)_PROXY / NO_PROXY environment contract. aiohttp ignores that
+    contract by default, unlike the other HTTP clients used by the VSS CLI,
+    which made VST calls bypass the sandbox proxy while search and embedding
+    calls succeeded through it.
+    """
+
+    return aiohttp.ClientSession(timeout=timeout, trust_env=True)
+
+
 # ---------------------------------------------------------------------- types
 
 
@@ -198,7 +211,7 @@ async def get_timelines_map(
     timelines_url = f"{base}/vst/api/v1/storage/timelines"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _client_session(timeout) as session:
             async for retry in create_retry_strategy(retries=retries, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(timelines_url) as response:
@@ -292,7 +305,7 @@ async def get_video_clip_url(
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _client_session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -328,7 +341,7 @@ async def get_name_to_stream_id_map(
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _client_session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -375,7 +388,7 @@ async def get_streams_info(
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/streams"
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _client_session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -482,7 +495,7 @@ async def get_timeline(
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _client_session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(timelines_url) as response:
@@ -706,7 +719,7 @@ async def _get_json(url: str, timeout_seconds: float, what: str) -> object:
     """GET returning parsed JSON, with the module's retry and error policy."""
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with _client_session(timeout) as session:
             async for retry in create_retry_strategy(retries=3, exceptions=_VST_RETRYABLE_ERRORS):
                 with retry:
                     async with session.get(url) as response:
@@ -1024,7 +1037,7 @@ async def warm_media_url(media_url: str, timeout_seconds: float = 120.0, attempt
         timeout = aiohttp.ClientTimeout(total=remaining)
         try:
             async with (
-                aiohttp.ClientSession(timeout=timeout) as session,
+                _client_session(timeout) as session,
                 session.get(media_url) as response,
             ):
                 if response.status == 200:
@@ -1056,7 +1069,7 @@ async def add_stream(
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
         async with (
-            aiohttp.ClientSession(timeout=timeout) as session,
+            _client_session(timeout) as session,
             session.post(url, json={"sensorUrl": sensor_url, "name": name}) as response,
         ):
             body = await response.text()
@@ -1106,7 +1119,7 @@ async def upload_media(
         # `path.open` is a sync context manager: it cannot join the `async with`.
         with path.open("rb") as handle:
             async with (
-                aiohttp.ClientSession(timeout=timeout) as session,
+                _client_session(timeout) as session,
                 session.put(url, data=handle, headers=headers) as response,
             ):
                 body = await response.text()
@@ -1169,7 +1182,7 @@ async def upload_from_url(
         # only because the PUT below needs both open at once: the response body
         # is the PUT's payload.
         async with (
-            aiohttp.ClientSession(timeout=timeout) as session,
+            _client_session(timeout) as session,
             # max_redirects rather than allow_redirects=False: a CDN link is
             # normally a redirect, but an unbounded chain is not.
             session.get(source_url, max_redirects=5) as source,
@@ -1224,7 +1237,7 @@ async def _delete(url: str, timeout_seconds: float, what: str) -> None:
     """
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session, session.delete(url) as response:
+        async with _client_session(timeout) as session, session.delete(url) as response:
             if response.status in (200, 204, 404):
                 return
             raise VSTError(f"VIOS {what} returned {response.status}: {_vios_error(await response.text())}")
