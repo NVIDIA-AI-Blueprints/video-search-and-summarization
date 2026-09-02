@@ -14,6 +14,7 @@
 # limitations under the License.
 
 include:
+  - path: ./agent-gateway/compose.yml
   - path: ./agent/compose.yml
     env_file:
       - ${VSS_APPS_DIR}/services/agent/agent.env

@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  agent-gateway:
+    image: ${VSS_AGENT_GATEWAY_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-agent-gateway}:${VSS_CONTAINER_TAG:-${VSS_AGENT_GATEWAY_TAG:-develop-latest}}
+    profiles: ["agent-gateway"]
+    container_name: vss-agent-gateway
+    restart: always
+    expose:
+      - "8090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      AGENT_GATEWAY_BIND_HOST: 0.0.0.0
+      AGENT_GATEWAY_PORT: 8090
+      AGENT_GATEWAY_TOKEN: ${VSS_AGENT_GATEWAY_TOKEN:-}
+      AGENT_GATEWAY_ALLOW_INSECURE: ${VSS_AGENT_GATEWAY_ALLOW_INSECURE:-false}
+      AGENT_BACKEND_PROTOCOL: ${VSS_AGENT_BACKEND_PROTOCOL:-responses}
+      AGENT_BACKEND_URL: ${VSS_AGENT_BACKEND_URL:-}
+      AGENT_BACKEND_PATH: ${VSS_AGENT_BACKEND_PATH:-}
+      AGENT_BACKEND_TOKEN: ${VSS_AGENT_BACKEND_TOKEN:-}
+      AGENT_BACKEND_MODEL: ${VSS_AGENT_BACKEND_MODEL:-agent}
+      AGENT_BACKEND_SESSION_FIELD: ${VSS_AGENT_BACKEND_SESSION_FIELD:-user}
+      AGENT_BACKEND_SESSION_HEADER: ${VSS_AGENT_BACKEND_SESSION_HEADER:-}
+      AGENT_BACKEND_HEADERS_JSON: "${VSS_AGENT_BACKEND_HEADERS_JSON:-{}}"
+      AGENT_BACKEND_TIMEOUT_SECONDS: ${VSS_AGENT_BACKEND_TIMEOUT_SECONDS:-900}
+      AGENT_GATEWAY_RUN_RETENTION_SECONDS: ${VSS_AGENT_GATEWAY_RUN_RETENTION_SECONDS:-3600}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=2))['status'] == 'ok'",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

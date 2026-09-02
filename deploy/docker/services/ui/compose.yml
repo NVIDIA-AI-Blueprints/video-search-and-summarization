@@ -27,10 +27,16 @@ services:
         condition: service_healthy
         # Optional so a NemoClaw build, which drops vss-agent, still resolves.
         required: false
+      agent-gateway:
+        condition: service_healthy
+        required: false
     environment:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
       NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'
       NEXT_PUBLIC_APP_SUBTITLE: '${NEXT_PUBLIC_APP_SUBTITLE:-VISION}'
+      # Server-only backend-neutral agent transport. Credentials must never use NEXT_PUBLIC_*.
+      AGENT_GATEWAY_URL: ${VSS_AGENT_GATEWAY_URL:-}
+      AGENT_GATEWAY_TOKEN: ${VSS_AGENT_GATEWAY_TOKEN:-}
       # === App wide chat sidebar ===
       NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: ${NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR:-true}
       NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT: ${NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT:-false}

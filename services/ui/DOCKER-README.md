@@ -12,6 +12,11 @@ RUN_APP_NAME=nv-metropolis-bp-vss-ui
 NEXT_PUBLIC_APP_TITLE=VSS BLUEPRINT
 NEXT_PUBLIC_APP_SUBTITLE=Warehouse
 
+# Optional backend-neutral run/event gateway. These are server-only: never use NEXT_PUBLIC_* for tokens.
+# When omitted, the UI keeps using the legacy HTTP/WebSocket settings below.
+AGENT_GATEWAY_URL=http://agent-gateway:8090
+AGENT_GATEWAY_TOKEN=replace-with-a-random-secret
+
 NEXT_PUBLIC_ENABLE_CHAT_TAB=true
 NEXT_PUBLIC_WORKFLOW=Warehouse Management Agent
 NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL=ws://127.0.0.1:8000/websocket
