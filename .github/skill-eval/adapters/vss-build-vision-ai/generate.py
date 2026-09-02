@@ -511,24 +511,33 @@ def main() -> None:
     summarize_skill_dir = Path(args.summarize_skill_dir) if args.summarize_skill_dir else None
     report_skill_dir = Path(args.report_skill_dir) if args.report_skill_dir else None
     repo_root = skill_dir.resolve().parents[1]
+    def _find_skill(name: str, *subdirs: str) -> Path | None:
+        """Resolve a bundled skill directory under repo_root/skills/.
+
+        Tries each candidate in order: ``skills/<name>`` (flat layout), then
+        ``skills/<subdir>/<name>`` for every *subdirs* hint.  Returns the
+        first existing path, or ``None``.
+        """
+        candidates = [repo_root / "skills" / name]
+        for sd in subdirs:
+            candidates.append(repo_root / "skills" / sd / name)
+        for c in candidates:
+            if c.exists():
+                return c
+        return None
+
     if vios_skill_dir is None:
-        candidate = repo_root / "skills" / "vss-manage-video-io-storage"
-        vios_skill_dir = candidate if candidate.exists() else None
+        vios_skill_dir = _find_skill("vss-manage-video-io-storage", "operations")
     if rtvi_skill_dir is None:
-        candidate = repo_root / "skills" / "vss-deploy-dense-captioning"
-        rtvi_skill_dir = candidate if candidate.exists() else None
+        rtvi_skill_dir = _find_skill("vss-deploy-dense-captioning", "deployment")
     if rtcv_skill_dir is None:
-        candidate = repo_root / "skills" / "vss-deploy-detection-tracking-2d"
-        rtcv_skill_dir = candidate if candidate.exists() else None
+        rtcv_skill_dir = _find_skill("vss-deploy-detection-tracking-2d", "deployment")
     if rtembed_skill_dir is None:
-        candidate = repo_root / "skills" / "vss-deploy-video-embedding"
-        rtembed_skill_dir = candidate if candidate.exists() else None
+        rtembed_skill_dir = _find_skill("vss-deploy-video-embedding", "deployment")
     if summarize_skill_dir is None:
-        candidate = repo_root / "skills" / "vss-summarize-video"
-        summarize_skill_dir = candidate if candidate.exists() else None
+        summarize_skill_dir = _find_skill("vss-summarize-video", "operations")
     if report_skill_dir is None:
-        candidate = repo_root / "skills" / "vss-generate-video-report"
-        report_skill_dir = candidate if candidate.exists() else None
+        report_skill_dir = _find_skill("vss-generate-video-report", "operations")
 
     spec_path = (
         Path(args.spec)
