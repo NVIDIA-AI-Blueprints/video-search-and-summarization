@@ -62,7 +62,7 @@ Two distinct models are involved, and they are easy to confuse:
 
 **Storage and indexing.** The Kafka topic / Redis stream `mdx-compressed-embeddings` is created by the topic-init and broker-health-check services, consumed by both Logstash pipelines (`nv.Frame` protobuf), and indexed under `mdx-compressed-embeddings-*` via `mdx_compressed_embeddings_template` (priority 516) with the `mdx-compressed-embeddings-ilm-policy` retention policy. The template deliberately **omits `dims`** on the `dense_vector` field: the compression ratio, and therefore the vector width, is decided inside `reid-embed`, so Elasticsearch infers it from the first indexed document. A matching Kibana index pattern ships in `kibana-dashboard/mc-tracking-kibana-objects.ndjson`.
 
-**Images.** `reid-embed-init-mc-tracking` and `reid-embed-mc-tracking` share one image, `${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.1}`. Both variables are defined in `containers.env` (the Compose `image:` lines carry the same literal defaults as a safety net). Override either in `generated.env` to pin a different registry or tag.
+**Images.** `reid-embed-init-mc-tracking` and `reid-embed-mc-tracking` share one image, `${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.2}`. Both variables are defined in `containers.env` (the Compose `image:` lines carry the same literal defaults as a safety net). Override either in `generated.env` to pin a different registry or tag.
 
 ## Sample dataset
 
