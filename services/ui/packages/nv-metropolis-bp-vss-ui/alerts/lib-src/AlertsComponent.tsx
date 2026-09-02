@@ -26,7 +26,6 @@ import { useAutoRefresh } from './hooks/useAutoRefresh';
 import { useSessionState, parseIntRange } from './hooks/useSessionState';
 import { useSessionFilterState } from './hooks/useSessionFilterState';
 import { AlertsTable } from './components/AlertsTable';
-import { FilterControls } from './components/FilterControls';
 import { AlertsSidebarControls, ALERTS_VIEW_PANEL_ID } from './components/AlertsSidebarControls';
 import { CreateAlertRulesView, triggerRealtimeAddDraft } from './components/CreateAlertRulesView';
 import { triggerVerificationAddDraft } from './components/CvAlertsVerificationTab';
@@ -381,6 +380,12 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         typeFilter={typeFilter}
         onStreamFilterChange={setStreamFilter}
         onTypeFilterChange={setTypeFilter}
+        loading={loading}
+        autoRefreshEnabled={autoRefreshEnabled}
+        autoRefreshInterval={autoRefreshInterval}
+        onRefresh={refetch}
+        onAutoRefreshToggle={toggleAutoRefresh}
+        onAutoRefreshIntervalChange={setAutoRefreshInterval}
       />
     ),
     [
@@ -412,6 +417,12 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
       alertRulesKind,
       streamFilter,
       typeFilter,
+      loading,
+      autoRefreshEnabled,
+      autoRefreshInterval,
+      refetch,
+      toggleAutoRefresh,
+      setAutoRefreshInterval,
     ],
   );
 
@@ -511,19 +522,6 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         className={panelShellClass}
         style={{ display: alertsView === 'view' ? 'flex' : 'none' }}
       >
-      {/* Header with refresh controls */}
-      <div className={`flex-shrink-0 px-4 py-2 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}>
-        <FilterControls
-          isDark={isDark}
-          loading={loading}
-          autoRefreshEnabled={autoRefreshEnabled}
-          autoRefreshInterval={autoRefreshInterval}
-          onRefresh={refetch}
-          onAutoRefreshToggle={toggleAutoRefresh}
-          onAutoRefreshIntervalChange={setAutoRefreshInterval}
-        />
-      </div>
-
       {/* Alerts Table */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <AlertsTable

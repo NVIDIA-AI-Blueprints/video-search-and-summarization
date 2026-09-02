@@ -45,6 +45,12 @@ const defaultViewProps = {
   typeFilter: '',
   onStreamFilterChange: jest.fn(),
   onTypeFilterChange: jest.fn(),
+  loading: false,
+  autoRefreshEnabled: false,
+  autoRefreshInterval: 5000,
+  onRefresh: jest.fn(),
+  onAutoRefreshToggle: jest.fn(),
+  onAutoRefreshIntervalChange: jest.fn(),
 };
 
 describe('Alerts Controls', () => {

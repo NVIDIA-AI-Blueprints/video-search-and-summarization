@@ -6,10 +6,11 @@
 import React from 'react';
 import { Button } from 'rsuite';
 import { Tag as KaizenTag, Select } from '@nvidia/foundations-react-core';
-import { IconChevronDown, IconChevronUp, IconEye, IconFilter, IconPencilPlus, IconPlus, IconSettings } from '@tabler/icons-react';
+import { IconChevronDown, IconChevronUp, IconEye, IconFilter, IconPencilPlus, IconPlus, IconRefresh, IconRotateClockwise2, IconSettings } from '@tabler/icons-react';
 import { IconX } from '@tabler/icons-react';
 import { AlertRulesType, AlertsView, FilterState, FilterType, VlmVerdict, VLM_VERDICT } from '../types';
 import { AlertsFetchSettings } from './AlertsFetchSettings';
+import { AutoRefreshControl } from './AutoRefreshControl';
 
 interface AlertsSidebarControlsProps {
   isDark: boolean;
@@ -46,6 +47,12 @@ interface AlertsSidebarControlsProps {
   onOpenCustomTime: () => void;
   fetchSize: number;
   onFetchSizeChange: (size: number) => void;
+  loading: boolean;
+  autoRefreshEnabled: boolean;
+  autoRefreshInterval: number;
+  onRefresh: () => void;
+  onAutoRefreshToggle: () => void;
+  onAutoRefreshIntervalChange: (milliseconds: number) => void;
   createActiveKind: AlertRulesType;
   streamFilter: string;
   typeFilter: string;
@@ -93,6 +100,12 @@ interface AlertsViewFilterControlsProps {
   onOpenCustomTime: () => void;
   fetchSize: number;
   onFetchSizeChange: (size: number) => void;
+  loading: boolean;
+  autoRefreshEnabled: boolean;
+  autoRefreshInterval: number;
+  onRefresh: () => void;
+  onAutoRefreshToggle: () => void;
+  onAutoRefreshIntervalChange: (milliseconds: number) => void;
 }
 
 const getKaizenTagStyle = (type: FilterType, isDark: boolean): React.CSSProperties => {
@@ -135,8 +148,15 @@ export const AlertsViewFilterControls: React.FC<AlertsViewFilterControlsProps> =
   onOpenCustomTime,
   fetchSize,
   onFetchSizeChange,
+  loading,
+  autoRefreshEnabled,
+  autoRefreshInterval,
+  onRefresh,
+  onAutoRefreshToggle,
+  onAutoRefreshIntervalChange,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = React.useState(true);
+  const [isAutoRefreshOpen, setIsAutoRefreshOpen] = React.useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const hasActiveFilters = FILTER_TAG_CONFIGS.some(({ type }) => activeFilters[type].size > 0);
   const alertTypeOptions = uniqueValues.byVlmVerified
@@ -322,7 +342,7 @@ export const AlertsViewFilterControls: React.FC<AlertsViewFilterControlsProps> =
         >
           {isSettingsOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
           <IconSettings size={16} />
-          <span className="text-sm font-semibold">Settings</span>
+          <span className="text-sm font-semibold">Fetch Settings</span>
         </button>
 
         {isSettingsOpen && (
@@ -346,6 +366,78 @@ export const AlertsViewFilterControls: React.FC<AlertsViewFilterControlsProps> =
           </div>
         )}
       </div>
+
+      <fieldset
+        data-testid="alerts-auto-refresh-group"
+        className={`flex flex-col gap-3 rounded-lg border p-3 m-0 min-w-0 ${
+          isDark ? 'border-gray-700 bg-neutral-900' : 'border-gray-300 bg-white'
+        }`}
+      >
+        <legend className={`px-1 text-sm font-semibold ${isDark ? 'text-gray-100' : 'text-gray-800'}`}>
+          Auto Refresh
+        </legend>
+
+        <button
+          type="button"
+          onClick={onRefresh}
+          title="Refresh alerts now"
+          className={`w-full px-3.5 py-2 min-h-[40px] flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors ${
+            isDark
+              ? 'bg-neutral-800 text-gray-100 hover:bg-neutral-700'
+              : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+          }`}
+        >
+          <IconRefresh className={`w-4 h-4 ${loading ? 'animate-spin [animation-direction:reverse]' : ''}`} />
+          Refresh now
+        </button>
+
+        <div
+          className={`flex flex-col rounded-lg border ${
+            isDark ? 'border-gray-700 bg-neutral-950' : 'border-gray-300 bg-white'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setIsAutoRefreshOpen((prev) => !prev);
+            }}
+            aria-expanded={isAutoRefreshOpen}
+            data-testid="alerts-auto-refresh-toggle"
+            title={
+              autoRefreshEnabled
+                ? `Auto-refresh every ${autoRefreshInterval >= 1000 ? `${autoRefreshInterval / 1000}s` : `${autoRefreshInterval}ms`}`
+                : 'Auto-refresh is off'
+            }
+            className={`w-full px-3.5 py-2.5 min-h-[44px] flex items-center gap-2 text-left transition-colors ${
+              isDark ? 'text-gray-100 hover:bg-neutral-800' : 'text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            {isAutoRefreshOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+            <span className="relative flex-shrink-0">
+              <IconRotateClockwise2 size={16} />
+              {autoRefreshEnabled && (
+                <span data-testid="auto-refresh-indicator" className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              )}
+            </span>
+            <span className="text-sm font-semibold">Settings</span>
+          </button>
+
+          {isAutoRefreshOpen && (
+            <div className={`px-3.5 pb-3 ${isDark ? 'border-t border-gray-700' : 'border-t border-gray-200'}`}>
+              <AutoRefreshControl
+                isOpen={true}
+                isEnabled={autoRefreshEnabled}
+                interval={autoRefreshInterval}
+                isDark={isDark}
+                controlsDisabled={false}
+                onToggle={onAutoRefreshToggle}
+                onIntervalChange={onAutoRefreshIntervalChange}
+                inline
+              />
+            </div>
+          )}
+        </div>
+      </fieldset>
     </div>
   );
 };
@@ -382,6 +474,12 @@ export const AlertsSidebarControls: React.FC<AlertsSidebarControlsProps> = ({
   typeFilter,
   onStreamFilterChange,
   onTypeFilterChange,
+  loading,
+  autoRefreshEnabled,
+  autoRefreshInterval,
+  onRefresh,
+  onAutoRefreshToggle,
+  onAutoRefreshIntervalChange,
 }) => {
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const viewOptions = manageAlertsEnabled
@@ -543,6 +641,12 @@ export const AlertsSidebarControls: React.FC<AlertsSidebarControlsProps> = ({
             onOpenCustomTime={onOpenCustomTime}
             fetchSize={fetchSize}
             onFetchSizeChange={onFetchSizeChange}
+            loading={loading}
+            autoRefreshEnabled={autoRefreshEnabled}
+            autoRefreshInterval={autoRefreshInterval}
+            onRefresh={onRefresh}
+            onAutoRefreshToggle={onAutoRefreshToggle}
+            onAutoRefreshIntervalChange={onAutoRefreshIntervalChange}
           />
         </div>
       )}

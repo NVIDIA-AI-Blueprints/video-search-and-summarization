@@ -36,6 +36,12 @@ const defaultProps = {
   onOpenCustomTime: jest.fn(),
   fetchSize: 100,
   onFetchSizeChange: jest.fn(),
+  loading: false,
+  autoRefreshEnabled: false,
+  autoRefreshInterval: 5000,
+  onRefresh: jest.fn(),
+  onAutoRefreshToggle: jest.fn(),
+  onAutoRefreshIntervalChange: jest.fn(),
 };
 
 describe('Filter tags in AlertsViewFilterControls', () => {

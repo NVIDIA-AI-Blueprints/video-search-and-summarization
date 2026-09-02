@@ -100,6 +100,12 @@ describe('Foundation component migration – FilterTag', () => {
     onOpenCustomTime: jest.fn(),
     fetchSize: 100,
     onFetchSizeChange: jest.fn(),
+    loading: false,
+    autoRefreshEnabled: false,
+    autoRefreshInterval: 5000,
+    onRefresh: jest.fn(),
+    onAutoRefreshToggle: jest.fn(),
+    onAutoRefreshIntervalChange: jest.fn(),
   };
 
   it('renders a button for the remove action', () => {
@@ -444,6 +450,12 @@ describe('Kaizen color palette – sensor filter colors', () => {
       onOpenCustomTime: jest.fn(),
       fetchSize: 100,
       onFetchSizeChange: jest.fn(),
+      loading: false,
+      autoRefreshEnabled: false,
+      autoRefreshInterval: 5000,
+      onRefresh: jest.fn(),
+      onAutoRefreshToggle: jest.fn(),
+      onAutoRefreshIntervalChange: jest.fn(),
     };
     render(<AlertsViewFilterControls {...props} />);
     const root = screen.getByTestId('alerts-filter-tag-sensor-camera-1');
