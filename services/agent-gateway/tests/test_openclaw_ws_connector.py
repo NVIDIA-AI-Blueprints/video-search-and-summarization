@@ -9,6 +9,7 @@ import unittest
 from collections.abc import Callable
 from unittest import mock
 
+from vss_agent_gateway.capabilities import CapabilityReceipt
 from vss_agent_gateway.connectors.base import ConnectorError
 from vss_agent_gateway.connectors.openclaw_ws import OpenClawWebSocketConnector
 from vss_agent_gateway.connectors.websocket_client import (
@@ -18,6 +19,7 @@ from vss_agent_gateway.contract import CreateRunRequest
 from vss_agent_gateway.service import GatewayService
 
 from tests.helpers import make_config
+from tests.test_capabilities import valid_receipt
 from tests.test_service_and_server import wait_terminal
 
 FrameFactory = Callable[["FakeWebSocket"], dict[str, object]]
@@ -132,6 +134,27 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                 "input": [{"role": "user", "content": "find the delivery truck"}],
             }
         )
+
+    def test_vss_capabilities_direct_agent_to_workspace_skills(self) -> None:
+        connector = OpenClawWebSocketConnector(
+            make_config(
+                backend_protocol="openclaw-ws",
+                backend_url="ws://openclaw.test",
+                backend_path="/",
+                vss_capabilities=CapabilityReceipt.from_payload(valid_receipt()),
+            )
+        )
+
+        message = connector._message(self.request)
+
+        self.assertIn("VSS skills are installed in the current OpenClaw workspace", message)
+        self.assertIn("./skills/<skill-name>/SKILL.md", message)
+        self.assertIn("User:\nfind the delivery truck", message)
+
+    def test_generic_agent_message_is_not_prefixed(self) -> None:
+        connector = OpenClawWebSocketConnector(self.config)
+
+        self.assertEqual(connector._message(self.request), "find the delivery truck")
 
     def _socket_with_tool_run(self) -> FakeWebSocket:
         artifact = (

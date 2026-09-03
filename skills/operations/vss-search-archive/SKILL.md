@@ -51,8 +51,10 @@ an agent `/api` route**; on a build without one, they belong to
   origin.
 - A checkout containing `services/agent`, host `uv`, `curl`, and `jq`.
 - The bundled `scripts/run_search.sh` runner for both source listing and the
-  validated search. Set `SKILL_DIR` to the base directory announced by the
-  skill loader; do not copy the runner's Bash body into the exec command.
+  validated search. Use the exact base directory announced by the skill
+  loader; do not assume it is an environment variable and do not copy the
+  runner's Bash body into the exec command. An OpenClaw workspace attached by
+  VSS exposes it at `./skills/vss-search-archive/scripts/run_search.sh`.
 
 `--extra cli` is mandatory because the base distribution contains the core
 libraries, while `nvidia-vss-cli` declares the `vss` executable. The runner
@@ -88,13 +90,13 @@ index inventory is a snapshot.
    one runner call before searching:
 
    ```bash
-   : "${SKILL_DIR:?set to this installed skill directory}"
-   bash "$SKILL_DIR/scripts/run_search.sh" --list-sources
+   bash ./skills/vss-search-archive/scripts/run_search.sh --list-sources
    ```
 
-   It reads the same resolved origin as search and takes no endpoint. Accept
-   only an exact source, stream ID, or one unambiguous normalized substring
-   match.
+   If the loader announced another base directory, substitute that exact path;
+   do not search for or guess a bundled harness path. The runner reads the same
+   resolved origin as search and takes no endpoint. Accept only an exact
+   source, stream ID, or one unambiguous normalized substring match.
 
    - No match: report the missing source, list available names, and ask the
      user to clarify or explicitly request ingestion. Stop without probing the
@@ -129,14 +131,13 @@ index inventory is a snapshot.
 4. Read [CLI usage](references/cli_usage.md) for every supported flag, then
    invoke the bundled runner once. Set `--source-scoped true` whenever the user
    named a source; the runner refuses to broaden that request when no
-   `--video-source` follows `--`. Use `false` only for an explicitly
-   unrestricted request. Pass the selected search mode and its exact CLI flags
-   after `--`:
+   `--video-source` follows it. Use `false` only for an explicitly unrestricted
+   request. Pass the selected search mode and its exact CLI flags next. A `--`
+   separator is accepted but not required:
 
 ```bash
-SKILL_DIR="${SKILL_DIR:?set to this installed skill directory}"
-bash "$SKILL_DIR/scripts/run_search.sh" \
-  --source-scoped true -- embed \
+bash ./skills/vss-search-archive/scripts/run_search.sh \
+  --source-scoped true embed \
   --source-type video_file \
   --video-source "<resolved-sensor-id>" \
   --query "<complete user query>" \

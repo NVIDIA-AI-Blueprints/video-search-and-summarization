@@ -29,6 +29,13 @@ from .websocket_client import (
     connect_websocket,
 )
 
+VSS_WORKSPACE_SKILL_INSTRUCTIONS = """VSS capability contract:
+VSS skills are installed in the current OpenClaw workspace, not in OpenClaw's
+bundled installation. For a VSS request, read the matching skill from its exact
+workspace path listed by OpenClaw (normally ./skills/<skill-name>/SKILL.md).
+Never guess a path below OpenClaw's node_modules directory. Follow the selected
+skill's bundled runner or recipe exactly."""
+
 PROTOCOL_VERSION = 4
 CLIENT_ID = "gateway-client"
 CLIENT_MODE = "backend"
@@ -337,15 +344,17 @@ class OpenClawWebSocketConnector(Connector):
         ).hexdigest()[:40]
         return f"agent:main:vss-ui-{digest}"
 
-    @staticmethod
-    def _message(request: CreateRunRequest) -> str:
+    def _message(self, request: CreateRunRequest) -> str:
         if (
-            request.instructions is None
+            self._config.vss_capabilities is None
+            and request.instructions is None
             and len(request.input) == 1
             and request.input[0].role == "user"
         ):
             return request.input[0].content
         parts: list[str] = []
+        if self._config.vss_capabilities is not None:
+            parts.append(VSS_WORKSPACE_SKILL_INSTRUCTIONS)
         if request.instructions:
             parts.append(f"VSS UI instructions:\n{request.instructions}")
         parts.extend(
