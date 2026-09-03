@@ -40,6 +40,7 @@ from metrics.recorder import (
 )
 from utils.logging_config import get_logger
 from utils.time_utils import iso_delta_seconds
+from utils.url_transformer import rewrite_to_internal_url
 from tracing import meters as _otel_meters
 from tracing import spans as tracing_spans
 from vst.exceptions import VSTError
@@ -658,7 +659,12 @@ class EventLoopPipelineMixin:
                 vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
 
                 async with self._capacity_slot(self._vst_capacity, 'vst', latency):
-                    video_url_valid = await self._validate_video_url_async(video_url)
+                    # Checked from inside the deployment, so on the inside
+                    # origin: VST mints these on the public one, which need not
+                    # resolve here.
+                    video_url_valid = await self._validate_video_url_async(
+                        rewrite_to_internal_url(video_url)
+                    )
                 if not video_url_valid:
                     await asyncio.to_thread(
                         self._handle_url_validation_failure,
