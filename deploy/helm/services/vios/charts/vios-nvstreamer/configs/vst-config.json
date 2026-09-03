@@ -1,7 +1,7 @@
 {
   "network": {
     "http_port": "31000",
-    "server_domain_name": "__SERVER_DOMAIN_NAME__",
+    "server_domain_name": "",
     "stunurl_list": [
       "stun.l.google.com:19302",
       "stun1.l.google.com:19302"
