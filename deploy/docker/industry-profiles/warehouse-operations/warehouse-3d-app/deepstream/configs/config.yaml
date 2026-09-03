@@ -16,7 +16,7 @@
 # Inference Properties
 onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v3.0.onnx
 engine_file: /opt/storage/sparse4d/sparse4d_warehouse_v3.0_b4.engine
-labels_file: /opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels_real.txt
+labels_file: /opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels-real.txt
 gpu_id: 0 # GPU ID to use for tensor operations
 batch_size: 1 # Sparse4D model batch size
 num_sensors: 4 # Number of sensors [Deepstream batch size]
