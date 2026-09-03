@@ -1341,7 +1341,9 @@ class DirectAgentProgress:
 
         now = self._monotonic()
         if (
-            self.active_phase in {"pull", "build"}
+            # `compose up` often embeds long NGC pulls; without heartbeats here
+            # a single new image_id followed by a slow pull looks idle.
+            self.active_phase in {"pull", "build", "up"}
             and self._phase_heartbeat_count < MAX_PHASE_HEARTBEATS
             and now - self.last_activity_heartbeat >= self.activity_heartbeat_sec
         ):

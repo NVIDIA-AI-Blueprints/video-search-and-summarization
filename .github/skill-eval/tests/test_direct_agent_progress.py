@@ -115,7 +115,11 @@ def test_hard_ceiling_wins_even_after_recent_progress() -> None:
     assert tracker.expiration() == ("hard-ceiling", "container_transition", 1)
 
 
-def test_pull_build_heartbeat_resets_idle_without_sleep(tmp_path: Path) -> None:
+@pytest.mark.parametrize("phase", ["pull", "up"])
+def test_compose_phase_heartbeat_resets_idle_without_sleep(
+    tmp_path: Path,
+    phase: str,
+) -> None:
     clock = FakeClock()
     tracker = progress.ProgressTracker(
         hard_ceiling_sec=7200,
@@ -132,7 +136,7 @@ def test_pull_build_heartbeat_resets_idle_without_sleep(tmp_path: Path) -> None:
         monotonic=clock,
         activity_heartbeat_sec=300,
     )
-    monitor.active_phase = "pull"
+    monitor.active_phase = phase
     clock.advance(1500)
     with (
         mock.patch.object(monitor, "_sample_images"),
