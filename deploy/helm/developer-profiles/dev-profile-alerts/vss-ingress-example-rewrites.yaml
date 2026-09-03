@@ -32,20 +32,20 @@ metadata:
   namespace: <NAMESPACE>
   annotations:
     haproxy.org/path-rewrite: |
-      /storage/(.*) /vst/storage/\1
-      /storage /vst/storage
-      /va-mcp/(.*) /\1
-      /va-mcp /
-      /alert-bridge/(.*) /\1
-      /alert-bridge /
-      /video-analytics-api/(.*) /\1
-      /video-analytics-api /
-      /elasticsearch/(.*) /\1
-      /elasticsearch /
-      /rtvi-cv/(.*) /\1
-      /rtvi-cv /
-      /phoenix/(.*) /\1
-      /phoenix /
+      ^/storage/(.*) /vst/storage/\1
+      ^/storage$ /vst/storage
+      ^/va-mcp/(.*) /\1
+      ^/va-mcp$ /
+      ^/alert-bridge/(.*) /\1
+      ^/alert-bridge$ /
+      ^/video-analytics-api/(.*) /\1
+      ^/video-analytics-api$ /
+      ^/elasticsearch/(.*) /\1
+      ^/elasticsearch$ /
+      ^/rtvi-cv/(.*) /\1
+      ^/rtvi-cv$ /
+      ^/phoenix/(.*) /\1
+      ^/phoenix$ /
 spec:
   ingressClassName: haproxy
   rules:

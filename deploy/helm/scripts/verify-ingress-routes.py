@@ -180,8 +180,8 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                     mounted_strip.add(path)
                     to = "" if row["rewrite"] == "strip" else row["rewrite"]
                     for src, want in (
-                        (f"{path}/(.*)", f"{to}/\\1"),
-                        (path, to or "/"),
+                        (f"^{path}/(.*)", f"{to}/\\1"),
+                        (f"^{path}$", to or "/"),
                     ):
                         got = rewrites.get(src)
                         if got is None:
@@ -193,7 +193,10 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                                 f"{profile}: {src!r} rewrites to {got!r}, table says {want!r}"
                             )
 
-        surplus = {src.replace("/(.*)", "") for src in rewrites} - mounted_strip
+        surplus = {
+            src.removeprefix("^").removesuffix("$").replace("/(.*)", "")
+            for src in rewrites
+        } - mounted_strip
         if surplus:
             fails.append(f"{profile}: rewritten but not mounted: {sorted(surplus)}")
 

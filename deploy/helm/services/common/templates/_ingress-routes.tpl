@@ -197,6 +197,14 @@ true
   mounted route that rewrites, derived from the same table as the paths, so the
   two can never disagree about which prefix is stripped (FR-16).
 
+  Both forms are anchored, and have to be. HAProxy's `replace-path` matches its
+  regex anywhere in the path, and `path-rewrite` is Ingress-scope only, so every
+  pair here reaches every backend of the Ingress that carries it -- the
+  NVStreamer and Kibana hosts included. Unanchored, `/storage/(.*)` also matches
+  NVStreamer's `POST /api/v1/storage/file` and VST's own `/vst/api/v1/storage/`,
+  and the backend answers 404 on the mangled path. The Docker edge anchors the
+  same pair (services/infra/haproxy/haproxy.cfg.template:bk_vst_storage_compat).
+
   Emitted at zero indent with no leading or trailing blank line; the caller
   applies `nindent`.
 */}}
@@ -211,8 +219,8 @@ true
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $row.path }} {{ $to | default "/" }}
+^{{ $row.path }}/(.*) {{ $to }}/\1
+^{{ $row.path }}$ {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}

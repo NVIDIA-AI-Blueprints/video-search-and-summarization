@@ -32,16 +32,16 @@ metadata:
   namespace: <NAMESPACE>
   annotations:
     haproxy.org/path-rewrite: |
-      /storage/(.*) /vst/storage/\1
-      /storage /vst/storage
-      /elasticsearch/(.*) /\1
-      /elasticsearch /
-      /rtvi-vlm/(.*) /\1
-      /rtvi-vlm /
-      /lvs/(.*) /\1
-      /lvs /
-      /phoenix/(.*) /\1
-      /phoenix /
+      ^/storage/(.*) /vst/storage/\1
+      ^/storage$ /vst/storage
+      ^/elasticsearch/(.*) /\1
+      ^/elasticsearch$ /
+      ^/rtvi-vlm/(.*) /\1
+      ^/rtvi-vlm$ /
+      ^/lvs/(.*) /\1
+      ^/lvs$ /
+      ^/phoenix/(.*) /\1
+      ^/phoenix$ /
 spec:
   ingressClassName: haproxy
   rules:
