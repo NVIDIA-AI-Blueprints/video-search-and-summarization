@@ -35,6 +35,9 @@ ngc:
 # Set global.imagePullSecrets when using a private registry (e.g. nvcr.io). Set global.storageClass for PVCs.
 # When using NGC (or copy from values-ngc-secrets.example.yaml):
 global:
+  # OpenShift / RHOAI toggle: set to true (or use values-openshift.yaml overlay) for OpenShift deployments.
+  openshift:
+    enabled: false
   # When true, all subcharts default to <release>-<chart> naming again.
   # Per-subchart <subchart>.useReleaseNamePrefix overrides this value.
   useReleaseNamePrefix: false
