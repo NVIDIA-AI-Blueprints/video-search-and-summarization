@@ -12,8 +12,9 @@ metadata:
 ## Shell contract
 
 Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -lc` or as a Bash script;
-never submit Bash syntax directly to that default shell.
+default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
+Do not use a login shell that resets the provisioned `PATH`, and never submit
+Bash syntax directly to that default shell.
 
 ## Purpose
 
@@ -49,54 +50,18 @@ an agent `/api` route**; on a build without one, they belong to
 - A running VSS `search` profile and its host-reachable Compose or Ingress
   origin.
 - A checkout containing `services/agent`, host `uv`, `curl`, and `jq`.
-- `vss vios list` for source listing and inspection (same CLI, same recorded origin).
-
-Resolve and validate the checkout once:
-
-```bash
-VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-if [ -z "${VSS_REPO_ROOT:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-  VSS_REPO_ROOT=$(jq -er '.runtime.repo_root | select(type == "string" and length > 0)' \
-    "$VSS_CAPABILITY_RECEIPT") || exit 1
-fi
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
-  exit 1
-}
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-cd "${VSS_REPO_ROOT}" && "${VSS[@]}" search run --help >/dev/null || exit 1
-```
+- The bundled `scripts/run_search.sh` runner for both source listing and the
+  validated search. Set `SKILL_DIR` to the base directory announced by the
+  skill loader; do not copy the runner's Bash body into the exec command.
 
 `--extra cli` is mandatory because the base distribution contains the core
-libraries, while `nvidia-vss-cli` declares the `vss` executable.
+libraries, while `nvidia-vss-cli` declares the `vss` executable. The runner
+owns that exact project-local invocation and pre-warms it before use.
 
-Resolve the deployment through its one public/host origin:
-
-```bash
-if [ -z "${VSS_ORIGIN:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-  VSS_RECEIPT_ORIGIN=$(jq -er '(.vss_origin // "") | select(type == "string")' \
-    "$VSS_CAPABILITY_RECEIPT") || exit 1
-  if [ -n "$VSS_RECEIPT_ORIGIN" ]; then
-    VSS_ORIGIN="$VSS_RECEIPT_ORIGIN"
-  fi
-fi
-if [ -z "${VSS_ORIGIN:-}" ]; then
-  VSS_ORIGIN=$("${VSS[@]}" configure show 2>/dev/null |
-    jq -er '.base_url | select(type == "string" and length > 0)') || true
-fi
-if [ -z "${VSS_ORIGIN:-}" ] && [ -n "${HOST_IP:-}" ]; then
-  VSS_ORIGIN="http://${HOST_IP}:7777"
-fi
-if [ -z "${VSS_ORIGIN:-}" ]; then
-  echo "Provide the Compose or Ingress origin" >&2
-  exit 1
-fi
-VSS_ORIGIN="${VSS_ORIGIN%/}"
-VST_URL="${VSS_ORIGIN}"
-VSS_VIOS_URL="${VSS_ORIGIN}/vst"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
-```
+The runner resolves the deployment through its one public/host origin, in
+order, from `VSS_ORIGIN`, the capability receipt, the recorded CLI config, or
+`HOST_IP`. It fails when none exists and runs `vss configure` before listing or
+searching. Do not duplicate that setup in separate tool calls.
 
 In a persisted multi-step workflow, reuse the origin recorded by the prepared
 deployment as above. Do not repeat public-origin selection, edit routing, or
@@ -120,9 +85,16 @@ index inventory is a snapshot.
    `vss-deploy-profile -p search`; do not target another profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
-   `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin
-   `vss configure` recorded, so it takes no endpoint. Accept only an exact
-   source, stream ID, or one unambiguous normalized substring match.
+   one runner call before searching:
+
+   ```bash
+   : "${SKILL_DIR:?set to this installed skill directory}"
+   bash "$SKILL_DIR/scripts/run_search.sh" --list-sources
+   ```
+
+   It reads the same resolved origin as search and takes no endpoint. Accept
+   only an exact source, stream ID, or one unambiguous normalized substring
+   match.
 
    - No match: report the missing source, list available names, and ask the
      user to clarify or explicitly request ingestion. Stop without probing the
@@ -154,71 +126,30 @@ index inventory is a snapshot.
    attribute: `run fusion --query "person in a red jacket running" --attribute
    "red jacket"`.
 
-4. Construct the invocation as a Bash array and validate only its exact
-   stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
+4. Read [CLI usage](references/cli_usage.md) for every supported flag, then
+   invoke the bundled runner once. Set `--source-scoped true` whenever the user
+   named a source; the runner refuses to broaden that request when no
+   `--video-source` follows `--`. Use `false` only for an explicitly
+   unrestricted request. Pass the selected search mode and its exact CLI flags
+   after `--`:
 
 ```bash
-: "${SEARCH_PATH:?set embed|attribute|fusion|object}"
-: "${SOURCE_TYPE:?set video_file or rtsp}"
-TOP_K="${TOP_K:-3}"
-VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object
-: "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
-if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
-  echo "Resolved source scope is empty; refusing an unrestricted search" >&2
-  exit 1
-fi
-SEARCH_COMMAND=(
-  "${VSS[@]}" search run "${SEARCH_PATH}"
-  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}" --raw
-)
-for source in "${VIDEO_SOURCES[@]}"; do
-  SEARCH_COMMAND+=(--video-source "${source}")
-done
-# Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-if ! SEARCH_STREAM=$("${SEARCH_COMMAND[@]}"); then
-  echo "Search command failed" >&2
-  exit 1
-fi
-
-# Every job command writes exactly two JSON documents: its result body on the
-# first line and the compact lifecycle completion marker on the final line.
-# Preserve the first line byte-for-byte for the UI artifact, while requiring
-# the marker to prove that the successful body belongs to a completed search.
-mapfile -t SEARCH_DOCUMENTS <<<"${SEARCH_STREAM}"
-if [ "${#SEARCH_DOCUMENTS[@]}" -ne 2 ]; then
-  echo "Search did not return one result body and one completion marker" >&2
-  exit 1
-fi
-SEARCH_JSON=${SEARCH_DOCUMENTS[0]}
-SEARCH_COMPLETION=${SEARCH_DOCUMENTS[1]}
-SEARCH_JOB_ID=$(printf '%s' "${SEARCH_JSON}" |
-  jq -er 'select(type == "object" and (.data | type == "array")) |
-          .job_id | select(type == "string" and length > 0)') || {
-    echo "Search did not return a SearchOutput object with a data array and job_id" >&2
-    exit 1
-  }
-printf '%s' "${SEARCH_COMPLETION}" |
-  jq -e --arg job_id "${SEARCH_JOB_ID}" '
-    type == "object" and
-    .event == "vss_job_completed" and
-    .group == "search" and
-    .job_id == $job_id and
-    .status == "completed" and
-    .exit_hint == 0' >/dev/null || {
-    echo "Search completion marker did not validate" >&2
-    exit 1
-  }
-
-# Publish from the same exec result that validated the search. Harnesses that
-# expose server-tool output let the gateway consume this envelope directly.
-VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-if [ -f "$VSS_CAPABILITY_RECEIPT" ] &&
-   jq -e '.ui_artifacts.version == "1.0"' "$VSS_CAPABILITY_RECEIPT" >/dev/null; then
-  VSS_UI_ARTIFACT=$(jq -cn --argjson payload "$SEARCH_JSON" \
-    '{version:"1.0",kind:"vss.search.results",payload:$payload}') || exit 1
-  printf '<vss-ui-artifact>%s</vss-ui-artifact>\n' "$VSS_UI_ARTIFACT"
-fi
+SKILL_DIR="${SKILL_DIR:?set to this installed skill directory}"
+bash "$SKILL_DIR/scripts/run_search.sh" \
+  --source-scoped true -- embed \
+  --source-type video_file \
+  --video-source "<resolved-sensor-id>" \
+  --query "<complete user query>" \
+  --top-k 3 \
+  --raw
 ```
+
+Repeat `--video-source` for each resolved value. `embed` and `fusion` take the
+sensor ID; `attribute` and `object` take the source name. Append repeatable
+`--attribute`, `--object-id`, and time bounds only as requested. Invoke the
+runner with `bash`, not by copying its body into the exec command. It resolves
+the pinned VSS checkout and origin, validates the exact two-document CLI
+result, and emits the versioned UI envelope from that same result.
 
 Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
 `search run`; `vss configure` owns those values. Do not replace a failed CLI
