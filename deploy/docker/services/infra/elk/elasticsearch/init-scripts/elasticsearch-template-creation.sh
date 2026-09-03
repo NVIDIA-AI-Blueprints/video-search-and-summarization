@@ -556,10 +556,11 @@ setup_elasticsearch_templates(){
         }
       }'
 
-#   dims is deliberately omitted: the compression ratio, and so the vector
-#   width, is set inside reid-embed rather than here. Elasticsearch infers it
-#   from the first indexed document, whereas a hard-coded value that disagreed
-#   would reject every document in the index.
+#   dims is deliberately omitted: the width is fixed by whichever secondary
+#   embedding model reid-embed is configured with (SECONDARY_EMBEDDING_MODEL,
+#   siglip2 by default), so it is not ours to state here. Elasticsearch infers
+#   it from the first indexed document, whereas a hard-coded value that
+#   disagreed would reject every document in the index.
     create_index_template "mdx_compressed_embeddings_template" '{
         "index_patterns": ["mdx-compressed-embeddings-*"],
         "priority": 516,
