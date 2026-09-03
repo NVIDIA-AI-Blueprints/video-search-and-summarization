@@ -134,6 +134,79 @@ class DivergenceTest(unittest.TestCase):
             self.assertTrue(any("not checking anything" in failure for failure in failures), failures)
 
 
+def _gw_compose(directory: str, entries: str) -> Path:
+    path = Path(directory) / "compose.yml"
+    path.write_text("services:\n  vss-haproxy-ingress:\n    environment:\n" + entries)
+    return path
+
+
+def _profile(directory: str, body: str) -> Path:
+    path = Path(directory) / "overrides.env"
+    path.write_text(body)
+    return path
+
+
+class NonEmptyTest(unittest.TestCase):
+    """An empty ACL variable stops the gateway from parsing its config at all.
+
+    Confirmed against haproxy 3.4.2 with the real template: blanking HOST_IP or
+    EXTERNAL_IP, or leaving either unset, aborts the parse with "argument number
+    4 ... is empty and marks the end of the argument list".
+    """
+
+    def test_the_tree_guarantees_every_acl_variable(self) -> None:
+        _, used = LINT.scan_template(LINT.TEMPLATE)
+        self.assertEqual([], LINT.scan_non_empty(used, LINT.GATEWAY_COMPOSE, LINT.BASE_PROFILE))
+
+    def test_the_load_bearing_placeholder_is_covered(self) -> None:
+        # HOST_IP has no Compose default, so the profile placeholder is the only
+        # thing keeping a never-configured deployment parseable. Assert the real
+        # files still work that way, or this rule is checking the wrong thing.
+        self.assertNotIn("HOST_IP", LINT.compose_defaults(LINT.GATEWAY_COMPOSE))
+        self.assertTrue(
+            LINT.resolves_non_empty("HOST_IP", LINT.env_assignments(LINT.BASE_PROFILE), frozenset())
+        )
+
+    def test_an_emptied_placeholder_is_caught_through_the_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            compose = _gw_compose(directory, "      HOST_IP: ${HOST_IP}\n")
+            profile = _profile(directory, 'HOST_IP=\nEXTERNAL_IP="${HOST_IP}"\n')
+            failures = LINT.scan_non_empty({"HOST_IP", "EXTERNAL_IP"}, compose, profile)
+            self.assertTrue(any("HOST_IP" in failure for failure in failures), failures)
+            # The indirection must not launder an empty value into a pass.
+            self.assertTrue(any("EXTERNAL_IP" in failure for failure in failures), failures)
+
+    def test_a_missing_assignment_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            compose = _gw_compose(directory, "      HOST_IP: ${HOST_IP}\n")
+            profile = _profile(directory, "SOMETHING_ELSE=1\n")
+            self.assertNotEqual([], LINT.scan_non_empty({"HOST_IP"}, compose, profile))
+
+    def test_a_compose_default_alone_is_enough(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            compose = _gw_compose(directory, "      VSS_GATEWAY_HOST: ${VSS_GATEWAY_HOST:-vss.local}\n")
+            profile = _profile(directory, "SOMETHING_ELSE=1\n")
+            self.assertEqual([], LINT.scan_non_empty({"VSS_GATEWAY_HOST"}, compose, profile))
+
+    def test_an_empty_compose_default_is_not_enough(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            compose = _gw_compose(directory, "      VSS_GATEWAY_HOST: ${VSS_GATEWAY_HOST:-}\n")
+            profile = _profile(directory, "SOMETHING_ELSE=1\n")
+            self.assertNotEqual([], LINT.scan_non_empty({"VSS_GATEWAY_HOST"}, compose, profile))
+
+    def test_a_reference_to_an_undefined_variable_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            compose = _gw_compose(directory, "      HOST_IP: ${HOST_IP}\n")
+            profile = _profile(directory, 'EXTERNAL_IP="${NOWHERE}"\n')
+            self.assertNotEqual([], LINT.scan_non_empty({"EXTERNAL_IP"}, compose, profile))
+
+    def test_a_reference_cycle_does_not_hang(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            compose = _gw_compose(directory, "      HOST_IP: ${HOST_IP}\n")
+            profile = _profile(directory, 'HOST_IP="${EXTERNAL_IP}"\nEXTERNAL_IP="${HOST_IP}"\n')
+            self.assertNotEqual([], LINT.scan_non_empty({"HOST_IP"}, compose, profile))
+
+
 class ReadmeTest(unittest.TestCase):
     def test_a_documented_allowlist_passes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
