@@ -45,10 +45,10 @@ Foundation-specific alias or a second API instance.
 ## API and ingress surface
 
 - The service publishes `${VIDEO_ANALYTICS_API_HOST_PORT:-8081}:8081`.
-  `GET /livez` is a liveness endpoint and returns `{ "isAlive": true }` when
-  its route is served; it does **not** attest that Elasticsearch, the ingest
-  pipeline, Kafka, or upstream analytics data are ready. Check those dependencies
-  independently for an end-to-end readiness decision.
+  `GET /livez` returns `{ "isAlive": true }` once the API registers its route.
+  Registration follows the Elasticsearch ingest-pipeline check and, with configured
+  Kafka, its topic check; it does not attest that upstream analytics data or the
+  Elasticsearch indices queried by routes are populated.
 - When HAProxy ingress is selected, expose the same service at
   `/video-analytics-api/...`; ingress strips that prefix before forwarding. Do
   not construct a distinct API URL for a profile.
