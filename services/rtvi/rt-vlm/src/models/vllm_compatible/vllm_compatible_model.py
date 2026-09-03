@@ -3548,19 +3548,11 @@ class VllmCompatible(BaseVlmModel):
                 # Flat list structure: [dict, ...]
                 has_audio = audio_frames[0].get("audio") is not None
 
-        # Timestamp prompt (main): env-configurable template injection, shared
-        # with the EVS session path. The ifs-support FSELECT strict-timestamp
-        # prompt add-on (FSELECT_TIMESTAMP_PROMPT) was intentionally dropped
-        # during the squash/merge — not needed.
         query_text = self._apply_timestamp_prompt(query_text, chunk, video_frames_times)
 
         # VLLM model generation
 
-        # Under CHOOSE_FSELECT every chunk takes the video path whatever its frame
-        # count. A 1-frame chunk sent as an image carries no temporal metadata, and
-        # vLLM's Qwen3-VL mRoPE path reads video_grid_thw for every feature in a
-        # mixed batch -> "'NoneType' object is not subscriptable" kills EngineCore.
-        is_single_image = len(images) == 1 and not _parse_bool_env("CHOOSE_FSELECT", False)
+        is_single_image = len(images) == 1
         use_multi_image_chunk_input = (
             not is_single_image
             and _parse_bool_env("VLLM_MULTI_IMAGE_CHUNK_INPUT", False)
@@ -3589,11 +3581,6 @@ class VllmCompatible(BaseVlmModel):
                     images, video_frames_times, duration
                 )
             else:
-                # frames_indices stays a uniform range(): an ifs-support ablation
-                # (7 scenes / 330 windows) found real vs uniform indices within
-                # noise (delta +0.0017). Absolute-timestamp grounding comes from
-                # the prompt text, and fps stays the average so grid-based M-RoPE
-                # is unaffected.
                 fps = 1
                 if len(video_frames_times) > 1 and duration > 0:
                     fps = (len(video_frames_times) - 1) / duration
@@ -3608,6 +3595,7 @@ class VllmCompatible(BaseVlmModel):
                 images if CPU_COPY_OTHER_THREAD else _frame_batch_as_numpy(images),
                 video_metadata,
             )
+
         # Single query mode
         messages = []
         logger.debug("System prompt %s user prompt %s", system_prompt, query_text)
@@ -3667,7 +3655,18 @@ class VllmCompatible(BaseVlmModel):
         # dicts rather than inserting placeholder tokens. Detect this and rebuild with explicit
         # placeholders so vLLM can find and replace them with visual features.
         if self._model_architecture in _NEMOTRON_OMNI_ARCHS:
-            if "<video>" not in prompt:
+            if is_single_image and "<image>" not in prompt:
+                image_placeholder = f"{query_text}\n<image>"
+                fallback_messages = (
+                    [{"role": "system", "content": system_prompt}] if system_prompt else []
+                ) + [{"role": "user", "content": image_placeholder}]
+                prompt = self._processor.apply_chat_template(
+                    fallback_messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    **apply_chat_template_kwargs,
+                )
+            elif not is_single_image and "<video>" not in prompt:
                 video_placeholder = f"{query_text}\n<video>"
                 fallback_messages = (
                     [{"role": "system", "content": system_prompt}] if system_prompt else []
@@ -3746,6 +3745,10 @@ class VllmCompatible(BaseVlmModel):
             multi_modal_uuids["video"] = [None]
         if "audio" in mm_data:
             multi_modal_uuids["audio"] = [None]
+        # vLLM requires all modalities in multi_modal_data to have uuids when the dict is set.
+        # Single-image + audio leaves "image" missing from uuids while image data is present.
+        if is_single_image and multi_modal_uuids:
+            multi_modal_uuids["image"] = [None]
         if multi_modal_uuids:
             llm_inputs["multi_modal_uuids"] = multi_modal_uuids
 
