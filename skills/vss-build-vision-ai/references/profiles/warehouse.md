@@ -103,15 +103,16 @@ of these.
 
 ## Capability owners present
 
-`<mode>` is `2d` or `3d`; the suffix is on the compose *service* name only
-([`../services/vios.md`](../services/vios.md)).
+`<mode>` is `2d`, `3d` or `mv3dt`; the suffix is on the compose *service* name
+only ([`../services/vios.md`](../services/vios.md)).
 
 | Owner | Service profile keys |
 |---|---|
-| RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d` |
+| RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d`. **`mv3dt` does not follow the `perception-<mode>` pattern**: it is two services, `vss-rtvi-cv-mv3dt` (per-camera tracking) and `vss-rtvi-cv-bev-fusion` (multi-view merge) |
 | Behavior Analytics | `vss-behavior-analytics-<mode>` |
-| Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` |
+| Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` — `mv3dt` has no `-init` |
 | ELK | `kafka`, `kafka-topic-init-container`, `redis`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`, `kibana-init-container-<mode>` |
+| MQTT | `mosquitto` — **`mv3dt` lists only**; no 2d/3d list carries it (`MQTT_HOST_PORT` 1883) |
 | VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sensor-bp-wait-bp-configurator` |
 | Video Analytics API | `vss-video-analytics-api`, `import-calibration-output-container-<mode>` |
 | Ingress | `vss-haproxy-ingress` |
@@ -397,6 +398,13 @@ Expect one `stream_name` line per source at roughly source framerate, and an
 active-source count equal to `NUM_STREAMS`. Do **not** `grep -i fps` —
 DeepStream's only line containing that string is a valueless header, so it
 reports success regardless.
+
+On `mv3dt` the perception container is `vss-rtvi-cv-mv3dt`, and `mdx-bev` comes
+from a second service, `vss-rtvi-cv-bev-fusion` — check it is `healthy` too.
+**`mv3dt` publishes `mdx-raw` as well as `mdx-bev`** (per-camera tracks and the
+fused result), unlike `3d`. First output can take several minutes; a
+`vss-vios-ingress` restart count in the low teens while `sdr-controller` comes up
+is normal, provided it settles to `healthy`.
 
 HTTP probes, when the selected list ships them:
 
