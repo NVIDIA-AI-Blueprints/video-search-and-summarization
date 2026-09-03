@@ -403,6 +403,27 @@ frontend fe_http
     acl p_vios path /vios
     acl p_vios path_beg /vios/
     use_backend bk_vios_rewrite if h_main p_vios
+    # A caller that follows the alias's redirect has to stay on the alias.
+    #
+    # VST's ingress answers GET /vst with `301 Location: /vst/`, and it is the
+    # only party that can -- it serves its whole surface under /vst/ and the
+    # trailing slash is what makes the UI's relative asset paths resolve. But
+    # bk_vios_rewrite has already turned /vios into /vst by the time nginx sees
+    # it, so nginx cannot know the caller said /vios, and a caller who followed
+    # that Location would land on the prefix this alias exists to replace --
+    # collecting a Deprecation header on the way to the successor.
+    #
+    # Same request-time-variable shape, and for the same reason, as the
+    # deprecation signalling at the foot of this frontend: by response time the
+    # path has been rewritten, so the decision has to be captured while the path
+    # is still what the client sent.
+    #
+    # Anchored on a RELATIVE Location, which is what the VIOS nginx configs now
+    # guarantee (absolute_redirect off). An absolute one would not match here,
+    # and deliberately so: this rule renames a path, it is not a second place
+    # that repairs an origin. Fixing the origin belongs at the service.
+    http-request set-var(txn.alias_vios) int(1) if h_main p_vios
+    http-response replace-header Location ^/vst(/.*)?$ /vios\1 if { var(txn.alias_vios) -m found }
 
     acl p_behavior path /behavior-analytics
     acl p_behavior path_beg /behavior-analytics/
