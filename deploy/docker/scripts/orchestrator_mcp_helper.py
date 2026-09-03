@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import ipaddress
 import json
 import os
 import re
@@ -11,6 +12,11 @@ import time
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+
+# Docker inspection is advisory here — the caller falls back to the checked-in
+# policy — so an unresponsive daemon has to fail rather than block the cell.
+DOCKER_QUERY_TIMEOUT_S = 20
 
 
 class OrchestratorTool(StrEnum):
@@ -50,9 +56,62 @@ def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
         capture_output=True,
         text=True,
         check=True,
+        timeout=DOCKER_QUERY_TIMEOUT_S,
     )
     names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     return names[0] if names else None
+
+
+def sandbox_host_cidrs(sandbox_name: str) -> list[str]:
+    """Return the IPv4 subnets of the Docker networks *sandbox_name* is attached to.
+
+    ``host.openshell.internal`` resolves to the gateway of each of those
+    networks, so they are the ranges an egress ``allowed_ips`` entry has to
+    cover. Returns an empty list when the sandbox does not exist yet, or when
+    Docker cannot be inspected within ``DOCKER_QUERY_TIMEOUT_S``, so a caller
+    can fall back to whatever the policy declares.
+    """
+    try:
+        container = resolve_openshell_gateway_container(sandbox_name)
+        if container is None:
+            return []
+        attached = json.loads(
+            subprocess.run(
+                ["docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", container],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=DOCKER_QUERY_TIMEOUT_S,
+            ).stdout
+            or "{}"
+        )
+        if not attached:
+            return []
+        inspected = json.loads(
+            subprocess.run(
+                ["docker", "network", "inspect", *sorted(attached)],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=DOCKER_QUERY_TIMEOUT_S,
+            ).stdout
+            or "[]"
+        )
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+        return []
+
+    subnets = set()
+    for network in inspected:
+        for config in (network.get("IPAM") or {}).get("Config") or []:
+            # Parsed rather than string-matched: the result is written into a
+            # policy file, and IPv6 ranges are not what allowed_ips carries.
+            try:
+                subnet = ipaddress.ip_network(config.get("Subnet", ""), strict=False)
+            except ValueError:
+                continue
+            if subnet.version == 4:
+                subnets.add(subnet)
+    return [str(subnet) for subnet in sorted(subnets)]
 
 
 def tool_call(
