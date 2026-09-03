@@ -14,10 +14,10 @@ Foundation-specific alias or a second API instance.
 
 ## Required peers
 
-- Elasticsearch is mandatory. The API does not listen or make `/livez` available
-  until Elasticsearch is reachable **and** its `insertion-timestamp-pipeline`
-  exists. Select `elasticsearch` and `elasticsearch-init-container`; a reachable
-  Elasticsearch port by itself is not readiness.
+- Elasticsearch is required for the API's Elasticsearch-backed operations.
+  Select `elasticsearch` and `elasticsearch-init-container`, including the
+  `insertion-timestamp-pipeline`; a reachable Elasticsearch port alone does not
+  establish that those operations are ready.
 - With `STREAM_TYPE=kafka` and non-empty `kafka.brokers`, it also waits for
   `mdx-notification`, `mdx-amr`, and at least one `mdx-rtls*` topic. Include
   `kafka`, `kafka-topic-init-container`, and `broker-health-check` when the
@@ -26,8 +26,9 @@ Foundation-specific alias or a second API instance.
   `kafka.brokers` to `[]` or `null`; `redis` here skips Kafka work and does not
   configure a Redis client.
 - The data-query routes need matching Elasticsearch indices and upstream
-  producers. A healthy `/livez` with empty query results means the API is ready
-  but no matching analytics data has been indexed; it is not a deployment error.
+  producers. `/livez` returning `{ "isAlive": true }` is only liveness; empty
+  query results mean no matching analytics data has been indexed, not a deployment
+  failure.
 - Dynamic configuration publishes on `mdx-notification` under the
   `behavior-analytics-config` key and needs Behavior Analytics to consume and
   acknowledge it. Dynamic calibration publishes on the same topic with the
@@ -43,9 +44,11 @@ Foundation-specific alias or a second API instance.
 
 ## API and ingress surface
 
-- The service publishes `${VIDEO_ANALYTICS_API_HOST_PORT:-8081}:8081` and its
-  health probe is `GET /livez`, which returns `{ "isAlive": true }` only after
-  all selected readiness gates pass.
+- The service publishes `${VIDEO_ANALYTICS_API_HOST_PORT:-8081}:8081`.
+  `GET /livez` is a liveness endpoint and returns `{ "isAlive": true }` when
+  its route is served; it does **not** attest that Elasticsearch, the ingest
+  pipeline, Kafka, or upstream analytics data are ready. Check those dependencies
+  independently for an end-to-end readiness decision.
 - When HAProxy ingress is selected, expose the same service at
   `/video-analytics-api/...`; ingress strips that prefix before forwarding. Do
   not construct a distinct API URL for a profile.

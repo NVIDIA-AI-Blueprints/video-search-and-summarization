@@ -372,7 +372,7 @@ HTTP probes, when the selected list ships them:
 ```bash
 curl -sf "http://${HOST_IP}:${HAPROXY_HOST_PORT:-7777}/vst/"
 curl -sf "http://${HOST_IP}:9200/_cluster/health"          # extended, or bp_wh
-curl -sf "http://${HOST_IP}:8081/livez"                    # extended, or bp_wh
+curl -sf "http://${HOST_IP}:8081/livez"                    # liveness only; extended, or bp_wh
 curl -sf "http://${HOST_IP}:5601/kibana/api/status"        # extended, or bp_wh
 curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 ```
