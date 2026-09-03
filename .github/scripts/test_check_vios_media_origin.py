@@ -18,9 +18,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from check_vios_media_origin import HELM_HELPERS  # noqa: E402
 from check_vios_media_origin import MINTER  # noqa: E402
 from check_vios_media_origin import definitions_in  # noqa: E402
 from check_vios_media_origin import main  # noqa: E402
+from check_vios_media_origin import scan_helm  # noqa: E402
 from check_vios_media_origin import scan_minter  # noqa: E402
 from check_vios_media_origin import scan_paths  # noqa: E402
 
@@ -198,6 +200,74 @@ check(
     "a renamed minter is a finding, not a skip",
     bool(scan_minter(minter_tree(FIXED.replace("getIngressBaseUrl", "getBaseUrl")))),
 )
+
+
+# --------------------------------------------------------------------------
+# scan_helm: the charts set the same variable from a template helper
+# --------------------------------------------------------------------------
+print("scan_helm requires every emitted Helm endpoint to carry a scheme")
+
+HELM_FIXED = {
+    "vss-vios-streamprocessing.vstIngressEndpoint": """
+{{- define "vss-vios-streamprocessing.vstIngressEndpoint" -}}
+{{- $internal := printf "http://%s" (ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx) }}
+{{- if ne $explicit "" }}
+{{- $explicit }}
+{{- else }}
+{{- printf "%s://%s:%s/vst" $es $eh $ep }}
+{{- end }}
+""",
+    "vss-vios-sensor.vstIngressEndpointUrl": """
+{{- define "vss-vios-sensor.vstIngressEndpointUrl" -}}
+{{- $internal := printf "http://%s" (ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx) }}
+{{- printf "%s://%s/vst" $es $eh }}
+{{- end }}
+""",
+}
+
+# The shape that shipped in vios-streamprocessing: authority only, on the
+# premise that the app would prepend the scheme.
+HELM_DEFECT = '{{- printf "%s:%s/vst" $eh $ep }}'
+
+
+def helm_tree(bodies: dict[str, str]) -> Path:
+    """A throwaway tree holding both chart helper files."""
+    tmp = Path(tempfile.mkdtemp())
+    for relative, helper in HELM_HELPERS:
+        path = tmp / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(bodies[helper], encoding="utf-8")
+    return tmp
+
+
+check("both fixed helpers are accepted", not scan_helm(helm_tree(HELM_FIXED)))
+
+for _, target in HELM_HELPERS:
+    regressed = dict(HELM_FIXED)
+    regressed[target] = HELM_FIXED[target].replace(
+        '{{- printf "%s://%s:%s/vst" $es $eh $ep }}', HELM_DEFECT
+    ).replace('{{- printf "%s://%s/vst" $es $eh }}', HELM_DEFECT)
+    check(f"a schemeless emit in {target} is a finding", bool(scan_helm(helm_tree(regressed))))
+
+internal_regressed = dict(HELM_FIXED)
+internal_regressed["vss-vios-streamprocessing.vstIngressEndpoint"] = HELM_FIXED[
+    "vss-vios-streamprocessing.vstIngressEndpoint"
+].replace(
+    '{{- $internal := printf "http://%s" (ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx) }}',
+    '{{- $internal := ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx }}',
+)
+check(
+    "a schemeless in-cluster default is a finding",
+    bool(scan_helm(helm_tree(internal_regressed))),
+)
+
+check("a missing chart is a finding, not a skip", bool(scan_helm(Path(tempfile.mkdtemp()))))
+
+renamed = dict(HELM_FIXED)
+renamed["vss-vios-sensor.vstIngressEndpointUrl"] = HELM_FIXED[
+    "vss-vios-sensor.vstIngressEndpointUrl"
+].replace("vstIngressEndpointUrl", "vstIngressBase")
+check("a renamed helper is a finding, not a skip", bool(scan_helm(helm_tree(renamed))))
 
 
 # --------------------------------------------------------------------------
