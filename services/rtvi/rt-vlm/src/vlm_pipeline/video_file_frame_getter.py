@@ -233,10 +233,6 @@ def _cuda_oom_recovery_enabled() -> bool:
         "no",
         "off",
     )
-# The plugin counts changed pixels on a fixed 960x540 grid, so the threshold is
-# always out of 518400 regardless of input resolution.
-MIN_CHANGED_PIXELS_GRID_TOTAL = 960 * 540
-
 
 # How long a chunk's pick burst must be quiet before the chunk ships. Closing on
 # the first pick ships mid-burst and orphans the rest. With chunk-duration
@@ -246,18 +242,28 @@ FSELECT_CHUNK_CLOSE_GRACE_SEC = float(
     os.environ.get("RTVI_FSELECT_CHUNK_CLOSE_GRACE_SEC") or "0.3"
 )
 
+# selection-count when the per-chunk frame budget cannot be resolved: the selector
+# is in ALL_FRAMES mode (-1), or live built its pipeline before any set_chunk and
+# carries no usable fixed-frame count. Only a degenerate-case floor — the normal
+# path derives the cap from the frame budget itself.
+FSELECT_FALLBACK_SELECTION_COUNT = 10
+
 
 def _fselect_full_stream_window_verdict(pts, start_pts, end_pts):
-    """Frame verdict for FILE + CHOOSE_FSELECT + FSELECT_FULL_STREAM.
+    """Frame verdict for FILE + CHOOSE_FSELECT + FSELECT_FULL_STREAM=true.
+
+    Opt-in: FSELECT_FULL_STREAM defaults to false (the pre-filtered candidate-pool
+    mode that the accuracy evaluation used). This path runs only when it is set true.
 
     A file chunk is fetched with a KEY_UNIT|SNAP_BEFORE seek, so the decoder
     starts at the keyframe BEFORE start_pts and emits pre-roll belonging to the
-    previous window. In full-stream mode nothing else filters it: timestampfilter
-    is given timestamps="" so its drop-before-first has no anchor, and it has no
-    respect-segment-start property. Unfiltered pre-roll inflates the plugin's
-    cache until cache-full fires before the chunk-end EOS, splitting one chunk
-    across several selections (measured 3.77 groups/chunk on bus.G508.mp4), and
-    lets frames from outside the window be selected into the caption.
+    previous window. In full-stream mode nothing else filters it: there is no
+    target PTS list, so timestampfilter is not built at all (its drop-before-first
+    would have no anchor, and it has no respect-segment-start property).
+    Unfiltered pre-roll inflates the plugin's cache until cache-full fires before
+    the chunk-end EOS, splitting one chunk across several selections (measured
+    3.77 groups/chunk on bus.G508.mp4), and lets frames from outside the window
+    be selected into the caption.
 
     Half-open window [start_pts, end_pts): end_pts belongs to the next chunk and
     returns END_OF_CHUNK, which is what makes the caller emit EOS so the plugin
@@ -381,37 +387,6 @@ def _fselect_cache_size(frame_rate: float, chunk_seconds: float) -> int:
     """
     frames_per_chunk = int(frame_rate * chunk_seconds)
     return min(max(100, frames_per_chunk + 100), MAX_CACHE_FRAMES_PER_PIPELINE)
-
-
-def _fselect_min_changed_pixels() -> int:
-    """Pixels that must change for an OF-active chunk to stay ACTIVE (0 = off).
-
-    Demote-only guard: below this, an ACTIVE chunk is re-classified STATIC.
-    Camera-specific (tracks the noise floor), so RTVI ships it off.
-    """
-    raw = os.environ.get("NVDS_FSELECT_MIN_CHANGED_PIXELS")
-    if raw is None or raw.strip() == "":
-        return 0
-    try:
-        value = int(raw.strip())
-        if value < 0:
-            raise ValueError
-    except ValueError:
-        logger.warning(
-            "[fselect] Invalid NVDS_FSELECT_MIN_CHANGED_PIXELS=%r "
-            "(want a non-negative int); leaving min-changed-pixels=0 (off).",
-            raw,
-        )
-        return 0
-    if value > MIN_CHANGED_PIXELS_GRID_TOTAL:
-        logger.warning(
-            "[fselect] NVDS_FSELECT_MIN_CHANGED_PIXELS=%d exceeds the plugin's "
-            "%d-pixel grid; clamping (every chunk would otherwise be STATIC).",
-            value, MIN_CHANGED_PIXELS_GRID_TOTAL,
-        )
-        return MIN_CHANGED_PIXELS_GRID_TOTAL
-    return value
-
 
 
 def get_total_gpu_memory(gpu_id: int = 0) -> int:
@@ -737,7 +712,7 @@ class DefaultFrameSelector:
         # default wider-pool mode keeps the same PTS-list picker as REF below.
         if (
             os.environ.get("CHOOSE_FSELECT", "false") == "true"
-            and os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+            and os.environ.get("FSELECT_FULL_STREAM", "false").strip().lower() == "true"
         ):
             return _fselect_full_stream_window_verdict(
                 pts, self._chunk.start_pts, self._chunk.end_pts
@@ -1736,7 +1711,7 @@ class VideoFileFrameGetter:
         # GOPs that contain none of the targets.
         _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
         _full_stream = (
-            os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+            os.environ.get("FSELECT_FULL_STREAM", "false").strip().lower() == "true"
         )
         if _fselect_on and _full_stream:
             return Gst.PadProbeReturn.OK
@@ -1872,24 +1847,43 @@ class VideoFileFrameGetter:
         # is what we want. Leaving the property untouched keeps that default.
         #
         # Env overrides (all optional; absent ⇒ current defaults are preserved):
-        #   NVDS_FSELECT_SELECTION_COUNT      — int, frames the plugin emits per chunk
         #   NVDS_FSELECT_STATIC_FRAME_COUNT   — int, frames emitted for a STATIC chunk
-        #   NVDS_FSELECT_EQUIDISTANT_OUTPUT   — 0/1, emit the selected frames where the
-        #       motion actually is (0, RTVI default) vs spread evenly across the chunk
-        #       (1). Per the plugin: "When TRUE, output equidistant frames from the
-        #       chunk INSTEAD OF motion-ranked frames" -- i.e. 1 runs the whole optical
-        #       -flow ranking and then throws the ranking away, leaving uniform
-        #       sampling with fewer frames than REF, which is strictly worse.
-        #       Measured on 6 scenes (paired REF/HYP, 188 chunks): 0 beat 1 by +0.008
-        #       weighted accuracy at identical frame COUNTS and identical runtime --
-        #       equidistant-output changes frame POSITIONS only. Biggest wins were the
-        #       motion-heavy scenes (its -0.101 -> -0.012, new_warehouse -0.061 ->
-        #       -0.021) because a discrete transition ("enter from left") happens at
-        #       one instant and evenly-spread samples are the worst way to catch it.
-        try:
-            selection_count = int(os.environ.get("NVDS_FSELECT_SELECTION_COUNT") or "10")
-        except ValueError:
-            selection_count = 10
+        #
+        # equidistant-output has no env override: the plugin default (0, motion-ranked
+        # positions) is the only value RTVI wants. Per the plugin, "When TRUE, output
+        # equidistant frames from the chunk INSTEAD OF motion-ranked frames" -- i.e. 1
+        # runs the whole optical-flow ranking and then throws it away, leaving uniform
+        # sampling with fewer frames than REF, which is strictly worse. Measured on 6
+        # scenes (paired REF/HYP, 188 chunks): 0 beat 1 by +0.008 weighted accuracy at
+        # identical frame COUNTS and identical runtime -- it changes frame POSITIONS
+        # only. Biggest wins were the motion-heavy scenes (its -0.101 -> -0.012,
+        # new_warehouse -0.061 -> -0.021) because a discrete transition ("enter from
+        # left") happens at one instant and evenly-spread samples are the worst way to
+        # catch it.
+        # selection-count is an UPPER BOUND, not a fixed output size: the plugin
+        # computes a motion-scaled count and clamps it to this. It is derived from
+        # the pipeline's own per-chunk frame budget rather than a separate env knob,
+        # so file and live agree and the cap can never sit below the candidate pool
+        # that timestampfilter feeds the plugin (FSELECT_FULL_STREAM=false). That
+        # keeps the frame count motion-determined, which is the design intent and
+        # the configuration the accuracy evaluation measured.
+        #
+        # _num_frames is the RESOLVED per-chunk count (set_chunk runs before the
+        # pipeline is built on the file path), which is the only correct source when
+        # use_fps_for_chunking is on — there
+        # _num_frames_per_second_or_fixed_frames holds an FPS, not a frame count.
+        # Live builds its pipeline before any set_chunk, so it falls back to the
+        # fixed-frame value; ALL_FRAMES (-1) and unset both land on the constant.
+        selection_count = getattr(self._frame_selector, "_num_frames", None)
+        if not isinstance(selection_count, int) or selection_count < 1:
+            try:
+                selection_count = int(
+                    self._frame_selector._num_frames_per_second_or_fixed_frames
+                )
+            except (TypeError, ValueError):
+                selection_count = 0
+        if selection_count < 1:
+            selection_count = FSELECT_FALLBACK_SELECTION_COUNT
         # static-frame-count: frames the plugin emits when a chunk is classified
         # STATIC (peak moving-cell blob below the noise floor).
         #
@@ -1901,10 +1895,6 @@ class VideoFileFrameGetter:
         # measured and REJECTED: -0.145 weighted accuracy, because empty chunks fall
         # back to a canned caption instead of describing the scene.
         static_frame_count = _fselect_static_frame_count()
-        # RTSP/live ONLY: selection-count = N (num_frames) too, matching the
-        # N-frame pool the probe sends and the cache-size above. FILE unchanged.
-        if self._is_live:
-            selection_count = int(self._frame_selector._num_frames_per_second_or_fixed_frames)
         self._nvdsframeselector.set_property("selection-count", selection_count)
         # frame-selection-algorithm left at the plugin default (optical-flow), and
         # enable-motion-detection is deliberately NOT set: the plugin derives it from
@@ -1919,29 +1909,17 @@ class VideoFileFrameGetter:
         # the interval from received-frame timestamps to hold a ~0.5s OF gap (its
         # threshold-calibration point), self-adapting to any pool / chunk / fps.
         self._nvdsframeselector.set_property("optical-flow-interval", 0)
-        # equidistant-output: RTVI default 0 == motion-ranked frame positions, which is
-        # the whole point of running the OF selector. Set 1 only to reproduce the old
-        # uniform-position behaviour for comparison. Anything unparseable falls back to
-        # the default with a warning.
+        # equidistant-output is left at the plugin default (0 == motion-ranked frame
+        # positions), which is the whole point of running the OF selector. RTVI neither
+        # sets the property nor exposes an override: the NVDS_FSELECT_EQUIDISTANT_OUTPUT
+        # env var was removed once the plugin's default was confirmed to be 0, since
+        # the only value RTVI ever wanted was the default.
         #
-        # This is set EXPLICITLY rather than left untouched: the plugin documents a
-        # default for static-frame-count ("Default 3") but NOT for equidistant-output,
-        # so relying on its default would leave frame placement undefined.
-        _equi_raw = os.environ.get("NVDS_FSELECT_EQUIDISTANT_OUTPUT")
-        equidistant_output = 0
-        if _equi_raw is not None and _equi_raw.strip() != "":
-            _equi = _equi_raw.strip().lower()
-            if _equi in ("0", "false", "no", "off"):
-                equidistant_output = 0
-            elif _equi in ("1", "true", "yes", "on"):
-                equidistant_output = 1
-            else:
-                logger.warning(
-                    "[fselect] Invalid NVDS_FSELECT_EQUIDISTANT_OUTPUT=%r "
-                    "(want 0/1); leaving equidistant-output=0.",
-                    _equi_raw,
-                )
-        self._nvdsframeselector.set_property("equidistant-output", equidistant_output)
+        # The alternative (1) computes the optical-flow ranking and then discards it,
+        # leaving uniform positions. Measured on 188 chunks: 0 beat 1 by +0.008 weighted
+        # accuracy at identical frame counts and runtime, so there is no reason to ship
+        # a knob for it. Re-add an explicit set_property here if a future library
+        # changes that default.
         # Set only when explicitly configured; otherwise the plugin's own default
         # (3 as of the 2026-08-26 library) applies.
         if static_frame_count is not None:
@@ -1961,29 +1939,18 @@ class VideoFileFrameGetter:
                         "offset from RTVI's chunk windows (frame loss)."
                     )
 
-        # Demote-only sanity check on the OF verdict; guarded for older builds.
-        min_changed_pixels = _fselect_min_changed_pixels()
-        mcp_supported = _set_gst_property_if_supported(
-            self._nvdsframeselector, "min-changed-pixels", min_changed_pixels
-        )
-        if min_changed_pixels and not mcp_supported:
-            logger.warning(
-                "[fselect] NVDS_FSELECT_MIN_CHANGED_PIXELS=%d requested but this "
-                "nvdsframeselector build has no min-changed-pixels property; "
-                "the OF verdict will not be sanity-checked.",
-                min_changed_pixels,
-            )
+        # min-changed-pixels is left at the plugin default (0 == off). It is a
+        # demote-only guard whose right value tracks a specific camera's noise
+        # floor, so RTVI never enabled it and exposed no override.
         logger.info(
             "[fselect] nvdsframeselector configured: selection-count=%d, "
             "frame-selection-algorithm=default(OF), "
             "enable-motion-detection=plugin-derived, "
             "exclusion-range=default(auto), optical-flow-interval=0 (auto), "
-            "equidistant-output=%d, static-frame-count=%s, "
-            "min-changed-pixels=%s",
+            "equidistant-output=default(0), min-changed-pixels=default(0), "
+            "static-frame-count=%s",
             selection_count,
-            equidistant_output,
             static_frame_count if static_frame_count is not None else "plugin-default",
-            min_changed_pixels if mcp_supported else "unsupported",
         )
 
     def _fselect_apply_chunk_origin(self, first_chunk_start_pts_ns):
@@ -2361,7 +2328,7 @@ class VideoFileFrameGetter:
         _fselect_full_stream_file = (
             not self._is_live
             and os.environ.get("CHOOSE_FSELECT", "false") == "true"
-            and os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+            and os.environ.get("FSELECT_FULL_STREAM", "false").strip().lower() == "true"
         )
         if selects_all_file_frames or _fselect_full_stream_file:
             # All-frame file chunks have no discrete timestamp target list.
@@ -3673,17 +3640,20 @@ class VideoFileFrameGetter:
             #     to pre-select exactly the N target PTSes for the VLM.
             #
             # HYP (CHOOSE_FSELECT=true):
-            #   - default (FSELECT_FULL_STREAM=true): the filter is bypassed
-            #     entirely (use_timestamp_filter=False), so nvdsframeselector
-            #     sees the full decoded stream and picks frames motion-aware;
-            #     the Python window verdict drops pre-roll and ends the chunk.
-            #   - FSELECT_FULL_STREAM=false: push the PTS list anyway, just
-            #     like REF — useful for the "wider pre-filter + nvdsframeselector
-            #     picks subset" design (provide a longer _selected_pts_array
-            #     via the frame selector if you want more than N frames here).
+            #   - default (FSELECT_FULL_STREAM=false): push the PTS list just
+            #     like REF, so timestampfilter pre-filters the decode to those
+            #     N candidates and nvdsframeselector picks its subset from them
+            #     ("wider pre-filter + selector picks subset"). This is the mode
+            #     the accuracy evaluation was run in, which is why it is the
+            #     default. Give the frame selector a longer _selected_pts_array
+            #     if you want a candidate pool wider than N.
+            #   - FSELECT_FULL_STREAM=true: the filter is bypassed entirely
+            #     (use_timestamp_filter=False), so nvdsframeselector sees the
+            #     full decoded stream and picks frames motion-aware; the Python
+            #     window verdict drops pre-roll and ends the chunk.
             _fselect_on = os.environ.get("CHOOSE_FSELECT", "false") == "true"
             _fselect_full_stream = (
-                os.environ.get("FSELECT_FULL_STREAM", "true").strip().lower() == "true"
+                os.environ.get("FSELECT_FULL_STREAM", "false").strip().lower() == "true"
             )
             _push_timestamps = self._timestamp_filter is not None and not (
                 _fselect_on and _fselect_full_stream
