@@ -155,6 +155,7 @@ def test_vlm_evidence_validation(updates: dict[str, object]) -> None:
         "sensor": "camera-east",
         "start_time": "2026-08-26T12:00:10Z",
         "end_time": "2026-08-26T12:00:20Z",
+        "question": "Was the worker wearing a hard hat?",
         "answer": "A person carried a small box.",
     }
     payload.update(updates)
@@ -233,7 +234,7 @@ async def test_judge_retries_once_after_invalid_json_then_accepts_fenced_json() 
         nonlocal calls
         calls += 1
         body = json.loads(request.content)
-        assert body["temperature"] == 0
+        assert "temperature" not in body
         assert body["model"] == "openclaw/default"
         assert "response_format" not in body
         assert request.headers["authorization"] == "Bearer gateway-secret"
@@ -411,6 +412,7 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
             "sensor": "camera-east",
             "start_time": "2026-08-26T12:00:10Z",
             "end_time": "2026-08-26T12:00:20Z",
+            "question": "Was the worker wearing a hard hat?",
             "answer": "A person carried a small box.",
         }
     )

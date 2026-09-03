@@ -194,6 +194,7 @@ class IntrospectionVLMJobRunner:
             sensor=result.sensor_name,
             start_time=result.start_time,
             end_time=result.end_time,
+            question=prompt,
             answer=result.answer,
         )
 

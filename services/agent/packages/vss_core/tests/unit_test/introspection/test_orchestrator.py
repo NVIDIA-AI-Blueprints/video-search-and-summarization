@@ -161,6 +161,7 @@ class _Runner:
             sensor=kwargs["sensor"],
             start_time=kwargs["start_time"],
             end_time=kwargs["end_time"],
+            question=kwargs["prompt"],
             answer=f"visual answer {index + 1}",
         )
 

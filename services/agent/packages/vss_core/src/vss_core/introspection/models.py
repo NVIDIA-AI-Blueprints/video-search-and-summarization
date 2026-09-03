@@ -126,9 +126,10 @@ class VLMEvidence(_StrictModel):
     sensor: str
     start_time: str
     end_time: str
+    question: str
     answer: str
 
-    @field_validator("job_id", "sensor", "answer", mode="after")
+    @field_validator("job_id", "sensor", "question", "answer", mode="after")
     @classmethod
     def _require_text(cls, value: str, info: Any) -> str:
         return _nonempty(value, info.field_name)
