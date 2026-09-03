@@ -50,7 +50,7 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 30
 sensorModuleEndpoint: ""
-vstIngressEndpoint: ""   # default: <Release>-vss-vios-ingress:30888/vst (host:port/path, no scheme). When global.vlmBaseUrl and global.externalHost are set, defaults to <externalHost>[:externalPort]/vst so incident URLs work for remote VLM. Override explicitly if needed.
+vstIngressEndpoint: ""   # full URL with scheme. Default: http://<Release>-vss-vios-ingress:30888/vst. When global.externalHost is set, defaults to <global.externalScheme>://<externalHost>[:externalPort]/vst so incident URLs work for remote VLM. Docker parity: vst.env now defaults VST_INGRESS_ENDPOINT to ${VST_EXTERNAL_URL:-${VST_INTERNAL_URL}}/vst — the value always carries a scheme, and https:// is how a deployment expresses "TLS terminates upstream" without flipping security.use_https. Override explicitly if needed.
 # Redis: used in notification_config.json message_broker.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
 redisServerAddress: ""
 # Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.

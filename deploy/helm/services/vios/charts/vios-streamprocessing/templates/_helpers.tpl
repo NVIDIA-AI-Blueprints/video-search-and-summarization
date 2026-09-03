@@ -83,23 +83,33 @@
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short }}{{- else -}}{{ $short }}{{- end }}
 {{- end }}
 {{/*
-  VST_INGRESS_ENDPOINT: host[:port]/vst (no scheme; app prepends http://). Incident/video URLs must be reachable from remote VLM when global.vlmBaseUrl is set — use global.externalHost like vss-alert-bridge vst_config.
+  VST_INGRESS_ENDPOINT: <scheme>://host[:port]/vst. Docker parity: vst.env
+  now defaults VST_INGRESS_ENDPOINT to ${VST_EXTERNAL_URL:-${VST_INTERNAL_URL}}/vst,
+  i.e. the value always carries a scheme. getIngressBaseUrl() in
+  services/vios/src/framework/utilities/utils.cpp accepts the scheme when
+  present (and still prepends http:// otherwise), so an https:// endpoint here
+  is how a deployment says "TLS terminates upstream" without flipping
+  security.use_https (which also controls whether VIOS serves TLS itself).
+  Incident/video URLs must be reachable from remote VLM when global.vlmBaseUrl
+  is set — use global.externalHost + global.externalScheme, matching the
+  vss-vios-sensor helper.
 */}}
 {{- define "vss-vios-streamprocessing.vstIngressEndpoint" -}}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $eh := index $g "externalHost" | default "" | trim }}
 {{- $ep := index $g "externalPort" | default "" | toString | trim }}
+{{- $es := index $g "externalScheme" | default "http" }}
 {{- $explicit := trim (default "" .Values.vstIngressEndpoint) }}
 {{- if ne $explicit "" }}
 {{- $explicit }}
 {{- else }}
-{{- $internal := ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx }}
+{{- $internal := printf "http://%s" (ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx) }}
 {{- if ne $eh "" }}
 {{- if ne $ep "" }}
-{{- printf "%s:%s/vst" $eh $ep }}
+{{- printf "%s://%s:%s/vst" $es $eh $ep }}
 {{- else }}
-{{- printf "%s/vst" $eh }}
+{{- printf "%s://%s/vst" $es $eh }}
 {{- end }}
 {{- else }}
 {{- $internal }}
