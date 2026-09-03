@@ -88,9 +88,6 @@ ADD src/perception_utc.c /opt/nvidia/deepstream/deepstream/sources/apps/sample_a
 ADD src/metropolis_perception_app.h /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/metropolis_perception_app.h
 ADD src/Makefile /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/Makefile
 
-ADD src/frame_dump.cpp /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/src/frame_dump.cpp
-ADD src/frame_dump.h /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/includes/frame_dump.h
-
 # Copy reference configs
 ADD reference-configs /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs
 
@@ -146,10 +143,6 @@ COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/
 # Triton model repos, with the arch-correct GDINO plugin already renamed
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/TritonGdino/ /opt/nvidia/deepstream/deepstream/sources/TritonGdino/
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/TritonMaskGdino/ /opt/nvidia/deepstream/deepstream/sources/TritonMaskGdino/
-
-# frame_dump sources: shipped for reference/debug, already compiled into the binary
-COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/src/frame_dump.cpp /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/src/frame_dump.cpp
-COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/includes/frame_dump.h /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/includes/frame_dump.h
 
 # OCR config the sparse4d path reads at runtime
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs/config_ocr.yaml /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/config_ocr.yaml
