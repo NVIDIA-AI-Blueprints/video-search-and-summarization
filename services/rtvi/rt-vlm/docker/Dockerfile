@@ -346,6 +346,11 @@ COPY src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_arch_patch.py
 
+# Transformers 5 makes Parakeet's base configuration a dataclass. vLLM's
+# positional required subclass fields must be keyword-only to remain valid.
+RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_parakeet_transformers5_patch.py
+
 # Qwen3-Omni's nightly processor incorrectly assumes every video item has
 # use_audio_in_video, including video-only requests.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
