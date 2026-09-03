@@ -36,8 +36,6 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
 
-from elasticsearch import NotFoundError as ESNotFoundError
-
 from vss_core._foundation.errors import LibraryError
 from vss_core._foundation.sanitize import scrub_log
 from vss_core._foundation.time import datetime_to_iso8601
@@ -432,7 +430,7 @@ async def _search_behavior(
 
     try:
         response = await es.search(index=search_index_str, body=search_query)
-    except ESNotFoundError as e:
+    except IndexNotFoundError as e:
         if _is_absent_uploads_anchor(index):
             logger.warning(
                 f"Uploads anchor index '{index}' does not exist (no files ingested); "
@@ -440,7 +438,7 @@ async def _search_behavior(
             )
             return []
         logger.error(f"Elasticsearch index '{index}' not found: {e}")
-        raise IndexNotFoundError(index, e) from e
+        raise
 
     hits = list(response["hits"]["hits"])
     logger.info(f"Behavior search found {len(hits)} candidate(s)")
@@ -637,7 +635,7 @@ async def _fetch_object_embedding(
     }
     try:
         response = await es.search(index=search_index_str, body=query)
-    except ESNotFoundError as e:
+    except IndexNotFoundError as e:
         if _is_absent_uploads_anchor(behavior_index):
             logger.warning(
                 f"Uploads anchor index '{behavior_index}' does not exist (no files ingested); "
@@ -645,7 +643,7 @@ async def _fetch_object_embedding(
             )
             return []
         logger.error(f"Elasticsearch index '{behavior_index}' not found: {e}")
-        raise IndexNotFoundError(behavior_index, e) from e
+        raise
 
     hits = response["hits"]["hits"]
     if not hits:

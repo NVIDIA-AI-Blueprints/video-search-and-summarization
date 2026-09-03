@@ -334,6 +334,13 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))" in lifecycle
     assert "delete_timeout()" in lifecycle
     assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
+    assert 'RTSP_EMBED_INDEX="mdx-embed-filtered-*"' in lifecycle
+    assert "resolve_upload_indexes()" in lifecycle
+    assert "resolve_upload_indexes || exit 1" in lifecycle
+    assert 'select(. == "mdx-embed-filtered-2025-01-01")' in lifecycle
+    assert 'select(. == "mdx-behavior-2025-01-01")' in lifecycle
+    assert 'select(. == "mdx-raw-2025-01-01")' in lifecycle
+    assert not re.search(r'(?m)^EMBED_INDEX="mdx-embed-filtered-\*"$', lifecycle)
     assert 'delete_index_count "${BEHAVIOR_INDEX}" sensor.id.keyword' in lifecycle
     assert 'delete_index_count "${RAW_INDEX}" sensorId.keyword' in lifecycle
     assert "SAMPLE_RTVI_LOG == 1" not in lifecycle
@@ -490,6 +497,9 @@ def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
 
 def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
     lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
+    resolver_match = re.search(r"resolve_upload_indexes\(\) \{\n.*?\n\}", lifecycle, flags=re.DOTALL)
+    assert resolver_match is not None
+    resolver = resolver_match.group(0)
     blocks = [
         block
         for block in re.findall(r"```bash\n(.*?)```", lifecycle, flags=re.DOTALL)
@@ -510,6 +520,10 @@ curl() {{
 vss_stub() {{
   case "$*" in
     'vios list') printf '%s\n' '{{"count":0,"type":null,"sensors":[]}}' ;;
+    'configure show')
+      printf '%s\n' \
+        '{{"services":{{"elasticsearch":{{"indices":["mdx-embed-filtered-2025-01-01","mdx-behavior-2025-01-01","mdx-raw-2025-01-01"]}}}}}}'
+      ;;
     *) return 9 ;;
   esac
 }}
@@ -521,6 +535,7 @@ SAVED_SOURCE_NAME=warehouse-ladder
 EMBED_INDEX=mdx-embed-filtered-2025-01-01
 BEHAVIOR_INDEX=mdx-behavior-2025-01-01
 RAW_INDEX=mdx-raw-2025-01-01
+{resolver}
 {blocks[0]}
 """
     completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)

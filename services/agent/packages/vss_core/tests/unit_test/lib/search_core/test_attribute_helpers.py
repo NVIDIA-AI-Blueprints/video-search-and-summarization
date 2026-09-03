@@ -18,6 +18,7 @@ from elasticsearch import NotFoundError as ESNotFoundError
 import pytest
 
 from vss_core._foundation.time import iso8601_instants_match
+from vss_core.search_core.clients.elastic import ElasticClient
 from vss_core.search_core.errors import IndexNotFoundError
 from vss_core.search_core.models.attribute_search import AttributeSearchMetadata
 from vss_core.search_core.models.attribute_search import AttributeSearchResult
@@ -365,13 +366,20 @@ def test_append_rank_key_deterministic_tiebreak():
 
 
 class _RaisingEs:
-    """ElasticIndex surface whose search always raises an ES 404."""
+    """ElasticIndex surface whose search raises the normalized library error."""
 
     async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
-        raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+        raise IndexNotFoundError(index)
 
     async def aclose(self) -> None:
         return None
+
+
+class _RawNotFoundEs:
+    """Underlying AsyncElasticsearch surface used to exercise normalization."""
+
+    async def search(self, **_kwargs: Any) -> Any:
+        raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
 
 
 @pytest.mark.asyncio
@@ -384,6 +392,22 @@ async def test_search_behavior_missing_concrete_anchor_returns_empty():
         top_k=1,
         min_similarity=0.0,
         es=_RaisingEs(),
+        source_type="video_file",
+    )
+    assert hits == []
+
+
+@pytest.mark.asyncio
+async def test_search_behavior_missing_anchor_via_elastic_client_returns_empty():
+    # Cross the production client boundary: ElasticClient normalizes the raw ES
+    # exception before the primitive applies the uploads-anchor empty policy.
+    client = ElasticClient(endpoint="http://es", client=_RawNotFoundEs())  # type: ignore[arg-type]
+    hits = await ah._search_behavior(
+        index="mdx-behavior-2025-01-01",
+        query_embedding=[0.1, 0.2],
+        top_k=1,
+        min_similarity=0.0,
+        es=client,
         source_type="video_file",
     )
     assert hits == []

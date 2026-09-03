@@ -4,10 +4,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
-from elasticsearch import NotFoundError as ESNotFoundError
 import pytest
 
 from vss_core.search_core.errors import IndexNotFoundError
@@ -41,7 +39,7 @@ class _MockEs:
     async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
         self.calls.append({"index": index, "body": body})
         if self._raise_not_found:
-            raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+            raise IndexNotFoundError(index)
         if body and "knn" in body:
             return {"hits": {"hits": self._behavior_hits}}
         return {"hits": {"hits": []}}
@@ -238,8 +236,8 @@ class TestAttributeSearchContract:
         attr, _es, _embed = make_attr(raise_not_found=True)
         with pytest.raises(IndexNotFoundError) as exc_info:
             await attr.run(AttributeSearchInput(query="q", source_type="rtsp"))
-        assert exc_info.value.index == ["mdx-behavior-*", "-behavior_index"]
-        assert "mdx-behavior-*, -behavior_index" in str(exc_info.value)
+        assert exc_info.value.index == "mdx-behavior-*,-behavior_index"
+        assert "mdx-behavior-*,-behavior_index" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_empty_query_raises_invalid_input(self, make_attr):

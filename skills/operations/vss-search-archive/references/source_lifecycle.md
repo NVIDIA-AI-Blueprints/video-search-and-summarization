@@ -40,26 +40,34 @@ ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') ||
 RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || exit 1
 RTVI_VLM_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
   '.services.rt_vlm.url // empty') || RTVI_VLM_URL=
-resolve_search_indexes() {
-  # Readiness must count a live stream's docs wherever they land, so it queries
-  # the family wildcard and lets the sensor-id filter below scope the result.
-  # Never resolve a single date-stamped index (`sort | first`): in a mixed
-  # deployment that is the `2025-01-01` uploads anchor, so a live stream whose
-  # docs sit in today's index would never satisfy readiness.
-  EMBED_INDEX="mdx-embed-filtered-*"
-  BEHAVIOR_INDEX="mdx-behavior-*"
-  RAW_INDEX="mdx-raw-*"
+RTSP_EMBED_INDEX="mdx-embed-filtered-*"
+resolve_upload_indexes() {
+  # File uploads always land in the fixed epoch anchors. Read those exact names
+  # from the configured inventory so file readiness and deletion never absorb
+  # same-named live-stream documents from another date shard.
+  CONFIG_JSON=$("${VSS[@]}" configure show) || return 1
+  printf '%s' "${CONFIG_JSON}" |
+    jq -e '.services.elasticsearch.indices | type == "array"' >/dev/null || return 1
+  EMBED_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
+    '[.services.elasticsearch.indices[] | select(. == "mdx-embed-filtered-2025-01-01")] | first') || return 1
+  BEHAVIOR_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
+    '[.services.elasticsearch.indices[] | select(. == "mdx-behavior-2025-01-01")] | first') || return 1
+  RAW_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
+    '[.services.elasticsearch.indices[] | select(. == "mdx-raw-2025-01-01")] | first') || return 1
+  [ "${EMBED_INDEX}" != "${BEHAVIOR_INDEX}" ] &&
+    [ "${EMBED_INDEX}" != "${RAW_INDEX}" ] &&
+    [ "${BEHAVIOR_INDEX}" != "${RAW_INDEX}" ]
 }
 ```
 
-`resolve_search_indexes` only sets family wildcards, so it is safe to call at any
-time. Indexes are still created lazily by ingestion, but readiness is proven by
-the sensor-scoped document counts below — a count greater than zero — not by an
-index appearing in the inventory. Re-running
-`vss configure --base-url "${VSS_ORIGIN}"` after ingestion refreshes the service
-snapshot and is good practice, but is no longer required for correct index
-selection. Never substitute `ELASTIC_SEARCH_INDEX`, an index template, or a
-guessed single date for the family wildcard.
+Use `RTSP_EMBED_INDEX` only for live-stream readiness: wall-clock RTSP documents
+may land in any date shard, and the sensor-id filter scopes the wildcard count.
+Use `resolve_upload_indexes` only after file ingestion or before file deletion;
+it reads the three exact epoch anchors from `vss configure show` and fails until
+all are present. Re-run `vss configure --base-url "${VSS_ORIGIN}"` after file
+ingestion so its lazy-created index inventory is current. Never substitute
+`ELASTIC_SEARCH_INDEX`, an index template, a wildcard for an upload tuple, or a
+single date shard for live-stream readiness.
 
 Before downloading or ingesting media, require bounded Agent and VST health
 through the deployment's host-reachable origin and RTVI-CV readiness. If
@@ -349,11 +357,11 @@ bounded wait:
 : "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
 while :; do
   # Re-read the deployment every pass. Indexes are created lazily by ingestion,
-  # so `configure` + `resolve_search_indexes` run inside this wait, not before
+  # so `configure` + `resolve_upload_indexes` run inside this wait, not before
   # it: resolving once while the embedding index does not yet exist fails
   # outright and never reaches the document counts below.
   if "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" >/dev/null 2>&1 &&
-     resolve_search_indexes; then
+     resolve_upload_indexes; then
     SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
       "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
     LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
@@ -373,7 +381,7 @@ while :; do
 done
 # Fail loudly if the wait expired without the indexes appearing, rather than
 # falling through with EMBED_INDEX unset into a search that reads nothing.
-resolve_search_indexes || {
+resolve_upload_indexes || {
   echo "search indexes never appeared before the deadline (embedding index missing)" >&2
   exit 1
 }
@@ -435,9 +443,10 @@ the agent keys the stream by `name`. Do not log credentials. Poll boundedly
 until the source is registered, then resolve its exact VST sensor identity
 before search. A successful add only starts embedding generation; it does not
 prove that searchable documents exist. Poll the embed index family wildcard
-(`EMBED_INDEX`), scoped to the exact registered stream identity, and require a
-count greater than zero within five minutes. Do not poll a single date-stamped
-index: a live stream's docs are in today's index, not the uploads anchor.
+(`RTSP_EMBED_INDEX`), scoped to the exact registered stream identity, and
+require a count greater than zero within five minutes. Do not poll a single
+date-stamped index: a live stream's docs are in today's index, not the uploads
+anchor.
 
 ## Delete source
 
@@ -447,9 +456,10 @@ Confirm the target unless deletion was already explicit:
 ```bash
 : "${SAVED_SENSOR_ID:?save the exact file-source UUID before deletion}"
 : "${SAVED_SOURCE_NAME:?save the canonical source name before deletion}"
-: "${EMBED_INDEX:?call resolve_search_indexes first}"
-: "${BEHAVIOR_INDEX:?call resolve_search_indexes first}"
-: "${RAW_INDEX:?call resolve_search_indexes first}"
+resolve_upload_indexes || exit 1
+: "${EMBED_INDEX:?resolve the exact upload embedding index first}"
+: "${BEHAVIOR_INDEX:?resolve the exact upload behavior index first}"
+: "${RAW_INDEX:?resolve the exact upload raw index first}"
 
 DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))
 delete_timeout() {
