@@ -101,7 +101,9 @@ check("...and was actually examined", checked == 1, f"(checked={checked})")
 # A public origin with no scheme is the trap that looks fixed: VIOS falls back
 # to security.use_https, which is false, so an https origin mints http://host:443
 # and the TLS listener answers 400.
-failures, _ = scan_text("VST_INGRESS_ENDPOINT=${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}/vst")
+failures, _ = scan_text(
+    "VST_INGRESS_ENDPOINT=${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}/vst"
+)
 check("a schemeless public origin is rejected", bool(failures), f"({failures})")
 check(
     "...naming the scheme as the reason",
@@ -109,7 +111,9 @@ check(
     f"({failures})",
 )
 
-failures, _ = scan_text("VST_INGRESS_ENDPOINT=${VST_INTERNAL_URL:-${VST_EXTERNAL_URL}}/vst")
+failures, _ = scan_text(
+    "VST_INGRESS_ENDPOINT=${VST_INTERNAL_URL:-${VST_EXTERNAL_URL}}/vst"
+)
 check("the internal origin first is rejected", bool(failures), f"({failures})")
 check(
     "...naming the ordering as the reason",
@@ -123,7 +127,9 @@ check(
 # --------------------------------------------------------------------------
 print("accepts the fix")
 
-failures, checked = scan_text("VST_INGRESS_ENDPOINT=${VST_EXTERNAL_URL:-${VST_INTERNAL_URL}}/vst")
+failures, checked = scan_text(
+    "VST_INGRESS_ENDPOINT=${VST_EXTERNAL_URL:-${VST_INTERNAL_URL}}/vst"
+)
 check("public origin with internal fallback is accepted", not failures, f"({failures})")
 check("...and was actually examined", checked == 1, f"(checked={checked})")
 
@@ -244,10 +250,15 @@ check("both fixed helpers are accepted", not scan_helm(helm_tree(HELM_FIXED)))
 
 for _, target in HELM_HELPERS:
     regressed = dict(HELM_FIXED)
-    regressed[target] = HELM_FIXED[target].replace(
-        '{{- printf "%s://%s:%s/vst" $es $eh $ep }}', HELM_DEFECT
-    ).replace('{{- printf "%s://%s/vst" $es $eh }}', HELM_DEFECT)
-    check(f"a schemeless emit in {target} is a finding", bool(scan_helm(helm_tree(regressed))))
+    regressed[target] = (
+        HELM_FIXED[target]
+        .replace('{{- printf "%s://%s:%s/vst" $es $eh $ep }}', HELM_DEFECT)
+        .replace('{{- printf "%s://%s/vst" $es $eh }}', HELM_DEFECT)
+    )
+    check(
+        f"a schemeless emit in {target} is a finding",
+        bool(scan_helm(helm_tree(regressed))),
+    )
 
 internal_regressed = dict(HELM_FIXED)
 internal_regressed["vss-vios-streamprocessing.vstIngressEndpoint"] = HELM_FIXED[
@@ -261,7 +272,10 @@ check(
     bool(scan_helm(helm_tree(internal_regressed))),
 )
 
-check("a missing chart is a finding, not a skip", bool(scan_helm(Path(tempfile.mkdtemp()))))
+check(
+    "a missing chart is a finding, not a skip",
+    bool(scan_helm(Path(tempfile.mkdtemp()))),
+)
 
 renamed = dict(HELM_FIXED)
 renamed["vss-vios-sensor.vstIngressEndpointUrl"] = HELM_FIXED[
