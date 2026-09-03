@@ -82,7 +82,9 @@ SCHEME_TOKENS = ("http://", "https://", "VST_EXTERNAL_URL", "VSS_PUBLIC_HTTP_PRO
 # to carry its scheme, for the same reason the Compose value does.
 HELM_HELPERS = (
     (
-        Path("deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl"),
+        Path(
+            "deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl"
+        ),
         "vss-vios-streamprocessing.vstIngressEndpoint",
     ),
     (
@@ -135,7 +137,9 @@ def assignments(path: Path) -> list[tuple[int, str]]:
     """Return ``(line number, value)`` for each assignment of the variable."""
     found: list[tuple[int, str]] = []
     pending: int | None = None
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         if line.lstrip().startswith("#"):
             continue
 
@@ -252,7 +256,9 @@ def scan_helm(root: Path | None = None) -> list[str]:
 
         lines = path.read_text(encoding="utf-8").splitlines()
         try:
-            start = next(i for i, line in enumerate(lines) if f'define "{helper}"' in line)
+            start = next(
+                i for i, line in enumerate(lines) if f'define "{helper}"' in line
+            )
         except StopIteration:
             failures.append(
                 f"{relative}: helper {helper!r} not found. It sets "
@@ -261,7 +267,11 @@ def scan_helm(root: Path | None = None) -> list[str]:
             continue
 
         end = next(
-            (i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("{{- end }}") and i > start),
+            (
+                i
+                for i, line in enumerate(lines[start + 1 :], start + 1)
+                if line.startswith("{{- end }}") and i > start
+            ),
             len(lines),
         )
 
