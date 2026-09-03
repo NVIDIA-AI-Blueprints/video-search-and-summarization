@@ -14,3 +14,5 @@ RUN . $NVM_DIR/nvm.sh && nvm use 22 \
 # Provider registration happens at sandbox start: the fleet worker writes
 # ~/.pi/agent/models.json with baseUrl=$NVIDIA_INFERENCE_BASE_URL and the API key
 # from the gateway credential provider. Never bake keys or models.json into the image.
+
+LABEL harness.agent="pi"

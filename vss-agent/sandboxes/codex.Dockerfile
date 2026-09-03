@@ -9,3 +9,5 @@ RUN . $NVM_DIR/nvm.sh && nvm use 22 \
 
 # auth note: codex needs OPENAI_API_KEY (or ChatGPT device login) — deliver via an
 # OpenShell credential provider, never baked into the image.
+
+LABEL harness.agent="codex"
