@@ -23,10 +23,11 @@ VIOS auto-discovers ONVIF-S compliant IP cameras, and allows use of custom IP st
 8. Video wall feature which provides composite view of multiple webrtc streams.
 9. Provide REST APIs to write client application to control and configure VIOS.
 10. Support Redis/Kafka message bus to publish device add/remove events.
-11. Prometheus/Grafana integration for publishing VIOS statistics.
-12. Derive insights about the current status of VIOS.
-13. Cloud native. Deploy as a container.
-14. Supports milestone adaptor for fetching data from milestone VMS.
+11. Support outbound HTTP webhooks to deliver the same device events to external services (refer to [Notification Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config)).
+12. Prometheus/Grafana integration for publishing VIOS statistics.
+13. Derive insights about the current status of VIOS.
+14. Cloud native. Deploy as a container.
+15. Supports milestone adaptor for fetching data from milestone VMS.
 
 We included binary for a web-based client that allows to view live and recorded content, as well as to modify camera and stream configuration (Web-UI Viewer).
 
@@ -684,6 +685,18 @@ Following table describes the parameters in VIOS notification config file (`conf
 | **webhooks** | **Section to define all outbound HTTP webhook parameters** |   |
 | enabled | Master switch for the webhook notifier. When FALSE, no webhook is loaded or delivered, regardless of the per-webhook `enabled` flags. | FALSE |
 | items | Array of webhook definitions. Each entry is described in the table below. | [] |
+
+#### Webhooks
+
+Webhooks deliver the same device notifications VIOS publishes on the message broker to arbitrary HTTP endpoints, so an external service can react to camera events without subscribing to Redis, Kafka, or MQTT.
+
+The two delivery paths are independent. The message broker is enabled by `message_broker.enable_notification` and webhooks by `webhooks.enabled`, and either, both, or neither may be active. Each path keeps its own queue and worker thread, so a slow or unreachable webhook endpoint does not delay publishing on the broker.
+
+When an event is raised, it is matched against every entry in `webhooks.items[]`. An entry matches when its trigger key names the event's alert type and the configured value matches the corresponding event field: `"camera_status_change": "camera_add"` fires only on camera-add events. Every matching entry then delivers to all of the receivers in its `request[]` array, so one event can reach several endpoints. A receiver's `camera_type` list narrows this further, skipping delivery when the event's camera type is not listed.
+
+Delivery is asynchronous. Each receiver is attempted, retried, and given up on independently, following its own `timeout_ms` and `retry` settings, so one failing endpoint does not hold up or fail the others.
+
+By default the request body is the notification event as JSON, with the entry's `id` added as a `webhook_id` field. Setting `user_defined_metadata` merges extra fields into that body, and setting `body` replaces it entirely with a rendered template. Header and query parameter values may also reference event fields using the `{{event.<field>}}` form.
 
 **`webhooks.items[]` — webhook definition**
 
