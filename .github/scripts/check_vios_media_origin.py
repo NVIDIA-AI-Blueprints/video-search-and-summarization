@@ -34,6 +34,14 @@ correct a URL scheme breaks the listener and misinforms other clients. An
 endpoint that names an https public origin without saying ``https://`` is
 therefore minted as ``http://<host>:443/...`` and answered 400 by the TLS
 listener -- no more usable than the internal name it replaced.
+
+The two invariants only hold together, so both are checked here. Requiring the
+configured value to carry a scheme is safe *because* ``getIngressBaseUrl()``
+passes such a value through untouched. Revert that passthrough and the
+configuration this lint demands becomes the broken input: the function prepends
+its own scheme and mints ``http://http://host:7777/vst/...``, which was observed
+live before the passthrough was added. Guarding the configuration alone would
+call that combination clean.
 """
 
 from __future__ import annotations
@@ -68,6 +76,17 @@ HELM_VALUE = re.compile(r"^\s*value:\s*(?P<value>.*?)\s*$")
 PASSTHROUGH_DEFAULT = re.compile(rf"^\$\{{{TARGET}:-(?P<default>.*)\}}$")
 
 SCHEME_TOKENS = ("http://", "https://", "VST_EXTERNAL_URL", "VSS_PUBLIC_HTTP_PROTOCOL")
+
+# The only reader of the variable, and the other half of the contract.
+MINTER = Path("services") / "vios" / "src" / "framework" / "utilities" / "utils.cpp"
+MINTER_FUNCTION = "getIngressBaseUrl"
+
+# Body of `<type> getIngressBaseUrl(...) { ... }` up to the first line-initial
+# `}`, which is this tree's brace style for a free function.
+MINTER_BODY = re.compile(
+    rf"{MINTER_FUNCTION}\s*\([^)]*\)\s*\{{(?P<body>.*?)^\}}",
+    re.DOTALL | re.MULTILINE,
+)
 
 
 def first_index(value: str, tokens: Iterable[str]) -> int | None:
@@ -190,6 +209,46 @@ def scan_paths(paths: Iterable[Path]) -> tuple[list[str], int]:
     return failures, checked
 
 
+def scan_minter(root: Path | None = None) -> list[str]:
+    """Check that the endpoint's own scheme survives being turned into a URL.
+
+    Returns diagnostics, or an empty list when the passthrough is present. A
+    missing file or a renamed function is reported rather than skipped: this
+    half of the contract silently disappearing is what the check exists to
+    prevent.
+    """
+    path = (root or ROOT) / MINTER
+    if not path.is_file():
+        return [
+            f"{MINTER}: not found, so the scheme passthrough that makes a "
+            f"scheme-carrying {TARGET} safe cannot be verified. If the minter "
+            f"moved, point this check at it."
+        ]
+
+    match = MINTER_BODY.search(path.read_text(encoding="utf-8", errors="ignore"))
+    if match is None:
+        return [
+            f"{MINTER}: {MINTER_FUNCTION}() not found. It is the only reader of "
+            f"{TARGET}; if it was renamed, update this check with it."
+        ]
+
+    body = match.group("body")
+    returns_verbatim = "return config.ingress_endpoint;" in body
+    tests_both_schemes = '"http://"' in body and '"https://"' in body
+
+    if returns_verbatim and tests_both_schemes:
+        return []
+
+    return [
+        f"{MINTER}: {MINTER_FUNCTION}() no longer returns a scheme-carrying "
+        f"{TARGET} verbatim. It has to, because this lint requires that value to "
+        f"carry its scheme: without the passthrough the function prepends "
+        f"another one and mints 'http://http://host/vst/...'. Restore the "
+        f"early return of config.ingress_endpoint when it already begins "
+        f"http:// or https://."
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=Path)
@@ -197,6 +256,11 @@ def main(argv: list[str] | None = None) -> int:
 
     paths = args.paths or default_paths()
     failures, checked = scan_paths(paths)
+
+    # Explicit paths mean a caller is linting specific fixtures, so only the
+    # repository-wide run checks the minter that pairs with them.
+    if not args.paths:
+        failures = failures + scan_minter()
 
     # A lint with nothing to check passes forever. The variable is set in the
     # VIOS env file and defaulted in the streamprocessing Compose file; if both
@@ -214,9 +278,11 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(failures), file=sys.stderr)
         return 1
 
+    minted = "" if args.paths else f", scheme passthrough intact in {MINTER.name}"
     print(
         f"VIOS media origin lint passed "
-        f"({checked} resolvable definition(s) of {TARGET} in {len(paths)} file(s))."
+        f"({checked} resolvable definition(s) of {TARGET} in "
+        f"{len(paths)} file(s){minted})."
     )
     return 0
 
