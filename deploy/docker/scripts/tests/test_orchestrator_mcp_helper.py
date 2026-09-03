@@ -36,6 +36,89 @@ class ResolveOpenshellGatewayContainerTests(unittest.TestCase):
             self.assertIsNone(helper.resolve_openshell_gateway_container("demo"))
 
 
+class SandboxHostCidrsTests(unittest.TestCase):
+    @staticmethod
+    def _docker(networks: str, inspected: str):
+        """Answer the ps / inspect / network-inspect calls the helper makes."""
+
+        def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            if cmd[1] == "ps":
+                return subprocess.CompletedProcess(cmd, 0, stdout="openshell-demo-abc\n")
+            if cmd[1] == "inspect":
+                return subprocess.CompletedProcess(cmd, 0, stdout=networks)
+            if cmd[1:3] == ["network", "inspect"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=inspected)
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        return run
+
+    def test_returns_the_subnets_of_every_attached_network(self) -> None:
+        run = self._docker(
+            '{"openshell-docker": {"Gateway": "172.19.0.1"}}',
+            '[{"Name": "openshell-docker",'
+            ' "IPAM": {"Config": [{"Subnet": "172.19.0.0/16", "Gateway": "172.19.0.1"}]}}]',
+        )
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), ["172.19.0.0/16"])
+
+    def test_sorts_by_network_address_and_drops_ipv6(self) -> None:
+        run = self._docker(
+            '{"a": {}, "b": {}}',
+            '[{"IPAM": {"Config": [{"Subnet": "172.20.0.0/16"}, {"Subnet": "fd00::/64"}]}},'
+            ' {"IPAM": {"Config": [{"Subnet": "172.19.0.0/16"}]}}]',
+        )
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(
+                helper.sandbox_host_cidrs("demo"),
+                ["172.19.0.0/16", "172.20.0.0/16"],
+            )
+
+    def test_skips_a_subnet_that_is_not_an_address_range(self) -> None:
+        # The result is written into a policy file, so anything unparseable is
+        # dropped rather than passed through.
+        run = self._docker(
+            '{"a": {}}',
+            '[{"IPAM": {"Config": [{"Subnet": "not-a-cidr"}, {"Subnet": "172.19.0.0/16"}]}}]',
+        )
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), ["172.19.0.0/16"])
+
+    def test_returns_empty_when_the_sandbox_is_absent(self) -> None:
+        result = subprocess.CompletedProcess(["docker", "ps"], 0, stdout="\n")
+        with mock.patch.object(helper.subprocess, "run", return_value=result):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), [])
+
+    def test_returns_empty_when_docker_inspect_fails(self) -> None:
+        def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            if cmd[1] == "ps":
+                return subprocess.CompletedProcess(cmd, 0, stdout="openshell-demo-abc\n")
+            raise subprocess.CalledProcessError(1, cmd)
+
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), [])
+
+    def test_returns_empty_when_docker_stops_responding(self) -> None:
+        def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            self.assertEqual(kwargs.get("timeout"), helper.DOCKER_QUERY_TIMEOUT_S)
+            if cmd[1] == "ps":
+                return subprocess.CompletedProcess(cmd, 0, stdout="openshell-demo-abc\n")
+            raise subprocess.TimeoutExpired(cmd, helper.DOCKER_QUERY_TIMEOUT_S)
+
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), [])
+
+    def test_returns_empty_when_the_container_has_no_networks(self) -> None:
+        def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            if cmd[1] == "ps":
+                return subprocess.CompletedProcess(cmd, 0, stdout="openshell-demo-abc\n")
+            if cmd[1] == "inspect":
+                return subprocess.CompletedProcess(cmd, 0, stdout="{}\n")
+            raise AssertionError("network inspect must not run without a network")
+
+        with mock.patch.object(helper.subprocess, "run", side_effect=run):
+            self.assertEqual(helper.sandbox_host_cidrs("demo"), [])
+
+
 class EnsureMcpTlsCertsTests(unittest.TestCase):
     def test_returns_existing_paths_without_openssl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_name:
