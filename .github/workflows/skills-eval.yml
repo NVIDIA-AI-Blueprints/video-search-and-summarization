@@ -342,10 +342,11 @@ jobs:
           rm -f "$LEG_TARBALL"
           python3 .github/skill-eval/redact_secrets.py --tree "$LEG_RESULTS"
           RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
-          if [ -n "$RESULTS" ]; then
+          PROVISIONING_FAILURE=$(find "$LEG_RESULTS" -maxdepth 1 -name "provisioning-failure.txt" -print -quit 2>/dev/null || true)
+          if [ -n "$RESULTS" ] || [ -n "$PROVISIONING_FAILURE" ]; then
             tar czf "$LEG_TARBALL" \
               -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files and provisioning diagnostics (agent/ trajectories excluded)"
           else
             echo "results dir exists but empty — nothing to archive"
           fi
