@@ -56,6 +56,11 @@ if [ -f "$ROOT/docker/.env" ]; then
     [[ "$k" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
     [ -n "${!k:-}" ] && continue          # already-exported value wins
     v="${v%$'\r'}"                         # tolerate CRLF line endings
+    # Strip an unquoted trailing comment: "NUM_CAMS=4  # four cams" is a normal
+    # .env line, and without this the value carries the comment into the staged
+    # config. Quoted values keep their # (paths and connection strings use it).
+    if [[ $v != \"* && $v != \'* ]]; then v="${v%%[[:space:]]#*}"; fi
+    v="${v%"${v##*[![:space:]]}"}"           # drop trailing whitespace
     if [[ $v == \"*\" ]]; then v="${v#\"}"; v="${v%\"}"; fi   # strip paired "…"
     if [[ $v == \'*\' ]]; then v="${v#\'}"; v="${v%\'}"; fi   # strip paired '…'
     printf -v "$k" '%s' "$v" && export "$k"
@@ -118,6 +123,52 @@ CAMS=()
 if ls "$GEN/camInfo"/*.yml >/dev/null 2>&1; then
   mapfile -t CAMS < <(cd "$GEN/camInfo" && LC_ALL=C ls -1 *.yml | sed 's/\.yml$//')
 fi
+
+# NUM_CAMS drives batch-size, the grid and the engine suffix; camInfo drives the
+# tracker map and the file-mode source list. When they disagree nothing notices
+# until sources fail to activate, so compare every source we have.
+check_camera_consistency() {
+  local problems=() calib_ids pubsub_ids
+  (( ${#CAMS[@]} )) || return 0          # no camInfo: handled separately per mode
+
+  [ "${#CAMS[@]}" = "$NUM_CAMS" ] || problems+=(
+    "NUM_CAMS=$NUM_CAMS but generated/camInfo has ${#CAMS[@]} camera(s): $(printf '%s ' "${CAMS[@]}")")
+
+  if [ -f "$GEN/calibration.json" ]; then
+    calib_ids="$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+s = d.get("sensors", d)
+ids = [x.get("id") or x.get("sensorId") for x in s] if isinstance(s, list) else list(s)
+print(" ".join(sorted(str(i) for i in ids if i)))
+' "$GEN/calibration.json" 2>/dev/null)"
+    if [ -n "$calib_ids" ] && [ "$calib_ids" != "$(printf '%s\n' "${CAMS[@]}" | sort | tr '\n' ' ' | sed 's/ $//')" ]; then
+      problems+=("calibration.json sensors [$calib_ids] do not match camInfo [$(printf '%s ' "${CAMS[@]}" | sed 's/ $//')]")
+    fi
+  fi
+
+  if [ -f "$GEN/pub_sub_info_config.yml" ]; then
+    pubsub_ids="$(awk '/^pubBrokerTopicStr:/ { p = 1; next }
+                       /^[^[:space:]]/       { p = 0 }
+                       p && /^[[:space:]]+[A-Za-z0-9_.-]+:/ {
+                         sub(/^[[:space:]]+/, ""); sub(/:.*$/, ""); print }' \
+                  "$GEN/pub_sub_info_config.yml" | sort | tr '\n' ' ' | sed 's/ $//')"
+    if [ -n "$pubsub_ids" ] && [ "$pubsub_ids" != "$(printf '%s\n' "${CAMS[@]}" | sort | tr '\n' ' ' | sed 's/ $//')" ]; then
+      problems+=("pub_sub_info_config.yml sensors [$pubsub_ids] do not match camInfo")
+    fi
+  fi
+
+  (( ${#problems[@]} )) || return 0
+  { echo "ERROR: camera configuration is inconsistent, nothing was staged."
+    printf '       %s\n' "${problems[@]}"
+    echo "       Re-run scripts/generate-configs.sh <calibration.json> for this camera set,"
+    echo "       and set NUM_CAMS in docker/.env to match it."; } >&2
+  exit 1
+}
+check_camera_consistency
 
 # file-mode source URIs / sensor ids (file:///videos/<cam>.mp4), built from CAMS.
 URIS=""; IDS=""

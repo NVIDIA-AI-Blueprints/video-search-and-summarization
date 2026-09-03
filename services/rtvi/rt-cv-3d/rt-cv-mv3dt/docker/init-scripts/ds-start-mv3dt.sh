@@ -198,6 +198,34 @@ if ! kafka_endpoint_matches_env "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
   exit 1
 fi
 
+# A refused restage leaves the previous staged config in place, so the stack can
+# still come up against it. Compare what was staged with what is mounted.
+batch_matches_caminfo() {  # $1=staged main config
+  local cfg="$1" staged mounted
+  [ -f "$cfg" ] || return 0
+  [ -d /tmp/camInfo ] || return 0
+  mounted="$(find /tmp/camInfo -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)"
+  [ "$mounted" -gt 0 ] || return 0
+  staged="$(awk '/^[[:space:]]*\[/ { s = ($0 ~ /^[[:space:]]*\[streammux\]/) }
+                 s && /^[[:space:]]*batch-size[[:space:]]*=/ {
+                   sub(/.*=[[:space:]]*/, ""); print $1; exit }' "$cfg")"
+  [ -n "$staged" ] || return 0
+  [ "$staged" = "$mounted" ] && return 0
+
+  { echo "** ERROR: the staged config and the mounted camera set disagree."
+    echo "          staged  [streammux] batch-size = ${staged}"
+    echo "          mounted generated/camInfo      = ${mounted} camera(s)"
+    echo "          This is a stale staging: scripts/stage-configs.sh refused the last"
+    echo "          run and left the previous config in place. Restage for this camera"
+    echo "          set, with NUM_CAMS matching it:"
+    echo "            ./scripts/stage-configs.sh"; } >&2
+  return 1
+}
+
+if ! batch_matches_caminfo "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
+  exit 1
+fi
+
 if ! osd_preflight "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
   { echo
     echo "** ERROR: not starting the pipeline: it would fail at 'Failed to set pipeline"
