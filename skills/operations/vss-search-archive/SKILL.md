@@ -13,14 +13,19 @@ metadata:
 
 Operate archive search from the caller's host. Compose and Kubernetes use the
 same `vss configure` and `vss search run` commands; only the deployment origin
-differs. Source ingestion and deletion remain Agent-backed.
+differs. Source ingestion and deletion are Agent-backed **when the deployment has
+an agent `/api` route**; on a build without one, they belong to
+`vss-manage-video-io-storage` `references/provision-vios-source.md`.
 
 ## Hard boundaries
 
 - Run the project-local CLI on the host. Never use `docker exec`, `kubectl
   exec`, a pod shell, or a globally installed `vss` as a substitute.
-- Never call Elasticsearch, RTVI-CV, RTVI-Embed, storage-ms, or VST directly
-  for a mutation. Upload and delete through the Agent lifecycle.
+- Never improvise a mutation against Elasticsearch, RTVI-CV, RTVI-Embed,
+  storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
+  the Agent upload/delete lifecycle where an agent `/api` route answers, and
+  `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
+  does. That recipe owns the direct calls this rule otherwise forbids.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect

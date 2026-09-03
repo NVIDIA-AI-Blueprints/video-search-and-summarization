@@ -2,7 +2,7 @@
 
 - [Model](#model)
 - [`nemoclaw` is never a service key](#nemoclaw-is-never-a-service-key)
-- [What choosing NemoClaw implies](#what-choosing-nemoclaw-implies)
+- [What removing the agent implies](#what-removing-the-agent-implies)
 - [Ordering](#ordering)
 - [Prerequisites](#prerequisites)
 - [Default provider](#default-provider)
@@ -14,27 +14,40 @@
 ## Model
 
 A **harness** is what a person or another agent talks to in order to drive a
-build. Two are supported, and the choice is **orthogonal to the service set**: it
-never adds, removes, or reconfigures a service, and never changes how the delta
-is computed. The two are not mutually exclusive — a NemoClaw build keeps
-`vss-agent` whenever the capabilities put it there.
+build. Two exist, they are **mutually exclusive**, and **at most one** is
+deployed. `vss-agent` is removed unless the request names it, so a build carries
+the NemoClaw sandbox, the in-stack agent, or no harness at all — never two.
 
 | Harness | Where it runs | Reached by | Selected by |
 |---|---|---|---|
+| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it | this file |
 | `vss-agent` | inside the Compose project | the agent REST API (`/generate`), Web UI | the Agent owner ([`services/agent.md`](services/agent.md)), like any other capability |
-| `nemoclaw` | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it | this file |
 
 `vss-agent` is in-stack: it is a container, it is reached through the build's own
 origin, and forward closure retains it whenever agentic orchestration is
-requested or another owner declares it as a peer. NemoClaw is host-side: an
-OpenShell sandbox running an agent harness (OpenClaw or Hermes) with the
-repository's skills installed, driving the deployment from outside over the same
-public routes an operator would use.
+requested or another owner declares it as a peer — unless NemoClaw is selected,
+which removes it. NemoClaw is host-side: an OpenShell sandbox running an agent
+harness (OpenClaw or Hermes) with the repository's skills installed, driving the
+deployment from outside over the same public routes an operator would use.
 
-NemoClaw is added only on an explicit request. Absent one, the harness follows
-from the capabilities: a build that reaches the Agent owner has `vss-agent`, and
-one that does not is headless with no harness at all — the correct outcome for a
-build that only ingests, indexes, or serves an API.
+**NemoClaw is the default harness.** When a build has an interactive surface and
+the request names no harness, Q3 asks one yes/no question — deploy the NemoClaw
+sandbox as the harness? — and **yes** is the default, including for an
+unanswered Q3. A **no** means no harness: the build is driven by the `vss` CLI
+from the host. Never turn that into a menu of harnesses; the only question is
+whether NemoClaw is deployed.
+
+**`vss-agent` is removed on either answer.** The in-stack agent is deployed only
+when the request names it — the chat agent, the Web UI, the agent REST API — and
+such a request skips Q3 the way any named harness does. Honour it; do not steer
+it to NemoClaw. Everything below about the removal therefore applies to a `no`
+as much as to a `yes`; only the [Prerequisites](#prerequisites),
+[ingress](#ingress-is-still-required), and bring-up sections are NemoClaw's
+alone.
+
+A build that reaches no interactive surface still has **no harness at all** — the
+correct outcome for one that only ingests, indexes, or serves an API. Defaulting
+to NemoClaw never means adding a harness to a headless build.
 
 ## `nemoclaw` is never a service key
 
@@ -44,60 +57,59 @@ build that only ingests, indexes, or serves an API.
 on the invented key. Treat it exactly as `<name>` is treated in the artifact
 contract: a label outside the Compose model.
 
-A request to "deploy NemoClaw" therefore changes nothing in the service set. All
-it adds is a host-side step after deployment (below).
+Selecting NemoClaw therefore never *adds* a key. All it adds is a host-side step
+after deployment (below).
 
-## What choosing NemoClaw implies
+## What removing the agent implies
 
-**NemoClaw changes no service key, and the agent tier is always present.** Those
-two statements are compatible because **every Foundation already ships the agent
-tier**: `vss-agent`, `vss-ui`, `phoenix`, and an `llm_*` peer are in the
-authoritative `COMPOSE_PROFILES` of all four developer profiles
-([`base.md`](profiles/base.md), [`alerts.md`](profiles/alerts.md),
-[`lvs.md`](profiles/lvs.md), [`search.md`](profiles/search.md)). So "keep the
-agent" never means adding a service — it means **a delta on a NemoClaw build
-never prunes the agent tier**.
+Applies to **both** Q3 answers — a `yes` and a `no` alike — and not to a build
+whose request named the in-stack agent.
 
-This is a deliberate choice of functionality over minimality. NemoClaw replaces
-the agent as the **conversational layer** — the thing a person talks to — but
-`vss-agent` is also a **capability provider** that the skills call as a backend,
-and those two roles do not come apart cleanly. Keeping it means no capability
-silently loses its backend when someone drives the build from a sandbox instead
-of the Web UI, at the price of some redundancy on a query-only build.
+**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, and change no
+other key.** `vss-ui`, `phoenix`, and the `llm_*` peer all stay. Pruning them is
+a capability decision, not a harness one: leave them and report `phoenix` as
+idle, since it collects the agent's traces and has no other client.
 
-**Never prune or hand-remove the agent tier on a NemoClaw build**, and do not
-treat "nothing I requested reaches the Agent owner" as licence to. **A NemoClaw
-build is never headless.** A request for both "headless" and NemoClaw is
-therefore a contradiction, like NemoClaw with no ingress — take it to the
-clarification gate instead of dropping either side.
+`vss-ui`'s dependency on the agent ships as `required: false` so the filtered
+project still resolves, and `scripts/normalize_resolved_yml.py` drops the
+dangling entry. Never re-add a hard `depends_on` in a build override — Compose
+rejects a project whose enabled service hard-depends on a filtered one, and
+Step 8 fails with no `resolved.yml`.
 
-### What the retained agent still provides
+`vss-ui` is worth keeping with no agent: its Alerts, Dashboard, and Video
+Management tabs address Alert Bridge, Kibana, and VST directly. An explicit
+"headless" request drops it as well — honour that, and report the loss of those
+three tabs.
 
-Redundant for a caller who only queries, and load-bearing for these:
+### What the removal costs, and what it does not
 
-| Capability | What breaks without the agent |
+Report every one of these that the build has, whenever the agent is removed:
+
+| Surface | Effect |
 |---|---|
-| Video summarization (`lvs-server`) | a declared `Required peer` ([`services/lvs.md`](services/lvs.md)) — the service will not work at all |
-| Search **ingestion and deletion** | `vss-search-archive` mutates only through the agent lifecycle (`/api/v1/videos` + `/complete`) and forbids direct-REST mutation of Elasticsearch, RT-CV, RT-Embed, storage-ms, or VIOS |
-| Alert-rule management | `vss-manage-alerts` drives agent-owned routes |
-| Agent REST API, Web UI, tracing, agentic natural-language decomposition (`/api/v1/search`) | the Agent owner's own surfaces |
+| Web UI chat sidebar, Chat tab, Search tab | stop answering — they address `/chat/stream`, `/websocket`, and `/api/v1/search`. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
+| Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
+| Web UI summarization on `lvs` | gone: the UI ships no LVS client and reaches summarization only through the agent's chat. On a build with no harness, the capability is `vss summarize` from the host and the UI is a dashboard |
+| Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
+| Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
+| `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
 
-Search **querying** is deliberately absent: `vss configure` plus `vss search run`
-read through Elasticsearch, RT-Embed, and RT-CV over the ingress, so that path
-never needed the agent. Dense-caption Q&A (`vss-ask-video`) and report generation
-(`vss-generate-video-report`) likewise never call the agent's `/generate`. Those
-are the cases where the retained agent is the redundancy this contract accepts.
+Nothing else in the operate set needs it. No `vss` command group declares the
+agent a requirement: `configure` probes each route independently and simply omits
+`/api`, while `summarize`, `search` (query), `vlm`, `vios`, and `memory` address
+LVS, Elasticsearch, RT-Embed, RT-VLM, and VIOS directly. `vss-ui` holds the only
+`depends_on` in the whole graph, and it is optional; no other service in any
+profile calls the agent, so alerting, analytics, ingest, and summarization are
+unaffected.
 
-### Provisioning stays on the agent-owned path
+### Provisioning moves to the headless path
 
-Because the agent tier is present, source provisioning is **agent-owned**:
-`vss-search-archive` for search ingestion, `vss-manage-alerts` for alert rules.
-
-Do **not** use `vss-manage-video-io-storage`
-[`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md)
-on a NemoClaw build. That recipe is headless-only and stops when it detects an
-agent route, because a direct-REST fan-out would double-provision what the agent
-already owns.
+With no agent route, source provisioning is the direct-REST recipe:
+`vss-manage-video-io-storage`
+[`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md).
+Its own gate — stop when an agent route answers — passes on any build with the
+agent removed, and it is the only path that fans a source into RT-CV and
+RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
 
 ### Ingress is still required
 
@@ -121,34 +133,39 @@ must stay bridge-reachable, and the URLs users follow resolve from
 choosing NemoClaw.
 
 Not on `alerts`: `alert-bridge` rewrites clip URLs from `INTERNAL_IP` to
-`EXTERNAL_IP`, so repointing it makes alert evidence unopenable. There, add
-`host.openshell.internal` to a curated `haproxy.cfg` per
-[`services/ingress.md`](services/ingress.md), or accept the origin 404 since
-alerts operate reaches Alert Bridge and VA-MCP on their host ports.
+`EXTERNAL_IP`, so repointing it makes alert evidence unopenable. There the
+curated `haproxy.cfg` is **required** — admit `host.openshell.internal` per
+[`services/ingress.md`](services/ingress.md) and leave `EXTERNAL_IP` alone.
+Do not settle for the origin 404 on the grounds that alerts operate reaches
+Alert Bridge and VA-MCP on their host ports: it costs the sandbox the ingress
+origin every other skill resolves against.
 
-### Stock stays stock
+### Either answer makes it a delta build
 
-Since the harness changes no service key, a named profile plus NemoClaw is a
-**stock deploy** with the harness step appended — the profile's authoritative
-service set, unchanged. Only an actual capability delta makes it a delta build,
-and even then the agent tier survives the delta.
+Removing `vss-agent` is a capability delta, so a named profile that reaches Q3 is
+a **delta build** on a `no` as much as a `yes` — create `_builds/<name>/` and
+follow Delta mode from Step 2. Only a request that names the in-stack agent, and
+so never reaches Q3, can stay a stock deploy.
 
 ### Cost to report, not to optimize away
 
-Two things follow from keeping the agent, and the user should hear both up front
-rather than discover them:
+Two things the user should hear up front rather than discover:
 
-- **GPU and memory budget.** The agent tier and the LLM peer it requires stay
-  resident, on top of the harness's own model provider. Budget all of it against
-  [`sizing.md`](sizing.md) — and note that a NemoClaw-managed local model claims
-  every visible GPU unless pinned (see [Prerequisites](#prerequisites)).
-- **Two conversational surfaces.** The build's own Web UI and the sandbox chat UI
-  both answer, and they do not share session state. Report **both as markdown
-  links** — the build's browse origin next to the Agent UI — and name NemoClaw as
-  the intended driver. The build's origin is `VSS_PUBLIC_HOST`; on Brev that is
-  the FQDN the context file publishes for the ingress port, resolved rather than
-  constructed ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw
-  build holds `host.openshell.internal` and resolves only inside the sandbox.
+- **GPU and memory budget.** `vss-agent` reserves no GPU, so its removal frees
+  memory rather than a device, and the `llm_*` peer stays resident. Budget the
+  build against [`sizing.md`](sizing.md) plus the harness's own model provider —
+  and note that a NemoClaw-managed local model claims every visible GPU unless
+  pinned (see [Prerequisites](#prerequisites)).
+- **At most one chat surface, plus a dashboard.** The build's Web UI remains
+  either way, with its chat and Search tabs dead and the rest live. On a `yes`
+  the sandbox chat UI is the only conversational surface: report **both as
+  markdown links** — the build's browse origin next to the Agent UI — and name
+  NemoClaw as the driver. On a `no` report the browse origin alone, and name the
+  `vss` CLI as the driver. The build's
+  origin is `VSS_PUBLIC_HOST`; on Brev that is the FQDN the context file
+  publishes for the ingress port, resolved rather than constructed
+  ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw build holds
+  `host.openshell.internal` and resolves only inside the sandbox.
 
 ## Ordering
 
@@ -168,10 +185,18 @@ first call from the sandbox fails, and the cause looks like the harness.
 ## Prerequisites
 
 Beyond everything in [`prerequisites.md`](prerequisites.md) and
-[`credentials.md`](credentials.md), the harness step needs:
+[`credentials.md`](credentials.md), the harness step needs the following.
 
-- **Python 3.11+ on the host**, plus `docker`, `python3`, and `curl`. The
-  notebook's own preflight (section 2) checks these and reports what is missing.
+**Check them at Q3, not at bring-up.** NemoClaw is the default, so a build can
+reach these requirements without anyone having asked for them. Any one missing is
+a **blocker at harness selection**: name it, ask whether to supply it, proceed
+with no harness, or name the in-stack agent instead, and deploy nothing until
+that is answered. Discovering it after the readiness gate means a deployed build
+with no way to drive it.
+
+- **Python 3.11+ on the host**, plus `docker`, `python3`, `curl`, and the
+  NemoClaw CLI. The notebook's own preflight (section 2) re-checks these, but it
+  runs too late to inform the harness choice.
 - **An agent model provider.** This is the harness's *own* LLM, unrelated to the
   build's `LLM_*` and `VLM_*` knobs. The notebook offers three — (a) an
   OpenAI-compatible endpoint, (b) a NemoClaw-managed local model, (c) a
@@ -180,8 +205,8 @@ Beyond everything in [`prerequisites.md`](prerequisites.md) and
   the notebook remains the authority on which variables each provider needs; do
   not infer them.
 - **A GPU budget that accounts for the harness.** The default remote provider
-  costs no GPU, which is what makes the retained agent tier affordable. This
-  applies only when the user overrides to the local provider: (b)
+  costs no GPU. This applies only when the user overrides to the local
+  provider: (b)
   `install-vllm` takes every visible GPU unless `NEMOCLAW_VLLM_GPU_DEVICE` pins
   it, which will strand the build's own models. Reconcile that against
   [`sizing.md`](sizing.md) before choosing it, not after.
@@ -325,7 +350,7 @@ itself — work this skill has already done by the time the harness comes up.
 Add it as a second `--notebook` only when the user explicitly wants the agent to
 own the deployment lifecycle too.
 
-Because the notebook installs every `skills/*/SKILL.md`, the sandbox receives
+Because the notebook installs every `SKILL.md` under `skills/`, the sandbox receives
 this skill as well, and can compose further builds from chat. It operates the
 build it was given; it is not expected to manage the `_builds/` tree this run
 produced.
