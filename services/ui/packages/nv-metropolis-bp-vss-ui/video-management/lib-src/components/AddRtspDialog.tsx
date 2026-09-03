@@ -199,14 +199,19 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const submitLabel = getSubmitLabel(phase, acceptedSensorId !== null);
 
   return (
-    // Backdrop: a click target only, with Escape wired up above for the keyboard
-    <div className={overlayClass} role="presentation" onClick={handleDismiss}>
+    <div className={overlayClass}>
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label="Dismiss"
+        disabled={!canClose}
+        onClick={handleDismiss}
+      />
       <div
         data-testid="add-rtsp-dialog"
         role="dialog"
         aria-modal="true"
         className="relative z-50 mx-4 w-full max-w-[720px] rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-black"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-600">
