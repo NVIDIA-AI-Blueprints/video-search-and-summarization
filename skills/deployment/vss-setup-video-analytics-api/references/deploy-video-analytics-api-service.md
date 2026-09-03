@@ -201,9 +201,8 @@ mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
 docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 
 docker ps --filter "name=vss-video-analytics-api" --format '{{.Names}}\t{{.Status}}'
-# Compose auto-names the standalone container <project>-<service>-<index>; project defaults to
-# the compose file's parent dir, so the full name is:
-docker logs -f video-analytics-api-vss-video-analytics-api-1
+# The Compose service sets container_name explicitly.
+docker logs -f vss-video-analytics-api
 ```
 
 Healthy log lines include:
@@ -248,12 +247,12 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` te
 | Container is running but port 8081 is unavailable | API is waiting for its Elasticsearch pipeline or configured Kafka requirements. | Read container logs for the missing readiness requirement; `/livez` returns 200 only after route registration. |
 | `/livez` returns 200 but data endpoints return empty results | Elasticsearch indices don't exist or have no data. | Check indices: `curl -s http://localhost:9200/_cat/indices?v \| grep mdx`. If empty, the upstream pipeline (behavior-analytics, perception) hasn't produced data yet. |
 | Config update via POST `/config` times out | The ACK from behavior-analytics didn't arrive within `configStatusTimeoutMs`. | Check that behavior-analytics is running and consuming from `mdx-notification`. Check the `configStatusTimeoutMs` value (default `30000`ms). |
-| Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.0.7`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
+| Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.1.2`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
 
 **Inspect a mounted config inside the container** (same path as `command: node index.js --config …`):
 
 ```bash
-docker exec video-analytics-api-vss-video-analytics-api-1 node -e \
+docker exec vss-video-analytics-api node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```
 

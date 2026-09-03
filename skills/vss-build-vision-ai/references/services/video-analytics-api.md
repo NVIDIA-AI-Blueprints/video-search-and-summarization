@@ -67,7 +67,7 @@ Foundation-specific alias or a second API instance.
 | `VSS_DATA_DIR` | Resolve the optional persistent files mount. |
 
 The API loads JSON through `--config`; the stock Compose command mounts
-`services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`.
+`$VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`.
 That file controls `server.port`, Elasticsearch (`node`, index prefix/pattern,
 retries), Kafka brokers/retries, and application settings such as body-size and
 config-ack timeouts. Keep `server.configs[].value` values as strings. The
@@ -82,6 +82,6 @@ express those settings as Compose environment deltas.
 - `deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`
 - `services/analytics/video-analytics-api/configs/default-configs/config.json`
 - `deploy/docker/services/infra/compose.yml`
-- `deploy/docker/services/ingress/haproxy.cfg`
+- `deploy/docker/services/infra/haproxy/haproxy.cfg.template`
 - `skills/deployment/vss-setup-video-analytics-api/references/configuration.md`
 - `skills/deployment/vss-setup-video-analytics-api/references/deploy-video-analytics-api-service.md`
