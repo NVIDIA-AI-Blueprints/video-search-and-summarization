@@ -206,7 +206,7 @@ assets/sdg_08_2_sample_data_010926.zip
 
 Now you're ready to start the calibration process.
 
-To try real world case, we have another sample data file [nv_warehouse_071026.zip](https://catalog.ngc.nvidia.com/orgs/nvidia/resources/amc-nv-warehouse). The sample folder includes 4 different files. It does not have ground-truth data. Additionally it has `nv_warehouse_config.json`, which should be uploaded in the [config param step](#configuring-settings). For AMC calibration in the Execute step set the `Detector Type` as `Transformer`.
+To try real world case, we have another sample data file [nv_warehouse_071026.zip](https://catalog.ngc.nvidia.com/orgs/nvidia/resources/amc-nv-warehouse). The sample folder includes 4 different files. It does not have ground-truth data. Additionally it has `nv_warehouse_config.json`, which should be uploaded in the [config param step](/vss/system-components/calibration/auto-calibration/workflow-steps#configuring-settings). For AMC calibration in the Execute step set the `Detector Type` as `Transformer`.
 
 To download the dataset use the following command:
 ```bash
@@ -256,7 +256,7 @@ AMC filters and matches tracklets before multi-view calibration. Default pipelin
 - **Minimum tracklet length**: 90 frames (approximately three seconds at 30 fps)—short or jittery tracks are discarded.
 - **Minimum matched tracklets** (multi-camera): six cross-camera tracklet correspondences per camera pair (three in robust two-view fallback).
 
-If your videos lack enough moving people or are too short, calibration may fail at detection, tracking, or **tracklet matching**. You may need to adjust the configuration parameters through the UI or capture better videos. See [Custom Dataset](#custom-dataset) for capture best practices and [Troubleshooting](#troubleshooting) if tracklet matching fails.
+If your videos lack enough moving people or are too short, calibration may fail at detection, tracking, or **tracklet matching**. You may need to adjust the configuration parameters through the UI or capture better videos. See [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for capture best practices and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) if tracklet matching fails.
 
 ## Lens Distortion Output (`distortion.yaml`)
 
@@ -372,5 +372,5 @@ Apply coefficients at their original image resolution—prefer rectifying before
 
 Changing or repeating rectification invalidates downstream calibration and post-processing outputs.
 
-See also [Custom Dataset](#custom-dataset) (lens distortion guidance) and the AutoMagicCalib `rectification_config.yaml` in the source repository for tuning search ranges and model selection.
+See also [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) (lens distortion guidance) and the AutoMagicCalib `rectification_config.yaml` in the source repository for tuning search ranges and model selection.
 
