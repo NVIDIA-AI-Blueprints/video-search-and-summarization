@@ -290,6 +290,8 @@ testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 > docker exec streamprocessing-ms-1 sh -lc \
 >   'grep -n enable_proxy_server_sei_metadata /home/vst/vst_release/configs/vst_config.json'
 > ```
+>
+> The check finds the proxy by probing ports 30000-30005 and 31000-31005: a VIOS deployment runs several VST services and only the proxy answers `/api/v1/proxy/configuration`, so a 404 does not mean VST is absent. Set `VST_HTTP_PORT` to pin the port. If nothing answers, the run stops rather than registering streams that could never activate; a source that carries the SEI without going through VST needs `--no-sei-check`.
 
 Register your RTSP streams via the perception REST API — one
 `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
