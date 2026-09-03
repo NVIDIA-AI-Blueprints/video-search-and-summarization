@@ -442,6 +442,100 @@ void nanoseconds_to_rfc3339(int64_t nanoseconds, char *output, size_t output_siz
     snprintf(output, output_size, "%s.%09dZ", time_str, nanos);
 }
 
+/**
+ * NTP-start logging (NTP_START_DEBUG_TS=1): log the METADATA timestamp of the
+ * first batched frame of each source, i.e. NvDsFrameMeta.ntp_timestamp -- the
+ * value that travels downstream and ends up in the broker payload.
+ *
+ * Distinct from IDR_START above, which prints CLOCK_REALTIME sampled when the
+ * probe ran. That probe sits on the parser src pad, upstream of nvstreammux,
+ * where no NvDsFrameMeta exists yet: ntp_timestamp is attached BY the muxer.
+ * So this hooks the muxer's SRC pad, the first point where it is populated.
+ *
+ * What ntp_timestamp holds depends on how the muxer is configured, and reading
+ * it without knowing which is meaningless:
+ *   attach-sys-ts-as-ntp=1 -> the muxer's own system clock
+ *   attach-sys-ts-as-ntp=0 -> NTP derived from the source's RTCP Sender Report
+ * A source with no RTP session (file/URI input) has no Sender Report, so with
+ * attach-sys-ts-as-ntp=0 its ntp_timestamp stays 0 or unsynchronized. That is
+ * a property of the input, not a defect here, so 0 is reported verbatim and
+ * flagged rather than hidden.
+ *
+ * One probe on one pad, so unlike the per-parser IDR probe this callback runs
+ * on the muxer's streaming thread only and needs no locking.
+ */
+static GHashTable *ntp_start_logged = NULL; /* (source_id+1) -> logged */
+
+static gboolean ntp_start_debug_enabled(void) {
+  const char *v = g_getenv("NTP_START_DEBUG_TS");
+  return v != NULL && atoi(v) == 1;
+}
+
+static GstPadProbeReturn ntp_start_mux_probe_cb(GstPad *pad,
+                                                 GstPadProbeInfo *info,
+                                                 gpointer user_data) {
+  GstBuffer *buf = (GstBuffer *)info->data;
+  NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(buf);
+
+  if (!batch_meta) {
+    return GST_PAD_PROBE_OK;
+  }
+
+  for (NvDsMetaList *l = batch_meta->frame_meta_list; l != NULL; l = l->next) {
+    NvDsFrameMeta *fm = (NvDsFrameMeta *)l->data;
+    gpointer key = GUINT_TO_POINTER(fm->source_id + 1);
+    char ts_buf[MAX_TIME_STAMP_LEN + 1];
+
+    if (g_hash_table_contains(ntp_start_logged, key)) {
+      continue;
+    }
+    g_hash_table_add(ntp_start_logged, key);
+
+    nanoseconds_to_rfc3339((int64_t)fm->ntp_timestamp, ts_buf, sizeof(ts_buf));
+    g_print("NTP_START source_id=%u ntp_ns=%" G_GUINT64_FORMAT " ntp=%s"
+            " buf_pts=%" GST_TIME_FORMAT " frame_num=%d%s\n",
+            fm->source_id, (guint64)fm->ntp_timestamp, ts_buf,
+            GST_TIME_ARGS(fm->buf_pts), fm->frame_num,
+            fm->ntp_timestamp == 0 ? "  [UNSET: no RTCP SR / not synchronized]"
+                                   : "");
+  }
+
+  /* Kept installed: sources can be added at runtime, and each is reported on
+   * its first batched frame. Cost after that is one hash lookup per frame. */
+  return GST_PAD_PROBE_OK;
+}
+
+/**
+ * Hook metadata-NTP logging onto appCtx's muxer. Call after create_pipeline()
+ * so multi_src_bin.streammux exists.
+ */
+static void setup_ntp_start_logging(AppCtx *ctx) {
+  GstElement *streammux;
+  GstPad *src_pad;
+
+  if (!ntp_start_debug_enabled()) {
+    return;
+  }
+  if (!ntp_start_logged) {
+    ntp_start_logged = g_hash_table_new(NULL, NULL);
+  }
+
+  streammux = ctx->pipeline.multi_src_bin.streammux;
+  if (!streammux) {
+    GST_WARNING("NTP_START: no streammux in pipeline, metadata NTP not logged");
+    return;
+  }
+
+  src_pad = gst_element_get_static_pad(streammux, "src");
+  if (!src_pad) {
+    GST_WARNING("NTP_START: streammux has no src pad");
+    return;
+  }
+  gst_pad_add_probe(src_pad, GST_PAD_PROBE_TYPE_BUFFER, ntp_start_mux_probe_cb,
+                     NULL, NULL);
+  gst_object_unref(src_pad);
+}
+
 static GstClockTime generate_ts_rfc3339_from_ts(char *buf, int buf_size,
                                                 GstClockTime ts, gchar *src_uri,
                                                 gint stream_id) {
@@ -2333,6 +2427,7 @@ int main(int argc, char *argv[]) {
       goto done;
     }
     setup_idr_start_logging(appCtx[i]);
+    setup_ntp_start_logging(appCtx[i]);
     /** Now add probe to RTPSession plugin src pad */
     for (guint j = 0; j < appCtx[i]->pipeline.multi_src_bin.num_bins; j++) {
       testAppCtx->streams[j].id = j;
