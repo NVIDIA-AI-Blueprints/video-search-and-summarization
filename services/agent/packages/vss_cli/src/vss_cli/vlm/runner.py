@@ -39,6 +39,10 @@ if TYPE_CHECKING:
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _TERMINAL_WRITE_RESERVE_SECONDS = 1.0
 _CLEANUP_TIMEOUT_SECONDS = 1.0
+# Matches the ``vss vlm run --num-frames`` default. RT-VLM samples the opening
+# frame alone when the budget is absent, which is not enough to ground a
+# question about an interval.
+_RT_VLM_FRAME_BUDGET = 8
 
 
 def _ulid() -> str:
@@ -231,6 +235,7 @@ def _production_analyzer(deployment: config_mod.Deployment, timeout_seconds: int
             # not reject the host-side localhost origin.
             video_url_scope="internal",
             cosmos_nim_runtime_options=False,
+            rt_vlm_frame_budget=_RT_VLM_FRAME_BUDGET,
         ),
         model,
     )
