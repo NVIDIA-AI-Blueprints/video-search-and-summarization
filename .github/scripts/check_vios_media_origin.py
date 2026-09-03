@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Keep the media origin VIOS stamps into its URLs usable by whoever receives it.
+
+VIOS answers ``/picture/url`` and the clip/full-file ``/url`` APIs with an
+absolute ``imageUrl`` / ``videoUrl``, built in ``getIngressBaseUrl()``
+(``services/vios/src/framework/utilities/utils.cpp``) out of
+``VST_INGRESS_ENDPOINT``. That makes the variable the origin every consumer we
+do not control receives: a browser calling VIOS, a webhook body, an alert's
+``videoUrl``. Wired to the internal container name it produced
+``http://vst-ingress:30888/vst/storage/...`` -- the recipient got ``Could not
+resolve host`` while the identical path served 200 on the public origin.
+Nothing in the response signals it, which is why this is a lint: it only breaks
+in whatever consumes the URL, later and somewhere else.
+
+Two invariants, and a simpler lint passes vacuously against both.
+
+**The default inside a passthrough is a definition.** The Compose files carry
+``VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT:-<default>}`` under
+``environment:``, and Compose gives ``environment:`` precedence over
+``env_file:``. So when nothing in the ``--env-file`` chain sets the variable --
+which is the case for every profile in this tree -- that inline default *is* the
+value the container runs with, and the definition in ``services/vios/vst.env``
+never applies. A lint that skips passthroughs checks the file that loses.
+
+**The scheme has to travel with the authority.** ``getIngressBaseUrl()`` takes
+the scheme from the endpoint when it carries one and only then falls back to
+``security.use_https``. That fallback cannot express "TLS terminates upstream":
+``use_https`` also decides whether VIOS serves TLS itself (``webServer.cpp``)
+and is echoed to WebRTC and RTSP clients as ``useHttps``, so raising it to
+correct a URL scheme breaks the listener and misinforms other clients. An
+endpoint that names an https public origin without saying ``https://`` is
+therefore minted as ``http://<host>:443/...`` and answered 400 by the TLS
+listener -- no more usable than the internal name it replaced.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from collections.abc import Iterable
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+TARGET = "VST_INGRESS_ENDPOINT"
+
+# An origin a caller outside the deployment can reach. VST_EXTERNAL_URL is the
+# deployment's handle on it and already carries its scheme; VSS_PUBLIC_* is what
+# that is built from, and is accepted so a profile may inline the derivation.
+PUBLIC_TOKENS = ("VST_EXTERNAL_URL", "VSS_PUBLIC_")
+
+# Names that resolve only on the deployment's own network.
+INTERNAL_TOKENS = ("VST_INTERNAL_IP", "VST_INTERNAL_URL", "vst-ingress", "vss-vios-")
+
+# `NAME=value` in an env file, `- NAME=value` in a Compose `environment:` list,
+# and `value:` under a Helm `- name: NAME` pair are all matched from the
+# assignment side, so one rule covers every place the variable is set.
+ENV_ASSIGNMENT = re.compile(rf"^\s*-?\s*{TARGET}\s*=\s*(?P<value>.*?)\s*$")
+HELM_NAME = re.compile(rf"^\s*-\s*name:\s*{TARGET}\s*$")
+HELM_VALUE = re.compile(r"^\s*value:\s*(?P<value>.*?)\s*$")
+
+# `${VST_INGRESS_ENDPOINT:-<default>}` -- the default is what runs when nothing
+# in the --env-file chain sets the variable, so it is checked as a definition.
+PASSTHROUGH_DEFAULT = re.compile(rf"^\$\{{{TARGET}:-(?P<default>.*)\}}$")
+
+SCHEME_TOKENS = ("http://", "https://", "VST_EXTERNAL_URL", "VSS_PUBLIC_HTTP_PROTOCOL")
+
+
+def first_index(value: str, tokens: Iterable[str]) -> int | None:
+    """Position of the earliest of *tokens* in *value*, or None if absent."""
+    found = [value.index(token) for token in tokens if token in value]
+    return min(found) if found else None
+
+
+def definitions_in(value: str) -> list[str]:
+    """The values this assignment can actually resolve to.
+
+    A bare value is its own definition. A passthrough contributes the default it
+    falls back to, which is the value that runs whenever the variable is unset
+    in the ``--env-file`` chain. A passthrough with no default contributes
+    nothing: it can only forward a definition made elsewhere.
+    """
+    stripped = value.strip()
+    passthrough = PASSTHROUGH_DEFAULT.match(stripped)
+    if passthrough:
+        return [passthrough.group("default")]
+    if stripped.startswith((f"${{{TARGET}", f"${TARGET}")):
+        return []
+    return [stripped]
+
+
+def assignments(path: Path) -> list[tuple[int, str]]:
+    """Return ``(line number, value)`` for each assignment of the variable."""
+    found: list[tuple[int, str]] = []
+    pending: int | None = None
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+
+        if pending is not None:
+            helm_value = HELM_VALUE.match(line)
+            if helm_value:
+                found.append((pending, helm_value.group("value").strip("\"'")))
+            pending = None
+
+        if HELM_NAME.match(line):
+            pending = number
+            continue
+
+        env = ENV_ASSIGNMENT.match(line)
+        if env:
+            found.append((number, env.group("value")))
+    return found
+
+
+def default_paths() -> list[Path]:
+    """Every file under ``deploy/docker`` that mentions the variable.
+
+    Scoped to the Compose deployment deliberately. The Helm chart resolves the
+    same variable through ``vss-vios-streamprocessing.vstIngressEndpoint``
+    (``deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl``),
+    which already prefers ``global.externalHost``/``externalPort`` over the
+    internal service name -- the shape asked for here, expressed in template
+    rather than in ``:-``. ``test-scripts`` is excluded because it asserts
+    *about* these values rather than setting them.
+    """
+    base = ROOT / "deploy" / "docker"
+    paths = [
+        path
+        for path in base.rglob("*")
+        if path.is_file()
+        and "test-scripts" not in path.parts
+        and TARGET in path.read_text(encoding="utf-8", errors="ignore")
+    ]
+    return sorted(set(paths))
+
+
+def scan_paths(paths: Iterable[Path]) -> tuple[list[str], int]:
+    """Return actionable diagnostics plus the number of definitions checked."""
+    failures: list[str] = []
+    checked = 0
+
+    for path in paths:
+        try:
+            display = path.relative_to(ROOT)
+        except ValueError:
+            display = path
+
+        for number, raw in assignments(path):
+            for value in definitions_in(raw):
+                checked += 1
+                where = f"{display}:{number}"
+
+                public_at = first_index(value, PUBLIC_TOKENS)
+                internal_at = first_index(value, INTERNAL_TOKENS)
+
+                if public_at is None:
+                    failures.append(
+                        f"{where}: {TARGET} resolves to {value!r}, which names no "
+                        f"public origin. VIOS stamps this into every "
+                        f"imageUrl/videoUrl it hands out, so an internal-only "
+                        f"value is unresolvable for the browser, webhook or alert "
+                        f"that receives it. Derive it from VST_EXTERNAL_URL and "
+                        f"keep the internal origin as the ':-' fallback."
+                    )
+                elif internal_at is not None and internal_at < public_at:
+                    failures.append(
+                        f"{where}: {TARGET} resolves to {value!r}, which reaches "
+                        f"the internal origin before the public one. The internal "
+                        f"origin is only correct as the last resort, when no "
+                        f"public origin is configured -- put it after the public "
+                        f"reference in the ':-' chain."
+                    )
+
+                if first_index(value, SCHEME_TOKENS) is None:
+                    failures.append(
+                        f"{where}: {TARGET} resolves to {value!r}, which carries "
+                        f"no scheme. getIngressBaseUrl() then falls back to "
+                        f"security.use_https, which cannot say 'TLS terminates "
+                        f"upstream' -- it also switches VIOS's own listener and is "
+                        f"echoed to WebRTC/RTSP clients -- so an https origin "
+                        f"would be minted http:// and answered 400. Include the "
+                        f"scheme in the value."
+                    )
+
+    return failures, checked
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="*", type=Path)
+    args = parser.parse_args(argv)
+
+    paths = args.paths or default_paths()
+    failures, checked = scan_paths(paths)
+
+    # A lint with nothing to check passes forever. The variable is set in the
+    # VIOS env file and defaulted in the streamprocessing Compose file; if both
+    # moved, this needs updating rather than quietly reporting success.
+    if not args.paths and checked == 0:
+        print(
+            f"{TARGET} is no longer defined anywhere under deploy/docker -- this "
+            f"lint is checking nothing. Point it at wherever the media origin "
+            f"moved.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        return 1
+
+    print(
+        f"VIOS media origin lint passed "
+        f"({checked} resolvable definition(s) of {TARGET} in {len(paths)} file(s))."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

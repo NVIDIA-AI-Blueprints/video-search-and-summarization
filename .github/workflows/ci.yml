@@ -1359,6 +1359,8 @@ jobs:
           python3 .github/scripts/test_check_brev_link_derivation.py
           python3 .github/scripts/check_helm_alias_root_rewrites.py
           python3 .github/scripts/test_check_helm_alias_root_rewrites.py
+          python3 .github/scripts/check_vios_media_origin.py
+          python3 .github/scripts/test_check_vios_media_origin.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_ingress_rewrites.py
