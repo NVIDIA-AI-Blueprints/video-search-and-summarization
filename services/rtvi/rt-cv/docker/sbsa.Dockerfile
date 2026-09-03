@@ -43,7 +43,7 @@
 # Layers are split for cacheability, which preserves execution order; the
 # sequence itself is untouched.
 # -----------------------------------------------------------------------------
-ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1plus-sbsa"
+ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255"
 ARG DS_VERSION=9.1
 
 # =============================================================================
