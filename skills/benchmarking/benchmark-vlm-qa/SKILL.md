@@ -36,8 +36,26 @@ score tool-calling or trajectories.
 - A VSS stack with RT-VLM serving Cosmos Reason 3, and `vss configure` already run
   so `vss configure check` lists `rt_vlm` as `ok`.
 - `uv` and this checkout (CLI via `uv run --project services/agent --no-dev --extra cli vss`).
-- DSS access: `NGC_API_KEY`, plus `NVDATASET_TENANTID=0573334707593577` and
-  `NVDATASET_GROUPID=vss-bp-team` (defaults in the script; dataset owner: Jiayi Ni).
+- The `nvdataset` CLI. It is **not** on PyPI, and the index used by the old
+  deep-search eval (`urm.nvidia.com/.../sw-ngc-data-platform-pypi`) returns 403.
+  Install from the documented read-only index instead — no credentials needed:
+
+  ```bash
+  uv tool install --index https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple nvdataset
+  ```
+
+- DSS access, one of:
+  - `NVDATASET_API_KEY` — a **Personal Key** from
+    [org.ngc.nvidia.com/setup/personal-keys](https://org.ngc.nvidia.com/setup/personal-keys)
+    scoped to the service `NVIDIA Dataset Service`, with the NGC org switched to the
+    one owning the dataset. This is *not* the global NGC key used by the NGC CLI; a
+    global key returns 403. `NGC_API_KEY` is accepted only for backward compatibility.
+  - `nvdataset auth login` (Starfleet SSO), which needs no key. Add `--flow device`
+    on a remote box with no browser. Group access requires membership in
+    `ngc-datasetservice-viewer-<tenant>-<group>` (reader) or `...-user-...` (writer).
+
+  Plus `NVDATASET_TENANTID=0573334707593577` and `NVDATASET_GROUPID=vss-bp-team`
+  (defaults in the script; dataset owner: Jiayi Ni).
 - An OpenAI-compatible judge LLM: `EVAL_LLM_JUDGE_BASE_URL` and `EVAL_LLM_JUDGE_NAME`.
   The old NAT eval judged with the Nemotron endpoint inside vss-agent; with vss-agent
   deprecated, prefer a GPT or Claude model from inference hub. Authenticate with
@@ -51,7 +69,7 @@ RT-VLM URLs; `vss vlm run` reads the recorded config.
 ## Run
 
 ```bash
-export NGC_API_KEY=<key>
+export NVDATASET_API_KEY=<personal-key>            # or: nvdataset auth login [--flow device]
 export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"   # OpenAI-compat origin, e.g. http://127.0.0.1:8000
 export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
 

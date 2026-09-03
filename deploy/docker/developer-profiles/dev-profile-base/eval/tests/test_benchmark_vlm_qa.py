@@ -7,21 +7,24 @@ from __future__ import annotations
 import json
 import sys
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pytest
-
+from benchmark_vlm_qa import QaItem
+from benchmark_vlm_qa import dss_credential
 from benchmark_vlm_qa import is_qa_item
 from benchmark_vlm_qa import judge_api_key
 from benchmark_vlm_qa import judge_completions_url
 from benchmark_vlm_qa import latency_stats
 from benchmark_vlm_qa import parse_score
 from benchmark_vlm_qa import parse_vlm_stdout
-from benchmark_vlm_qa import QaItem
 from benchmark_vlm_qa import run_bounded
 from benchmark_vlm_qa import run_vlm_item
 from benchmark_vlm_qa import select_qa_items
 from benchmark_vlm_qa import strip_think_tags
+import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_parse_vlm_stdout_skips_completion_marker() -> None:
@@ -240,6 +243,32 @@ def test_judge_key_prefers_the_explicitly_named_key() -> None:
     assert judge_api_key("https://api.openai.com/v1/chat/completions", env) == "judge-key"
     assert judge_api_key("http://localhost:8000/v1/chat/completions", env) == "judge-key"
     assert judge_api_key("https://api.openai.com/v1/chat/completions", {"OPENAI_API_KEY": "openai-key"}) == "openai-key"
+
+
+def test_dss_credential_prefers_the_dataset_service_key_over_the_legacy_ngc_name() -> None:
+    env = {"NVDATASET_API_KEY": "personal-key", "NGC_API_KEY": "global-key"}
+    assert dss_credential(env) == "NVDATASET_API_KEY"
+    assert dss_credential({"NGC_API_KEY": "global-key"}) == "NGC_API_KEY"
+
+
+def test_dss_credential_accepts_a_starfleet_login_with_no_api_key(tmp_path: Path) -> None:
+    """`nvdataset auth login` stores a token and needs no key; refusing to start would be wrong."""
+    token = tmp_path / ".nvdataset" / "starfleet_token.json"
+    token.parent.mkdir(parents=True)
+    token.write_text("{}", encoding="utf-8")
+    assert dss_credential({"HOME": str(tmp_path)}) == "starfleet token (nvdataset auth login)"
+
+
+def test_dss_credential_reports_none_when_nothing_is_configured(tmp_path: Path) -> None:
+    assert dss_credential({"HOME": str(tmp_path)}) is None
+    assert dss_credential({"HOME": str(tmp_path), "NVDATASET_DOTENV_PATH": str(tmp_path / "absent.env")}) is None
+
+
+def test_dss_credential_accepts_a_dotenv_file(tmp_path: Path) -> None:
+    dotenv = tmp_path / "dss.env"
+    dotenv.write_text("NVDATASET_API_KEY=nvapi-x\n", encoding="utf-8")
+    env = {"HOME": str(tmp_path), "NVDATASET_DOTENV_PATH": str(dotenv)}
+    assert dss_credential(env) == f"NVDATASET_DOTENV_PATH={dotenv}"
 
 
 def test_latency_stats() -> None:

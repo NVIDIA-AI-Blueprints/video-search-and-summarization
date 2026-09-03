@@ -8,7 +8,8 @@ deployed Cosmos Reason 3 RT-VLM. That path does **not** score tool-calling or
 trajectories.
 
 ```bash
-# Prerequisites: vss configure already run; rt_vlm ok; NGC_API_KEY for DSS.
+# Prerequisites: vss configure already run; rt_vlm ok; a DSS credential
+# (NVDATASET_API_KEY, or `nvdataset auth login`) — see "Download the eval Dataset".
 # Judge: a GPT or Claude model from inference hub now that vss-agent's Nemotron
 # endpoint is going away. EVAL_LLM_JUDGE_API_KEY authenticates it; NGC_API_KEY is
 # never sent to a non-NVIDIA judge host.
@@ -38,15 +39,37 @@ The eval dataset (ground truth files, reference reports, and videos) is hosted o
 **a. Install the `nvdataset` CLI:**
 
 ```bash
-pip install --extra-index-url https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple nvdataset
+pip install --extra-index-url https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple nvdataset
 ```
 
-**b. Download the dataset:**
+That is the read-only index from the [nvdataset onboarding
+docs](https://nsv-data-platform.gitlab-master-pages.nvidia.com/nv_datasets/onboarding_installation/)
+and needs no credentials. The `urm.nvidia.com/.../sw-ngc-data-platform-pypi` index
+used previously returns 403.
+
+**b. Authenticate.** DSS uses a *Personal* Key scoped to one NGC org and to the
+service `NVIDIA Dataset Service` — not the global NGC key used by the NGC CLI, which
+returns 403 even when it works elsewhere. Generate one at
+[org.ngc.nvidia.com/setup/personal-keys](https://org.ngc.nvidia.com/setup/personal-keys)
+after switching the org to the dataset's owner:
 
 ```bash
-export NGC_API_KEY=<your-ngc-api-key>
 export NVDATASET_TENANTID=0573334707593577
 export NVDATASET_GROUPID=vss-bp-team
+export NVDATASET_API_KEY=<personal-key>   # NGC_API_KEY works but is deprecated
+```
+
+Or skip the key entirely with Starfleet SSO, adding `--flow device` when the machine
+has no browser (a remote box over SSH). Access to a group needs membership in
+`ngc-datasetservice-viewer-<tenant>-<group>` for read:
+
+```bash
+nvdataset auth login --flow device
+```
+
+**c. Download the dataset:**
+
+```bash
 nvdataset download vss-devx-base <bp_dir>/deploy/docker/data-dir/agent_eval/dataset/vss-devx-base
 ```
 

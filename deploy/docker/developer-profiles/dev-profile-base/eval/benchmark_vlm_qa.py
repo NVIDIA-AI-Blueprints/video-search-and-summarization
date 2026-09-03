@@ -27,21 +27,21 @@ from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import asdict
+from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 import re
 import signal
 import statistics
 import subprocess
 import sys
 import time
+from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 DEFAULT_DATASET_NAME = "vss-devx-base"
 DEFAULT_DATASET_FILE = "dataset_single_turn.json"
@@ -224,9 +224,8 @@ def is_qa_item(item: dict[str, Any]) -> bool:
     ground_truth = item.get("ground_truth")
     if not isinstance(ground_truth, str) or not ground_truth.strip():
         return False
-    if ground_truth.rstrip().endswith(".json") and "report" in Path(ground_truth).name:
-        return False
-    return True
+    # A report item points at a reference JSON rather than carrying answer text.
+    return not (ground_truth.rstrip().endswith(".json") and "report" in Path(ground_truth).name)
 
 
 def index_videos(videos_dir: Path) -> dict[str, Path]:
@@ -299,6 +298,27 @@ def select_qa_items(
         if limit is not None and len(selected) >= limit:
             break
     return selected
+
+
+def dss_credential(env: dict[str, str] | None = None) -> str | None:
+    """Name the DSS credential ``nvdataset`` will use, or ``None`` if it has none.
+
+    ``NVDATASET_API_KEY`` is a *Personal* key scoped to the NVIDIA Dataset Service --
+    not the global NGC key used by the NGC CLI, which is why an ``NGC_API_KEY`` that
+    works elsewhere still gets 403 here. ``NGC_API_KEY`` is accepted for backward
+    compatibility. Starfleet SSO (``nvdataset auth login``) needs no key at all, so a
+    stored token counts too; refusing to start in that case would be wrong.
+    """
+    env = os.environ if env is None else env
+    for name in ("NVDATASET_API_KEY", "NVDATASET_NGC_API_KEY", "NGC_API_KEY"):
+        if env.get(name):
+            return name
+    dotenv = env.get("NVDATASET_DOTENV_PATH")
+    if dotenv and Path(dotenv).expanduser().is_file():
+        return f"NVDATASET_DOTENV_PATH={dotenv}"
+    if (Path(env.get("HOME", "~")).expanduser() / ".nvdataset" / "starfleet_token.json").is_file():
+        return "starfleet token (nvdataset auth login)"
+    return None
 
 
 def download_dataset(
@@ -504,9 +524,7 @@ def write_outputs(output_dir: Path, results: list[ItemResult], extra: dict[str, 
         **extra,
     }
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    workflow = [
-        {"id": item.id, "query": item.query, "output": item.answer, "error": item.error} for item in results
-    ]
+    workflow = [{"id": item.id, "query": item.query, "output": item.answer, "error": item.error} for item in results]
     (output_dir / "workflow_output.json").write_text(json.dumps(workflow, indent=2) + "\n", encoding="utf-8")
     qa_items = [
         {
@@ -528,9 +546,7 @@ def write_outputs(output_dir: Path, results: list[ItemResult], extra: dict[str, 
     (output_dir / "qa_evaluator_output.json").write_text(json.dumps(qa_output, indent=2) + "\n", encoding="utf-8")
     latency_output = {
         "average_latency_seconds": statistics.fmean(latencies) if latencies else None,
-        "items": [
-            {"id": item.id, "query": item.query, "latency_seconds": item.latency_seconds} for item in results
-        ],
+        "items": [{"id": item.id, "query": item.query, "latency_seconds": item.latency_seconds} for item in results],
     }
     (output_dir / "latency_summary.json").write_text(json.dumps(latency_output, indent=2) + "\n", encoding="utf-8")
     csv_path = output_dir / "summary.csv"
@@ -593,9 +609,17 @@ def main(argv: list[str] | None = None) -> int:
     dataset_dir = (args.dataset_dir or Path(os.environ.get("VSS_EVAL_DATASET", default_dataset_dir(root)))).resolve()
     output_dir = (args.output_dir or (dataset_dir.parent.parent / "results" / "vlm_qa")).resolve()
     if not args.skip_download and (args.force_download or not dataset_ready(dataset_dir, args.dataset_file)):
-        if not os.environ.get("NGC_API_KEY"):
-            print("vss: NGC_API_KEY is required to download vss-devx-base", file=sys.stderr)
+        credential = dss_credential()
+        if credential is None:
+            print(
+                "vss: no DSS credential for downloading vss-devx-base. Either set "
+                "NVDATASET_API_KEY to a Personal Key scoped to 'NVIDIA Dataset Service' "
+                "(https://org.ngc.nvidia.com/setup/personal-keys, with the org switched to the "
+                "one owning the dataset), or run `nvdataset auth login` for Starfleet SSO.",
+                file=sys.stderr,
+            )
             return 2
+        print(f"dss credential: {credential}", file=sys.stderr)
         download_dataset(dataset_dir, name=args.dataset_name, nvdataset_bin=args.nvdataset_bin)
     if not dataset_ready(dataset_dir, args.dataset_file):
         print(f"vss: dataset not found at {dataset_dir} (need {args.dataset_file} and videos/)", file=sys.stderr)
@@ -612,7 +636,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"vss: {exc}", file=sys.stderr)
         return 2
     if not items:
-        print("vss: no QA items in the dataset (evaluation_method includes qa with a text ground_truth)", file=sys.stderr)
+        print(
+            "vss: no QA items in the dataset (evaluation_method includes qa with a text ground_truth)", file=sys.stderr
+        )
         return 2
 
     print(f"resolved {len(items)} QA item(s) from {dataset_dir / args.dataset_file}", file=sys.stderr)
