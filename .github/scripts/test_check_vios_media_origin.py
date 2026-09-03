@@ -18,8 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from check_vios_media_origin import MINTER  # noqa: E402
 from check_vios_media_origin import definitions_in  # noqa: E402
 from check_vios_media_origin import main  # noqa: E402
+from check_vios_media_origin import scan_minter  # noqa: E402
 from check_vios_media_origin import scan_paths  # noqa: E402
 
 FAILURES: list[str] = []
@@ -139,6 +141,63 @@ check("an inlined public derivation is accepted", not failures, f"({failures})")
 
 failures, _ = scan_text("VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}", suffix=".yaml")
 check("a bare passthrough is not a finding", not failures, f"({failures})")
+
+
+# --------------------------------------------------------------------------
+# scan_minter: the C++ half that makes a scheme-carrying value safe
+# --------------------------------------------------------------------------
+print("scan_minter rejects losing the scheme passthrough")
+
+
+def minter_tree(body: str) -> Path:
+    """A throwaway tree holding utils.cpp with *body* as the function."""
+    tmp = Path(tempfile.mkdtemp())
+    path = tmp / MINTER
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    return tmp
+
+
+FIXED = """
+string getIngressBaseUrl()
+{
+    const DeviceConfig& config = GET_CONFIG();
+    if (config.ingress_endpoint.rfind("http://", 0) == 0 ||
+        config.ingress_endpoint.rfind("https://", 0) == 0)
+    {
+        return config.ingress_endpoint;
+    }
+    const string protocol = config.use_https ? "https" : "http";
+    return protocol + "://" + config.ingress_endpoint;
+}
+"""
+
+# Verbatim pre-fix source. Paired with the configuration this lint *requires*,
+# it mints http://http://host:7777/vst/... -- observed live.
+DEFECT = """
+string getIngressBaseUrl()
+{
+    const DeviceConfig& config = GET_CONFIG();
+    const string protocol = config.use_https ? "https" : "http";
+    const string baseUrl = protocol + "://" + config.ingress_endpoint;
+    return baseUrl;
+}
+"""
+
+check("the fixed minter is accepted", not scan_minter(minter_tree(FIXED)))
+check("the pre-fix minter is a finding", bool(scan_minter(minter_tree(DEFECT))))
+check(
+    "a half-revert that drops one scheme test is a finding",
+    bool(scan_minter(minter_tree(FIXED.replace('"https://"', '"http://"')))),
+)
+check(
+    "a minter that is gone is a finding, not a skip",
+    bool(scan_minter(Path(tempfile.mkdtemp()))),
+)
+check(
+    "a renamed minter is a finding, not a skip",
+    bool(scan_minter(minter_tree(FIXED.replace("getIngressBaseUrl", "getBaseUrl")))),
+)
 
 
 # --------------------------------------------------------------------------
