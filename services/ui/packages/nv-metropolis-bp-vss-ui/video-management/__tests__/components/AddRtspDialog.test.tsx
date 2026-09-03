@@ -184,8 +184,13 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     expect(onAwaitStream).toHaveBeenLastCalledWith('sensor-second');
   });
 
-  it('adds afresh when only the sensor name is edited after a listing timeout', async () => {
-    const onAwaitStream = jest.fn(async () => ({ found: false }));
+  // VST keys sensors on the URL. A name-only edit is still the same stream;
+  // re-POSTing it would come back as a duplicate.
+  it('resumes the wait when only the sensor name is edited after a listing timeout', async () => {
+    const onAwaitStream = jest
+      .fn<Promise<{ found: boolean }>, [string]>()
+      .mockResolvedValueOnce({ found: false })
+      .mockResolvedValueOnce({ found: true });
     const { props } = renderDialog({ onAwaitStream });
 
     fillUrl();
@@ -196,17 +201,15 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     fireEvent.change(screen.getByLabelText(/Sensor Name/), {
       target: { value: 'Renamed Camera' },
     });
-    expect(submitButton()).toHaveTextContent('Add RTSP');
+    expect(submitButton()).toHaveTextContent('Retry');
 
     await act(async () => {
       fireEvent.click(submitButton());
     });
 
-    expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
-    expect(mockAddRtspStream).toHaveBeenLastCalledWith(
-      props.vstApiUrl,
-      { sensorUrl: RTSP_URL, name: 'Renamed Camera' },
-    );
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(1);
+    expect(onAwaitStream).toHaveBeenNthCalledWith(2, 'sensor-new');
+    expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
   // Editing back to the accepted values should not force a duplicate add

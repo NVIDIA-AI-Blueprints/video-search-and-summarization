@@ -27,11 +27,10 @@ interface AddRtspDialogProps {
 
 type SubmitPhase = 'idle' | 'adding' | 'confirming';
 
-/** A sensor VST took, and the values it was created from. */
+/** A sensor VST took, keyed by the RTSP URL it was created from. */
 interface AcceptedSensor {
   sensorId: string;
   sensorUrl: string;
-  name: string;
 }
 
 /** The message to show for bad input, or `null` when it is good. */
@@ -79,14 +78,12 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const trimmedUrl = rtspUrl.trim();
   const trimmedName = sensorName.trim();
 
-  // An acceptance describes the values that produced it. A timeout leaves the
-  // fields editable, so once either one is edited the accepted sensor is no
-  // longer what the dialog shows: submitting has to add the stream on screen
-  // rather than confirm the previous one and close over it.
+  // VST keys sensors on the RTSP URL. A listing timeout leaves the fields
+  // editable, but a name-only edit is still the same sensor — re-POSTing the
+  // URL would come back as a duplicate. An edited URL is a different stream
+  // and has to be added, not confirmed against the previous sensorId.
   const acceptedSensorId =
-    accepted && accepted.sensorUrl === trimmedUrl && accepted.name === trimmedName
-      ? accepted.sensorId
-      : null;
+    accepted && accepted.sensorUrl === trimmedUrl ? accepted.sensorId : null;
 
   const extractNameFromUrl = (url: string): string =>
     url.split('?')[0].split('/').filter((p) => p.trim()).pop() ?? '';
@@ -160,7 +157,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
         const result = await addRtspStream(vstApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
         if (!isCurrentAttempt()) return;
         sensorId = result.sensorId;
-        setAccepted({ sensorId, sensorUrl: trimmedUrl, name: trimmedName });
+        setAccepted({ sensorId, sensorUrl: trimmedUrl });
         setPhase('confirming');
       }
 
