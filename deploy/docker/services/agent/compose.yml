@@ -100,6 +100,27 @@ services:
       VSS_AGENT_CONFIG_FILE: ${VSS_AGENT_CONFIG_FILE}
       VSS_AGENT_HOST: ${VSS_AGENT_HOST}
       VSS_AGENT_PORT: ${VSS_AGENT_PORT}
+      # Which peers the agent believes about the scheme the client used.
+      #
+      # uvicorn already installs ProxyHeadersMiddleware, but it trusts only
+      # 127.0.0.1, and HAProxy reaches the agent from the bridge -- so the
+      # X-Forwarded-Proto the gateway sets is discarded and Starlette builds
+      # its /static trailing-slash redirect as http://. On a platform that
+      # terminates TLS outside the deployment that Location is mixed content
+      # and the browser blocks it. This is the value that makes the agent
+      # honour the header it is already being sent.
+      #
+      # The bridge subnet is assigned by Docker and is not fixed across hosts,
+      # so the default is the RFC1918 space every Docker address pool draws
+      # from rather than one subnet that would be wrong on the next host.
+      # Public peers are never trusted. Narrow it to the bridge's own CIDR
+      # where you know it, and see deploy/docker/README.md for what a
+      # deployment that publishes the agent's port directly should set.
+      #
+      # Only IP addresses and CIDR networks work here. uvicorn compares this
+      # against the peer's address, so a container name is accepted, silently
+      # never matches, and puts the redirect back on http.
+      FORWARDED_ALLOW_IPS: ${VSS_AGENT_FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       LVS_BACKEND_URL: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/lvs
       RTVI_EMBED_MODEL: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       RTVI_EMBED_PORT: ${RTVI_EMBED_PORT}
