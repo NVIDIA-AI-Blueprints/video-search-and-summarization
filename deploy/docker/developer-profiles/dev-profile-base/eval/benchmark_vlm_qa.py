@@ -15,10 +15,11 @@
 # limitations under the License.
 """E2E video Q&A benchmark over ``vss vlm run`` (NAT / vss-agent free).
 
-Loads questions and videos from the DSS dataset ``vss-devx-base`` (via the
-``nvdataset`` CLI), asks each QA item against a deployed Cosmos Reason 3
-RT-VLM through the VSS CLI, then reports per-item and aggregate **latency**
-and LLM-judge **accuracy**.
+Loads questions and videos from a DSS dataset named by ``--dataset-name`` (via the
+``nvdataset`` CLI), asks each QA item against a deployed Cosmos Reason 3 RT-VLM
+through the VSS CLI, then reports per-item and aggregate **latency** and LLM-judge
+**accuracy**. The reference dataset is ``vss-devx-base``; neither it nor its tenancy
+is hardcoded, so any dataset of the same shape works.
 
 Out of scope: tool-calling accuracy and trajectory evaluation.
 """
@@ -43,10 +44,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_DATASET_NAME = "vss-devx-base"
-DEFAULT_DATASET_FILE = "dataset_single_turn.json"
-DEFAULT_NVDATASET_TENANT = "0573334707593577"
-DEFAULT_NVDATASET_GROUP = "vss-bp-team"
 DEFAULT_TIMEOUT_S = 300
 # vss-devx-base is ~290 MB. Generous enough for a slow link, but still an upper bound:
 # a stalled DSS would otherwise hang the run before a single item is measured.
@@ -104,8 +101,11 @@ Think through your evaluation step by step, then output ONLY a single decimal nu
 (your score from 0.0 to 1.0) on the final line.
 """
 
+# `<agent-think>` is gone with vss-agent, which nothing here calls. `<think>` stays
+# because the judge is pluggable: the prompt above asks it to work step by step, and a
+# Nemotron-family judge wraps that working in `<think>`, whose digits would otherwise be
+# read as the score.
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-_AGENT_THINK_RE = re.compile(r"<agent-think>.*?</agent-think>", re.DOTALL)
 _SCORE_RE = re.compile(r"(?<![\d.])(0(?:\.\d+)?|1(?:\.0+)?|\.\d+)(?![\d.])")
 
 
@@ -114,11 +114,12 @@ def repo_root_from_here() -> Path:
     return Path(__file__).resolve().parents[5]
 
 
-def default_dataset_dir(root: Path) -> Path:
-    compose_data = root / "deploy" / "docker" / "data-dir" / "agent_eval" / "dataset" / DEFAULT_DATASET_NAME
+def default_dataset_dir(root: Path, dataset_name: str) -> Path:
+    """Where a dataset of this name would have been unpacked, deployed or not."""
+    compose_data = root / "deploy" / "docker" / "data-dir" / "agent_eval" / "dataset" / dataset_name
     if compose_data.exists():
         return compose_data
-    return Path(__file__).resolve().parent / "dataset" / DEFAULT_DATASET_NAME
+    return Path(__file__).resolve().parent / "dataset" / dataset_name
 
 
 def vss_command(root: Path) -> list[str]:
@@ -164,9 +165,7 @@ def latency_stats(latencies: list[float]) -> dict[str, float | int | None]:
 def strip_think_tags(text: str) -> str:
     if not text:
         return ""
-    cleaned = _AGENT_THINK_RE.sub("", text)
-    cleaned = _THINK_RE.sub("", cleaned)
-    return cleaned.strip()
+    return _THINK_RE.sub("", text).strip()
 
 
 def parse_score(text: str) -> tuple[float, str]:
@@ -384,7 +383,7 @@ def dss_credential(env: dict[str, str] | None = None) -> str | None:
 def download_dataset(
     dest: Path,
     *,
-    name: str = DEFAULT_DATASET_NAME,
+    name: str,
     nvdataset_bin: str = "nvdataset",
     timeout_s: float = DEFAULT_DOWNLOAD_TIMEOUT_S,
 ) -> None:
@@ -392,19 +391,26 @@ def download_dataset(
 
     An unresponsive DSS must not hang the run before a single item is measured, so
     this gets the same watchdog as the VLM calls. Output is left uncaptured: the
-    download is the long step, and its progress is the only sign of life.
+    download is the long step, its progress is the only sign of life, and it is where
+    ``nvdataset`` prints why a fetch was refused.
+
+    Tenancy is `nvdataset`'s own configuration, not ours: it reads
+    ``NVDATASET_TENANTID``/``NVDATASET_GROUPID`` from the environment, or the context
+    saved by ``nvdataset auth context add``. Naming a tenant here would silently
+    redirect anyone whose dataset lives elsewhere.
     """
     dest.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env.setdefault("NVDATASET_TENANTID", DEFAULT_NVDATASET_TENANT)
-    env.setdefault("NVDATASET_GROUPID", DEFAULT_NVDATASET_GROUP)
     cmd = [nvdataset_bin, "download", name, str(dest)]
     print(f"+ {' '.join(cmd)}", file=sys.stderr)
-    returncode, _stdout, _stderr, timed_out = run_bounded(cmd, timeout_s, capture=False, env=env)
+    returncode, _stdout, _stderr, timed_out = run_bounded(cmd, timeout_s, capture=False)
     if timed_out:
         raise RuntimeError(f"`{nvdataset_bin} download` exceeded {timeout_s:g}s and was killed")
     if returncode != 0:
-        raise RuntimeError(f"`{nvdataset_bin} download` failed with exit {returncode}")
+        raise RuntimeError(
+            f"`{nvdataset_bin} download` failed with exit {returncode}. If it reported a "
+            "missing tenant, set NVDATASET_TENANTID (and NVDATASET_GROUPID) or select a "
+            "context with `nvdataset auth context use`."
+        )
 
 
 def dataset_ready(dataset_dir: Path, dataset_file: str) -> bool:
@@ -710,8 +716,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Path to the extracted vss-devx-base directory.",
     )
-    parser.add_argument("--dataset-file", default=DEFAULT_DATASET_FILE)
-    parser.add_argument("--dataset-name", default=DEFAULT_DATASET_NAME)
+    # No default dataset: naming one here would bake this team's DSS coordinates into
+    # the blueprint. The reference dataset is `vss-devx-base` / `dataset_single_turn.json`
+    # -- see the eval README.
+    parser.add_argument("--dataset-name", required=True, help="DSS dataset to evaluate, e.g. vss-devx-base.")
+    parser.add_argument(
+        "--dataset-file",
+        required=True,
+        help="QA file inside the dataset, e.g. dataset_single_turn.json.",
+    )
     parser.add_argument("--skip-download", action="store_true")
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
@@ -749,13 +762,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     root = (args.repo_root or Path(os.environ.get("VSS_REPO_ROOT", repo_root_from_here()))).resolve()
-    dataset_dir = (args.dataset_dir or Path(os.environ.get("VSS_EVAL_DATASET", default_dataset_dir(root)))).resolve()
+    dataset_dir = (
+        args.dataset_dir or Path(os.environ.get("VSS_EVAL_DATASET", default_dataset_dir(root, args.dataset_name)))
+    ).resolve()
     output_dir = (args.output_dir or (dataset_dir.parent.parent / "results" / "vlm_qa")).resolve()
     if not args.skip_download and (args.force_download or not dataset_ready(dataset_dir, args.dataset_file)):
         credential = dss_credential()
         if credential is None:
             print(
-                "vss: no DSS credential for downloading vss-devx-base. Either set "
+                f"vss: no DSS credential for downloading {args.dataset_name}. Either set "
                 "NVDATASET_API_KEY to a Personal Key scoped to 'NVIDIA Dataset Service' "
                 "(https://org.ngc.nvidia.com/setup/personal-keys, with the org switched to the "
                 "one owning the dataset), or run `nvdataset auth login` for Starfleet SSO.",
@@ -856,6 +871,7 @@ def main(argv: list[str] | None = None) -> int:
     served_models = sorted({item.served_model for item in results if item.served_model})
     extra = {
         "dataset_dir": str(dataset_dir),
+        "dataset_name": args.dataset_name,
         "dataset_file": args.dataset_file,
         "skipped": selection.skipped,
         "media_addressing": "inline_file" if args.inline_media else "vios_sensor",

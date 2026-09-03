@@ -62,8 +62,12 @@ score tool-calling or trajectories.
     on a remote box with no browser. Group access requires membership in
     `ngc-datasetservice-viewer-<tenant>-<group>` (reader) or `...-user-...` (writer).
 
-  Plus `NVDATASET_TENANTID=0573334707593577` and `NVDATASET_GROUPID=vss-bp-team`
-  (defaults in the script; dataset owner: Jiayi Ni).
+  Plus tenancy, which SSO does **not** supply — after `auth login`, `nvdataset auth
+  status` still reports `"tenant_id": null` and every call fails with `Did not find
+  tenant_id`. The script names no tenant, so set one yourself: export
+  `NVDATASET_TENANTID=0573334707593577` and `NVDATASET_GROUPID=vss-bp-team` for the
+  reference dataset (owner: Jiayi Ni), or save it once with `nvdataset auth context
+  add`. Another dataset needs no change to the script.
 - An OpenAI-compatible judge LLM: `EVAL_LLM_JUDGE_BASE_URL` and `EVAL_LLM_JUDGE_NAME`.
   The old NAT eval judged with the Nemotron endpoint inside vss-agent; with vss-agent
   deprecated, prefer a GPT or Claude model from inference hub. Authenticate with
@@ -78,14 +82,20 @@ RT-VLM URLs; `vss vlm run` reads the recorded config.
 
 ```bash
 export NVDATASET_API_KEY=<personal-key>            # or: nvdataset auth login [--flow device]
+export NVDATASET_TENANTID=0573334707593577         # SSO does not set this; see Prerequisites
 export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"   # OpenAI-compat origin, e.g. http://127.0.0.1:8000
 export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
 
 # Optional: already-extracted dataset
 # export VSS_EVAL_DATASET=/path/to/vss-devx-base
 
-<repo>/deploy/docker/developer-profiles/dev-profile-base/eval/run_vlm_qa_benchmark.sh
+<repo>/deploy/docker/developer-profiles/dev-profile-base/eval/run_vlm_qa_benchmark.sh \
+  --dataset-name vss-devx-base \
+  --dataset-file dataset_single_turn.json
 ```
+
+Both dataset flags are **required** — the script carries no default dataset, so it
+never assumes one team's DSS coordinates.
 
 Useful flags (forwarded to `benchmark_vlm_qa.py`):
 

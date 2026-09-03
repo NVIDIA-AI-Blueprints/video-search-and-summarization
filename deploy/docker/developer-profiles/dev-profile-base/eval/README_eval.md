@@ -9,14 +9,20 @@ trajectories.
 
 ```bash
 # Prerequisites: vss configure already run; rt_vlm ok; a DSS credential
-# (NVDATASET_API_KEY, or `nvdataset auth login`) — see "Download the eval Dataset".
+# (NVDATASET_API_KEY, or `nvdataset auth login`) plus a tenant — see
+# "Download the eval Dataset".
 # Judge: a GPT or Claude model from inference hub now that vss-agent's Nemotron
 # endpoint is going away. EVAL_LLM_JUDGE_API_KEY authenticates it; NGC_API_KEY is
 # never sent to a non-NVIDIA judge host.
 export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"
 export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
 export EVAL_LLM_JUDGE_API_KEY="${LLM_API_KEY}"
-./run_vlm_qa_benchmark.sh
+
+# The dataset is named, never assumed: the script carries no default so it does
+# not bake one team's DSS coordinates into the blueprint.
+./run_vlm_qa_benchmark.sh \
+  --dataset-name vss-devx-base \
+  --dataset-file dataset_single_turn.json
 ```
 
 Outputs: `results/vlm_qa/summary.json` (mean accuracy + latency percentiles),
@@ -74,6 +80,19 @@ has no browser (a remote box over SSH). Access to a group needs membership in
 ```bash
 nvdataset auth login --flow device
 ```
+
+SSO authenticates you but does **not** select a tenant — `nvdataset auth status` still
+shows `"tenant_id": null` afterwards, and every call then fails with `Did not find
+tenant_id`. Tenancy is separate from identity, so set it either way: keep the two
+exports above, or save it once as a context.
+
+```bash
+nvdataset auth context add   # then: nvdataset auth context use <name>
+```
+
+The benchmark deliberately names no tenant of its own — it inherits whichever one your
+environment or active context selects, so pointing it at a different dataset needs no
+change to the script.
 
 **c. Download the dataset:**
 

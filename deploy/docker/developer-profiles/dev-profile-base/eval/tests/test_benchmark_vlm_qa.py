@@ -16,6 +16,7 @@ from benchmark_vlm_qa import is_qa_item
 from benchmark_vlm_qa import judge_api_key
 from benchmark_vlm_qa import judge_completions_url
 from benchmark_vlm_qa import latency_stats
+from benchmark_vlm_qa import parse_args
 from benchmark_vlm_qa import parse_score
 from benchmark_vlm_qa import parse_vlm_stdout
 from benchmark_vlm_qa import run_bounded
@@ -60,8 +61,31 @@ def test_parse_score_rejects_out_of_range() -> None:
         parse_score("the score is 12")
 
 
-def test_strip_think_tags() -> None:
-    assert strip_think_tags("<agent-think>plan</agent-think>Yes") == "Yes"
+def test_dataset_coordinates_are_the_operators_to_name() -> None:
+    """No baked dataset: a default here would carry one team's DSS coordinates.
+
+    Tenancy is left to ``nvdataset`` for the same reason, so there is nothing to assert
+    about it -- the absence of a default is the contract.
+    """
+    with pytest.raises(SystemExit):
+        parse_args([])
+    args = parse_args(["--dataset-name", "some-dataset", "--dataset-file", "qa.json"])
+    assert (args.dataset_name, args.dataset_file) == ("some-dataset", "qa.json")
+
+
+def test_strip_think_tags_removes_a_reasoning_block() -> None:
+    assert strip_think_tags("<think>ponder</think>Yes") == "Yes"
+
+
+def test_parse_score_ignores_digits_inside_a_trailing_think_block() -> None:
+    """Why `<think>` stripping is still earning its place, with vss-agent gone.
+
+    A Nemotron-family judge can close with its working rather than open with it. The
+    verdict is 0.9; the 0.2 it talked itself out of is on the last line, so a reverse
+    line scan would return it.
+    """
+    score, _reasoning = parse_score("0.9\n<think>on reflection, not 0.2</think>")
+    assert score == 0.9
 
 
 def test_is_qa_item_skips_report_and_trajectory() -> None:
@@ -309,7 +333,7 @@ def test_download_dataset_is_bounded_and_kills_a_stalled_download(tmp_path: Path
 
     started = time.monotonic()
     with pytest.raises(RuntimeError, match="exceeded"):
-        download_dataset(tmp_path / "ds", nvdataset_bin=str(stall), timeout_s=2)
+        download_dataset(tmp_path / "ds", name="any-dataset", nvdataset_bin=str(stall), timeout_s=2)
     assert time.monotonic() - started < 60
 
 
@@ -319,7 +343,7 @@ def test_download_dataset_reports_a_failing_download(tmp_path: Path) -> None:
     failing.chmod(0o755)
 
     with pytest.raises(RuntimeError, match="exit 7"):
-        download_dataset(tmp_path / "ds", nvdataset_bin=str(failing), timeout_s=30)
+        download_dataset(tmp_path / "ds", name="any-dataset", nvdataset_bin=str(failing), timeout_s=30)
 
 
 def test_run_bounded_without_capture_still_reports_exit_status() -> None:
