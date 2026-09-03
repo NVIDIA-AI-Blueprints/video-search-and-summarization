@@ -135,7 +135,6 @@ Select a wire protocol, not a harness:
 | `AGENT_BACKEND_SESSION_FIELD`  | Stable session request field           | `user`                            |
 | `AGENT_BACKEND_SESSION_HEADER` | Optional stable-session header         | unset                             |
 | `AGENT_BACKEND_HEADERS_JSON`   | Additional upstream headers (secret)   | `{}`                              |
-| `AGENT_BACKEND_STATE_DIR`      | Private connector identity state       | `/var/lib/vss-agent-gateway`      |
 
 Production gateway mode also sets `AGENT_REQUIRE_VSS_CAPABILITIES=true` and
 supplies `AGENT_VSS_CAPABILITIES_B64`, `AGENT_VSS_CAPABILITIES_SHA256`, and
@@ -175,13 +174,13 @@ Each UI thread maps to a stable, opaque OpenClaw session key. Cancellation calls
 native `chat.abort`. The connector does not fall back to OpenClaw's Responses
 endpoint, and the endpoint does not need to be enabled.
 
-The connector signs every `connect.challenge` with an Ed25519 device identity.
-Compose persists that private identity in the `agent-gateway-state` volume.
-NemoClaw's host-isolated Control UI trust path accepts it immediately. A
-hardened standalone OpenClaw Gateway can instead return a one-time pairing
-request; approve the reported request ID with `openclaw devices approve
-<requestId>`, then retry the run. Keep the OpenClaw bearer credential and the
-gateway state volume server-side.
+The connector identifies itself as OpenClaw's non-browser `gateway-client` in
+`backend` mode and authenticates with the shared Gateway token. OpenClaw allows
+this mode without a device key when the adapter reaches it over a trusted local
+or loopback route, which is why the Compose service uses host networking while
+the harness remains bound to loopback. A remote OpenClaw configuration that
+requires signed device identity fails closed; run this adapter beside that
+harness and expose only the adapter API rather than weakening device policy.
 
 ### Hermes
 
@@ -339,22 +338,20 @@ state is kept in memory and bounded by
 the configured maximum run count. Eviction safely falls back to the recovery
 history supplied by the UI. A gateway restart also uses that recovery path.
 
-Install the pinned runtime dependencies, then run the test suite:
+The service has no third-party Python runtime packages. Run its standard-library
+test suite directly:
 
 ```bash
-python3 -m pip install -r requirements.txt
 PYTHONPATH=. python3 -m unittest discover -s tests -t . -v
 ```
 
 ## Current storage boundary
 
-Run events and Responses chain metadata are in memory. The OpenClaw device
-identity is the exception: Compose persists it in `agent-gateway-state` so
-pairing survives container replacement. Run replay works within one gateway
-process and the configured retention window. This is suitable for the
-single-host Compose deployment above, but not yet for an HA control plane: use
-one gateway replica, and expect active replay state to be lost if it restarts.
-A durable/shared `RunStore` is required before horizontal scaling or
+Run events and Responses chain metadata are in memory. Run replay works within
+one gateway process and the configured retention window. This is suitable for
+the single-host Compose deployment above, but not yet for an HA control plane:
+use one gateway replica, and expect active replay state to be lost if it
+restarts. A durable/shared `RunStore` is required before horizontal scaling or
 restart-surviving replay.
 
 This gateway is one trusted-operator boundary, not adversarial multi-tenant

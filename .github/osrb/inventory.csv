@@ -1144,7 +1144,6 @@ cryptography,48.0.0,Apache-2.0 OR BSD-3-Clause,services/sdrc,python,lockfile,ser
 cryptography,50.0.0,Apache-2.0 OR BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 cryptography,50.0.0,Apache-2.0 OR BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 cryptography,50.0.0,Apache-2.0 OR BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
-cryptography,50.0.1,UNKNOWN,services/agent-gateway,python,manifest,services/agent-gateway/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 css-tree,3.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 css.escape,1.5.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 cssesc,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3848,10 +3847,8 @@ webidl-conversions,7.0.0,BSD-2-Clause,services/ui,node,lockfile,services/ui/pack
 webidl-conversions,8.0.1,BSD-2-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 webrtc-adapter,9.0.3,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 webrtc-issue-detector,1.16.3,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
-websocket,UNKNOWN,UNKNOWN,services/agent-gateway,python,usage,services/agent-gateway/vss_agent_gateway/connectors/openclaw_ws.py,runtime,no,no,no,imported-only,Unknown
 websocket-client,1.9.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 websocket-client,1.9.0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
-websocket-client,1.9.2,UNKNOWN,services/agent-gateway,python,manifest,services/agent-gateway/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 websockets,12.0,BSD License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 websockets,15.0.1,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 websockets,17.0.1,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None

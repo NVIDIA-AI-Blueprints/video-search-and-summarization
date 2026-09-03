@@ -10,54 +10,33 @@ inspected privately for VSS UI artifacts but are never replayed to the browser.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
-import os
-import stat
-import tempfile
 import threading
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 from threading import Event
-
-import websocket
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-    Ed25519PrivateKey,
-)
-from cryptography.hazmat.primitives.serialization import (
-    Encoding,
-    NoEncryption,
-    PrivateFormat,
-    PublicFormat,
-)
 
 from ..config import GatewayConfig
 from ..contract import ConnectorEvent, CreateRunRequest
 from ..json_codec import strict_json_loads
 from .base import Connector, ConnectorError
+from .websocket_client import (
+    WebSocketError,
+    WebSocketTimeoutError,
+    connect_websocket,
+)
 
 PROTOCOL_VERSION = 4
-CLIENT_ID = "openclaw-control-ui"
-CLIENT_MODE = "webchat"
+CLIENT_ID = "gateway-client"
+CLIENT_MODE = "backend"
 CLIENT_PLATFORM = "linux"
 CLIENT_DEVICE_FAMILY = "server"
 REQUESTED_SCOPES = ("operator.read", "operator.write")
 CLIENT_CAPABILITIES = ("tool-events", "session-scoped-events")
 MAX_FRAME_CHARS = 26_214_400
-DEVICE_STATE_VERSION = 1
-DEVICE_STATE_FILENAME = "openclaw-device.json"
-
-
-@dataclass(frozen=True, slots=True)
-class _DeviceState:
-    private_key: Ed25519PrivateKey
-    device_id: str
-    public_key: str
-    device_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,33 +52,6 @@ class _HandshakeRejected(RuntimeError):
         self.error = error
 
 
-def _base64url_encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
-def _base64url_decode(value: str) -> bytes:
-    if not value or len(value) > 4096:
-        raise ValueError("invalid base64url value")
-    padded = value + "=" * ((4 - len(value) % 4) % 4)
-    decoded = base64.b64decode(padded, altchars=b"-_", validate=True)
-    if _base64url_encode(decoded) != value:
-        raise ValueError("non-canonical base64url value")
-    return decoded
-
-
-def _valid_token(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    token = value.strip()
-    if (
-        not token
-        or len(token) > 8_192
-        or any(character.isspace() for character in token)
-    ):
-        return None
-    return token
-
-
 class OpenClawWebSocketConnector(Connector):
     """Translate OpenClaw protocol-v4 events into the VSS run contract."""
 
@@ -108,8 +60,6 @@ class OpenClawWebSocketConnector(Connector):
         self._endpoint = f"{config.backend_url}{config.backend_path}"
         self._lock = threading.RLock()
         self._active_runs: dict[str, _ActiveRun] = {}
-        self._state_path = Path(config.backend_state_dir) / DEVICE_STATE_FILENAME
-        self._device = self._load_or_create_device()
 
     @property
     def protocol(self) -> str:
@@ -123,218 +73,8 @@ class OpenClawWebSocketConnector(Connector):
             "cancellation": "native",
         }
 
-    def _load_or_create_device(self) -> _DeviceState:
-        directory = self._state_path.parent
-        try:
-            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            directory_stat = directory.stat()
-        except OSError as error:
-            raise ConnectorError(
-                "OpenClaw device state directory is unavailable",
-                code="backend_state_error",
-            ) from error
-        if not stat.S_ISDIR(directory_stat.st_mode) or directory_stat.st_mode & 0o077:
-            raise ConnectorError(
-                "OpenClaw device state directory must be private (mode 0700)",
-                code="backend_state_error",
-            )
-
-        try:
-            return self._read_device()
-        except FileNotFoundError:
-            pass
-        except (OSError, ValueError, TypeError) as error:
-            raise ConnectorError(
-                "OpenClaw device state is invalid",
-                code="backend_state_error",
-            ) from error
-
-        private_key = Ed25519PrivateKey.generate()
-        state = self._device_from_private_key(private_key)
-        try:
-            self._write_device(state, replace=False)
-            return state
-        except FileExistsError:
-            # Another startup won the atomic create race.
-            try:
-                return self._read_device()
-            except (OSError, ValueError, TypeError) as error:
-                raise ConnectorError(
-                    "OpenClaw device state is invalid",
-                    code="backend_state_error",
-                ) from error
-        except OSError as error:
-            raise ConnectorError(
-                "OpenClaw device state could not be persisted",
-                code="backend_state_error",
-            ) from error
-
     @staticmethod
-    def _device_from_private_key(
-        private_key: Ed25519PrivateKey,
-        device_token: str | None = None,
-    ) -> _DeviceState:
-        public_raw = private_key.public_key().public_bytes(
-            Encoding.Raw, PublicFormat.Raw
-        )
-        return _DeviceState(
-            private_key=private_key,
-            device_id=hashlib.sha256(public_raw).hexdigest(),
-            public_key=_base64url_encode(public_raw),
-            device_token=device_token,
-        )
-
-    def _read_device(self) -> _DeviceState:
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(self._state_path, flags)
-        try:
-            file_stat = os.fstat(descriptor)
-            if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_mode & 0o077:
-                raise ValueError("device state must be a private regular file")
-            with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                raw = stream.read(32_769)
-            if len(raw) > 32_768:
-                raise ValueError("device state is oversized")
-        finally:
-            os.close(descriptor)
-        payload = strict_json_loads(raw)
-        if (
-            not isinstance(payload, dict)
-            or payload.get("version") != DEVICE_STATE_VERSION
-        ):
-            raise ValueError("unsupported device state")
-        encoded_private_key = payload.get("private_key")
-        if not isinstance(encoded_private_key, str):
-            raise ValueError("device state has no private key")
-        private_raw = _base64url_decode(encoded_private_key)
-        if len(private_raw) != 32:
-            raise ValueError("device private key has the wrong length")
-        private_key = Ed25519PrivateKey.from_private_bytes(private_raw)
-        raw_token = payload.get("device_token")
-        device_token = None if raw_token is None else _valid_token(raw_token)
-        if raw_token is not None and device_token is None:
-            raise ValueError("device token is invalid")
-        return self._device_from_private_key(private_key, device_token)
-
-    def _serialized_device(self, state: _DeviceState) -> bytes:
-        private_raw = state.private_key.private_bytes(
-            Encoding.Raw,
-            PrivateFormat.Raw,
-            NoEncryption(),
-        )
-        payload: dict[str, object] = {
-            "version": DEVICE_STATE_VERSION,
-            "private_key": _base64url_encode(private_raw),
-        }
-        if state.device_token:
-            payload["device_token"] = state.device_token
-        return (json.dumps(payload, separators=(",", ":")) + "\n").encode()
-
-    @staticmethod
-    def _write_all(descriptor: int, payload: bytes) -> None:
-        view = memoryview(payload)
-        while view:
-            written = os.write(descriptor, view)
-            if written <= 0:  # pragma: no cover - defensive OS boundary
-                raise OSError("device state write made no progress")
-            view = view[written:]
-
-    def _write_device(self, state: _DeviceState, *, replace: bool) -> None:
-        if not replace:
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-            descriptor = os.open(self._state_path, flags, 0o600)
-            try:
-                self._write_all(descriptor, self._serialized_device(state))
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-            return
-
-        descriptor, temporary_path = tempfile.mkstemp(
-            prefix=".openclaw-device.", dir=self._state_path.parent
-        )
-        try:
-            os.fchmod(descriptor, 0o600)
-            self._write_all(descriptor, self._serialized_device(state))
-            os.fsync(descriptor)
-            os.close(descriptor)
-            descriptor = -1
-            os.replace(temporary_path, self._state_path)
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-            try:
-                os.unlink(temporary_path)
-            except FileNotFoundError:
-                pass
-
-    def _save_device_token(self, token: str) -> None:
-        with self._lock:
-            if token == self._device.device_token:
-                return
-            state = self._device_from_private_key(self._device.private_key, token)
-            try:
-                self._write_device(state, replace=True)
-            except OSError as error:
-                raise ConnectorError(
-                    "OpenClaw device token could not be persisted",
-                    code="backend_state_error",
-                ) from error
-            self._device = state
-
-    def _clear_device_token(self) -> None:
-        with self._lock:
-            if self._device.device_token is None:
-                return
-            state = self._device_from_private_key(self._device.private_key)
-            try:
-                self._write_device(state, replace=True)
-            except OSError as error:
-                raise ConnectorError(
-                    "OpenClaw device token could not be cleared",
-                    code="backend_state_error",
-                ) from error
-            self._device = state
-
-    @staticmethod
-    def _device_auth_payload(
-        state: _DeviceState,
-        *,
-        signed_at: int,
-        nonce: str,
-        credential: str | None,
-    ) -> str:
-        return "|".join(
-            (
-                "v3",
-                state.device_id,
-                CLIENT_ID,
-                CLIENT_MODE,
-                "operator",
-                ",".join(REQUESTED_SCOPES),
-                str(signed_at),
-                credential or "",
-                nonce,
-                CLIENT_PLATFORM,
-                CLIENT_DEVICE_FAMILY,
-            )
-        )
-
-    def _connect_params(
-        self,
-        *,
-        signed_at: int,
-        nonce: str,
-        credential: str | None,
-    ) -> dict[str, object]:
-        with self._lock:
-            state = self._device
-        signature_payload = self._device_auth_payload(
-            state,
-            signed_at=signed_at,
-            nonce=nonce,
-            credential=credential,
-        )
+    def _connect_params(credential: str | None) -> dict[str, object]:
         auth: dict[str, str] = {}
         if credential:
             auth["token"] = credential
@@ -355,37 +95,22 @@ class OpenClawWebSocketConnector(Connector):
             "permissions": {},
             "locale": "en-US",
             "userAgent": "vss-agent-gateway/1.0",
-            "device": {
-                "id": state.device_id,
-                "publicKey": state.public_key,
-                "signature": _base64url_encode(
-                    state.private_key.sign(signature_payload.encode("utf-8"))
-                ),
-                "signedAt": signed_at,
-                "nonce": nonce,
-            },
         }
         if auth:
             params["auth"] = auth
         return params
 
     def _open_socket(self) -> object:
-        headers = [
-            f"{key}: {value}" for key, value in self._config.backend_headers.items()
-        ]
         try:
-            connection = websocket.create_connection(
+            connection = connect_websocket(
                 self._endpoint,
                 timeout=min(self._config.request_timeout_seconds, 15.0),
-                header=headers,
-                enable_multithread=True,
+                headers=self._config.backend_headers,
+                max_message_bytes=MAX_FRAME_CHARS,
             )
             connection.settimeout(self._config.request_timeout_seconds)
             return connection
-        except (
-            OSError,
-            websocket.WebSocketException,
-        ) as error:
+        except (OSError, WebSocketError) as error:
             raise ConnectorError(
                 "OpenClaw Gateway is unreachable",
                 code="backend_unreachable",
@@ -398,20 +123,20 @@ class OpenClawWebSocketConnector(Connector):
         if callable(close):
             try:
                 close()
-            except Exception:  # pragma: no cover - best-effort cleanup
+            except Exception:  # noqa: BLE001,S110  # pragma: no cover
                 pass
 
     @staticmethod
     def _recv(connection: object) -> dict[str, object]:
         try:
             raw = connection.recv()  # type: ignore[attr-defined]
-        except websocket.WebSocketTimeoutException as error:
+        except WebSocketTimeoutError as error:
             raise ConnectorError(
                 "OpenClaw Gateway timed out",
                 code="backend_timeout",
                 retryable=True,
             ) from error
-        except (OSError, websocket.WebSocketException) as error:
+        except (OSError, WebSocketError) as error:
             raise ConnectorError(
                 "OpenClaw Gateway stream ended unexpectedly",
                 code="backend_stream_error",
@@ -450,7 +175,7 @@ class OpenClawWebSocketConnector(Connector):
             connection.send(  # type: ignore[attr-defined]
                 json.dumps(frame, ensure_ascii=False, separators=(",", ":"))
             )
-        except (OSError, websocket.WebSocketException) as error:
+        except (OSError, WebSocketError) as error:
             raise ConnectorError(
                 "OpenClaw Gateway stream ended unexpectedly",
                 code="backend_stream_error",
@@ -496,25 +221,20 @@ class OpenClawWebSocketConnector(Connector):
     def _handshake_error(error: object) -> ConnectorError:
         details = error.get("details") if isinstance(error, dict) else None
         detail_code = details.get("code") if isinstance(details, dict) else None
-        if detail_code == "PAIRING_REQUIRED":
-            request_id = details.get("requestId") if isinstance(details, dict) else None
-            suffix = ""
-            if (
-                isinstance(request_id, str)
-                and request_id
-                and len(request_id) <= 128
-                and not any(ord(character) < 32 for character in request_id)
-            ):
-                suffix = f" (request {request_id})"
+        if detail_code in {
+            "PAIRING_REQUIRED",
+            "DEVICE_IDENTITY_REQUIRED",
+            "CONTROL_UI_DEVICE_IDENTITY_REQUIRED",
+        }:
             return ConnectorError(
-                "OpenClaw device pairing is required"
-                f"{suffix}; approve this gateway device and retry",
-                code="backend_pairing_required",
+                "OpenClaw requires device identity for this connection; expose the "
+                "Gateway to this adapter over a trusted local or loopback route and "
+                "use its shared gateway token",
+                code="backend_auth_error",
             )
         if detail_code in {
             "AUTH_TOKEN_MISMATCH",
             "AUTH_SCOPE_MISMATCH",
-            "DEVICE_AUTH_SIGNATURE_INVALID",
         }:
             return ConnectorError(
                 "OpenClaw Gateway authentication failed",
@@ -524,15 +244,6 @@ class OpenClawWebSocketConnector(Connector):
             "OpenClaw Gateway rejected the connection",
             code="backend_handshake_error",
         )
-
-    @staticmethod
-    def _stale_device_token(error: object) -> bool:
-        if not isinstance(error, dict) or not isinstance(error.get("details"), dict):
-            return False
-        return error["details"].get("code") in {
-            "AUTH_TOKEN_MISMATCH",
-            "AUTH_IDENTITY_HEADER_REQUIRED",
-        }
 
     def _connect_once(self, credential: str | None) -> object:
         connection = self._open_socket()
@@ -565,11 +276,7 @@ class OpenClawWebSocketConnector(Connector):
             connect_id = self._request(
                 connection,
                 "connect",
-                self._connect_params(
-                    signed_at=signed_at,
-                    nonce=nonce,
-                    credential=credential,
-                ),
+                self._connect_params(credential),
             )
             hello = self._await_response(connection, connect_id)
             if hello.get("type") != "hello-ok" or hello.get("protocol") != 4:
@@ -580,9 +287,11 @@ class OpenClawWebSocketConnector(Connector):
             auth = hello.get("auth")
             scopes = auth.get("scopes") if isinstance(auth, dict) else None
             if (
-                not isinstance(scopes, list)
+                not isinstance(auth, dict)
+                or auth.get("role") != "operator"
+                or not isinstance(scopes, list)
                 or any(not isinstance(scope, str) for scope in scopes)
-                or not set(REQUESTED_SCOPES) <= set(scopes)
+                or (bool(scopes) and not set(REQUESTED_SCOPES) <= set(scopes))
             ):
                 raise ConnectorError(
                     "OpenClaw Gateway did not grant chat read/write scopes",
@@ -604,30 +313,12 @@ class OpenClawWebSocketConnector(Connector):
                     "OpenClaw Gateway lacks required chat or tool-event capabilities",
                     code="unsupported_backend_protocol",
                 )
-            issued_token = auth.get("deviceToken") if isinstance(auth, dict) else None
-            normalized_token = _valid_token(issued_token)
-            if issued_token is not None and normalized_token is None:
-                raise ConnectorError(
-                    "OpenClaw Gateway returned an invalid device token",
-                    code="invalid_backend_handshake",
-                )
-            if normalized_token:
-                self._save_device_token(normalized_token)
             return connection
         except Exception:
             self._close_socket(connection)
             raise
 
     def _connect(self) -> object:
-        with self._lock:
-            stored_token = self._device.device_token
-        if stored_token:
-            try:
-                return self._connect_once(stored_token)
-            except _HandshakeRejected as error:
-                if not self._stale_device_token(error.error):
-                    raise self._handshake_error(error.error) from error
-                self._clear_device_token()
         try:
             return self._connect_once(self._config.backend_token)
         except _HandshakeRejected as error:
@@ -641,7 +332,7 @@ class OpenClawWebSocketConnector(Connector):
         )
         digest = hmac.new(
             secret.encode("utf-8"),
-            f"vss-ui:{thread_id}".encode("utf-8"),
+            f"vss-ui:{thread_id}".encode(),
             hashlib.sha256,
         ).hexdigest()[:40]
         return f"agent:main:vss-ui-{digest}"

@@ -3,20 +3,17 @@
 
 from __future__ import annotations
 
-import base64
 import json
-import tempfile
 import threading
 import unittest
 from collections.abc import Callable
-from pathlib import Path
 from unittest import mock
-
-import websocket
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from vss_agent_gateway.connectors.base import ConnectorError
 from vss_agent_gateway.connectors.openclaw_ws import OpenClawWebSocketConnector
+from vss_agent_gateway.connectors.websocket_client import (
+    WebSocketConnectionClosedError,
+)
 from vss_agent_gateway.contract import CreateRunRequest
 from vss_agent_gateway.service import GatewayService
 
@@ -45,7 +42,7 @@ class FakeWebSocket:
 
     def recv(self) -> str:
         if not self.frames:
-            raise websocket.WebSocketConnectionClosedException("fixture exhausted")
+            raise WebSocketConnectionClosedError("fixture exhausted")
         frame = self.frames.pop(0)
         if callable(frame):
             frame = frame(self)
@@ -79,7 +76,9 @@ def _hello(socket: FakeWebSocket) -> dict[str, object]:
             "protocol": 4,
             "auth": {
                 "role": "operator",
-                "scopes": ["operator.read", "operator.write"],
+                # Shared-token backend clients are authorized by their token;
+                # current OpenClaw clears unbound device scopes in hello-ok.
+                "scopes": [],
             },
             "features": {
                 "methods": ["chat.send", "chat.abort"],
@@ -87,16 +86,6 @@ def _hello(socket: FakeWebSocket) -> dict[str, object]:
             },
         },
     }
-
-
-def _hello_with_device_token(socket: FakeWebSocket) -> dict[str, object]:
-    frame = _hello(socket)
-    payload = frame["payload"]
-    assert isinstance(payload, dict)
-    auth = payload["auth"]
-    assert isinstance(auth, dict)
-    auth["deviceToken"] = "paired-device-token"
-    return frame
 
 
 def _chat_values(socket: FakeWebSocket) -> tuple[str, str]:
@@ -132,13 +121,10 @@ def _event(
 
 class OpenClawWebSocketConnectorTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
-        self.state_dir = Path(self.temporary.name) / "state"
         self.config = make_config(
             backend_protocol="openclaw-ws",
             backend_url="ws://openclaw.test",
             backend_path="/",
-            backend_state_dir=str(self.state_dir),
         )
         self.request = CreateRunRequest.from_dict(
             {
@@ -146,9 +132,6 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                 "input": [{"role": "user", "content": "find the delivery truck"}],
             }
         )
-
-    def tearDown(self) -> None:
-        self.temporary.cleanup()
 
     def _socket_with_tool_run(self) -> FakeWebSocket:
         artifact = (
@@ -263,10 +246,10 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
             ]
         )
 
-    def test_maps_native_tool_events_and_signs_the_challenge(self) -> None:
+    def test_maps_native_tool_events_with_backend_token_auth(self) -> None:
         socket = self._socket_with_tool_run()
         with mock.patch(
-            "vss_agent_gateway.connectors.openclaw_ws.websocket.create_connection",
+            "vss_agent_gateway.connectors.openclaw_ws.connect_websocket",
             return_value=socket,
         ):
             connector = OpenClawWebSocketConnector(self.config)
@@ -297,47 +280,19 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
         params = connect["params"]
         assert isinstance(params, dict)
         self.assertEqual(params["caps"], ["tool-events", "session-scoped-events"])
-        device = params["device"]
         client = params["client"]
         auth = params["auth"]
-        assert isinstance(device, dict)
         assert isinstance(client, dict)
         assert isinstance(auth, dict)
-        payload = "|".join(
-            (
-                "v3",
-                str(device["id"]),
-                str(client["id"]),
-                str(client["mode"]),
-                "operator",
-                "operator.read,operator.write",
-                str(device["signedAt"]),
-                str(auth["token"]),
-                str(device["nonce"]),
-                str(client["platform"]),
-                str(client["deviceFamily"]),
-            )
-        )
-
-        def decode(value: object) -> bytes:
-            encoded = str(value)
-            return base64.urlsafe_b64decode(
-                encoded + "=" * ((4 - len(encoded) % 4) % 4)
-            )
-
-        Ed25519PublicKey.from_public_bytes(decode(device["publicKey"])).verify(
-            decode(device["signature"]), payload.encode()
-        )
-        self.assertEqual(self.state_dir.stat().st_mode & 0o777, 0o700)
-        self.assertEqual(
-            (self.state_dir / "openclaw-device.json").stat().st_mode & 0o777,
-            0o600,
-        )
+        self.assertEqual(client["id"], "gateway-client")
+        self.assertEqual(client["mode"], "backend")
+        self.assertEqual(auth, {"token": self.config.backend_token})
+        self.assertNotIn("device", params)
 
     def test_service_extracts_artifact_without_exposing_raw_tool_result(self) -> None:
         socket = self._socket_with_tool_run()
         with mock.patch(
-            "vss_agent_gateway.connectors.openclaw_ws.websocket.create_connection",
+            "vss_agent_gateway.connectors.openclaw_ws.connect_websocket",
             return_value=socket,
         ):
             service = GatewayService(
@@ -358,11 +313,11 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
         self.assertNotIn("content", completed.data)
         self.assertNotIn("must-not-reach-the-browser", str(record.events))
 
-    def test_persists_and_reuses_issued_device_token_as_auth_token(self) -> None:
+    def test_uses_configured_backend_token_on_every_connection(self) -> None:
         first = FakeWebSocket(
             [
                 _challenge(),
-                _hello_with_device_token,
+                _hello,
                 _chat_ack,
                 lambda ws: _event(ws, "chat", {"state": "final"}),
             ]
@@ -376,7 +331,7 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
             ]
         )
         with mock.patch(
-            "vss_agent_gateway.connectors.openclaw_ws.websocket.create_connection",
+            "vss_agent_gateway.connectors.openclaw_ws.connect_websocket",
             side_effect=[first, second],
         ):
             connector = OpenClawWebSocketConnector(self.config)
@@ -396,16 +351,12 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                 )
             )
 
-        state = json.loads(
-            (self.state_dir / "openclaw-device.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(state["device_token"], "paired-device-token")
         first_auth = first.request("connect")["params"]["auth"]  # type: ignore[index]
         second_auth = second.request("connect")["params"]["auth"]  # type: ignore[index]
         self.assertEqual(first_auth, {"token": self.config.backend_token})
-        self.assertEqual(second_auth, {"token": "paired-device-token"})
+        self.assertEqual(second_auth, {"token": self.config.backend_token})
 
-    def test_pairing_required_is_an_actionable_structured_error(self) -> None:
+    def test_device_identity_requirement_explains_local_backend_mode(self) -> None:
         def rejected(socket: FakeWebSocket) -> dict[str, object]:
             request = socket.request("connect")
             return {
@@ -413,11 +364,10 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                 "id": request["id"],
                 "ok": False,
                 "error": {
-                    "code": "NOT_PAIRED",
+                    "code": "INVALID_REQUEST",
                     "message": "secret backend detail",
                     "details": {
-                        "code": "PAIRING_REQUIRED",
-                        "requestId": "pair-request-1",
+                        "code": "DEVICE_IDENTITY_REQUIRED",
                     },
                 },
             }
@@ -425,7 +375,7 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
         socket = FakeWebSocket([_challenge(), rejected])
         with (
             mock.patch(
-                "vss_agent_gateway.connectors.openclaw_ws.websocket.create_connection",
+                "vss_agent_gateway.connectors.openclaw_ws.connect_websocket",
                 return_value=socket,
             ),
             self.assertRaises(ConnectorError) as raised,
@@ -438,8 +388,8 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(raised.exception.code, "backend_pairing_required")
-        self.assertIn("pair-request-1", str(raised.exception))
+        self.assertEqual(raised.exception.code, "backend_auth_error")
+        self.assertIn("trusted local or loopback route", str(raised.exception))
         self.assertNotIn("secret backend detail", str(raised.exception))
 
     def test_cancel_sends_native_chat_abort_and_closes_socket(self) -> None:
@@ -452,7 +402,7 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                 waiting.set()
                 while not self.closed:
                     threading.Event().wait(0.01)
-                raise websocket.WebSocketConnectionClosedException("closed")
+                raise WebSocketConnectionClosedError("closed")
 
         socket = BlockingSocket([_challenge(), _hello, _chat_ack])
         connector = OpenClawWebSocketConnector(self.config)
@@ -468,11 +418,11 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
                         cancel_event=cancel_event,
                     )
                 )
-            except BaseException as error:  # pragma: no cover - asserted below
+            except Exception as error:  # noqa: BLE001  # pragma: no cover
                 failures.append(error)
 
         with mock.patch(
-            "vss_agent_gateway.connectors.openclaw_ws.websocket.create_connection",
+            "vss_agent_gateway.connectors.openclaw_ws.connect_websocket",
             return_value=socket,
         ):
             worker = threading.Thread(target=consume)

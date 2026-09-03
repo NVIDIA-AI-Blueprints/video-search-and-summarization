@@ -9,7 +9,6 @@ import ipaddress
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import urlparse
 
 from .capabilities import CapabilityError, CapabilityReceipt, decode_receipt
@@ -114,15 +113,6 @@ def _validated_url(
     return value.rstrip("/")
 
 
-def _validated_state_dir(value: str) -> str:
-    path = Path(value)
-    if not path.is_absolute() or path == Path("/") or ".." in path.parts:
-        raise ConfigError(
-            "AGENT_BACKEND_STATE_DIR must be an absolute directory other than /"
-        )
-    return str(path)
-
-
 def _safe_header_name(value: str) -> bool:
     return bool(value) and len(value) <= 128 and set(value) <= HTTP_HEADER_NAME
 
@@ -209,7 +199,6 @@ class GatewayConfig:
     backend_session_field: str | None
     backend_session_header: str | None
     backend_headers: dict[str, str]
-    backend_state_dir: str
     request_timeout_seconds: float
     run_retention_seconds: int
     max_runs: int
@@ -292,12 +281,6 @@ class GatewayConfig:
             backend_session_field=session_field,
             backend_session_header=session_header,
             backend_headers=_extra_headers(),
-            backend_state_dir=_validated_state_dir(
-                os.environ.get(
-                    "AGENT_BACKEND_STATE_DIR", "/var/lib/vss-agent-gateway"
-                ).strip()
-                or "/var/lib/vss-agent-gateway"
-            ),
             request_timeout_seconds=_float_env(
                 "AGENT_BACKEND_TIMEOUT_SECONDS", 900.0, 1.0, 3600.0
             ),

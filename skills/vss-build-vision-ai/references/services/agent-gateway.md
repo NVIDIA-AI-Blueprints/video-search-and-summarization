@@ -200,13 +200,14 @@ print it in chat, logs, or notebook output.
 | OpenClaw | `openclaw-ws` | `ws://127.0.0.1:18789/` (or `NEMOCLAW_DASHBOARD_PORT`) | `openclaw/default` | Native opaque `agent:main:vss-ui-*` session key |
 | Hermes | `responses` | `http://127.0.0.1:8642/v1/responses` (or `NEMOHERMES_API_PORT`) | `hermes-agent` | `user` plus `X-Hermes-Session-Key` |
 
-The OpenClaw connector does not fall back to Responses. It challenge-signs with
-a device identity persisted in the Compose `agent-gateway-state` volume. The
-NemoClaw host-isolated trust path accepts this client directly. If a hardened
-OpenClaw instance requests device pairing, approve the exact request ID it
-reports, then retry; do not disable device authentication. Probe OpenClaw's
-native `/health` endpoint before resolution; `/v1/models` is not required and
-the Responses endpoint remains disabled. A failed probe is a blocker.
+The OpenClaw connector does not fall back to Responses. It uses OpenClaw's
+non-browser `gateway-client`/`backend` mode with the shared Gateway token over
+the trusted host-loopback route. This retains native chat and tool events
+without a device-signing dependency. If an OpenClaw instance requires signed
+device identity for the route, keep that policy: place the adapter beside the
+harness and expose only the adapter API. Probe OpenClaw's native `/health`
+endpoint before resolution; `/v1/models` is not required and the Responses
+endpoint remains disabled. A failed probe is a blocker.
 
 OpenClaw is the primary production-validation preset. Hermes transport is
 compatible, but NVIDIA's current NemoClaw platform-support matrix labels the
