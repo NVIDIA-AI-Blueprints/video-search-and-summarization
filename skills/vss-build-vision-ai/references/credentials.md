@@ -77,11 +77,23 @@ Probe each artifact with the normalized NGC key:
   an NGC image path. A `401` or `403` from a gated repository proves the key
   lacks the required org/team entitlement.
 - NGC models/resources: run `ngc registry model info ...` or `ngc registry
-  resource info ...` for the exact repository and tag. Do not use `docker
-  manifest inspect` for non-OCI models or a raw `Authorization: Bearer <key>`
-  REST call; their expected failures are false entitlement signals. If the NGC
-  CLI is unavailable, use the selected gated container-image probe as the
-  org/team entitlement signal.
+  resource info ...` for the exact repository and tag. Pass the org and team
+  explicitly — an `ngc:` path already carries them, and without them the CLI
+  fails `Missing org - If Authenticated, org is also required.` on a perfectly
+  entitled key. Split `ngc:<org>/<team>/<name>:<version>` and hand back both:
+
+  ```bash
+  # RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+  ngc registry model info nim/nvidia/cosmos3-nano-reasoner:bf16-final \
+    --org nim --team nvidia
+  ```
+
+  Treat that error as a malformed probe, not a failed entitlement, and do not
+  reach for `ngc config set` ([`ngc.md`](ngc.md)) to fix a one-off check. Do not
+  use `docker manifest inspect` for non-OCI models or a raw
+  `Authorization: Bearer <key>` REST call; their expected failures are false
+  entitlement signals. If the NGC CLI is unavailable, use the selected gated
+  container-image probe as the org/team entitlement signal.
 - Profile-staged TAO/perception models: run the corresponding NGC model or
   resource probe before downloading them.
 

@@ -43,6 +43,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -235,6 +236,28 @@ def command_runner(command: list[str]) -> str:
     return result.stdout.strip()
 
 
+def created_digest(metadata_file: Path) -> str:
+    """Digest of the manifest ``imagetools create`` just wrote, read from its
+    ``--metadata-file`` output (``containerimage.descriptor.digest``).
+
+    This is a local file produced by the create itself, so it is immune to the
+    registry's read-after-write lag. Fails closed: a create that succeeded but
+    left no usable metadata broke the buildx contract, and reporting a digest
+    we did not observe would misrepresent what was published."""
+    try:
+        metadata = json.loads(metadata_file.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"imagetools create left no usable metadata at {metadata_file}: {exc}"
+        ) from exc
+    digest = str((metadata.get("containerimage.descriptor") or {}).get("digest") or "")
+    if not DIGEST_RE.fullmatch(digest):
+        raise RuntimeError(
+            f"imagetools create metadata carries no valid digest: {digest!r}"
+        )
+    return digest
+
+
 def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
     if update.digest:
         # Verify the SOURCE (content tag) before creating the alias so that we
@@ -262,35 +285,32 @@ def advance(update: AliasUpdate, runner: Runner = command_runner) -> None:
                 f"{update.name}: content tag digest {source_digest!r} != release-set {update.digest!r}"
             )
 
-    runner(
-        [
-            "docker",
-            "buildx",
-            "imagetools",
-            "create",
-            "--tag",
-            update.target,
-            update.source,
-        ]
-    )
-
-    if not update.digest:
-        # Reuse-pinned entries record no digest. The source was content
-        # addressed, so there is nothing to compare against -- report what the
-        # alias resolved to after creation.
-        observed = runner(
+    # The created digest comes from the buildx metadata file, never from
+    # inspecting the fresh target tag: GHCR reads are eventually consistent
+    # right after a write, so a post-create inspect can return the old
+    # manifest (or 404) and fail a retag that actually succeeded.
+    with tempfile.TemporaryDirectory(prefix="ghcr-alias-") as scratch:
+        metadata_file = Path(scratch) / "create-metadata.json"
+        runner(
             [
                 "docker",
                 "buildx",
                 "imagetools",
-                "inspect",
+                "create",
+                "--metadata-file",
+                str(metadata_file),
+                "--tag",
                 update.target,
-                "--format",
-                "{{json .Manifest}}",
+                update.source,
             ]
         )
-        digest = str(json.loads(observed).get("digest") or "")
-        print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
+        digest = created_digest(metadata_file)
+
+    # No comparison against the release-set digest here: when the source is a
+    # single-platform manifest, imagetools create wraps it in a fresh index,
+    # so the created digest legitimately differs from the source manifest
+    # digest. Correctness is asserted before the write, on the stable source.
+    print(f"[ghcr-alias] {update.name}: {update.target} -> {digest}")
 
 
 def main() -> int:

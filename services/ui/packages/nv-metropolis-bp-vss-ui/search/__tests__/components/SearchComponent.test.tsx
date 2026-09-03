@@ -18,17 +18,6 @@ import { SearchComponent } from '../../lib-src/SearchComponent';
 import { SearchComponentProps } from '../../lib-src/types';
 
 // Mock the hooks
-jest.mock('../../lib-src/hooks/useSearch', () => ({
-  useSearch: jest.fn(() => ({
-    searchResults: [],
-    loading: false,
-    error: null,
-    refetch: jest.fn(),
-    onUpdateSearchParams: jest.fn(),
-    cancelSearch: jest.fn(),
-  })),
-}));
-
 jest.mock('../../lib-src/hooks/useFilter', () => ({
   useFilter: jest.fn(() => ({
     streams: [],

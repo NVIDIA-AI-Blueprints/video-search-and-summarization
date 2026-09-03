@@ -29,6 +29,7 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 import json
+from pathlib import Path
 from typing import Any
 from typing import NoReturn
 
@@ -286,6 +287,7 @@ def configure_memory(
             if write_notes_by_default is None
             else write_notes_by_default,
         ),
+        introspection=current.introspection,
     )
     try:
         candidate.validate()
@@ -300,6 +302,109 @@ def configure_memory(
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote memory configuration to {path}", err=True)
+
+
+@configure_memory.command(name="introspection")
+@click.option("--judge-endpoint", help="OpenAI-compatible text-judge base URL.")
+@click.option("--judge-model", help="API-facing text-judge model (default: openclaw/default on first setup).")
+@click.option("--judge-backend-model", help="Optional OpenClaw backend model sent as x-openclaw-model.")
+@click.option("--clear-judge-backend-model", is_flag=True, help="Remove the OpenClaw backend-model override.")
+@click.option("--judge-api-key-env", help="Environment variable containing the text-judge Bearer token.")
+@click.option("--clear-judge-api-key-env", is_flag=True, help="Remove the text-judge credential environment name.")
+@click.option("--judge-criteria", help="Inline memory-sufficiency criteria.")
+@click.option(
+    "--judge-criteria-file",
+    type=click.Path(path_type=Path, exists=True, dir_okay=False, readable=True),
+    help="UTF-8 file whose contents become the memory-sufficiency criteria.",
+)
+def configure_memory_introspection(
+    judge_endpoint: str | None,
+    judge_model: str | None,
+    judge_backend_model: str | None,
+    clear_judge_backend_model: bool,
+    judge_api_key_env: str | None,
+    clear_judge_api_key_env: bool,
+    judge_criteria: str | None,
+    judge_criteria_file: Path | None,
+) -> None:
+    """Configure the text LLM used to judge and synthesize introspection."""
+    if judge_backend_model is not None and clear_judge_backend_model:
+        raise click.UsageError("cannot combine --judge-backend-model with --clear-judge-backend-model")
+    if judge_api_key_env is not None and clear_judge_api_key_env:
+        raise click.UsageError("cannot combine --judge-api-key-env with --clear-judge-api-key-env")
+    if judge_criteria is not None and judge_criteria_file is not None:
+        raise click.UsageError("cannot combine --judge-criteria with --judge-criteria-file")
+
+    deployment = _load_memory_deployment()
+    current_memory = deployment.memory or config_mod.MemoryConfig()
+    current_introspection = current_memory.introspection
+    current_judge = current_introspection.judge if current_introspection is not None else None
+    if current_judge is None and judge_endpoint is None:
+        raise click.UsageError("--judge-endpoint is required on first introspection configuration")
+
+    criteria = judge_criteria
+    if judge_criteria_file is not None:
+        try:
+            criteria = judge_criteria_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            _memory_config_error(f"cannot read introspection judge criteria file {judge_criteria_file}: {error}")
+
+    candidate_judge = config_mod.IntrospectionJudgeConfig(
+        endpoint=judge_endpoint if judge_endpoint is not None else current_judge.endpoint,  # type: ignore[union-attr]
+        model=(
+            judge_model
+            if judge_model is not None
+            else current_judge.model
+            if current_judge is not None
+            else "openclaw/default"
+        ),
+        backend_model=(
+            None
+            if clear_judge_backend_model
+            else judge_backend_model
+            if judge_backend_model is not None
+            else current_judge.backend_model
+            if current_judge is not None
+            else None
+        ),
+        api_key_env=(
+            None
+            if clear_judge_api_key_env
+            else judge_api_key_env
+            if judge_api_key_env is not None
+            else current_judge.api_key_env
+            if current_judge is not None
+            else None
+        ),
+        criteria_prompt=(
+            criteria
+            if criteria is not None
+            else current_judge.criteria_prompt
+            if current_judge is not None
+            else config_mod.DEFAULT_INTROSPECTION_CRITERIA_PROMPT
+        ),
+    )
+    candidate = config_mod.MemoryConfig(
+        enabled=current_memory.enabled,
+        backend=current_memory.backend,
+        index=current_memory.index,
+        persist_by_default=current_memory.persist_by_default,
+        markdown=current_memory.markdown,
+        introspection=config_mod.IntrospectionMemoryConfig(judge=candidate_judge),
+    )
+    try:
+        candidate.validate()
+        path = config_mod.save(
+            config_mod.Deployment(
+                base_url=deployment.base_url,
+                services=deployment.services,
+                memory=candidate,
+                written_at=deployment.written_at,
+            )
+        )
+    except config_mod.ConfigError as error:
+        _memory_config_error(str(error))
+    click.echo(f"wrote introspection judge configuration to {path}", err=True)
 
 
 @configure_memory.command(name="show")

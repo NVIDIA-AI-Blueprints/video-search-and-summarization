@@ -341,6 +341,15 @@ class Asset:
         self._sensor_name = sensor_name
         self._camera_id = camera_id
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("_lifecycle_lock", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._lifecycle_lock = RLock()
+
     @classmethod
     def fromdir(cls, asset_dir):
         with open(os.path.join(asset_dir, "info.json")) as f:

@@ -8,17 +8,26 @@ interactive reference implementation.
 
 ## When this applies
 
-A Brev-managed instance sets `BREV_ENV_ID=<instance-id>` in `/etc/environment`.
-If that file doesn't contain `BREV_ENV_ID`, you're not on a Brev-provisioned
-instance and this reference doesn't apply — use the normal host IP + port
-access pattern from the selected file under `profiles/`.
+A Brev-managed instance publishes an **environment context file** —
+`$BREV_ENVIRONMENT_CONTEXT_PATH`, conventionally
+`/etc/brev/environment-context.json` — listing one entry per exposed port with
+its `destination_port`, `public_port`, and `fqdn`. It also sets
+`BREV_ENV_ID=<instance-id>` in `/etc/environment`. If neither is present you are
+not on a Brev-provisioned instance and this reference doesn't apply — use the
+normal host IP + port access pattern from the selected file under `profiles/`.
+
+**Resolve every hostname from the context file; never build one from a
+pattern.** The domain is not always `brevlab.com` and the prefix convention
+varies. Read the `fqdn` for the port you want. A port with no entry is not
+exposed and has no URL. Resolve it with the helpers under
+[Resolving a secure link](#resolving-a-secure-link).
 
 ## Architecture
 
 The deployment has **two origins** and they are not interchangeable:
 
 ```
-Browser  ──https:443──>  <prefix>-<BREV_ENV_ID>.<brev-domain>  (Cloudflare Access)
+Browser  ──https──>  <fqdn published for port 7777>  (Cloudflare Access)
                              │           the PUBLIC origin: VSS_PUBLIC_*
                              ▼
                    Brev network tunnel        (TLS terminates HERE, outside VSS)
@@ -40,24 +49,33 @@ is HAProxy's own listener and is what containers call each other on. Do not set
 the gateway origin from the public one: `https://vss.local:443` is a listener
 that does not exist.
 
-## Secure-link URL format
+## Resolving a secure link
 
-```
-https://<prefix>-<BREV_ENV_ID>.<brev-domain>
+Look the port up in the context file. These helpers are used throughout this
+reference; define them once per shell:
+
+```bash
+BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+# FQDN published for a destination port; empty when the port is not exposed.
+brev_fqdn() { jq -er --argjson p "$1" '[.ports[]? | select(.destination_port == $p) | .fqdn][0] // empty' "$BREV_CTX" 2>/dev/null; }
+# Public port for that link (443 in current Brev; read it, don't assume it).
+brev_public_port() { jq -er --argjson p "$1" '[.ports[]? | select(.destination_port == $p) | .public_port][0] // empty' "$BREV_CTX" 2>/dev/null; }
+# Browse origin for that port. Use this for any URL you hand the user or curl:
+# an origin built from the FQDN alone is wrong wherever public_port is not 443.
+brev_origin() {
+  local host port
+  host="$(brev_fqdn "$1")" && port="$(brev_public_port "$1")" || return 1
+  if [ "$port" = 443 ]; then echo "https://${host}"; else echo "https://${host}:${port}"; fi
+}
+
+brev_fqdn 7777        # hostname only — for EXTERNAL_IP / VSS_PUBLIC_HOST
+brev_public_port 7777
+brev_origin 7777      # the haproxy ingress link — the VSS browse origin
 ```
 
-- `<BREV_ENV_ID>` is the instance's ID from `/etc/environment`.
-- `<prefix>` is the HAProxy ingress port VSS exposes on the instance, `7777` by
-  default — Brev's secure-link domain just prefixes it. Override with
-  `BREV_LINK_PREFIX`. (Older Brev launchables added a trailing `0` giving
-  `77770-...`; that's gone in current Brev, but if you inherit an older instance
-  and find a `77770-...` link still works, see [Troubleshooting](#troubleshooting).)
-- `<brev-domain>` is **not always `brevlab.com`.** During the tunnel migration
-  Brev serves secure links from either `apps.run.brev.nvidia.com` (Skybridge) or
-  `brevlab.com`. `dev-profile.sh` picks between them by asking
-  `netbird status -d` whether this instance is Skybridge-managed, and falls back
-  to `brevlab.com`. Set `BREV_LINK_DOMAIN` to force one; an explicit value always
-  wins. Do not hard-code a domain into a deploy recipe.
+`7777` is the destination port on the instance — the HAProxy ingress VSS exposes.
+An empty result means no link is published for it: expose one in Brev, or deploy
+behind a port that has one. Do not fall back to constructing a hostname.
 
 ## Per-profile secure link requirements
 
@@ -116,40 +134,52 @@ Then deploy normally and check what it recorded:
 grep -E '^(VSS_PUBLIC_|BREV_LINK_)' deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
 ```
 
+Two knobs steer what it records, and an explicit value always wins:
+`BREV_LINK_PREFIX` (the HAProxy ingress port, `7777` by default) and
+`BREV_LINK_DOMAIN`. The domain is **not always `brevlab.com`** — during the
+tunnel migration Brev serves secure links from either
+`apps.run.brev.nvidia.com` (Skybridge) or `brevlab.com`, and `dev-profile.sh`
+asks `netbird status -d` which applies, falling back to `brevlab.com`. Never
+hard-code a domain into a deploy recipe. If what it recorded disagrees with
+`brev_origin 7777`, the context file is authoritative — set `BREV_LINK_DOMAIN`
+and `BREV_LINK_PREFIX` to match the link Brev actually published.
+
 ### If you resolve Compose through this skill's build pipeline
 
-The build pipeline does not go through `dev-profile.sh`, so set the values in
-the build's `_builds/<name>/override.env` before resolving. **`EXTERNAL_IP`
-alone is not enough** — the secure link is served over **HTTPS on 443**, but the
-profile `.env` ships `VSS_PUBLIC_HTTP_PROTOCOL=http`,
-`VSS_PUBLIC_WS_PROTOCOL=ws` and `VSS_PUBLIC_PORT=${HAPROXY_HOST_PORT}` (7777).
-Leaving those at the defaults makes the agent emit `http://…:7777` UI/API/WS
-URLs from an `https://` page, which the browser blocks as mixed content. Set the
-host, protocol and port together, and resolve the domain rather than assuming
-`brevlab.com`:
+The build pipeline does not go through `dev-profile.sh`, so set the Brev
+secure-link values in the build's
+`_builds/<name>/override.env`. **`EXTERNAL_IP` alone is not enough** — the Brev secure
+link is served over **HTTPS on the link's own `public_port`** (443 in current
+Brev — read it, per above), but the profile `.env` ships
+`VSS_PUBLIC_HTTP_PROTOCOL=http`, `VSS_PUBLIC_WS_PROTOCOL=ws`, and
+`VSS_PUBLIC_PORT=${HAPROXY_HOST_PORT}` (7777). Leaving those at the defaults makes the
+agent emit `http://…:7777` UI/API/WS URLs from an `https://` page → the browser
+blocks them as mixed content. Set the host, protocol, and port together:
 
 ```bash
-brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-# Same rule dev-profile.sh applies: explicit wins, else Skybridge, else brevlab.
-if [ -n "${BREV_LINK_DOMAIN:-}" ]; then
-  domain="${BREV_LINK_DOMAIN}"
-elif netbird status -d 2>&1 | grep -qiE 'skybridge|brev\.nvidia\.com|brev\.dev'; then
-  domain="apps.run.brev.nvidia.com"
-else
-  domain="brevlab.com"
-fi
-host="${BREV_LINK_PREFIX:-7777}-${brev_env_id}.${domain}"
 BUILD_OVERRIDE="_builds/<name>/override.env"
+host="$(brev_fqdn 7777)"                      # helpers from "Resolving a secure link"
+port="$(brev_public_port 7777)"
+[ -n "$host" ] && [ -n "$port" ] || { echo "No Brev link published for port 7777" >&2; exit 1; }
 sed -i \
   -e "s|^EXTERNAL_IP=.*|EXTERNAL_IP=${host}|" \
   -e "s|^VSS_PUBLIC_HOST=.*|VSS_PUBLIC_HOST=${host}|" \
   -e "s|^VSS_PUBLIC_HTTP_PROTOCOL=.*|VSS_PUBLIC_HTTP_PROTOCOL=https|" \
   -e "s|^VSS_PUBLIC_WS_PROTOCOL=.*|VSS_PUBLIC_WS_PROTOCOL=wss|" \
-  -e "s|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=443|" \
+  -e "s|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=${port}|" \
   "$BUILD_OVERRIDE"
 ```
 
+Stop on an empty `host`; never substitute a constructed one. These values also
+fill HAProxy's `known_host` allowlist, so a wrong hostname `404`s every browser
+request while `curl localhost:7777` still succeeds.
+
 Leave `VSS_GATEWAY_*` alone. It is pinned to HAProxy's own listener on purpose.
+
+On a NemoClaw build other than `alerts`, drop the `EXTERNAL_IP` line above and
+leave that variable to the sandbox ([`agent-harness.md`](agent-harness.md)). The
+rest is unchanged: `VSS_PUBLIC_HOST` already carries the secure link, and the
+`known_host` ACL admits it in its own right.
 
 ## Verifying the deploy is reachable externally
 
@@ -168,8 +198,8 @@ curl -sf http://localhost:7777/va-mcp/health   # profiles that mount va-mcp
 host=$(grep -m1 '^VSS_PUBLIC_HOST=' deploy/docker/developer-profiles/dev-profile-<profile>/generated.env | cut -d= -f2)
 curl -so /dev/null -w '%{http_code}\n' -H "Host: ${host}" http://localhost:7777/   # want 200, not 404
 
-# 3. Print the browser URL the user should open
-echo "https://${host}"
+# 3. Print the browser URL the user should open — resolved, never constructed
+brev_origin 7777
 ```
 
 If step 1 fails, `vss-haproxy-ingress` hasn't come up — check
@@ -193,10 +223,11 @@ on the allowlist but is not what `dev-profile.sh` writes for Brev), then
 | Symptom | Cause |
 |---|---|
 | Browser gets **404** on a link that `curl localhost:7777` serves fine | The gateway's Host allowlist was never told that hostname. Confirm with `curl -sI -H "Host: <secure-link>" http://localhost:7777/ \| grep -i x-vss-gateway-deny` → `unknown-host`. Fix `VSS_PUBLIC_HOST` and recreate `vss-haproxy-ingress`. A bare 404 with no such header is a genuinely unrouted path instead. |
-| User says the Brev link won't load at all | Ask how the secure link was exposed. The default is `<prefix>-<id>.<brev-domain>` with prefix `7777`; the domain is `apps.run.brev.nvidia.com` or `brevlab.com` depending on the instance. An older inherited launchable may still serve the legacy trailing-`0` form `77770-<id>...`, or a manually-created link may use a different port. Set `VSS_PUBLIC_HOST` (and `BREV_LINK_PREFIX` / `BREV_LINK_DOMAIN`) to whatever the actual link is, then redeploy. |
-| Deployed on a Skybridge instance but the link 404s at Cloudflare | The domain was assumed. `apps.run.brev.nvidia.com` and `brevlab.com` are both live; check which one `generated.env` recorded in `BREV_LINK_DOMAIN` and compare it with the link Brev actually issued. |
+| User says the Brev link won't load at all | Compare their URL with `brev_origin 7777`. A hostname absent from the context file is not exposed. An older inherited launchable may still serve the legacy trailing-`0` form `77770-<id>...`, and a manually-created link may sit behind a different port — resolve that port and redeploy. Set `VSS_PUBLIC_HOST` (and `BREV_LINK_PREFIX` / `BREV_LINK_DOMAIN`) to whatever the context file publishes, then redeploy. |
+| Deployed on a Skybridge instance but the link 404s at Cloudflare | The domain was assumed. `apps.run.brev.nvidia.com` and `brevlab.com` are both live; check which one `generated.env` recorded in `BREV_LINK_DOMAIN` and compare it with `brev_fqdn 7777`. |
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; everything is behind the 7777 link. |
 | Kibana or Phoenix "needs a secure link" | It doesn't — they are routed at `/kibana` and `/phoenix` on the 7777 link. A separate 5601 or 6006 link creates a second origin and is what breaks their embedded assets. |
-| `curl https://<secure-link>` → 502 | HAProxy container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
-| `curl https://<secure-link>` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
+| `curl "$(brev_origin 7777)"` → 502 | HAProxy container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
+| `curl "$(brev_origin 7777)"` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
 | Agent-generated report URLs don't open, or the browser blocks them as mixed content | The public origin was not applied before the services started. `VST_EXTERNAL_URL`, `VST_BASE_URL`, `VSS_AGENT_EXTERNAL_URL` and `VSS_AGENT_REPORTS_BASE_URL` are interpolated from `VSS_PUBLIC_*` **at Compose time** and baked into the agent container, so changing `VSS_PUBLIC_HOST` afterwards and recreating only the gateway leaves them pointing at the old origin. Check with `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}' \| grep -E 'EXTERNAL_URL\|REPORTS_BASE_URL'`; if they are wrong, fix `VSS_PUBLIC_*` and recreate the agent, not just the gateway. |
+| Agent-generated report URLs hard-code an internal IP | `EXTERNAL_IP` in the build override is still the internal `${HOST_IP}` default. Set it from `brev_fqdn 7777` in `_builds/<name>/override.env` (see [Setup flow](#setup-flow)), regenerate `resolved.yml`, and redeploy. |

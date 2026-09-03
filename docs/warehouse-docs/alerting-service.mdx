@@ -8,7 +8,7 @@ position: 3
 This page documents the Alerting Service as it is configured for the
 Warehouse Blueprint. For the full microservice reference
 (deployment, APIs, scaling, observability), see
-[../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice).
+[Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice).
 </Note>
 
 ## Overview
@@ -342,7 +342,7 @@ The VLM is required to emit a single JSON object with keys
 `prediction_class_id`, `prediction_label`, `prediction_answer`, and
 `video_description`. The Alert Bridge maps `prediction_class_id` →
 `verdict` (`0` → `confirmed`, `1` → `rejected`); see
-`Alert Bridge`_.
+[Alert Bridge](#alert-bridge).
 
 **VLM invocation parameters.** Verification uses the VLM client defaults
 declared in the top-level `vlm` section of the Alerts Microservice
@@ -983,14 +983,14 @@ key in `config.yaml` (and overridden per call by the same field on a
 
 | `response_format` | Section | Meaning |
 | --- | --- | --- |
-| `auto` *(default)* | `Auto-detection`_ | Pick a parser based on the VLM model name. Cosmos Reason 1 / 2 resolve to `cosmos-reason`; everything else resolves to `other`. |
-| `cosmos-reason` | `Format 1 — Cosmos Reason (think + verdict)`_ | `<think>…</think>` reasoning followed by a `YES` / `NO` / `A` / `B` verdict (with or without `<answer>` tags). Bare verdict (no tags) also accepted as a fallback. |
-| `json` | `Format 2 — JSON object`_ | Structured JSON with a configurable verdict field, value mapping, and reasoning field. Used by every Warehouse Blueprint use case shipped today. |
-| `other` | `Format 3 — Free-form description`_ | Free-form text. The full reply is captured as the description; no verdict is extracted by the parser. |
-| any registered name | `Format 4 — Custom parser`_ | A user-supplied parser registered via `register_parser(name, fn)`. |
+| `auto` *(default)* | [Auto-detection](#auto-detection) | Pick a parser based on the VLM model name. Cosmos Reason 1 / 2 resolve to `cosmos-reason`; everything else resolves to `other`. |
+| `cosmos-reason` | [Format 1 — Cosmos Reason (think + verdict)](#format-1-cosmos-reason-think-verdict) | `<think>…</think>` reasoning followed by a `YES` / `NO` / `A` / `B` verdict (with or without `<answer>` tags). Bare verdict (no tags) also accepted as a fallback. |
+| `json` | [Format 2 — JSON object](#format-2-json-object) | Structured JSON with a configurable verdict field, value mapping, and reasoning field. Used by every Warehouse Blueprint use case shipped today. |
+| `other` | [Format 3 — Free-form description](#format-3-free-form-description) | Free-form text. The full reply is captured as the description; no verdict is extracted by the parser. |
+| any registered name | [Format 4 — Custom parser](#format-4-custom-parser) | A user-supplied parser registered via `register_parser(name, fn)`. |
 
 The verdict the Alert Bridge stores at `info.verdict` is the same
-across all formats — see `Verdict vocabulary`_.
+across all formats — see [Verdict vocabulary](#verdict-vocabulary).
 
 ### Format 1 — Cosmos Reason (think + verdict)
 
@@ -1296,7 +1296,7 @@ flattened into this `info` block automatically — adding e.g. a
 `info.confidence` appear on every emitted event.
 
 For the full request / response shapes and a deep dive into the
-underlying APIs, see [../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice).
+underlying APIs, see [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice).
 
 ## Prompt Tuning
 
@@ -1534,10 +1534,10 @@ prompt has all of these pieces:
   "expert-inspector" prompt strategy with strict classification
   tables and JSON output. The closest external reference for the
   Step-3 LLM-authoring workflow.
-* [../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice) — full Alerts Microservice
+* [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) — full Alerts Microservice
   reference (deployment, APIs, concurrency, observability).
-* [../agent-workflow-alert-verification](/vss/vision-agent/agent-workflows/alert-verification) — Alert Verification
+* [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification) — Alert Verification
   agent workflow.
-* [../agent-workflow-rt-alert](/vss/vision-agent/agent-workflows/real-time-alerts) — Real-Time Alert agent workflow.
-* [../NvSchema](/vss/system-components/middleware/nvschema) — `nv.Incident` and `nv.Behavior` schemas.
-* [../real-time-vlm](/vss/system-components/vision-microservices/real-time-vlm) — RTVI VLM microservice.
+* [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts) — Real-Time Alert agent workflow.
+* [NvSchema](/vss/system-components/middleware/nvschema) — `nv.Incident` and `nv.Behavior` schemas.
+* [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) — RTVI VLM microservice.

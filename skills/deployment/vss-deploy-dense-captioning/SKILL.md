@@ -17,7 +17,7 @@ For standalone RT-VLM deployment:
 - Docker, Docker Compose, NVIDIA Container Toolkit, and a visible GPU.
 - NGC registry credentials in `$NGC_CLI_API_KEY` for `docker login nvcr.io`,
   image pulls, and local NGC model/artifact downloads.
-- `curl`, `jq`, and any writable working directory for the standalone compose copy.
+- `curl`, `jq`, the current VSS checkout, and a writable directory for standalone env/state.
 
 For API calls against an existing service:
 - Running RT-VLM service reachable at `$BASE_URL`.
@@ -72,23 +72,24 @@ If the user asks for standalone RT-VLM dense captioning, or no VSS profile is
 already running, use the standalone RT-VLM flow in
 [`references/deploy-rt-vlm-service.md`](references/deploy-rt-vlm-service.md)
 before calling the API. This follows the same compose-centric pattern as
-`vss-deploy-profile`: gather context, run preflights, work from a local copy,
-dry-run with `docker compose config`, review, deploy, then wait for health.
+`vss-deploy-profile`: gather context, run preflights, validate the canonical
+checked-in Compose file first, review, deploy, then wait for health.
 
 ## Standalone Deployment Flow
 
 Always follow this sequence. Never skip the dry-run.
 
 ```bash
-# 1. Copy deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
-#    into any writable standalone working directory.
-# 2. Derive RTVI_VLM_IMAGE_TAG from that compose copy.
-# 3. Strip the standalone-only dangling depends_on block from the copy.
+# 1. Use deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
+#    directly with the rtvi-vlm profile.
+# 2. Derive VSS_RT_VLM_TAG from that canonical file.
+# 3. Only if Compose rejects its optional undefined depends_on peers, create a
+#    scratch normalized copy and strip that block; never choose a stale copy first.
 # 4. Create a gitignored rtvi-vlm.env with the required RT-VLM values.
 # 5. Prepare host bind paths such as $VSS_DATA_DIR/data_log/vst/clip_storage.
 #    Use `sudo -n` for ownership fixes; if passwordless sudo is unavailable,
 #    stop and ask the host owner to run the printed command manually.
-# 6. docker compose --env-file rtvi-vlm.env -f rtvi-vlm-docker-compose.yml config --quiet
+# 6. docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" --profile rtvi-vlm config --quiet
 # 7. docker pull the exact RT-VLM image tag.
 # 8. docker compose ... up -d rtvi-vlm, wait for ready, then smoke test.
 ```
@@ -103,12 +104,12 @@ docker compose version
 docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 ```
 
-For standalone single-file deployments, do not run the raw
-`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` directly: it
-contains `depends_on` references to sibling VLM/NIM services that are only
-defined in the full VSS/met-blueprints compose project. The standalone reference
-shows how to copy the compose file, derive the current image tag from it, strip
-the `depends_on` block, and validate the result before `up`.
+For standalone single-file deployments, start with the canonical
+`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` and the
+`rtvi-vlm` profile. Do not select an existing modified copy. If Compose reports
+undefined optional `depends_on` peers, the standalone reference permits one
+scratch normalized copy sourced from that exact file; use it only after recording
+that validation failure, then validate it before `up`.
 
 For agent-driven validation, never let `sudo` prompt interactively. Before any
 privileged ownership or Docker operation, use the non-interactive guard in
@@ -116,6 +117,10 @@ privileged ownership or Docker operation, use the non-interactive guard in
 prefer plain `docker`; otherwise use `sudo -n docker`; if `sudo -n` fails, stop
 with the exact manual command for the host owner instead of retrying with
 interactive sudo or weakening permissions.
+
+When wiring RT-VLM to Kafka, ELK, VIOS, or sibling model services, read
+[`references/integrate-rt-vlm.md`](references/integrate-rt-vlm.md) for the
+current integration contract and Compose variable mappings.
 
 If `docker pull` fails with a containerd snapshotter/unpack error on Docker 28+,
 apply the `/etc/docker/daemon.json` `containerd-snapshotter=false` fix in the

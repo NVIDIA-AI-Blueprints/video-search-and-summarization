@@ -1442,8 +1442,8 @@ for _profile in base lvs search alerts; do
       _expected_stable_keys=(MODE LVS_TAG RTVI_VLM_IMAGE_TAG)
       ;;
     search)
-      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL SDR_CONTROLLER_CONFIG_PATH NVSTREAMER_CONFIG_DIR RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
-      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT SDRC_CONTROLLER_HOST_PORT SDRC_PROXY_HOST_PORT SDRC_DIRECT_HOST_PORT SDRC_ENVOY_ADMIN_HOST_PORT)
+      _expected_override_keys+=(MEDIA_SERVICE_ENDPOINT REACT_APP_API_ENDPOINT_BASE_URL EVAL_LLM_JUDGE_NAME EVAL_LLM_JUDGE_BASE_URL NVSTREAMER_CONFIG_DIR RT_VLM_DEVICE_ID RTVI_VLM_PORT RTVI_VLM_IMAGE_TAG RTVI_VLM_ENDPOINT RTVI_VLM_MODEL_TO_USE RTVI_VLLM_GPU_MEMORY_UTILIZATION RTVI_VLM_MAX_MODEL_LEN RTVI_VLM_MODEL_PATH)
+      _expected_override_keys+=(VIDEO_ANALYTICS_API_HOST_PORT RTVI_CV_HOST_PORT NVSTREAMER_HTTP_HOST_PORT ELASTICSEARCH_HOST_PORT KAFKA_HOST_PORT KIBANA_HOST_PORT)
       # VSS_RT_CV_TAG and VSS_RT_EMBED_TAG are not pinned for search: the managed
       # images inherit their tag from containers.env, and the only entries are the
       # commented -sbsa alternates in overrides.env that DGX-SPARK activates.
@@ -1606,6 +1606,8 @@ for _spec in "${_shared_service_env_specs[@]}"; do
 done
 _nvstreamer_base_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/base.yml"
 _nvstreamer_shared_compose="${REPO_ROOT}/deploy/docker/services/nvstreamer/compose.yml"
+_nvstreamer_vios_compose="${REPO_ROOT}/deploy/docker/services/vios/streamprocessing/docker-compose.yaml"
+_nvstreamer_infra_compose="${REPO_ROOT}/deploy/docker/services/infra/compose.yml"
 if ! grep -Eq '^  nvstreamer-base:' "${_nvstreamer_base_compose}"; then
   echo "FAIL: shared NVStreamer base Compose should define nvstreamer-base"
   ((_split_failed++)) || true
@@ -1623,32 +1625,64 @@ if grep -Eq '(developer-profiles|industry-profiles)/' "${_nvstreamer_shared_comp
   echo "FAIL: shared NVStreamer Compose should not reference blueprint directories"
   ((_split_failed++)) || true
 fi
-_nvstreamer_service_definition_specs=(
-  "nvstreamer-alerts:deploy/docker/developer-profiles/dev-profile-alerts/compose.yml deploy/docker/industry-profiles/smartcities/compose.yml"
-  "nvstreamer-lvs:deploy/docker/developer-profiles/dev-profile-lvs/compose.yml"
-  "nvstreamer-2d-fusion:deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml"
-  "nvstreamer-2d:deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml"
-  "nvstreamer-3d:deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml"
-  "nvstreamer-mv3dt:deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml"
+_nvstreamer_shared_services=(
+  nvstreamer-alerts
+  nvstreamer-lvs
+  nvstreamer-2d-fusion
+  nvstreamer-2d
+  nvstreamer-3d
+  nvstreamer-mv3dt
 )
-for _spec in "${_nvstreamer_service_definition_specs[@]}"; do
-  _service="${_spec%%:*}"
-  _expected_definition_paths="${_spec#*:}"
-  _expected_definition_count="$(wc -w <<< "${_expected_definition_paths}")"
-  _definition_count="$(grep -R -E --include='*.yml' --include='*.yaml' "^  ${_service}:" \
-    "${REPO_ROOT}/deploy/docker/developer-profiles" \
-    "${REPO_ROOT}/deploy/docker/industry-profiles" | wc -l)"
-  if [[ "${_definition_count}" -ne "${_expected_definition_count}" ]]; then
-    echo "FAIL: ${_service} should have ${_expected_definition_count} blueprint-owned Compose definition(s) (found ${_definition_count})"
+for _service in "${_nvstreamer_shared_services[@]}"; do
+  if ! grep -Eq "^  ${_service}:" "${_nvstreamer_shared_compose}"; then
+    echo "FAIL: shared NVStreamer Compose should define ${_service}"
     ((_split_failed++)) || true
   fi
-  for _definition_path in ${_expected_definition_paths}; do
-    if ! grep -Eq "^  ${_service}:" "${REPO_ROOT}/${_definition_path}"; then
-      echo "FAIL: ${_service} definition missing from ${_definition_path}"
-      ((_split_failed++)) || true
-    fi
-  done
 done
+if grep -R -E --include='*.yml' --include='*.yaml' \
+  '^  (nvstreamer-alerts|nvstreamer-lvs|nvstreamer-2d-fusion|nvstreamer-2d|nvstreamer-3d|nvstreamer-mv3dt):' \
+  "${REPO_ROOT}/deploy/docker/developer-profiles" \
+  "${REPO_ROOT}/deploy/docker/industry-profiles" >/dev/null; then
+  echo "FAIL: blueprint Compose files should not redefine shared NVStreamer services"
+  ((_split_failed++)) || true
+fi
+_nvstreamer_skill_reference="${REPO_ROOT}/skills/operations/vss-manage-video-io-storage/references/integrate-vios-service.md"
+if ! grep -Fq 'deploy/docker/services/nvstreamer/configs/vst-config.json' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should reference the shared NVStreamer config"
+  ((_split_failed++)) || true
+fi
+if grep -Fq 'deploy/docker/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should not reference the retired profile-specific NVStreamer config"
+  ((_split_failed++)) || true
+fi
+if grep -Fq 'deploy/docker/developer-profiles/dev-profile-alerts/compose.yml' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should not cite the retired profile-specific NVStreamer service"
+  ((_split_failed++)) || true
+fi
+if grep -Fq './nvstreamer/configs/' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should not use retired profile-local NVStreamer config mounts"
+  ((_split_failed++)) || true
+fi
+if grep -Fq 'file: base.yml' "${_nvstreamer_skill_reference}" || grep -Fq '"your-profile-flag"' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should select the shared NVStreamer profile instead of copying its Compose definition"
+  ((_split_failed++)) || true
+fi
+if ! grep -Fq 'COMPOSE_PROFILES=<existing-profile-list>,kafka,kafka-topic-init-container,broker-health-check,nvstreamer-alerts' "${_nvstreamer_skill_reference}"; then
+  echo "FAIL: VIOS integration skill should select the complete NvStreamer and broker profile set"
+  ((_split_failed++)) || true
+fi
+if ! grep -A4 -E '^  vios-apt-cache-init:' "${_nvstreamer_vios_compose}" | grep -Fq '"nvstreamer-alerts"'; then
+  echo "FAIL: vios-apt-cache-init should activate with the nvstreamer-alerts profile"
+  ((_split_failed++)) || true
+fi
+if ! grep -A6 -E '^  broker-health-check:' "${_nvstreamer_infra_compose}" | grep -Fq 'profiles: ["broker-health-check"]'; then
+  echo "FAIL: broker-health-check should retain its documented Compose profile"
+  ((_split_failed++)) || true
+fi
+if ! grep -A8 -E '^  kafka-topic-init-container:' "${_nvstreamer_infra_compose}" | grep -Fq 'profiles: ["kafka-topic-init-container"]'; then
+  echo "FAIL: Kafka topic initialization should retain its documented Compose profile"
+  ((_split_failed++)) || true
+fi
 if [[ ${_split_failed} -eq 0 ]]; then
   echo "PASS: developer profile env split keeps profile-specific override-layer values isolated"
   ((TESTS_PASSED++)) || true
@@ -2266,6 +2300,50 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "VLM_MODE" "remote" "VLM_PORT" "30082" "RTVI_VLM_ENDPOINT" "http://127.0.0.1:9998/v1" "RTVI_VLM_MODEL_TO_USE" "openai-compat"
 
 _expected_lvs_compose_profiles='kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-vlm,vss-ui,lvs-server,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,dcgm-exporter,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+_expected_search_compose_profiles='kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}'
+
+# Docker search: direct VIOS — no SDRC chain in Foundation env / COMPOSE_PROFILES.
+_search_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env"
+_search_overrides_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/overrides.env"
+if grep -Eq '^VST_USE_SDRC=false$' "${_search_env}" \
+  && grep -Eq '^STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001$' "${_search_env}" \
+  && grep -Eq '^VST_NGINX_MODE=vst$' "${_search_env}"; then
+  echo "PASS: search Docker Foundation uses direct VIOS wiring"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: search Docker Foundation should set VST_USE_SDRC=false, STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001, VST_NGINX_MODE=vst"
+  ((TESTS_FAILED++)) || true
+fi
+_search_compose_profiles="$(grep -E '^COMPOSE_PROFILES=' "${_search_overrides_env}" | head -n1 | cut -d= -f2-)"
+if [[ "${_search_compose_profiles}" == "${_expected_search_compose_profiles}" ]] \
+  && ! grep -Eq '(^|,)(init-dirs|render-config|wdm-env-from-config|wait-for-redis|wait-for-docker-workloads|sdr-controller)(,|$)' <<<"${_search_compose_profiles}"; then
+  echo "PASS: search COMPOSE_PROFILES excludes SDRC tokens"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: search COMPOSE_PROFILES should match direct-VIOS set (no SDRC chain)"
+  ((TESTS_FAILED++)) || true
+fi
+if ! grep -Eq '^(SDR_CONTROLLER_CONFIG_PATH|SDRC_CONTROLLER_HOST_PORT|SDRC_PROXY_HOST_PORT|SDRC_DIRECT_HOST_PORT|SDRC_ENVOY_ADMIN_HOST_PORT)=' "${_search_overrides_env}"; then
+  echo "PASS: search overrides.env omits SDRC path/port knobs"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: search overrides.env should not define SDR_CONTROLLER_CONFIG_PATH or SDRC_*_HOST_PORT"
+  ((TESTS_FAILED++)) || true
+fi
+# The Docker flip above is deliberately Docker-only: Helm search keeps SDRC for live
+# multi-worker scale. Guard the asymmetry so a follow-up does not "align" Helm to Docker.
+_search_helm_values="${REPO_ROOT}/deploy/helm/developer-profiles/dev-profile-search/values.yaml"
+if grep -Eq '^[[:space:]]+useSdrc: true$' "${_search_helm_values}" \
+  && grep -A1 -E '^[[:space:]]+sdrc:$' "${_search_helm_values}" | grep -Eq '^[[:space:]]+enabled: true$'; then
+  echo "PASS: Helm search keeps SDRC enabled (global.vios.useSdrc + infra.sdrc.enabled)"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: Helm search should keep global.vios.useSdrc: true and infra.sdrc.enabled: true"
+  ((TESTS_FAILED++)) || true
+fi
+run_dry_run_up_and_check_generated_env "generated.env search COMPOSE_PROFILES excludes SDRC" "search" \
+ -i 127.0.0.1 -d -- \
+  "COMPOSE_PROFILES" "${_expected_search_compose_profiles}"
 
 # LVS with local/local_shared VLM: route LVS through RT-VLM and let RT-VLM load the integrated Cosmos checkpoint.
 run_dry_run_up_and_check_generated_env "generated.env lvs local VLM uses RT-VLM integrated checkpoint" "lvs" \

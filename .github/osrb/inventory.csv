@@ -1171,7 +1171,6 @@ cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,
 cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/video-analytics-api,deb,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
-curl,8.21.0-r0,UNKNOWN,deploy,apk,container,deploy/docker/services/infra/Dockerfiles/kafka-health-check.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,apk,container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,deb,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -2487,8 +2486,8 @@ narwhals,2.24.0,MIT,services/configurators/vss-configurator,python,lockfile,serv
 narwhals,2.25.0,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 natural-compare,1.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 natural-compare,1.4.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-nbclient,UNKNOWN,UNKNOWN,.github,python,usage,.github/skill-eval/nemoclaw/notebook_setup_adapter.py,runtime,no,no,no,imported-only,Unknown
-nbformat,UNKNOWN,UNKNOWN,.github,python,usage,.github/skill-eval/nemoclaw/notebook_setup_adapter.py,runtime,no,no,no,imported-only,Unknown
+nbclient,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/scripts/run_setup_notebook.py,runtime,no,no,no,imported-only,Unknown
+nbformat,UNKNOWN,UNKNOWN,deploy,python,usage,deploy/docker/scripts/run_setup_notebook.py,runtime,no,no,no,imported-only,Unknown
 negotiator,0.6.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 neo-async,2.6.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 nest-asyncio,1.6.0,BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3099,7 +3098,6 @@ python-dotenv,1.2.2,BSD-3-Clause,services/agent,python,lockfile,services/agent/u
 python-dotenv,1.2.2,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 python-dotenv,1.2.3,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-dotenv,UNKNOWN,BSD-3-Clause,skills/benchmarking,python,manifest,skills/benchmarking/benchmark-video-summarization/scripts/requirements.txt,runtime,no,no,no,declared-manifest,None
-python-dotenv,UNKNOWN,BSD-3-Clause,skills/operations,python,manifest,skills/operations/vss-manage-alerts/scripts/alert-notify/requirements.txt,runtime,no,no,no,declared-manifest,None
 python-gi-dev,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 python-multipart,0.0.30,UNKNOWN,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-multipart,0.0.30,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown

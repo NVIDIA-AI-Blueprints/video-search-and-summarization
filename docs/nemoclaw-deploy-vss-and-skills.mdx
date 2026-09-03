@@ -10,7 +10,7 @@ This guide uses the simplest layout and runs everything on a single VSS-capable 
 1. `deploy/docker/scripts/deploy_nemoclaw.ipynb` - sets up NemoClaw on the host: create or reuse the sandbox, pin Docker, install NemoClaw, apply the VSS policy, install the VSS skills, register the VSS Orchestrator MCP, and open the Agent UI.
 2. `deploy/docker/scripts/deploy_vss_orchestrator.ipynb` - prepares the host for VSS, starts the VSS Orchestrator MCP server, and deploys and manages VSS from the Agent UI by chatting with the agent.
 
-Follow the cells in each notebook in order. For the full variable reference and optional verification cells, see [nemoclaw-configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+Follow the cells in each notebook in order. For the full variable reference and optional verification cells, see [Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
 
 <Note>
 The prompts and screenshots use OpenClaw as an example. Run the equivalent checks in whichever agent harness you onboarded (`AGENT_RUNTIME`, for example OpenClaw or Hermes).
@@ -103,7 +103,7 @@ In the single-host layout used by this guide, the VSS host is the same machine a
   <img src="/assets/images/nemoclaw/OpenClawUIDeploy.png" alt="Deploying a VSS profile from the agent chat" />
 </Frame>
 
-1. For the complete orchestrator tool reference, see [vss-orchestrator-mcp](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+1. For the complete orchestrator tool reference, see [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
 ## Run on DGX Spark
 
@@ -139,7 +139,7 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 
 6. **Leave the orchestrator MCP config defaults unless you need to tune them.** `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` already sets DGX Spark defaults such as `VLM_NIM_KVCACHE_PERCENT`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, and the SBSA image tags. Change those values only if you need different GPU memory or image settings, then restart the MCP server. See [VSS Orchestrator MCP config YAML](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration#vss-orchestrator-mcp-config-yaml).
 
-For the full variable reference, see [nemoclaw-configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+For the full variable reference, see [Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
 
 ## Add Video Sources
 

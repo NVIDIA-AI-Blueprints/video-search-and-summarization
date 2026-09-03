@@ -45,6 +45,20 @@ from .errors import ConfigurationError
 from .models.common import FusionMethod  # noqa: TC001  used in dataclass field annotation
 
 # =============================================================================
+# Uploads anchor (single source of truth)
+# =============================================================================
+
+#: Synthetic epoch uploaded files are ingested under (write-side contract in
+#: ``video_ingest.py`` / ``video_delete.py``), so their embed/behavior/raw docs
+#: always land in the ``-2025-01-01`` indices. Single-sourced here so the index
+#: defaults below, the CLI ``_runtime_from`` frames anchor, and the graceful-empty
+#: catch in ``_attribute_helpers`` cannot drift.
+UPLOADS_ANCHOR_DATE = "2025-01-01"
+BEHAVIOR_INDEX_ANCHOR = f"mdx-behavior-{UPLOADS_ANCHOR_DATE}"
+VIDEO_EMBED_INDEX_ANCHOR = f"mdx-embed-filtered-{UPLOADS_ANCHOR_DATE}"
+RAW_INDEX_ANCHOR = f"mdx-raw-{UPLOADS_ANCHOR_DATE}"
+
+# =============================================================================
 # Helpers
 # =============================================================================
 
@@ -78,15 +92,23 @@ class SearchRuntime:
     vst_external_url: str | None = None
 
     # ---- Indexes ----
-    behavior_index: str = "mdx-behavior-2025-01-01"  # DEFAULT_BEHAVIOR_INDEX in code
-    # NEW in v1: today's code hardcodes this literal at tools/search.py:997 and
-    # tools/attribute_search.py:1218. The library extracts it to a field so
-    # deployments with different index naming families don't need a code change.
+    # The ``*_index`` bases are the fixed uploads anchors. Uploaded files are
+    # ingested with a synthetic ``2025-01-01`` timestamp (``video_ingest.py``), so
+    # their embed/behavior/raw docs always land in the ``-2025-01-01`` indices, and
+    # ``video_delete.py`` hardcodes the same three names as its cleanup targets.
+    # This is a write-side contract: the base must NOT be discovered from the live
+    # index inventory, or a live-dated index can masquerade as the uploads base and
+    # invert ``rtsp`` source-type selection. The absent-anchor graceful-empty for
+    # ``video_file`` is gated on these exact constants (see
+    # ``_is_absent_uploads_anchor`` / ``EmbedSearch.run``), so overriding
+    # ``behavior_index`` or ``video_embed_index`` turns a fresh-stack ``video_file``
+    # search from an empty result into exit 5.
+    behavior_index: str = BEHAVIOR_INDEX_ANCHOR
     behavior_index_wildcard: str = "mdx-behavior-*"
-    video_embed_index: str = "mdx-embed-filtered-2025-01-01"  # from ELASTIC_SEARCH_INDEX
-    # NEW in v1: today's code hardcodes "mdx-embed-filtered-*" at
-    # tools/embed_search.py:615 for the RTSP search-index selection. The library
-    # extracts it for the same reason as behavior_index_wildcard.
+    # The embed read path selects ``video_file`` -> this anchor and ``rtsp`` ->
+    # wildcard minus this anchor, exactly as behavior/raw do. (The vss CLI never
+    # reads ``ELASTIC_SEARCH_INDEX``; only the agent container consumes it.)
+    video_embed_index: str = VIDEO_EMBED_INDEX_ANCHOR
     video_embed_index_wildcard: str = "mdx-embed-filtered-*"
     frames_index: str | None = None  # None disables frame-level lookups
     # NEW in v1: today's code hardcodes "mdx-raw-*" at tools/attribute_search.py:1223

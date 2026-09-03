@@ -196,14 +196,19 @@ def main() -> None:
 
     print(f"[compute_stream_cap] wrote {args.output}", file=sys.stderr)
     print(
-        "[compute_stream_cap] keep vios.vss-vios-nvstreamer.syncFileCount in step "
-        f"with NUM_STREAMS={effective} (README.md: 'Keep in step with bp-configurator NUM_STREAMS')",
+        "[compute_stream_cap] keep vios.vss-vios-nvstreamer.syncFileCount and "
+        "vios.vss-vios-nvstreamer.rtsp.instanceCount in step with "
+        f"NUM_STREAMS={effective} (README.md: 'Keep in step with bp-configurator "
+        "NUM_STREAMS'; rtsp.instanceCount caps how many RTSP ports the Service "
+        "exposes — under it, streams above the cap silently can't connect)",
         file=sys.stderr,
     )
     values_flags = "".join(f"-f {v} " for v in args.values)
     print(
         f"\nhelm upgrade --install <release> {chart_dir} -n <namespace> "
-        f"{values_flags}-f {args.output} --set vios.vss-vios-nvstreamer.syncFileCount={effective} ..."
+        f"{values_flags}-f {args.output} "
+        f"--set vios.vss-vios-nvstreamer.syncFileCount={effective} "
+        f"--set vios.vss-vios-nvstreamer.rtsp.instanceCount={effective} ..."
     )
 
 

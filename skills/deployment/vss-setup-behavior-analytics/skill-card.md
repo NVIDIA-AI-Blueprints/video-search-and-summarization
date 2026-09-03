@@ -21,6 +21,7 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Deploy Behavior Analytics Service](references/deploy-behavior-analytics-service.md) <br>
 - [Configuration Guide](references/configuration.md) <br>
+- [Integrate Behavior Analytics Service](references/integrate-behavior-analytics-service.md) <br>
 - [Dynamic Calibration](references/dynamic-calibration.md) <br>
 - [Dynamic Config](references/dynamic-config.md) <br>
 - [NGC API Key & Registry Login](references/ngc-api-key-registry-login.md) <br>
@@ -72,7 +73,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 1 | 94% (+67%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.3.0 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

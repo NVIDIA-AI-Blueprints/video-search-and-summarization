@@ -13,14 +13,19 @@ metadata:
 
 Operate archive search from the caller's host. Compose and Kubernetes use the
 same `vss configure` and `vss search run` commands; only the deployment origin
-differs. Source ingestion and deletion remain Agent-backed.
+differs. Source ingestion and deletion are Agent-backed **when the deployment has
+an agent `/api` route**; on a build without one, they belong to
+`vss-manage-video-io-storage` `references/provision-vios-source.md`.
 
 ## Hard boundaries
 
 - Run the project-local CLI on the host. Never use `docker exec`, `kubectl
   exec`, a pod shell, or a globally installed `vss` as a substitute.
-- Never call Elasticsearch, RTVI-CV, RTVI-Embed, storage-ms, or VST directly
-  for a mutation. Upload and delete through the Agent lifecycle.
+- Never improvise a mutation against Elasticsearch, RTVI-CV, RTVI-Embed,
+  storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
+  the Agent upload/delete lifecycle where an agent `/api` route answers, and
+  `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
+  does. That recipe owns the direct calls this rule otherwise forbids.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect
@@ -80,8 +85,10 @@ one exits 4.
 
 For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
 deletion, read [source lifecycle](references/source_lifecycle.md) completely
-before acting. Re-run `vss configure` after ingestion because the recorded
-index inventory is a snapshot.
+before acting. Re-run `vss configure` after the first ingestion: the recorded
+raw family is what enables frame-level lookups (it gates `frames_index`, which
+attribute and fusion need for frame enrichment). Only source-type selection is
+independent of the index inventory.
 
 ## Mandatory search workflow
 
@@ -108,21 +115,27 @@ index inventory is a snapshot.
    `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
    name. The CLI matches this value literally and does no name↔ID conversion.
    Set `--source-type video_file` for uploads or `--source-type rtsp` for live
-   streams; this chooses the index partition independently of the identifier.
+   streams. This selects the index partition for that media kind from a fixed
+   uploads anchor (not a discovered index), independently of the identifier, so
+   it is correct regardless of ingestion order.
 
-3. Preserve the complete object/action, source, time bounds, result limit, and
-   visual attributes. Choose one path:
+3. Decompose the request before choosing a path; do not pick by surface form.
+   `run embed` accepts any sentence, so being one sentence is not evidence for
+   embed. Separate each specific detectable property (`white jacket`, `red hard
+   hat`) from the actions/relations only embeddings capture, then choose:
 
-   - text query only → `run embed`
-   - visual attributes only → `run attribute`
-   - text query plus attributes → `run fusion`
+   - a detectable property plus an action or relation is present → `run fusion` (even within one sentence)
+   - free-text intent with no detectable property → `run embed`
+   - detectable properties only, no action or relation → `run attribute`
    - explicit tracked object IDs → `run object`
 
-   `--attribute` is for specific detectable properties such as `white jacket`
-   or `red hard hat`, not generic nouns or actions. Keep `red forklift` wholly
-   in `--query`. For `person in a red jacket running`, preserve the action and
-   attribute: `run fusion --query "person in a red jacket running" --attribute
-   "red jacket"`.
+   `--attribute` is for specific detectable properties, not generic nouns or
+   actions. A property counts only when RT-CV detects it on the subject (attire,
+   PPE, color-on-person), not object identity or an object's own color; keep
+   `red forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has
+   a property (`hard hat`) and an action (`carrying a cone`): `run fusion --query
+   "worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
+   for genuinely attribute-free intent.
 
 4. Construct the invocation as a Bash array and validate only its exact
    stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
@@ -209,9 +222,12 @@ still `unverified`. Preserve their exact bounded intervals and the complete
 original visual intent. Keep at most three delegations in flight. Never hand
 off a partially verified result set.
 
-9. If `.data` is empty, report zero candidates faithfully. Do not claim that
-the object is absent; offer a specific query or similarity-threshold refinement
-while preserving the source. Never broaden the search silently.
+9. If `.data` is empty, report zero candidates faithfully — a fact about
+retrieval, not about the video. Do not claim the object is absent, describe
+what the footage contains, or argue it is not something you would expect
+there: a threshold or embedding gap yields the same empty result as a genuine
+absence. Offer a specific query or similarity-threshold refinement while
+preserving the source. Never broaden the search silently.
 
 ## Natural-language Agent responses
 

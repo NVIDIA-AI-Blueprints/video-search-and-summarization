@@ -28,6 +28,7 @@ const elasticErrors = mdx.Utils.Elasticsearch.getElasticErrors();
 const morgan = require('morgan');
 const winston = require('winston');
 const FILE_UPLOAD_DIRECTORY = path.join(__dirname, '../files');
+const VALID_STREAM_TYPES = new Set(["kafka", "redis"]);
 const logger = winston.createLogger({
     format: winston.format.combine(
         winston.format.timestamp(),
@@ -101,6 +102,12 @@ module.exports = {
 
         const inSimulationMode = (bootstrapObjectMap.server.configs.get("inSimulationMode") === "true");
         cache.set("inSimulationMode", inSimulationMode);
+        const streamType = process.env.STREAM_TYPE || "kafka";
+        if (!VALID_STREAM_TYPES.has(streamType)) {
+            logger.error(`[APP ERROR] Invalid stream type: ${streamType}. Expected one of: kafka, redis.`);
+            process.exit(1);
+        }
+        logger.info(`[APP] Using ${streamType} stream type.`);
 
         const elastic = require('./elastic');
 
@@ -112,8 +119,9 @@ module.exports = {
                 "insertion-timestamp-pipeline"
             );
 
-            const kafka = require('./kafka');
-            if(kafka!=null){
+            if (streamType === "kafka") {
+                const kafka = require('./kafka');
+                if(kafka!=null){
                 logger.info('[KAFKA TOPIC] Waiting for required Kafka topics.');
                 await mdx.Utils.Kafka.waitForTopics(kafka.getAdminClient());
 
@@ -143,6 +151,7 @@ module.exports = {
                 mtmcObject.consumeAMRMessages(kafka, amrConfig).catch(error=>{
                     throw(error);
                 });
+                }
             }
 
             logger.info('[SERVER] Initializing routes');

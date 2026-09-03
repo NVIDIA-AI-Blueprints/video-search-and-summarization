@@ -388,7 +388,6 @@ async def _run_rtvi_embedding(
     *,
     rtvi_embed_base_url: str,
     sensor_id: str,
-    vst_url: str,
     vst_file_path: str,
     rtvi_embed_model: str,
     rtvi_embed_chunk_duration: int,
@@ -403,14 +402,9 @@ async def _run_rtvi_embedding(
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
-    parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
-    if not parsed_vst.hostname:
-        raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
-    translated_video_url = rewrite_to_internal_vst_url(vst_file_path, vst_url)
-    logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
 
     embed_request = {
-        "url": translated_video_url,
+        "url": vst_file_path,
         "id": sensor_id,
         "model": rtvi_embed_model,
         "creation_time": start_timestamp,
@@ -524,7 +518,16 @@ async def _run_post_upload_processing(
             logger.error(error_msg)
             raise HTTPException(status_code=502, detail=f"Storage API response invalid: {error_msg}")
 
-        logger.info(f"VST video URL obtained: {vst_file_path}")
+    # Translate the VST storage URL to the internal VST endpoint once, so both
+    # RTVI-CV and RTVI-Embed can fetch the video directly without hitting a
+    # reverse proxy / external host that may be unreachable from in-cluster.
+    # rewrite_to_internal_vst_url replaces the proxy base (host + port) with the
+    # configured internal VST base, so an explicit port on the external URL
+    # is not carried over to the internal endpoint.
+    if not vst_url:
+        raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
+    internal_video_url = rewrite_to_internal_vst_url(vst_file_path, vst_url)
+    logger.info(f"Using internal VST URL for RTVI services: {internal_video_url}")
 
     # Register with RTVI-CV and trigger embedding generation concurrently.
     # The two services are independent — they both consume the VST storage URL
@@ -545,7 +548,7 @@ async def _run_post_upload_processing(
                     rtvi_cv_base_url=rtvi_cv_base_url,
                     sensor_id=sensor_id,
                     camera_name=camera_name,
-                    vst_file_path=vst_file_path,
+                    vst_file_path=internal_video_url,
                     start_timestamp=start_timestamp,
                     timeout_seconds=rtvi_cv_timeout_seconds,
                 ),
@@ -562,8 +565,7 @@ async def _run_post_upload_processing(
                 _run_rtvi_embedding(
                     rtvi_embed_base_url=rtvi_embed_base_url,
                     sensor_id=sensor_id,
-                    vst_url=vst_url,
-                    vst_file_path=vst_file_path,
+                    vst_file_path=internal_video_url,
                     rtvi_embed_model=rtvi_embed_model,
                     rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
                     start_timestamp=start_timestamp,

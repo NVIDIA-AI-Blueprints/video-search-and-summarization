@@ -191,6 +191,29 @@ def test_video_message_content_preserves_model_prompt_order(architecture, expect
     assert [item["type"] for item in content] == expected_types
 
 
+def test_qwen3_omni_video_requests_always_set_use_audio_in_video():
+    """vLLM's Qwen3-Omni processor indexes this field even without audio."""
+    no_audio = vllm_compatible_model._default_mm_processor_kwargs(
+        "vllm-compatible", "Qwen3OmniMoeForConditionalGeneration", False
+    )
+    with_audio = vllm_compatible_model._default_mm_processor_kwargs(
+        "vllm-compatible", "Qwen3OmniMoeForConditionalGeneration", True
+    )
+
+    assert no_audio == {"use_audio_in_video": False}
+    assert with_audio == {"use_audio_in_video": True}
+
+
+def test_requested_mm_processor_kwargs_can_override_qwen3_omni_default():
+    base = vllm_compatible_model._default_mm_processor_kwargs(
+        "vllm-compatible", "Qwen3OmniMoeForConditionalGeneration", False
+    )
+
+    assert vllm_compatible_model._merge_mm_processor_kwargs(
+        base, {"use_audio_in_video": True}
+    ) == {"use_audio_in_video": True}
+
+
 @pytest.mark.parametrize(
     "vllm_error",
     [

@@ -71,9 +71,9 @@ The following model families are supported.
 | Cosmos Reason2 | [Cosmos Reason2 8B (0303-fp8-dynamic-kv8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp8-dynamic-kv8) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
 | Cosmos Reason2 | [Cosmos Reason2 8B (hf-0303)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=hf-0303) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-0303` |
 | Cosmos Reason2 | [Cosmos Reason2 8B (0303-fp4-dynamic-kv8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp4-dynamic-kv8) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp4-dynamic-kv8` |
-| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-nvfp4)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
-| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
-| Cosmos Reason3 | [Cosmos3 Nano Reasoner (bf16)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=bf16-final) **(Default)** | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-nvfp4)](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-fp8)](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (bf16)](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner) **(Default)** | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | Cosmos Reason3 | [Cosmos3 Nano Reasoner (Diffuser)](https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner) | `cosmos-reason3` | `git:https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner` |
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-nvfp4)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
@@ -152,7 +152,7 @@ details.
 ## API Reference
 
 For complete API documentation including all endpoints, request/response
-schemas, and interactive examples, see the [Real-Time VLM API Reference ](/vss/system-components/vision-microservices/real-time-vlm/api-reference/api-reference).
+schemas, and interactive examples, see the [Real-Time VLM API Reference](/vss/system-components/vision-microservices/real-time-vlm/api-reference).
 
 The API is organized into the following categories:
 
@@ -194,7 +194,6 @@ The API is organized into the following categories:
 | `/v1/chat/completions` | `POST` | OpenAI-compatible chat completion endpoint |
 | `/v1/completions` | `POST` | OpenAI-compatible completions endpoint |
 | `/v1/version` | `GET` | Get release and API versions |
-| `/v1/license` | `GET` | Get license information |
 | `/v1/manifest` | `GET` | Get service manifest information |
 | `/v1/health/live` | `GET` | NIM-compatible liveness check |
 | `/v1/health/ready` | `GET` | NIM-compatible readiness check |

@@ -61,6 +61,14 @@ class ConfigError(Exception):
 
 
 _ELASTICSEARCH_INDEX_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_ENVIRONMENT_VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+DEFAULT_INTROSPECTION_CRITERIA_PROMPT = """Memory is sufficient only when:
+1. The supplied records directly answer every material part of the user's question.
+2. The evidence applies to the requested sensor and time range.
+3. Each factual conclusion is supported by one or more supplied record IDs.
+4. No critical fact required to answer the question is missing.
+If any required condition fails, mark the evidence insufficient and produce grounded gaps for the missing information."""
 
 
 def validate_memory_index(value: str) -> str:
@@ -184,6 +192,101 @@ class MarkdownMemoryConfig:
 
 
 @dataclass(frozen=True)
+class IntrospectionJudgeConfig:
+    """OpenAI-compatible text judge and answer-synthesis endpoint."""
+
+    endpoint: str
+    model: str = "openclaw/default"
+    backend_model: str | None = None
+    api_key_env: str | None = None
+    criteria_prompt: str = DEFAULT_INTROSPECTION_CRITERIA_PROMPT
+
+    def validate(self) -> IntrospectionJudgeConfig:
+        if not self.endpoint.strip():
+            raise ConfigError("introspection judge endpoint must be non-empty")
+        if not self.model.strip():
+            raise ConfigError("introspection judge model must be non-empty")
+        if self.backend_model is not None and not self.backend_model.strip():
+            raise ConfigError("introspection judge backend model must be non-empty when configured")
+        if self.api_key_env is not None and not _ENVIRONMENT_VARIABLE_PATTERN.fullmatch(self.api_key_env):
+            raise ConfigError(
+                "introspection judge API-key environment variable must start with a letter or '_' "
+                "and contain only letters, digits, or '_'"
+            )
+        if not self.criteria_prompt.strip():
+            raise ConfigError("introspection judge criteria must be non-empty")
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "endpoint": self.endpoint,
+            "model": self.model,
+            "backend_model": self.backend_model,
+            "api_key_env": self.api_key_env,
+            "criteria_prompt": self.criteria_prompt,
+        }
+
+    @classmethod
+    def from_json(cls, raw: object) -> IntrospectionJudgeConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'memory.introspection.judge' must be a JSON object")
+        expected = {"endpoint", "model", "backend_model", "api_key_env", "criteria_prompt"}
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'memory.introspection.judge' contains unknown fields: {', '.join(unknown)}")
+        endpoint = raw.get("endpoint")
+        model = raw.get("model", "openclaw/default")
+        backend_model = raw.get("backend_model")
+        api_key_env = raw.get("api_key_env")
+        criteria_prompt = raw.get("criteria_prompt", DEFAULT_INTROSPECTION_CRITERIA_PROMPT)
+        if not isinstance(endpoint, str):
+            raise ConfigError("config 'memory.introspection.judge.endpoint' must be a string")
+        if not isinstance(model, str):
+            raise ConfigError("config 'memory.introspection.judge.model' must be a string")
+        if backend_model is not None and not isinstance(backend_model, str):
+            raise ConfigError("config 'memory.introspection.judge.backend_model' must be a string or null")
+        if api_key_env is not None and not isinstance(api_key_env, str):
+            raise ConfigError("config 'memory.introspection.judge.api_key_env' must be a string or null")
+        if not isinstance(criteria_prompt, str):
+            raise ConfigError("config 'memory.introspection.judge.criteria_prompt' must be a string")
+        return cls(
+            endpoint=endpoint,
+            model=model,
+            backend_model=backend_model,
+            api_key_env=api_key_env,
+            criteria_prompt=criteria_prompt,
+        ).validate()
+
+
+@dataclass(frozen=True)
+class IntrospectionMemoryConfig:
+    """Static configuration for bounded memory introspection."""
+
+    judge: IntrospectionJudgeConfig
+
+    def validate(self) -> IntrospectionMemoryConfig:
+        self.judge.validate()
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        return {"judge": self.judge.to_json()}
+
+    @classmethod
+    def from_json(cls, raw: object) -> IntrospectionMemoryConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'memory.introspection' must be a JSON object")
+        expected = {"judge"}
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'memory.introspection' contains unknown fields: {', '.join(unknown)}")
+        if "judge" not in raw:
+            raise ConfigError("config 'memory.introspection.judge' is required")
+        return cls(judge=IntrospectionJudgeConfig.from_json(raw["judge"])).validate()
+
+
+@dataclass(frozen=True)
 class MemoryConfig:
     """Static policy and infrastructure for authoritative VSS memory."""
 
@@ -192,6 +295,7 @@ class MemoryConfig:
     index: str = "vss-memory"
     persist_by_default: bool = True
     markdown: MarkdownMemoryConfig = field(default_factory=MarkdownMemoryConfig)
+    introspection: IntrospectionMemoryConfig | None = None
 
     def validate(self) -> MemoryConfig:
         if self.backend != "elasticsearch":
@@ -203,6 +307,8 @@ class MemoryConfig:
                 "use `vss configure memory --disable --no-persist-by-default`"
             )
         self.markdown.validate()
+        if self.introspection is not None:
+            self.introspection.validate()
         if self.markdown.enabled and not self.enabled:
             raise ConfigError("Markdown memory cannot be enabled while authoritative memory is disabled")
         if self.markdown.write_by_default and not self.persist_by_default:
@@ -220,13 +326,14 @@ class MemoryConfig:
             "index": self.index,
             "persist_by_default": self.persist_by_default,
             "markdown": self.markdown.to_json(),
+            "introspection": self.introspection.to_json() if self.introspection is not None else None,
         }
 
     @classmethod
     def from_json(cls, raw: object) -> MemoryConfig:
         if not isinstance(raw, dict):
             raise ConfigError("config 'memory' must be a JSON object")
-        expected = {"enabled", "backend", "index", "persist_by_default", "markdown"}
+        expected = {"enabled", "backend", "index", "persist_by_default", "markdown", "introspection"}
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'memory' contains unknown fields: {', '.join(unknown)}")
@@ -248,6 +355,11 @@ class MemoryConfig:
             index=index,
             persist_by_default=persist_by_default,
             markdown=MarkdownMemoryConfig.from_json(raw["markdown"]) if "markdown" in raw else MarkdownMemoryConfig(),
+            introspection=(
+                IntrospectionMemoryConfig.from_json(raw["introspection"])
+                if raw.get("introspection") is not None
+                else None
+            ),
         ).validate()
 
 

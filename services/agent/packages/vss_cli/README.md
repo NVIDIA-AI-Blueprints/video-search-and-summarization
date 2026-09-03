@@ -87,12 +87,19 @@ vss configure --base-url "${VSS_PUBLIC_URL}"    # e.g. http://localhost:7777
 |-------|-----------|-------|
 | `vss search` | Fused archive search over ES + the embedding NIM | `run`, `status`, `get`, `list` |
 | `vss summarize` | VLM summarization of stored video | `run`, `status`, `get`, `list` |
+| `vss vlm` | One VLM answer from a recorded sensor window | `run`, `status`, `get`, `list` |
+| `vss memory` | Unified-memory access and bounded introspection | `upsert`, `get`, `query`, `events`, `introspect` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
 | `vss configure` | Resolve and record a deployment | `show`, `check` |
 
-`search` and `summarize` are **job groups**: every run mints a `job_id`, and the
+`search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
 result stays retrievable by that id. `vios` is **not** — it resolves handles and
 mints URLs, so it has no job verbs. See [AGENTS.md](AGENTS.md#the-two-shapes).
+
+Memory introspection requires an explicitly configured OpenAI-compatible text
+LLM for sufficiency judgment and answer synthesis. RT-VLM is reserved for
+grounded visual follow-ups. See [the memory policy and configuration
+guide](MEMORY.md).
 
 ## Extending it
 

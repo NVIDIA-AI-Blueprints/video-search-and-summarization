@@ -7,7 +7,7 @@ The Warehouse Blueprint incorporates an agentic AI system that provides natural 
 
 The suggested agent to use is NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`) for natural language understanding and query routing, and NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) for video understanding and analyzing warehouse safety incidents.
 
-For detailed information on all components, APIs, and customization options, refer to the [../VSS-Agents](/vss/vision-agent/vss-agents).
+For detailed information on all components, APIs, and customization options, refer to the [VSS Agents](/vss/vision-agent/vss-agents).
 
 ## Agent Architecture
 
@@ -22,11 +22,11 @@ The agent system uses a two-tier hierarchy:
    - **Report Agent**: Handles detailed, comprehensive reports for single incidents. Retrieves incident data, performs video analysis using VLMs, and generates structured markdown reports with incident details, location information, people and vehicles involved.
    - **Multi-Report Agent**: Handles listing and summarizing multiple incidents. Supports filtering by time range, sensor, and incident count. Provides incident summaries with optional chart generation for visualizing incident trends.
 
-For detailed agent architecture information, see [../vss-agent/VSS-Agent-Overview](/vss/vision-agent/vss-agents/agent-overview)
+For detailed agent architecture information, see [Agent Overview](/vss/vision-agent/vss-agents/agent-overview)
 
 ### Tools
 
-The Top Agent has direct access to a small set of tools and routes more complex requests to the Report and Multi-Report sub-agents, which in turn use the Video Analytics, Video Storage, and Report Generation tools listed below. For the canonical tool reference, see [../vss-agent/Video-Analytics-MCP-Server](/vss/vision-agent/vss-agents/video-analytics-mcp-server).
+The Top Agent has direct access to a small set of tools and routes more complex requests to the Report and Multi-Report sub-agents, which in turn use the Video Analytics, Video Storage, and Report Generation tools listed below. For the canonical tool reference, see [Video-Analytics-MCP Server](/vss/vision-agent/vss-agents/video-analytics-mcp-server).
 
 **Top Agent Tools**
 
@@ -102,7 +102,7 @@ The agent understands temporal expressions such as "last 10 minutes", "yesterday
 
 **Configuration File Location**
 
-The warehouse agent configuration file is located at `deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/config.yml`. For detailed configuration options and YAML structure, see [../vss-agent/VSS-Agent-Configuration](/vss/vision-agent/vss-agents/agent-configuration).
+The warehouse agent configuration file is located at `deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/config.yml`. For detailed configuration options and YAML structure, see [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
 
 **Models Used**
 
@@ -119,9 +119,9 @@ The warehouse profile configures the following key components:
 * **VLM prompts**: Tuned to analyze incidents, location conditions (lighting, floor, blockages), people (worker/driver/pedestrian), and vehicles (forklift/transporter)
 * **Report template**: Warehouse incident report format
 
-For the complete configuration reference including all tools, agents, environment variables, and YAML examples, see [../vss-agent/VSS-Agent-Configuration](/vss/vision-agent/vss-agents/agent-configuration).
+For the complete configuration reference including all tools, agents, environment variables, and YAML examples, see [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
 
-For information about other available profiles (Smart Cities, Developer), see [../vss-agent/VSS-Agent-Profiles](/vss/vision-agent/vss-agents/agent-profiles).
+For information about other available profiles (Smart Cities, Developer), see [Agent Profiles](/vss/vision-agent/vss-agents/agent-profiles).
 
 ## Customization
 
@@ -131,7 +131,7 @@ The agent configuration is designed to be flexible and extensible. Key customiza
 * **VLM Prompt Engineering**: Tune `vlm_prompts` in `template_report_gen` for different warehouse scenarios
 * **Report Templates**: Create custom markdown templates in the templates directory for warehouse-specific report formats
 
-For comprehensive customization guidance including adding custom functions and MCP servers, see [../vss-agent/VSS-Agent-Customization](/vss/vision-agent/vss-agents/agent-customization).
+For comprehensive customization guidance including adding custom functions and MCP servers, see [Agent Customization](/vss/vision-agent/vss-agents/agent-customization).
 
 ## Agent Skills
 
@@ -153,17 +153,17 @@ For the full agent skills catalog and installation instructions, see [Agent Skil
 
 The VSS Agent includes a comprehensive evaluation framework for assessing agent performance across different dimensions including report quality, question-answering accuracy, and trajectory quality.
 
-For detailed information on configuring evaluators, creating evaluation datasets, and interpreting results, see [../vss-agent/VSS-Agent-Evaluation](/vss/vision-agent/vss-agents/agent-evaluation).
+For detailed information on configuring evaluators, creating evaluation datasets, and interpreting results, see [Agent Evaluation](/vss/vision-agent/vss-agents/agent-evaluation).
 
 ### Observability
 
 Warehouse agents support distributed tracing via Phoenix through NeMo Agent Toolkit (NAT) telemetry export.
 
-To enable Phoenix telemetry, configure telemetry in the agent configuration file (see [../vss-agent/VSS-Agent-Configuration](/vss/vision-agent/vss-agents/agent-configuration)) and set `PHOENIX_ENDPOINT` in your environment.
+To enable Phoenix telemetry, configure telemetry in the agent configuration file (see [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration)) and set `PHOENIX_ENDPOINT` in your environment.
 
 Once telemetry is enabled and your agent is running, access the Phoenix UI at `http://<HOST_IP>:7777/phoenix` (projects view is typically under `/projects`).
 
-For a walkthrough of the Phoenix UI (projects view, traces list, and sample trace anatomy), see [../vss-agent/vss-agent-Observability](/vss/vision-agent/vss-agents/observability).
+For a walkthrough of the Phoenix UI (projects view, traces list, and sample trace anatomy), see [Observability](/vss/vision-agent/vss-agents/observability).
 
 Additional references:
 
@@ -175,4 +175,4 @@ Additional references:
 
 For information on warehouse blueprint known limitations, please refer to the [Known Limitations](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations#vlm-verification-of-incidents) section.
 
-For information on general VSS Agent known issues, please refer to the [VSS Agent Known Issues ](/vss/vision-agent/vss-agents/agent-known-issues) section.
+For information on general VSS Agent known issues, please refer to the [VSS Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) section.

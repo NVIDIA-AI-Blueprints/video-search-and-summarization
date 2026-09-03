@@ -25,18 +25,22 @@ Source-of-truth definitions: `deploy/docker/services/analytics/behavior-analytic
 **Core data path (required):**
 
 - **Message broker (Kafka / Redis Streams / MQTT)** — required. The `sourceType` / `sinkType` app-config keys pick which backend is live (Kafka is the default; brokers are configured **inside the config JSON**, not via env — e.g. `kafka.brokers: kafka:29092` (a Docker DNS service name on the compose bridge network; for a standalone deploy against an external broker, set this to a reachable `host:port` — see Network Requirements § Standalone caveat). Behavior Analytics consumes candidate frame metadata and produces behaviors/events/incidents. Owned by ELK/infra.
-- **kafka-topic-init-container** — required (Kafka backend). **Every topic a registered processor reads or writes must exist and be mapped in `kafka.topics`, or the sink raises `Could not find a kafka topic with key: <name>` at the first batch** (topic resolution is eager, even for empty writes). Map exactly the topics the enabled processors touch (see Outputs). Owned by ELK/infra.
+- **kafka-topic-init-container** — required (Kafka backend). Reads and writes fail **differently**, and only one of them is loud:
+  - **Reads are fatal.** A source key that isn't mapped in `kafka.topics` raises `ValueError: Could not find a kafka topic with key: <name>` on the first poll (`source_kafka.py`), taking the worker — and the app — down.
+  - **Writes are silently disabled.** An unmapped sink key is *not* an error: `Sink.resolve_destination` logs `No destination configured for '<key>'; output for it is disabled.` **once per key** and drops every message for it. This is deliberate — otherwise every app would require the union of all topics. The failure mode is an output topic that stays permanently empty with one warning buried at startup, so map exactly the topics the enabled processors touch (see Outputs) and grep the logs for that warning after bring-up.
+
+  Owned by ELK/infra.
 - **Calibration source** — required for spatial transforms (`transform_frame`, ROIs, tripwires, homography). Supplied as a mounted calibration JSON (`--calibration <path>`) or delivered at runtime via a dynamic-calibration notification (see Inputs). **Optional at startup**: with no file the app uses `CalibrationI` (image-plane, no perspective) and can switch once a calibration arrives. See `dynamic-calibration.md`.
-- **Upstream detector (for the incident / behavior paths)** — an RTVI CV / perception producer (Grounding DINO / RT-DETR, DeepStream) writing frame metadata to the raw topic. Without it the incident/behavior processors have no input. Owned by RT-CV (`skills/deployment/vss-deploy-detection-tracking-2d/`). In the alerts profile the config-bearing key `perception-alerts` is contributed by the `cv-verification` variant in `vss-build-vision-ai/references/patch-alerts.md`.
+- **Upstream detector (for the incident / behavior paths)** — an RTVI CV / perception producer (Grounding DINO / RT-DETR, DeepStream) writing frame metadata to the raw topic. Without it the incident/behavior processors have no input. Owned by RT-CV (`skills/deployment/vss-deploy-detection-tracking-2d/`). In the alerts profile the config-bearing key `perception-alerts` is contributed by the `cv-verification` variant in `vss-build-vision-ai/references/services/alerts.md`.
 
 **Path-specific / downstream (conditional):**
 
-- **Video-embedding producer** — required only when the embedding-downsampling processor runs (search path): it consumes chunked video embeddings from the embed topic. Owned by the video-embedding microservice (`integrate-vss-deploy-video-embedding.md`).
-- **ELK (Elasticsearch / Logstash / Kibana)** — required for the outputs to be queryable/visualized. **Logstash consumes Behavior Analytics' output topics** (`mdx-incidents`, `mdx-frames`, `mdx-behavior`, `mdx-embed-filtered`) via protobuf codecs and indexes them into ES (`mdx-frames-*`, `mdx-behavior-*`, `mdx-incidents-*`, etc.). Not a hard `depends_on` of Behavior Analytics itself, but required for the pipeline to be observable. Owned by ELK (`integrate-elk.md`).
-- **Alert Microservice (`alert-bridge`)** — downstream consumer of `mdx-incidents` / `mdx-alerts` when Behavior Analytics is the candidate-alert source for VLM verification. The `category` field on emitted incidents is the join key into `alert_type_config.json`. Owned by the Alert Microservice (`integrate-alerts.md`).
+- **Video-embedding producer** — required only when the embedding-downsampling processor runs (search path): it consumes chunked video embeddings from the embed topic. Owned by the video-embedding microservice (`skills/deployment/vss-deploy-video-embedding/references/integrate-vss-deploy-video-embedding.md`).
+- **ELK (Elasticsearch / Logstash / Kibana)** — required for the outputs to be queryable/visualized. **Logstash consumes Behavior Analytics' output topics** (`mdx-incidents`, `mdx-frames`, `mdx-behavior`, `mdx-embed-filtered`) via protobuf codecs and indexes them into ES (`mdx-frames-*`, `mdx-behavior-*`, `mdx-incidents-*`, etc.). Not a hard `depends_on` of Behavior Analytics itself, but required for the pipeline to be observable. Owned by ELK (`vss-build-vision-ai/references/services/elk.md`).
+- **Alert Microservice (`alert-bridge`)** — downstream consumer of `mdx-incidents` / `mdx-alerts` when Behavior Analytics is the candidate-alert source for VLM verification. The `category` field on emitted incidents is the join key into `alert_type_config.json`. Owned by the Alert Microservice (`skills/operations/vss-manage-alerts/references/integrate-alerts.md`).
 - **Video Analytics API** — optional headless query surface over the ES indices; does not depend on Behavior Analytics directly. Owned by `skills/deployment/vss-setup-video-analytics-api/`.
 
-> **Where the `component_services:` block lives (decoupling).** Behavior Analytics is owned by the `vss-setup-behavior-analytics` skill, so — per the decoupling convention used by VIOS / RT-VLM / the Alert Microservice — its structured `component_services:` selection (upstream compose keys + the `ba_path` mode/path variant) is **not** carried here. It lives in the orchestrator's own patch reference `vss-build-vision-ai/references/patch-behavior-analytics.md`, which documents **all three** paths (alerts-incident, search-embedding, analytics-2d). This file is the neutral integration contract only.
+> **Orchestrator-side composition (decoupling).** Behavior Analytics is owned by the `vss-setup-behavior-analytics` skill, so how it is *selected and wired into a composed profile* is not carried here. That lives in the orchestrator's own service reference, `vss-build-vision-ai/references/services/behavior-analytics.md` (with the per-profile compose keys in `references/profiles/`). This file is the neutral integration contract only.
 
 ## Integration Interfaces
 
@@ -109,8 +113,8 @@ The base compose is deliberately thin — broker endpoints, topics, and all tuni
 
 ## Known Integration Constraints
 
-- **`extends`, never `include`.** The base `vss-behavior-analytics-base` block is designed to be composed via compose `extends:` (a profile service overrides `command`, `profiles`, `container_name`, and the config volume at the same container path). A standalone/patched deploy must **copy the base compose into the patched tree** so `extends:` resolves (see `patch-alerts.md` Patch 3).
-- **Topic mapping is mandatory per enabled processor.** A processor whose worker count > 0 writes to its sink topic every batch; if that topic isn't in `kafka.topics` the sink raises `Could not find a kafka topic with key: <name>` at boot/first batch. Conversely, disabling a processor (`numWorkersFor*=0`) means you need not map its topics — this is why the alerts config omits `behavior`/`embed*` topics and the search config omits `incidents`/`frames`.
+- **`extends`, never `include`.** The base `vss-behavior-analytics-base` block is designed to be composed via compose `extends:` (a profile service overrides `command`, `profiles`, `container_name`, and the config volume at the same container path). A standalone/patched deploy must **copy the base compose into the patched tree** so `extends:` resolves (see `vss-build-vision-ai/references/services/alerts.md`).
+- **Topic mapping is mandatory per enabled processor — but only reads say so.** A processor whose worker count > 0 reads its source topic and writes its sink topic every batch. An unmapped **source** key raises `Could not find a kafka topic with key: <name>` and kills the app; an unmapped **sink** key only logs `No destination configured for '<key>'` once and drops the output forever. So a missing output topic presents as "the pipeline runs fine but that index never fills", not as a crash. Conversely, disabling a processor (`numWorkersFor*=0`) means you need not map its topics — this is why the alerts config omits `behavior`/`embed*` topics and the search config omits `incidents`/`frames`.
 - **Mode is chosen by worker counts, not app swap.** `SearchAndAlertsApp` runs incident, behavior, and embed processors; deployments pick a mode by zeroing the others. Omitting a `numWorkersFor*` key defaults to `0` for that app (opt-in), so the config must explicitly enable the paths it wants **and** map their topics.
 - **Calibration determines sensor coverage.** With a typed calibration (`cartesian`/`geo`), frames from sensors not in the calibration are handled by the active calibration class; with `CalibrationI` (no file) all frames pass through with image-plane coordinates. Choose the calibration that matches the deployed sensors, or supply one at runtime via `mdx-notification`.
 - **`category` must match `alert_type_config.json` (alerts path).** When Behavior Analytics feeds the Alert Microservice, an incident whose `category` has no `alert_type` entry is never VLM-verified (no prompt). Keep the emitted categories and the verifier config in sync.
@@ -120,7 +124,7 @@ The base compose is deliberately thin — broker endpoints, topics, and all tuni
 
 ## Example Compose Snippet
 
-The base (`deploy/docker/services/analytics/behavior-analytics/compose.yml`) plus the `extends`-based profile override. A standalone deploy patches a copy (never upstream); the `profiles:` placeholder is where Step 6.5 Patch 1 inserts the invented flag.
+The base (`deploy/docker/services/analytics/behavior-analytics/compose.yml`) plus the `extends`-based profile override. A standalone deploy patches a copy (never upstream); the `profiles:` placeholder is where the orchestrator inserts the composed profile's flag.
 
 ```yaml
 # --- base (copied into the patched tree so `extends:` resolves) ---
@@ -142,7 +146,7 @@ services:
       service: vss-behavior-analytics-base
     container_name: vss-behavior-analytics
     profiles:
-      - <your-profile-flag>            # Step 6.5 Patch 1 inserts the invented flag (additive)
+      - <your-profile-flag>            # orchestrator inserts the composed profile's flag (additive)
     volumes:
       - ${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     command: python3 apps/search_and_alerts/main_search_and_alerts_app.py --config /resources/vss-behavior-analytics-config.json
@@ -162,4 +166,5 @@ The frame/behavior/incident protobufs (`nv.Frame` on `mdx-raw`/`mdx-frames`, `nv
   ```
 - **Producing enhanced frames:** `mdx-frames-*` ES index is populated (Logstash indexes the `mdx-frames` topic).
 - **Producing filtered embeddings (search path):** logs show `Video embeddings: received=<a>, final=<b>` and `mdx-embed-filtered` is produced.
-- **No topic-resolution crash:** a clean start with no repeated `Could not find a kafka topic` errors confirms every enabled processor's topics are mapped.
+- **No topic-resolution crash:** a clean start with no `Could not find a kafka topic` error confirms every enabled processor's **source** topics are mapped.
+- **No silently-disabled outputs:** `docker logs <container> | grep 'No destination configured'` must come back empty. Each hit is an output topic the config never mapped, which the app drops without failing — this is the check that catches a sink typo, since nothing else will.
