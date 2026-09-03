@@ -994,6 +994,7 @@ class TraceUrls(unittest.TestCase):
 
     def setUp(self):
         self._orig_env = os.environ.get("BREV_ENV_ID")
+        self._orig_local_gpu = os.environ.pop("SKILL_EVAL_LOCAL_GPU", None)
         os.environ["BREV_ENV_ID"] = "13xh5gpe7"
 
     def tearDown(self):
@@ -1001,6 +1002,10 @@ class TraceUrls(unittest.TestCase):
             os.environ.pop("BREV_ENV_ID", None)
         else:
             os.environ["BREV_ENV_ID"] = self._orig_env
+        if self._orig_local_gpu is None:
+            os.environ.pop("SKILL_EVAL_LOCAL_GPU", None)
+        else:
+            os.environ["SKILL_EVAL_LOCAL_GPU"] = self._orig_local_gpu
 
     def _write_result(self, directory: Path, payload=None) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -1041,6 +1046,12 @@ class TraceUrls(unittest.TestCase):
 
             self.assertIsNone(run_leg.trace_url(result, self.JOB))
             self.assertIsNone(run_leg.trace_url(Path(td) / "missing.json", self.JOB))
+
+    def test_trace_url_none_on_local_gpu_runner(self):
+        os.environ["SKILL_EVAL_LOCAL_GPU"] = "1"
+        with tempfile.TemporaryDirectory() as td:
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            self.assertIsNone(run_leg.trace_url(result, self.JOB))
 
     def test_publish_trace_flattens_into_viewer_and_records_url(self):
         invocation = run_leg.HarborInvocation(

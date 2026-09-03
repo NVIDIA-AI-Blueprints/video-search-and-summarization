@@ -63,9 +63,12 @@ defaults:
     shell: bash
 
 env:
-  # Match the PR workflow: every coordinator-side Python process, including
-  # Harbor's uvx environment, runs on one declared minor version.
+  # Every runner-side Python process, including Harbor's uvx environment,
+  # runs on one declared minor version.
   SKILL_EVAL_PYTHON_VERSION: "3.12"
+  # Prebaked VIOS runtime-media packages (#1798). A repository variable so it
+  # toggles from Settings; unset is not forwarded, so the default stands.
+  VSS_VIOS_PREBAKE_PACKAGES: ${{ vars.VSS_VIOS_PREBAKE_PACKAGES }}
 
 jobs:
   # ---------------------------------------------------------------------
@@ -76,7 +79,7 @@ jobs:
   # ---------------------------------------------------------------------
   resolve_ref:
     name: Resolve eval ref
-    runs-on: [gpu-h200-nvl]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       ref: ${{ github.event_name == 'schedule' && steps.resolve.outputs.ref || github.ref }}
@@ -106,7 +109,7 @@ jobs:
   plan:
     name: Plan eval matrix
     needs: resolve_ref
-    runs-on: [gpu-h200-nvl]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -183,52 +186,25 @@ jobs:
           echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
           echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
 
-      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
-        run: |
-          # OpenShell guests keep keys in $HOME/.eval_env. The coordinator
-          # host uses /home/ubuntu/eval-coordinator/.env, which this runner
-          # user cannot read (Permission denied). Don't echo contents.
-          env_file=""
-          for candidate in \
-            "${HOME}/.eval_env" \
-            "${HOME}/eval-coordinator/.env" \
-            /home/ubuntu/eval-coordinator/.env
-          do
-            if [ -r "$candidate" ]; then
-              env_file="$candidate"
-              break
-            fi
-          done
-          if [ -z "$env_file" ]; then
-            echo "No readable coordinator env for user $(id -un) HOME=${HOME}" >&2
-            for candidate in \
-              "${HOME}/.eval_env" \
-              "${HOME}/eval-coordinator/.env" \
-              /home/ubuntu/eval-coordinator/.env
-            do
-              ls -ld "$candidate" 2>&1 || true
-            done
-            exit 1
-          fi
-          set -a
-          # shellcheck disable=SC1090
-          source "$env_file"
-          set +a
-          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
-          printf "COORDINATOR_ENV_FILE=%s\n" "$env_file" >> "$GITHUB_ENV"
-          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
-
       - name: Run skills eval agent (single spec)
         id: agent
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
-          # Prefer the rotatable repository secret for Anthropic auth. The
-          # coordinator .env remains the source for NGC/Brev and is loaded
-          # below, then this value is restored so it cannot overwrite the
-          # GitHub Actions secret.
-          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Runtime credentials and endpoints come only from Actions. The GPU
+          # runner needs no coordinator-owned .env or Brev authentication.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          LLM_REMOTE_URL: ${{ secrets.LLM_REMOTE_URL }}
+          LLM_REMOTE_MODEL: ${{ secrets.LLM_REMOTE_MODEL }}
+          VLM_REMOTE_URL: ${{ secrets.VLM_REMOTE_URL }}
+          VLM_REMOTE_MODEL: ${{ secrets.VLM_REMOTE_MODEL }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          CLAUDE_CODE_DISABLE_THINKING: "1"
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -240,50 +216,17 @@ jobs:
           BASH_MAX_TIMEOUT_MS: "50400000"
         run: |
           mkdir -p "$GH_CONFIG_DIR"
-          skill_eval_venv_dir="$SKILL_EVAL_VENV"
-          skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
-          set -a
-          # shellcheck disable=SC1090
-          source "${COORDINATOR_ENV_FILE:?}"   # Anthropic / NGC / Brev
-          set +a
-          # Keep the per-leg venv ahead of any operator-provided PATH so the
-          # SDK's Bash children resolve adapters and run_leg.py with 3.12.
-          export SKILL_EVAL_VENV="$skill_eval_venv_dir"
-          export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
-          export VIRTUAL_ENV="$skill_eval_venv_dir"
-          export PATH="$skill_eval_venv_dir/bin:$PATH"
+          export VIRTUAL_ENV="$SKILL_EVAL_VENV"
+          export PATH="$SKILL_EVAL_VENV/bin:$PATH"
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
-          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
-            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
-          fi
-          # Harbor worker is this OpenShell GHA guest, not a Brev vss-eval-*
-          # box. Re-export after the coordinator .env so a leftover
-          # BREV_INSTANCE cannot send trials off-host. RUNNER_NAME is unique
-          # per VM so /tmp/brev/<name>.lock stays on this machine.
+          # Harbor runs on this matrix-selected GPU guest. RUNNER_NAME is
+          # unique per VM, so the local flock serializes legs sharing a host.
           export SKILL_EVAL_LOCAL_GPU=1
           export BREV_INSTANCE="${RUNNER_NAME:-local}"
-          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
-          # processes (reparented to PID 1, never killed) on every
-          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
-          # accumulated 23k agents on the coordinator host and OOM-killed
-          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
-          # at a live agent brev reuses it and spawns none, so give the
-          # whole leg one agent and kill it when the step ends. Runs after
-          # the .env source so nothing can overwrite SSH_AUTH_SOCK /
-          # SSH_AGENT_PID behind the trap's back.
-          eval "$(ssh-agent -s)" > /dev/null
-          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
-          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
-          # Orphaned agents older than the longest leg wallclock on any
-          # host sharing this pool (skills-eval.yml timeout-minutes: 840;
-          # 54000s = 15h) cannot belong to any live leg.
-          ps -eo pid=,ppid=,etimes=,args= \
-            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>54000 {print $1}' \
-            | xargs -r kill 2>/dev/null || true
           # Pin the box-side repo sync to the SHA the runner actually checked
           # out — NOT github.sha. On a scheduled run github.sha is the default
           # branch (main) tip, but the checkout above is the resolved ref; using

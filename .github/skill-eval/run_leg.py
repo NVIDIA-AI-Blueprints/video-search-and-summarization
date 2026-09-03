@@ -1248,7 +1248,11 @@ def _coordinator_env_id() -> str | None:
 
     Never derive this from `brev ls`: that yields a per-trial instance id,
     and the resulting URL points at a subdomain with no viewer behind it.
+    Direct local-GPU runners do not host a persistent viewer, so their Brev
+    environment id must not be used to advertise an unreachable trace URL.
     """
+    if local_gpu_enabled():
+        return None
     env_id = os.environ.get("BREV_ENV_ID", "").strip()
     if env_id:
         return env_id
