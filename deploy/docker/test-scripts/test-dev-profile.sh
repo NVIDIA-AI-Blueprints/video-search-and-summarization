@@ -1107,8 +1107,8 @@ fi
 
 if ! jq -e '
   (.downloads | length) == 2
-  and any(.downloads[]; .artifact == "model" and .model == "nvidia/tao/sparse4d_rn50:deployable_v3.0" and .sourcePath == "sparse4d_warehouse_v3.0_r50.onnx" and .destPath == "sparse4d/sparse4d_warehouse_v3.0.onnx")
-  and any(.downloads[]; .artifact == "anchor" and .model == "nvidia/tao/sparse4d_rn50:deployable_v3.0" and .sourcePath == "_ov_kmeans900_v3.0_r50.npy" and .destPath == "sparse4d/_ov_kmeans900_v3.0_r50.npy")
+  and any(.downloads[]; .artifact == "model" and .model == "nvstaging/tao/sparse4d_rn50:deployable_v3.0" and .org == "nvstaging" and .sourcePath == "sparse4d_warehouse_v3.0_r50.onnx" and .destPath == "sparse4d/sparse4d_warehouse_v3.0.onnx")
+  and any(.downloads[]; .artifact == "anchor" and .model == "nvstaging/tao/sparse4d_rn50:deployable_v3.0" and .org == "nvstaging" and .sourcePath == "_ov_kmeans900_v3.0_r50.npy" and .destPath == "sparse4d/_ov_kmeans900_v3.0_r50.npy")
 ' "${_warehouse_3d_manifest}" >/dev/null; then
   echo "FAIL: warehouse 3D manifest should download Sparse4D model and anchor artifacts to the flattened model root"
   ((_warehouse_model_config_failed++)) || true
@@ -1124,7 +1124,7 @@ if ! jq -e '
 fi
 
 
-if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v2.2.onnx$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml" \
+if ! grep -q '^onnx_file: /opt/storage/sparse4d/sparse4d_warehouse_v3.0.onnx$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml" \
   || ! grep -q '^engine_file: /opt/storage/sparse4d/sparse4d_warehouse_v3.0_b4.engine$' "${_warehouse_root}/warehouse-3d-app/deepstream/configs/config.yaml"; then
   echo "FAIL: warehouse 3D config should use namespaced flattened model and engine paths"
   ((_warehouse_model_config_failed++)) || true
