@@ -51,7 +51,7 @@
 # the SAME TARGETARCH as Jetson, so it cannot be selected by a branch here — it
 # needs its own image. See deploy/docker/container-inventory.json.
 # -----------------------------------------------------------------------------
-ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1plus-triton"
+ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111"
 ARG DS_VERSION=9.1
 
 # =============================================================================
