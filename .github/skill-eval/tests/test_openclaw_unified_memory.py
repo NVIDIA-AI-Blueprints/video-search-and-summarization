@@ -6,12 +6,14 @@ import json
 import shlex
 import subprocess
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from agents.openclaw_unified_memory import (
     AGGREGATE_PREFIX,
     GROUP_PREFIX,
     GROUP_SUFFIX,
     UnifiedMemoryOpenClaw,
+    _aggregate_cleanup_command,
     _aggregate_envelope,
     _group_envelope,
     _openclaw_setup_commands,
@@ -26,8 +28,21 @@ def test_aggregate_envelope_is_verifier_only() -> None:
 
     assert _aggregate_envelope(instruction) == payload
 
+    environment = object()
     agent = object.__new__(UnifiedMemoryOpenClaw)
-    asyncio.run(agent.run(instruction, object(), object()))
+    with patch.object(
+        UnifiedMemoryOpenClaw,
+        "exec_as_agent",
+        new_callable=AsyncMock,
+    ) as execute:
+        asyncio.run(agent.run(instruction, environment, object()))
+
+    execute.assert_awaited_once_with(
+        environment,
+        command=_aggregate_cleanup_command(instruction),
+        env={},
+    )
+    assert "openclaw agent" not in execute.await_args.kwargs["command"]
 
 
 def test_group_envelope_requires_four_turns() -> None:

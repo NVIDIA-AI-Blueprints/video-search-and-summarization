@@ -59,6 +59,17 @@ def _aggregate_envelope(instruction: str) -> dict[str, Any] | None:
     return envelope
 
 
+def _aggregate_cleanup_command(instruction: str) -> str:
+    return (
+        "rm -f /logs/agent/openclaw.txt "
+        "/logs/agent/openclaw-turn-*.txt "
+        "/logs/agent/openclaw.session.jsonl "
+        "/logs/agent/openclaw.upload.json "
+        "/logs/agent/structured_output.py; "
+        f"printf '%s\\n' {shlex.quote(instruction)} > /logs/agent/instruction.txt"
+    )
+
+
 def _prediction_extractor_command(
     case_id: str,
     structured_output_script: str = REMOTE_STRUCTURED_OUTPUT_SCRIPT,
@@ -160,6 +171,11 @@ class UnifiedMemoryOpenClaw(OpenClaw):
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
         if _aggregate_envelope(instruction) is not None:
+            await self.exec_as_agent(
+                environment,
+                command=_aggregate_cleanup_command(instruction),
+                env={},
+            )
             return
         group = _group_envelope(instruction)
         logged_instruction = str(group["turns"][0]["prompt"]) if group else instruction
