@@ -20,3 +20,8 @@ export const MAX_CHUNK_RETRIES = 3;
 // Poll with this backoff until the streams response no longer includes them,
 // or until the budget is exhausted.
 export const DELETED_STREAM_POLL_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
+
+// The mirror case: VST answers the add-sensor call with a sensorId before that
+// sensor appears in its streams listing. Poll with this backoff until the added
+// sensor is listed, or until the budget is exhausted.
+export const ADDED_STREAM_POLL_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
