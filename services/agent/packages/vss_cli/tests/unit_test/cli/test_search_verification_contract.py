@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[7]
 SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
+SEARCH_RUNNER = SEARCH_SKILL / "scripts" / "run_search.sh"
+SEARCH_RUNNER_TEST = REPOSITORY_ROOT / ".github" / "scripts" / "test_search_skill_runner.py"
 ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-ask-video"
 SEARCH_ADAPTER = REPOSITORY_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
 
@@ -44,6 +47,7 @@ def _check_matching(checks: list[str], needle: str) -> str:
 
 def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None:
     main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    runner = SEARCH_RUNNER.read_text(encoding="utf-8")
     verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
     cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
     normalized_main = " ".join(main.split())
@@ -52,7 +56,8 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert len(main.splitlines()) < 500
     assert 'version: "3.3.0"' in main
     assert "The CLI attempts critic verification by default" in main
-    assert 'VSS_ORIGIN=$("${VSS[@]}" configure show' in main
+    assert "bash ./skills/vss-search-archive/scripts/run_search.sh" in main
+    assert 'VSS_ORIGIN=$("${vss[@]}" configure show' in runner
     assert "Do not repeat public-origin selection" in main
     assert "Would you like me to verify the unverified search results?" in main
     assert "only when every displayed result is" in normalized_main
@@ -66,23 +71,19 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
 
 
 def test_search_skill_preserves_body_and_validates_completion_marker() -> None:
-    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
-    blocks = [block for block in re.findall(r"```bash\n(.*?)```", main, flags=re.DOTALL) if "SEARCH_STREAM=" in block]
-    assert len(blocks) == 1
-    script = f"""set -euo pipefail
-vss_stub() {{
-  printf '%s\n' '{{"data":[],"search_messages":[],"job_id":"search-01","persisted":false,"record":"absent"}}'
-  printf '%s\n' '{{"event":"vss_job_completed","group":"search","job_id":"search-01","asset_id":null,"status":"completed","persisted":false,"exit_hint":0}}'
-}}
-VSS=(vss_stub)
-SEARCH_PATH=embed
-SOURCE_TYPE=video_file
-SOURCE_SCOPED=false
-{blocks[0]}
-test "${{SEARCH_JSON}}" = '{{"data":[],"search_messages":[],"job_id":"search-01","persisted":false,"record":"absent"}}'
-test "${{SEARCH_JOB_ID}}" = search-01
-"""
-    subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+    """Exercise the extracted runner instead of duplicating its implementation.
+
+    The runner suite covers the validated body/marker pair, UI artifact envelope,
+    source-scope fail-closed behavior, malformed output, and common harness
+    argument variants.
+    """
+    subprocess.run(
+        [sys.executable, str(SEARCH_RUNNER_TEST)],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPOSITORY_ROOT,
+    )
 
 
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
