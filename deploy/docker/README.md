@@ -585,13 +585,41 @@ third-party callers.
 ### Elasticsearch through the gateway
 
 `/elasticsearch` is a **narrow** mount, not a general-purpose ES proxy. The
-frontend allows `GET`/`HEAD`/`POST`/`OPTIONS`, answers `403` on
-`_cluster`/`_nodes`/`_snapshot`/`_security`/`_settings`/`_shutdown`/`_license`
-and on `<index>/_bulk`, `_update`, `_delete_by_query`, `_forcemerge`, `_close`
-and `_open`, and permits exactly one `PUT` — `vss-memory[-suffix]/_doc/<id>`,
-for unified memory. That is the query surface the agent and the `vss` CLI need,
-and widening it would turn an ingress-exposed route into unauthenticated cluster
-administration.
+frontend carries an **allowlist** of `(method, path)` pairs and denies
+everything else — `403` when the verb is one the route serves but the operation
+is not listed, `405` for a verb the route never serves. What is allowed:
+
+| Method | Paths |
+|---|---|
+| `GET`, `HEAD` | `/`, `_cat/*`, `_cluster/health`, `<index>`, `<index>/_mapping`, `_settings`, `_alias`, `_doc/<id>`, `_source/<id>` |
+| `GET`, `HEAD`, `POST` | `_search`, `_msearch`, `_count`, `_mget`, `_field_caps` — cluster-wide and per-index — plus per-index `_validate/query`, `_terms_enum`, `_explain/<id>`, `_termvectors/<id>` |
+| `PUT` | `vss-memory[-suffix]/_doc/<id>` and nothing else, for unified memory |
+| `OPTIONS` | any path on the mount (Elasticsearch answers preflight with no data) |
+
+`POST` is served **only** because the query endpoints put their query in the
+request body: `POST /<index>/_search` and `POST /_msearch` are how every real
+caller searches, and a blanket `POST` denial would break search outright. It is
+not a general write grant — `_bulk`, `_reindex`, `_scripts/<id>`,
+`<index>/_doc`, `_aliases`, `_clone`/`_split`/`_shrink`/`_rollover` and
+`_tasks/<id>/_cancel` are all denied.
+
+An allowlist rather than a denylist of dangerous endpoints, because a denylist
+cannot be finished. The revision this replaced named `_bulk`, `_update`,
+`_close` and the cluster-admin prefixes, and left `POST` open everywhere else;
+measured against a live 9.4.4 deployment that still reached Elasticsearch on
+`_reindex`, `_scripts/<id>`, `_aliases` (whose `remove_index` action deletes an
+index) and `<index>/_doc`. Elasticsearch here runs with
+`xpack.security.enabled: false`, so anything this route forwards executes
+unauthenticated, and every ES release adds endpoints the denylist would not have
+heard of. Adding a query endpoint is one line; missing a destructive one was
+silent.
+
+> **The gateway is not the only path to Elasticsearch.** `services/infra/compose.yml`
+> also publishes the cluster itself on `${ELASTICSEARCH_HOST_PORT:-9200}` with no
+> bind address, so on a host reachable from a network, port 9200 answers
+> unauthenticated regardless of this ACL. Set `ELASTICSEARCH_HOST_BIND=127.0.0.1`
+> (the default) and reach the cluster through `/elasticsearch`; publish it wider
+> only deliberately.
 
 So which ES clients ride the gateway is decided by that ACL, not by preference:
 

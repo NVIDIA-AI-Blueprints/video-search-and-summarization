@@ -294,39 +294,100 @@ frontend fe_http
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
 
-    # Elasticsearch, method- and path-restricted at the edge. The CLI needs
-    # query access to resolve searches through one origin; it does not need to
-    # administer the cluster, and exposing that through a public ingress would
-    # be a far larger grant than the use case requires.
+    # Elasticsearch, restricted at the edge to an ALLOWLIST of (method, path)
+    # pairs. The CLI and the agent need query access to resolve searches
+    # through one origin; they do not need to administer the cluster or write
+    # documents, and Elasticsearch runs with `xpack.security.enabled: false`
+    # (services/infra/elk/elasticsearch/configs/elasticsearch.yml), so
+    # whatever this route forwards is executed unauthenticated. That makes this
+    # block the only authorisation control in front of the cluster, which is
+    # why it is written to fail closed.
     #
-    # Not read-only: the rules below stop PUT/DELETE, cluster-admin paths and
-    # the two-segment mutating operations, but POST is allowed, so
-    # POST /_bulk, /_reindex, /_scripts/<id> and /<index>/_doc still reach ES.
-    # Closing that means deny-by-default with an allowlist of the handful of
-    # operations the CLI uses, not another entry on the denylist.
+    # This replaces a denylist that named `_bulk`, `_update`, `_close` and the
+    # cluster-admin prefixes. A denylist could not be finished: measured
+    # against a live 9.4.4 deployment, POST also reached Elasticsearch on
+    # `_reindex`, `_scripts/<id>` (stored Painless), `_aliases` (whose
+    # `remove_index` action deletes an index), `_clone`, `_split`, `_shrink`,
+    # `_rollover`, `<index>/_mapping`, `<index>/_doc`, `<index>/_create/<id>`
+    # and `_tasks/<id>/_cancel` -- none of which it named, and every ES
+    # release adds more. An allowlist inverts the failure: a new endpoint is
+    # denied until someone names it, and a percent-encoded spelling
+    # (`%5Fbulk`, `%5Fcluster`) no longer slips past a pattern into the
+    # backend, because it does not match an allowed shape either.
     acl p_elasticsearch path /elasticsearch
     acl p_elasticsearch path_beg /elasticsearch/
-    acl es_read_method method GET HEAD POST OPTIONS
-    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
-    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
 
-    # Unified memory persists a job as PUT /<index>/_doc/<job_id>, which the
-    # read-only method rule answers 405. Scoped to the unified-memory index
-    # itself -- `vss-memory`, plus a statically configured suffixed variant such
-    # as `vss-memory-dev` -- rather than to the `vss-` prefix, so the exception
-    # does not widen on its own if other indices are renamed into that prefix
-    # later (FR-30). Every other index stays read-only whatever it is called,
-    # which is what the earlier `vss-*` pattern rested on assuming.
+    # GET and HEAD are grouped: every shape below is a read, and HEAD on a
+    # read is the same read without a body. POST joins them only for the query
+    # endpoints, which are reads that carry their query in the request body --
+    # that, and nothing else, is why POST is served here at all.
+    acl es_m_read method GET HEAD
+    acl es_m_query method GET HEAD POST
+    acl es_m_put method PUT
+    acl es_m_options method OPTIONS
+    acl es_m_known method GET HEAD POST PUT OPTIONS
+
+    # `/+` after the mount tolerates a client that joins its base URL and path
+    # with a spare slash; every shape is `$`-anchored so a longer path cannot
+    # ride in on a prefix match. `path` excludes the query string, so
+    # `?refresh=wait_for` and `?h=index&format=json` do not affect a match.
     #
-    # Two denies rather than `http-request allow`: allow also skips the
-    # backend's replace-path rules, so the request would reach Elasticsearch
-    # with the /elasticsearch prefix still on it.
-    acl es_memory_write method PUT
-    acl es_memory_doc_path path_reg ^/elasticsearch/vss-memory(-[^/]+)?/_doc/[^/]+$
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
-    http-request deny status 403 if h_main p_elasticsearch es_admin_path
-    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    # An index-expression segment is spelled out rather than left as `[^/]+`:
+    # Elasticsearch index names are lowercase and cannot contain `/`, `%`, or
+    # uppercase, so this admits the real shapes -- `mdx-raw-*`, `mdx-a,mdx-b`,
+    # `.internal.alerts-*`, `_all`, `vss-memory` -- while refusing a segment
+    # carrying percent-encoding. Document-id segments stay `[^/]+`: a memory
+    # `_id` is `<job_id>#<record_type>#<record_id>` and arrives as `%23`, and
+    # an id is terminal, so nothing can follow it.
+
+    # Cluster banner (elasticsearch-py issues GET / as its product check before
+    # any other call, so this is load-bearing for every Python caller); the
+    # whole read-only `_cat` family, which is what `vss configure` probes and
+    # describes with GET /_cat/indices?h=index&format=json; cluster health,
+    # which is the knowledge layer's es_caption health check; per-index
+    # metadata and single-document reads; and an index existence check.
+    acl es_read_shape path_reg ^/elasticsearch/*$
+    acl es_read_shape path_reg ^/elasticsearch/+_cat(/|$)
+    acl es_read_shape path_reg ^/elasticsearch/+_cluster/health/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_mapping|_settings|_alias|_doc/[^/]+|_source/[^/]+)/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/*$
+
+    # Query endpoints, cluster-wide and per-index. Deliberately absent, because
+    # nothing in this repository calls them and each one grants more than a
+    # read: `_search/scroll`, `_pit` and `_async_search` allocate server-side
+    # state that only DELETE releases; `_search_template`, `_msearch/template`
+    # and `_render/template` execute stored scripts; `_sql` and `_query` open a
+    # second query language. Add one here when a caller needs it.
+    acl es_query_shape path_reg ^/elasticsearch/+(_search|_msearch|_count|_mget|_field_caps)/*$
+    acl es_query_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_search|_msearch|_count|_mget|_field_caps|_validate/query|_terms_enum|_explain/[^/]+|_termvectors/[^/]+)/*$
+
+    # The one write. Unified memory persists a job as
+    # PUT /<index>/_doc/<job_id> (vss_core/memory/backends/elasticsearch.py).
+    # Scoped to the unified-memory index itself -- `vss-memory`, plus a
+    # statically configured suffixed variant such as `vss-memory-dev` --
+    # rather than to the `vss-` prefix, so the exception does not widen on its
+    # own if other indices are renamed into that prefix later (FR-30).
+    acl es_memory_doc_path path_reg ^/elasticsearch/+vss-memory(-[a-z0-9._-]+)?/_doc/[^/]+$
+
+    # A transaction variable rather than `http-request allow`: allow also skips
+    # the backend's replace-path rules, so the request would reach
+    # Elasticsearch with the /elasticsearch prefix still on it. It also keeps
+    # the decision independent of rule order -- every set-var runs before the
+    # denies below, whatever HAProxy warns about placement relative to
+    # use_backend.
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_options
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_read es_read_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_query es_query_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_put es_memory_doc_path
+
+    # 405 where the verb is wrong for this mount at all, and for every PUT
+    # outside the memory exception, so the status a client sees is unchanged
+    # from the denylist it replaces. 403 for everything else: the verb is one
+    # this route serves, but the operation is not on the allowlist.
+    acl es_allowed var(txn.es_ok) -m found
+    http-request deny status 405 if h_main p_elasticsearch !es_m_known
+    http-request deny status 405 if h_main p_elasticsearch es_m_put !es_memory_doc_path
+    http-request deny status 403 if h_main p_elasticsearch !es_allowed
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
 
     # RT-Embed, mounted at the service name so it matches its sibling

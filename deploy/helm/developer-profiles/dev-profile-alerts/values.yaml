@@ -540,11 +540,11 @@ vssIngress:
   vaMcpPort: 9901
   # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
   # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),
-  # not here, so it binds to that one backend. It denies PUT/DELETE,
-  # cluster-admin paths and the two-segment mutating operations, and allows a
-  # PUT to a unified-memory document path — but POST is allowed, so _bulk,
-  # _reindex and /<index>/_doc still reach Elasticsearch, exactly as on the
-  # Docker edge. This is not a read-only endpoint.
+  # not here, so it binds to that one backend. It is an allowlist: queries
+  # (_search, _msearch, _count, _mget, _field_caps), index metadata, _cat/*,
+  # _cluster/health, and one PUT to a unified-memory document path. Everything
+  # else is denied — _bulk, _reindex, _scripts/<id> and /<index>/_doc included
+  # — exactly as on the Docker edge.
   elasticsearchPort: 9200
   # RT-CV's Service port in this profile is service.port (9010), not the
   # httpPort (9000) the search profile publishes — rtvi-cv switches on

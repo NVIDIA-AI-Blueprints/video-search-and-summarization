@@ -101,7 +101,7 @@ a separate origin (see the CORS row in [Troubleshooting](#troubleshooting)):
 | 30888 | VST / VIOS | `/vios` (and the legacy `/vst`) |
 | 5601 | Kibana | `/kibana` |
 | 6006 | Phoenix tracing | `/phoenix` |
-| 9200 | Elasticsearch | `/elasticsearch` (query-only; cluster admin is denied at the edge) |
+| 9200 | Elasticsearch | `/elasticsearch` (allowlisted read operations plus the one `vss-memory*` write; writes and cluster admin are denied at the edge) |
 
 `31000` (nvstreamer) is the exception: HAProxy has no backend for it, so a
 profile that needs the nvstreamer UI still needs its own secure link.

@@ -50,7 +50,7 @@ deploys, the routes each consumer of the origin needs:
 | Consumer of the origin | Routes to retain (for deployed backends) |
 |---|---|
 | Human **browse** | `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only) `/alert-bridge` |
-| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
+| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (allowlist guard — copy verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
 
 The operate set is the read-path subset of what `vss configure` probes to resolve
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
@@ -218,24 +218,40 @@ frontend fe_http
     use_backend bk_vst_ingress if h_main p_vst
 
     # --- Operate route-set (`vss configure`) — keep for the deployed backends ---
-    # Elasticsearch is read-only at the edge apart from the unified-memory write:
-    # COPY the guard block below (method-deny + memory-write exception + admin/
-    # mutating-deny) VERBATIM from haproxy.cfg.template — it is security-bearing,
-    # like the storage-preflight and h_main blocks.
+    # Elasticsearch is served through an ALLOWLIST of (method, path) pairs:
+    # queries, index metadata, `_cat`, cluster health, and one write for
+    # unified memory. Everything else is denied, including POST /_bulk,
+    # /_reindex and /_scripts/<id>. COPY the guard block below VERBATIM from
+    # haproxy.cfg.template — it is security-bearing, like the storage-preflight
+    # and h_main blocks, and it is the only authorisation control in front of a
+    # cluster that runs with security disabled. Do not "simplify" it into a
+    # denylist of dangerous endpoints; that is what it replaced.
     acl p_elasticsearch path /elasticsearch
     acl p_elasticsearch path_beg /elasticsearch/
-    acl es_read_method method GET HEAD POST OPTIONS
-    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
-    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
-    # Unified memory persists a job as PUT /vss-memory/_doc/<job_id>, which the
-    # read-only method rule would answer 405. Two denies rather than an allow:
-    # allow also skips the backend's replace-path rules.
-    acl es_memory_write method PUT
-    acl es_memory_doc_path path_reg ^/elasticsearch/vss-memory(-[^/]+)?/_doc/[^/]+$
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
-    http-request deny status 403 if h_main p_elasticsearch es_admin_path
-    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    acl es_m_read method GET HEAD
+    acl es_m_query method GET HEAD POST
+    acl es_m_put method PUT
+    acl es_m_options method OPTIONS
+    acl es_m_known method GET HEAD POST PUT OPTIONS
+    acl es_read_shape path_reg ^/elasticsearch/*$
+    acl es_read_shape path_reg ^/elasticsearch/+_cat(/|$)
+    acl es_read_shape path_reg ^/elasticsearch/+_cluster/health/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_mapping|_settings|_alias|_doc/[^/]+|_source/[^/]+)/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/*$
+    acl es_query_shape path_reg ^/elasticsearch/+(_search|_msearch|_count|_mget|_field_caps)/*$
+    acl es_query_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_search|_msearch|_count|_mget|_field_caps|_validate/query|_terms_enum|_explain/[^/]+|_termvectors/[^/]+)/*$
+    # Unified memory persists a job as PUT /vss-memory/_doc/<job_id>. A set-var
+    # plus one deny rather than `http-request allow`: allow also skips the
+    # backend's replace-path rules.
+    acl es_memory_doc_path path_reg ^/elasticsearch/+vss-memory(-[a-z0-9._-]+)?/_doc/[^/]+$
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_options
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_read es_read_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_query es_query_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_put es_memory_doc_path
+    acl es_allowed var(txn.es_ok) -m found
+    http-request deny status 405 if h_main p_elasticsearch !es_m_known
+    http-request deny status 405 if h_main p_elasticsearch es_m_put !es_memory_doc_path
+    http-request deny status 403 if h_main p_elasticsearch !es_allowed
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
 
     acl p_rtvi_embed path /rtvi-embed
