@@ -3,7 +3,7 @@ name: benchmark-vlm-qa
 description: Benchmark video Q&A accuracy and latency of a deployed RT-VLM (Cosmos Reason 3) via vss vlm run, using questions and videos from the DSS vss-devx-base dataset. Replaces the deprecated nat eval / vss-agent QA path. Not for tool-calling or trajectory evaluation, and not for LVS summarization throughput.
 license: Apache-2.0
 metadata:
-  version: "1.0.0"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint performance benchmarking vlm qa"
