@@ -222,9 +222,12 @@ still `unverified`. Preserve their exact bounded intervals and the complete
 original visual intent. Keep at most three delegations in flight. Never hand
 off a partially verified result set.
 
-9. If `.data` is empty, report zero candidates faithfully. Do not claim that
-the object is absent; offer a specific query or similarity-threshold refinement
-while preserving the source. Never broaden the search silently.
+9. If `.data` is empty, report zero candidates faithfully — a fact about
+retrieval, not about the video. Do not claim the object is absent, describe
+what the footage contains, or argue it is not something you would expect
+there: a threshold or embedding gap yields the same empty result as a genuine
+absence. Offer a specific query or similarity-threshold refinement while
+preserving the source. Never broaden the search silently.
 
 ## Natural-language Agent responses
 

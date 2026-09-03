@@ -68,6 +68,23 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert "VERIFY_PIXELS" not in main
 
 
+def test_zero_candidates_may_not_be_reported_as_absence() -> None:
+    """An empty result set is a fact about retrieval, not about the recording.
+
+    Forbidding only the conclusion left the two routes to it open, and an agent
+    took both: it described what the footage contained and argued the object was
+    not one you would expect to find there. Name them, and say why the inference
+    does not hold.
+    """
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    normalized = " ".join(main.split())
+
+    assert "a fact about retrieval, not about the video" in normalized
+    assert "describe what the footage contains" in normalized
+    assert "argue it is not something you would expect there" in normalized
+    assert "a threshold or embedding gap yields the same empty result as a genuine absence" in normalized
+
+
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
     """The recipe maps the synthetic interval and mints the clip through the CLI.
 
