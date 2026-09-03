@@ -187,6 +187,7 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "gpu-h200",
     "gpu-nvidia-h200",
     "openshell-h200-active",
+    "openshell-h200nvl-active",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
