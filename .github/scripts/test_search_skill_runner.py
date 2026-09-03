@@ -110,6 +110,36 @@ sys.exit(91)
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_accepts_mode_without_separator(self) -> None:
+        self.set_valid_search_output()
+
+        result = self.run_runner(
+            "--source-scoped",
+            "true",
+            "embed",
+            "--video-source",
+            "sensor-1",
+            "--query",
+            "person",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_normalizes_double_dash_mode(self) -> None:
+        self.set_valid_search_output()
+
+        result = self.run_runner(
+            "--source-scoped",
+            "true",
+            "--embed",
+            "--video-source",
+            "sensor-1",
+            "--query",
+            "person",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_emits_validated_cli_pair_and_ui_artifact(self) -> None:
         search_json, marker = self.set_valid_search_output()
 

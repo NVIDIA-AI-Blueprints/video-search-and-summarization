@@ -33,9 +33,11 @@ capabilities that its existing agent needs:
 Capability attachment must preserve the agent the operator brought: do not
 replace its persona, canonical workspace documents, memory, provider, model, or
 conversation history. This is the external-harness equivalent of granting the
-built-in VSS Agent its tools; it is not a new agent identity and is not a prompt
-prepended to each turn. An operator may separately choose the repository's VSS
-persona overlay when creating a new, dedicated VSS assistant.
+built-in VSS Agent its tools; it is not a new agent identity or replacement
+persona prompt. A connector may supply only the non-persona transport or skill-
+location contract needed to use those capabilities. An operator may separately
+choose the repository's VSS persona overlay when creating a new, dedicated VSS
+assistant.
 
 For an existing NemoClaw-managed OpenClaw or Hermes agent, use the additive
 installer directly. For a new dedicated assistant, run
@@ -74,7 +76,10 @@ installed skill. Attachment also supplies the receipt, repository, and VSS
 origin as explicit non-secret runtime environment values. Bash-based recipes
 declare their shell requirement inside each installed skill; OpenClaw rejects
 `SHELL` as a config-controlled environment variable, so attachment does not
-pretend that setting it can change the exec runtime.
+pretend that setting it can change the exec runtime. On capability-ready
+OpenClaw runs, the gateway also identifies VSS skills as workspace skills and
+forbids guessing a bundled `node_modules` path; it does not add a persona or
+choose a skill for the agent.
 `deploy_nemoclaw.ipynb` applies the base runtime setup for a dedicated agent
 and intentionally installs the optional VSS persona; the attachment pass still
 records the planned origin, probes the harness API, and emits

@@ -6,7 +6,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: run_search.sh --source-scoped <true|false> -- <embed|attribute|fusion|object> [search options]
+Usage: run_search.sh --source-scoped <true|false> [--] <embed|attribute|fusion|object> [search options]
        run_search.sh --list-sources
 EOF
   exit 2
@@ -22,11 +22,19 @@ else
   source_scoped=${2:-}
   [[ $source_scoped == true || $source_scoped == false ]] || usage
   shift 2
-  [[ ${1:-} == -- ]] || usage
-  shift
+  if [[ ${1:-} == -- ]]; then
+    shift
+  fi
   [[ $# -gt 0 ]] || usage
 
-  search_args=("$@")
+  search_mode=$1
+  case $search_mode in
+    embed|attribute|fusion|object) ;;
+    --embed|--attribute|--fusion|--object) search_mode=${search_mode#--} ;;
+    *) usage ;;
+  esac
+  shift
+  search_args=("$search_mode" "$@")
   source_count=0
   for ((index = 0; index < ${#search_args[@]}; index++)); do
     argument=${search_args[$index]}
