@@ -92,7 +92,7 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 
 These are **predefined developer profiles** — the skill keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (Stock mode, Step 5 exact match) and follows the shared build lifecycle (Steps 5–9). For Alerts, set the profile `MODE` per Q2a-mode.
 
-**All four then reach [Q3](#harness-selection--q3), which removes `vss-agent` on either answer and makes the build a Delta.** The quickstart is still the fast path — one removal, no added keys — but say so when it happens rather than reporting a stock deploy. On `lvs` and `search`, a **no** is worth a sentence of its own: the Web UI reaches summarization and text search only through the agent, so with no harness those capabilities are `vss summarize` and `vss search` from the host, with the UI left as a dashboard.
+**All four then reach [Q3](#harness-selection--q3), which removes `vss-agent` on either answer and makes the build a Delta.** The quickstart is still the fast path — one removal, no added keys — but report it as a delta in the Step 6 diagram and the final summary rather than calling it a stock deploy. Keep it out of the Q3 question itself, per **Keep the question about the harness**. On `lvs` and `search`, a **no** is worth a sentence of its own: the Web UI reaches summarization and text search only through the agent, so with no harness those capabilities are `vss summarize` and `vss search` from the host, with the UI left as a dashboard.
 
 **Customize a pre-built workflow → Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** and computing a **capability delta** on top of it (the profile itself is never modified — it is only the baseline). The stock build becomes a **Delta build**: the same `_builds/<name>/` machinery now carries the added/removed profile keys and any changed knobs.
 
@@ -179,6 +179,8 @@ Applies to **every** entry mode — quickstart, warehouse, and custom build alik
 | **no** | none | No harness at all. Drive the build with the `vss` CLI from the host. |
 
 **Keep it a binary.** Do not present a menu of harnesses or ask which one to use — the only question is whether to deploy NemoClaw. **Yes is the default answer**: take it when the user defers or picks nothing. Still *ask*, because either answer changes the service set.
+
+**Keep the question about the harness.** Word the prompt and both option labels around what the user ends up with — a sandbox chat surface, or the `vss` CLI on the host. Keep `vss-agent`, service keys, and the Stock/Delta vocabulary out of both: that is the skill's own bookkeeping, not a trade-off the user is being asked to weigh, and attaching it to the question makes a routine choice read as a warning. The removal and what it costs belong in the Step 6 architecture diagram and the final summary, where the answer is already known.
 
 **`vss-agent` is removed on both answers.** The in-stack agent is deployed only when the request names it — "the chat agent", "the Web UI", "the agent REST API" — and such a request skips Q3 entirely, as one that names any harness does. Honour it when it comes; never steer it to NemoClaw.
 
