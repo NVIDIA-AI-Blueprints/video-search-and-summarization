@@ -1084,7 +1084,7 @@ commander,5.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package
 commander,6.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,8.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,9.5.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-common,*,UNKNOWN,services/ui,node,manifest,services/ui/apps/nemo-agent-toolkit-ui/package.json;services/ui/apps/nv-metropolis-bp-vss-ui/package.json;services/ui/packages/nemo-agent-toolkit-ui/package.json,runtime,no,no,no,declared-manifest,Unknown
+common,*,UNKNOWN,services/ui,node,manifest,services/ui/apps/nemo-agent-toolkit-ui/package.json;services/ui/apps/nv-metropolis-bp-vss-ui/package.json;services/ui/packages/nemo-agent-toolkit-ui/package.json;services/ui/packages/nv-metropolis-bp-vss-ui/alerts/package.json;services/ui/packages/nv-metropolis-bp-vss-ui/search/package.json,runtime,no,no,no,declared-manifest,Unknown
 commondir,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 commondir,1.0.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 compare-version,0.1.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1144,6 +1144,7 @@ cryptography,48.0.0,Apache-2.0 OR BSD-3-Clause,services/sdrc,python,lockfile,ser
 cryptography,50.0.0,Apache-2.0 OR BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 cryptography,50.0.0,Apache-2.0 OR BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 cryptography,50.0.0,Apache-2.0 OR BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
+cryptography,50.0.1,UNKNOWN,services/agent-gateway,python,manifest,services/agent-gateway/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 css-tree,3.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 css.escape,1.5.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 cssesc,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3074,6 +3075,7 @@ pytest-xdist,3.8.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_test
 python,3.12-slim,UNKNOWN,services/vios,container,container,services/vios/test/bdd_tests/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-bookworm,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+python,3.13-slim,UNKNOWN,services/agent-gateway,container,container,services/agent-gateway/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-slim,UNKNOWN,services/alert,container,container,services/alert/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-trixie,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-trixie,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -3846,8 +3848,10 @@ webidl-conversions,7.0.0,BSD-2-Clause,services/ui,node,lockfile,services/ui/pack
 webidl-conversions,8.0.1,BSD-2-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 webrtc-adapter,9.0.3,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 webrtc-issue-detector,1.16.3,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
+websocket,UNKNOWN,UNKNOWN,services/agent-gateway,python,usage,services/agent-gateway/vss_agent_gateway/connectors/openclaw_ws.py,runtime,no,no,no,imported-only,Unknown
 websocket-client,1.9.0,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 websocket-client,1.9.0,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
+websocket-client,1.9.2,UNKNOWN,services/agent-gateway,python,manifest,services/agent-gateway/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 websockets,12.0,BSD License,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 websockets,15.0.1,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 websockets,17.0.1,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
