@@ -41,8 +41,10 @@ CHAT_UI_URL="https://18789-${BREV_ENV_ID}.<brev-link-domain>" \
 nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
 
 # 4. Install VSS skills (one validated SKILL.md directory at a time)
-for skill in "$REPO"/skills/*/ ; do
-  [ -f "$skill/SKILL.md" ] && nemoclaw "$SB" skill install "$skill"
+# `skills/*/` is one level deep and only matches `skills/vss-build-vision-ai/SKILL.md`; the
+# other 18 live at `skills/<category>/<skill>/SKILL.md`. Use find so all 19 install.
+find "$REPO/skills" -name SKILL.md -printf '%h\n' | sort -u | while read -r skill; do
+  nemoclaw "$SB" skill install "$skill"
 done
 
 # 5. Push workspace bootstrap docs (base, then the _nemoclaw overlay)

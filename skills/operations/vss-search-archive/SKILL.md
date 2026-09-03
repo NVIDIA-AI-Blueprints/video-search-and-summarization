@@ -63,8 +63,14 @@ Resolve the deployment through its one public/host origin:
 if [ -z "${VSS_ORIGIN:-}" ]; then
   VSS_ORIGIN=$("${VSS[@]}" configure show 2>/dev/null |
     jq -er '.base_url | select(type == "string" and length > 0)') || {
-      echo "Provide the Compose or Ingress origin" >&2
-      exit 1
+      if curl -sf --max-time 2 \
+          "http://host.openshell.internal:7777/vst/api/v1/sensor/version" \
+          >/dev/null 2>&1; then
+        VSS_ORIGIN="http://host.openshell.internal:7777"
+      else
+        echo "Provide the Compose or Ingress origin via VSS_ORIGIN" >&2
+        exit 1
+      fi
     }
 fi
 VSS_ORIGIN="${VSS_ORIGIN%/}"
