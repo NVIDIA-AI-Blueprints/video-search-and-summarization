@@ -1,19 +1,33 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import json
-from pathlib import Path
 import shlex
 import subprocess
+from pathlib import Path
 
-from benchmark import structured_output
 from agents.openclaw_unified_memory import (
+    AGGREGATE_PREFIX,
     GROUP_PREFIX,
     GROUP_SUFFIX,
+    UnifiedMemoryOpenClaw,
+    _aggregate_envelope,
     _group_envelope,
     _openclaw_setup_commands,
     _prediction_extractor_command,
 )
+from benchmark import structured_output
+
+
+def test_aggregate_envelope_is_verifier_only() -> None:
+    payload = {"kind": "unified-memory-aggregate"}
+    instruction = f"preamble\n{AGGREGATE_PREFIX}{json.dumps(payload)}{GROUP_SUFFIX}\n"
+
+    assert _aggregate_envelope(instruction) == payload
+
+    agent = object.__new__(UnifiedMemoryOpenClaw)
+    asyncio.run(agent.run(instruction, object(), object()))
 
 
 def test_group_envelope_requires_four_turns() -> None:

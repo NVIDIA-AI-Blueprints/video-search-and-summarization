@@ -141,6 +141,20 @@ def test_the_declared_step_list_comes_from_the_spec(tmp_path: Path) -> None:
         raise AssertionError("a named-but-missing spec must raise")
 
 
+def test_dataset_spec_declares_a_final_aggregate_step() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    spec = (
+        repo_root
+        / "skills/benchmarking/benchmark-unified-memory/evals"
+        / "physical_ai_video_mme_v2.json"
+    )
+
+    steps = leg_report.spec_steps(spec)
+
+    assert steps[-1] == "Aggregate VideoMME-v2 benchmark score"
+    assert steps[-2] == "VideoMME-v2 group sample-sim-jaywalking"
+
+
 # --- fail-closed rendering ---------------------------------------------------
 
 def test_a_timed_out_trial_is_never_green_even_at_reward_one(tmp_path: Path) -> None:

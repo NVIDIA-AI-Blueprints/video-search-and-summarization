@@ -15,6 +15,7 @@ SKILL_EVAL_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SKILL_EVAL_ROOT))
 
 from benchmark.domain import (  # noqa: E402
+    AggregateEvaluationSpec,
     BenchmarkGroup,
     CaseAnswer,
     GroupEvaluationSpec,
@@ -128,6 +129,11 @@ def _group_instruction(group: BenchmarkGroup) -> str:
     return f"{PREAMBLE}\n\n<!-- unified-memory-group\n{json.dumps(envelope)}\n-->\n"
 
 
+def _aggregate_instruction() -> str:
+    envelope = {"kind": "unified-memory-aggregate"}
+    return f"{PREAMBLE}\n\n<!-- unified-memory-aggregate\n{json.dumps(envelope)}\n-->\n"
+
+
 def _resolve_input(skill_dir: Path, relative: str) -> Path:
     if Path(relative).is_absolute():
         raise ValueError(f"benchmark input path must be relative: {relative}")
@@ -159,7 +165,7 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
     platform_dir = output_root / "benchmark" / PLATFORMS[platform]["short_name"]
     if platform_dir.exists():
         shutil.rmtree(platform_dir)
-    total_steps = len(spec.setup) + len(dataset.groups)
+    total_steps = len(spec.setup) + len(dataset.groups) + 1
     setup_spec = {
         "expects": [{"query": step.query, "checks": list(step.checks)} for step in spec.setup]
     }
@@ -219,9 +225,6 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
                 )
                 for case in group.cases
             ),
-            minimum=spec.scoring.minimum,
-            final_group=offset == len(dataset.groups),
-            expected_group_ids=tuple(item.group_id for item in dataset.groups),
         )
         (tests / "group.json").write_text(
             group_spec.model_dump_json(indent=2) + "\n",
@@ -236,6 +239,41 @@ def generate(spec_path: Path, skill_dir: Path, output_root: Path, platform: str)
             '--group "$TEST_DIR/group.json"\n',
             encoding="utf-8",
         )
+
+    step_dir = platform_dir / f"step-{total_steps}"
+    _base_step(step_dir, (), repo_root)
+    (step_dir / "instruction.md").write_text(
+        _aggregate_instruction(), encoding="utf-8"
+    )
+    (step_dir / "task.toml").write_text(
+        _task_toml(
+            name=f"benchmark-unified-memory-aggregate-{PLATFORMS[platform]['short_name']}",
+            description="Aggregate VideoMME-v2 benchmark score",
+            platform=platform,
+            step_index=total_steps,
+            step_count=total_steps,
+            check_count=1,
+        ),
+        encoding="utf-8",
+    )
+    tests = step_dir / "tests"
+    aggregate_spec = AggregateEvaluationSpec(
+        expected_group_ids=tuple(group.group_id for group in dataset.groups),
+        minimum=spec.scoring.minimum,
+    )
+    (tests / "aggregate.json").write_text(
+        aggregate_spec.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+    )
+    shutil.copy(Path(__file__).with_name("verify_benchmark.py"), tests)
+    shutil.copytree(SKILL_EVAL_ROOT / "benchmark", tests / "benchmark")
+    (tests / "test.sh").write_text(
+        '#!/bin/bash\nset -uo pipefail\nTEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        'uv run --python 3.12 --with "pydantic>=2,<3" '
+        'python "$TEST_DIR/verify_benchmark.py" '
+        '--aggregate "$TEST_DIR/aggregate.json"\n',
+        encoding="utf-8",
+    )
 
 
 def main() -> None:

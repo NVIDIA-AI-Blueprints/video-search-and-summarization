@@ -238,9 +238,11 @@ def spec_steps(spec_path: str | Path | None) -> list[str]:
             dataset = load_video_mme_v2(skill_dir / benchmark_spec.dataset.path)
         except Exception as exc:  # noqa: BLE001 - convert all loader failures to renderer contract
             raise SpecError(f"dataset-backed spec is unusable: {path}: {exc}") from exc
-        return [step.query for step in benchmark_spec.setup] + [
-            f"VideoMME-v2 group {group.group_id}" for group in dataset.groups
-        ]
+        return (
+            [step.query for step in benchmark_spec.setup]
+            + [f"VideoMME-v2 group {group.group_id}" for group in dataset.groups]
+            + ["Aggregate VideoMME-v2 benchmark score"]
+        )
 
     expects = data.get("expects")
     if not isinstance(expects, list):

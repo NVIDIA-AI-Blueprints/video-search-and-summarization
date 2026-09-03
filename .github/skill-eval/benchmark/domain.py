@@ -89,19 +89,25 @@ class GroupEvaluationSpec(FrozenModel):
     group_type: GroupType
     group_structure: GroupStructure
     expected_answers: tuple[CaseAnswer, ...]
-    minimum: float = Field(ge=0.0, le=1.0)
-    final_group: bool
-    expected_group_ids: tuple[str, ...]
 
     @model_validator(mode="after")
     def validate_group_contract(self) -> GroupEvaluationSpec:
         case_ids = [item.case_id for item in self.expected_answers]
         if len(case_ids) != 4 or len(set(case_ids)) != 4:
             raise ValueError("a benchmark group must define four unique case IDs")
+        return self
+
+
+class AggregateEvaluationSpec(FrozenModel):
+    """Typed contract generated for the final benchmark verifier."""
+
+    expected_group_ids: tuple[str, ...] = Field(min_length=1)
+    minimum: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_aggregate_contract(self) -> AggregateEvaluationSpec:
         if len(self.expected_group_ids) != len(set(self.expected_group_ids)):
             raise ValueError("expected_group_ids must be unique")
-        if self.group_id not in self.expected_group_ids:
-            raise ValueError("group_id must be included in expected_group_ids")
         return self
 
 

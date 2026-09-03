@@ -3,6 +3,7 @@
 
 import pytest
 from benchmark.domain import (
+    AggregateEvaluationSpec,
     BenchmarkReport,
     CaseAnswer,
     ChoiceAnswer,
@@ -17,7 +18,7 @@ def _answer(case_id: str, label: str) -> CaseAnswer:
     return CaseAnswer(case_id=case_id, answer=ChoiceAnswer(label=label))
 
 
-def _spec(*, final_group: bool = False) -> GroupEvaluationSpec:
+def _spec() -> GroupEvaluationSpec:
     return GroupEvaluationSpec(
         group_id="video-1",
         group_type=GroupType.RELEVANCE,
@@ -25,10 +26,15 @@ def _spec(*, final_group: bool = False) -> GroupEvaluationSpec:
         expected_answers=tuple(
             _answer(f"video-1-{index}", label) for index, label in enumerate("ABCD", 1)
         ),
-        minimum=0.75,
-        final_group=final_group,
-        expected_group_ids=("video-1", "video-2"),
     )
+
+
+def test_aggregate_spec_requires_unique_group_ids() -> None:
+    with pytest.raises(ValidationError, match="expected_group_ids must be unique"):
+        AggregateEvaluationSpec(
+            expected_group_ids=("video-1", "video-1"),
+            minimum=0.75,
+        )
 
 
 @pytest.mark.parametrize(

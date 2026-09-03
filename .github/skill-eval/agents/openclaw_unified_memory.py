@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""OpenClaw driver that runs a benchmark group as one isolated conversation."""
+"""OpenClaw driver for grouped benchmark conversations and verifier-only tasks."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import shlex
+from pathlib import Path
 from typing import Any, ClassVar, override
 
 from harbor.agents.installed.openclaw import OpenClaw, _nvm22
@@ -15,6 +15,7 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 GROUP_PREFIX = "<!-- unified-memory-group\n"
+AGGREGATE_PREFIX = "<!-- unified-memory-aggregate\n"
 GROUP_SUFFIX = "\n-->"
 STRUCTURED_OUTPUT_SCRIPT = (
     Path(__file__).resolve().parents[1] / "benchmark" / "structured_output.py"
@@ -41,6 +42,20 @@ def _group_envelope(instruction: str) -> dict[str, Any] | None:
     turns = envelope.get("turns")
     if not isinstance(turns, list) or len(turns) != 4:
         raise ValueError("a benchmark group must contain exactly four turns")
+    return envelope
+
+
+def _aggregate_envelope(instruction: str) -> dict[str, Any] | None:
+    start = instruction.find(AGGREGATE_PREFIX)
+    if start < 0:
+        return None
+    start += len(AGGREGATE_PREFIX)
+    end = instruction.find(GROUP_SUFFIX, start)
+    if end < 0:
+        raise ValueError("unterminated unified-memory aggregate envelope")
+    envelope = json.loads(instruction[start:end])
+    if envelope != {"kind": "unified-memory-aggregate"}:
+        raise ValueError("invalid unified-memory aggregate envelope")
     return envelope
 
 
@@ -144,6 +159,8 @@ class UnifiedMemoryOpenClaw(OpenClaw):
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
+        if _aggregate_envelope(instruction) is not None:
+            return
         group = _group_envelope(instruction)
         logged_instruction = str(group["turns"][0]["prompt"]) if group else instruction
         env = await self._prepare(environment, logged_instruction)
