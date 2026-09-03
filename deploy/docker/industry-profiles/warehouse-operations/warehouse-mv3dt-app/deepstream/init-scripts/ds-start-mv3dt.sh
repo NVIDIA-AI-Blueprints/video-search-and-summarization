@@ -291,4 +291,4 @@ cat "${EFFECTIVE_CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
 echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
 echo -e "\nMain config:"
 cat "${EFFECTIVE_CONFIG_DIR}/ds-main-config-mv3dt.txt"
-exec_as_runtime_user ./metropolis_perception_app -c "${EFFECTIVE_CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
+exec_as_runtime_user ./metropolis_perception_app -c "${EFFECTIVE_CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
