@@ -1,7 +1,7 @@
 {
     "message_broker": {
-        "enable_notification": true,
-        "enable_notification_consumer": true,
+        "enable_notification": false,
+        "enable_notification_consumer": false,
         "use_message_broker_consumer": "kafka",
         "message_broker_topic_consumer": "mdx-raw",
         "use_message_broker": "redis",
@@ -163,25 +163,6 @@
                             "query": {
                             "term": {
                                 "sensorId.keyword": "{{event.camera_name}}"
-                            }
-                            }
-                        },
-                        "timeout_ms": 5000
-                    },
-                    {
-                        "url": "http://elasticsearch:9200/mdx-vlm-tags-2025-01-01/_delete_by_query?",
-                        "method": "POST",
-                        "headers": {
-                            "Content-Type": "application/json"
-                        },
-                        "query_params": {
-                            "conflicts": "proceed",
-                            "refresh": "true"
-                        },
-                        "body": {
-                            "query": {
-                            "term": {
-                                "sensor.id.keyword": "{{event.camera_id}}"
                             }
                             }
                         },
