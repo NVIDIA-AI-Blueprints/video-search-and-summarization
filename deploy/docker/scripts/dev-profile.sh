@@ -1544,6 +1544,12 @@ function state_up() {
 
   # Copy overrides.env to generated.env. The stable .env is passed separately to Compose.
   cp "${_overrides_env}" "${_generated_env}"
+  # generated.env ends up holding NGC_CLI_API_KEY, so its mode cannot be left to
+  # chance. `cp` onto an existing file keeps that file's mode, but creating a
+  # fresh one applies the umask -- 0664 under the common 002 -- and `down`
+  # removes the file, so a teardown followed by a deploy is exactly the path
+  # that yields a world-readable copy of the key.
+  chmod 600 "${_generated_env}"
   echo "[INFO] Copied ${_overrides_env} to ${_generated_env}"
 
   ensure_generated_env_trailing_newline() {
