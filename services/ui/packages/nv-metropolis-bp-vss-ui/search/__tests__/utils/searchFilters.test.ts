@@ -97,6 +97,30 @@ describe('applySearchResultFilters', () => {
       'spans.mp4',
     ]);
   });
+
+  it('drops results with unparseable timestamps while a time range is active', () => {
+    const results = [
+      clip({ video_name: 'ok.mp4', start_time: '2024-06-01T09:10:00', end_time: '2024-06-01T09:20:00' }),
+      clip({ video_name: 'blank.mp4', start_time: '', end_time: '' }),
+      clip({ video_name: 'garbage.mp4', start_time: 'not-a-date', end_time: 'also-not-a-date' }),
+      // A single usable endpoint still gates both sides of the window.
+      clip({ video_name: 'end-only-inside.mp4', start_time: '', end_time: '2024-06-01T09:30:00' }),
+      clip({ video_name: 'end-only-after.mp4', start_time: '', end_time: '2024-06-01T18:00:00' }),
+    ];
+
+    const filtered = applySearchResultFilters(
+      results,
+      { startDate: new Date(2024, 5, 1, 9, 0, 0), endDate: new Date(2024, 5, 1, 10, 0, 0) },
+      streams,
+    );
+
+    expect(filtered.map((r) => r.video_name)).toEqual(['ok.mp4', 'end-only-inside.mp4']);
+  });
+
+  it('keeps results with unparseable timestamps when no time range is set', () => {
+    const results = [clip({ video_name: 'blank.mp4', start_time: '', end_time: '' })];
+    expect(applySearchResultFilters(results, {}, streams).map((r) => r.video_name)).toEqual(['blank.mp4']);
+  });
 });
 
 describe('buildSearchFilterChatContext', () => {

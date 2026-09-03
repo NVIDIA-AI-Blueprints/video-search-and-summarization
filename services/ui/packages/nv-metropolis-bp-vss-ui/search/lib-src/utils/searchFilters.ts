@@ -45,15 +45,19 @@ export function applySearchResultFilters(
       if (stream?.type && stream.type !== requiredStreamType) return false;
     }
 
-    // Keep any segment overlapping the window, not just fully contained ones:
-    // a clip straddling a boundary is still a result for that time range.
-    if (startDate) {
-      const end = parseDateAsLocal(item.end_time) || parseDateAsLocal(item.start_time);
-      if (end && end < startDate) return false;
-    }
-    if (endDate) {
-      const start = parseDateAsLocal(item.start_time);
-      if (start && start > endDate) return false;
+    if (startDate || endDate) {
+      const parsedStart = parseDateAsLocal(item.start_time);
+      const parsedEnd = parseDateAsLocal(item.end_time);
+      // Nothing parseable means no determinable overlap, so the result cannot
+      // satisfy an active range. One usable endpoint stands in for the other.
+      if (!parsedStart && !parsedEnd) return false;
+      const segmentStart = parsedStart ?? (parsedEnd as Date);
+      const segmentEnd = parsedEnd ?? (parsedStart as Date);
+
+      // Keep any segment overlapping the window, not just fully contained
+      // ones: a clip straddling a boundary is still a result for that range.
+      if (startDate && segmentEnd < startDate) return false;
+      if (endDate && segmentStart > endDate) return false;
     }
 
     return true;
