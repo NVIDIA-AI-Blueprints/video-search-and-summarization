@@ -31,6 +31,27 @@ import {
 
 export type { VideoManagementComponentProps, VideoManagementSidebarControlHandlers } from './types';
 
+// The bytes are in VST either way, so this is not an upload failure — but the
+// grid may not show the file yet, which is what the user needs to know.
+const UNCONFIRMED_UPLOAD_NOTE =
+  'Uploaded, but VST has not listed it yet. Refresh the Video Management tab to check.';
+
+const asUnconfirmedSuccess = (upload: UploadProgress): UploadProgress => ({
+  ...upload,
+  status: 'success',
+  progress: 100,
+  unconfirmed: UNCONFIRMED_UPLOAD_NOTE,
+});
+
+// Cancelling cannot un-upload a file VST has already taken; it only stops the
+// wait on that file's listing. So a `confirming` file settles as the success it
+// is, carrying the caveat that the grid may not show it yet.
+const settleOnCancel = (upload: UploadProgress): UploadProgress =>
+  upload.status === 'confirming' ? asUnconfirmedSuccess(upload) : { ...upload, status: 'cancelled' };
+
+const isCancellableUpload = (status: UploadProgress['status']) =>
+  status === 'pending' || status === 'uploading' || status === 'processing' || status === 'confirming';
+
 export const VideoManagementComponent: React.FC<VideoManagementComponentProps> = ({
   videoManagementData,
   renderControlsInLeftSidebar = false,
@@ -139,12 +160,14 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   const refetchRef = useRef(refetch);
   const refetchTimelinesRef = useRef(refetchTimelines);
+  const waitUntilStreamAddedRef = useRef(waitUntilStreamAdded);
   const vstApiUrlRef = useRef(vstApiUrl);
 
   useEffect(() => {
     refetchRef.current = refetch;
     refetchTimelinesRef.current = refetchTimelines;
-  }, [refetch, refetchTimelines]);
+    waitUntilStreamAddedRef.current = waitUntilStreamAdded;
+  }, [refetch, refetchTimelines, waitUntilStreamAdded]);
 
   useEffect(() => {
     vstApiUrlRef.current = vstApiUrl;
@@ -193,7 +216,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           throw new Error('VST API URL not configured');
         }
         const uploadEndpoints = createApiEndpoints(vstApiUrl);
-        await chunkedUpload({
+        const uploaded = await chunkedUpload({
           file,
           fileName: requestFilename,
           uploadUrl: uploadEndpoints.UPLOAD_FILE,
@@ -214,11 +237,25 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
 
+        // VST answers the last chunk before the file's sensor turns up in its
+        // streams listing, the same lag the RTSP add hits. Hold the file in
+        // `confirming` until the listing agrees, so "Done" means the grid has it.
         setUploadProgress((prev) =>
-          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'processing') ? {
+          prev.map((p) => (p.id === id && p.status === 'processing' ? { ...p, status: 'confirming' } : p))
+        );
+
+        const listed = uploaded?.sensorId
+          ? await waitUntilStreamAddedRef.current(uploaded.sensorId)
+          : { found: true };
+
+        if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
+
+        setUploadProgress((prev) =>
+          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'processing' || p.status === 'confirming') ? {
             ...p,
             status: 'success',
             progress: 100,
+            ...(listed.found ? {} : { unconfirmed: UNCONFIRMED_UPLOAD_NOTE }),
           } : p))
         );
       } catch (err) {
@@ -229,11 +266,20 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         const isCancelled = isAborted || cancelledFileIdsRef.current.has(id);
 
         setUploadProgress((prev) =>
-          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'pending' || p.status === 'processing') ? {
-            ...p,
-            status: isCancelled ? 'cancelled' : 'error',
-            error: isCancelled ? undefined : errorMessage
-          } : p))
+          prev.map((p) => {
+            if (p.id !== id) return p;
+            // Only the listing wait can fail this late, and it failing does not
+            // take the file back out of VST. Reporting an upload error here would
+            // be wrong, and leaving it `confirming` would keep the popup up forever.
+            if (p.status === 'confirming') return asUnconfirmedSuccess(p);
+            return p.status === 'uploading' || p.status === 'pending' || p.status === 'processing'
+              ? {
+                ...p,
+                status: isCancelled ? 'cancelled' : 'error',
+                error: isCancelled ? undefined : errorMessage,
+              }
+              : p;
+          })
         );
       } finally {
         abortControllerMapRef.current.delete(id);
@@ -322,16 +368,15 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [uploadProgress]);
 
   const handleCancelSingleUpload = useCallback((fileId: string) => {
-    cancelledFileIdsRef.current.add(fileId);
-    abortControllerMapRef.current.get(fileId)?.abort();
-    abortControllerMapRef.current.delete(fileId);
+    // Only an unfinished transfer has anything to abort
+    if (uploadProgressRef.current.find((p) => p.id === fileId)?.status !== 'confirming') {
+      cancelledFileIdsRef.current.add(fileId);
+      abortControllerMapRef.current.get(fileId)?.abort();
+      abortControllerMapRef.current.delete(fileId);
+    }
 
     setUploadProgress((prev) =>
-      prev.map((p) =>
-        p.id === fileId && (p.status === 'pending' || p.status === 'uploading' || p.status === 'processing')
-          ? { ...p, status: 'cancelled' }
-          : p,
-      ),
+      prev.map((p) => (p.id === fileId && isCancellableUpload(p.status) ? settleOnCancel(p) : p)),
     );
   }, []);
 
@@ -348,16 +393,16 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           cancelledFileIdsRef.current.add(p.id);
         }
       });
-      return prev.map((p) =>
-        p.status === 'pending' || p.status === 'uploading' || p.status === 'processing'
-          ? { ...p, status: 'cancelled' }
-          : p,
-      );
+      return prev.map((p) => (isCancellableUpload(p.status) ? settleOnCancel(p) : p));
     });
     setIsUploading(false);
 
-    const successCount = uploadProgressRef.current.filter((p) => p.status === 'success').length;
-    if (successCount > 0) {
+    // A `confirming` file is one VST accepted, so it counts toward the refresh
+    // even though its listing wait was just abandoned.
+    const settledCount = uploadProgressRef.current.filter(
+      (p) => p.status === 'success' || p.status === 'confirming',
+    ).length;
+    if (settledCount > 0) {
       await Promise.all([refetchRef.current(), refetchTimelinesRef.current()]);
     }
   }, []);
@@ -388,18 +433,28 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
   const uploadProgressPopupFiles = useMemo(
     () =>
-      uploadProgress.map((upload) => ({
-        id: upload.id,
-        displayName: upload.fileName,
-        uploadProgress: upload.status === 'processing' ? 100 : upload.progress,
-        uploadStatus: upload.status === 'processing' ? 'uploading' as const : upload.status as Exclude<UploadProgress['status'], 'processing'>,
-        uploadError: upload.error,
-      })),
+      uploadProgress.map((upload) => {
+        // The popup has no phase past `uploading`, so the server-side waits —
+        // VST processing the last chunk, then listing the sensor — both show as
+        // an in-flight file parked at 100%.
+        const isServerSideWait = upload.status === 'processing' || upload.status === 'confirming';
+        return {
+          id: upload.id,
+          displayName: upload.fileName,
+          uploadProgress: isServerSideWait ? 100 : upload.progress,
+          uploadStatus: isServerSideWait
+            ? 'uploading' as const
+            : upload.status as Exclude<UploadProgress['status'], 'processing' | 'confirming'>,
+          uploadError: upload.error,
+        };
+      }),
     [uploadProgress],
   );
 
   const hasActiveUploads = useMemo(
-    () => uploadProgress.some((u) => u.status === 'pending' || u.status === 'uploading' || u.status === 'processing'),
+    () => uploadProgress.some(
+      (u) => u.status === 'pending' || u.status === 'uploading' || u.status === 'processing' || u.status === 'confirming',
+    ),
     [uploadProgress],
   );
 
@@ -408,7 +463,12 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     const results: UploadResultItem[] = uploadProgress.map((u) => {
       if (u.status === 'success') {
-        return { filename: u.fileName, result: { status: 'success' } };
+        return {
+          filename: u.fileName,
+          result: u.unconfirmed
+            ? { status: 'success', vst_listing: 'pending', note: u.unconfirmed }
+            : { status: 'success' },
+        };
       }
       if (u.status === 'cancelled') {
         return { filename: u.fileName, cancelled: true };

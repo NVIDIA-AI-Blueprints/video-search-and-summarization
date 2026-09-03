@@ -356,6 +356,142 @@ describe('VideoManagementComponent — video playback', () => {
   });
 });
 
+// Same lag as Add RTSP: VST answers the last chunk before the uploaded file's
+// sensor appears in its streams listing, so "Done" used to be able to precede
+// the grid actually holding the video.
+describe('VideoManagementComponent — upload waits for VST to list the file', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    lastUploadDialogProps = null;
+    lastUploadProgressPopupProps = null;
+    lastUploadSuccessPopupProps = null;
+    mockChunkedUpload.mockResolvedValue({ sensorId: 'upload-sensor' });
+    mockWaitUntilStreamAdded.mockResolvedValue({ found: true });
+  });
+
+  const uploadOneFile = async (id = 'upload-1', name = 'clip.mp4') => {
+    const file = new File(['data'], name, { type: 'video/mp4' });
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([{ id, file, uploadFilename: name, formData: {} }]);
+    });
+  };
+
+  function deferWait() {
+    let settle: (value: { found: boolean }) => void = () => {};
+    mockWaitUntilStreamAdded.mockImplementationOnce(
+      () => new Promise<{ found: boolean }>((resolve) => { settle = resolve; }),
+    );
+    return () => settle({ found: true });
+  }
+
+  it('keeps the file in flight until VST lists the uploaded sensor', async () => {
+    const settleWait = deferWait();
+
+    renderComponent();
+    await uploadOneFile();
+
+    expect(mockWaitUntilStreamAdded).toHaveBeenCalledWith('upload-sensor');
+    // Parked at 100% rather than reported Done
+    expect(lastUploadProgressPopupProps.files[0]).toEqual(
+      expect.objectContaining({ uploadStatus: 'uploading', uploadProgress: 100 }),
+    );
+    expect(screen.queryByTestId('upload-success-popup')).not.toBeInTheDocument();
+
+    await act(async () => {
+      settleWait();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(lastUploadSuccessPopupProps.results).toEqual([
+      { filename: 'clip.mp4', result: { status: 'success' } },
+    ]);
+  });
+
+  it('reports success with the listing caveat when VST never lists the file', async () => {
+    mockWaitUntilStreamAdded.mockResolvedValueOnce({ found: false });
+
+    renderComponent();
+    await uploadOneFile();
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(lastUploadSuccessPopupProps.results[0]).toEqual({
+      filename: 'clip.mp4',
+      result: {
+        status: 'success',
+        vst_listing: 'pending',
+        note: expect.stringContaining('has not listed it yet'),
+      },
+    });
+  });
+
+  // The bytes are in VST by then, so cancelling only abandons the listing wait
+  it('settles a file cancelled mid-wait as success, not cancelled', async () => {
+    const settleWait = deferWait();
+
+    renderComponent();
+    await uploadOneFile();
+
+    await act(async () => {
+      lastUploadProgressPopupProps.onCancelAll();
+    });
+    // A wait that lands after the cancel must not overwrite that outcome
+    await act(async () => {
+      settleWait();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    const [result] = lastUploadSuccessPopupProps.results;
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual(expect.objectContaining({ vst_listing: 'pending' }));
+  });
+
+  it('settles a per-file cancel mid-wait the same way', async () => {
+    const settleWait = deferWait();
+
+    renderComponent();
+    await uploadOneFile('single-cancel');
+
+    await act(async () => {
+      lastUploadProgressPopupProps.onCancelSingle('single-cancel');
+    });
+    await act(async () => {
+      settleWait();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    const [result] = lastUploadSuccessPopupProps.results;
+    expect(result.cancelled).toBeUndefined();
+    expect(result.result).toEqual(expect.objectContaining({ vst_listing: 'pending' }));
+  });
+
+  it('does not wait when the upload response carries no sensorId', async () => {
+    mockChunkedUpload.mockResolvedValueOnce({} as { sensorId: string });
+
+    renderComponent();
+    await uploadOneFile();
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(mockWaitUntilStreamAdded).not.toHaveBeenCalled();
+    expect(lastUploadSuccessPopupProps.results[0].result).toEqual({ status: 'success' });
+  });
+
+  it('reports an upload that fails outright as an error, not a listing caveat', async () => {
+    mockChunkedUpload.mockRejectedValueOnce(new Error('chunk 3 failed'));
+
+    renderComponent();
+    await uploadOneFile();
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(mockWaitUntilStreamAdded).not.toHaveBeenCalled();
+    expect(lastUploadSuccessPopupProps.results[0]).toEqual({
+      filename: 'clip.mp4',
+      error: 'chunk 3 failed',
+    });
+  });
+});
+
 // NVBug 6243148: selecting an RTSP stream and an uploaded video together and
 // hitting Select All → Delete left the RTSP entry in the grid, stale and
 // unplayable, because VST's stream list still reported it when the UI refetched.
