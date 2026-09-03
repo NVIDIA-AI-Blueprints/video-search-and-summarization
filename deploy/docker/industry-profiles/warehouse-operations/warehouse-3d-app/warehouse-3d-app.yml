@@ -137,7 +137,6 @@ services:
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels-real.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels_real.txt:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels-synthetic.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels_synthetic.txt:ro
-     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/anchors/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
 
       # Config mountings
