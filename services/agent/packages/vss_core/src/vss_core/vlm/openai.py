@@ -16,18 +16,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 from datetime import datetime
 import logging
-import math
-from pathlib import Path
-import tempfile
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
 
-import cv2
 import httpx
 
 from vss_core._foundation.errors import BackendUnreachableError
@@ -40,6 +35,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ``frame_base64`` remains accepted as a compatibility alias, but now sends the
+# native MP4 just like ``video_base64`` instead of extracting JPEG frames.
 MediaMode = Literal["video_url", "video_base64", "frame_base64"]
 VideoURLScope = Literal["internal", "external"]
 _VLM_RETRYABLE_ERRORS = (httpx.TimeoutException, httpx.TransportError)
@@ -47,15 +44,6 @@ _VLM_RETRYABLE_ERRORS = (httpx.TimeoutException, httpx.TransportError)
 
 class _RetryableVLMStatusError(Exception):
     """Raised for HTTP 5xx responses so tenacity retries the request."""
-
-
-class _FrameExtractionError(ValueError):
-    """Raised when decoding/selecting frames from a VST clip fails.
-
-    A ``ValueError`` subclass so it is distinguishable from response-parse
-    ValueErrors, letting ``analyze`` report clip/frame problems separately from
-    "invalid VLM response format".
-    """
 
 
 class OpenAIVLMAnalyzer:
@@ -139,7 +127,6 @@ class OpenAIVLMAnalyzer:
             content = await self._build_content(
                 prompt=prompt,
                 clip_url=clip_url,
-                duration_seconds=duration_seconds,
             )
             payload = {
                 "model": self._model,
@@ -168,9 +155,6 @@ class OpenAIVLMAnalyzer:
             # elsewhere already carry backend context — let them propagate as-is
             # rather than masking them as a VLM error.
             raise
-        except _FrameExtractionError as e:
-            logger.error("VLM frame extraction failed: %s", scrub_log(e))
-            raise BackendUnreachableError("vlm", f"Frame extraction from VST clip failed: {e}", e) from e
         except (httpx.HTTPError, _RetryableVLMStatusError) as e:
             logger.error("VLM request failed: %s", scrub_log(e))
             raise BackendUnreachableError("vlm", str(e), e) from e
@@ -209,7 +193,7 @@ class OpenAIVLMAnalyzer:
 
     def _add_model_runtime_options(self, payload: dict[str, Any], duration_seconds: float) -> None:
         model = self._model.lower()
-        if self._cosmos_nim_runtime_options and "cosmos" in model and self._media_mode != "frame_base64":
+        if self._cosmos_nim_runtime_options and "cosmos" in model:
             payload["media_io_kwargs"] = {
                 "video": {
                     "num_frames": _dynamic_num_frames(duration_seconds, self._max_frames, self._max_fps),
@@ -223,7 +207,6 @@ class OpenAIVLMAnalyzer:
         *,
         prompt: str,
         clip_url: str,
-        duration_seconds: float,
     ) -> list[dict[str, Any]]:
         if self._media_mode == "video_url":
             return [
@@ -244,34 +227,10 @@ class OpenAIVLMAnalyzer:
             raise BackendUnreachableError("vst", detail) from None
         video_bytes = response.content
 
-        if self._media_mode == "video_base64":
-            video_b64 = base64.b64encode(video_bytes).decode("ascii")
-            return [
-                {"type": "text", "text": prompt},
-                {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
-            ]
-
-        frame_b64s = await asyncio.to_thread(
-            _select_base64_frames,
-            video_bytes,
-            duration_seconds,
-            self._max_frames,
-            self._max_fps,
-        )
-        if not frame_b64s:
-            raise _FrameExtractionError("No frames selected from VST clip")
+        video_b64 = base64.b64encode(video_bytes).decode("ascii")
         return [
-            {
-                "type": "text",
-                "text": (
-                    "The following images are a sequence of frames from a video. "
-                    f"Answer the user's question based on the video: {prompt}"
-                ),
-            },
-            *[
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame_b64}"}}
-                for frame_b64 in frame_b64s
-            ],
+            {"type": "text", "text": prompt},
+            {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
         ]
 
     async def aclose(self) -> None:
@@ -317,41 +276,3 @@ def _dynamic_num_frames(duration_seconds: float, max_frames: int, max_fps: int) 
 
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _select_base64_frames(video_bytes: bytes, duration_seconds: float, max_frames: int, max_fps: int) -> list[str]:
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-        tmp.write(video_bytes)
-        tmp.flush()
-        step_size = max(duration_seconds / max_frames, 1.0 / max_fps)
-        return _frame_select(tmp.name, duration_seconds, step_size)
-
-
-def _frame_select(video_path: str, duration_seconds: float, step_size: float) -> list[str]:
-    cap = cv2.VideoCapture(str(Path(video_path)))
-    if not cap.isOpened():
-        raise _FrameExtractionError(f"Could not open video file: {video_path}")
-    try:
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if fps <= 0 or total_frames <= 0:
-            raise _FrameExtractionError("Video has no readable frames")
-        end_frame = min(total_frames - 1, math.ceil(duration_seconds * fps))
-        step_size_frame = max(1, math.floor(step_size * fps))
-        selected_frames = list(range(0, end_frame, step_size_frame))
-        if not selected_frames:
-            selected_frames = [0]
-
-        base64_frames: list[str] = []
-        for frame_idx in selected_frames:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ok, frame = cap.read()
-            if not ok:
-                raise _FrameExtractionError(f"Could not read frame {frame_idx} from {video_path}")
-            ok, buffer = cv2.imencode(".jpg", frame)
-            if not ok:
-                raise _FrameExtractionError(f"Could not encode frame {frame_idx} from {video_path}")
-            base64_frames.append(base64.b64encode(buffer.tobytes()).decode("ascii"))
-        return base64_frames
-    finally:
-        cap.release()

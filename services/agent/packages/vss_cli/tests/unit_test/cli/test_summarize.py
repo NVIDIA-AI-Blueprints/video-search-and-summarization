@@ -628,6 +628,53 @@ def test_persist_writes_one_unified_memory_record(
     }
 
 
+def test_summary_memory_prefers_media_name_and_preserves_internal_ids(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
+) -> None:
+    _capture_post(monkeypatch)
+    result = _run("--id", "stream-uuid", "--video-id", "video-uuid", "--media-name", "west-entrance")
+    assert result.exit_code == 0, result.output
+
+    sensor = _persisted(memory)["input"]["sensors"][0]
+    assert sensor["id"] == "west-entrance"
+    assert sensor["info"]["stream_id"] == "stream-uuid"
+    assert sensor["info"]["video_id"] == "video-uuid"
+
+
+def test_summary_memory_resolves_vios_name(
+    configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
+) -> None:
+    from vss_core.vios import SensorRef
+
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=configured.base_url,
+            services={**configured.services, "vst": config_mod.Service(url=f"{BASE_URL}/vst")},
+            memory=configured.memory,
+        )
+    )
+
+    async def resolve_sensor(*_args: Any, **_kwargs: Any) -> SensorRef:
+        return SensorRef(
+            name="west-entrance",
+            sensor_id="sensor-uuid",
+            stream_id="stream-uuid",
+            url="rtsp://camera",
+            kind="stream",
+        )
+
+    monkeypatch.setattr("vss_core.vios.resolve_sensor", resolve_sensor)
+    _capture_post(monkeypatch)
+    result = _run("--id", "stream-uuid")
+    assert result.exit_code == 0, result.output
+
+    sensor = _persisted(memory)["input"]["sensors"][0]
+    assert sensor["id"] == "west-entrance"
+    assert sensor["info"]["sensor_id"] == "sensor-uuid"
+    assert sensor["info"]["stream_id"] == "stream-uuid"
+    assert sensor["info"]["video_id"] == "stream-uuid"
+
+
 def test_explicit_note_opt_in_writes_openclaw_daily_note(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,

@@ -25,7 +25,7 @@ This file covers what is specific to the CLI's own surface.
 
 ## The two shapes
 
-**Job groups** — `search`, `summarize`. Work that runs a model and produces
+**Job groups** — `search`, `summarize`, `vlm`. Work that runs a model and produces
 evidence. Every `run` mints a `job_id` and persists a record, so the result is
 retrievable afterwards by that id:
 
@@ -85,7 +85,7 @@ vss vios add --type video /path/to/clip.mp4         # if absent; the filename be
 Uploaded filenames must have no whitespace — the filename *is* the sensor name.
 The CLI rejects a bad one locally rather than spending the upload first.
 
-## `vss search` and `vss summarize`
+## `vss search`, `vss summarize`, and `vss vlm`
 
 ```bash
 vss search run "forklift near the loading dock" [--limit N]
@@ -93,6 +93,9 @@ vss search get --job-id <id>
 
 vss summarize run --video-uri <uri> --prompt "..." --timeout <seconds>
 vss summarize get --job-id <id>
+
+vss vlm run --sensor NAME --start-time <ISO-UTC> --end-time <ISO-UTC> --prompt "..."
+vss vlm get --job-id <id>
 ```
 
 If a preflight fails, report its error and stop. Do not fall back to calling

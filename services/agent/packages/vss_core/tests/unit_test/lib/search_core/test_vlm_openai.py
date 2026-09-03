@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 import httpx
@@ -88,6 +89,45 @@ async def test_rt_vlm_uses_video_url_without_direct_cosmos_nim_options() -> None
         assert answer == '{"subject:forklift": true}'
     finally:
         await analyzer.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("media_mode", ("video_base64", "frame_base64"))
+async def test_base64_modes_send_one_native_mp4_video_part(media_mode: str) -> None:
+    video_bytes = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00native-video"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, content=video_bytes, request=request)
+        payload = json.loads(request.content)
+        content = payload["messages"][0]["content"]
+        assert len(content) == 2
+        assert content[0] == {"type": "text", "text": "What happened?"}
+        assert content[1]["type"] == "video_url"
+        data_uri = content[1]["video_url"]["url"]
+        assert data_uri.startswith("data:video/mp4;base64,")
+        assert base64.b64decode(data_uri.partition(",")[2]) == video_bytes
+        assert all(part["type"] != "image_url" for part in content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "A worker moved."}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://vlm.example/v1",
+        model="model",
+        vst=_VST(),  # type: ignore[arg-type]
+        media_mode=media_mode,  # type: ignore[arg-type]
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        answer = await analyzer.analyze(
+            sensor_id="sensor-1",
+            start_timestamp="2025-01-01T00:00:00Z",
+            end_timestamp="2025-01-01T00:00:05Z",
+            prompt="What happened?",
+        )
+    finally:
+        await analyzer.aclose()
+
+    assert answer == "A worker moved."
 
 
 def test_direct_cosmos_nim_keeps_runtime_options_by_default() -> None:
