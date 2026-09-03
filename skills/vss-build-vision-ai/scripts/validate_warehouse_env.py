@@ -109,11 +109,11 @@ SDRC_FLOOR = [
 ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 
 # Warehouse service keys carry the deployment mode as a token, e.g. perception-3d,
-# bp-configurator-2d-init, vss-behavior-analytics-3d. The token must agree with MODE:
+# bp-configurator-2d, vss-behavior-analytics-3d. The token must agree with MODE:
 # a 2D detector in a 3D build resolves cleanly, boots healthy, and publishes to the
 # wrong topic -- 2D writes mdx-raw while vss-behavior-analytics-3d reads mdx-bev, so
 # analytics silently sees nothing.
-MODE_TOKEN = re.compile(r"(?:^|-)(2d|3d|mv3dt)(?:-|$)")
+MODE_TOKEN = re.compile(r"(?:^|-)(2d|3d|mv3dt|auto-calibration)(?:-|$)")
 
 
 def strip_value(value: str) -> str:
@@ -361,7 +361,9 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
     stream_type = env.get("STREAM_TYPE", "")
     if bp == "bp_wh_redis" and stream_type != "redis":
         errors.append(f"BP_PROFILE=bp_wh_redis requires STREAM_TYPE=redis, got {stream_type!r}")
-    if bp in {"bp_wh", "bp_wh_kafka", "bp_wh_auto_calib"} and stream_type not in {"", "kafka"}:
+    # bp_wh_auto_calib is deliberately absent: its list carries no kafka key and no
+    # perception, so it brokers no metadata and STREAM_TYPE does not apply.
+    if bp in {"bp_wh", "bp_wh_kafka"} and stream_type not in {"", "kafka"}:
         errors.append(f"BP_PROFILE={bp} requires STREAM_TYPE=kafka, got {stream_type!r}")
 
     # 6b. The selected broker must actually be in the service list. The env
