@@ -48,8 +48,8 @@
 # Env:
 #   DS_HTTP_PORT     perception REST port      (default: 9000)
 #   VST_HTTP_PORT    pin the VST proxy API port. Unset probes 30000-30005
-#                    and 31000-31005, and reuses whichever answered. 0 skips
-#                    the check, same as --no-sei-check.
+#                    and 31000-31005, and reuses whichever answered.
+#                    0 skips the check, same as --no-sei-check.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -787,7 +787,7 @@ print(registered, required)
 ' 2>/dev/null || echo "0 0"
 }
 
-verify_streams_active() {  # args: camera IDs added in this run
+verify_streams_active() {  # args: camera IDs added in this run, used as a fallback
   (( $# )) || return 0
   [[ "$ACTIVATION_TIMEOUT" =~ ^[0-9]+$ ]] || return 0
   (( ACTIVATION_TIMEOUT > 0 )) || return 0
@@ -802,6 +802,19 @@ verify_streams_active() {  # args: camera IDs added in this run
     return 0
   fi
 
+  # The batch is complete, so judge every registered source rather than only the
+  # ones this run added. One source that cannot decode stalls the whole batch, so
+  # the camera that completes the batch is reported as not producing even when the
+  # broken one was registered earlier. Fall back to this run's list when the
+  # registry cannot be read, which is worse but still better than nothing.
+  local judged=() all_ids
+  if all_ids="$(registered_camera_ids)" && [[ -n "$all_ids" ]]; then
+    mapfile -t judged <<<"$all_ids"
+  else
+    judged=("$@")
+  fi
+  (( ${#judged[@]} )) || return 0
+
   # Liveness is frame_number advancing, not membership of stream-stats. That list
   # is a rolling buffer of recent per-source samples, not one row per stream: a
   # single payload can carry the same sensor_id twice with consecutive frame
@@ -809,13 +822,12 @@ verify_streams_active() {  # args: camera IDs added in this run
   # source that is decoding therefore shows up repeatedly across a few seconds of
   # polling with a rising frame_number, while one that is not either never
   # appears or stays frozen -- observed live at frame_number 296 while DeepStream
-  # retried its RTSP connect. Both count as not producing; only the wording of
-  # the report differs, because only cameras added by this run are judged.
+  # retried its RTSP connect. Both count as not producing.
   echo "── Waiting up to ${ACTIVATION_TIMEOUT}s for the sources to produce frames"
 
   local out rc=0
   out="$(BASE="$BASE" ACTIVATION_TIMEOUT="$ACTIVATION_TIMEOUT" \
-         python3 - "$@" <<'PY'
+         python3 - "${judged[@]}" <<'PY'
 import json
 import os
 import sys
@@ -890,8 +902,7 @@ PY
   fi
 
   echo >&2
-  echo "ERROR: the perception service accepted these streams but they are not producing frames" >&2
-  echo "       after ${ACTIVATION_TIMEOUT}s:" >&2
+  echo "ERROR: registered streams are not producing frames after ${ACTIVATION_TIMEOUT}s:" >&2
   printf '%s\n' "$out" | grep -v '^OBS ' | sed 's/^/         /' >&2
   echo "       Their frame_number never advanced in /api/v1/metrics: STATIC means the" >&2
   echo "       stream was sampled but frozen, UNSEEN that it was never sampled at all." >&2
