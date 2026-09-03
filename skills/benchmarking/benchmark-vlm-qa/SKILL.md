@@ -41,8 +41,9 @@ score tool-calling or trajectories.
   configured origin. A loopback origin mints a loopback URL, which means nothing
   inside the RT-VLM container, so the CLI falls back to inlining the clip as base64
   and the VLM rejects anything large with `HTTP 422 ... content ... valid string`.
-  `--base-url http://<host-ip>:7777` avoids that; `--inline-media` forces the old
-  inline behaviour and is only safe for clips under ~10 MB.
+  `vss configure --base-url http://<host-ip>:7777` avoids that — `--base-url` is a
+  `vss configure` flag, not a benchmark one. `--inline-media` *is* a benchmark flag; it
+  forces the old inline behaviour and is only safe for clips under ~10 MB.
 - `uv` and this checkout (CLI via `uv run --project services/agent --no-dev --extra cli vss`).
 - The `nvdataset` CLI. It is **not** on PyPI, and the index used by the old
   deep-search eval (`urm.nvidia.com/.../sw-ngc-data-platform-pypi`) returns 403.
@@ -65,15 +66,16 @@ score tool-calling or trajectories.
   Plus tenancy, which SSO does **not** supply — after `auth login`, `nvdataset auth
   status` still reports `"tenant_id": null` and every call fails with `Did not find
   tenant_id`. The script names no tenant, so set one yourself: export
-  `NVDATASET_TENANTID=0573334707593577` and `NVDATASET_GROUPID=vss-bp-team` for the
-  reference dataset (owner: Jiayi Ni), or save it once with `nvdataset auth context
-  add`. Another dataset needs no change to the script.
-- An OpenAI-compatible judge LLM: `EVAL_LLM_JUDGE_BASE_URL` and `EVAL_LLM_JUDGE_NAME`.
-  The old NAT eval judged with the Nemotron endpoint inside vss-agent; with vss-agent
-  deprecated, prefer a GPT or Claude model from inference hub. Authenticate with
-  `EVAL_LLM_JUDGE_API_KEY`. `NGC_API_KEY` is deliberately **not** sent to non-NVIDIA
-  judge hosts — it is set for the dataset download and must not reach a third party.
-  Skip with `--skip-judge` for latency only.
+  `NVDATASET_TENANTID` and `NVDATASET_GROUPID`, or save them once with `nvdataset auth
+  context add`. Ask the dataset's owning team for its coordinates. Another dataset
+  needs no change to the script.
+- An OpenAI-compatible judge LLM: `EVAL_LLM_JUDGE_BASE_URL` and `EVAL_LLM_JUDGE_NAME`,
+  authenticated with `EVAL_LLM_JUDGE_API_KEY`. `NGC_API_KEY` is deliberately **not**
+  sent to non-NVIDIA judge hosts — it is set for the dataset download and must not
+  reach a third party. Any chat-completions endpoint will do; the judge moves absolute
+  scores on its own, so hold it fixed across runs you mean to compare, and read
+  `judge_model` in `summary.json` before comparing two numbers. `--skip-judge` gives
+  latency only.
 
 Bootstrap is in the repo-root [AGENTS.md](../../../AGENTS.md). Do not construct
 RT-VLM URLs; `vss vlm run` reads the recorded config.
@@ -82,7 +84,8 @@ RT-VLM URLs; `vss vlm run` reads the recorded config.
 
 ```bash
 export NVDATASET_API_KEY=<personal-key>            # or: nvdataset auth login [--flow device]
-export NVDATASET_TENANTID=0573334707593577         # SSO does not set this; see Prerequisites
+export NVDATASET_TENANTID=<tenant>                 # SSO does not set this; see Prerequisites
+export NVDATASET_GROUPID=<group>
 export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"   # OpenAI-compat origin, e.g. http://127.0.0.1:8000
 export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
 
@@ -127,6 +130,35 @@ Outputs under `<dataset>/../../results/vlm_qa/` (or `--output-dir`):
   A killed item is recorded as an error naming the watchdog, never as a low score.
 - Items must declare `evaluation_method` containing `qa` and carry a text
   `ground_truth`. Report, trajectory-only, and unmarked items are skipped.
+
+## Failures
+
+Branch on the exit code; never scrape stdout for the word "error".
+
+| Exit | Meaning | What to do |
+|---|---|---|
+| 0 | Every item answered | Read `summary.json` |
+| 2 | Precondition wrong — a dataset flag missing, no DSS credential, no judge configured, dataset or videos not found, no QA items | Fix the setup. Re-running unchanged fails identically |
+| 3 | The download failed, or at least one item errored | Read each item's `error` in `summary.json` |
+
+A `vss` call that exits 4 (service missing from the recorded config) surfaces as an
+item error, so the run ends at exit 3 — the fix is `vss configure`, not a flag.
+
+Failures worth recognising by their message:
+
+- `HTTP 422 ... content ... valid string` on the big clips — the recorded origin is
+  loopback, so clips are being inlined as base64. Reconfigure with a routable address.
+- `Did not find tenant_id` — SSO signed you in but selected no tenant. Export
+  `NVDATASET_TENANTID`, or `nvdataset auth context use`.
+- `LLM judge HTTP 403 ... key_model_access_denied` or `400 Invalid model name` on
+  every item — the judge id is not what that gateway calls the model. Gateways that
+  front several providers usually want a fully-qualified id and reject the bare name.
+  `GET <judge-base-url>/models` lists the ids the key may use; copy one verbatim into
+  `EVAL_LLM_JUDGE_NAME`. The VLM answers are unaffected, so only scoring is lost.
+- An item error naming the watchdog — the CLI never returned and was killed at
+  `--timeout` + 60 s. That is recorded as an error, never as a low score. Do not retry.
+- Accuracy far from the ~0.465 baseline is not a harness failure. The judge model and
+  `--num-frames` both move it; check `judge_model` and `model_served` before filing.
 
 Implementation: [`deploy/docker/developer-profiles/dev-profile-base/eval/benchmark_vlm_qa.py`](../../../deploy/docker/developer-profiles/dev-profile-base/eval/benchmark_vlm_qa.py).
 Dataset download contract: [`README_eval.md`](../../../deploy/docker/developer-profiles/dev-profile-base/eval/README_eval.md).

@@ -53,6 +53,8 @@ DEFAULT_NUM_FRAMES = 20
 # only covers a CLI that never returns at all, so one stuck item cannot cost the
 # whole run. Wide enough that a CLI honouring its timeout always wins the race.
 WATCHDOG_GRACE_S = 60
+# How long to wait for a killed child's pipes to close before giving up on its output.
+WATCHDOG_REAP_S = 10
 VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 EXPLICIT_VIDEO_KEYS = ("video", "video_file", "video_name", "sensor", "sensor_id", "media")
 
@@ -103,8 +105,8 @@ Think through your evaluation step by step, then output ONLY a single decimal nu
 
 # `<agent-think>` is gone with vss-agent, which nothing here calls. `<think>` stays
 # because the judge is pluggable: the prompt above asks it to work step by step, and a
-# Nemotron-family judge wraps that working in `<think>`, whose digits would otherwise be
-# read as the score.
+# reasoning model wraps that working in `<think>`, whose digits would otherwise be read
+# as the score.
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _SCORE_RE = re.compile(r"(?<![\d.])(0(?:\.\d+)?|1(?:\.0+)?|\.\d+)(?![\d.])")
 
@@ -525,8 +527,20 @@ def run_bounded(
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             proc.kill()
-        stdout, stderr = proc.communicate()
-        return proc.returncode, stdout or "", stderr or "", True
+        try:
+            stdout, stderr = proc.communicate(timeout=WATCHDOG_REAP_S)
+        except subprocess.TimeoutExpired:
+            # Reaping has to be bounded too, or the watchdog reintroduces the hang it
+            # exists to prevent. Draining the pipes waits for EOF, which needs every
+            # writer closed -- and a writer can outlive the group kill: `killpg` may be
+            # refused, leaving only the direct child killed, or a grandchild may have
+            # started its own session and escaped the group. Abandon the output; the
+            # item is already recorded as killed, and its stdout was never going to be
+            # parsed.
+            stdout, stderr = "", ""
+        # SIGKILL leaves no status to read when the pipes were abandoned above.
+        returncode = proc.returncode if proc.returncode is not None else -signal.SIGKILL
+        return returncode, stdout or "", stderr or "", True
 
 
 def vios_sensor_names(vss: list[str], timeout_s: int) -> set[str] | None:

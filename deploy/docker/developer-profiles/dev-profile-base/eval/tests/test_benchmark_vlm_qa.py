@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import time
 
+import benchmark_vlm_qa
 from benchmark_vlm_qa import QaItem
 from benchmark_vlm_qa import download_dataset
 from benchmark_vlm_qa import dss_credential
@@ -80,9 +81,9 @@ def test_strip_think_tags_removes_a_reasoning_block() -> None:
 def test_parse_score_ignores_digits_inside_a_trailing_think_block() -> None:
     """Why `<think>` stripping is still earning its place, with vss-agent gone.
 
-    A Nemotron-family judge can close with its working rather than open with it. The
-    verdict is 0.9; the 0.2 it talked itself out of is on the last line, so a reverse
-    line scan would return it.
+    A reasoning judge can close with its working rather than open with it. The verdict
+    is 0.9; the 0.2 it talked itself out of is on the last line, so a reverse line scan
+    would return it.
     """
     score, _reasoning = parse_score("0.9\n<think>on reflection, not 0.2</think>")
     assert score == 0.9
@@ -344,6 +345,31 @@ def test_download_dataset_reports_a_failing_download(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="exit 7"):
         download_dataset(tmp_path / "ds", name="any-dataset", nvdataset_bin=str(failing), timeout_s=30)
+
+
+def test_run_bounded_gives_up_on_output_a_stray_writer_still_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reaping a killed child must be bounded, or the watchdog hangs the run itself.
+
+    Draining the pipes waits for EOF, which needs every writer closed. A grandchild
+    that starts its own session escapes the group kill and keeps stdout open, so an
+    unbounded drain would block until *it* exits -- here, long past the deadline.
+    """
+    monkeypatch.setattr(benchmark_vlm_qa, "WATCHDOG_REAP_S", 1)
+    escaping = tmp_path / "escaping-child"
+    escaping.write_text(
+        f"#!/bin/sh\nsetsid {sys.executable} -c 'import time; time.sleep(90)' &\nsleep 90\n",
+        encoding="utf-8",
+    )
+    escaping.chmod(0o755)
+
+    started = time.monotonic()
+    _rc, _stdout, _stderr, timed_out = run_bounded([str(escaping)], 2)
+    elapsed = time.monotonic() - started
+
+    assert timed_out
+    assert elapsed < 30, f"reap was not bounded: returned after {elapsed:.1f}s"
 
 
 def test_run_bounded_without_capture_still_reports_exit_status() -> None:
