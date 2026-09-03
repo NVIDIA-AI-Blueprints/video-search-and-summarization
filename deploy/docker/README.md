@@ -209,6 +209,47 @@ design. `services/alert/alert.env` addresses the alert-bridge process itself;
 the gateway ACL intentionally rejects. These are backend/service definitions,
 not agent defaults, and the endpoint lint excludes them.
 
+### The scheme the caller used
+
+Most of the contract needs no absolute URL: the ingresses run with
+`absolute_redirect off`, so their `Location` headers are relative and correct on
+whatever origin the caller arrived on. The agent is the exception. Starlette
+builds the trailing-slash redirect on `/static` out of the request itself, so it
+has to know the scheme — and where TLS terminates outside the deployment, the
+request that reaches HAProxy is plain HTTP. Emitting `http://` there is mixed
+content on an HTTPS page and the browser blocks it.
+
+HAProxy already tells the agent, with a normalised `X-Forwarded-Proto`. Whether
+the agent believes it is a separate decision, because uvicorn honours forwarded
+headers only from peers listed in `FORWARDED_ALLOW_IPS` — and its default,
+`127.0.0.1`, does not include the bridge address HAProxy connects from. Left
+alone, the header is silently discarded.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `VSS_AGENT_FORWARDED_ALLOW_IPS` | `127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` | Peers whose `X-Forwarded-Proto` the agent honours. |
+
+The default is the RFC1918 space Docker's address pools are drawn from, not one
+subnet, because the bridge subnet is assigned by the daemon and differs between
+hosts — a single CIDR would be right here and wrong on the next box, and the
+symptom of getting it wrong is the redirect quietly going back to `http`. Public
+peers are never trusted. **Only addresses and CIDRs work.** uvicorn compares
+this against the peer's numeric address, so a container name is accepted, never
+matches, and behaves exactly as if the variable were unset.
+
+Trusting a peer also means the agent takes its `X-Forwarded-For` as the client
+address in the access log, in place of the gateway's own. That is the intended
+gain — before this the log recorded HAProxy for every request — but it is why
+the set is worth scoping. Narrow it to the bridge's own CIDR where you know it,
+and narrow it if you publish the agent's port somewhere a caller can reach it
+without going through the gateway: such a caller can state its own scheme and
+client address. Nothing in the agent authorises on either, so the exposure is
+the access log and the URLs minted back to that caller, but it is real.
+
+A remote agent (below) is not behind this gateway, so its peers are whatever
+reaches it directly. Set the variable to the reverse proxy in front of it, or to
+`127.0.0.1` to honour nothing.
+
 ### Colocated and remote agents
 
 For a colocated agent, use the ordinary profile Compose files. The agent joins

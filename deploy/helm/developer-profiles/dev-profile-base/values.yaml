@@ -202,6 +202,12 @@ agent:
         value: '0.0.0.0'
       - name: VSS_AGENT_PORT
         value: '8000'
+      # These profiles replace the agent chart's env list wholesale, and Helm
+      # replaces lists rather than merging them, so the chart's default does
+      # not reach the pod from here. See the agent chart's values.yaml for why
+      # the agent has to be told which peers may state the client's scheme.
+      - name: FORWARDED_ALLOW_IPS
+        value: '{{ .Values.forwardedAllowIps | default "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" }}'
       # Nemotron Nano Omni: set to "true" with Omni model + HF_TOKEN.
       - name: ENABLE_AUDIO
         value: '{{ .Values.enableAudio | default "false" }}'

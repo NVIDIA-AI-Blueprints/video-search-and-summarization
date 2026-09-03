@@ -93,6 +93,9 @@ evalLlmJudgeBaseUrl: ""
 reportsBaseUrl: ""
 vssAgentExternalUrl: ""
 externalIp: ""
+# Peers whose X-Forwarded-Proto the agent honours. Empty keeps the RFC1918
+# default in the env list below; set the cluster's pod CIDR to narrow it.
+forwardedAllowIps: ""
 vstInternalIp: ""
 vssAgentVersion: "3.3.0-65576357eb80"
 lvsBackendService: ""
@@ -144,6 +147,17 @@ env:
   value: '0.0.0.0'
 - name: VSS_AGENT_PORT
   value: '8000'
+# Which peers the agent believes about the scheme the client used. uvicorn
+# installs ProxyHeadersMiddleware but trusts only 127.0.0.1, so the
+# X-Forwarded-Proto the ingress sets is discarded and Starlette's /static
+# trailing-slash redirect goes out as http:// -- mixed content behind a TLS
+# terminator. Pod IPs come from the cluster's pod CIDR, which is per-cluster,
+# so the default is the RFC1918 space that pod CIDRs are drawn from. Only IP
+# addresses and CIDRs work: uvicorn compares this against the peer's address,
+# so a Service name is accepted, silently never matches, and puts the redirect
+# back on http. Compose parity: deploy/docker/services/agent/compose.yml.
+- name: FORWARDED_ALLOW_IPS
+  value: '{{ .Values.forwardedAllowIps | default "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" }}'
 - name: LLM_MODE
   value: '{{- $g := .Values.global | default dict }}{{- $llm := (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim }}{{- if $llm }}remote{{- else }}local{{- end }}'
 - name: VLM_MODE
