@@ -12,7 +12,7 @@ The API is available at:
 * **REST API**: `http://<host>:38111`
 * **MCP Server**: `http://<host>:38112`
 
-If `VSS_API_ENABLE_VERSIONING` is enabled, all endpoints are prefixed with `/v1`.
+Endpoints listed below with a `/v1` prefix are always served at that path. The rest are served at the root by default and gain a `/v1` prefix when `VSS_API_ENABLE_VERSIONING` is enabled.
 
 ## Authentication
 
@@ -28,17 +28,17 @@ Authorization: Bearer <your-token>
 
 | Method | Endpoint | Summary |
 | --- | --- | --- |
-| `GET` | `/metrics` | Get LVS metrics |
+| `GET` | `/metrics` | Get Video Summarization MS metrics |
 
 ### Health Check
 
 | Method | Endpoint | Summary |
 | --- | --- | --- |
-| `GET` | `/v1/live` | Get LVS liveness status |
-| `GET` | `/v1/ready` | Get LVS readiness status |
-| `GET` | `/v1/startup` | Get LVS startup status |
-| `GET` | `/v1/healthz` | Get VIA service health status |
-| `GET` | `/v1/metadata` | Get LVS service metadata |
+| `GET` | `/v1/live` | Get Video Summarization MS liveness status |
+| `GET` | `/v1/ready` | Get Video Summarization MS readiness status |
+| `GET` | `/v1/startup` | Get Video Summarization MS startup status |
+| `GET` | `/v1/healthz` | Get service health status |
+| `GET` | `/v1/metadata` | Get Video Summarization MS service metadata |
 
 ### Models
 
@@ -53,12 +53,35 @@ Authorization: Bearer <your-token>
 | `POST` | `/v1/summarize` | Summarize a video file |
 | `POST` | `/summarize` | Summarize a video file |
 
+`/v1/summarize` is always registered. `/summarize` is served as well while
+`VSS_API_ENABLE_VERSIONING` is disabled, which is the default.
+
+Both reject a request with HTTP 422 when the media offsets are reversed
+(`start` later than `end`) or when `min_tokens` is greater than `max_tokens`.
+
 ### Stream
 
 | Method | Endpoint | Summary |
 | --- | --- | --- |
 | `POST` | `/v1/generate_captions` | Start stream captioning |
 | `POST` | `/v1/stream_summarize` | Summarize a stream |
+
+### Question Answering
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | Ask a question about a summarized video or stream |
+
+### Asset Management
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `DELETE` | `/assets/{asset_id}/index` | Delete the Elasticsearch index for an asset |
+
+Each summarization request creates one `default_<asset_id>` Elasticsearch index.
+Deleting the index for an asset that no longer needs its captions keeps a
+long-running deployment from exhausting the per-node shard cap. The call is
+idempotent, so a missing index is not an error.
 
 ### Recommended Config
 
