@@ -433,14 +433,14 @@ ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 
 > **NVENC-less GPUs (e.g. A100, H100, H200, GB200, GB300).** The video output from the perception container is encoded with the GPU's NVENC hardware
 > encoder by default (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). When `SAVE_VIDEO=1`,
-> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder
-> (`enc-type=1`) instead. First prepare the image once:
+> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder (`enc-type=1`) instead.
+> The stock image does not carry that encoder, so staging also prepares it: it runs DeepStream's `user_additional_install.sh` in a throwaway container, commits the result as `<tag>-swenc`, and points `PERCEPTION_TAG` at it. That takes a few minutes on first use and needs network access to the Ubuntu archives; afterwards it is a no-op. Staging refuses rather than writing a config that would fail at runtime for lack of an encoder.
+> The prepared image is local to that host, so a later `PERCEPTION_TAG` bump needs it again — staging notices and redoes it.
+> To prepare it on its own, or just to check:
 > ```bash
-> docker exec -it vss-rtvi-cv-mv3dt \
->   bash -c 'cd /opt/nvidia/deepstream/deepstream/ && bash user_additional_install.sh'   # install the software encoder
-> docker commit vss-rtvi-cv-mv3dt <your-image>:<tag>    # then set this image in docker/.env
+> ./scripts/prepare-sw-encoder.sh           # prepare and update docker/.env
+> ./scripts/prepare-sw-encoder.sh --check   # report only; exit 1 if the encoder is missing
 > ```
-> Then stage and launch normally.
 
 ### 6.3 BEV visualizer — live window
 

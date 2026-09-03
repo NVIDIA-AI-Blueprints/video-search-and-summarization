@@ -91,27 +91,48 @@ KAFKA_HOST="${KAFKA_BOOTSTRAP%%:*}"
 KAFKA_PORT_ONLY="${KAFKA_BOOTSTRAP##*:}"
 NVENC_LESS_GPU_NAME=""
 
-# /dev/v4l2-nvenc is a Tegra signal, not a dGPU signal. For dGPU hosts, only
-# switch when the selected GPU is a known encoder-less compute SKU.
-is_nvenc_less_gpu_name() {
-  local name="$1"
-  [[ "$name" =~ (^|[^[:alnum:]])(A100|H100|H200|GB200|GB300)([^[:alnum:]]|$) ]]
+# Which encoder [sink2] can use, asked of the hardware rather than a GPU name:
+# nvidia-smi reports encoder usage but never capability, and a name list misses
+# whatever ships next (a GB200 node reports its GPUs as B200). In order:
+# run DeepStream's encoder element in the image, then the Tegra encoder node,
+# then ffmpeg. If none can answer, staging refuses rather than guess.
+gpu_name() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  nvidia-smi --id="$GPU_DEVICE" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1
 }
 
-detect_nvenc_less_gpu() {
-  local name
+# Positive-only: present means an encoder exists, absent means nothing.
+TEGRA_ENCODER_NODE="${TEGRA_ENCODER_NODE:-/dev/v4l2-nvenc}"
+has_tegra_encoder_node() { [ -e "$TEGRA_ENCODER_NODE" ]; }
 
-  command -v nvidia-smi >/dev/null 2>&1 || return 1
+# Encoding proves the encoder exists; only "unsupported device" proves it does
+# not. Any other failure is inconclusive.
+ffmpeg_encoder_kind() {
+  command -v ffmpeg >/dev/null 2>&1 || { echo unknown; return; }
+  ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc || { echo unknown; return; }
+  local out
+  if out="$(ffmpeg -hide_banner -loglevel error -f lavfi -i nullsrc=s=256x256:d=0.1 \
+            -pix_fmt yuv420p -c:v h264_nvenc -f null - 2>&1)"; then
+    echo hardware; return
+  fi
+  if printf '%s' "$out" | grep -qi "unsupported device"; then echo software; return; fi
+  echo unknown
+}
 
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    if is_nvenc_less_gpu_name "$name"; then
-      NVENC_LESS_GPU_NAME="$name"
-      return 0
-    fi
-  done < <(nvidia-smi --id="$GPU_DEVICE" --query-gpu=name --format=csv,noheader 2>/dev/null || true)
-
-  return 1
+# echoes: hardware | software | unknown
+encoder_kind() {
+  local rc=0
+  # Cheap and local first: on Jetson this answers outright, so we never reach the
+  # probe, which would otherwise pull a multi-GB image onto a small disk.
+  has_tegra_encoder_node && { echo hardware; return; }
+  if [ -x "$ROOT/scripts/prepare-sw-encoder.sh" ]; then
+    "$ROOT/scripts/prepare-sw-encoder.sh" --probe-hw >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+      0)  echo hardware; return ;;
+      10) echo software; return ;;
+    esac
+  fi
+  ffmpeg_encoder_kind
 }
 
 STAGE="$ROOT/generated/configs"
@@ -169,6 +190,27 @@ print(" ".join(sorted(str(i) for i in ids if i)))
   exit 1
 }
 check_camera_consistency
+
+# enc-type=1 needs an encoder the stock image lacks. Settle it before staging so
+# a config known to fail at runtime is never written.
+ensure_sw_encoder() {
+  [ "$SAVE_VIDEO" = "1" ] || return 0
+  case "$(encoder_kind)" in
+    hardware) return 0 ;;
+    unknown)
+      { echo "ERROR: cannot tell whether this GPU has a hardware video encoder, and"
+        echo "       SAVE_VIDEO=1 needs that answer. Nothing was staged."
+        echo "       The check runs DeepStream's encoder in ${PERCEPTION_IMAGE:-the perception image};"
+        echo "       it needs docker, GPU access and that image on this host."; } >&2
+      exit 1 ;;
+  esac
+  NVENC_LESS_GPU_NAME="$(gpu_name || echo "this GPU")"
+  "$ROOT/scripts/prepare-sw-encoder.sh" && return 0
+  { echo "ERROR: SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} needs the software encoder and it"
+    echo "       could not be prepared. Nothing was staged."; } >&2
+  exit 1
+}
+ensure_sw_encoder
 
 # file-mode source URIs / sensor ids (file:///videos/<cam>.mp4), built from CAMS.
 URIS=""; IDS=""
@@ -330,9 +372,9 @@ set_ini sink1        msg-broker-conn-str "$KAFKA_HOST;$KAFKA_PORT_ONLY;$RAW_TOPI
 set_ini sink0 enable "$([ "$OSD" = 1 ] && echo 1 || echo 0)"          # on-screen OSD (needs a display)
 set_ini sink1 enable 1                                                # Kafka metadata sink
 set_ini sink2 enable "$([ "$SAVE_VIDEO" = 1 ] && echo 1 || echo 0)"   # grid file sink (SAVE_VIDEO)
-if [ "$SAVE_VIDEO" = "1" ] && detect_nvenc_less_gpu; then
+if [ "$SAVE_VIDEO" = "1" ] && [ -n "$NVENC_LESS_GPU_NAME" ]; then
   set_ini sink2 enc-type 1
-  echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; no NVENC hardware encoder available)"
+  echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; this GPU cannot encode in hardware)"
 fi
 
 # File input: static file:// [source-list], SEI extraction off, clips play once,
