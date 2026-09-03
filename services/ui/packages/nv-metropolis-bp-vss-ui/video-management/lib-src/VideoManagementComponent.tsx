@@ -110,7 +110,14 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     if (!enableVideoUpload) setShowVideos(false);
   }, [enableVideoUpload]);
 
-  const { streams, isLoading, error, refetch, waitUntilStreamsRemoved } = useStreams({ vstApiUrl });
+  const {
+    streams,
+    isLoading,
+    error,
+    refetch,
+    waitUntilStreamsRemoved,
+    waitUntilStreamAdded,
+  } = useStreams({ vstApiUrl });
   const {
     getEndTimeForStream,
     getTimelineRangeForStream,
@@ -421,6 +428,15 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const handleRtspDialogClose = () => {
     setIsRtspModalOpen(false);
   };
+
+  // VST accepts the add before its streams list includes the sensor. Hold the
+  // dialog open until the list agrees, so the grid it uncovers already shows
+  // the stream the user just added.
+  const handleAwaitRtspStream = useCallback(async (sensorId: string) => {
+    const result = await waitUntilStreamAdded(sensorId);
+    void refetchTimelinesRef.current();
+    return result;
+  }, [waitUntilStreamAdded]);
 
   const handleRtspSuccess = useCallback(() => {
     refetchRef.current();
@@ -801,6 +817,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           vstApiUrl={vstApiUrl}
           onClose={handleRtspDialogClose}
           onSuccess={handleRtspSuccess}
+          onAwaitStream={handleAwaitRtspStream}
         />
 
         <DeleteConfirmDialog

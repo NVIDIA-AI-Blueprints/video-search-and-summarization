@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Button, TextInput } from '@nvidia/foundations-react-core';
 import { parseApiError } from '../utils';
 import { addRtspStream } from '../rtspStream';
@@ -15,22 +15,40 @@ interface AddRtspDialogProps {
   vstApiUrl?: string | null;
   onClose: () => void;
   onSuccess?: () => void;
+  /**
+   * Polls VST until it lists the sensor the add call returned. The dialog stays
+   * open until this resolves, so it never closes on a stream the grid has yet
+   * to receive.
+   */
+  onAwaitStream?: (sensorId: string) => Promise<{ found: boolean }>;
   /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
   overlay?: 'viewport' | 'contained';
 }
+
+type SubmitPhase = 'idle' | 'adding' | 'confirming';
 
 export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   isOpen,
   vstApiUrl,
   onClose,
   onSuccess,
+  onAwaitStream,
   overlay = 'viewport',
 }) => {
   const [rtspUrl, setRtspUrl] = useState('');
   const [sensorName, setSensorName] = useState('');
   const [userEditedName, setUserEditedName] = useState(false); // Track if user manually edited the name
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phase, setPhase] = useState<SubmitPhase>('idle');
+  // Sensor VST accepted but has not listed yet. A retry must only resume the
+  // wait: re-sending the add would be rejected as a duplicate URL, which reads
+  // as a failure for a sensor that in fact exists.
+  const [acceptedSensorId, setAcceptedSensorId] = useState<string | null>(null);
+  // Bumped on close and on each submit, so an attempt whose wait outlives the
+  // dialog — or a superseded one — stops writing to it.
+  const attemptRef = useRef(0);
+
+  const isSubmitting = phase !== 'idle';
 
   const extractNameFromUrl = (url: string): string =>
     url.split('?')[0].split('/').filter((p) => p.trim()).pop() ?? '';
@@ -51,11 +69,13 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   };
 
   const handleClose = () => {
+    attemptRef.current += 1;
     setRtspUrl('');
     setSensorName('');
     setUserEditedName(false);
     setError(null);
-    setIsSubmitting(false);
+    setPhase('idle');
+    setAcceptedSensorId(null);
     onClose();
   };
 
@@ -77,13 +97,39 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
       return;
     }
 
+    attemptRef.current += 1;
+    const attempt = attemptRef.current;
+    const isCurrentAttempt = () => attemptRef.current === attempt;
+
     setError(null);
-    setIsSubmitting(true);
+    setPhase(acceptedSensorId ? 'confirming' : 'adding');
     try {
-      await addRtspStream(vstApiUrl!, { sensorUrl: trimmed, name: trimmedName });
+      let sensorId = acceptedSensorId;
+      if (!sensorId) {
+        const result = await addRtspStream(vstApiUrl!, { sensorUrl: trimmed, name: trimmedName });
+        if (!isCurrentAttempt()) return;
+        sensorId = result.sensorId;
+        setAcceptedSensorId(sensorId);
+        setPhase('confirming');
+      }
+
+      // VST returns the sensorId before the stream shows up in its listing.
+      // Closing here is what left the new camera out of the grid until the user
+      // refreshed or switched tabs.
+      const { found } = (await onAwaitStream?.(sensorId)) ?? { found: true };
+      if (!isCurrentAttempt()) return;
+
+      if (!found) {
+        setError(
+          'VST accepted the stream but has not listed it yet. Retry to check again.'
+        );
+        return;
+      }
+
       handleClose();
       onSuccess?.();
     } catch (err) {
+      if (!isCurrentAttempt()) return;
       // eslint-disable-next-line no-console
       console.error('Error adding RTSP sensor via VST API:', err);
       setError(
@@ -93,7 +139,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
         )
       );
     } finally {
-      setIsSubmitting(false);
+      if (isCurrentAttempt()) setPhase('idle');
     }
   };
 
@@ -102,8 +148,25 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const overlayClass =
     overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
 
+  // Closing mid-wait is safe — VST already holds the sensor and the poll keeps
+  // refreshing the grid — but closing mid-add would drop the sensorId the wait
+  // needs, leaving an added stream with nothing watching for it.
+  const canClose = phase !== 'adding';
+  const handleDismiss = () => {
+    if (canClose) handleClose();
+  };
+
+  const submitLabel =
+    phase === 'adding'
+      ? 'Adding...'
+      : phase === 'confirming'
+        ? 'Waiting for VST...'
+        : acceptedSensorId
+          ? 'Retry'
+          : 'Add RTSP';
+
   return (
-    <div className={overlayClass} onClick={handleClose}>
+    <div className={overlayClass} onClick={handleDismiss}>
       <div
         data-testid="add-rtsp-dialog"
         role="dialog"
@@ -135,7 +198,8 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
             </span>
           </div>
           <button
-            onClick={handleClose}
+            onClick={handleDismiss}
+            disabled={!canClose}
             aria-label="Close"
             className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700 dark:text-gray-400 dark:hover:text-white dark:hover:bg-neutral-700"
           >
@@ -155,6 +219,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
                 value={rtspUrl}
                 onValueChange={(val: string) => handleRtspUrlChange(val)}
                 placeholder="rtsp://cam-warehouse.example.com:554/warehouse/cam01"
+                disabled={isSubmitting}
               />
             </div>
             <p
@@ -177,11 +242,25 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
               placeholder="e.g. Warehouse Camera 01"
               required
               aria-required="true"
+              disabled={isSubmitting}
             />
           </div>
 
+          {phase === 'confirming' && (
+            <p
+              data-testid="add-rtsp-confirming"
+              className="text-sm text-gray-500 dark:text-gray-400"
+            >
+              Stream added. Waiting for VST to list it…
+            </p>
+          )}
+
           {error && (
-            <div className="max-h-24 overflow-auto rounded p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <div
+              role="alert"
+              data-testid="add-rtsp-error"
+              className="max-h-24 overflow-auto rounded p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+            >
               <p className="text-sm text-red-600 dark:text-red-400 break-words whitespace-pre-wrap">{error}</p>
             </div>
           )}
@@ -191,7 +270,8 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-600">
           <Button
             kind="secondary"
-            onClick={handleClose}
+            onClick={handleDismiss}
+            disabled={!canClose}
           >
             Cancel
           </Button>
@@ -200,7 +280,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Adding...' : 'Add RTSP'}
+            {submitLabel}
           </Button>
         </div>
       </div>

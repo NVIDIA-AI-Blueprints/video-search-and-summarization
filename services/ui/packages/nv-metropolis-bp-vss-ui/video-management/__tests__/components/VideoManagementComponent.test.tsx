@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { VideoManagementComponent } from '../../lib-src/VideoManagementComponent';
 import { videoStream, rtspStream } from '../helpers/streamFixtures';
 
@@ -64,10 +64,13 @@ const mockTimelines = new Map([
 let mockStreamsList = [videoStream, rtspStream];
 const mockRefetch = jest.fn(() => Promise.resolve());
 const mockWaitUntilStreamsRemoved = jest.fn(async () => ({ remainingSensorIds: [] as string[] }));
+const mockWaitUntilStreamAdded = jest.fn(async () => ({ found: true }));
+const mockAddRtspStream = jest.fn(() => Promise.resolve({ sensorId: 'sensor-new' }));
 const mockDeleteRtspStream = jest.fn(() => Promise.resolve({ status: 'success' }));
 const mockDeleteVideo = jest.fn(() => Promise.resolve({ status: 'success' }));
 
 jest.mock('../../lib-src/rtspStream', () => ({
+  addRtspStream: (...args: unknown[]) => mockAddRtspStream(...(args as [])),
   deleteRtspStream: (...args: unknown[]) => mockDeleteRtspStream(...(args as [])),
 }));
 
@@ -82,6 +85,7 @@ jest.mock('../../lib-src/hooks', () => ({
     error: null,
     refetch: mockRefetch,
     waitUntilStreamsRemoved: mockWaitUntilStreamsRemoved,
+    waitUntilStreamAdded: mockWaitUntilStreamAdded,
   }),
   useStorageTimelines: () => ({
     timelines: mockTimelines,
@@ -632,6 +636,80 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
 
     expect(mockDeleteRtspStream).toHaveBeenCalledTimes(1);
     expect(mockDeleteVideo).not.toHaveBeenCalled();
+  });
+});
+
+// Add RTSP used to close on VST's add response, which precedes the sensor
+// showing up in the streams listing — the grid was left without the camera the
+// user had just added until a manual refresh or a tab switch.
+describe('VideoManagementComponent — Add RTSP waits for VST to list the stream', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    mockAddRtspStream.mockResolvedValue({ sensorId: 'sensor-new' });
+    mockWaitUntilStreamAdded.mockResolvedValue({ found: true });
+  });
+
+  const addRtspButton = () => screen.getByRole('button', { name: '+ Add RTSP' });
+
+  async function submitRtsp() {
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+    fireEvent.change(screen.getByPlaceholderText(/^rtsp:\/\/cam-warehouse/), {
+      target: { value: 'rtsp://cam.example.com:554/cam01' },
+    });
+    // The toolbar's "+ Add RTSP" trigger stays in the DOM, so scope to the dialog
+    const dialog = within(screen.getByTestId('add-rtsp-dialog'));
+    await act(async () => {
+      fireEvent.click(dialog.getByRole('button', { name: 'Add RTSP' }));
+    });
+  }
+
+  it('polls the streams listing for the new sensor before closing the dialog', async () => {
+    renderComponent();
+    await submitRtsp();
+
+    expect(mockWaitUntilStreamAdded).toHaveBeenCalledWith('sensor-new');
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+  });
+
+  it('holds the dialog open while the listing has yet to catch up', async () => {
+    let settleWait: (value: { found: boolean }) => void = () => {};
+    mockWaitUntilStreamAdded.mockImplementationOnce(
+      () => new Promise<{ found: boolean }>((resolve) => { settleWait = resolve; }),
+    );
+
+    renderComponent();
+    await submitRtsp();
+
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('add-rtsp-confirming')).toBeInTheDocument();
+
+    await act(async () => {
+      settleWait({ found: true });
+    });
+
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the dialog open with a retry when the listing never catches up', async () => {
+    mockWaitUntilStreamAdded.mockResolvedValueOnce({ found: false });
+
+    renderComponent();
+    await submitRtsp();
+
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('add-rtsp-error')).toHaveTextContent('has not listed it yet');
+
+    // Retry re-polls the same accepted sensor instead of adding it again
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    });
+
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(1);
+    expect(mockWaitUntilStreamAdded).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
   });
 });
 
