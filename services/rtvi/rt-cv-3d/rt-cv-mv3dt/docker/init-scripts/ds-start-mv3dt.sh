@@ -165,9 +165,38 @@ PY
 MQTT_HOST=${MQTT_HOST:-localhost}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
+
+# MQTT is rewritten at every start, so docker/.env alone is enough. Kafka is
+# baked into the staged config, so an edit without a restage leaves the old
+# endpoint and the app retries a broker that is not there. Compare and report.
+kafka_endpoint_matches_env() {  # $1=staged main config
+  local cfg="$1" staged want_host want_port
+  [ -n "${KAFKA_BOOTSTRAP:-}" ] || return 0          # nothing to compare against
+  [ -f "$cfg" ] || return 0
+  staged="$(awk '/^[[:space:]]*\[/ { s = ($0 ~ /^[[:space:]]*\[sink1\]/) }
+                 s && /^[[:space:]]*msg-broker-conn-str[[:space:]]*=/ {
+                   sub(/.*=[[:space:]]*/, ""); print $1; exit }' "$cfg")"
+  [ -n "$staged" ] || return 0
+  want_host="${KAFKA_BOOTSTRAP%%:*}"
+  want_port="${KAFKA_BOOTSTRAP##*:}"
+  [ "$staged" = "${want_host};${want_port};${RAW_TOPIC:-mdx-raw}" ] && return 0
+
+  { echo "** ERROR: the staged Kafka endpoint does not match docker/.env."
+    echo "          staged  [sink1] msg-broker-conn-str = ${staged}"
+    echo "          .env    KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP} RAW_TOPIC=${RAW_TOPIC:-mdx-raw}"
+    echo "          Unlike MQTT, the Kafka endpoint is written into the staged config, so"
+    echo "          editing docker/.env is not enough. Restage, then bring the stack up:"
+    echo "            ./scripts/stage-configs.sh"
+    echo "          Starting now would retry a broker that is not there and then abort."; } >&2
+  return 1
+}
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
 APP_DIR="$(pwd)"
 CONFIG_DIR="${APP_DIR}/configs"
+
+if ! kafka_endpoint_matches_env "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
+  exit 1
+fi
 
 if ! osd_preflight "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
   { echo

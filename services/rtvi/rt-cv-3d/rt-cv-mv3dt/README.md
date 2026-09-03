@@ -206,10 +206,14 @@ COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
 
 ### 3.2 Option B — your own brokers
 
-If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env)
-and launch without `COMPOSE_PROFILES`:
+> **The two brokers propagate differently.** `MQTT_HOST`/`MQTT_PORT` are read by the container at every start, so editing `docker/.env` is enough for MQTT. The Kafka endpoint is written into `generated/configs/ds-main-config-mv3dt.txt` by `stage-configs.sh` and the configs are mounted read-only, so changing `KAFKA_BOOTSTRAP` without restaging leaves the old endpoint in place. Perception then retries a broker that is not there and aborts. The container checks the two against each other at startup and refuses with this remedy rather than failing that way, but restaging is what fixes it.
+
+If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env),
+**restage**, then launch without `COMPOSE_PROFILES`:
 
 ```bash
+./scripts/stage-configs.sh     # required: the Kafka endpoint is written into the staged config
+
 cd docker
 docker compose up -d
 
