@@ -45,11 +45,11 @@ message that names no key, which makes a hand-written config the hard case to de
 
 | Fallback | Entrypoints (worker keys read) | Effect of omitting a key |
 |---|---|---|
-| **none** | `Analytics2DApp` (2), `Analytics3DApp` (3), `PublicSafetyApp` (2), `SmartCityApp` (2) | **startup crash** |
+| **none** | `Analytics2DApp` (2), `Analytics3DApp` (3), `PublicSafetyApp` (2), `SmartCityApp` (1, +1 only when `inference.enable`) | **startup crash** |
 | `"0"` | `SearchAndAlertsApp` (3), `CompositeApp` (5) | processor silently not registered |
 
 This is why `SearchAndAlertsApp` and `CompositeApp` can be mode-switched by simply omitting counts, while the other
-four cannot. Note `Analytics2DApp` — **the default** — is in the crashing group, as is `Analytics3DApp` with one
+four cannot. `SmartCityApp`'s second key, `numWorkersForBehaviorClustering`, is read **only inside** the `if config.inference.enable:` branch, so with inference off (the shipped default) omitting it is harmless; `numWorkersForBehaviorCreation` is always required. Note `Analytics2DApp` — **the default** — is in the crashing group, as is `Analytics3DApp` with one
 extra key (`numWorkersForSpaceEstimation`) to miss.
 
 Every shipped config in `configs/` and every profile-shipped config sets the keys its entrypoint needs, so this only
