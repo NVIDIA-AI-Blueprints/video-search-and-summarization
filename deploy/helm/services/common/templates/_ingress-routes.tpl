@@ -40,6 +40,7 @@
     rewrite  none  -> forwarded with the prefix intact
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
+    anchored prepend ^ to the HAProxy rewrite source when true
 
   Ordering is the rendered order: /api/chat before /api, and the UI catch-all
   last. The HAProxy controller matches longest-prefix regardless, but keeping
@@ -93,6 +94,7 @@
   path: /storage
   pathType: Prefix
   rewrite: /vst/storage
+  anchored: true
 - key: va-mcp
   path: /va-mcp
   pathType: Prefix
@@ -211,8 +213,9 @@ true
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $row.path }} {{ $to | default "/" }}
+{{- $anchor := ternary "^" "" ($row.anchored | default false) }}
+{{ $anchor }}{{ $row.path }}/(.*) {{ $to }}/\1
+{{ $anchor }}{{ $row.path }} {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}

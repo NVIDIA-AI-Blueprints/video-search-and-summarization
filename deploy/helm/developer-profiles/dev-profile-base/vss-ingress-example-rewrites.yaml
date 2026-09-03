@@ -32,8 +32,8 @@ metadata:
   namespace: <NAMESPACE>
   annotations:
     haproxy.org/path-rewrite: |
-      /storage/(.*) /vst/storage/\1
-      /storage /vst/storage
+      ^/storage/(.*) /vst/storage/\1
+      ^/storage /vst/storage
       /rtvi-vlm/(.*) /\1
       /rtvi-vlm /
       /phoenix/(.*) /\1
