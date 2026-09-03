@@ -124,7 +124,7 @@ adds archive search and a separate NvStreamer host:
 | Agent readiness (K8s) | `vss configure check` reports the agent group; raw fallback `GET ${VSS_PUBLIC_URL}/api/v1/videos` — `/health` is not on search Ingress and `/openapi.json` is not a readiness endpoint |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list` |
 | Direct VLM (ask / report Mode A) | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` → `GET …/models`, `POST …/chat/completions` |
-| Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — edge guard denies PUT/DELETE, cluster-admin and two-segment mutating paths; POST still reaches ES |
+| Elasticsearch (host CLI) | `${VSS_PUBLIC_URL}/elasticsearch` — edge allowlist: queries (`GET`/`POST` `_search`, `_msearch`, `_count`, `_mget`, `_field_caps`), index metadata, `_cat/*`, `_cluster/health`, and `PUT vss-memory*/_doc/<id>`. Everything else is 403/405, `_bulk` and `_reindex` included |
 | RT-Embed / RT-CV (host CLI) | `${VSS_PUBLIC_URL}/rtvi-embed/v1`, `${VSS_PUBLIC_URL}/rtvi-cv/api/v1` |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate host, no `/vst` prefix |
 
