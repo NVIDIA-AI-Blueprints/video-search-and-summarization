@@ -35,6 +35,7 @@ NOTEBOOK_PARAMETERS: dict[str, tuple[str, ...]] = {
         "NEMOCLAW_MODEL",
         "COMPATIBLE_API_KEY",
     ),
+    "deploy_nemo_relay.ipynb": (),
     "deploy_vss_orchestrator.ipynb": (
         "NGC_CLI_API_KEY",
         "NVIDIA_API_KEY",

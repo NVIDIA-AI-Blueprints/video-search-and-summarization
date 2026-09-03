@@ -2,18 +2,18 @@ Third-Party Software Licenses
 ================================================================================
 
 This file contains the licenses and attributions for third-party software
-packages installed into the NemoClaw sandbox at deploy time by
-scripts/deploy_nemoclaw.ipynb.
+packages installed into the NemoClaw sandbox at deploy time by the optional
+scripts/deploy_nemo_relay.ipynb notebook.
 
-These packages are fetched from the npm registry when section 3.7 runs, which
-happens only when the operator sets RELAY_OBSERVABILITY=true. The section is
-off by default, so a deployment that does not opt in installs none of them.
-Because the install happens inside the sandbox rather than through a checked-in
-manifest, no lockfile in this repository lists them; this file is the record.
+These packages are fetched from the npm registry only when an operator runs
+that notebook with RELAY_OBSERVABILITY=true. The base NemoClaw notebook does
+not install them. Because the install happens inside the sandbox rather than
+through a checked-in manifest, no lockfile in this repository lists them; this
+file is the record.
 
 All packages below are published by NVIDIA from a single repository,
 https://github.com/NVIDIA/NeMo-Relay, under Apache-2.0, and pinned to 0.7.3 by
-the RELAY_RELEASE setting in section 1.3.
+the RELAY_RELEASE setting in deploy_nemo_relay.ipynb.
 
 ================================================================================
 
@@ -24,7 +24,7 @@ the RELAY_RELEASE setting in section 1.3.
    Registry: https://www.npmjs.com/package/nemo-relay-openclaw
    License URL: https://www.apache.org/licenses/LICENSE-2.0
    Description: OpenClaw plugin that exports agent session trajectories in ATIF
-   format. Installed directly by section 3.7.
+   format. Installed directly by deploy_nemo_relay.ipynb.
    Full License Text:
 
    See: https://www.apache.org/licenses/LICENSE-2.0
@@ -51,7 +51,7 @@ the RELAY_RELEASE setting in section 1.3.
    License URL: https://www.apache.org/licenses/LICENSE-2.0
    Description: Platform-specific native binding for nemo-relay-node, selected
    on x86_64 sandboxes. An optional dependency that `openclaw plugins install`
-   does not resolve, so section 3.7 installs it explicitly.
+   does not resolve, so deploy_nemo_relay.ipynb installs it explicitly.
    Full License Text:
 
    See: https://www.apache.org/licenses/LICENSE-2.0
