@@ -66,12 +66,13 @@ in `FOUNDATION_VARIANT`. The lists in scope are:
 `3d`, fed by a multi-camera tracker rather than single-view Sparse4D.
 
 **`auto-calibration` is a mode, not a size or a broker choice.** It pairs only
-with `BP_PROFILE=bp_wh_auto_calib`, and it *produces* a calibration for the chosen
-dataset instead of consuming a shipped one — so no `warehouse-auto-calibration-app`
-tree exists and the calibration-presence rule below does not apply to it. It also
-ships **without SDRC**: `init-dirs`, `render-config`, `wdm-env-from-config`,
-`wait-for-redis` and `sdr-controller` are absent by design, so the infrastructure
-floor for this mode is the common set only.
+with `BP_PROFILE=bp_wh_auto_calib`. It writes a calibration rather than reading
+one, so the calibration-presence rule below does not apply, and there is no
+`warehouse-auto-calibration-app` tree for a mode-embedded path to point at. It
+runs no perception and no broker, so `STREAM_TYPE` does not apply either. It
+ships without the SDRC chain — `init-dirs`, `render-config`,
+`wdm-env-from-config`, `wait-for-redis`, `sdr-controller` — so its
+infrastructure floor is the common set only.
 
 **Auto-calibration build requirements.** In `override.env`, restore the
 direct-VST defaults — `overrides.env` sets the SDRC trio for `2d`/`3d`/`mv3dt`,
@@ -110,7 +111,7 @@ only ([`../services/vios.md`](../services/vios.md)).
 |---|---|
 | RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d`. **`mv3dt` does not follow the `perception-<mode>` pattern**: it is two services, `vss-rtvi-cv-mv3dt` (per-camera tracking) and `vss-rtvi-cv-bev-fusion` (multi-view merge) |
 | Behavior Analytics | `vss-behavior-analytics-<mode>` |
-| Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` — `mv3dt` has no `-init` |
+| Configurator | `bp-configurator-<mode>` |
 | ELK | `kafka`, `kafka-topic-init-container`, `redis`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`, `kibana-init-container-<mode>` |
 | MQTT | `mosquitto` — **`mv3dt` lists only**; no 2d/3d list carries it (`MQTT_HOST_PORT` 1883) |
 | VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sensor-bp-wait-bp-configurator` |
@@ -353,7 +354,7 @@ browser-reachable origin that rewrites paths to internal services. The
 |---|---|---|
 | NvStreamer UI | `<HOST_IP>:31000` (`NVSTREAMER_HTTP_HOST_PORT`) | all variants; no ingress route |
 | VST UI | `<HOST_IP>:30888/vst/` (`VST_INGRESS_HOST_PORT`) | all variants; prefer `/vst/` via ingress |
-| SDR controller | `<HOST_IP>:10000` (`SDRC_PROXY_HOST_PORT`) | all variants |
+| SDR controller | `<HOST_IP>:10000` (`SDRC_PROXY_HOST_PORT`); also publishes 5003, 8011, 9902 | all except `auto-calibration`, which deploys none |
 | Elasticsearch | `<HOST_IP>:9200` (`ELASTICSEARCH_HOST_PORT`) | `bp_wh`, or extended Kafka/Redis |
 | Kibana | `<HOST_IP>:5601/kibana` (`KIBANA_HOST_PORT`) | same — served under `/kibana` either way |
 | Video Analytics API | `<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | same |
@@ -362,8 +363,7 @@ browser-reachable origin that rewrites paths to internal services. The
 | Auto-calibration API | `<HOST_IP>:8010/docs` (`VSS_AUTO_CALIBRATION_HOST_PORT`) | `auto-calibration` only; no ingress route |
 | Auto-calibration UI | `<HOST_IP>:5000` (`VSS_AUTO_CALIBRATION_UI_HOST_PORT`) | `auto-calibration` only; no ingress route |
 
-Nothing listens on `8001` — there is no VST MCP container. On `auto-calibration`
-nothing listens on `10000` either: that mode deploys no `sdr-controller`.
+Nothing listens on `8001` — there is no VST MCP container.
 
 > **A wrong `Host` header looks like "every path 404s".** HAProxy first denies
 > any request whose `Host` is not in its `known_host` ACL — `VSS_PUBLIC_HOST`,
