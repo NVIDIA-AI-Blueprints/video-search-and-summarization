@@ -83,7 +83,7 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
     }
   }, [vstApiUrl]);
 
-  const addFilter = (params?: any) => {
+  const addFilter = useCallback((params?: any) => {
     const paramsToUse = params || filterParams;
     const { startDate, endDate, videoSources, similarity, topK } = paramsToUse;
       
@@ -105,15 +105,17 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
       tags.push({key: 'topK', title: 'Show top K Results', value: topK.toString()});
     }
     setFilterTags(tags as any);
-  };
+  }, [filterParams]);
 
-  const removeFilterTag = (tag: any) => {
+  // Identity must stay stable across renders: consumers memoize on it, and a
+  // fresh function each render feeds back into Home's sidebar-controls state.
+  const removeFilterTag = useCallback((tag: any) => {
     if (!tag) {
       setFilterTags([{key: 'topK', title: 'Show top K Results', value: (filterParams.topK ?? DEFAULT_TOP_K).toString()}]);
     } else {
-      setFilterTags(filterTags.filter((t: any) => t !== tag));
+      setFilterTags((prev: any) => prev.filter((t: any) => t !== tag));
     }
-  };
+  }, [filterParams.topK]);
 
   const fetchData = useCallback(async () => {
     await fetchSensorList();

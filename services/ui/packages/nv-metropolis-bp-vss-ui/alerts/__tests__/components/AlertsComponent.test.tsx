@@ -17,7 +17,7 @@ import { render, screen } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 import { AlertsComponentProps } from '../../lib-src/types';
 
-// Mock @nvidia/foundations-react-core (Button, Select, Switch used by FilterControls)
+// Mock @nvidia/foundations-react-core (Button, Select, Switch, Tag, TextInput)
 jest.mock('@nvidia/foundations-react-core', () => {
   const React = require('react');
   return {
@@ -47,6 +47,17 @@ jest.mock('@nvidia/foundations-react-core', () => {
         checked,
         'data-foundation': 'Switch',
         onChange: (e: any) => onCheckedChange?.(e.target.checked),
+      }),
+    ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Tag', type: 'button' }, children),
+    ),
+    TextInput: React.forwardRef(({ onValueChange, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        'data-foundation': 'TextInput',
+        onChange: (e: any) => onValueChange?.(e.target.value),
       }),
     ),
   };

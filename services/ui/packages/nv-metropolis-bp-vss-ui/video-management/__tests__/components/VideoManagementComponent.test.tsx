@@ -701,3 +701,43 @@ describe('VideoManagementComponent — only one dialog at a time', () => {
     expect(lastUploadDialogProps.open).toBe(true);
   });
 });
+
+describe('VideoManagementComponent — left sidebar controls', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+  });
+
+  it('keeps the toolbar in the tab when the host app does not use the left sidebar', async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '+ Upload Video' })).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('video-management-sidebar-controls')).not.toBeInTheDocument();
+  });
+
+  it('moves the toolbar into onControlsReady instead of the tab header', async () => {
+    const onControlsReady = jest.fn();
+    renderComponent({ renderControlsInLeftSidebar: true, onControlsReady });
+
+    await waitFor(() => {
+      expect(onControlsReady).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByTestId('video-management-sidebar-controls')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Upload Video' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Selected' })).not.toBeInTheDocument();
+
+    const { controlsComponent } = onControlsReady.mock.calls[onControlsReady.mock.calls.length - 1][0];
+    render(<>{controlsComponent}</>);
+
+    expect(screen.getByTestId('video-management-sidebar-controls')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Upload Video' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add RTSP' })).toBeInTheDocument();
+    expect(screen.getByTestId('search-video-input')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Selected' })).toBeInTheDocument();
+    expect(screen.getByText('Display')).toBeInTheDocument();
+  });
+});
+
