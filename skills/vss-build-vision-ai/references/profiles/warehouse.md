@@ -5,8 +5,9 @@ end to end: what the Foundation is made of, what constrains it, how a build is
 resolved, and how the result is reached and verified. The rest of the skill's
 machinery applies unchanged by reference — see Build and resolve below.
 
-`overrides.env` defines further service lists; the fourteen `COMPOSE_PROFILES_WH_*`
-lists below are supported. The others are out of scope for this skill — do not compose or deploy them.
+`overrides.env` defines further service lists; the `COMPOSE_PROFILES_WH_*` lists
+in the table below are supported. The others are out of scope for this skill —
+do not compose or deploy them.
 
 **Warehouse is variant selection, not composition.** Pick the one
 `COMPOSE_PROFILES_WH_*` list that `MODE` + `BP_PROFILE` + size identify, expand
@@ -48,7 +49,7 @@ Resolve block below instead.
 Authoritative source:
 `deploy/docker/industry-profiles/warehouse-operations/overrides.env`. Select one
 list by variant; expand it verbatim into `COMPOSE_PROFILES` and record its name
-in `FOUNDATION_VARIANT`. Fourteen of the file's lists are in scope:
+in `FOUNDATION_VARIANT`. The lists in scope are:
 
 | `MODE` | `BP_PROFILE` | Extended list | Minimal list |
 |---|---|---|---|
