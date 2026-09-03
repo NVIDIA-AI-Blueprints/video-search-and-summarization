@@ -1344,6 +1344,8 @@ jobs:
         run: |
           python3 .github/scripts/check_agent_http_endpoints.py
           python3 .github/scripts/test_check_agent_http_endpoints.py
+          python3 .github/scripts/check_public_origin_split.py
+          python3 .github/scripts/test_check_public_origin_split.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_ingress_rewrites.py
