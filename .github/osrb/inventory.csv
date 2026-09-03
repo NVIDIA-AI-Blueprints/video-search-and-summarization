@@ -2572,7 +2572,7 @@ nvcr.io/nvidia/deepstream,rtvi_ds9.1plus-triton,UNKNOWN,services/rtvi/rt-cv,cont
 nvcr.io/nvidia/distroless/node,22-v4.1.2,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.2-dev,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/python,3.13-v3.1.10,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.13-v4.1.2,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,container,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-base,Unknown

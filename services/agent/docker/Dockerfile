@@ -94,32 +94,11 @@ RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/cv2 \
            -o -name 'libde265*.so*' -o -name 'libopenh264*.so*' -o -name 'libkvazaar*.so*' \
        \) -delete 2>/dev/null || true
 
-# Security patch stage - download patched runtime libraries
-# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.20-1~deb12u2
-# CVE-2026-34743: Upgrade liblzma5 to 5.4.1-1+deb12u1
-# (bumped from 3.0.19-1~deb12u2, which Debian rotated out of the security pool — the
-#  pinned URL started returning 404 and broke the image build).
-FROM debian:bookworm AS security-patches
-ARG TARGETARCH
-
-# Download the patched libssl3 package for the target architecture
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget ca-certificates liblzma5 && \
-    mkdir -p /patches && \
-    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' liblzma5)" ge "5.4.1-1+deb12u1" && \
-    dpkg-query -s liblzma5 > /patches/liblzma5.status && \
-    cp /var/lib/dpkg/info/liblzma5*.md5sums /patches/liblzma5.md5sums && \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_amd64.deb; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget --max-redirect=0 -O /patches/libssl3.deb https://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.20-1~deb12u2_arm64.deb; \
-    fi && \
-    cd /patches && \
-    dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
-    rm -rf /var/lib/apt/lists/*
-
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
-FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.10 AS runtime
+# 3.13-v4.1.2 is the latest NGC tag (Debian 13 / OpenSSL 3.5.7, Go 1.26.6). The prior
+# bookworm security-patches stage is removed: it targeted Debian 12 libssl3/liblzma5 and
+# must not be overlaid onto the v4 base.
+FROM nvcr.io/nvidia/distroless/python:3.13-v4.1.2 AS runtime
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
@@ -144,21 +123,6 @@ RUN ["/usr/local/bin/python3", "-c", "import os; os.remove('/tmp/cleanup_vulnera
 # libssl3.so/libcrypto.so shared libraries, not the CLI tool. This eliminates Grype
 # findings for CVE-2025-15467, CVE-2025-69419, CVE-2025-69420, CVE-2025-69421 etc.
 RUN ["/usr/local/bin/python3", "-c", "import os; os.path.exists('/usr/bin/openssl') and os.remove('/usr/bin/openssl')"]
-
-# Copy patched OpenSSL libraries to fix CVE-2025-69419, CVE-2025-69420, CVE-2025-15467
-# These replace the base image libssl3 with 3.0.19-1~deb12u2
-# Copy directly to architecture-specific paths where the runtime image expects them
-COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/x86_64-linux-gnu/
-COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/aarch64-linux-gnu/
-COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libcrypto.so.* /usr/lib/x86_64-linux-gnu/
-COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libcrypto.so.* /usr/lib/aarch64-linux-gnu/
-
-# Replace liblzma and its package metadata so runtime scanners identify the
-# patched Debian package rather than the vulnerable distroless-base version.
-COPY --from=security-patches /usr/lib/*-linux-gnu*/liblzma.so.* /usr/lib/x86_64-linux-gnu/
-COPY --from=security-patches /usr/lib/*-linux-gnu*/liblzma.so.* /usr/lib/aarch64-linux-gnu/
-COPY --from=security-patches /patches/liblzma5.status /var/lib/dpkg/status.d/liblzma5
-COPY --from=security-patches /patches/liblzma5.md5sums /var/lib/dpkg/status.d/liblzma5.md5sums
 
 # Copy application without any dev needs
 COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
