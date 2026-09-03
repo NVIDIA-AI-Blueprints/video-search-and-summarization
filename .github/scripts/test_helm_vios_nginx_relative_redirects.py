@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Regression tests for relative redirects in the Helm VIOS nginx ingress."""
+"""Regression tests for relative redirects in the Helm VIOS nginx ingress.
+
+Scoped to what is specific to the Helm path: that the profiles which ship this
+ConfigMap are all enumerated, that each resolves to this one template rather
+than a vendored copy, and that real `helm template` output carries the
+directive where helm is installed.
+
+The repo-wide invariant -- that no nginx config anywhere may emit an absolute
+Location -- belongs to check_nginx_relative_redirects.py, which discovers
+configs by content and covers the compose variants and the benchmark media
+server as well. Asserting it here too would mean a compose-only regression
+failed a Helm-named test and sent the reader to the wrong file.
+"""
 from __future__ import annotations
 
 import re
@@ -245,28 +257,6 @@ class HelmViosNginxRelativeRedirectTest(unittest.TestCase):
             tuple(part for part in scope if not part.startswith("if ")),
         )
         self.assertEqual("off", governing_absolute_redirect(config, scope))
-
-    def test_helm_ingress_keeps_the_guarantee_the_other_configs_already_make(self):
-        """Parity: no VIOS nginx config may emit an absolute /vst Location.
-
-        The HAProxy gateway rewrites this redirect for its /vios alias and says
-        so in deploy/docker/services/infra/haproxy/haproxy.cfg.template -- it
-        matches on `^/vst(/.*)?$`, which an absolutised Location does not. The
-        compose configs hold that up already; the Helm one is on the same
-        contract and this is the test that says so for all of them at once.
-        """
-        configs = sorted(
-            path
-            for pattern in ("*.conf", "*.conf.template")
-            for path in REPO_ROOT.rglob(pattern)
-            if VST_REDIRECT in path.read_text()
-        )
-        self.assertIn(NGINX_TEMPLATE, configs)
-        for path in configs:
-            with self.subTest(config=path.relative_to(REPO_ROOT)):
-                config = render_locally(path)
-                scope = vst_redirect_scope(config)
-                self.assertEqual("off", governing_absolute_redirect(config, scope))
 
 
 if __name__ == "__main__":
