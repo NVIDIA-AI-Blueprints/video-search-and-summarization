@@ -1817,8 +1817,7 @@ run_dry_run_up_and_check_generated_env "generated.env Base defaults to Nemotron 
  -i 127.0.0.1 -H H100 -d -- \
   "HARDWARE_PROFILE" "H100" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
-  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
-  "VSS_RT_VLM_TAG" '"3.3.0-26.08.2"'
+  "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
 for _nemotron_3_5_env in \
   "${REPO_ROOT}"/deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-*.env; do
