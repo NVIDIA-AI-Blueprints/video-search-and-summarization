@@ -20,12 +20,35 @@ _UUID = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
 # ---------------------------------------------------------------- index select
 
 
-def test_select_index_video_file():
-    assert h.select_search_index("video_file", video_embed_index="vi", video_embed_index_wildcard="w-*") == "vi"
+def test_select_index_video_file_uses_pinned_base():
+    assert (
+        h.select_search_index(
+            "video_file",
+            video_embed_index="mdx-embed-filtered-2025-01-01",
+            video_embed_index_wildcard="mdx-embed-filtered-*",
+        )
+        == "mdx-embed-filtered-2025-01-01"
+    )
 
 
-def test_select_index_rtsp():
-    assert h.select_search_index("rtsp", video_embed_index="vi", video_embed_index_wildcard="w-*") == ["w-*", "-vi"]
+def test_select_index_rtsp_subtracts_base_from_wildcard():
+    assert h.select_search_index(
+        "rtsp",
+        video_embed_index="mdx-embed-filtered-2025-01-01",
+        video_embed_index_wildcard="mdx-embed-filtered-*",
+    ) == [
+        "mdx-embed-filtered-*",
+        "-mdx-embed-filtered-2025-01-01",
+    ]
+
+
+def test_select_index_unknown_source_type_raises():
+    with pytest.raises(ValueError, match="Unsupported source_type"):
+        h.select_search_index(
+            "bogus",
+            video_embed_index="mdx-embed-filtered-2025-01-01",
+            video_embed_index_wildcard="mdx-embed-filtered-*",
+        )
 
 
 # (escaping + video_sources filter now live in _internal/es_filters.py and are
@@ -112,20 +135,21 @@ def test_compute_k_value(top_k, min_cos, has_filters, expected):
     )
 
 
-def test_build_es_query_unfiltered():
+def test_build_es_query_unfiltered_uses_top_k_without_overfetch():
+    # No video_sources/description/timestamp -> bare nested query, no overfetch.
     inp = EmbedSearchInput(query="q", source_type="video_file", top_k=4)
     body = h.build_es_query(inp, [0.1, 0.2], default_max_results=100)
+    assert "bool" not in body["query"]
     assert body["size"] == 4
-    assert body["query"]["nested"]["query"]["knn"]["k"] == 4
     assert body["query"]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2]
 
 
-def test_build_es_query_filtered():
-    inp = EmbedSearchInput(query="q", source_type="video_file", top_k=2, description="warehouse")
+def test_build_es_query_with_filter_overfetches():
+    # A real filter (a video-source term) may discard hits, so k overfetches (top_k * 5).
+    inp = EmbedSearchInput(query="q", source_type="video_file", top_k=2, video_sources=[_UUID])
     body = h.build_es_query(inp, [0.1], default_max_results=100)
-    # filters -> overfetch (2 * 5)
     assert body["size"] == 10
-    assert "filter" in body["query"]["bool"]
+    assert body["query"]["bool"]["filter"][0] == {"terms": {"sensor.id.keyword": [_UUID]}}
 
 
 # ---------------------------------------------------------------- scoring

@@ -129,7 +129,10 @@ done
 # 0 streams with every container healthy, so fail here rather than at runtime.
 # ---------------------------------------------------------------------------
 case ",$COMPOSE_PROFILES," in
-  *,nvstreamer-2d,*|*,nvstreamer-3d,*)
+  # Every warehouse mode, not just 2d/3d: mv3dt and auto-calibration consume the
+  # same bundle. Enumerated rather than globbed -- nvstreamer-alerts/-base/-lvs/
+  # -video are developer profiles with a different data layout and no playback/.
+  *,nvstreamer-2d,*|*,nvstreamer-3d,*|*,nvstreamer-mv3dt,*|*,nvstreamer-amc,*)
     DATASET="$(sed -n 's/^SAMPLE_VIDEO_DATASET=//p' "$ENV_FILE" | tr -d '"')"
     wh_fail=0
     for d in videos models playback data_log; do
@@ -188,14 +191,15 @@ volumes.
 
 For `warehouse`, **`${VSS_DATA_DIR}` is not a directory you create — it *is* the
 extracted app-data bundle.** Point it at `<extract>/vss-warehouse-app-data`, the
-inner directory holding `videos/`, `playback/`, `models/` and `data_log/`.
+inner directory holding `videos/`, `playback/`, and `data_log/`.
 
 The whole bundle is a **read-only input**: `mkdir` cannot substitute for missing
 content, and an empty `videos/` turns a clear "no app data" failure into a
 zero-streams symptom. Treat it as a **blocking presence check**, not part of the
 `required=()` list above — run it *before* any `docker compose up`.
 
-When `COMPOSE_PROFILES` contains an `nvstreamer-2d` or `nvstreamer-3d` key,
+When `COMPOSE_PROFILES` contains a warehouse nvstreamer key — `nvstreamer-2d`,
+`nvstreamer-3d`, `nvstreamer-mv3dt` or `nvstreamer-amc` (auto-calibration) —
 verify before deploying:
 
 ```bash

@@ -1,12 +1,17 @@
 # Deployment Reference: VIOS
 
-> **Deploy VIOS in SDRC-routed mode.**
+> **Choose the routing mode first.**
 >
-> **SDRC routing** (`VST_USE_SDRC=true`; `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:10000`): sensor → `sdr-controller`'s Envoy listener on `:10000` → streamprocessing on `:30001`, with the SDRC controller + 5 init containers from [`services/infra/sdrc/`](../../../../deploy/docker/services/infra/sdrc/) on top of the VIOS core. It carries WDM-routed RTSP camera registration + recording.
+> | Mode | When | Wiring |
+> |---|---|---|
+> | **Direct** | `VST_USE_SDRC=false` — the `vst.env` default | `STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001`; ingress `nginx-vst.conf`; **no** `sdr-controller` / SDRC init chain. |
+> | **SDRC** | `VST_USE_SDRC=true` — opt-in, for multi-worker stream placement | `STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000`; ingress `nginx-vst-sdrc.conf` → Envoy `:10000`; SDRC controller + 5 init containers from [`services/infra/sdrc/`](../../../../deploy/docker/services/infra/sdrc/). |
 >
-> **Ingress mounts the SDRC nginx config.** `vss-vios-ingress` mounts [`deploy/docker/services/vios/configs/nginx-vst-sdrc.conf`](../../../../deploy/docker/services/vios/configs/nginx-vst-sdrc.conf) — it proxies `/vst/api/v1/` and `/vst/storage/` (and the `/replay/.../picture` path) to **`sdr-controller:10000`** (the SDRC Envoy listener) and `/vst/api/v1/sensor/` to **`vss-vios-sensor:30000`**, all by **container hostname**. Because the SDRC conf resolves peers by hostname, the ingress joins the compose docker network (not `network_mode: host`), so `sdr-controller` and `vss-vios-sensor` resolve.
+> Read the mode off the profile — `VST_USE_SDRC` in its `.env` (Docker) or `global.vios.useSdrc` (Helm) — not off a profile list. Docker and Helm can differ for the same profile: **Docker search is direct, Helm search is SDRC-routed.** Per-profile pages: [`vss-build-vision-ai/references/profiles/`](../../../vss-build-vision-ai/references/profiles/).
 >
-> The rest of this runbook documents the SDRC deploy. It replaces the deprecated `vss-vios-sdr` + `vss-vios-envoy` pair (`sdr:3.1.0` + `envoy-proxy:3.1.0`) that earlier 3.1 builds used for all profiles.
+> **This runbook documents the SDRC deploy.** For direct mode, deploy the VIOS core only (`centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms`) and skip every SDRC section below. SDRC replaces the deprecated `vss-vios-sdr` + `vss-vios-envoy` pair (`sdr:3.1.0` + `envoy-proxy:3.1.0`).
+>
+> **SDRC ingress mounts.** `vss-vios-ingress` mounts [`nginx-vst-sdrc.conf`](../../../../deploy/docker/services/vios/configs/nginx-vst-sdrc.conf) — proxies `/vst/api/v1/` and `/vst/storage/` (and `/replay/.../picture`) to **`sdr-controller:10000`** and `/vst/api/v1/sensor/` to **`vss-vios-sensor:30000`**, by **container hostname**. Ingress joins the compose network so those hostnames resolve.
 
 ## Container Image
 
@@ -121,7 +126,7 @@ mkdir -p ${SDR_CONTROLLER_CONFIG_PATH}/configs
   - `vss-vios-sensor`: `Sensor Management Service started on :30000` (or equivalent).
   - `vss-vios-streamprocessing`: `Stream Processing Service started`.
   - `sdrc-render-config`: `render-config: rendered N template(s)` then exit 0 (visible via `docker logs sdrc-render-config`).
-  - `sdr-controller`: WDM workload-add log line for the `docker-workload-streamprocessing` entry — confirms the Envoy LDS/CDS has been pushed and `/sensor/add` → `localhost:10000` → streamprocessing-ms will succeed.
+  - `sdr-controller`: WDM workload-add log line for the `docker-workload-streamprocessing` entry — confirms the Envoy LDS/CDS has been pushed and `/sensor/add` → `sdr-controller:10000` → streamprocessing-ms will succeed.
 
 ## Environment Variables — Required for Upload-to-Caption Path
 
