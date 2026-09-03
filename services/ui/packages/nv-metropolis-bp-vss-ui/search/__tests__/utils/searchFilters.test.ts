@@ -72,6 +72,31 @@ describe('applySearchResultFilters', () => {
     );
     expect(filtered.map((r) => r.video_name)).toEqual(['late.mp4']);
   });
+
+  it('keeps segments overlapping the window at either boundary', () => {
+    const results = [
+      // Starts before the window, ends inside it.
+      clip({ video_name: 'straddles-start.mp4', start_time: '2024-06-01T08:50:00', end_time: '2024-06-01T09:10:00' }),
+      // Starts inside the window, ends after it.
+      clip({ video_name: 'straddles-end.mp4', start_time: '2024-06-01T09:50:00', end_time: '2024-06-01T10:10:00' }),
+      // Spans the whole window.
+      clip({ video_name: 'spans.mp4', start_time: '2024-06-01T08:00:00', end_time: '2024-06-01T11:00:00' }),
+      clip({ video_name: 'before.mp4', start_time: '2024-06-01T07:00:00', end_time: '2024-06-01T07:30:00' }),
+      clip({ video_name: 'after.mp4', start_time: '2024-06-01T12:00:00', end_time: '2024-06-01T12:30:00' }),
+    ];
+
+    const filtered = applySearchResultFilters(
+      results,
+      { startDate: new Date(2024, 5, 1, 9, 0, 0), endDate: new Date(2024, 5, 1, 10, 0, 0) },
+      streams,
+    );
+
+    expect(filtered.map((r) => r.video_name)).toEqual([
+      'straddles-start.mp4',
+      'straddles-end.mp4',
+      'spans.mp4',
+    ]);
+  });
 });
 
 describe('buildSearchFilterChatContext', () => {
