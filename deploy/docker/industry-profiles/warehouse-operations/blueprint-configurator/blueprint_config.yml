@@ -405,7 +405,7 @@ commons:
       - sparse4d_anchor_file: '"/opt/storage/sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "/opt/storage/sparse4d/_ov_kmeans900_v3.0_r50.npy"'
       - sparse4d_anchor_source: '"_ov_kmeans900_v2.3_r50.npy" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "_ov_kmeans900_v3.0_r50.npy"'
       - sparse4d_anchor_destination: '"sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "sparse4d/_ov_kmeans900_v3.0_r50.npy"'
-      - sparse4d_model: '"nvidia/tao/sparse4d_rn50:deployable_v2.3" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "nvidia/tao/sparse4d_rn50:deployable_v3.0"'
+      - sparse4d_model: '"nvstaging/tao/sparse4d_rn50:deployable_v2.3" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "nvstaging/tao/sparse4d_rn50:deployable_v3.0"'
       - sparse4d_model_source: '"sparse4d_warehouse_v2.3_r50.onnx" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "sparse4d_warehouse_v3.0_r50.onnx"'
       - sparse4d_model_destination: '"sparse4d/sparse4d_warehouse_v2.3.onnx" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "sparse4d/sparse4d_warehouse_v3.0.onnx"'
 
