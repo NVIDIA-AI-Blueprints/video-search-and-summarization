@@ -67,7 +67,7 @@ Foundation-specific alias or a second API instance.
 | `VSS_DATA_DIR` | Resolve the optional persistent files mount. |
 
 The API loads JSON through `--config`; the stock Compose command mounts
-`$VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`.
+`services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`.
 That file controls `server.port`, Elasticsearch (`node`, index prefix/pattern,
 retries), Kafka brokers/retries, and application settings such as body-size and
 config-ack timeouts. Keep `server.configs[].value` values as strings. The
