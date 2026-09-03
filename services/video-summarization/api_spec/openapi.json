@@ -12,7 +12,7 @@
   "servers": [
     {
       "url": "/",
-      "description": "LVS microservice local endpoint.",
+      "description": "Video Summarization MS local endpoint.",
       "x-internal": false
     }
   ],
@@ -22,8 +22,8 @@
         "tags": [
           "Metrics"
         ],
-        "summary": "Get LVS metrics",
-        "description": "Get LVS metrics in prometheus format.",
+        "summary": "Get Video Summarization MS metrics",
+        "description": "Get Video Summarization MS metrics in prometheus format.",
         "operationId": "metrics_metrics_get",
         "responses": {
           "200": {
@@ -82,8 +82,8 @@
         "tags": [
           "Health Check"
         ],
-        "summary": "Get LVS liveness status",
-        "description": "Get LVS liveness status (v1 endpoint).",
+        "summary": "Get Video Summarization MS liveness status",
+        "description": "Get Video Summarization MS liveness status (v1 endpoint).",
         "operationId": "v1_live_probe_v1_live_get",
         "responses": {
           "200": {
@@ -142,8 +142,8 @@
         "tags": [
           "Health Check"
         ],
-        "summary": "Get LVS readiness status",
-        "description": "Get LVS readiness status (v1 endpoint). Returns 503 when a required dependency (e.g. RTVI VLM) is unavailable.",
+        "summary": "Get Video Summarization MS readiness status",
+        "description": "Get Video Summarization MS readiness status (v1 endpoint).",
         "operationId": "v1_ready_probe_v1_ready_get",
         "responses": {
           "200": {
@@ -212,8 +212,8 @@
         "tags": [
           "Health Check"
         ],
-        "summary": "Get LVS startup status",
-        "description": "Get LVS startup status (v1 endpoint).",
+        "summary": "Get Video Summarization MS startup status",
+        "description": "Get Video Summarization MS startup status (v1 endpoint).",
         "operationId": "v1_startup_probe_v1_startup_get",
         "responses": {
           "200": {
@@ -280,28 +280,42 @@
             "description": "Successful Response.",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "ok"
-                    },
-                    "version": {
-                      "type": "string",
-                      "example": "3.2.0-rc1"
-                    }
-                  },
-                  "required": [
-                    "status",
-                    "version"
-                  ]
-                }
+                "schema": {}
               }
             }
           },
           "500": {
             "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limiting exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Failed to process request.",
             "content": {
               "application/json": {
                 "schema": {
@@ -318,8 +332,8 @@
         "tags": [
           "Health Check"
         ],
-        "summary": "Get LVS service metadata",
-        "description": "Get LVS service metadata information.",
+        "summary": "Get Video Summarization MS service metadata",
+        "description": "Get Video Summarization MS service metadata information.",
         "operationId": "v1_metadata_v1_metadata_get",
         "responses": {
           "200": {
@@ -424,190 +438,6 @@
           },
           "422": {
             "description": "Failed to process request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/summarize": {
-      "post": {
-        "tags": [
-          "Summarization"
-        ],
-        "summary": "Summarize a video file",
-        "description": "Run video file summarization. For stream summarization use POST /v1/generate_captions and POST /v1/stream_summarize instead.",
-        "operationId": "summarize_v1_summarize_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SummarizationQuery"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CompletionResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request. The server could not understand the request due to invalid syntax.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Failed to process request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limiting exceeded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Server is busy processing another file. Client may try again in some time.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/summarize": {
-      "post": {
-        "tags": [
-          "Summarization"
-        ],
-        "summary": "Summarize a video file",
-        "description": "Run video file summarization. For stream summarization use POST /v1/generate_captions and POST /v1/stream_summarize instead.",
-        "operationId": "summarize_summarize_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SummarizationQuery"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CompletionResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request. The server could not understand the request due to invalid syntax.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Failed to process request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limiting exceeded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LvsError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Server is busy processing another file. Client may try again in some time.",
             "content": {
               "application/json": {
                 "schema": {
@@ -793,6 +623,350 @@
         }
       }
     },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Ask a question about a summarized video/stream",
+        "description": "QA over a previously summarized video or stream. The asset must have been processed with enable_qa=true so that the knowledge was built. Sends the last user message as the question to the retriever function.",
+        "operationId": "chat_completions_v1_chat_completions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request. The server could not understand the request due to invalid syntax.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Failed to process request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limiting exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/summarize": {
+      "post": {
+        "tags": [
+          "Summarization"
+        ],
+        "summary": "Summarize a video file",
+        "description": "Run video file summarization.",
+        "operationId": "summarize_v1_summarize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SummarizationQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request. The server could not understand the request due to invalid syntax.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Failed to process request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limiting exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Server is busy processing another file. Client may try again in some time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/summarize": {
+      "post": {
+        "tags": [
+          "Summarization"
+        ],
+        "summary": "Summarize a video file",
+        "description": "Run video file summarization.",
+        "operationId": "summarize_summarize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SummarizationQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request. The server could not understand the request due to invalid syntax.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Failed to process request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limiting exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Server is busy processing another file. Client may try again in some time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/{asset_id}/index": {
+      "delete": {
+        "tags": [
+          "Summarization"
+        ],
+        "summary": "Delete Elasticsearch index for an asset",
+        "description": "Drop the per-asset Elasticsearch index (`default_<asset_id>`) created during summarization. Prevents shard-cap exhaustion when many assets are summarized without being explicitly cleaned up. Idempotent on a missing index. Returns `deleted=false` when CA-RAG is disabled.",
+        "operationId": "delete_asset_index_assets__asset_id__index_delete",
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Asset ID whose Elasticsearch index should be deleted.",
+              "title": "Asset Id",
+              "maxLength": 36,
+              "minLength": 36
+            },
+            "description": "Asset ID whose Elasticsearch index should be deleted."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteIndexResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limiting exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Failed to process request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recommended_config": {
       "post": {
         "tags": [
@@ -878,91 +1052,127 @@
   },
   "components": {
     "schemas": {
-      "ChatCompletionMessageAlertTool": {
+      "ChatCompletionQuery": {
         "properties": {
-          "name": {
+          "id": {
             "type": "string",
-            "maxLength": 256,
-            "pattern": "^[A-Za-z0-9_.\\-\"\\' ,]*$",
-            "title": "Name",
-            "description": "Name for the alert that was triggered."
+            "format": "uuid",
+            "title": "Id",
+            "description": "Stream or video file UUID (must have been previously summarized with enable_qa=true).",
+            "examples": [
+              "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            "maxLength": 36,
+            "minLength": 36
           },
-          "ntpTimestamp": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Messages",
+            "description": "Chat messages. The last user message is sent as the question."
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(.|\\n)*$",
+            "title": "Model",
+            "description": "Model to use for this query.",
+            "examples": [
+              "cosmos-reason1"
+            ]
+          },
+          "max_tokens": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 24,
-                "minLength": 24,
-                "pattern": "^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(\\.\\d{3})?Z$"
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Ntptimestamp",
-            "description": "NTP timestamp of when the event occurred (for live-streams).",
+            "format": "int32",
+            "title": "Max Tokens",
+            "description": "Maximum tokens to generate.",
             "examples": [
-              "2024-05-30T01:41:25.000Z"
+              512
             ]
           },
-          "offset": {
-            "type": "integer",
-            "maximum": 4000000.0,
-            "minimum": 0.0,
-            "format": "int64",
-            "title": "Offset",
-            "description": "Offset in seconds in the video file when the event occurred (for files).",
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature",
+            "description": "Sampling temperature for text generation.",
             "examples": [
-              20
+              0.2
             ]
           },
-          "detectedEvents": {
-            "items": {
-              "type": "string",
-              "maxLength": 1024,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9_.\\-\"\\' ,]*$"
-            },
-            "type": "array",
-            "maxItems": 100,
-            "title": "Detectedevents",
-            "description": "List of events detected."
+          "top_p": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top P",
+            "description": "Top-p sampling mass for text generation.",
+            "examples": [
+              1
+            ]
           },
-          "details": {
-            "type": "string",
-            "maxLength": 10000,
-            "pattern": "^(.|\\n)*$",
-            "title": "Details",
-            "description": "Details of the alert."
+          "top_k": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top K",
+            "description": "Top-k filtering for text generation.",
+            "examples": [
+              100
+            ]
+          },
+          "is_live": {
+            "type": "boolean",
+            "title": "Is Live",
+            "description": "Whether the source is a live stream.",
+            "default": false,
+            "examples": [
+              true,
+              false
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "name",
-          "detectedEvents",
-          "details"
+          "id",
+          "messages",
+          "model"
         ],
-        "title": "ChatCompletionMessageAlertTool",
-        "description": "Alert trigerred by VIA."
-      },
-      "ChatCompletionMessageToolCall": {
-        "properties": {
-          "type": {
-            "$ref": "#/components/schemas/ChatCompletionToolType"
-          },
-          "alert": {
-            "$ref": "#/components/schemas/ChatCompletionMessageAlertTool"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "type",
-          "alert"
-        ],
-        "title": "ChatCompletionMessageToolCall",
-        "description": "Tool calls generated by VIA."
+        "title": "ChatCompletionQuery",
+        "description": "Request body for POST /chat/completions \u2014 graph-based QA over summarized video."
       },
       "ChatCompletionResponseMessage": {
         "properties": {
@@ -977,15 +1187,6 @@
               "[00:00 - 01:00] A worker is walking down the aisle.\n\n[01:00 - 02:00] A man is driving a forklift in the warehouse."
             ],
             "nullable": true
-          },
-          "tool_calls": {
-            "items": {
-              "$ref": "#/components/schemas/ChatCompletionMessageToolCall"
-            },
-            "type": "array",
-            "maxItems": 100,
-            "title": "Tool Calls",
-            "default": []
           },
           "role": {
             "type": "string",
@@ -1003,21 +1204,49 @@
         "title": "ChatCompletionResponseMessage",
         "description": "A chat completion message generated by the model."
       },
-      "ChatCompletionToolType": {
-        "type": "string",
-        "enum": [
-          "alert"
+      "ChatMessage": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 256000,
+            "pattern": "^(.|\\n)*$",
+            "title": "Content",
+            "description": "The content of this message."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "description": "The role of the author of this message."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^[\\x00-\\x7F]*$",
+            "title": "Name",
+            "description": "An optional name for the participant. Provides the model information to differentiate between participants of the same role",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content",
+          "role"
         ],
-        "title": "ChatCompletionToolType",
-        "description": "Types of tools supported by VIA."
+        "title": "ChatMessage",
+        "description": "A chatbot chat message object. This object uniquely identify\na query/response/other messages in a chatbot."
       },
       "CompletionFinishReason": {
         "type": "string",
         "enum": [
           "stop",
           "length",
-          "content_filter",
-          "tool_calls"
+          "content_filter"
         ],
         "title": "CompletionFinishReason",
         "description": "The reason the model stopped generating tokens."
@@ -1254,6 +1483,374 @@
         "title": "CompletionUsage",
         "description": "An optional field that will only be present when you set\n`stream_options: {\"include_usage\": true}` in your request.\n\nWhen present, it contains a null value except for the last chunk which contains\nthe token usage statistics for the entire request."
       },
+      "DeleteIndexResponse": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "title": "Asset Id",
+            "description": "The asset identifier whose index was targeted."
+          },
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted",
+            "description": "True when the index was dropped; False when the operation was skipped."
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "Additional context about the outcome (skip reason or error message)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "asset_id",
+          "deleted"
+        ],
+        "title": "DeleteIndexResponse",
+        "description": "Response schema for the delete-asset-index request."
+      },
+      "GenerateCaptionsRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Stream ID (from RTVI stream/add).",
+            "examples": [
+              "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            "maxLength": 36,
+            "minLength": 36
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(.|\\n)*$",
+            "title": "Model",
+            "description": "Model to use for caption generation.",
+            "examples": [
+              "cosmos-reason1"
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 512000,
+            "pattern": "^[\\s\\S]*$",
+            "title": "Prompt",
+            "description": "VLM prompt for caption generation.",
+            "default": "",
+            "examples": [
+              "Write a concise and clear dense caption for the provided video"
+            ]
+          },
+          "system_prompt": {
+            "type": "string",
+            "maxLength": 5000,
+            "pattern": "^(.|\\n)*$",
+            "title": "System Prompt",
+            "description": "System prompt for the VLM.",
+            "default": ""
+          },
+          "chunk_duration": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 0.0,
+            "format": "int32",
+            "title": "Chunk Duration",
+            "description": "Chunk videos into chunkDuration seconds. 0 for no chunking.",
+            "default": 0,
+            "examples": [
+              60
+            ]
+          },
+          "chunk_overlap_duration": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 0.0,
+            "format": "int32",
+            "title": "Chunk Overlap Duration",
+            "description": "Chunk overlap duration in seconds. 0 for no overlap.",
+            "default": 0,
+            "examples": [
+              10
+            ]
+          },
+          "num_frames_per_second_or_fixed_frames_chunk": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Frames Per Second Or Fixed Frames Chunk",
+            "description": "Number of frames per second or fixed frames per chunk."
+          },
+          "use_fps_for_chunking": {
+            "type": "boolean",
+            "title": "Use Fps For Chunking",
+            "description": "Use FPS for chunking instead of fixed frame count.",
+            "default": false
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "int32",
+            "title": "Max Tokens",
+            "description": "Maximum number of tokens to generate per chunk.",
+            "examples": [
+              512
+            ]
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature",
+            "description": "Sampling temperature for VLM text generation.",
+            "examples": [
+              0.2
+            ]
+          },
+          "top_p": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top P",
+            "description": "Top-p sampling mass for VLM text generation.",
+            "examples": [
+              1
+            ]
+          },
+          "top_k": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top K",
+            "description": "Top-k filtering for VLM text generation.",
+            "examples": [
+              100
+            ]
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4294967295.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "int64",
+            "title": "Seed",
+            "description": "Seed value for reproducibility.",
+            "examples": [
+              10
+            ]
+          },
+          "enable_reasoning": {
+            "type": "boolean",
+            "title": "Enable Reasoning",
+            "description": "Enable reasoning for VLM captions generation.",
+            "default": false
+          },
+          "enable_audio": {
+            "type": "boolean",
+            "title": "Enable Audio",
+            "description": "Enable audio ASR alongside video captioning.",
+            "default": false
+          },
+          "vlm_input_width": {
+            "type": "integer",
+            "maximum": 4096.0,
+            "minimum": 0.0,
+            "format": "int32",
+            "title": "Vlm Input Width",
+            "description": "VLM input width (0 = model default).",
+            "default": 0,
+            "examples": [
+              256
+            ]
+          },
+          "vlm_input_height": {
+            "type": "integer",
+            "maximum": 4096.0,
+            "minimum": 0.0,
+            "format": "int32",
+            "title": "Vlm Input Height",
+            "description": "VLM input height (0 = model default).",
+            "default": 0,
+            "examples": [
+              256
+            ]
+          },
+          "mm_processor_kwargs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mm Processor Kwargs",
+            "description": "Optional multimodal processor kwargs."
+          },
+          "alert_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Category",
+            "description": "Alert category for structured captioning."
+          },
+          "creation_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 24
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creation Time",
+            "description": "ISO 8601 creation timestamp for the stream."
+          },
+          "scenario": {
+            "type": "string",
+            "maxLength": 5000,
+            "pattern": "^[\\s\\S]*$",
+            "title": "Scenario",
+            "description": "Scenario description for auto-prompt generation.",
+            "default": ""
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Events",
+            "description": "Event types for auto-prompt generation.",
+            "default": []
+          },
+          "objects_of_interest": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Objects Of Interest",
+            "description": "Objects of interest for auto-prompt generation.",
+            "default": []
+          },
+          "enable_vlm_structured_output": {
+            "type": "boolean",
+            "title": "Enable Vlm Structured Output",
+            "description": "Enable structured VLM output (controls auto-prompt format).",
+            "default": true
+          },
+          "override_vlm_prompt": {
+            "type": "boolean",
+            "title": "Override Vlm Prompt",
+            "description": "If true, use prompt as-is instead of auto-generating from scenario/events.",
+            "default": false
+          },
+          "enable_qa": {
+            "type": "boolean",
+            "title": "Enable Qa",
+            "description": "Enable graph-based QA. When true, captions are ingested into a knowledge graph, enabling subsequent /chat/completions queries.",
+            "default": false,
+            "examples": [
+              true,
+              false
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "model"
+        ],
+        "title": "GenerateCaptionsRequest",
+        "description": "Request body for POST /v1/generate_captions (stream captioning)."
+      },
+      "GenerateCaptionsResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Stream ID that captioning was started for."
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Status of the captioning request."
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Model used for caption generation."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "model"
+        ],
+        "title": "GenerateCaptionsResponse",
+        "description": "Response for POST /v1/generate_captions."
+      },
       "ListModelsResponse": {
         "properties": {
           "object": {
@@ -1310,7 +1907,7 @@
           "message"
         ],
         "title": "LvsError",
-        "description": "LVS Error Information."
+        "description": "Video Summarization MS Error Information."
       },
       "MediaInfoOffset": {
         "properties": {
@@ -1321,9 +1918,16 @@
             "description": "Information about a segment of media with start and end offsets."
           },
           "start_offset": {
-            "type": "integer",
-            "maximum": 4000000000.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "format": "int64",
             "title": "Start Offset",
             "description": "Segment start offset in seconds from the beginning of the media.",
@@ -1332,9 +1936,16 @@
             ]
           },
           "end_offset": {
-            "type": "integer",
-            "maximum": 4000000000.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "format": "int64",
             "title": "End Offset",
             "description": "Segment end offset in seconds from the beginning of the media.",
@@ -1471,7 +2082,7 @@
             "minimum": 1.0,
             "format": "int32",
             "title": "Target Response Time",
-            "description": "The target response time of LVS in seconds.",
+            "description": "The target response time of the Video Summarization MS in seconds.",
             "examples": [
               5,
               10,
@@ -1534,21 +2145,312 @@
         "title": "RecommendedConfigResponse",
         "description": "Recommended VIA Config Response."
       },
-      "SummarizationQuery": {
+      "ResponseFormat": {
         "properties": {
-          "min_tokens": {
-            "type": "integer",
-            "maximum": 1000000.0,
-            "minimum": 1.0,
-            "format": "int32",
-            "title": "Min Tokens",
-            "description": "Minimum number of tokens to generate before the model is allowed to stop. Used with ignore_eos for fixed-length generation.",
+          "type": {
+            "$ref": "#/components/schemas/ResponseType",
+            "description": "Response format type",
             "examples": [
-              100
+              "json_object",
+              "text"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "ResponseFormat",
+        "description": "Query Response Format Object."
+      },
+      "ResponseType": {
+        "type": "string",
+        "enum": [
+          "json_object",
+          "text"
+        ],
+        "title": "ResponseType",
+        "description": "Query Response Type."
+      },
+      "StreamOptions": {
+        "properties": {
+          "include_usage": {
+            "type": "boolean",
+            "title": "Include Usage",
+            "description": "If set, an additional chunk will be streamed before the `data: [DONE]` message. The `usage` field on this chunk shows the token usage statistics for the entire request, and the `choices` field will always be an empty array. All other chunks will also include a `usage` field, but with a null value.",
+            "default": false,
+            "examples": [
+              true,
+              false
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StreamOptions",
+        "description": "Options for streaming response."
+      },
+      "StreamSummarizeRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Stream ID to summarize.",
+            "examples": [
+              "123e4567-e89b-12d3-a456-426614174000"
+            ],
+            "maxLength": 36,
+            "minLength": 36
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(.|\\n)*$",
+            "title": "Model",
+            "description": "Model identifier (must match the loaded model).",
+            "examples": [
+              "cosmos-reason1"
             ]
           },
-          "ignore_eos": {
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time",
+            "description": "Time window start for summarization. Accepts seconds as a float (e.g. 15.04) or an ISO 8601 timestamp string (e.g. \"2026-04-30T10:39:20.934Z\"). 0 or empty string = no filter.",
+            "default": 0,
+            "examples": [
+              0,
+              15.04,
+              "2026-04-30T10:39:20.934Z"
+            ]
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time",
+            "description": "Time window end for summarization. Accepts seconds as a float (e.g. 30.0) or an ISO 8601 timestamp string (e.g. \"2026-04-30T10:45:00.000Z\"). 0 or empty string = no filter.",
+            "default": 0,
+            "examples": [
+              0,
+              30.0,
+              "2026-04-30T10:45:00.000Z"
+            ]
+          },
+          "enable_vlm_structured_output": {
             "type": "boolean",
+            "title": "Enable Vlm Structured Output",
+            "description": "Enable structured VLM output for summarization.",
+            "default": true
+          },
+          "camera_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Id",
+            "description": "Camera / sensor identifier.",
+            "default": "default",
+            "examples": [
+              "camera_1",
+              "default"
+            ]
+          },
+          "summarize_max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "int32",
+            "title": "Summarize Max Tokens",
+            "description": "Max tokens for LLM aggregation."
+          },
+          "summarize_temperature": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summarize Temperature",
+            "description": "Temperature for LLM aggregation."
+          },
+          "summarize_top_p": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summarize Top P",
+            "description": "Top-p for LLM aggregation."
+          },
+          "summarize_batch_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "int32",
+            "title": "Summarize Batch Size",
+            "description": "Batch size for summarization."
+          },
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema",
+            "description": "Schema for unstructured output format."
+          },
+          "batch_response_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Response Method",
+            "description": "Batch response method for summarization."
+          },
+          "auto_generate_prompt": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Generate Prompt",
+            "description": "Auto-generate summarization prompt from scenario/events."
+          },
+          "time_metadata_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Metadata Keys",
+            "description": "Time metadata keys for summarization."
+          },
+          "collection_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Name",
+            "description": "External collection name for DB storage."
+          },
+          "custom_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Metadata",
+            "description": "Custom metadata for DB storage."
+          },
+          "delete_external_collection": {
+            "type": "boolean",
+            "title": "Delete External Collection",
+            "description": "Delete external collection after summarization.",
+            "default": false
+          },
+          "enable_qa": {
+            "type": "boolean",
+            "title": "Enable Qa",
+            "description": "Enable graph-based QA. When true, captions are ingested into a knowledge graph after summarization, enabling subsequent /chat/completions queries against this stream.",
+            "default": false,
+            "examples": [
+              true,
+              false
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "model"
+        ],
+        "title": "StreamSummarizeRequest",
+        "description": "Request body for POST /v1/stream_summarize (stream summarization)."
+      },
+      "SummarizationQuery": {
+        "properties": {
+          "ignore_eos": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ignore Eos",
             "description": "If true, ignore end-of-sequence token and continue generating until max_tokens. Useful for benchmarking with fixed output length.",
             "examples": [
@@ -1648,6 +2550,24 @@
               512
             ]
           },
+          "min_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "int32",
+            "title": "Min Tokens",
+            "description": "Minimum number of tokens to generate before the model is allowed to stop. Used with ignore_eos for fixed-length generation.",
+            "examples": [
+              100
+            ]
+          },
           "temperature": {
             "type": "number",
             "maximum": 1.0,
@@ -1713,18 +2633,6 @@
               10
             ]
           },
-          "summary_duration": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": -1.0,
-            "format": "int32",
-            "title": "Summary Duration",
-            "description": "Summarize every `summaryDuration` seconds of the video. Applicable to live streams only.",
-            "default": 0,
-            "examples": [
-              60
-            ]
-          },
           "media_info": {
             "anyOf": [
               {
@@ -1736,19 +2644,6 @@
             ],
             "title": "Media Info",
             "description": "Provide Start and End times offsets for processing part of a video file. Not applicable for live-streaming."
-          },
-          "num_frames_per_chunk": {
-            "type": "integer",
-            "maximum": 120.0,
-            "minimum": 0.0,
-            "format": "int32",
-            "title": "Num Frames Per Chunk",
-            "description": "DEPRECATED: Use num_frames_per_second_or_fixed_frames_chunk instead. Number of frames per chunk to use for the VLM.",
-            "default": 0,
-            "deprecated": true,
-            "examples": [
-              10
-            ]
           },
           "vlm_input_width": {
             "type": "integer",
@@ -1792,6 +2687,19 @@
             "examples": [
               true,
               false
+            ]
+          },
+          "num_frames_per_chunk": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 0.0,
+            "format": "int32",
+            "title": "Num Frames Per Chunk",
+            "description": "DEPRECATED: Use `num_frames_per_second_or_fixed_frames_chunk` (with `use_fps_for_chunking=false`) instead. Number of frames per chunk to use for the VLM. ",
+            "default": 0,
+            "deprecated": true,
+            "examples": [
+              10
             ]
           },
           "num_frames_per_second_or_fixed_frames_chunk": {
@@ -1973,6 +2881,16 @@
                 "worker"
               ]
             ]
+          },
+          "enable_qa": {
+            "type": "boolean",
+            "title": "Enable Qa",
+            "description": "Enable graph-based QA. When true, captions are ingested into a knowledge graph after summarization, enabling subsequent /chat/completions queries against this video/stream.",
+            "default": false,
+            "examples": [
+              true,
+              false
+            ]
           }
         },
         "additionalProperties": false,
@@ -1984,554 +2902,6 @@
         ],
         "title": "SummarizationQuery",
         "description": "Summarization Query Request Fields."
-      },
-      "GenerateCaptionsRequest": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id",
-            "description": "Stream ID (from RTVI stream/add).",
-            "examples": [
-              "123e4567-e89b-12d3-a456-426614174000"
-            ]
-          },
-          "model": {
-            "type": "string",
-            "maxLength": 1024,
-            "pattern": "^(.|\\n)*$",
-            "title": "Model",
-            "description": "Model to use for caption generation.",
-            "examples": [
-              "cosmos-reason1"
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "maxLength": 512000,
-            "pattern": "^[\\s\\S]*$",
-            "title": "Prompt",
-            "description": "VLM prompt for caption generation.",
-            "default": "",
-            "examples": [
-              "Write a concise and clear dense caption for the provided video"
-            ]
-          },
-          "system_prompt": {
-            "type": "string",
-            "maxLength": 5000,
-            "pattern": "^(.|\\n)*$",
-            "title": "System Prompt",
-            "description": "System prompt for the VLM.",
-            "default": ""
-          },
-          "chunk_duration": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 0.0,
-            "format": "int32",
-            "title": "Chunk Duration",
-            "description": "Chunk videos into chunkDuration seconds. 0 for no chunking.",
-            "default": 0,
-            "examples": [
-              60
-            ]
-          },
-          "chunk_overlap_duration": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 0.0,
-            "format": "int32",
-            "title": "Chunk Overlap Duration",
-            "description": "Chunk overlap duration in seconds. 0 for no overlap.",
-            "default": 0,
-            "examples": [
-              10
-            ]
-          },
-          "num_frames_per_second_or_fixed_frames_chunk": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Num Frames Per Second Or Fixed Frames Chunk",
-            "description": "Number of frames per second or fixed frames per chunk."
-          },
-          "use_fps_for_chunking": {
-            "type": "boolean",
-            "title": "Use Fps For Chunking",
-            "description": "Use FPS for chunking instead of fixed frame count.",
-            "default": false
-          },
-          "max_tokens": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 1000000.0,
-                "minimum": 1.0,
-                "format": "int32"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Tokens",
-            "description": "Maximum number of tokens to generate per chunk.",
-            "examples": [
-              512
-            ]
-          },
-          "temperature": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature",
-            "description": "Sampling temperature for VLM text generation.",
-            "examples": [
-              0.2
-            ]
-          },
-          "top_p": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Top P",
-            "description": "Top-p sampling mass for VLM text generation.",
-            "examples": [
-              1
-            ]
-          },
-          "top_k": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 1000.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Top K",
-            "description": "Top-k filtering for VLM text generation.",
-            "examples": [
-              100
-            ]
-          },
-          "seed": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 4294967295.0,
-                "minimum": 1.0,
-                "format": "int64"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Seed",
-            "description": "Seed value for reproducibility.",
-            "examples": [
-              10
-            ]
-          },
-          "enable_reasoning": {
-            "type": "boolean",
-            "title": "Enable Reasoning",
-            "description": "Enable reasoning for VLM captions generation.",
-            "default": false
-          },
-          "enable_audio": {
-            "type": "boolean",
-            "title": "Enable Audio",
-            "description": "Enable audio ASR alongside video captioning.",
-            "default": false
-          },
-          "vlm_input_width": {
-            "type": "integer",
-            "maximum": 4096.0,
-            "minimum": 0.0,
-            "format": "int32",
-            "title": "Vlm Input Width",
-            "description": "VLM input width (0 = model default).",
-            "default": 0,
-            "examples": [
-              256
-            ]
-          },
-          "vlm_input_height": {
-            "type": "integer",
-            "maximum": 4096.0,
-            "minimum": 0.0,
-            "format": "int32",
-            "title": "Vlm Input Height",
-            "description": "VLM input height (0 = model default).",
-            "default": 0,
-            "examples": [
-              256
-            ]
-          },
-          "mm_processor_kwargs": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mm Processor Kwargs",
-            "description": "Optional multimodal processor kwargs."
-          },
-          "alert_category": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 256
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Alert Category",
-            "description": "Alert category for structured captioning."
-          },
-          "creation_time": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 24
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Creation Time",
-            "description": "ISO 8601 creation timestamp for the stream."
-          },
-          "scenario": {
-            "type": "string",
-            "maxLength": 5000,
-            "pattern": "^[\\s\\S]*$",
-            "title": "Scenario",
-            "description": "Scenario description for auto-prompt generation.",
-            "default": ""
-          },
-          "events": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 1000,
-            "title": "Events",
-            "description": "Event types for auto-prompt generation.",
-            "default": []
-          },
-          "objects_of_interest": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 1000,
-            "title": "Objects Of Interest",
-            "description": "Objects of interest for auto-prompt generation.",
-            "default": []
-          },
-          "enable_vlm_structured_output": {
-            "type": "boolean",
-            "title": "Enable Vlm Structured Output",
-            "description": "Enable structured VLM output (controls auto-prompt format).",
-            "default": true
-          },
-          "override_vlm_prompt": {
-            "type": "boolean",
-            "title": "Override Vlm Prompt",
-            "description": "If true, use prompt as-is instead of auto-generating from scenario/events.",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "model"
-        ],
-        "title": "GenerateCaptionsRequest",
-        "description": "Request body for POST /v1/generate_captions (stream captioning)."
-      },
-      "GenerateCaptionsResponse": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id",
-            "description": "Stream ID that captioning was started for."
-          },
-          "status": {
-            "type": "string",
-            "title": "Status",
-            "description": "Status of the captioning request.",
-            "examples": [
-              "accepted"
-            ]
-          },
-          "model": {
-            "type": "string",
-            "title": "Model",
-            "description": "Model used for caption generation."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "status",
-          "model"
-        ],
-        "title": "GenerateCaptionsResponse",
-        "description": "Response for POST /v1/generate_captions."
-      },
-      "StreamSummarizeRequest": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id",
-            "description": "Stream ID to summarize.",
-            "examples": [
-              "123e4567-e89b-12d3-a456-426614174000"
-            ]
-          },
-          "model": {
-            "type": "string",
-            "maxLength": 1024,
-            "pattern": "^(.|\\n)*$",
-            "title": "Model",
-            "description": "Model identifier (must match the loaded model).",
-            "examples": [
-              "cosmos-reason1"
-            ]
-          },
-          "start_time": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Time",
-            "description": "Time window start for summarization (seconds, 0 = no filter).",
-            "default": 0
-          },
-          "end_time": {
-            "anyOf": [
-              {
-                "type": "number",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End Time",
-            "description": "Time window end for summarization (seconds, 0 = no filter).",
-            "default": 0
-          },
-          "enable_vlm_structured_output": {
-            "type": "boolean",
-            "title": "Enable Vlm Structured Output",
-            "description": "Enable structured VLM output for summarization.",
-            "default": true
-          },
-          "camera_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 256
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Camera Id",
-            "description": "Camera / sensor identifier.",
-            "default": "default",
-            "examples": [
-              "camera_1",
-              "default"
-            ]
-          },
-          "summarize_max_tokens": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 1000000.0,
-                "minimum": 1.0,
-                "format": "int32"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summarize Max Tokens",
-            "description": "Max tokens for LLM aggregation."
-          },
-          "summarize_temperature": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summarize Temperature",
-            "description": "Temperature for LLM aggregation."
-          },
-          "summarize_top_p": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summarize Top P",
-            "description": "Top-p for LLM aggregation."
-          },
-          "summarize_batch_size": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0,
-                "format": "int32"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summarize Batch Size",
-            "description": "Batch size for summarization."
-          },
-          "schema": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 50000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Schema",
-            "description": "Schema for unstructured output format."
-          },
-          "batch_response_method": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Batch Response Method",
-            "description": "Batch response method for summarization."
-          },
-          "auto_generate_prompt": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Auto Generate Prompt",
-            "description": "Auto-generate summarization prompt from scenario/events."
-          },
-          "time_metadata_keys": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time Metadata Keys",
-            "description": "Time metadata keys for summarization."
-          },
-          "collection_name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 256
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Collection Name",
-            "description": "External collection name for DB storage."
-          },
-          "custom_metadata": {
-            "anyOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Custom Metadata",
-            "description": "Custom metadata for DB storage."
-          },
-          "delete_external_collection": {
-            "type": "boolean",
-            "title": "Delete External Collection",
-            "description": "Delete external collection after summarization.",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "model"
-        ],
-        "title": "StreamSummarizeRequest",
-        "description": "Request body for POST /v1/stream_summarize (stream summarization)."
       }
     },
     "securitySchemes": {
@@ -2556,15 +2926,15 @@
     },
     {
       "name": "Recommended Config",
-      "description": "Operations related to querying recommended LVS request parameters."
-    },
-    {
-      "name": "Stream",
-      "description": "Operations for live-stream captioning and summarization."
+      "description": "Operations related to querying recommended Video Summarization MS request parameters."
     },
     {
       "name": "Summarization",
-      "description": "Operations related to video file summarization."
+      "description": "Operations related to video summarization."
+    },
+    {
+      "name": "Chat",
+      "description": "Graph-based QA over summarized video/stream content."
     }
   ],
   "security": [
