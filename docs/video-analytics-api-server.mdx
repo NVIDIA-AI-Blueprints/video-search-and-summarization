@@ -83,7 +83,7 @@ When using Redis as the message broker instead of Kafka, set `"brokers": null`.
 
 ### Calibration Config
 
-Calibration file is generated either by the Calibration Toolkit or by Omniverse's Calibration tool. See [here ](/vss/system-components/calibration) for more details.
+Calibration file is generated either by the Calibration Toolkit or by Omniverse's Calibration tool. See [Calibration](/vss/system-components/calibration) for more details.
 
 ## Library
 
@@ -156,7 +156,7 @@ The Utils namespace consists of following classes:
 
 ### Documentation
 
-Open API Specification can be found [here ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference/video-analytics-api-reference).
+Refer to the [Video Analytics API Reference](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference).
 
 The following sections describe the various API endpoints along with their respective sequence diagrams.
 
@@ -422,7 +422,7 @@ against an existing Elasticsearch cluster, point it at a different Kafka broker,
 switch to a custom bootstrap config, or expose the API layer without redeploying
 the full warehouse blueprint stack.
 
-The Skill is published in the `skills/vss-setup-video-analytics-api` folder of the VSS Blueprint repository.
+The Skill is published in the `skills/deployment/vss-setup-video-analytics-api` folder of the VSS Blueprint repository.
 Install it the same way as any other VSS Agent Skill - see
 [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the catalog-wide install flow.
 
@@ -534,5 +534,5 @@ to `null` or `[]` in a custom config.
 For the standalone-service walkthrough, configuration field guide, deploy and
 verify commands, endpoint summary, and troubleshooting guidance, refer to the
 Skill's bundled references under
-`skills/vss-setup-video-analytics-api/references/` in the VSS Blueprint
+`skills/deployment/vss-setup-video-analytics-api/references/` in the VSS Blueprint
 repository.

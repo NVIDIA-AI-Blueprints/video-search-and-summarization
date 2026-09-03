@@ -7,7 +7,7 @@ position: 4
 
 ### Introduction
 
-The **VSS Warehouse Blueprint's MV3DT Vision AI Profile** is a comprehensive guide to building a 3D intelligent video analytics system using RT-DETR object detection and Multi-View 3D Tracking (MV3DT). Unlike the [3D Vision AI Profile ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), which uses the Sparse4D end-to-end 3D perception model, this profile pipelines a 2D detector (RT-DETR) with a distributed multi-view 3D tracking framework (MV3DT) to produce 3D Bird's Eye View (BEV) outputs from multiple overlapping cameras. It provides a detailed overview of the system architecture, data flow, and key components.
+The **VSS Warehouse Blueprint's MV3DT Vision AI Profile** is a comprehensive guide to building a 3D intelligent video analytics system using RT-DETR object detection and Multi-View 3D Tracking (MV3DT). Unlike the [3D Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), which uses the Sparse4D end-to-end 3D perception model, this profile pipelines a 2D detector (RT-DETR) with a distributed multi-view 3D tracking framework (MV3DT) to produce 3D Bird's Eye View (BEV) outputs from multiple overlapping cameras. It provides a detailed overview of the system architecture, data flow, and key components.
 
 ## Deployment Architecture
 
@@ -20,16 +20,16 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([link ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
-2. **Video IO & Storage (VIOS)** ([link ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices))
+2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/vss/system-components/middleware/video-io-storage-vios/vios-microservices))
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream (RT-DETR + MV3DT)** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+3. **DeepStream (RT-DETR + MV3DT)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
 
-   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, combining the RT-DETR detector ([link ](/vss/system-components/models/rt-detr-2d-warehouse-detection)) with the MV3DT distributed tracking module.
+   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, combining the RT-DETR detector ([RT-DETR (2D warehouse detection)](/vss/system-components/models/rt-detr-2d-warehouse-detection)) with the MV3DT distributed tracking module.
    - RT-DETR generates 2D bounding boxes for warehouse-relevant object classes. The MV3DT module back-projects these 2D detections into 3D world coordinates using each camera's projection matrix and 3D object models, and fuses measurements across cameras with overlapping fields of view.
    - Cameras exchange 3D tracklets with their vision neighbors through an **MQTT Broker** for decentralized ID negotiation, cross-camera ID propagation, and multi-view measurement fusion.
    - It sends per-camera frame data, including detected and tracked object IDs with 3D foot locations, in Protobuf format to the message broker via the `mdx-raw` topic.
@@ -40,7 +40,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
    - Each camera publishes its 3D tracklets to a dedicated MQTT topic and subscribes to topics from its vision neighbors (cameras with overlapping fields of view).
    - This enables decentralized, globally unique ID assignment and cross-camera handover without a central coordinator.
 
-5. **BEV Fusion** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+5. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
 
    - This microservice consumes per-camera `mdx-raw` data (Protobuf) from the message broker.
    - It fuses 3D measurements from multiple cameras into unified Bird's Eye View (BEV) frames.
@@ -49,11 +49,11 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 6. **Message Broker (Kafka or Redis)**
 
    - The message broker serves as the central hub for data distribution, using Protobuf for all data exchanges.
-   - **Kafka** ([../kafka](/vss/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
+   - **Kafka** ([Kafka](/vss/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
    - **Redis Streams**: Lightweight message broker ideal for edge deployments with minimal memory footprint and low-latency requirements.
    - It also functions as a control bus, managing notifications (in JSON, via `mdx-notification`) for calibration updates, such as new ROI or tripwire definitions.
 
-7. **Behavior Analytics** ([link ](/vss/system-components/analytics-microservices/behavior-analytics))
+7. **Behavior Analytics** ([Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics))
 
    - This microservice consumes `mdx-bev` data (Protobuf) from the message broker.
    - It processes the data to generate behavior analytics, safety insights, and metrics.
@@ -61,7 +61,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 
 8. **Storage**
 
-   - **ELK (Elasticsearch, Logstash, Kibana)** ([../elk](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
+   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
 
 9. **Visualization**
 
@@ -70,7 +70,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 
 10. **External Interfaces**
 
-    - **API Gateway and MCP** ([../api-gateway-mcp](/vss/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
+    - **API Gateway and MCP** ([API Gateway / MCP](/vss/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
 
 ### Key Technologies
 
@@ -110,8 +110,8 @@ described in the [Warehouse Quickstart Skill section](/vss/vision-agent/agent-wo
 <Note>
 Install the skills into your coding agent first (see
 [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the install flow) and
-confirm your host meets the [Prerequisites ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites). For how
-each harness loads skills, see [../agent-harnesses](/vss/vision-agent/agent-harnesses).
+confirm your host meets the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites). For how
+each harness loads skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
 </Note>
 
 The MV3DT journey exercises two skills:
@@ -292,7 +292,7 @@ Browse the Kibana UI, discover the data views and visualize the data.
 ### VIOS UI
 
 <Note>
-At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VST docs ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
+At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VST docs](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
 </Note>
 
   1. Launch Chrome browser.
@@ -304,7 +304,7 @@ Use the VIOS UI to configure camera streams and verify that video feeds are acti
 
 **View VIOS Video Wall**
 
-Enable Overlay settings (instructions [here](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall)), to view 3D object detection and tracking results.
+Enable Overlay settings (refer to [Playback Overlay on Video Wall](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall)) to view 3D object detection and tracking results.
 
 ## Events and Incidents
 
@@ -423,7 +423,7 @@ Number of streams to be processed can be configured in two ways:
    NUM_STREAMS=4
    ```
 
-   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
 
 2. **Dynamic Configuration**: Use the VSS Configurator's prerequisite operations to automatically count the number of video files in the recorded videos directory and use that count for configuration updates.
 
@@ -464,7 +464,7 @@ Dynamic Configuration cannot be used for live RTSP streams.
              batch-size: ${final_stream_count}
    ```
 
-   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
 
 When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number of video files available in that dataset. Make sure `NUM_STREAMS` is less than or equal to the number of videos you want to process.
 
@@ -502,7 +502,7 @@ Deploy the auto-calibration profile (`bp_wh_auto_calib_mv3dt`) to generate a new
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For MV3DT profile use cases, the ROIs and Tripwires must be drawn on the floor plan/layout map.
 - The AMC UI exports the `group` and `region` blocks under each entry in `sensors[]` with empty values. The MV3DT profile uses these fields for multi-camera grouping and BEV fusion, so populate them with valid values for each sensor before deploying the blueprint.
-- Add new camera information following the schema defined in [Calibration Schema ](/vss/system-components/calibration/calibration-schema).
+- Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
 - Auto Calibration requires time-synchronized videos as input. For RTSP cameras, record videos from the RTSP source (e.g. using ffmpeg or similar tools), manually trim the videos to time-synchronize them if needed, then provide them to Auto Calibration.
@@ -516,7 +516,7 @@ When adding new cameras to the MV3DT profile, you must update the following MV3D
 
 1. **Camera Information Files** (`camInfo/<sensor_id>.yml`): Each camera requires a `camInfo` file containing the 3x4 projection matrix and per-class object model dimensions. Generate these from your `calibration.json` using the provided utility script. See [Update Camera Information Configuration](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#update-camera-information-configuration) for details.
 
-2. **MQTT Publish/Subscribe Configuration** (`pub_sub_info_config.yml`): Defines the inter-camera communication graph for MV3DT. Generate a vision-neighbor graph from camera calibration data. See [Update Publish/Subscribe Configuration](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#update-publish-subscribe-configuration) for details.
+2. **MQTT Publish/Subscribe Configuration** (`pub_sub_info_config.yml`): Defines the inter-camera communication graph for MV3DT. Generate a vision-neighbor graph from camera calibration data. See [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#update-publish-subscribe-configuration) for details.
 
 3. **Tracker Configuration** (`ds-mv3dt-tracker-config.yml`): Update the `ObjectModelProjection.cameraModelFilepath` section to map each new sensor ID to its corresponding `camInfo` file.
 
@@ -819,10 +819,10 @@ Key options:
 
 The MV3DT profile uses RT-DETR (Real-Time Detection Transformer) as its 2D perception model and the MV3DT module for 3D multi-camera tracking. To customize:
 
-1. Fine-tune RT-DETR using TAO ([RT-DETR model page ](/vss/system-components/models/rt-detr-2d-warehouse-detection))
+1. Fine-tune RT-DETR using TAO ([RT-DETR model page](/vss/system-components/models/rt-detr-2d-warehouse-detection))
 2. Configure DeepStream to use your custom model ([model configuration guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#integrating-a-new-rt-detr-model))
 
-For detailed instructions on integrating a new RT-DETR model with the MV3DT pipeline, including model compatibility requirements and configuration steps, refer to the [MV3DT Perception Microservice documentation ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
+For detailed instructions on integrating a new RT-DETR model with the MV3DT pipeline, including model compatibility requirements and configuration steps, refer to the [MV3DT Perception Microservice documentation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
 
 ### Application Customization
 
@@ -834,7 +834,7 @@ The Blueprint uses a modular microservices architecture with the following commu
 
 Users can build their own microservices by consuming data from the above channels.
 
-For complete API documentation, see [API Reference Page ](/vss/appendix/api-reference).
+For complete API documentation, see [API Reference Page](/vss/appendix/api-reference).
 
 #### Available Service Ports
 
@@ -854,10 +854,10 @@ The following ports are used during deployment, and users can leverage them for 
 
 For detailed information about customizing specific analytics microservices, refer to:
 
-* [Behavior Analytics ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
-* [VSS Video Analytics API ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
+* [Behavior Analytics](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
+* [VSS Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
 
-For detailed information about customizing the MV3DT perception pipeline, including DeepStream configuration, tracker parameters, camera information files, and MQTT publish/subscribe topology, refer to the [MV3DT Perception Microservice documentation ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
+For detailed information about customizing the MV3DT perception pipeline, including DeepStream configuration, tracker parameters, camera information files, and MQTT publish/subscribe topology, refer to the [MV3DT Perception Microservice documentation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
 
 ### Hardware Config Customization
 
@@ -924,4 +924,4 @@ The VSS Configurator provides a comprehensive set of features for automated prof
 
 **Execution Order:** Prerequisite Operations → Environment Variable Validation → Variable Computations → Configuration File Updates
 
-For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).

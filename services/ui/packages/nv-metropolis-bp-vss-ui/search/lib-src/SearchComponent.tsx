@@ -233,16 +233,51 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
   }, [registerSidebarChatEventSubscriber, clearSearchResults]);
 
+  const hasSearchedRef = React.useRef(false);
+  const wrappedOnUpdateSearchParams = React.useCallback((params: any) => {
+    hasSearchedRef.current = true;
+    onUpdateSearchParams(params);
+  }, [onUpdateSearchParams]);
+  React.useEffect(() => {
+    if (!loading) hasSearchedRef.current = false;
+  }, [loading]);
+  const effectiveLoading = loading && hasSearchedRef.current;
+  const contentDisabled = !chatSidebarCollapsed || effectiveLoading || chatSidebarBusy;
+
   const controlsComponent = React.useMemo(
     () => (
       <SearchSidebarControls
         isDark={isDark}
-        onRefresh={refetch}
+        theme={isDark ? 'dark' : 'light'}
+        compactLayout={renderControlsInLeftSidebar}
+        outerPadding={renderControlsInLeftSidebar ? '8px 8px 12px' : 0}
+        streams={streams}
+        filterParams={filterParams}
+        setFilterParams={setFilterParams}
+        onUpdateSearchParams={wrappedOnUpdateSearchParams}
+        addFilter={addFilter}
+        removeFilterTag={removeFilterTag}
+        filterTags={filterTags}
+        isSearching={effectiveLoading}
+        onCancelSearch={cancelSearch}
+        onGetPendingQuery={handleGetPendingQuery}
+        contentDisabled={contentDisabled}
       />
     ),
     [
       isDark,
-      refetch,
+      renderControlsInLeftSidebar,
+      streams,
+      filterParams,
+      setFilterParams,
+      wrappedOnUpdateSearchParams,
+      addFilter,
+      removeFilterTag,
+      filterTags,
+      effectiveLoading,
+      cancelSearch,
+      handleGetPendingQuery,
+      contentDisabled,
     ]
   );
 
@@ -254,11 +289,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
         controlsComponent,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    onControlsReady,
-    renderControlsInLeftSidebar,
-  ]);
+  }, [onControlsReady, renderControlsInLeftSidebar, isDark, refetch, controlsComponent]);
 
   const searchByImageFooterElement = React.useMemo(() => {
     if (!searchByImageActive) return undefined;
@@ -342,23 +373,29 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       data-testid="search-component"
       className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
-      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
-        <SearchHeader 
-          theme={isDark ? 'dark' : 'light'} 
-          streams={streams}
-          filterParams={filterParams} 
-          setFilterParams={setFilterParams} 
-          onUpdateSearchParams={onUpdateSearchParams} 
-          addFilter={addFilter} 
-          removeFilterTag={removeFilterTag} 
-          filterTags={filterTags}
-          isSearching={loading}
-          onCancelSearch={cancelSearch}
-          onGetPendingQuery={handleGetPendingQuery}
-          submitChatMessage={wrappedSubmitChatMessage}
-          contentDisabled={!chatSidebarCollapsed || loading || chatSidebarBusy}
-        />
-      </div>
+      {/* Query + filters live in the left sidebar when the parent app renders them
+          there; the in-tab header is the standalone-only alternative. Rendering
+          both would mount two copies of the same controls, each with its own
+          sourceType state. */}
+      {!renderControlsInLeftSidebar && (
+        <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
+          <SearchHeader
+            theme={isDark ? 'dark' : 'light'}
+            streams={streams}
+            filterParams={filterParams}
+            setFilterParams={setFilterParams}
+            onUpdateSearchParams={wrappedOnUpdateSearchParams}
+            addFilter={addFilter}
+            removeFilterTag={removeFilterTag}
+            filterTags={filterTags}
+            isSearching={effectiveLoading}
+            onCancelSearch={cancelSearch}
+            onGetPendingQuery={handleGetPendingQuery}
+            submitChatMessage={wrappedSubmitChatMessage}
+            contentDisabled={contentDisabled}
+          />
+        </div>
+      )}
       <div className="flex-1 overflow-auto">
         <VideoSearchList
           data={agentSearchResults ?? searchResults}

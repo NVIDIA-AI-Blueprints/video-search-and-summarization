@@ -22,17 +22,7 @@ version: 3.3.0
 appVersion: "1.0.0"
 
 dependencies:
-  - name: nemotron-nano-9b-v2
-    version: 3.3.0
-    repository: "file://./charts/nemotron-nano-9b-v2"
-    alias: nemotron
-    condition: nemotron.enabled
 
-  - name: nemotron-3-nano
-    version: 3.3.0
-    repository: "file://./charts/nemotron-3-nano"
-    alias: nemotron3
-    condition: nemotron3.enabled
 
   - name: nemotron-3.5-lightning-30b-a3b
     version: 3.3.0

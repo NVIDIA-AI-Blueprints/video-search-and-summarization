@@ -563,6 +563,9 @@ rtvi:
       # RT-CV in local_shared mode, which has no Kubernetes equivalent.
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
+      # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
+      - name: VLLM_ATTENTION_BACKEND
+        value: ""
       - name: VLM_BATCH_SIZE
         value: ""
       - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
@@ -684,7 +687,7 @@ agent:
     llmName: nvidia/nemotron-3.5-lightning-30b-a3b
     # In-cluster LLM NIM Service name; feeds LLM_BASE_URL / EVAL_LLM_JUDGE_BASE_URL below.
     # Keep in sync with the enabled nims.* model (nims.nemotron35).
-    llmServiceName: "nemotron-3.5-lightning-30b-a3b"
+    llmServiceName: "nemotron-35-lightning-30b-a3b"
     # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
     # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
     # not the cosmos3-reasoner NIM id.
@@ -798,7 +801,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-35-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       # VLM endpoint (vss-rtvi-vlm) for the critic and video_understanding. Consumed by the rtvi_vlm agent profile.
       - name: RTVI_VLM_BASE_URL
         value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
@@ -815,7 +818,7 @@ agent:
       - name: EVAL_LLM_JUDGE_NAME
         value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nemotron-3.5-lightning-30b-a3b") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
       - name: EVAL_LLM_JUDGE_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-3.5-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-35-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
       - name: VSS_AGENT_REPORTS_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ if .Values.reportsBaseUrl }}{{ printf "%s" .Values.reportsBaseUrl }}{{ else if and $useNip (ne $nipBase "") }}{{ printf "%s/static/" $nipBase }}{{ else if ne $globalBase "" }}{{ printf "%s/static/" $globalBase }}{{ else }}{{ printf "%s/static/" $vssAgentHttp }}{{ end }}'
       - name: VSS_AGENT_EXTERNAL_URL
@@ -972,34 +975,6 @@ nims:
     pullSecretName: ngc-nim-docker-reg-secret
     authSecretName: ngc-api
     storageClass: ""
-  # Nemotron Nano 9B v2: superseded by nemotron35 below. Set enabled: true (and
-  # flip nemotron35 off, plus agent.vss-agent.llmName/llmServiceName) to go back.
-  nemotron:
-    enabled: false
-    image:
-      repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
-      tag: '1'
-      pullPolicy: IfNotPresent
-    replicas: 1
-    resources:
-      limits:
-        nvidia.com/gpu: '1'
-      requests:
-        nvidia.com/gpu: '1'
-    storage:
-      pvc:
-        storageClass: ''
-        size: 50Gi
-    service:
-      type: ClusterIP
-      port: 8000
-    nodeSelector: {}
-    tolerations:
-      - key: nvidia.com/gpu
-        operator: Exists
-        effect: NoSchedule
-    env:
-      CUDA_VISIBLE_DEVICES: '0'
   # Nemotron 3.5 Lightning 30B A3B — search profile LLM (matches base/LVS).
   # The subchart takes no env map; NIM runtime env comes from the
   # nims gpuProfiles.<gpuType>.nemotron35 ConfigMap (see helm/services/nims/values.yaml).

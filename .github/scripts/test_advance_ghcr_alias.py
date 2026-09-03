@@ -196,38 +196,74 @@ class AdvanceTest(unittest.TestCase):
     def _update(self):
         return alias_plan(release_set(), "develop-abc123abc123", ALL_CONTENT)[0]
 
-    def test_creates_from_the_content_tag_then_verifies(self):
-        commands: list[list[str]] = []
-
-        def runner(command: list[str]) -> str:
-            commands.append(command)
-            return json.dumps({"digest": DIGEST}) if "inspect" in command else ""
-
-        advance(self._update(), runner)
-        self.assertEqual(commands[0][3], "create")
-        self.assertTrue(commands[0][-1].endswith(f":tree-{TREE}"))
-        self.assertEqual(commands[1][3], "inspect")
-
-    def test_advance_rejects_digest_drift(self):
-        def runner(command: list[str]) -> str:
-            return json.dumps({"digest": MIRROR_DIGEST}) if "inspect" in command else ""
-
-        with self.assertRaisesRegex(RuntimeError, "alias digest"):
-            advance(self._update(), runner)
-
-    def test_digestless_entry_reports_the_resolved_digest(self):
-        """Reuse-pinned entries record no digest; the source was content
-        addressed, so there is nothing to assert against."""
+    def _digestless_update(self):
         data = release_set()
         for image in data["images"]:
             if image["image"].startswith("ghcr.io/"):
                 image["digest"] = None
-        update = alias_plan(data, "develop-abc123abc123", ALL_CONTENT)[0]
+        return alias_plan(data, "develop-abc123abc123", ALL_CONTENT)[0]
+
+    @staticmethod
+    def _runner(commands, source_digest=DIGEST, write_metadata=True):
+        """Fake runner that records commands and honours --metadata-file the
+        way buildx does: the created digest is written to the file named in
+        the create command, never returned on stdout."""
 
         def runner(command: list[str]) -> str:
-            return json.dumps({"digest": DIGEST}) if "inspect" in command else ""
+            commands.append(command)
+            if "create" in command:
+                if write_metadata:
+                    path = Path(command[command.index("--metadata-file") + 1])
+                    path.write_text(
+                        json.dumps({"containerimage.descriptor": {"digest": DIGEST}})
+                    )
+                return ""
+            return json.dumps({"digest": source_digest})
 
-        advance(update, runner)  # must not raise
+        return runner
+
+    def test_verifies_source_before_creating_alias(self):
+        """Inspect the SOURCE (stable content tag) before creating the alias,
+        not the TARGET after -- GHCR eventual consistency makes post-create
+        inspect of the new tag unreliable."""
+        commands: list[list[str]] = []
+        advance(self._update(), self._runner(commands))
+        # First call: inspect the SOURCE content tag.
+        self.assertEqual(commands[0][3], "inspect")
+        self.assertTrue(commands[0][4].endswith(f":tree-{TREE}"))
+        # Second call: create the alias, reporting its result via metadata.
+        self.assertEqual(commands[1][3], "create")
+        self.assertIn("--metadata-file", commands[1])
+        # No third call -- we do not inspect the target after creation.
+        self.assertEqual(len(commands), 2)
+
+    def test_advance_rejects_digest_drift(self):
+        """Source digest != release-set digest → refuse to create the alias."""
+        commands: list[list[str]] = []
+        with self.assertRaisesRegex(RuntimeError, "content tag digest"):
+            advance(self._update(), self._runner(commands, source_digest=MIRROR_DIGEST))
+        self.assertEqual(len(commands), 1)  # refused before any create
+
+    def test_digestless_entry_never_inspects_the_target(self):
+        """Regression: reuse-pinned entries record no digest, and the created
+        digest must come from the buildx metadata file -- a post-create
+        inspect of the fresh tag races GHCR's read-after-write consistency
+        and fails runs whose retag actually succeeded."""
+        commands: list[list[str]] = []
+        advance(self._digestless_update(), self._runner(commands))
+        # Exactly one registry-writing call and no inspect of anything.
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0][3], "create")
+        self.assertIn("--metadata-file", commands[0])
+        self.assertNotIn("inspect", [part for c in commands for part in c])
+
+    def test_missing_create_metadata_fails_closed(self):
+        """A create that succeeds but writes no metadata broke the buildx
+        contract; reporting an unobserved digest would misrepresent the
+        publish."""
+        commands: list[list[str]] = []
+        with self.assertRaisesRegex(RuntimeError, "no usable metadata"):
+            advance(self._digestless_update(), self._runner(commands, write_metadata=False))
 
 
 class TreeSourceTest(unittest.TestCase):

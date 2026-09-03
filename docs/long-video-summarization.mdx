@@ -18,11 +18,11 @@ The Video Summarization microservice operates by analyzing media and generating 
 A defining feature of the Video Summarization microservice is its high degree of customization, particularly regarding the underlying language and vision models it employs.
 
 * **OpenAI Compatibility**: The service is designed for maximum interoperability, allowing users to select and integrate any OpenAI compatible Vision-Language Model (VLM) or Large Language Model (LLM). This flexibility ensures that users can leverage the latest and most suitable models for their specific summarization needs and quality requirements.
-* **RTVI-VLM video inferencing**: Per-chunk and live-stream video inferencing is delegated to the [Real-Time VLM (RTVI-VLM) ](/vss/system-components/vision-microservices/real-time-vlm) microservice. RTVI-VLM supports Cosmos Reason3, Nemotron Nano Omni, and Qwen 3.5 base models through its proxy and openai-compat modes, so operators can pick the best-fit VLM without rebuilding the Video Summarization microservice.
+* **RTVI-VLM video inferencing**: Per-chunk and live-stream video inferencing is delegated to the [Real-Time VLM (RTVI-VLM)](/vss/system-components/vision-microservices/real-time-vlm) microservice. RTVI-VLM supports Cosmos Reason3, Nemotron Nano Omni, and Qwen 3.5 base models through its proxy and openai-compat modes, so operators can pick the best-fit VLM without rebuilding the Video Summarization microservice.
 
 <Note>
 * Nemotron Nano Omni model support in RTVI-VLM and the Video Summarization microservice is limited to integration testing and sanity coverage in this release. It has not undergone full production-level validation. Operators should evaluate model quality on their own workloads before deploying to production.
-* For the full list of supported VLM checkpoints, precision options, and configuration details, see [Models Supported](/vss/system-components/vision-microservices/real-time-vlm#supported-models) in the [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) documentation.
+* For the full list of supported VLM checkpoints, precision options, and configuration details, see [Models Supported](/vss/system-components/vision-microservices/real-time-vlm#supported-models) in the [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) documentation.
 </Note>
 
 ### Data Persistence and Management
@@ -47,7 +47,7 @@ The Video Summarization microservice supports two deployment profiles: *Summariz
 
 ![Video Summarization Base Profile architecture](/assets/images/video-summarization-base-architecture.png)
 
-**Scenario 1 — File summarization, base profile.** The client uploads a video file via REST or MCP. The Video Summarization microservice segments the video into chunks and forwards each chunk to the [RTVI-VLM ](/vss/system-components/vision-microservices/real-time-vlm) service for inference. RTVI-VLM returns per-chunk events synchronously over Server-Sent Events (SSE); the Video Summarization microservice calls the CA-RAG pipeline in-process to write events to Elasticsearch and aggregate them with the summarization LLM. The structured summary and timestamped events are returned in the HTTP response. The Kafka message queue is disabled in this profile (`KAFKA_ENABLED=false`).
+**Scenario 1 — File summarization, base profile.** The client uploads a video file via REST or MCP. The Video Summarization microservice segments the video into chunks and forwards each chunk to the [RTVI-VLM](/vss/system-components/vision-microservices/real-time-vlm) service for inference. RTVI-VLM returns per-chunk events synchronously over Server-Sent Events (SSE); the Video Summarization microservice calls the CA-RAG pipeline in-process to write events to Elasticsearch and aggregate them with the summarization LLM. The structured summary and timestamped events are returned in the HTTP response. The Kafka message queue is disabled in this profile (`KAFKA_ENABLED=false`).
 
 ### Summarization with Streaming and Message Bus
 
@@ -65,7 +65,7 @@ The Video Summarization microservice consists of the following core components:
 
 * **Video Summarization REST Server**: FastAPI-based REST API server.
 * **Video Summarization MCP Server**: Model Context Protocol server for AI agent integration.
-* **RTVI-VLM**: [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) service used for per-chunk and live-stream video inferencing.
+* **RTVI-VLM**: [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) service used for per-chunk and live-stream video inferencing.
 * **CA-RAG Pipeline**: Context-aware retrieval and generation system that orchestrates event aggregation and summarization.
 * **LLM NIM**: NVIDIA Inference Microservice for the summarization LLM.
 * **Vector Store**: Elasticsearch for storing extracted events, captions, and aggregated summaries. Stored captions and events can be retrieved by stream name and time range so agents can answer later questions about configured streams.
@@ -1034,7 +1034,7 @@ When running with `LVS_MCP_PORT` set, connect to:
 ### Performance Optimization
 
 1. **Chunk Duration**: Use 30-60 second chunks for optimal GPU utilization
-2. **RTVI-VLM Tuning**: Configure batch size, frame counts, and per-process GPU allocation on the RTVI-VLM service. See [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm) for guidance.
+2. **RTVI-VLM Tuning**: Configure batch size, frame counts, and per-process GPU allocation on the RTVI-VLM service. See [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) for guidance.
 3. **Live-Stream Sessions**: Set `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true` to keep context-manager state intact across consecutive `/v1/stream_summarize` calls on the same stream.
 4. **Logstash Settle Window**: Tune `tools.elasticsearch_db.params.kafka_consumer_settle_secs` (default 5 seconds) to balance ingest latency against the file-path summarize wall time when using the streaming profile.
 
@@ -1055,7 +1055,7 @@ When running with `LVS_MCP_PORT` set, connect to:
 
 **Out of Memory Errors**
 
-* Tune RTVI-VLM batch size and frame inputs (see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm))
+* Tune RTVI-VLM batch size and frame inputs (see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm))
 * Decrease `chunk_duration`
 * Switch to a smaller VLM model on RTVI-VLM
 
@@ -1214,14 +1214,14 @@ Complete list of available environment variables:
 
 ### Performance
 
-Published E2E latency and sizing guidance are in [Video Summarization Performance ](/vss/appendix/performance/agent-workflows/video-summarization-performance).
+Published E2E latency and sizing guidance are in [Video Summarization Performance](/vss/appendix/performance/agent-workflows/video-summarization-performance).
 
 ### Glossary
 
 * **CA-RAG**: Caption-Augmented Retrieval-Augmented Generation
 * **VLM**: Vision-Language Model
 * **NIM**: NVIDIA Inference Microservice
-* **RTVI-VLM**: Real-Time Vision-Language Model microservice — see [Real-Time VLM ](/vss/system-components/vision-microservices/real-time-vlm)
+* **RTVI-VLM**: Real-Time Vision-Language Model microservice — see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm)
 * **RTSP**: Real-Time Streaming Protocol, the network protocol used for live camera streams
 * **MCP**: Model Context Protocol
 * **RAG**: Retrieval-Augmented Generation

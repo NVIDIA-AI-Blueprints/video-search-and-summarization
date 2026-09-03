@@ -25,6 +25,8 @@ services:
     depends_on:
       vss-agent:
         condition: service_healthy
+        # Optional so a NemoClaw build, which drops vss-agent, still resolves.
+        required: false
     environment:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
       NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'

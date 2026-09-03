@@ -5,7 +5,7 @@ position: 2
 ---
 The **VSS Orchestrator MCP server** is the host-side process that NemoClaw's agent calls to deploy and operate VSS. It exposes a Model Context Protocol function group named `vss_orchestrator` that generates Docker Compose artifacts, runs `docker compose` operations in the background, lists containers, and fetches logs.
 
-The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the [notebook flow ](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills), Section 6.1 starts it on port `9988` and polls the `profiles` tool until healthy.
+The server is packaged with the VSS agent and started via `uv run nat mcp serve`. In the [notebook flow](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills), Section 6.1 starts it on port `9988` and polls the `profiles` tool until healthy.
 
 ## Configuration
 
@@ -161,7 +161,7 @@ Options:
 
 * `profile` is required and supports `base`, `search`, `lvs`, and `alerts`.
 * `profile_mode` is required for `alerts` and currently supports `verification` and `real-time`. Other profiles do not accept `profile_mode`.
-* `env_overrides` defaults to `[]` and accepts `KEY=VALUE` strings. For values that can be set, see the `Environment variables`_ table and the selected profile `.env` defaults. Per-call `env_overrides` values have the highest precedence.
+* `env_overrides` defaults to `[]` and accepts `KEY=VALUE` strings. For values that can be set, see the [Environment variables](#environment-variables) table and the selected profile `.env` defaults. Per-call `env_overrides` values have the highest precedence.
 
 Response:
 

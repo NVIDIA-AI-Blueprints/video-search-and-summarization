@@ -46,7 +46,7 @@ If your issue is not addressed on this page, please raise it on [GitHub Issues](
 - [Why does Kibana show request timeouts or ELK services fail startup health checks?](/vss/appendix/faq#why-does-kibana-show-request-timeouts-or-elk-services-fail-startup-health-checks)
 - [Why does Elasticsearch stop allocating shards or make indices read-only when disk usage is high?](/vss/appendix/faq#why-does-elasticsearch-stop-allocating-shards-or-make-indices-read-only-when-disk-usage-is-high)
 - [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
-- [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
+- [FAQ](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
 
 ## VIOS
 
@@ -104,11 +104,11 @@ processed by the downstream pipeline.
 
 ### What streaming protocols are supported?
 
-The reference blueprint uses **RTSP** for live video and **files/URLs** where each RTVI microservice documents them; other protocols require a custom DeepStream/GStreamer graph or an RTSP gateway. Refer to [Streaming protocols](/vss/system-components/vision-microservices/object-detection-and-tracking#streaming-protocols) in [Object Detection and Tracking ](/vss/system-components/vision-microservices/object-detection-and-tracking).
+The reference blueprint uses **RTSP** for live video and **files/URLs** where each RTVI microservice documents them; other protocols require a custom DeepStream/GStreamer graph or an RTSP gateway. Refer to [Streaming protocols](/vss/system-components/vision-microservices/object-detection-and-tracking#streaming-protocols) in [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
 ### What file-based video formats are supported?
 
-DeepStream-backed RTVI paths support **H.264**, **H.265**, **JPEG**, and **MJPEG** in common **multimedia container formats** (for example MP4 or MKV) when **GStreamer** can demux them; each microservice still defines which file or URL inputs it accepts. Refer to [File-based video and codecs](/vss/system-components/vision-microservices/object-detection-and-tracking#file-based-video-and-codecs) in [Object Detection and Tracking ](/vss/system-components/vision-microservices/object-detection-and-tracking).
+DeepStream-backed RTVI paths support **H.264**, **H.265**, **JPEG**, and **MJPEG** in common **multimedia container formats** (for example MP4 or MKV) when **GStreamer** can demux them; each microservice still defines which file or URL inputs it accepts. Refer to [File-based video and codecs](/vss/system-components/vision-microservices/object-detection-and-tracking#file-based-video-and-codecs) in [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
 ## Remote VLM (`nim` model-type) and video access
 
@@ -116,10 +116,10 @@ How does a remote `nim` VLM access videos?
 
 ### How does a remote `nim` VLM access videos?
 
-When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs elsewhere and must connect back to your host on **port 30888** to fetch videos. The VLM must be able to reach that port on:
+When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs elsewhere and must connect back to your host on **port 30888** to fetch videos. In the selected profile's `developer-profiles/dev-profile-<profile>/user-overrides.env`, set an address the VLM can reach:
 
-- The **external IP** passed via `-e`, if you provide one when running the agent workflow, or
-- Otherwise, the **internal host IP** you pass via `-i` or the auto-derived internal host IP.
+- `HOST_IP` to the hostname or IP address through which clients can reach VSS on the host.
+- `EXTERNAL_IP` to the public hostname or IP address when the VLM connects from outside the host network (for example, a cloud VM's public address). It defaults to `${HOST_IP}` for local-network deployments.
 
 Ensure your network and firewall allow the `nim` VLM to access port 30888 on the appropriate IP from where the VLM runs.
 
@@ -213,7 +213,7 @@ Re-run the bridge-container `curl` to confirm HTTP 200, then re-run the profile'
 
 As an alternative, move the failing service to host networking (for `vss-rtvi-embed`, add `network_mode: host` and drop the `ports:` mapping in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`). This sidesteps the firewall but edits a shipped Compose file, so prefer the firewall fix.
 
-Related: [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
+Related: [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) (same root cause, remote host); [FAQ](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type) (a separate 400 mode that can look similar on the search profile).
 
 PUT /api/v1/videos-for-search/\{filename\} returns 400 from a missing `Content-Type`
 
@@ -265,7 +265,7 @@ will work in shared mode if the override environment variables include the follo
 
 #### Can I run local LLM and VLM on NVIDIA RTX PRO 4500 Blackwell GPUs?
 
-No. For NVIDIA RTX PRO 4500 Blackwell, only the Remote LLM deployment option should be considered. Use the Remote LLM tab with `--use-remote-llm` and do not use the Shared GPU or Dedicated GPU options that deploy a local LLM.
+No. For NVIDIA RTX PRO 4500 Blackwell, only the Remote LLM deployment option should be considered. Use the Remote LLM tab and set `LLM_MODE=remote` in the selected profile `user-overrides.env`; do not use the Shared GPU or Dedicated GPU options that deploy a local LLM.
 
 ## Local RTVI-VLM deployments on OTHER hardware
 

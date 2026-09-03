@@ -111,7 +111,7 @@ The two notebooks configure two different model surfaces:
 
 The orchestrator MCP server reads credentials, hardware profile, remote VSS model endpoints, and device IDs at startup. In `deploy_vss_orchestrator.ipynb`, Section 4 maps the notebook variables into the MCP server environment before launching `uv run nat mcp serve`.
 
-`docker_generate` then merges those values with the selected profile `.env` and any per-call `env_overrides`. For the full resolution order and tool payloads, see [vss-orchestrator-mcp](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+`docker_generate` then merges those values with the selected profile `.env` and any per-call `env_overrides`. For the full resolution order and tool payloads, see [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
 ## VSS Orchestrator MCP config YAML
 
@@ -132,7 +132,7 @@ Hardware overrides under `model_resolution.hardware` apply when `HARDWARE_PROFIL
 | Profile | Setting | Default and purpose |
 | --- | --- | --- |
 | `DGX-SPARK` | `LLM_NAME` / `LLM_NAME_SLUG` | Local Spark NIM FP8 variant when a local LLM is used. |
-| `DGX-SPARK` | `RTVI_VLM_IMAGE_TAG` / `PERCEPTION_TAG` | SBSA image tags for the local VLM and perception services. |
+| `DGX-SPARK` | `PERCEPTION_TAG` | SBSA image tag for perception services. |
 | `DGX-SPARK` / `base` | `VLM_NIM_KVCACHE_PERCENT` | `0.2`. Local VLM KV-cache sizing for the `base` profile. |
 | `DGX-SPARK` / `alerts` | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.4`. GPU memory utilization for the local RTVI VLM on `alerts`. |
 | `IGX-THOR` / `AGX-THOR` | `VLM_NAME`, `RTVI_VLM_*`, `VLM_MODEL_TYPE` | Local Cosmos3 Nano Reasoner VLM settings for Thor edge systems. |

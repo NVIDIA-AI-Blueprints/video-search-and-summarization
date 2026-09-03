@@ -7,7 +7,7 @@
 # cached TRT engine from ENGINE_CACHE_DIR when available.
 #
 # Used by ds-start.sh for rtdetr-gdino profiles (alerts, smartcities). Derived
-# from skills/vss-deploy-detection-tracking-2d/scripts/setup_tracker_reid.sh with
+# from skills/deployment/vss-deploy-detection-tracking-2d/scripts/setup_tracker_reid.sh with
 # multi-path etlt install and explicit permissions for the privilege-dropped app
 # user (STORAGE_UID/STORAGE_GID).
 

@@ -183,17 +183,85 @@ GENERATED_DIR="/tmp/generated"
 mkdir -p "${GENERATED_DIR}"
 PUB_SUB_OUT="${GENERATED_DIR}/pub_sub_info_config.yml"
 
+# The shipped configs name four cameras. A dataset with a different camera
+# count needs the tracker's cameraModelFilepath map and the MQTT pub/sub topics
+# rebuilt from the calibration that produced /tmp/camInfo. Set
+# MV3DT_DYNAMIC_CAMERA_CONFIG=false to use the shipped configs verbatim.
+MV3DT_DYNAMIC_CAMERA_CONFIG=${MV3DT_DYNAMIC_CAMERA_CONFIG:-true}
+
+mapfile -t CAM_NAMES < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
+
+EFFECTIVE_CONFIG_DIR="${CONFIG_DIR}"
+if [ "${MV3DT_DYNAMIC_CAMERA_CONFIG}" = "true" ]; then
+  [ ${#CAM_NAMES[@]} -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
+  echo "Dynamic camera config: ${#CAM_NAMES[@]} camera(s) from calibration (${CAM_NAMES[*]})."
+
+  # Batch size is derived from NUM_STREAMS by the blueprint configurator, which
+  # writes both max-batch-size here and the matching _b<n>_ engine name into
+  # ds-pgie-config.yml. A calibration with more cameras than that means
+  # NUM_STREAMS disagrees with the dataset, so fail fast rather than let
+  # streammux silently drop the extra sources.
+  MAX_BATCH=$(grep -oE "^max-batch-size=[0-9]+" "${CONFIG_DIR}/ds-main-config-mv3dt.txt" | head -1 | cut -d= -f2)
+  if [ -n "${MAX_BATCH}" ] && [ ${#CAM_NAMES[@]} -gt "${MAX_BATCH}" ]; then
+    echo "ERROR: calibration has ${#CAM_NAMES[@]} cameras but DS max-batch-size is ${MAX_BATCH}."
+    echo "       Set NUM_STREAMS=${#CAM_NAMES[@]} in overrides.env and re-run the blueprint"
+    echo "       configurator; it updates max-batch-size and the pgie engine name together."
+    echo "       DeepStream builds the _b${#CAM_NAMES[@]}_ engine from the ONNX on first run if absent."
+    echo "       Note NUM_STREAMS is capped by the hardware profile's max_streams_supported."
+    exit 1
+  fi
+
+  # Work on a copy: the config directory is bind-mounted from the deployment
+  # tree, so editing in place would modify the checked-out sources. Copying the
+  # whole directory keeps every relative reference inside the main config --
+  # ds-pgie-config.yml, ds-kafka-config.txt, ll-config-file -- resolving beside
+  # it, so only the tracker map has to change.
+  EFFECTIVE_CONFIG_DIR="${GENERATED_DIR}/configs"
+  rm -rf "${EFFECTIVE_CONFIG_DIR}"
+  mkdir -p "${EFFECTIVE_CONFIG_DIR}"
+  cp -a "${CONFIG_DIR}/." "${EFFECTIVE_CONFIG_DIR}/"
+  # The shipped pub/sub file names a fixed camera set and is regenerated below
+  # at the absolute path the tracker's pubSubInfoConfigPath points to. Drop the
+  # stale copy so a wrong-camera-count file cannot be picked up from here.
+  rm -f "${EFFECTIVE_CONFIG_DIR}/pub_sub_info_config.yml"
+
+  # Rebuild the tracker cameraModelFilepath map (sensor ids come from
+  # calibration). pubSubInfoConfigPath and mqttProtoAdaptorConfigPath inside the
+  # tracker config are absolute, so they still resolve from the copy.
+  CAM_ENTRIES=""
+  for cam in "${CAM_NAMES[@]}"; do
+    CAM_ENTRIES+="    ${cam}: /tmp/camInfo/${cam}.yml"$'\n'
+  done
+
+  # Drop the old cameraModelFilepath block up to the next key at 2-space or
+  # top-level indent, then splice in the dynamic entries.
+  awk -v entries="${CAM_ENTRIES}" '
+    /^  cameraModelFilepath:/ { print; printf "%s", entries; inblock=1; next }
+    inblock && /^ ? ?[^ ]/ { inblock=0 }
+    inblock { next }
+    { print }
+  ' "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml" > "${EFFECTIVE_CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+  grep -q "^    .*: /tmp/camInfo/" "${EFFECTIVE_CONFIG_DIR}/ds-mv3dt-tracker-config.yml" \
+    || { echo "ERROR: failed to inject cameraModelFilepath entries into the tracker config"; exit 1; }
+
+  echo -e "\nTracker cameraModelFilepath map:"
+  sed -n '/^  cameraModelFilepath:/,/^  [^ ]/p' "${EFFECTIVE_CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+fi
+
 echo "Generating MQTT pub/sub config..."
 PROVIDED_PUB_SUB=""
-for candidate in "${CONFIG_DIR}/pub_sub_info_config.yml"; do
-  [ -f "${candidate}" ] && PROVIDED_PUB_SUB="${candidate}" && break
-done
+if [ "${MV3DT_DYNAMIC_CAMERA_CONFIG}" != "true" ]; then
+  # Only honour the shipped file when not deriving from calibration: it names a
+  # fixed camera set, which is the thing dynamic mode exists to replace.
+  for candidate in "${CONFIG_DIR}/pub_sub_info_config.yml"; do
+    [ -f "${candidate}" ] && PROVIDED_PUB_SUB="${candidate}" && break
+  done
+fi
 
 if [ -n "${PROVIDED_PUB_SUB}" ]; then
   echo "Using provided pub/sub config: ${PROVIDED_PUB_SUB} (rewriting host:port to ${MQTT_ENDPOINT})"
   sed -E "s|[^[:space:];]+:[0-9]+;|${MQTT_ENDPOINT};|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
 else
-  mapfile -t CAM_NAMES < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
   [ ${#CAM_NAMES[@]} -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
 
   {
@@ -215,12 +283,12 @@ echo -e "\nPub/sub config:"
 cat "${PUB_SUB_OUT}"
 
 echo -e "\nPGIE config:"
-cat "${CONFIG_DIR}/ds-pgie-config.yml"
+cat "${EFFECTIVE_CONFIG_DIR}/ds-pgie-config.yml"
 
 echo -e "\nTracker config:"
-cat "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+cat "${EFFECTIVE_CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
 
 echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
 echo -e "\nMain config:"
-cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
-exec_as_runtime_user ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1
+cat "${EFFECTIVE_CONFIG_DIR}/ds-main-config-mv3dt.txt"
+exec_as_runtime_user ./metropolis_perception_app -c "${EFFECTIVE_CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1

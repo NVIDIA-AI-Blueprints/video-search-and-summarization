@@ -22,7 +22,9 @@ contract.
    the fixed-footprint services placed in step 3. Share only when the combined
    budget fits. Resolve the atomic variant/placement set without inheriting
    consumer wiring, as specified by the [RT-VLM owner](services/rt-vlm.md). Stock
-   mode retains its Foundation's reviewed variant and placement. For continuous
+   mode retains its Foundation's reviewed variant and placement, except that a
+   co-located placement on a host with a free GPU is the user's call — ask, per
+   "Ask before co-locating" below. For continuous
    VLM inference on a shared GPU, reduce `NUM_STREAMS` and verify utilization
    headroom under load.
 5. Use a remote endpoint only when the user requested one or approved it after
@@ -69,11 +71,9 @@ Representative model estimates:
 
 | Model | Precision | Estimated model budget |
 |---|---|---:|
-| Nemotron Nano 9B v2 | FP16 | 23.4 GB |
-| Nemotron Nano 9B v2 | FP8 | 11.7 GB |
-| Nemotron 3 Nano 30B-A3B | FP8 | about 39 GB; budget total parameters, not active parameters |
-| Llama 3.3 Nemotron Super 49B | FP16 | about 127 GB; use tensor parallelism or a larger GPU |
-| GPT-OSS 20B | FP16 | about 52 GB |
+| Nemotron 3.5 Lightning 30B-A3B (default) | BF16 | about 78 GB; budget total parameters (30 B), not active parameters (3 B). The NIM's own BF16 profile asks for at least 66 GB per GPU |
+| Nemotron 3.5 Lightning 30B-A3B (default) | INT4 | about 45 GB observed; `vllm-int4-tp1-pp1-32.0` is pinned in every `hw-*.env` |
+| Nemotron Nano 9B v2 FP8 (edge) | FP8 | 11.7 GB |
 | Cosmos Reason 1 7B | FP16 | 18.2 GB |
 | Cosmos Reason 2 8B | FP16 | 20.8 GB |
 | Qwen3-VL 8B | FP16 | 20.8 GB |
@@ -116,6 +116,21 @@ RT-VLM placement and utilization starting values:
 | Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
 | Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
 
+**Ask before co-locating.** When the Foundation puts RT-VLM on the same GPU as
+another model and the host has a free GPU, ask the user which layout they want
+before writing `override.env`. Ask every time — never infer the answer from
+"stock", from the Foundation's device IDs, or from the fact that both models fit.
+Offer two choices and write the utilization the chosen one names:
+
+- **One GPU** — keep the Foundation's device IDs and set the shared value above.
+- **Two GPUs** — point `RT_VLM_DEVICE_ID` at the free GPU and set the dedicated
+  value above.
+
+Set `RTVI_VLLM_GPU_MEMORY_UTILIZATION` explicitly either way. Every Foundation
+ships it blank, and RT-VLM reads blank as the **dedicated** `0.7` no matter what
+shares the device, so leaving it blank on a shared GPU overcommits the card and
+the second model to start dies at init.
+
 These values apply when `rtvi-vlm` is in the effective service set, including
 stock Alerts `2d_cv` and `2d_vlm`. The BF16 co-resident row is a stock-Foundation
 layout (Alerts/LVS share BF16 with the LLM); a generated build that must converge
@@ -123,6 +138,99 @@ variants co-resides on FP8, per step 4 of the sizing flow. Do not share the
 Alerts LLM and RT-VLM on L40S or RTX PRO 4500. On RTX PRO 4500, use a remote LLM
 and start RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
 `RTVI_VLM_MAX_MODEL_LEN=18000`.
+
+## Warehouse industry-profile layout
+
+Warehouse sizes differently from every developer profile: stream capacity, not
+model memory, is the binding constraint. `NUM_STREAMS` is fixed by the sample
+dataset (`profiles/warehouse.md`), so the question is not "how many streams fit"
+but "does this hardware support the count this dataset requires".
+
+`blueprint_config.yml` is authoritative for that ceiling. `HARDWARE_PROFILE`
+selects the section; `MODE` selects the row:
+
+| `HARDWARE_PROFILE` | `2d` | `3d` |
+|---|---:|---:|
+| H100 | 77 | 19 |
+| RTXPRO6000BW | 52 | 21 |
+| RTXPRO6000BW-SE | 47 | 20 |
+| L40S | 29 | 10 |
+| RTXA6000ADA | 28 | 8 |
+| RTXPRO4500BW | 20 | 9 |
+| RTXA6000 | 15 | **4** |
+| L4 | 9 | **3** |
+| IGX-THOR | 9 | 8 |
+| DGX-SPARK | 7 | 7 |
+
+Check the dataset's stream count against the cell before deploying:
+
+- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile.
+- `warehouse-loading-dock-3cams-synthetic` (2D kafka/redis) — 3 streams. Fits
+  every profile.
+- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. **Exceeds `L4` (3).**
+  Exactly saturates `RTXA6000` (4), which leaves no margin for a second workload
+  on that GPU.
+
+`NUM_STREAMS` is an input and is never rewritten — the file-count prerequisite
+that would recompute it from the video directory is `enabled: false` in every
+mode. The configurator derives `final_stream_count = min(NUM_STREAMS,
+max_streams_supported)` from it.
+
+The ceiling is **primarily a DeepStream batch bound**, but not only that. Where
+each value lands in `3d`:
+
+| Rendered key | Target | From |
+|---|---|---|
+| `num_sensors` | `${DS_CONFIG_DIR}/config.yaml` | `final_stream_count` |
+| `batch-size`, `max-batch-size` | `${DS_CONFIG_DIR}/ds-main-config.txt` | `final_stream_count` |
+| `network-input-shape` | `${DS_CONFIG_DIR}/ds-mtmc-preprocess-config.txt` | `final_stream_count` |
+| `data.nv_streamer_sync_file_count` | nvstreamer `vst-config.json` | `final_stream_count` |
+| `onvif.max_devices_supported` | nvstreamer `vst-config.json` **and** VST `vst_config.json` | `effective_max_streams_supported` |
+| video `keep_count` trim | `${VSS_DATA_DIR}/videos/<dataset>` | `enabled: false` — never runs |
+
+**What the ceiling never reaches is the sdrc/WDM path.** Raw `NUM_STREAMS` is
+rendered into the sdrc templates as `WDM_WL_THRESHOLD` — the SDR controller's
+workload-dispatch threshold, for both the streamprocessing and rtvi-cv
+workloads. So exceeding the ceiling leaves an internally inconsistent build —
+ingest and inference sized to the ceiling, workload admission to the requested
+count — rather than a clean downshift.
+
+**Nothing enforces this automatically.** `HARDWARE_PROFILE` reaches no service
+`environment:` block, so Compose cannot see it, and no rule in
+`blueprint_config.yml` compares `NUM_STREAMS` to the ceiling. Check the cell
+against the dataset yourself before deploying, then verify after bring-up the
+same way you verify liveness: `Active sources` must equal `NUM_STREAMS`
+(`profiles/warehouse.md`).
+
+**An unrecognized `HARDWARE_PROFILE` silently matches no section** and skips
+that profile's stream limit *and* its `file_operations` tuning, so the build
+runs on the common configuration — a quiet capability loss, not an error. The
+configurator only uppercases the value; it does not normalize spacing or
+hyphenation, so `IGX THOR` does **not** match the canonical `IGX-THOR`. Use a
+name from the table above verbatim, and confirm what resolved in the
+`bp-configurator-<mode>` log:
+
+```bash
+docker logs vss-configurator 2>&1 | grep -aE "HARDWARE_PROFILE|hardware profile"
+```
+
+`Using common configurations only` there means the name did not match and the
+tuning above was skipped.
+
+GPU placement by variant — warehouse never runs a standalone VLM NIM
+(`VLM_MODE` is `none`, or `remote` for a 2D `bp_wh` build pointing the
+integrated RT-VLM at an external endpoint):
+
+| Variant | GPU consumers | Layout |
+|---|---|---|
+| `bp_wh_kafka` / `bp_wh_redis`, `2d` or `3d` | RT-CV only | Everything else is CPU-bound (ELK, VIOS, analytics). One GPU at `RT_CV_DEVICE_ID=0` is the whole budget. |
+| `bp_wh`, `2d` | RT-CV, integrated RT-VLM, LLM NIM | Stock layout is `RT_CV_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, `LLM_DEVICE_ID=2`. With fewer GPUs, place RT-CV first (fixed footprint) and apply the RT-VLM placement rules above; a remote LLM removes the third consumer entirely. |
+
+Headless warehouse perception is far lighter than a VLM profile — a measured
+4-stream 3D Sparse4D build (FP16, cached TensorRT engine) used **under 2 GB**
+of a 48 GB card. Do not budget a headless warehouse build as if it hosted a
+model server; the constraint is the stream ceiling above, not the memory
+formula.
 
 ## Search stream sizing
 

@@ -292,6 +292,7 @@ def main():
             "test_video_embeddings_file_url.py",
             "test_video_embeddings_url_headers.py",
             "test_create_triton_model_repo.py",
+            "test_ipc_frame_copy.py",
         ]
         unit_paths = [os.path.join(this_dir, test) for test in unit_tests]
         # Filter to only existing test files

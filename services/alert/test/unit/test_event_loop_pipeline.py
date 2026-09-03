@@ -86,7 +86,8 @@ def _build_pipeline_stub(runtime, max_in_flight, vlm_cap, vst_cap):
 
     stub._transform_video_urls = lambda url: (url, url)
 
-    async def _prepare_message_context_async(message, sensor_id, latency, worker_start_time):
+    async def _prepare_message_context_async(message, sensor_id, latency, worker_start_time,
+                                             span_handle=None):
         return ("up", "sp")
 
     async def _resolve_video_url_async(message, sensor_id, latency):
@@ -107,7 +108,7 @@ def _build_pipeline_stub(runtime, max_in_flight, vlm_cap, vst_cap):
     publish_lock = threading.Lock()
 
     async def _record_publish(message, user_prompt, system_prompt, response_content,
-                              vlm_failure_reason, worker_start_time, latency):
+                              vlm_failure_reason, worker_start_time, latency, span_handle=None):
         with publish_lock:
             published.append({"message": message, "latency": latency,
                               "failure_reason": vlm_failure_reason})
@@ -327,7 +328,8 @@ def _build_parity_enhancer(mode, runtime=None, analyze_error=None):
         publish_error_async=_capture_publish_async,
     )
 
-    def _capture_complete(publish_future, worker_start_time, message, latency, failure_reason=None):
+    def _capture_complete(publish_future, worker_start_time, message, latency,
+                          failure_reason=None, span_handle=None):
         captured["completions"].append(failure_reason)
 
     enhancer._complete_event_after_publish = _capture_complete

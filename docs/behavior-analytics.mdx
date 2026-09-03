@@ -385,7 +385,7 @@ The configuration file supports multiple message broker types. You can configure
 
 ### CalibrationFile
 
-Use the Calibration tool to generate the JSON file. For more details, refer to the [calibration](/vss/system-components/calibration). For the calibration JSON structure, see [calibration-schema](/vss/system-components/calibration/calibration-schema).
+Use the Calibration tool to generate the JSON file. For more details, refer to the [Calibration](/vss/system-components/calibration). For the calibration JSON structure, see [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 
 ## Components & Customization
 
@@ -796,7 +796,7 @@ class StateMgmtE(StateMgmtEWithTripwire):
 ```
 
 <Note>
-When using `BaseApp`, use the built-in `write_behaviors()` and `write_events()` methods to publish results. See `Sink`_.
+When using `BaseApp`, use the built-in `write_behaviors()` and `write_events()` methods to publish results. See [Sink](#sink).
 </Note>
 
 #### Embeddings Cluster
@@ -1060,7 +1060,7 @@ The Incidents framework detects violations in video frames and tracks them over 
 * **Violation State**: Internal tracking of violation duration and continuity across frames.
 * **Incident**: A violation that exceeds the configured time threshold and needs reporting.
 
-For configuration details, see [Configuration Parameters](/vss/system-components/analytics-microservices/behavior-analytics#configuration-parameters). For calibration schema details, refer to [calibration-schema](/vss/system-components/calibration/calibration-schema).
+For configuration details, see [Configuration Parameters](/vss/system-components/analytics-microservices/behavior-analytics#configuration-parameters). For calibration schema details, refer to [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 
 #### Violation Types
 
@@ -2520,7 +2520,7 @@ analytics pipeline against an existing broker (or no broker at all), swap the en
 or point the service at a custom config or calibration without redeploying the full
 warehouse blueprint stack.
 
-The Skill is published in the `skills/vss-setup-behavior-analytics` folder of the VSS Blueprint repository.
+The Skill is published in the `skills/deployment/vss-setup-behavior-analytics` folder of the VSS Blueprint repository.
 Install it the same way as any other VSS Agent Skill — see [Installing Skills](/vss/vision-agent/agent-skills#installing-skills)
 for the catalog-wide install flow.
 
@@ -2610,4 +2610,4 @@ cycle.
 
 For the standalone-service walkthrough, configuration field guide, and per-flow wire
 contracts, refer to the Skill's bundled references under
-`skills/vss-setup-behavior-analytics/references/` in the VSS Blueprint repository.
+`skills/deployment/vss-setup-behavior-analytics/references/` in the VSS Blueprint repository.

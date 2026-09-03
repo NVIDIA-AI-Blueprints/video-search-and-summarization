@@ -21,7 +21,9 @@ arguments override earlier ones, so order matters.
 |------|------|
 | **`containers.env`** | Shared first-party container registry and tag defaults. Pass this before profile env files when running Compose directly. |
 | **`developer-profiles/dev-profile-*/.env`** / **`industry-profiles/*/.env`** | Stable profile defaults. These files should not carry machine-specific paths, host ports, credentials, or generated runtime values. |
-| **`developer-profiles/dev-profile-*/overrides.env`** / **`industry-profiles/*/overrides.env`** | Mutable deployment-specific defaults such as hardware, model placement, endpoint URLs, host paths, credentials, public ingress, host-published ports, and active `COMPOSE_PROFILES`. |
+| **`developer-profiles/dev-profile-*/overrides.env`** | Checked-in developer-profile template. Copy it to `user-overrides.env` before direct Compose deployment; do not edit the template. |
+| **`developer-profiles/dev-profile-*/user-overrides.env`** | Ignored user-managed direct-Compose overlay for hardware, model placement, endpoint URLs, host paths, credentials, public ingress, host-published ports, and `COMPOSE_PROFILES`. |
+| **`industry-profiles/*/overrides.env`** | Mutable deployment-specific defaults for industry profiles. |
 | **`generated.env`** | Developer-profile runtime overlay created by `dev-profile.sh` from `overrides.env`. It also receives derived values such as `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, API keys, model slugs, and compose-wide defaults. Do not edit or commit this file. |
 
 `dev-profile.sh` starts developer stacks with env files in this order:
@@ -32,17 +34,23 @@ arguments override earlier ones, so order matters.
 --env-file developer-profiles/dev-profile-<profile>/generated.env
 ```
 
-When running Compose directly, pass `containers.env`, the profile `.env`, and
-then the profile `overrides.env`:
+When running Compose directly, first create the ignored user-managed overlay from the
+checked-in template (repeat the copy to discard prior layout choices):
+
+```bash
+cp <profile>/overrides.env <profile>/user-overrides.env
+```
+
+Then pass `containers.env`, the profile `.env`, and the user overlay:
 
 ```bash
 --env-file containers.env \
 --env-file <profile>/.env \
---env-file <profile>/overrides.env
+--env-file <profile>/user-overrides.env
 ```
 
 Before direct Compose bring-up, update the deployment-specific placeholders in
-`overrides.env`, especially `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
+`user-overrides.env`, especially `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
 `EXTERNAL_IP`, credentials, and the active `COMPOSE_PROFILES`.
 
 ---
@@ -107,7 +115,7 @@ curl --fail http://localhost:9400/metrics |
 ```
 
 Set `DCGM_EXPORTER_HOST_PORT` in
-`developer-profiles/dev-profile-lvs/overrides.env` if port 9400 is already in
+`developer-profiles/dev-profile-lvs/user-overrides.env` if port 9400 is already in
 use. The exporter requires the NVIDIA driver, NVIDIA Container Toolkit, and a
 GPU supported by DCGM. Its `/metrics` endpoint can be scraped directly by
 Prometheus, Dynatrace, or another Prometheus-compatible monitoring system.
@@ -138,7 +146,7 @@ preview the commands and generated environment without starting containers.
 `docker compose` directly, you are responsible for both the env-file order and the
 host directories.
 
-For a developer profile, use a helper-created `generated.env` when possible:
+For a developer profile started by `dev-profile.sh`, use its helper-created `generated.env`:
 
 ```bash
 cd /path/to/video-search-and-summarization/deploy/docker
@@ -150,8 +158,8 @@ docker compose -f compose.yml \
   config
 ```
 
-If you choose to pass `overrides.env` directly instead of `generated.env`, first
-replace its placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
+For direct Compose, copy `overrides.env` to `user-overrides.env` first, then
+replace the user file's placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
 credentials, ports, and model settings.
 
 Create writable host directories for the bind-mounted infrastructure volumes

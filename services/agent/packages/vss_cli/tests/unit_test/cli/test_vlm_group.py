@@ -1,0 +1,1188 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Contract tests for ``vss vlm``.
+
+The group is a thin client over the RT-VLM REST API, so what is worth pinning
+is not the vision model's answer but the job shape around it: where the request
+is sent, what media the VLM receives, and how a failed or timed-out call
+reports itself.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING
+from typing import Any
+
+from click.testing import CliRunner
+import httpx
+import pytest
+
+from vss_cli import config as config_mod
+from vss_cli import memory as memory_mod
+from vss_cli.exits import Exit
+from vss_cli.vlm.group import VLM
+from vss_cli.vlm.group import VlmInput
+from vss_cli.vlm.group import VlmOptions
+from vss_core.memory import InMemoryStore
+from vss_core.memory import MemoryService
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+BASE_URL = "http://h:7777"
+
+
+# --------------------------------------------------------------------------
+# fixtures and doubles
+# --------------------------------------------------------------------------
+
+
+def _deployment(*, rt_vlm_models: list[str] | None = None) -> config_mod.Deployment:
+    models = rt_vlm_models if rt_vlm_models is not None else ["cosmos-reason1-7b"]
+    return config_mod.Deployment(
+        base_url=BASE_URL,
+        services={
+            "rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=models),
+            "vst": config_mod.Service(url=f"{BASE_URL}/vst"),
+            "elasticsearch": config_mod.Service(url=f"{BASE_URL}/elasticsearch"),
+        },
+        memory=config_mod.MemoryConfig(),
+    )
+
+
+@pytest.fixture
+def configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> config_mod.Deployment:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    deployment = _deployment()
+    config_mod.save(deployment)
+    return deployment
+
+
+def _completion(answer: str = "I see a forklift in aisle 3.") -> dict[str, Any]:
+    return {
+        "id": "cmpl-abc123",
+        "object": "chat.completion",
+        "model": "cosmos-reason1-7b",
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    }
+
+
+def _fake_post(response: Any) -> Any:
+    """Return a callable that patches httpx.post with a fixed response."""
+    if isinstance(response, Exception):
+
+        def _raise(*_args: Any, **_kwargs: Any) -> httpx.Response:
+            raise response
+
+        return _raise
+
+    def _return(*_args: Any, **_kwargs: Any) -> httpx.Response:
+        return response
+
+    return _return
+
+
+def _in_memory(deployment: config_mod.Deployment) -> memory_mod.Memory:
+    store = InMemoryStore()
+    index = deployment.memory.index if deployment.memory else "vss-memory"
+    return memory_mod.Memory(MemoryService(store), index=index)
+
+
+# --------------------------------------------------------------------------
+# input model validation
+# --------------------------------------------------------------------------
+
+
+def test_vlm_input_requires_exactly_one_source() -> None:
+    with pytest.raises(Exception, match="exactly one"):
+        VlmInput(prompt="What do you see?")
+
+    with pytest.raises(Exception, match="exactly one"):
+        VlmInput(prompt="What?", sensor="cam1", media_url="http://h/clip.mp4")
+
+    with pytest.raises(Exception, match="exactly one"):
+        VlmInput(prompt="What?", sensor="cam1", file="/tmp/v.mp4")
+
+    with pytest.raises(Exception, match="exactly one"):
+        VlmInput(prompt="What?", media_url="http://h/v.mp4", file="/tmp/v.mp4")
+
+
+def test_vlm_input_start_end_require_sensor() -> None:
+    with pytest.raises(Exception, match="start-time"):
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", start_time="2025-01-01T00:00:00Z")
+
+
+def test_vlm_input_valid_sensor_path() -> None:
+    inp = VlmInput(prompt="What?", sensor="cam1", start_time="2025-01-01T00:00:00Z", end_time="2025-01-01T00:00:30Z")
+    assert inp.sensor == "cam1"
+    assert inp.start_time == "2025-01-01T00:00:00Z"
+
+
+def test_vlm_input_valid_url_path() -> None:
+    inp = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    assert inp.media_url == "http://h/clip.mp4"
+    assert inp.sensor is None
+
+
+def test_vlm_input_valid_file_path() -> None:
+    inp = VlmInput(prompt="What?", file="/home/user/video.mp4")
+    assert inp.file == "/home/user/video.mp4"
+    assert inp.sensor is None
+    assert inp.media_url is None
+
+
+def test_intent_defaults_to_qa() -> None:
+    inp = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    assert inp.intent == "qa"
+
+
+def test_vlm_options_defaults() -> None:
+    opts = VlmOptions()
+    assert opts.no_persist is False
+    assert opts.use_base64 is False
+
+
+# --------------------------------------------------------------------------
+# happy path: --media-url
+# --------------------------------------------------------------------------
+
+
+def test_run_media_url_persists_answer(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answer = "I see a person carrying a box."
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured, memory=_in_memory(configured))
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What is happening?", media_url="http://h/clip.mp4", intent="qa")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    assert result.body["answer"] == answer
+    assert result.body["persisted"] is True
+    assert result.body["intent"] == "qa"
+    assert result.job_id.startswith("vlm-")
+
+
+def test_run_no_persist_skips_memory(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    assert result.body["persisted"] is False
+
+
+def test_run_request_carries_video_url(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["url"] = url
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    media = "http://vios/clip.mp4"
+    inputs = VlmInput(prompt="Count the people.", media_url=media, model="my-vlm")
+    group.run("", inputs, ctx)
+
+    assert captured["url"].endswith("/v1/chat/completions")
+    payload = captured["json"]
+    assert payload["model"] == "my-vlm"
+    content = payload["messages"][0]["content"]
+    video_parts = [c for c in content if c.get("type") == "video_url"]
+    assert video_parts[0]["video_url"]["url"] == media
+
+
+def test_run_model_defaults_from_deployment(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["model"] = json["model"]
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    group.run("", inputs, ctx)
+
+    assert captured["model"] == "cosmos-reason1-7b"
+
+
+# --------------------------------------------------------------------------
+# failure paths
+# --------------------------------------------------------------------------
+
+
+def test_run_timeout_returns_timeout_exit(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.TimeoutException("timed out")))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4", timeout=10)
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.TIMEOUT
+    assert result.body["status"] == "timeout"
+    assert result.job_id.startswith("vlm-")
+
+
+def test_run_5xx_returns_backend_unreachable(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(503, text="Service Unavailable")))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.body["status"] == "failed"
+
+
+def test_run_4xx_returns_invalid_input(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(400, text="Bad Request")))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.INVALID_INPUT
+
+
+def test_run_network_error_returns_backend_unreachable(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.ConnectError("refused")))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+
+
+# --------------------------------------------------------------------------
+# CLI surface
+# --------------------------------------------------------------------------
+
+
+def test_cli_help_shows_required_flags() -> None:
+    runner = CliRunner()
+    result = runner.invoke(VLM.cli(), ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--prompt" in result.output
+    assert "--sensor" in result.output
+    assert "--media-url" in result.output
+    assert "--file" in result.output
+    assert "--intent" in result.output
+    assert "--no-persist" in result.output
+    assert "--use-base64" in result.output
+    assert "--num-frames" in result.output
+
+
+def test_cli_mutually_exclusive_sensor_url(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+    runner = CliRunner()
+    result = runner.invoke(VLM.cli(), ["run", "--prompt", "What?", "--sensor", "cam1", "--media-url", "http://x/v.mp4"])
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_cli_missing_media_source(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+    runner = CliRunner()
+    result = runner.invoke(VLM.cli(), ["run", "--prompt", "What?"])
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_cli_run_success(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    answer = "Nothing unusual."
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What do you see?", "--media-url", "http://h/clip.mp4", "--no-persist"],
+    )
+    assert result.exit_code == 0, result.output
+    # The framework emits the body then a completion marker on separate lines.
+    lines = result.output.splitlines()
+    body = json.loads(lines[0])
+    assert body["answer"] == answer
+    assert body["status"] == "completed"
+    assert body["persisted"] is False
+    marker = json.loads(lines[1])
+    assert marker["event"] == "vss_job_completed"
+    assert marker["status"] == "completed"
+    assert marker["persisted"] is False
+
+
+def test_cli_intent_stored_in_body(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "Report?", "--media-url", "http://h/clip.mp4", "--intent", "report", "--no-persist"],
+    )
+    assert result.exit_code == 0, result.output
+    body = json.loads(result.output.splitlines()[0])
+    assert body.get("intent") == "report"
+
+
+def test_run_request_carries_num_frames(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=16)
+    group.run("", inputs, ctx)
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 16
+
+
+def test_run_request_num_frames_default(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    group.run("", inputs, ctx)
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 8
+
+
+def test_use_base64_with_sensor_is_invalid(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """--use-base64 combined with --sensor must be rejected before VIOS resolution."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "cam1", "--use-base64"],
+    )
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_run_file_source_uses_base64(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """--file implies base64 encoding; payload must carry data: URI."""
+    import json as _json
+
+    video_bytes = b"\x00\x01\x02video"
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(video_bytes)
+
+    captured: dict[str, Any] = {}
+
+    def _capture(
+        _url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any
+    ) -> httpx.Response:
+        if content is not None:
+            captured["json"] = _json.loads(b"".join(content))
+        else:
+            captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", file=str(video_file))
+    group.run("", inputs, ctx)
+
+    content = captured["json"]["messages"][0]["content"]
+    video_part = next(c for c in content if c.get("type") == "video_url")
+    assert video_part["video_url"]["url"].startswith("data:video/mp4;base64,")
+
+
+def test_run_file_not_found_exits_invalid_input(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A nonexistent --file path must exit INVALID_INPUT (2), not ERROR (1)."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--file", "/no/such/file.mp4", "--no-persist"],
+    )
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_vios_backend_error_exits_backend_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """VSTError (BackendUnreachableError subclass) must produce exit code 3."""
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={
+            "rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["cosmos-reason1-7b"]),
+            "vst": config_mod.Service(url=f"{BASE_URL}/vst"),
+        },
+        memory=config_mod.MemoryConfig(),
+    )
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(deployment)
+
+    runner = CliRunner()
+    result = runner.invoke(VLM.cli(), ["run", "--prompt", "What?", "--sensor", "cam1", "--no-persist"])
+    assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
+
+
+def test_vios_resolution_failure_writes_terminal_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIOS clip resolution fails on a persist-enabled call, a terminal record must
+    be written so vss vlm get/list can report the failure. The exception still propagates
+    (guarded() maps it to the right exit code), but persistence must not be skipped."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.body["status"] == "failed"
+    assert result.extra["marker"]["status"] == "failed"
+    # Memory is enabled and the record lands, so the marker must say so.
+    assert result.extra["marker"]["persisted"] is True
+
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record written on VIOS resolution failure"
+    assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
+
+
+def test_num_frames_in_model_params(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """num_frames must be persisted in model_params in the memory record."""
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=12)
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    records = store.service.list_jobs()
+    assert records
+    assert records[0].input.params is not None
+    assert records[0].input.params.get("num_frames") == 12
+
+
+def test_sensor_path_uses_resolved_window_bounds(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Memory record must store the bounds VIOS actually served, not the raw CLI inputs."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    resolved_url = "http://vios/clip.mp4"
+    resolved_start = "2025-01-01T00:00:00Z"
+    resolved_end = "2025-01-01T00:00:30Z"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_args, **_kwargs: (resolved_url, resolved_start, resolved_end),
+    )
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("ok"))))
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    # Supply only --start-time; VIOS fills in the end bound.
+    inputs = VlmInput(prompt="What?", sensor="cam1", start_time="2025-01-01T00:00:05Z")
+    result = group.run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    records = store.service.list_jobs()
+    assert records, "expected one persisted record"
+    rec = records[0]
+    assert rec.input.window is not None
+    assert rec.input.window.start.timestamp.isoformat().startswith("2025-01-01T00:00:00")
+    assert rec.input.window.end is not None
+    assert rec.input.window.end.timestamp.isoformat().startswith("2025-01-01T00:00:30")
+
+
+def _assert_no_local_path_in_record(records: list[Any], label: str) -> None:
+    assert records, f"expected one persisted record ({label})"
+    rec = records[0]
+    assert rec.output.handles is None, f"{label}: local path must not appear in output handles"
+    assert rec.input.params is None or "media_url" not in (rec.input.params or {}), (
+        f"{label}: local path must not appear in input.params.media_url"
+    )
+
+
+def test_run_file_source_does_not_persist_local_path(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Local paths must not be stored in memory for --file or --media-url+--use-base64."""
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(b"\x00\x01\x02video")
+
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("looks good"))))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    # Case 1: --file
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", file=str(video_file)), ctx)
+    assert result.exit == Exit.SUCCESS
+    _assert_no_local_path_in_record(store.service.list_jobs(), "--file")
+
+    # Case 2: --media-url <local-path> --use-base64 (backward-compat path)
+    store2 = _in_memory(configured)
+    ctx2 = Context(deployment=configured, memory=store2)
+    ctx2.extra = {"use_base64": True}
+    group2 = VlmGroup()
+    result2 = group2.run("", VlmInput(prompt="What?", media_url=str(video_file)), ctx2)
+    assert result2.exit == Exit.SUCCESS
+    _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
+
+
+def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIOS resolves --sensor to a loopback URL, the CLI must stream it to a temp
+    file (no double-materialisation of raw bytes) and send the clip inline as base64."""
+    import base64 as _b64
+    import contextlib
+
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    clip_bytes = b"\x00\x01\x02loopback-clip"
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/url"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_a, **_kw: (loopback_url, None, None),
+    )
+
+    streamed_urls: list[str] = []
+    vlm_captured: dict[str, Any] = {}
+
+    @contextlib.contextmanager
+    def _fake_stream(method: str, url: str, *, timeout: Any = None, **_kw: Any):
+        streamed_urls.append(url)
+
+        class _FakeStream:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                pass  # 200 — no-op
+
+            def iter_bytes(self, chunk_size: int = 8192):
+                yield clip_bytes
+
+        yield _FakeStream()
+
+    def _fake_vlm_post(
+        url: str, *, content: Any = None, headers: Any = None, json: Any = None, **_kw: Any
+    ) -> httpx.Response:
+        import json as _json
+
+        if content is not None:
+            vlm_captured["json"] = _json.loads(b"".join(content))
+        else:
+            vlm_captured["json"] = json
+        return httpx.Response(200, json=_completion("loopback works"))
+
+    monkeypatch.setattr(httpx, "stream", _fake_stream)
+    monkeypatch.setattr(httpx, "post", _fake_vlm_post)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.SUCCESS, f"expected SUCCESS, got {result.exit}: {result.body}"
+    assert result.body.get("answer") == "loopback works"
+    assert streamed_urls == [loopback_url], "expected exactly one stream call for the loopback clip"
+
+    # The VLM request must carry a data: URI, not the loopback URL.
+    video_part = vlm_captured["json"]["messages"][0]["content"][0]["video_url"]["url"]
+    assert video_part.startswith("data:video/mp4;base64,"), f"expected base64 data URI, got {video_part[:60]!r}"
+    assert _b64.b64decode(video_part.split(",", 1)[1]) == clip_bytes
+
+    # The loopback URL must not be stored in the memory record.
+    _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor loopback fallback")
+
+
+def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the loopback clip fetch times out, the CLI must write a terminal record and
+    return Exit.TIMEOUT — it must NOT re-raise (leaving no record for persistence-enabled runs)."""
+    import contextlib
+
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+    )
+
+    @contextlib.contextmanager
+    def _timeout_stream(*_a: Any, **_kw: Any):
+        raise httpx.TimeoutException("timed out")
+        yield  # unreachable, but required to make this a generator
+
+    monkeypatch.setattr(httpx, "stream", _timeout_stream)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", timeout=5), ctx)
+
+    assert result.exit == Exit.TIMEOUT, f"expected TIMEOUT, got {result.exit}: {result.body}"
+    assert result.body.get("status") == "timeout"
+
+    # A terminal record must have been written to memory.
+    jobs = store.service.list_jobs()
+    assert jobs, "expected at least one memory record written on loopback clip-fetch timeout"
+    assert jobs[-1].job.status == "timeout", f"terminal record status: {jobs[-1].job.status}"
+
+
+def test_sensor_loopback_clip_http_error_writes_terminal_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the loopback VIOS clip fetch returns HTTP 5xx, the CLI must write a terminal
+    record with status='failed' and return Exit.BACKEND_UNREACHABLE — NOT Exit.INVALID_INPUT."""
+    import contextlib
+
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+
+    monkeypatch.setattr(
+        vlm_group_mod,
+        "_resolve_vios_clip",
+        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+    )
+
+    @contextlib.contextmanager
+    def _error_stream(*_a: Any, **_kw: Any):
+        resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", loopback_url))
+        resp.raise_for_status()
+        yield resp  # unreachable, but required to make this a generator
+
+    monkeypatch.setattr(httpx, "stream", _error_stream)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", timeout=5), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE, f"expected BACKEND_UNREACHABLE, got {result.exit}: {result.body}"
+    assert result.body.get("status") == "failed"
+
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record written on loopback clip HTTP error"
+    assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
+
+
+def test_is_loopback_url() -> None:
+    """_is_loopback_url must match localhost / 127.x.x.x / ::1 and reject routable hosts."""
+    from vss_cli.vlm.group import _is_loopback_url
+
+    assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
+    assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
+    assert _is_loopback_url("http://127.1.2.3:8080/")
+    assert _is_loopback_url("http://[::1]/clip.mp4")
+    assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
+    assert not _is_loopback_url("http://vst-host/clip.mp4")
+    assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")
+
+
+def test_run_empty_answer_exits_backend_unreachable(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty or whitespace-only VLM answer must return BACKEND_UNREACHABLE with failed marker."""
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(""))))
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.body["status"] == "failed"
+    assert "empty" in result.body.get("error", "").lower()
+    assert result.extra["marker"]["status"] == "failed"
+    assert result.extra["marker"]["persisted"] is True
+
+
+def test_vios_resolution_failure_returns_marker(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """CLI output for a VIOS resolution failure must include a body line and a vss_job_failed marker."""
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "cam1", "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker JSON lines, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["status"] == "failed"
+    assert marker["persisted"] is False
+
+
+def test_vios_failure_with_malformed_timestamp_still_returns_marker(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When build_input raises (e.g. datetime.fromisoformat on a bad --start-time), the
+    original VIOS error must still surface with the correct exit code and marker rather
+    than being swallowed by the build_input exception."""
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_core.vios.client import VIOSNotFoundError
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    def _raise_not_found(*_args: Any, **_kwargs: Any) -> None:
+        raise VIOSNotFoundError("sensor 'bad-sensor' not found")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_not_found)
+
+    # Simulate adapter.build_input raising on a malformed timestamp by patching it.
+    from vss_cli.vlm import memory_adapter as mem_adapter_mod
+
+    def _raise_on_build(*_args: Any, **_kwargs: Any) -> None:
+        raise ValueError("invalid isoformat string: 'not-a-date'")
+
+    monkeypatch.setattr(mem_adapter_mod.VlmAdapter, "build_input", _raise_on_build)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "bad-sensor", "--start-time", "not-a-date", "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["status"] == "failed"
+    assert marker["persisted"] is False
+    assert result.exit_code == Exit.NOT_FOUND
+
+
+def test_unreadable_file_returns_marker_not_bare_exit(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An unreadable --file is caught after the job id is minted, so it must report a
+    body + marker with exit 2 rather than propagating to guarded() and exiting silently."""
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(configured)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--file", str(tmp_path / "missing.mp4"), "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    assert body["job_id"]
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["status"] == "failed"
+    assert marker["persisted"] is False
+    assert result.exit_code == Exit.INVALID_INPUT
+
+
+def test_sensor_without_vst_service_returns_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """--sensor against a deployment with no vst service is a post-mint failure, so it
+    must emit a body + marker with the configuration exit code, not a bare raise."""
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["m"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(deployment)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--sensor", "cam1", "--no-persist"],
+    )
+    json_lines = [ln for ln in result.output.splitlines() if ln.strip().startswith("{")]
+    assert len(json_lines) >= 2, f"expected body + marker, got: {result.output!r}"
+    body = json.loads(json_lines[0])
+    assert body["status"] == "failed"
+    assert body["job_id"]
+    marker = json.loads(json_lines[1])
+    assert marker["event"] == "vss_job_failed"
+    assert marker["persisted"] is False
+    assert result.exit_code == Exit.CONFIGURATION
+
+
+def test_vios_failure_with_malformed_timestamp_still_persists_record(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed --start-time makes build_input raise on the requested bounds. The
+    terminal record must still be written (retried without the window) so the failed
+    job stays retrievable through vss vlm get/list."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm import memory_adapter as mem_adapter_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core.vios.client import VIOSNotFoundError
+
+    def _raise_not_found(*_args: Any, **_kwargs: Any) -> None:
+        raise VIOSNotFoundError("sensor 'cam1' not found")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_not_found)
+
+    # Reject the malformed bound the way datetime.fromisoformat would, but accept
+    # the retry that omits the window.
+    real_build_input = mem_adapter_mod.VlmAdapter.build_input
+
+    def _picky_build_input(**kwargs: Any) -> Any:
+        if kwargs.get("start_time") == "not-a-date":
+            raise ValueError("invalid isoformat string: 'not-a-date'")
+        return real_build_input(**kwargs)
+
+    monkeypatch.setattr(mem_adapter_mod.VlmAdapter, "build_input", staticmethod(_picky_build_input))
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", start_time="not-a-date"), ctx)
+
+    assert result.exit == Exit.NOT_FOUND
+    assert result.body["status"] == "failed"
+    # The record survived the malformed bound via the no-window retry.
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record despite the malformed --start-time"
+    assert jobs[-1].job.status == "failed"
+    # ...and the marker says so rather than claiming the write was lost.
+    assert result.extra["marker"]["persisted"] is True
+
+
+def test_failure_marker_reports_persisted_true_when_record_written(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When memory is enabled and the terminal record is written, the marker must report
+    persisted=true. Hardcoding false tells callers the job is gone when get/list has it."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record"
+    assert result.extra["marker"]["persisted"] is True, "marker must not contradict memory"
+
+
+def test_failure_marker_reports_persisted_false_without_memory(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With --no-persist there is no record, so the marker must still report false."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group_mod
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
+        raise BackendUnreachableError("vst", "connection refused")
+
+    monkeypatch.setattr(vlm_group_mod, "_resolve_vios_clip", _raise_backend)
+
+    ctx = Context(deployment=configured, memory=None)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.BACKEND_UNREACHABLE
+    assert result.extra["marker"]["persisted"] is False
+
+
+def test_sensor_without_vst_service_persists_terminal_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment exposing rt_vlm but not vst mints a job id, so the failure must be
+    written to memory. Returning without persisting leaves `vss vlm get/list` unable to
+    retrieve an invocation the CLI just reported as a failed job."""
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["m"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    config_mod.save(deployment)
+
+    store = _in_memory(deployment)
+    ctx = Context(deployment=deployment, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
+
+    assert result.exit == Exit.CONFIGURATION
+    assert result.body["status"] == "failed"
+
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record when vst is missing from the deployment"
+    assert jobs[-1].job.job_id == result.job_id
+    assert jobs[-1].job.status == "failed"
+    # ...and the marker must agree that the record is retrievable.
+    assert result.extra["marker"]["persisted"] is True
+
+
+def test_sensor_without_vst_persists_despite_malformed_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The missing-vst path must survive an unparseable --start-time the same way the
+    VIOS path does: retry without the window so the record still lands."""
+    from vss_cli.group import Context
+    from vss_cli.vlm import memory_adapter as mem_adapter_mod
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["m"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    config_mod.save(deployment)
+
+    real_build_input = mem_adapter_mod.VlmAdapter.build_input
+
+    def _picky_build_input(**kwargs: Any) -> Any:
+        if kwargs.get("start_time") == "not-a-date":
+            raise ValueError("invalid isoformat string: 'not-a-date'")
+        return real_build_input(**kwargs)
+
+    monkeypatch.setattr(mem_adapter_mod.VlmAdapter, "build_input", staticmethod(_picky_build_input))
+
+    store = _in_memory(deployment)
+    ctx = Context(deployment=deployment, memory=store)
+    group = VlmGroup()
+    result = group.run("", VlmInput(prompt="What?", sensor="cam1", start_time="not-a-date"), ctx)
+
+    assert result.exit == Exit.CONFIGURATION
+    jobs = store.service.list_jobs()
+    assert jobs, "expected a terminal record despite the malformed --start-time"
+    assert result.extra["marker"]["persisted"] is True
