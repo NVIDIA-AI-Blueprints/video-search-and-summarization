@@ -82,12 +82,13 @@ preconfigured rather than installed by hand.
 [NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) is an open-source reference stack for running always-on AI agents more safely inside NVIDIA OpenShell sandboxes.
 There are two integration modes:
 
-- To create a new dedicated VSS assistant, the bundled
-  `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks apply the
-  VSS policy, install the repository's VSS Skills and optional VSS workspace
-  identity, register the VSS Orchestrator MCP, and start the
-  [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp)
-  on the host.
+- To create a new dedicated VSS assistant, `deploy_nemoclaw.ipynb` applies the
+  VSS policy, recursively installs the repository's VSS Skills and optional VSS
+  workspace identity, and starts the harness API. For a build-owned Compose
+  lifecycle, run `attach_vss_agent.py` next to bind the planned VSS origin and
+  produce the protected UI-gateway overlay. Run the companion
+  `deploy_vss_orchestrator.ipynb` instead only when the assistant should own VSS
+  deployment and the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 - To bring an existing OpenClaw or Hermes agent, run
   `deploy/docker/scripts/attach_vss_agent.py`. The additive installer grants the
   VSS skills, project CLI, deployment route, network policy, and UI-artifact
@@ -102,8 +103,10 @@ recursive VSS skill catalog and commit-pinned CLI. Harbor's isolated
 task-specific Skills directory is evaluation input and is not a substitute for
 provisioning a production sandbox.
 
-Both harnesses expose their agent turn through the same Responses-protocol
-connector. From VSS UI chat they can manage cameras and streams, query
+VSS UI presents one gateway run/event contract for both harnesses, but their
+wire connectors differ: OpenClaw uses its native protocol-v4 WebSocket so tool
+events remain visible, while Hermes uses its Responses API. From VSS UI chat
+they can manage cameras and streams, query
 incidents, run searches, summarize videos, and pull logs. Search and incident
 skills also emit versioned VSS UI artifacts, allowing the Search and Alerts
 surfaces to render structured results without a harness-specific UI adapter.
@@ -112,7 +115,7 @@ For setup, configuration, and troubleshooting, see
 
 <Note>
 OpenClaw is the primary production-validation path for this integration.
-Hermes exposes the same Responses transport, but the current
+Hermes uses the compatible Responses connector, but the current
 [NemoClaw platform-support matrix](https://docs.nvidia.com/nemoclaw/latest/user-guide/hermes/reference/platform-support)
 labels NemoClaw early-preview alpha and does not yet assert Hermes production
 parity with OpenClaw. Validate Hermes against your workload and operational

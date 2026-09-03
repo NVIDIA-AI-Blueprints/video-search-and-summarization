@@ -57,19 +57,19 @@ every path to `artifact.created`. The UI uses `vss.search.results` for Search re
 `vss.alert.incidents` for Chat incident cards plus Alerts-tab refresh. Do not
 add a harness-specific renderer.
 
-This owner is reached only by an explicit request to connect an external agent
-harness to VSS UI. It makes the build a Delta even when the underlying vision
-services otherwise match a stock profile.
+This owner is reached when Q3 selects the default NemoClaw harness or when a
+request explicitly connects another external agent to VSS UI. It makes the
+build a Delta even when the underlying vision services otherwise match a stock
+profile.
 
 ## Required peers and pruning
 
 - Retain `vss-ui` and add `agent-gateway`.
 - Retain the Ingress owner when the UI needs the normal public VSS origin.
 - `agent-gateway` does not require `vss-agent`. When the external harness
-  replaces VSS Agent orchestration and no selected owner requires `vss-agent`,
-  prune `vss-agent`, `phoenix`, and model peers reachable only through it.
-  Keep them when another selected capability (for example an LVS workflow)
-  explicitly requires them.
+  replaces VSS Agent orchestration, remove `vss-agent`. Do not automatically
+  prune `phoenix` or model peers as part of harness selection; normal capability
+  composition decides whether another owner still needs them.
 - The harness API must be running before deployment generation. OpenClaw uses
   its Gateway WebSocket and does not require `/v1/responses`; NemoHermes exposes
   its Responses API through its API forward.
@@ -105,11 +105,15 @@ transport lock.
 
 ## Host-side capability bootstrap
 
-Provision an existing OpenClaw or Hermes sandbox through its host CLI before
-resolving the gateway-enabled Compose graph. Do not add a privileged Compose
-initializer: it would need the host Docker socket and the operator's NemoClaw
-state, crossing the harness security boundary. The native CLI is the supported
-owner of sandbox mutation and preserves the agent's history and identity.
+Provision the selected OpenClaw or Hermes sandbox through its host CLI before
+resolving the gateway-enabled Compose graph. For a new dedicated VSS assistant,
+run `deploy_nemoclaw.ipynb` first, then run the same attachment command below to
+bind its receipt to the planned Compose origin and produce the protected
+gateway env. For a BYO agent, skip the identity-installing notebook and run the
+attachment directly. Do not add a privileged Compose initializer: it would need
+the host Docker socket and the operator's NemoClaw state, crossing the harness
+security boundary. The native CLI is the supported owner of sandbox mutation
+and preserves the agent's history and identity.
 
 From the exact, clean VSS source revision being deployed:
 
@@ -144,17 +148,23 @@ Pass `agent-gateway.env` as the final env layer only while generating
 is safe for a clean installer-managed runtime and advances it to the requested
 immutable commit. It refuses dirty or foreign checkouts.
 
-The dedicated-agent notebook path performs the equivalent recursive install
-and receipt creation itself. The Harbor NemoClaw evaluation adapter executes
-those checked-in notebooks in order, so it uses that same provisioning path;
-Harbor's task-scoped `/skills` staging is test input, not a production install.
+The dedicated-agent notebook performs the recursive install and creates an
+initial receipt; for a build-owned Compose lifecycle, the attachment pass is
+still required to record the planned origin, verify the harness API, and write
+`agent-gateway.env`. `deploy_vss_orchestrator.ipynb` is the exception: when the
+user explicitly gives the sandbox deployment ownership, that notebook obtains
+the live credential and resolves its own gateway-enabled graph. The Harbor
+NemoClaw evaluation adapter executes the checked-in notebooks in order and uses
+that same agent-owned path; Harbor's task-scoped `/skills` staging is test input,
+not a production install.
 
 ## Required configuration
 
-For a BYO sandbox, `attach_vss_agent.py` writes these values to the build's
-sensitive `agent-gateway.env`. The resolved Compose artifact contains them too,
-so both files must remain local and mode `0600`. The notebook path passes the
-same values directly to the resolver without displaying them:
+For a build-owned Compose lifecycle, `attach_vss_agent.py` writes these values
+to the build's sensitive `agent-gateway.env` for both new and BYO sandboxes. The
+resolved Compose artifact contains them too, so both files must remain local
+and mode `0600`. The agent-owned `deploy_vss_orchestrator.ipynb` path passes the
+same values directly to its resolver without displaying them:
 
 | Environment variable | Use |
 |---|---|

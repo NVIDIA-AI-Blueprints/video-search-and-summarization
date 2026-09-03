@@ -38,7 +38,9 @@ prepended to each turn. An operator may separately choose the repository's VSS
 persona overlay when creating a new, dedicated VSS assistant.
 
 For an existing NemoClaw-managed OpenClaw or Hermes agent, use the additive
-installer:
+installer directly. For a new dedicated assistant, run
+`deploy_nemoclaw.ipynb` first and then use the same installer to bind its
+receipt to the planned Compose origin and create the gateway overlay:
 
 ```bash
 python3 deploy/docker/scripts/attach_vss_agent.py \
@@ -71,8 +73,10 @@ these let the agent invoke the pre-warmed `uv`/VSS runtime and read the exact
 installed skill. Attachment also supplies the receipt, repository, and VSS
 origin as explicit non-secret runtime environment values and selects Bash for
 the Bash-based VSS skill recipes.
-`deploy_nemoclaw.ipynb` applies the same runtime setup for a dedicated agent
-and intentionally installs the optional VSS persona. Another harness needs a
+`deploy_nemoclaw.ipynb` applies the base runtime setup for a dedicated agent
+and intentionally installs the optional VSS persona; the attachment pass still
+records the planned origin, probes the harness API, and emits
+`agent-gateway.env` for a build-owned Compose lifecycle. Another harness needs a
 capability installer for its
 skill/runtime/policy locations, but no new chat connector when it already
 speaks a supported wire protocol.
@@ -309,12 +313,14 @@ those builds. A later registry-only deployment may omit the `build:` entries
 only when it pins released gateway and UI images containing this contract.
 
 `deploy_nemoclaw.ipynb` prepares OpenClaw's native agent/tool runtime without
-enabling its Responses endpoint. The companion
-`deploy_vss_orchestrator.ipynb` obtains the selected OpenClaw/Hermes API token
-without displaying it, generates an independent gateway token, verifies the
-backend, selects `vss-ui` plus `agent-gateway`, and passes the settings into the
-resolved Compose deployment. Generated environment and Compose artifacts are
-written owner-readable (`0600`) because they contain both credentials.
+enabling its Responses endpoint. In the build-owned lifecycle,
+`attach_vss_agent.py` obtains the selected OpenClaw/Hermes API token without
+displaying it, generates an independent gateway token, verifies the backend,
+and writes the protected overlay consumed during Compose resolution. When the
+assistant explicitly owns deployment, the companion
+`deploy_vss_orchestrator.ipynb` performs those steps and resolves its own graph.
+Generated environment and Compose artifacts are owner-readable (`0600`)
+because they contain both credentials.
 
 A successful OpenClaw `/health`, Hermes `/v1/models`, or chat probe proves
 transport, not VSS capability.
