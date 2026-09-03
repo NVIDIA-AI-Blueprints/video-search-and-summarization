@@ -167,7 +167,9 @@ def _register_compose_spec(
     env_text: str | None = None,
 ) -> None:
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    env_path.write_text(env_text or "VSS_DATA_DIR=/tmp/vss-data\nNGC_CLI_API_KEY=test\n")
+    env_path.write_text(
+        env_text or "VSS_DATA_DIR=/tmp/vss-data\nNGC_CLI_API_KEY=test\n"  # pragma: allowlist secret
+    )
     compose_path.write_text("services: {}\n")
     tools_mod._COMPOSE_SPECS.set(
         docker_compose_id,
@@ -699,8 +701,8 @@ async def test_docker_generate_applies_external_agent_settings_from_runtime(
         "VSS_AGENT_GATEWAY_PORT": "18090",
         "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
         "VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true",
-        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": "eyJzY2hlbWFfdmVyc2lvbiI6MX0=",
-        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": "a9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",
+        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": "eyJzY2hlbWFfdmVyc2lvbiI6MX0=",  # pragma: allowlist secret
+        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": "a9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",  # pragma: allowlist secret
         "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "a" * 40,
         "VSS_AGENT_BACKEND_PROTOCOL": "responses",
         "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
@@ -728,7 +730,7 @@ async def test_docker_generate_applies_external_agent_settings_from_runtime(
             result = await _call(
                 group,
                 "docker_generate",
-                GenerateInput(profile="base", env_overrides=["VSS_AGENT_BACKEND_MODEL=explicit-model"]),
+                GenerateInput(profile="base", env_overrides=["VSS_AGENT_BACKEND_MODEL=explicit-model"]),  # pragma: allowlist secret
             )
 
     assert result["status"] == ComposeStatus.SUCCESS.value

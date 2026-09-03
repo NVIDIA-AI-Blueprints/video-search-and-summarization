@@ -70,7 +70,7 @@ class ConfigTest(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {"AGENT_BACKEND_URL": "http://user:pass@agent.local"},
+                {"AGENT_BACKEND_URL": "http://user:pass@agent.local"},  # pragma: allowlist secret
                 clear=True,
             ),
             self.assertRaisesRegex(ConfigError, "credentials"),

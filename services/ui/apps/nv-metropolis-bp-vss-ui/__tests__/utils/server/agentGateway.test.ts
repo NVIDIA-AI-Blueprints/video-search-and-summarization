@@ -257,7 +257,7 @@ describe("agent gateway transport", () => {
       getAgentGatewayConfig({ AGENT_GATEWAY_URL: "file:///tmp/socket" })
     ).toThrow("http(s)");
     expect(() =>
-      getAgentGatewayConfig({ AGENT_GATEWAY_URL: "http://user:pass@host" })
+      getAgentGatewayConfig({ AGENT_GATEWAY_URL: "http://user:pass@host" }) // pragma: allowlist secret
     ).toThrow("embedded credentials");
     expect(() =>
       getAgentGatewayConfig({ AGENT_GATEWAY_URL: "http://host?token=secret" })

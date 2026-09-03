@@ -49,7 +49,7 @@ class RecordingRunner:
         if command[-2:] == ["gateway-token", "--quiet"]:
             return "not-printed-token"
         if "vss-openclaw-workspace" in command:
-            return "VSS_WORKSPACE=/sandbox/vss-openclaw-workspace"
+            return "VSS_WORKSPACE=/sandbox/vss-openclaw-workspace"  # pragma: allowlist secret
         if "vss-identity-check" in command:
             self._identity_calls += 1
             root_index = command.index("vss-identity-check") + 1
@@ -111,7 +111,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(origin.port, 8443)
         for value in (
             "file:///tmp/vss",
-            "https://user:pass@vss.example.test",
+            "https://user:pass@vss.example.test",  # pragma: allowlist secret
             "https://vss.example.test/private",
             "https://vss.example.test?token=value",
         ):
