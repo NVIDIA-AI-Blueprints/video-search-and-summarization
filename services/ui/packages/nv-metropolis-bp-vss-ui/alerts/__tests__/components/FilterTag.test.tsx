@@ -1,57 +1,91 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { FilterTag } from '../../lib-src/components/FilterTag';
+import { AlertsViewFilterControls } from '../../lib-src/components/AlertsSidebarControls';
+import { VLM_VERDICT } from '../../lib-src/types';
 
 jest.mock('@nemo-agent-toolkit/ui');
 
-const defaultColors = {
-  bg: 'bg-blue-100',
-  border: 'border-blue-200',
-  text: 'text-blue-800',
-  hover: 'hover:text-blue-600',
+const defaultProps = {
+  isDark: false,
+  vlmVerified: true,
+  vlmVerdict: VLM_VERDICT.ALL,
+  uniqueValues: {
+    sensors: ['Cam-A', 'Cam-B'],
+    alertTypes: ['Tailgating', 'Loitering'],
+    alertTriggered: ['Motion', 'Zone'],
+  },
+  onVlmVerifiedChange: jest.fn(),
+  onVlmVerdictChange: jest.fn(),
+  onAddFilter: jest.fn(),
+  activeFilters: {
+    sensors: new Set<string>(['Cam-A']),
+    alertTypes: new Set<string>(),
+    alertTriggered: new Set<string>(),
+  },
+  onRemoveFilter: jest.fn(),
+  onClearAllFilters: jest.fn(),
+  timeWindow: 10,
+  showCustomTimeInput: false,
+  customTimeValue: '',
+  customTimeError: '',
+  onTimeWindowChange: jest.fn(),
+  onCustomTimeValueChange: jest.fn(),
+  onCustomTimeApply: jest.fn(),
+  onCustomTimeCancel: jest.fn(),
+  onOpenCustomTime: jest.fn(),
+  fetchSize: 100,
+  onFetchSizeChange: jest.fn(),
+  loading: false,
+  autoRefreshEnabled: false,
+  autoRefreshInterval: 5000,
+  onRefresh: jest.fn(),
+  onAutoRefreshToggle: jest.fn(),
+  onAutoRefreshIntervalChange: jest.fn(),
 };
 
-describe('FilterTag', () => {
+describe('Filter tags in AlertsViewFilterControls', () => {
   it('renders the filter text', () => {
-    render(
-      <FilterTag type="sensors" filter="Cam-A" colors={defaultColors} onRemove={jest.fn()} />
-    );
-    expect(screen.getByText('Cam-A')).toBeInTheDocument();
+    render(<AlertsViewFilterControls {...defaultProps} />);
+    expect(screen.getByText('Cam-A', { selector: 'span' })).toBeInTheDocument();
   });
 
-  it('calls onRemove with type and filter when close button is clicked', () => {
-    const onRemove = jest.fn();
-    render(
-      <FilterTag type="alertTypes" filter="Tailgating" colors={defaultColors} onRemove={onRemove} />
-    );
+  it('calls onRemoveFilter with type and filter when close button is clicked', () => {
+    const onRemoveFilter = jest.fn();
+    render(<AlertsViewFilterControls {...defaultProps} onRemoveFilter={onRemoveFilter} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByLabelText('Remove filter Cam-A');
     fireEvent.click(button);
 
-    expect(onRemove).toHaveBeenCalledWith('alertTypes', 'Tailgating');
+    expect(onRemoveFilter).toHaveBeenCalledWith('sensors', 'Cam-A');
   });
 
-  it('applies color classes', () => {
-    const { container } = render(
-      <FilterTag type="sensors" filter="Cam-B" colors={defaultColors} onRemove={jest.fn()} />
-    );
-
-    const tag = container.firstChild as HTMLElement;
-    expect(tag.className).toContain('bg-blue-100');
-    expect(tag.className).toContain('border-blue-200');
-    expect(tag.className).toContain('text-blue-800');
+  it('applies color styles', () => {
+    const { container } = render(<AlertsViewFilterControls {...defaultProps} />);
+    const tag = screen.getByTestId('alerts-filter-tag-sensor-cam-a');
+    const style = tag.getAttribute('style') || '';
+    expect(style).toContain('background-color');
+    expect(style).toContain('border-color');
+    expect(style).toContain('color');
+    expect(container.querySelector('[data-testid="alerts-filter-tags"]')).toBeTruthy();
   });
 
   it('renders different filter types', () => {
     const { rerender } = render(
-      <FilterTag type="sensors" filter="Cam-A" colors={defaultColors} onRemove={jest.fn()} />
+      <AlertsViewFilterControls {...defaultProps} />
     );
-    expect(screen.getByText('Cam-A')).toBeInTheDocument();
+    expect(screen.getByText('Cam-A', { selector: 'span' })).toBeInTheDocument();
 
     rerender(
-      <FilterTag type="alertTriggered" filter="Motion" colors={defaultColors} onRemove={jest.fn()} />
+      <AlertsViewFilterControls
+        {...defaultProps}
+        activeFilters={{
+          sensors: new Set<string>(),
+          alertTypes: new Set<string>(['Tailgating']),
+          alertTriggered: new Set<string>(),
+        }}
+      />
     );
-    expect(screen.getByText('Motion')).toBeInTheDocument();
+    expect(screen.getByText('Tailgating', { selector: 'span' })).toBeInTheDocument();
   });
 });

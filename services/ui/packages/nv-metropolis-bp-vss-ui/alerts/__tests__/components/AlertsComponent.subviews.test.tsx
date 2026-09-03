@@ -33,6 +33,16 @@ jest.mock('@nvidia/foundations-react-core', () => {
         onChange: (e: any) => onCheckedChange?.(e.target.checked),
       }),
     ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, type: 'button' }, children),
+    ),
+    TextInput: React.forwardRef(({ onValueChange, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        onChange: (e: any) => onValueChange?.(e.target.value),
+      }),
+    ),
   };
 });
 

@@ -53,13 +53,17 @@ jest.mock('@nvidia/foundations-react-core', () => {
         onChange: (e: any) => onCheckedChange?.(e.target.checked),
       }),
     ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Tag', type: 'button' }, children),
+    ),
   };
 });
 
 jest.mock('@nemo-agent-toolkit/ui');
 
 // ---------- Component imports ----------
-import { FilterTag } from '../../lib-src/components/FilterTag';
+import { AlertsViewFilterControls } from '../../lib-src/components/AlertsSidebarControls';
+import { VLM_VERDICT } from '../../lib-src/types';
 import { CustomTimeInput } from '../../lib-src/components/CustomTimeInput';
 import { AlertsTable } from '../../lib-src/components/AlertsTable';
 
@@ -67,29 +71,60 @@ import { AlertsTable } from '../../lib-src/components/AlertsTable';
 
 describe('Foundation component migration – FilterTag', () => {
   const defaultProps = {
-    type: 'sensors' as const,
-    filter: 'Camera-1',
-    colors: { bg: 'bg-transparent', border: 'border border-green-500', text: 'text-green-400', hover: 'hover:text-green-300' },
-    onRemove: jest.fn(),
+    isDark: true,
+    vlmVerified: true,
+    vlmVerdict: VLM_VERDICT.ALL,
+    uniqueValues: {
+      sensors: ['Camera-1'],
+      alertTypes: ['Tailgating'],
+      alertTriggered: ['Motion'],
+    },
+    onVlmVerifiedChange: jest.fn(),
+    onVlmVerdictChange: jest.fn(),
+    onAddFilter: jest.fn(),
+    activeFilters: {
+      sensors: new Set<string>(['Camera-1']),
+      alertTypes: new Set<string>(),
+      alertTriggered: new Set<string>(),
+    },
+    onRemoveFilter: jest.fn(),
+    onClearAllFilters: jest.fn(),
+    timeWindow: 10,
+    showCustomTimeInput: false,
+    customTimeValue: '',
+    customTimeError: '',
+    onTimeWindowChange: jest.fn(),
+    onCustomTimeValueChange: jest.fn(),
+    onCustomTimeApply: jest.fn(),
+    onCustomTimeCancel: jest.fn(),
+    onOpenCustomTime: jest.fn(),
+    fetchSize: 100,
+    onFetchSizeChange: jest.fn(),
+    loading: false,
+    autoRefreshEnabled: false,
+    autoRefreshInterval: 5000,
+    onRefresh: jest.fn(),
+    onAutoRefreshToggle: jest.fn(),
+    onAutoRefreshIntervalChange: jest.fn(),
   };
 
   it('renders a button for the remove action', () => {
-    const { container } = render(<FilterTag {...defaultProps} />);
+    const { container } = render(<AlertsViewFilterControls {...defaultProps} />);
     const btn = container.querySelector('button');
     expect(btn).toBeTruthy();
   });
 
   it('calls onRemove with correct args when remove button is clicked', () => {
-    const onRemove = jest.fn();
-    const { container } = render(<FilterTag {...defaultProps} onRemove={onRemove} />);
-    const btn = container.querySelector('button') as HTMLElement;
+    const onRemoveFilter = jest.fn();
+    render(<AlertsViewFilterControls {...defaultProps} onRemoveFilter={onRemoveFilter} />);
+    const btn = screen.getByLabelText('Remove filter Camera-1');
     fireEvent.click(btn);
-    expect(onRemove).toHaveBeenCalledWith('sensors', 'Camera-1');
+    expect(onRemoveFilter).toHaveBeenCalledWith('sensors', 'Camera-1');
   });
 
   it('displays the filter text', () => {
-    render(<FilterTag {...defaultProps} />);
-    expect(screen.getByText('Camera-1')).toBeTruthy();
+    render(<AlertsViewFilterControls {...defaultProps} />);
+    expect(screen.getByLabelText('Remove filter Camera-1')).toBeTruthy();
   });
 });
 
@@ -386,16 +421,47 @@ describe('Foundation component migration – AlertsTable', () => {
 describe('Kaizen color palette – sensor filter colors', () => {
   it('uses green colors for sensor filter tags instead of cyan/blue', () => {
     const props = {
-      type: 'sensors' as const,
-      filter: 'Camera-1',
-      colors: { bg: 'bg-transparent', border: 'border border-green-500', text: 'text-green-400', hover: 'hover:text-green-300' },
-      onRemove: jest.fn(),
+      isDark: true,
+      vlmVerified: true,
+      vlmVerdict: VLM_VERDICT.ALL,
+      uniqueValues: {
+        sensors: ['Camera-1'],
+        alertTypes: [],
+        alertTriggered: [],
+      },
+      onVlmVerifiedChange: jest.fn(),
+      onVlmVerdictChange: jest.fn(),
+      onAddFilter: jest.fn(),
+      activeFilters: {
+        sensors: new Set<string>(['Camera-1']),
+        alertTypes: new Set<string>(),
+        alertTriggered: new Set<string>(),
+      },
+      onRemoveFilter: jest.fn(),
+      onClearAllFilters: jest.fn(),
+      timeWindow: 10,
+      showCustomTimeInput: false,
+      customTimeValue: '',
+      customTimeError: '',
+      onTimeWindowChange: jest.fn(),
+      onCustomTimeValueChange: jest.fn(),
+      onCustomTimeApply: jest.fn(),
+      onCustomTimeCancel: jest.fn(),
+      onOpenCustomTime: jest.fn(),
+      fetchSize: 100,
+      onFetchSizeChange: jest.fn(),
+      loading: false,
+      autoRefreshEnabled: false,
+      autoRefreshInterval: 5000,
+      onRefresh: jest.fn(),
+      onAutoRefreshToggle: jest.fn(),
+      onAutoRefreshIntervalChange: jest.fn(),
     };
-    const { container } = render(<FilterTag {...props} />);
-    const root = container.firstElementChild as HTMLElement;
-    expect(root.className).toContain('border-green-500');
-    expect(root.className).toContain('text-green-400');
-    expect(root.className).not.toContain('cyan');
-    expect(root.className).not.toContain('blue');
+    render(<AlertsViewFilterControls {...props} />);
+    const root = screen.getByTestId('alerts-filter-tag-sensor-camera-1');
+    const style = root.getAttribute('style') || '';
+    expect(style).toContain('rgb(34, 197, 94)');
+    expect(style).toContain('rgb(74, 222, 128)');
+    expect(style).not.toContain('rgb(34, 211, 238)');
   });
 });
