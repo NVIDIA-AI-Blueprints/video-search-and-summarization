@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Harbor agent adapter for OpenClaw running inside a NemoClaw sandbox."""
+"""Harbor agent adapter for OpenClaw running inside a Build Vision AI sandbox."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _agent_timeout() -> int:
 
 
 class NemoClaw(OpenClaw):
-    """Use Harbor's OpenClaw reporting with the notebook-managed runtime."""
+    """Use Harbor's OpenClaw reporting with the Build Vision AI runtime."""
 
     @staticmethod
     def name() -> str:
@@ -33,8 +33,8 @@ class NemoClaw(OpenClaw):
         return None
 
     async def setup(self, environment: BaseEnvironment) -> None:
-        # NemoClaw and OpenClaw are installed and configured by the notebooks
-        # in NemoClawBrevEnvironment.start().
+        # Build Vision AI provisions NemoClaw before Harbor starts the
+        # operational scenarios. This adapter only drives that ready sandbox.
         return None
 
     @with_prompt_template
@@ -45,6 +45,13 @@ class NemoClaw(OpenClaw):
         context: AgentContext,
     ) -> None:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        if os.environ.get("VSS_EVAL_DEPLOYMENT_READY") == "1":
+            instruction = (
+                "The VSS deployment and NemoClaw policy are already ready, provisioned "
+                "by `/vss-build-vision-ai`. Do not run a deployment skill, docker compose, "
+                "or a notebook. Use only the installed operational skill(s).\n\n"
+                + instruction
+            )
         (self.logs_dir / "instruction.txt").write_text(
             instruction,
             encoding="utf-8",
@@ -54,10 +61,7 @@ class NemoClaw(OpenClaw):
         prompt = base64.b64encode(instruction.encode("utf-8")).decode("ascii")
         prompt_path = "/tmp/skill-eval/nemoclaw/current_prompt.md"
         command = f"""set -euo pipefail
-host_home=$HOME
-repo="$host_home/video-search-and-summarization"
-export HOME="$host_home/.skill-eval/nemoclaw-home"
-export PATH="$HOME/.local/bin:$PATH"
+repo="$HOME/video-search-and-summarization"
 cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
