@@ -214,8 +214,11 @@ export const Chat = () => {
 
   const handleAddQueryContext = useCallback((item: QueryDataContext) => {
     setQueryContextItems((prev) => {
-      if (prev.some((c) => c.id === item.id)) return prev;
-      return [...prev, item];
+      const index = prev.findIndex((c) => c.id === item.id);
+      if (index === -1) return [...prev, item];
+      const next = [...prev];
+      next[index] = item;
+      return next;
     });
   }, []);
 

@@ -157,20 +157,25 @@ describe('ChatInput – query context item rendering', () => {
 });
 
 describe('Query context item deduplication logic', () => {
-  it('prevents duplicate items by id', () => {
+  it('prevents duplicate items by id and replaces the existing payload', () => {
     const items: Array<{ id: string; label: string; contextType: string; data: Record<string, unknown> }> = [];
 
     const addItem = (item: typeof items[0]) => {
-      if (items.some((c) => c.id === item.id)) return;
-      items.push(item);
+      const index = items.findIndex((c) => c.id === item.id);
+      if (index === -1) {
+        items.push(item);
+        return;
+      }
+      items[index] = item;
     };
 
     addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip' } });
-    addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip' } });
+    addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip', top_k: 5 } });
     addItem({ id: 'y', label: 'Cam-2', contextType: 'media/video', data: { sensorName: 'Cam-2', mediaType: 'sensor-clip' } });
 
     expect(items).toHaveLength(2);
     expect(items.map((c) => c.id)).toEqual(['x', 'y']);
+    expect(items[0].data.top_k).toBe(5);
   });
 });
 

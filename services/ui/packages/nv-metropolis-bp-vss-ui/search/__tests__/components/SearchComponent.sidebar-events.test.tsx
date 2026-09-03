@@ -25,7 +25,7 @@ describe('SearchComponent sidebar events', () => {
 
     mockUseFilter.mockReturnValue({
       streams: [],
-      filterParams: { agentMode: true },
+      filterParams: { agentMode: true, similarity: 0.5, topK: 10 },
       setFilterParams: jest.fn(),
       addFilter: jest.fn(),
       removeFilterTag: jest.fn(),
@@ -141,5 +141,50 @@ describe('SearchComponent sidebar events', () => {
     unmount();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies Search-tab filters to Chat-derived result cards', () => {
+    let chatAnswerHandler: ((answer: string) => boolean | void) | undefined;
+    const registerChatAnswerHandler = jest.fn((handler) => {
+      chatAnswerHandler = handler;
+      return jest.fn();
+    });
+
+    render(
+      <SearchComponent
+        {...defaultProps}
+        registerChatAnswerHandler={registerChatAnswerHandler}
+      />,
+    );
+
+    act(() => {
+      chatAnswerHandler?.(JSON.stringify({
+        data: [
+          {
+            video_name: 'low.mp4',
+            description: 'a scene',
+            start_time: '2024-01-01T00:00:00',
+            end_time: '2024-01-01T00:05:00',
+            sensor_id: 's1',
+            similarity: 0.2,
+            screenshot_url: '',
+            object_ids: [],
+          },
+          {
+            video_name: 'high.mp4',
+            description: 'a scene',
+            start_time: '2024-01-01T00:00:00',
+            end_time: '2024-01-01T00:05:00',
+            sensor_id: 's1',
+            similarity: 0.9,
+            screenshot_url: '',
+            object_ids: [],
+          },
+        ],
+      }));
+    });
+
+    expect(screen.queryByText('low.mp4')).not.toBeInTheDocument();
+    expect(screen.getByText('high.mp4')).toBeInTheDocument();
   });
 });

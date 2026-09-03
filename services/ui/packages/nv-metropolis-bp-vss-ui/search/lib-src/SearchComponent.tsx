@@ -19,6 +19,11 @@ import { SearchComponentProps, SearchData } from './types';
 // Hooks
 import { useSearchByImage } from './hooks/useSearchByImage';
 import { extractSearchResultsFromAgentResponse } from './utils/agentResponseParser';
+import {
+  applySearchResultFilters,
+  buildSearchFilterChatContext,
+  prefixMessageWithSearchFilters,
+} from './utils/searchFilters';
 
 // Components
 import { SearchHeader } from './components/SearchHeader';
@@ -132,12 +137,18 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
   const handleSearchByImageConfirm = React.useCallback((objectId: string) => {
     if (!submitChatMessage) return;
-    const prompt = `Find similar objects matching object_id=${objectId}`;
+    const prompt = prefixMessageWithSearchFilters(
+      `Find similar objects matching object_id=${objectId}`,
+      filterParams,
+    );
     submitChatMessage(prompt);
+    if (addChatQueryContext) {
+      addChatQueryContext(buildSearchFilterChatContext(filterParams));
+    }
     cancelSearchByImage();
     closeVideoModal();
     setActiveVideoData(null);
-  }, [submitChatMessage, cancelSearchByImage, closeVideoModal]);
+  }, [submitChatMessage, filterParams, addChatQueryContext, cancelSearchByImage, closeVideoModal]);
 
   const refetchStreamsRef = React.useRef(refetchStreams);
 
@@ -150,6 +161,15 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       refetchStreamsRef.current();
     }
   }, [isActive]);
+
+  const syncSearchFiltersToChat = React.useCallback(() => {
+    if (!addChatQueryContext) return;
+    addChatQueryContext(buildSearchFilterChatContext(filterParams));
+  }, [addChatQueryContext, filterParams]);
+
+  React.useEffect(() => {
+    syncSearchFiltersToChat();
+  }, [syncSearchFiltersToChat]);
 
   // Stable forwarder + ref so Home's register callback stays identity-stable while we always invoke the latest parser/setState.
   const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
@@ -176,12 +196,18 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     const unsubscribe = registerSidebarChatEventSubscriber((event) => {
       if (event.type === 'messageSubmitted') {
         setAgentSearchResults(null);
+        syncSearchFiltersToChat();
       }
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
-  }, [registerSidebarChatEventSubscriber]);
+  }, [registerSidebarChatEventSubscriber, syncSearchFiltersToChat]);
 
   const contentDisabled = !chatSidebarCollapsed || chatSidebarBusy;
+
+  const displayedSearchResults = React.useMemo(
+    () => applySearchResultFilters(agentSearchResults ?? [], filterParams, streams),
+    [agentSearchResults, filterParams, streams],
+  );
 
   const controlsComponent = React.useMemo(
     () => (
@@ -324,7 +350,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       )}
       <div className="flex-1 overflow-auto">
         <VideoSearchList
-          data={agentSearchResults ?? []}
+          data={displayedSearchResults}
           loading={false}
           error={null}
           isDark={isDark}
