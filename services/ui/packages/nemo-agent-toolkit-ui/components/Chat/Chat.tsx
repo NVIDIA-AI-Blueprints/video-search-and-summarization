@@ -215,6 +215,9 @@ export const Chat = () => {
   const handleAddQueryContext = useCallback((item: QueryDataContext) => {
     setQueryContextItems((prev) => {
       const index = prev.findIndex((c) => c.id === item.id);
+      // Re-adding an unchanged item must not produce new state: callers such as
+      // the Search tab re-send a freshly built object whenever they re-render.
+      if (index !== -1 && JSON.stringify(prev[index]) === JSON.stringify(item)) return prev;
       const next = index === -1 ? [...prev, item] : prev.map((c, i) => (i === index ? item : c));
       queryContextRef.current = next;
       return next;

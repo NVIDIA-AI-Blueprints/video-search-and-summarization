@@ -177,6 +177,25 @@ describe('Query context item deduplication logic', () => {
     expect(items.map((c) => c.id)).toEqual(['x', 'y']);
     expect(items[0].data.top_k).toBe(5);
   });
+
+  it('returns the previous state when re-adding an unchanged item', () => {
+    // Mirrors Chat's handleAddQueryContext reducer. Callers re-send a freshly
+    // built object on re-render, so an unchanged payload has to be a no-op —
+    // otherwise every add schedules a render that triggers the next add.
+    type Item = { id: string; label: string; contextType: string; data: Record<string, unknown> };
+    const addItem = (prev: Item[], item: Item): Item[] => {
+      const index = prev.findIndex((c) => c.id === item.id);
+      if (index !== -1 && JSON.stringify(prev[index]) === JSON.stringify(item)) return prev;
+      return index === -1 ? [...prev, item] : prev.map((c, i) => (i === index ? item : c));
+    };
+
+    const first: Item = { id: 'x', label: 'Filters', contextType: 'search/filters', data: { top_k: 5 } };
+    const state = addItem([], first);
+    const resent: Item = { id: 'x', label: 'Filters', contextType: 'search/filters', data: { top_k: 5 } };
+
+    expect(addItem(state, resent)).toBe(state);
+    expect(addItem(state, { ...resent, data: { top_k: 6 } })).not.toBe(state);
+  });
 });
 
 describe('Query context serialization (matches Chat onSend)', () => {

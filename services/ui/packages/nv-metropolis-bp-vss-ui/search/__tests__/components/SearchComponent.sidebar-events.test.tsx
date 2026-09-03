@@ -163,6 +163,39 @@ describe('SearchComponent sidebar events', () => {
     );
   });
 
+  it('does not re-push filter context when the host rebuilds addChatQueryContext', () => {
+    const addChatQueryContext = jest.fn();
+    const onControlsReady = jest.fn();
+    // Home builds a fresh addChatQueryContext on every render; that must not
+    // make Search re-run its sync effect or rebuild its controls, or the two
+    // components drive each other into an infinite render loop.
+    const { rerender } = render(
+      <SearchComponent
+        {...defaultProps}
+        renderControlsInLeftSidebar
+        onControlsReady={onControlsReady}
+        addChatQueryContext={(item) => addChatQueryContext(item)}
+      />,
+    );
+
+    expect(addChatQueryContext).toHaveBeenCalledTimes(1);
+    const controlsCallsAfterMount = onControlsReady.mock.calls.length;
+
+    for (let i = 0; i < 3; i += 1) {
+      rerender(
+        <SearchComponent
+          {...defaultProps}
+          renderControlsInLeftSidebar
+          onControlsReady={onControlsReady}
+          addChatQueryContext={(item) => addChatQueryContext(item)}
+        />,
+      );
+    }
+
+    expect(addChatQueryContext).toHaveBeenCalledTimes(1);
+    expect(onControlsReady).toHaveBeenCalledTimes(controlsCallsAfterMount);
+  });
+
   it('applies Search-tab filters to Chat-derived result cards', () => {
     let chatAnswerHandler: ((answer: string) => boolean | void) | undefined;
     const registerChatAnswerHandler = jest.fn((handler) => {
