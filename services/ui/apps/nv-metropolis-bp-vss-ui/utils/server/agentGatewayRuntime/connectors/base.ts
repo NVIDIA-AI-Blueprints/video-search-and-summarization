@@ -7,9 +7,10 @@ export class ConnectorError extends Error {
   constructor(
     message: string,
     readonly code = "backend_error",
-    readonly retryable = false
+    readonly retryable = false,
+    options?: ErrorOptions
   ) {
-    super(message);
+    super(message, options);
   }
 }
 

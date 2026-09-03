@@ -28,7 +28,7 @@ export const validateIdempotencyKey = (
   if (
     value.length > 255 ||
     [...value].some((character) => {
-      const code = character.charCodeAt(0);
+      const code = character.codePointAt(0) ?? 0;
       return code < 33 || code > 126;
     })
   ) {
@@ -42,8 +42,8 @@ export const validateIdempotencyKey = (
 export class RunRecord {
   readonly abortController = new AbortController();
   status = "queued";
-  private events: RunEvent[] = [];
-  private eventCharSizes: number[] = [];
+  private readonly events: RunEvent[] = [];
+  private readonly eventCharSizes: number[] = [];
   private retainedEventChars = 0;
   private nextSequence = 1;
   private updatedAt = Date.now();
@@ -97,7 +97,7 @@ export class RunRecord {
     else if (type === "run.failed") this.status = "failed";
     else if (type === "run.cancelled") this.status = "cancelled";
     this.updatedAt = Date.now();
-    for (const listener of [...this.listeners]) listener();
+    for (const listener of this.listeners) listener();
     return event;
   }
 

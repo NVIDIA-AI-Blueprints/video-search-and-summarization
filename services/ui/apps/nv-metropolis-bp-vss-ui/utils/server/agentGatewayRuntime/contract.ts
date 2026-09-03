@@ -73,7 +73,9 @@ const parseMessage = (value: unknown, name: string): Message => {
   const { role, content } = value;
   if (typeof role !== "string" || !ALLOWED_ROLES.has(role)) {
     throw new ContractError(
-      `${name}.role must be one of: ${[...ALLOWED_ROLES].sort().join(", ")}`
+      `${name}.role must be one of: ${[...ALLOWED_ROLES]
+        .sort((left, right) => left.localeCompare(right))
+        .join(", ")}`
     );
   }
   if (typeof content !== "string") {
@@ -171,7 +173,7 @@ const sortJson = (value: unknown): unknown => {
   if (!isJsonObject(value)) return value;
   return Object.fromEntries(
     Object.keys(value)
-      .sort()
+      .sort((left, right) => left.localeCompare(right))
       .map((key) => [key, sortJson(value[key])])
   );
 };

@@ -120,7 +120,9 @@ const validateUrl = (
       `${name} must not contain credentials, a query, or a fragment`
     );
   }
-  return value.replace(/\/+$/u, "");
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end -= 1;
+  return value.slice(0, end);
 };
 
 const extraHeaders = (
@@ -155,7 +157,7 @@ const extraHeaders = (
     if (
       value.length > 8_192 ||
       [...value].some((character) => {
-        const code = character.charCodeAt(0);
+        const code = character.codePointAt(0) ?? 0;
         return code < 32 || code > 126;
       })
     ) {
@@ -230,7 +232,7 @@ export const loadEmbeddedGatewayConfig = (
   if (!SUPPORTED_PROTOCOLS.has(rawProtocol as BackendProtocol)) {
     throw new ConfigError(
       `AGENT_BACKEND_PROTOCOL must be one of: ${[...SUPPORTED_PROTOCOLS]
-        .sort()
+        .sort((left, right) => left.localeCompare(right))
         .join(", ")}`
     );
   }

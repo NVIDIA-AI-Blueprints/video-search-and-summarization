@@ -173,7 +173,7 @@ const parseReceipt = (payload: unknown): CapabilityReceipt => {
   }
   const missingSkills = [...REQUIRED_VSS_SKILLS]
     .filter((skill) => !skills.includes(skill))
-    .sort();
+    .sort((left, right) => left.localeCompare(right));
   if (missingSkills.length) {
     throw new CapabilityError(
       `capability receipt is missing required VSS skills: ${missingSkills.join(
@@ -200,7 +200,7 @@ const parseReceipt = (payload: unknown): CapabilityReceipt => {
   );
   const missingKinds = [...REQUIRED_ARTIFACT_KINDS]
     .filter((kind) => !artifactKinds.includes(kind))
-    .sort();
+    .sort((left, right) => left.localeCompare(right));
   if (missingKinds.length) {
     throw new CapabilityError(
       `capability receipt is missing required UI artifacts: ${missingKinds.join(
