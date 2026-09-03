@@ -725,7 +725,12 @@ class RealRepositoryTreeTest(unittest.TestCase):
     def test_every_chart_parses_and_the_ones_without_dependencies_are_empty(self) -> None:
         results = self._parse_all("parse_helm_chart")
 
-        self.assertGreaterEqual(len(results), 40)
+        # Non-vacuity, not a census. _parse_all already fails on any file that
+        # raises, so what is left to guard is discovery silently returning
+        # nothing. Pinning a count instead turns an ordinary change -- adding
+        # or removing a service -- into a test failure that says nothing true
+        # about the parser.
+        self.assertTrue(results, "no Chart.yaml discovered")
         without = [
             relative
             for relative, rows in results.items()
@@ -734,7 +739,7 @@ class RealRepositoryTreeTest(unittest.TestCase):
                 for line in (REPO_ROOT / relative).read_text().splitlines()
             )
         ]
-        self.assertGreaterEqual(len(without), 25)
+        self.assertTrue(without, "no dependency-free chart discovered")
         for relative in without:
             self.assertEqual([], results[relative], f"{relative} invented dependencies")
         for relative, rows in results.items():
@@ -744,7 +749,7 @@ class RealRepositoryTreeTest(unittest.TestCase):
     def test_every_dockerfile_parses_and_the_known_third_parties_are_found(self) -> None:
         results = self._parse_all("parse_dockerfile")
 
-        self.assertGreaterEqual(len(results), 40)
+        self.assertTrue(results, "no Dockerfile discovered")
         found = {row["package"] for rows in results.values() for row in rows}
         for expected in (
             "docker.elastic.co/elasticsearch/elasticsearch",
@@ -758,7 +763,7 @@ class RealRepositoryTreeTest(unittest.TestCase):
     def test_every_compose_file_parses_and_the_audited_images_are_found(self) -> None:
         results = self._parse_all("parse_compose")
 
-        self.assertGreaterEqual(len(results), 60)
+        self.assertTrue(results, "no compose file discovered")
         found = {row["package"] for rows in results.values() for row in rows}
         # The exact set the OSRB audit flagged: AGPL-3.0, Elastic-2.0 and
         # Confluent Community, none of which any lockfile records.
@@ -776,7 +781,7 @@ class RealRepositoryTreeTest(unittest.TestCase):
     def test_every_workflow_parses_and_local_actions_are_excluded(self) -> None:
         results = self._parse_all("parse_actions_workflow")
 
-        self.assertGreaterEqual(len(results), 15)
+        self.assertTrue(results, "no Actions workflow discovered")
         found = {row["package"] for rows in results.values() for row in rows}
         self.assertIn("actions/checkout", found)
         self.assertFalse([name for name in found if name.startswith(".")])
