@@ -34,7 +34,15 @@ score tool-calling or trajectories.
 ## Prerequisites
 
 - A VSS stack with RT-VLM serving Cosmos Reason 3, and `vss configure` already run
-  so `vss configure check` lists `rt_vlm` as `ok`.
+  so `vss configure check` lists `rt_vlm` as `ok` and `vst` as `ok`.
+
+  **Configure with a routable address, not `localhost`.** Clips are addressed as VIOS
+  sensors so RT-VLM fetches them by URL; the URL VIOS mints is built from the
+  configured origin. A loopback origin mints a loopback URL, which means nothing
+  inside the RT-VLM container, so the CLI falls back to inlining the clip as base64
+  and the VLM rejects anything large with `HTTP 422 ... content ... valid string`.
+  `--base-url http://<host-ip>:7777` avoids that; `--inline-media` forces the old
+  inline behaviour and is only safe for clips under ~10 MB.
 - `uv` and this checkout (CLI via `uv run --project services/agent --no-dev --extra cli vss`).
 - The `nvdataset` CLI. It is **not** on PyPI, and the index used by the old
   deep-search eval (`urm.nvidia.com/.../sw-ngc-data-platform-pypi`) returns 403.

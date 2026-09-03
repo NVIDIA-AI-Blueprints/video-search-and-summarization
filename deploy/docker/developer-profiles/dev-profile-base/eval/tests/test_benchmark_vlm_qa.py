@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 import time
-from typing import TYPE_CHECKING
 
 from benchmark_vlm_qa import QaItem
 from benchmark_vlm_qa import dss_credential
@@ -21,10 +21,8 @@ from benchmark_vlm_qa import run_bounded
 from benchmark_vlm_qa import run_vlm_item
 from benchmark_vlm_qa import select_qa_items
 from benchmark_vlm_qa import strip_think_tags
+from benchmark_vlm_qa import vios_sensor_names
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def test_parse_vlm_stdout_skips_completion_marker() -> None:
@@ -96,8 +94,8 @@ def test_select_qa_items_matches_video_stem(tmp_path: Path) -> None:
         },
     ]
     selected = select_qa_items(items, {video.stem: video, video.name: video})
-    assert [item.id for item in selected] == ["qa_001"]
-    assert selected[0].video_path == video
+    assert [item.id for item in selected.items] == ["qa_001"]
+    assert selected.items[0].video_path == video
 
 
 def test_select_qa_items_honors_explicit_video_field(tmp_path: Path) -> None:
@@ -113,7 +111,55 @@ def test_select_qa_items_honors_explicit_video_field(tmp_path: Path) -> None:
         }
     ]
     selected = select_qa_items(items, {video.stem: video, video.name: video})
-    assert selected[0].video_path == video
+    assert selected.items[0].video_path == video
+
+
+def test_select_qa_items_resolves_the_clip_from_the_expected_tool_call() -> None:
+    """vss-devx-base names no video field; the trajectory's sensor_id is the reliable source."""
+    video = Path("/clips/vss-sample-warehouse-4min.mp4")
+    index = {video.stem: video, video.name: video}
+    items = [
+        {
+            "id": "vqa_001",
+            # Deliberately does not name the clip, so only the sensor_id can resolve it.
+            "query": "Did a worker drop any boxes?",
+            "ground_truth": "Yes, a worker dropped one box.",
+            "evaluation_method": ["qa", "trajectory"],
+            "trajectory_ground_truth": [
+                {"name": "video_understanding", "params": {"sensor_id": "vss-sample-warehouse-4min"}, "step": 1}
+            ],
+        }
+    ]
+    selected = select_qa_items(items, index)
+    assert [item.id for item in selected.items] == ["vqa_001"]
+    assert selected.items[0].video_path == video
+
+
+def test_select_qa_items_records_a_clarification_item_instead_of_failing_the_run() -> None:
+    """`clarify_001` is a qa item with no clip by design; it must not abort the benchmark."""
+    video = Path("/clips/dev_base_001.mp4")
+    index = {video.stem: video, video.name: video}
+    other = Path("/clips/dev_base_002.mp4")
+    index |= {other.stem: other, other.name: other}
+    items = [
+        {
+            "id": "clarify_001",
+            "query": "Show me the video",
+            "ground_truth": "The agent should ask the user to specify which video.",
+            "evaluation_method": ["qa", "trajectory"],
+            "trajectory_ground_truth": [{"name": "vst_video_list", "params": {}, "step": 1}],
+        },
+        {
+            "id": "vqa_002",
+            "query": "What happened in dev_base_001?",
+            "ground_truth": "A box fell.",
+            "evaluation_method": ["qa"],
+        },
+    ]
+    selected = select_qa_items(items, index)
+    assert [item.id for item in selected.items] == ["vqa_002"]
+    assert [skip["id"] for skip in selected.skipped] == ["clarify_001"]
+    assert "could not match" in selected.skipped[0]["reason"]
 
 
 @pytest.mark.parametrize("limit", [0, -1])
@@ -128,7 +174,7 @@ def test_select_qa_items_zero_or_negative_limit_selects_nothing(tmp_path: Path, 
             "evaluation_method": ["qa"],
         }
     ]
-    assert select_qa_items(items, {video.stem: video, video.name: video}, limit=limit) == []
+    assert select_qa_items(items, {video.stem: video, video.name: video}, limit=limit).items == []
 
 
 def test_select_qa_items_stops_before_unresolvable_video(tmp_path: Path) -> None:
@@ -153,7 +199,8 @@ def test_select_qa_items_stops_before_unresolvable_video(tmp_path: Path) -> None
         },
     ]
     selected = select_qa_items(items, index, limit=1)
-    assert [item.id for item in selected] == ["qa_001"]
+    assert [item.id for item in selected.items] == ["qa_001"]
+    assert selected.skipped == []
 
 
 def test_run_bounded_returns_output_within_budget() -> None:
@@ -217,6 +264,52 @@ def test_run_vlm_item_reports_failure_without_an_answer(tmp_path: Path) -> None:
     assert returncode == 3
     assert "rt-vlm unreachable" in error
     assert served_model is None
+
+
+def test_run_vlm_item_addresses_a_sensor_instead_of_inlining_the_clip(tmp_path: Path) -> None:
+    """`--file` inlines base64 and the VLM rejects the larger vss-devx-base clips."""
+    video = tmp_path / "vss-sample-warehouse-4min.mp4"
+    video.write_bytes(b"x")
+    echo_argv = "import json, sys; print(json.dumps({'answer': ' '.join(sys.argv[1:]), 'model': 'cosmos-reason3'}))"
+    item = QaItem(id="vqa_001", query="How many boxes?", ground_truth="One.", video_path=video)
+
+    answer, _elapsed, _rc, _error, _served = run_vlm_item(
+        vss=_fake_vss(echo_argv),
+        item=item,
+        timeout_s=30,
+        num_frames=4,
+        model=None,
+        sensor="vss-sample-warehouse-4min",
+    )
+
+    assert "--sensor vss-sample-warehouse-4min" in str(answer)
+    assert "--file" not in str(answer)
+
+
+def test_run_vlm_item_falls_back_to_inline_media_without_a_sensor(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"x")
+    echo_argv = "import json, sys; print(json.dumps({'answer': ' '.join(sys.argv[1:]), 'model': 'cosmos-reason3'}))"
+    item = QaItem(id="qa_001", query="What happened?", ground_truth="A box fell.", video_path=video)
+
+    answer, _elapsed, _rc, _error, _served = run_vlm_item(
+        vss=_fake_vss(echo_argv), item=item, timeout_s=30, num_frames=4, model=None, sensor=None
+    )
+
+    assert f"--file {video}" in str(answer)
+    assert "--sensor" not in str(answer)
+
+
+def test_vios_sensor_names_reports_unreachable_rather_than_empty() -> None:
+    """An empty sensor list and an unreachable VIOS must not look the same."""
+    fail = "import sys; sys.exit(4)"
+    assert vios_sensor_names(_fake_vss(fail), 30) is None
+
+    empty = "import json; print(json.dumps({'count': 0, 'sensors': []}))"
+    assert vios_sensor_names(_fake_vss(empty), 30) == set()
+
+    listed = "import json; print(json.dumps({'count': 1, 'sensors': [{'name': 'warehouse'}]}))"
+    assert vios_sensor_names(_fake_vss(listed), 30) == {"warehouse"}
 
 
 def test_judge_url_normalizes_base() -> None:

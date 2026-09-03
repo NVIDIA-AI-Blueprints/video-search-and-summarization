@@ -180,21 +180,31 @@ def parse_score(text: str) -> tuple[float, str]:
     raise ValueError(f"could not extract a score in [0.0, 1.0] from judge output: {text[:300]!r}")
 
 
-def parse_vlm_stdout(stdout: str) -> dict[str, Any]:
-    """Select the JSON object that carries ``.answer``, skipping the completion marker."""
-    last_error: Exception | None = None
+def json_line_with(stdout: str, key: str) -> dict[str, Any] | None:
+    """Last JSON object on its own line carrying ``key``.
+
+    The CLI emits one compact object per line plus a trailing event marker, so the
+    payload is selected by the field wanted rather than by position.
+    """
     for raw_line in reversed(stdout.splitlines()):
         line = raw_line.strip()
         if not line:
             continue
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError as exc:
-            last_error = exc
+        except json.JSONDecodeError:
             continue
-        if isinstance(payload, dict) and "answer" in payload:
+        if isinstance(payload, dict) and key in payload:
             return payload
-    raise ValueError(f"vss vlm run produced no JSON object with an answer field: {stdout[-500:]!r}") from last_error
+    return None
+
+
+def parse_vlm_stdout(stdout: str) -> dict[str, Any]:
+    """Select the JSON object that carries ``.answer``, skipping the completion marker."""
+    payload = json_line_with(stdout, "answer")
+    if payload is None:
+        raise ValueError(f"vss vlm run produced no JSON object with an answer field: {stdout[-500:]!r}")
+    return payload
 
 
 def load_dataset(path: Path) -> list[dict[str, Any]]:
@@ -239,17 +249,48 @@ def index_videos(videos_dir: Path) -> dict[str, Path]:
     return index
 
 
+def trajectory_sensor_ids(item: dict[str, Any]) -> list[str]:
+    """Clip names taken from the expected tool calls in ``trajectory_ground_truth``.
+
+    vss-devx-base has no video field: the clip is named in the query prose and, for
+    most items, in the expected ``video_understanding`` call's ``sensor_id``. The
+    latter is structured data rather than prose, so it is the better source even
+    though scoring the trajectory itself is out of scope here.
+    """
+    steps = item.get("trajectory_ground_truth")
+    if not isinstance(steps, list):
+        return []
+    found: list[str] = []
+    for step in steps:
+        params = step.get("params") if isinstance(step, dict) else None
+        if not isinstance(params, dict):
+            continue
+        for key in ("sensor_id", "sensor", "video"):
+            value = params.get(key)
+            if isinstance(value, str) and value.strip():
+                found.append(value.strip())
+    return found
+
+
+def indexed_video(raw: str, video_index: dict[str, Path]) -> Path | None:
+    candidate = Path(raw)
+    for token in (raw, candidate.name, candidate.stem):
+        if token in video_index:
+            return video_index[token]
+    return candidate if candidate.is_file() else None
+
+
 def resolve_video(item: dict[str, Any], video_index: dict[str, Path], query: str) -> Path:
     for key in EXPLICIT_VIDEO_KEYS:
         raw = item.get(key)
-        if not isinstance(raw, str) or not raw.strip():
-            continue
-        candidate = Path(raw)
-        for token in (raw, candidate.name, candidate.stem):
-            if token in video_index:
-                return video_index[token]
-        if candidate.is_file():
-            return candidate
+        if isinstance(raw, str) and raw.strip():
+            match = indexed_video(raw, video_index)
+            if match is not None:
+                return match
+    for raw in trajectory_sensor_ids(item):
+        match = indexed_video(raw, video_index)
+        if match is not None:
+            return match
     unique_stems = sorted({path.stem for path in video_index.values()}, key=len, reverse=True)
     for stem in unique_stems:
         if re.search(rf"(?<![\w.-]){re.escape(stem)}(?![\w.-])", query):
@@ -273,20 +314,36 @@ class QaItem:
     video_path: Path
 
 
+@dataclass
+class Selection:
+    """QA items to run, plus the ones deliberately left out and why."""
+
+    items: list[QaItem]
+    skipped: list[dict[str, str]]
+
+
 def select_qa_items(
     raw_items: list[dict[str, Any]],
     video_index: dict[str, Path],
     *,
     limit: int | None = None,
-) -> list[QaItem]:
+) -> Selection:
     selected: list[QaItem] = []
+    skipped: list[dict[str, str]] = []
     if limit is not None and limit <= 0:
-        return selected
+        return Selection(items=selected, skipped=skipped)
     for item in raw_items:
         if not is_qa_item(item):
             continue
         query = str(item.get("query") or "")
-        video_path = resolve_video(item, video_index, query)
+        # Not every qa item is answerable by one VLM call: vss-devx-base includes
+        # clarification tests whose whole point is that no clip is named. Skipping is
+        # right, but the ids are reported so a shrinking denominator stays visible.
+        try:
+            video_path = resolve_video(item, video_index, query)
+        except FileNotFoundError as exc:
+            skipped.append({"id": str(item.get("id")), "reason": str(exc)})
+            continue
         selected.append(
             QaItem(
                 id=str(item.get("id")),
@@ -297,7 +354,7 @@ def select_qa_items(
         )
         if limit is not None and len(selected) >= limit:
             break
-    return selected
+    return Selection(items=selected, skipped=skipped)
 
 
 def dss_credential(env: dict[str, str] | None = None) -> str | None:
@@ -441,6 +498,55 @@ def run_bounded(cmd: list[str], timeout_s: float) -> tuple[int, str, str, bool]:
         return proc.returncode, stdout or "", stderr or "", True
 
 
+def vios_sensor_names(vss: list[str], timeout_s: int) -> set[str] | None:
+    """Names already registered in VIOS, or ``None`` when VIOS cannot be reached."""
+    returncode, stdout, _stderr, timed_out = run_bounded([*vss, "vios", "list", "--raw"], timeout_s)
+    if timed_out or returncode != 0:
+        return None
+    payload = json_line_with(stdout, "sensors")
+    if payload is None:
+        return None
+    return {str(s["name"]) for s in payload.get("sensors", []) if isinstance(s, dict) and s.get("name")}
+
+
+def register_sensor(vss: list[str], video_path: Path, timeout_s: int) -> str | None:
+    """Register a clip with VIOS, returning the sensor name it was filed under."""
+    returncode, stdout, _stderr, timed_out = run_bounded([*vss, "vios", "add", str(video_path), "--raw"], timeout_s)
+    if timed_out or returncode != 0:
+        return None
+    payload = json_line_with(stdout, "name")
+    return str(payload["name"]) if payload else None
+
+
+def resolve_sensors(vss: list[str], items: list[QaItem], timeout_s: int) -> dict[Path, str]:
+    """Map each clip to a VIOS sensor name, registering the ones not yet known.
+
+    Addressing by sensor is not a preference: ``--file`` inlines the clip as base64,
+    which the VLM rejects outright for the larger clips in vss-devx-base. A sensor
+    lets RT-VLM fetch the clip by URL instead, so clip length stops mattering.
+    """
+    known = vios_sensor_names(vss, timeout_s)
+    if known is None:
+        print(
+            "vss: VIOS unavailable; falling back to inline --file. Clips over ~10 MB are "
+            "expected to fail -- run `vss configure check` and confirm vst is ok.",
+            file=sys.stderr,
+        )
+        return {}
+    sensors: dict[Path, str] = {}
+    for path in sorted({item.video_path for item in items}):
+        if path.stem in known:
+            sensors[path] = path.stem
+            continue
+        name = register_sensor(vss, path, timeout_s)
+        if name is None:
+            print(f"vss: could not register {path.name} with VIOS; sending it inline", file=sys.stderr)
+            continue
+        print(f"registered {path.name} as sensor {name!r}", file=sys.stderr)
+        sensors[path] = name
+    return sensors
+
+
 def run_vlm_item(
     *,
     vss: list[str],
@@ -448,15 +554,16 @@ def run_vlm_item(
     timeout_s: int,
     num_frames: int,
     model: str | None,
+    sensor: str | None = None,
 ) -> tuple[str | None, float, int, str, str | None]:
+    source = ["--sensor", sensor] if sensor else ["--file", str(item.video_path)]
     cmd = [
         *vss,
         "vlm",
         "run",
         "--prompt",
         item.query,
-        "--file",
-        str(item.video_path),
+        *source,
         "--no-persist",
         "--intent",
         "qa",
@@ -598,6 +705,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Judge model id (EVAL_LLM_JUDGE_NAME).",
     )
     parser.add_argument("--skip-judge", action="store_true", help="Collect latency only; skip accuracy scoring.")
+    parser.add_argument(
+        "--inline-media",
+        action="store_true",
+        help="Send clips inline with --file instead of registering VIOS sensors. Fails on large clips.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Resolve items and videos; do not call the VLM.")
     parser.add_argument("--nvdataset-bin", default="nvdataset")
     return parser.parse_args(argv)
@@ -630,11 +742,8 @@ def main(argv: list[str] | None = None) -> int:
     if not video_index:
         print(f"vss: no videos under {dataset_dir / 'videos'}", file=sys.stderr)
         return 2
-    try:
-        items = select_qa_items(raw_items, video_index, limit=args.limit)
-    except FileNotFoundError as exc:
-        print(f"vss: {exc}", file=sys.stderr)
-        return 2
+    selection = select_qa_items(raw_items, video_index, limit=args.limit)
+    items = selection.items
     if not items:
         print(
             "vss: no QA items in the dataset (evaluation_method includes qa with a text ground_truth)", file=sys.stderr
@@ -642,6 +751,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(f"resolved {len(items)} QA item(s) from {dataset_dir / args.dataset_file}", file=sys.stderr)
+    for skip in selection.skipped:
+        print(f"skipped {skip['id']}: {skip['reason']}", file=sys.stderr)
     if args.dry_run:
         for item in items:
             print(f"{item.id}\t{item.video_path.name}\t{item.query}")
@@ -659,6 +770,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         judge_url = judge_completions_url(args.judge_base_url)
 
+    sensors = {} if args.inline_media else resolve_sensors(vss, items, args.timeout)
+
     results: list[ItemResult] = []
     for item in items:
         print(f"running {item.id} on {item.video_path.name} …", file=sys.stderr)
@@ -668,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout_s=args.timeout,
             num_frames=args.num_frames,
             model=args.model,
+            sensor=sensors.get(item.video_path),
         )
         score: float | None = None
         if answer and judge_url is not None:
@@ -703,6 +817,8 @@ def main(argv: list[str] | None = None) -> int:
     extra = {
         "dataset_dir": str(dataset_dir),
         "dataset_file": args.dataset_file,
+        "skipped": selection.skipped,
+        "media_addressing": "inline_file" if args.inline_media else "vios_sensor",
         "model_requested": args.model,
         "model_served": served_models[0] if len(served_models) == 1 else served_models or None,
         "num_frames": args.num_frames,
