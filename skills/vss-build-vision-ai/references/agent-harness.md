@@ -194,16 +194,21 @@ with no harness, or name the in-stack agent instead, and deploy nothing until
 that is answered. Discovering it after the readiness gate means a deployed build
 with no way to drive it.
 
-- **Python 3.11+ on the host**, plus `docker`, `python3`, `curl`, and the
-  NemoClaw CLI. The notebook's own preflight (section 2) re-checks these, but it
-  runs too late to inform the harness choice.
-- **An agent model provider.** This is the harness's *own* LLM, unrelated to the
-  build's `LLM_*` and `VLM_*` knobs. The notebook offers three — (a) an
-  OpenAI-compatible endpoint, (b) a NemoClaw-managed local model, (c) a
-  build.nvidia.com hosted model — and **this skill defaults to (a) with a remote
-  Claude Opus** (see [Default provider](#default-provider) below). Section 1.2 of
-  the notebook remains the authority on which variables each provider needs; do
-  not infer them.
+- **Python 3.11+ to run the notebook**, plus `docker`, `python3`, and `curl` on
+  `PATH`, and outbound reach to the installer. **Do not require the NemoClaw CLI
+  here**: section 3.1 installs it at the pinned `NEMOCLAW_INSTALL_REF` whenever
+  that ref is not already present, so a fresh host is a supported starting point
+  and preflighting the post-install CLI would reject one. The notebook's own
+  preflight (section 2) re-checks the host commands, but it runs too late to
+  inform the harness choice.
+- **An agent model provider**, and only the credential that provider needs. This
+  is the harness's *own* LLM, unrelated to the build's `LLM_*` and `VLM_*` knobs.
+  The notebook offers three — (a) an OpenAI-compatible endpoint, (b) a
+  NemoClaw-managed local model, (c) a build.nvidia.com hosted model — and **this
+  skill defaults to (a) with a remote Claude Opus** (see [Default
+  provider](#default-provider) below). Section 1.2 of the notebook remains the
+  authority on which variables each provider needs; do not infer them, and do not
+  preflight a variable a different provider would have used.
 - **A GPU budget that accounts for the harness.** The default remote provider
   costs no GPU. This applies only when the user overrides to the local
   provider: (b)
@@ -213,6 +218,16 @@ with no way to drive it.
 - **The checkout's own assets**: `assets/vss_nemoclaw_policy.yaml`, `skills/`,
   and `.openclaw/workspace/`. The notebook resolves all three from
   `VSS_REPO_DIR`.
+
+Preflight the selected provider's row below and no other — a credential check
+that fires for every build rejects the supported paths that need no key:
+
+| Provider | Required at Q3 | Not required |
+|---|---|---|
+| (a) public OpenAI-compatible endpoint — the skill default | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY` | `NVIDIA_API_KEY` |
+| (a) self-hosted endpoint, or one on a private address | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL` | a key — 3.1 sends the `EMPTY` placeholder for a blank one and the server ignores it |
+| (b) NemoClaw-managed local model | `NEMOCLAW_PROVIDER` (`install-vllm`, `ollama`, `nim-local`, …) | any API key; `HF_TOKEN` only for a gated `install-vllm` model |
+| (c) build.nvidia.com hosted model | `NVIDIA_API_KEY` | `COMPATIBLE_API_KEY`, `NEMOCLAW_ENDPOINT_URL` |
 
 Egress from the sandbox to the build is already allowed: the shipped policy's
 `vss-backend` entries cover the HAProxy origin (`7777`) along with each
@@ -241,9 +256,11 @@ user's, so carry it through rather than reasoning about which is better.
 
 Two failure modes to handle rather than paper over:
 
-- **No API key available.** Report it as a blocker and stop. Never silently
-  substitute (c) build.nvidia.com or a local model: the harness would come up on
-  a different LLM than the one reported, and nothing downstream could tell.
+- **No API key available for a provider that needs one.** Report it as a blocker
+  and stop. Never silently substitute (c) build.nvidia.com or a local model: the
+  harness would come up on a different LLM than the one reported, and nothing
+  downstream could tell. Switching providers is the user's call to make on that
+  report, not a fallback to take for them.
 - **A private or self-hosted endpoint.** Section 3.1 picks the transport from the
   endpoint's address, not from the provider name, and a host resolving to a
   private address gets the bundled proxy with a blank key sent as `EMPTY`. A
