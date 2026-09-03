@@ -163,6 +163,36 @@ def test_vlm_evidence_validation(updates: dict[str, object]) -> None:
         VLMEvidence.model_validate(payload)
 
 
+def test_vlm_evidence_records_call_parameters() -> None:
+    evidence = VLMEvidence.model_validate(
+        {
+            "job_id": "vlm-1",
+            "persisted": False,
+            "sensor": "camera-east",
+            "start_time": "2026-08-26T12:00:10Z",
+            "end_time": "2026-08-26T12:00:20Z",
+            "question": "Was the worker wearing a hard hat?",
+            "answer": "No",
+            "model": "nim_nvidia_cosmos3-nano-reasoner",
+            "num_frames": 8,
+            "timeout_seconds": 180.0,
+        }
+    )
+    assert evidence.model_dump() == {
+        "job_id": "vlm-1",
+        "persisted": False,
+        "sensor": "camera-east",
+        "start_time": "2026-08-26T12:00:10Z",
+        "end_time": "2026-08-26T12:00:20Z",
+        "question": "Was the worker wearing a hard hat?",
+        "answer": "No",
+        "intent": "introspection",
+        "model": "nim_nvidia_cosmos3-nano-reasoner",
+        "num_frames": 8,
+        "timeout_seconds": 180.0,
+    }
+
+
 def test_grounding_accepts_canonical_and_legacy_sensor_names() -> None:
     records = [_record()]
     canonical = SufficiencyDecision.model_validate(_decision())

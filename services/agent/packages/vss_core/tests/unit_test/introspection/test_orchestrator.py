@@ -202,9 +202,13 @@ async def test_sufficient_memory_uses_zero_vlm_and_one_synthesis() -> None:
         "sufficient_from_memory",
         "answer",
         "memory_evidence",
+        "sufficiency",
         "vlm_evidence",
         "unresolved_gaps",
     }
+    assert result.sufficiency is not None
+    assert result.sufficiency.sufficient is True
+    assert result.sufficiency.gaps == []
     assert judge.calls == 1
     assert len(synthesizer.calls) == 1
     assert runner.calls == []
@@ -522,7 +526,13 @@ async def test_one_grounded_gap_runs_one_vlm_and_one_final_synthesis() -> None:
 
     assert result.status == "completed"
     assert result.sufficient_from_memory is False
+    assert result.sufficiency is not None
+    assert result.sufficiency.sufficient is False
+    assert result.sufficiency.reason == "A visual detail is missing."
+    assert result.sufficiency.gaps[0].question == "What was the forklift carrying?"
     assert len(result.vlm_evidence) == 1
+    assert result.vlm_evidence[0].question == "What was the forklift carrying?"
+    assert result.vlm_evidence[0].answer == "visual answer 1"
     assert result.unresolved_gaps == []
     assert judge.calls == len(synthesizer.calls) == len(runner.calls) == 1
 
@@ -575,6 +585,7 @@ async def test_no_memory_returns_structured_result_without_model_calls() -> None
         "sufficient_from_memory": False,
         "answer": None,
         "memory_evidence": [],
+        "sufficiency": None,
         "vlm_evidence": [],
         "unresolved_gaps": [],
     }

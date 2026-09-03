@@ -200,7 +200,20 @@ class IntrospectionVLMJobRunner:
             end_time=result.end_time,
             question=prompt,
             answer=result.answer,
+            intent="introspection",
+            model=result.model,
+            num_frames=_introspection_frame_budget(self._analyzer),
+            timeout_seconds=effective_timeout,
         )
+
+
+def _introspection_frame_budget(analyzer: Any | None) -> int | None:
+    if analyzer is None:
+        return _RT_VLM_FRAME_BUDGET
+    budget = getattr(analyzer, "_rt_vlm_frame_budget", None)
+    if budget is None:
+        return None
+    return int(budget)
 
 
 def _is_backend_error(error: BaseException) -> bool:

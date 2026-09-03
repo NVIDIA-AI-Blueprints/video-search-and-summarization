@@ -106,6 +106,10 @@ relevance before recency, while queries without text remain newest-first.
 
 `memory introspect` performs bounded, memory-first question answering and emits
 exactly one JSON object to stdout (compact by default, indented with `--pretty`).
+That object includes the sufficiency decision (`sufficient`, `reason`,
+`evidence_record_ids`, and identified `gaps`), each VLM follow-up (`question`,
+`answer`, `model`, `num_frames`, window, and timeout), memory citations, the
+synthesized `answer`, and any `unresolved_gaps` left after inspection.
 The query must be scoped by `--sensor`, `--job-id`, or a complete
 `--start-time`/`--end-time` range. A child lookup requires its full public
 identity: `--job-id`, `--record-type`, and `--record-id`. Time bounds accept
