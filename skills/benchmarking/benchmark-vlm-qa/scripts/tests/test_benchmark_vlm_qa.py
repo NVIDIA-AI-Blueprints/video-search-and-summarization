@@ -444,16 +444,16 @@ def test_judge_reports_an_unreachable_endpoint_as_a_recordable_error() -> None:
             question="?",
             answer="a",
             reference="a",
-            judge_url="http://127.0.0.1:1/v1/chat/completions",
+            judge_url="https://127.0.0.1:1/v1/chat/completions",
             judge_model="m",
             timeout_s=5,
         )
 
 
 def test_judge_url_normalizes_base() -> None:
-    assert judge_completions_url("http://llm:8000") == "http://llm:8000/v1/chat/completions"
-    assert judge_completions_url("http://llm:8000/v1") == "http://llm:8000/v1/chat/completions"
-    assert judge_completions_url("http://llm:8000/v1/chat/completions") == "http://llm:8000/v1/chat/completions"
+    assert judge_completions_url("https://llm:8000") == "https://llm:8000/v1/chat/completions"
+    assert judge_completions_url("https://llm:8000/v1") == "https://llm:8000/v1/chat/completions"
+    assert judge_completions_url("https://llm:8000/v1/chat/completions") == "https://llm:8000/v1/chat/completions"
 
 
 def test_judge_key_never_sends_an_nvidia_credential_to_a_third_party() -> None:
@@ -465,8 +465,8 @@ def test_judge_key_never_sends_an_nvidia_credential_to_a_third_party() -> None:
 def test_judge_key_uses_nvidia_credential_for_nvidia_and_onprem_hosts() -> None:
     env = {"NGC_API_KEY": "ngc-secret"}
     assert judge_api_key("https://integrate.api.nvidia.com/v1/chat/completions", env) == "ngc-secret"
-    assert judge_api_key("http://10.86.83.113:30081/v1/chat/completions", env) == "ngc-secret"
-    assert judge_api_key("http://localhost:8000/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("https://10.86.83.113:30081/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("https://localhost:8000/v1/chat/completions", env) == "ngc-secret"
 
 
 def test_judge_key_is_not_fooled_by_a_host_that_merely_looks_nvidia_or_internal() -> None:
@@ -479,15 +479,15 @@ def test_judge_key_is_not_fooled_by_a_host_that_merely_looks_nvidia_or_internal(
 def test_judge_key_treats_every_private_range_as_on_premise() -> None:
     """A judge on 192.168/16 is no less on-premise than one on 10/8."""
     env = {"NGC_API_KEY": "ngc-secret"}
-    assert judge_api_key("http://192.168.1.9/v1/chat/completions", env) == "ngc-secret"
-    assert judge_api_key("http://172.16.4.5/v1/chat/completions", env) == "ngc-secret"
-    assert judge_api_key("http://[::1]:8000/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("https://192.168.1.9/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("https://172.16.4.5/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("https://[::1]:8000/v1/chat/completions", env) == "ngc-secret"
 
 
 def test_judge_key_prefers_the_explicitly_named_key() -> None:
     env = {"EVAL_LLM_JUDGE_API_KEY": "judge-key", "OPENAI_API_KEY": "openai-key", "NGC_API_KEY": "ngc-secret"}
     assert judge_api_key("https://api.openai.com/v1/chat/completions", env) == "judge-key"
-    assert judge_api_key("http://localhost:8000/v1/chat/completions", env) == "judge-key"
+    assert judge_api_key("https://localhost:8000/v1/chat/completions", env) == "judge-key"
     assert judge_api_key("https://api.openai.com/v1/chat/completions", {"OPENAI_API_KEY": "openai-key"}) == "openai-key"
 
 
