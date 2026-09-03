@@ -41,16 +41,35 @@ metadata:
     # Prometheus build absolute links, so they are told their prefix instead
     # (see the basePath / rootUrl / routePrefix values) and are not rewritten.
     haproxy.org/path-rewrite: |
+      {{- /* Each mount needs both forms: the two are disjoint, so a mount with
+             only /X/(.*) routes its bare root and then hands the backend a path
+             still carrying the public prefix. The Docker edge answers those
+             roots (acl p_storage path /storage beside path_beg /storage/), so a
+             missing pair makes the two edges answer the same request
+             differently. */}}
 {{- if $analyticsEnabled }}
       ^/video-analytics-api/(.*) /\1
+      ^/video-analytics-api$ /
 {{- end }}
 {{- if $behaviorEnabled }}
+      {{- /* Deliberately left stripping, and deliberately not reconciled: the
+             canonical route table and the Docker edge both forward
+             /behavior-analytics WHOLE, so one of the two sides is wrong. Which
+             one needs a warehouse deployment to answer -- it depends on whether
+             this chart's behavior-analytics serves from root or under its own
+             prefix. The root rule below only makes the mount self-consistent
+             with the strip already here. Do not delete the strip to match the
+             table without checking that first: if the service does serve from
+             root, that turns a working path into a 404. */}}
       ^/behavior-analytics/(.*) /\1
+      ^/behavior-analytics$ /
 {{- end }}
 {{- if $nvstreamerEnabled }}
       ^/streamer/(.*) /\1
+      ^/streamer$ /
 {{- end }}
       ^/storage/(.*) /vst/storage/\1
+      ^/storage$ /vst/storage
       {{- /* /vios aliases /vst and is rewritten onto it, not stripped:
              VST serves its whole surface under /vst/. Same shape as the
              /storage rewrite above. */}}
@@ -69,7 +88,7 @@ spec:
       {{- end }}
       http:
         paths:
-          - path: /vst/
+          - path: /vst
             pathType: Prefix
             backend:
               service:
@@ -77,14 +96,14 @@ spec:
                 port:
                   number: {{ index $vi "vstPort" | default 30888 }}
           # Alias for /vst/; /vst/ stays supported and is deprecated.
-          - path: /vios/
+          - path: /vios
             pathType: Prefix
             backend:
               service:
                 name: {{ index $vi "vstServiceName" | default "vss-vios-ingress" }}
                 port:
                   number: {{ index $vi "vstPort" | default 30888 }}
-          - path: /storage/
+          - path: /storage
             pathType: Prefix
             backend:
               service:
@@ -92,7 +111,7 @@ spec:
                 port:
                   number: {{ index $vi "vstPort" | default 30888 }}
 {{- if $nvstreamerEnabled }}
-          - path: /streamer/
+          - path: /streamer
             pathType: Prefix
             backend:
               service:
@@ -101,7 +120,7 @@ spec:
                   number: {{ index $vi "nvstreamerPort" | default 31000 }}
 {{- end }}
 {{- if $analyticsEnabled }}
-          - path: /video-analytics-api/
+          - path: /video-analytics-api
             pathType: Prefix
             backend:
               service:
@@ -110,7 +129,7 @@ spec:
                   number: {{ index $vi "videoAnalyticsApiPort" | default 8081 }}
 {{- end }}
 {{- if $behaviorEnabled }}
-          - path: /behavior-analytics/
+          - path: /behavior-analytics
             pathType: Prefix
             backend:
               service:
