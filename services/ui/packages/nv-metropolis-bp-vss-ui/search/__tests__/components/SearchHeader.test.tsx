@@ -6,7 +6,6 @@ import { SearchHeader } from '../../lib-src/components/SearchHeader';
 jest.mock('@nemo-agent-toolkit/ui');
 
 const defaultProps = {
-  onUpdateSearchParams: jest.fn(),
   theme: 'light' as const,
   streams: [],
   filterParams: {
@@ -23,9 +22,6 @@ const defaultProps = {
   addFilter: jest.fn(),
   removeFilterTag: jest.fn(),
   filterTags: [],
-  isSearching: false,
-  onCancelSearch: jest.fn(),
-  onGetPendingQuery: jest.fn(),
 };
 
 describe('SearchHeader', () => {
@@ -35,64 +31,15 @@ describe('SearchHeader', () => {
 
   it('renders without crashing', () => {
     render(<SearchHeader {...defaultProps} />);
-    expect(screen.getByPlaceholderText('Search Files')).toBeInTheDocument();
+    expect(screen.getByText('Source Type:')).toBeInTheDocument();
   });
 
-  it('renders Search button by default', () => {
+  it('does not render a query input or Search button', () => {
     render(<SearchHeader {...defaultProps} />);
-    expect(screen.getByText('Search')).toBeInTheDocument();
-  });
-
-  it('renders Cancel button when searching with onCancelSearch', () => {
-    render(<SearchHeader {...defaultProps} isSearching={true} onCancelSearch={jest.fn()} />);
-    expect(screen.getByText('Cancel')).toBeInTheDocument();
-  });
-
-  it('updates query input value on change', () => {
-    render(<SearchHeader {...defaultProps} />);
-    const input = screen.getByPlaceholderText('Search Files');
-
-    fireEvent.change(input, { target: { value: 'person walking' } });
-    expect(input).toHaveValue('person walking');
-  });
-
-  it('shows error border when searching with empty query', () => {
-    render(<SearchHeader {...defaultProps} />);
-
-    fireEvent.click(screen.getByText('Search'));
-
-    expect(defaultProps.onUpdateSearchParams).not.toHaveBeenCalled();
-  });
-
-  it('calls onUpdateSearchParams with correct params on search', () => {
-    render(<SearchHeader {...defaultProps} />);
-
-    const input = screen.getByPlaceholderText('Search Files');
-    fireEvent.change(input, { target: { value: 'find cars' } });
-    fireEvent.click(screen.getByText('Search'));
-
-    expect(defaultProps.onUpdateSearchParams).toHaveBeenCalledWith(
-      expect.objectContaining({ query: 'find cars', sourceType: 'video_file' })
-    );
-  });
-
-  it('triggers search on Enter key', () => {
-    render(<SearchHeader {...defaultProps} />);
-
-    const input = screen.getByPlaceholderText('Search Files');
-    fireEvent.change(input, { target: { value: 'test search' } });
-    // rsuite Input fires onPressEnter on keyDown
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
-
-    expect(defaultProps.onUpdateSearchParams).toHaveBeenCalled();
-  });
-
-  it('calls onCancelSearch when cancel button is clicked', () => {
-    const onCancelSearch = jest.fn();
-    render(<SearchHeader {...defaultProps} isSearching={true} onCancelSearch={onCancelSearch} />);
-
-    fireEvent.click(screen.getByText('Cancel'));
-    expect(onCancelSearch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByPlaceholderText('Search Files')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('search-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('search-button')).not.toBeInTheDocument();
+    expect(screen.queryByText('Search')).not.toBeInTheDocument();
   });
 
   it('renders Source Type selector', () => {
@@ -161,34 +108,13 @@ describe('SearchHeader', () => {
     }
   });
 
-  it('disables input when contentDisabled is true', () => {
+  it('disables source type when contentDisabled is true', () => {
     render(<SearchHeader {...defaultProps} contentDisabled={true} />);
-    const input = screen.getByPlaceholderText('Search Files');
-    expect(input).toBeDisabled();
-  });
-
-  it('syncs query from external filterParams.query', () => {
-    const { rerender } = render(<SearchHeader {...defaultProps} />);
-
-    rerender(
-      <SearchHeader
-        {...defaultProps}
-        filterParams={{ ...defaultProps.filterParams, query: 'external query' }}
-      />
-    );
-
-    expect(screen.getByPlaceholderText('Search Files')).toHaveValue('external query');
+    expect(screen.getByTestId('search-source-type')).toBeInTheDocument();
   });
 
   it('renders dark theme correctly', () => {
     render(<SearchHeader {...defaultProps} theme="dark" />);
-    expect(screen.getByPlaceholderText('Search Files')).toBeInTheDocument();
-  });
-
-  it('registers pending query getter via onGetPendingQuery', () => {
-    const onGetPendingQuery = jest.fn();
-    render(<SearchHeader {...defaultProps} onGetPendingQuery={onGetPendingQuery} />);
-
-    expect(onGetPendingQuery).toHaveBeenCalledWith(expect.any(Function));
+    expect(screen.getByText('Source Type:')).toBeInTheDocument();
   });
 });
