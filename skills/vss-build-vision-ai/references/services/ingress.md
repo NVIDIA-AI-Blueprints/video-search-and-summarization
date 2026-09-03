@@ -161,7 +161,7 @@ backend bk_kibana
 backend bk_video_analytics_api_strip
     http-request replace-path ^/video-analytics-api/(.*) /\1
     http-request replace-path ^/video-analytics-api$ /
-    server s1 "${VIDEO_ANALYTICS_API_SERVICE_HOST}:${VIDEO_ANALYTICS_API_PORT}" check resolvers docker init-addr none
+    server s1 "${VIDEO_ANALYTICS_API_SERVICE_HOST}:8081" check resolvers docker init-addr none
 
 # Combined (alerts) builds only — drop this backend if no alerts capability ships:
 backend bk_alert_bridge_strip
@@ -218,15 +218,22 @@ frontend fe_http
     use_backend bk_vst_ingress if h_main p_vst
 
     # --- Operate route-set (`vss configure`) — keep for the deployed backends ---
-    # Elasticsearch is read-only at the edge: COPY the guard block below (method-
-    # deny + admin/mutating-deny) VERBATIM from haproxy.cfg.template — it is
-    # security-bearing, like the storage-preflight and h_main blocks.
+    # Elasticsearch is read-only at the edge apart from the unified-memory write:
+    # COPY the guard block below (method-deny + memory-write exception + admin/
+    # mutating-deny) VERBATIM from haproxy.cfg.template — it is security-bearing,
+    # like the storage-preflight and h_main blocks.
     acl p_elasticsearch path /elasticsearch
     acl p_elasticsearch path_beg /elasticsearch/
     acl es_read_method method GET HEAD POST OPTIONS
     acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
     acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method
+    # Unified memory persists a job as PUT /vss-memory/_doc/<job_id>, which the
+    # read-only method rule would answer 405. Two denies rather than an allow:
+    # allow also skips the backend's replace-path rules.
+    acl es_memory_write method PUT
+    acl es_memory_doc_path path_reg ^/elasticsearch/vss-memory(-[^/]+)?/_doc/[^/]+$
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
+    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
     http-request deny status 403 if h_main p_elasticsearch es_admin_path
     http-request deny status 403 if h_main p_elasticsearch es_mutating_op
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
