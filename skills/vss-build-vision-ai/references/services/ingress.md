@@ -257,7 +257,7 @@ frontend fe_http
 | Environment variable | Use |
 |---|---|
 | `HAPROXY_HOST_PORT`, `HAPROXY_PORT`, `HAPROXY_BIND_ADDR` | Publish and bind the proxy origin. |
-| `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`, `EXTERNAL_IP`, `HOST_IP` | Host-header allowlist — required, or every request 404s. |
+| `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`, `EXTERNAL_IP`, `HOST_IP` | Host-header allowlist. All four must be non-empty or HAProxy will not parse its config and the gateway does not start; the profile defaults supply that, so none needs setting by hand. What a caller's Host has to match is one declared origin, not all of them — `localhost`, `127.0.0.1` and `VSS_GATEWAY_HOST` are admitted unconditionally, so an undeclared DNS name 404s while those keep working. Declare a name with `VSS_PUBLIC_HOST`. See `deploy/docker/README.md` § "The origin callers use has to be declared". |
 | `KIBANA_SERVICE_HOST`, `KIBANA_PORT`, `VST_INGRESS_SERVICE_HOST`, `VST_PORT`, `BEHAVIOR_ANALYTICS_SERVICE_HOST`, `VIDEO_ANALYTICS_API_SERVICE_HOST`, `ALERT_BRIDGE_SERVICE_HOST` (+ ports) | Per-backend browse targets; Docker-DNS defaults suit the shipped service keys. |
 | `ELASTICSEARCH_SERVICE_HOST`/`_PORT`, `RTVI_EMBED_SERVICE_HOST`/`_PORT`, `RTVI_CV_SERVICE_HOST`/`_PORT` | Per-backend operate targets (`vss configure` route-set); add for the backends the build deploys. |
 

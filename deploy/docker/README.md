@@ -420,11 +420,23 @@ Two things that follow from the table and are easy to get wrong:
   the address: the box's own IP starts answering 404 `unknown-host` while the
   name works.
 
-Leave both variables non-empty. An empty value is worse than a placeholder:
-Compose refuses the run outright in profiles that include the SDRC services
-(`HOST_IP must be set in .env or shell before running compose`), and an empty
-string interpolated into a quoted HAProxy ACL argument aborts the config parse,
-so the gateway would not start at all.
+Leave both variables non-empty. An empty value is worse than the placeholder,
+and worse than it looks: HAProxy refuses to parse an empty quoted argument, so
+blanking **either** variable — or leaving it unset — stops the gateway starting
+at all rather than merely dropping one origin from the allowlist:
+
+```text
+[ALERT] config : parsing [haproxy.cfg:184]: argument number 4 at position 44
+        is empty and marks the end of the argument list
+```
+
+Which is why `HOST_IP='<HOST_IP>'` in the profile is load-bearing rather than
+untidy: four of the seven allowlist variables have no Compose default, and that
+placeholder is what the rest of the chain resolves to before `dev-profile.sh`
+fills in a real address. `check_gateway_host_acls.py` fails CI if any of them
+loses its guaranteed value. In profiles that include the SDRC services Compose
+catches it first, with `HOST_IP must be set in .env or shell before running
+compose`.
 
 Then configure the host-side CLI with the public origin. The CLI does not read
 service endpoints from process environment and must not be pointed at
