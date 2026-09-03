@@ -491,6 +491,7 @@ class TopAgent(AsyncMixin):
             "- Mark completed steps with [x] and append a concise result summary.\n"
             "- Keep pending steps with [ ].\n"
             "- Adjust, add, or remove remaining steps based on what was learned from the results.\n"
+            "- If `vst_video_list` identifies the target as `media_type='video'`, use `video_understanding` for a specific content question; use `lvs_video_understanding` only for whole-video summarization.\n"
             "- Return ONLY the updated plan — no commentary, no preamble.\n"
         )
 
