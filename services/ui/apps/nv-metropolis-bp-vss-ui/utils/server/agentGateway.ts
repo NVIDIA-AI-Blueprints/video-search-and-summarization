@@ -1,6 +1,22 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import {
+  embeddedGatewayConfigured,
+  getEmbeddedGatewayService,
+  observeRunEvents,
+} from "./agentGatewayRuntime";
+import {
+  ContractError,
+  parseCreateRunRequest,
+  runEventPayload,
+} from "./agentGatewayRuntime/contract";
+import type { EmbeddedGatewayService } from "./agentGatewayRuntime/service";
+import {
+  IdempotencyConflictError,
+  StoreCapacityError,
+  ThreadBusyError,
+} from "./agentGatewayRuntime/store";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 const MAX_SSE_BUFFER_LENGTH = 5_000_000;
@@ -25,18 +41,6 @@ export interface GatewayEvent {
   run_id: string;
   thread_id: string;
   data: JsonObject;
-}
-
-interface GatewayConfig {
-  baseUrl: string;
-  token?: string;
-}
-
-interface CreateRunResponse {
-  run_id: string;
-  status: string;
-  events_url: string;
-  cancel_url: string;
 }
 
 interface ChatMessage {
@@ -512,64 +516,8 @@ export const isGatewayEvent = (value: unknown): value is GatewayEvent => {
   );
 };
 
-export const getAgentGatewayConfig = (
-  environment: NodeJS.ProcessEnv = process.env
-): GatewayConfig | null => {
-  const raw = environment.AGENT_GATEWAY_URL?.trim();
-  if (!raw) return null;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error("AGENT_GATEWAY_URL must be an absolute URL");
-  }
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    url.username ||
-    url.password
-  ) {
-    throw new Error(
-      "AGENT_GATEWAY_URL must be an http(s) URL without embedded credentials"
-    );
-  }
-  if (url.search || url.hash) {
-    throw new Error("AGENT_GATEWAY_URL must not contain a query or fragment");
-  }
-  return {
-    baseUrl: url.toString().replace(/\/$/, ""),
-    token: environment.AGENT_GATEWAY_TOKEN?.trim() || undefined,
-  };
-};
-
 export const isAgentGatewayConfigured = (): boolean =>
-  getAgentGatewayConfig() !== null;
-
-const gatewayFetch = (
-  config: GatewayConfig,
-  path: string,
-  init: RequestInit = {}
-): Promise<Response> => {
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json, text/event-stream");
-  if (config.token) headers.set("Authorization", `Bearer ${config.token}`);
-  return fetch(`${config.baseUrl}${path}`, { ...init, headers });
-};
-
-const responseError = async (response: Response): Promise<string> => {
-  try {
-    const body = (await response.json()) as JsonObject;
-    const error = body.error;
-    if (error && typeof error === "object") {
-      return (
-        asString((error as JsonObject).message) ||
-        `Agent gateway returned HTTP ${response.status}`
-      );
-    }
-  } catch {
-    // Fall through to the status-only message; upstream bodies are not exposed verbatim.
-  }
-  return `Agent gateway returned HTTP ${response.status}`;
-};
+  embeddedGatewayConfigured();
 
 const cleanMessages = (value: unknown): ChatMessage[] => {
   if (!Array.isArray(value)) return [];
@@ -596,106 +544,6 @@ const cleanMessages = (value: unknown): ChatMessage[] => {
   });
 };
 
-const streamRun = async (
-  config: GatewayConfig,
-  runId: string,
-  signal: AbortSignal,
-  onEvent: (event: GatewayEvent) => void
-): Promise<boolean> => {
-  let lastEventId = "";
-  let terminal = false;
-  // A reconnect is safe because event IDs are replayed by the gateway.
-  for (let attempt = 0; attempt < 3 && !terminal; attempt += 1) {
-    try {
-      const headers: Record<string, string> = { Accept: "text/event-stream" };
-      if (lastEventId) headers["Last-Event-ID"] = lastEventId;
-      const response = await gatewayFetch(
-        config,
-        `/v1/runs/${encodeURIComponent(runId)}/events`,
-        {
-          method: "GET",
-          headers,
-          signal,
-        }
-      );
-      if (!response.ok || !response.body)
-        throw new GatewayProtocolError(await responseError(response));
-      const decoder = new TextDecoder();
-      const sse = new GatewaySseDecoder();
-      const reader = response.body.getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          for (const event of sse.push(
-            decoder.decode(value, { stream: true })
-          )) {
-            if (event.run_id !== runId)
-              throw new GatewayProtocolError(
-                "Agent gateway emitted an event for the wrong run"
-              );
-            lastEventId = event.id;
-            terminal =
-              event.type === "run.completed" ||
-              event.type === "run.failed" ||
-              event.type === "run.cancelled";
-            onEvent(event);
-          }
-        }
-        for (const event of sse.push(decoder.decode())) {
-          if (event.run_id !== runId)
-            throw new GatewayProtocolError(
-              "Agent gateway emitted an event for the wrong run"
-            );
-          lastEventId = event.id;
-          terminal =
-            event.type === "run.completed" ||
-            event.type === "run.failed" ||
-            event.type === "run.cancelled";
-          onEvent(event);
-        }
-        for (const event of sse.finish()) {
-          if (event.run_id !== runId)
-            throw new GatewayProtocolError(
-              "Agent gateway emitted an event for the wrong run"
-            );
-          lastEventId = event.id;
-          terminal =
-            event.type === "run.completed" ||
-            event.type === "run.failed" ||
-            event.type === "run.cancelled";
-          onEvent(event);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-    } catch (error) {
-      if (
-        signal.aborted ||
-        error instanceof GatewayProtocolError ||
-        attempt === 2
-      )
-        throw error;
-    }
-  }
-  return terminal;
-};
-
-const cancelRun = async (
-  config: GatewayConfig,
-  runId: string
-): Promise<void> => {
-  try {
-    await gatewayFetch(config, `/v1/runs/${encodeURIComponent(runId)}/cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-  } catch {
-    // The browser is already gone; the gateway also bounds orphaned runs upstream.
-  }
-};
-
 export const agentGatewayChatHandler = async (
   req: NextApiRequest,
   res: NextApiResponse
@@ -707,12 +555,22 @@ export const agentGatewayChatHandler = async (
     });
     return;
   }
-  const config = getAgentGatewayConfig();
-  if (!config) {
+  let service: EmbeddedGatewayService | null;
+  try {
+    service = getEmbeddedGatewayService();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Agent gateway is misconfigured";
+    res.status(503).json({
+      error: { code: "gateway_not_configured", message },
+    });
+    return;
+  }
+  if (!service) {
     res.status(503).json({
       error: {
         code: "gateway_not_configured",
-        message: "Agent gateway is not configured",
+        message: "Embedded agent gateway is not configured",
       },
     });
     return;
@@ -748,50 +606,30 @@ export const agentGatewayChatHandler = async (
   const controller = new AbortController();
   let runId: string | undefined;
   let terminal = false;
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
   const onDisconnect = (): void => {
     if (!terminal && !res.writableEnded) {
       controller.abort();
-      if (runId) void cancelRun(config, runId);
+      if (runId) void service.cancelRun(runId);
     }
   };
   req.once("aborted", onDisconnect);
   res.once("close", onDisconnect);
 
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
     const messageId = req.headers["user-message-id"];
-    if (typeof messageId === "string" && messageId)
-      headers["Idempotency-Key"] = messageId;
-    const createResponse = await gatewayFetch(config, "/v1/runs", {
-      method: "POST",
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        thread_id: threadId,
-        input: [lastUserMessage],
-        // A one-message body means the existing UI disabled client-side history.
-        // Omit recovery history so the gateway can continue its saved response chain.
-        history: messages.length > 1 ? messages : [],
-        surface: "vss-ui",
-      }),
+    const request = parseCreateRunRequest({
+      thread_id: threadId,
+      input: [lastUserMessage],
+      // A one-message body means the existing UI disabled client-side history.
+      // Omit recovery history so the gateway can continue its saved response chain.
+      history: messages.length > 1 ? messages : [],
+      surface: "vss-ui",
     });
-    if (!createResponse.ok) {
-      res.status(createResponse.status).json({
-        error: {
-          code: "gateway_run_rejected",
-          message: await responseError(createResponse),
-        },
-      });
-      return;
-    }
-    const created = (await createResponse.json()) as CreateRunResponse;
-    if (!created.run_id || typeof created.run_id !== "string") {
-      throw new Error("Agent gateway returned an invalid run");
-    }
-    runId = created.run_id;
+    const created = service.createRun(
+      request,
+      typeof messageId === "string" && messageId ? messageId : undefined
+    );
+    runId = created.record.runId;
 
     res.status(200);
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -799,11 +637,13 @@ export const agentGatewayChatHandler = async (
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    // Cloudflare and other edge proxies close an otherwise idle response even
-    // though the gateway's SSE stream is alive. Keep the legacy text bridge
-    // active with a renderer-safe status update while the harness is thinking.
-    heartbeat = setInterval(() => {
-      if (!terminal && runId && !res.writableEnded) {
+    const legacyState = createLegacyEventState();
+    for await (const runEvent of observeRunEvents(
+      created.record,
+      0,
+      controller.signal
+    )) {
+      if (!runEvent) {
         res.write(
           gatewayRunStatusChunk(
             runId,
@@ -811,16 +651,16 @@ export const agentGatewayChatHandler = async (
             "Waiting for the agent backend..."
           )
         );
+        continue;
       }
-    }, 15_000);
-    heartbeat.unref?.();
-
-    const legacyState = createLegacyEventState();
-    terminal = await streamRun(config, runId, controller.signal, (event) => {
+      const event = runEventPayload(runEvent) as unknown as GatewayEvent;
       for (const chunk of gatewayEventToLegacyChunks(event, legacyState)) {
         res.write(chunk);
       }
-    });
+      terminal = ["run.completed", "run.failed", "run.cancelled"].includes(
+        event.type
+      );
+    }
     if (!terminal)
       throw new Error(
         "Agent gateway event stream ended before a terminal event"
@@ -833,146 +673,30 @@ export const agentGatewayChatHandler = async (
     if (res.headersSent) {
       res.write(`\n\n**Agent gateway error:** ${message}`);
       res.end();
+    } else if (error instanceof ContractError) {
+      res.status(400).json({ error: { code: "invalid_request", message } });
+    } else if (error instanceof IdempotencyConflictError) {
+      res
+        .status(409)
+        .json({ error: { code: "idempotency_key_conflict", message } });
+    } else if (error instanceof ThreadBusyError) {
+      res.status(409).json({
+        error: {
+          code: "thread_busy",
+          message: "thread already has an active run",
+          active_run_id: error.runId,
+        },
+      });
+    } else if (error instanceof StoreCapacityError) {
+      res.status(503).json({
+        error: { code: "run_capacity_reached", message },
+      });
     } else {
       res.status(502).json({ error: { code: "gateway_unavailable", message } });
     }
-    if (runId && !terminal) void cancelRun(config, runId);
+    if (runId && !terminal) void service.cancelRun(runId);
   } finally {
-    if (heartbeat) clearInterval(heartbeat);
     req.off("aborted", onDisconnect);
     res.off("close", onDisconnect);
-  }
-};
-
-const allowedProxyRequest = (method: string, segments: string[]): boolean => {
-  if (
-    method === "GET" &&
-    segments.length === 1 &&
-    segments[0] === "capabilities"
-  )
-    return true;
-  if (method === "POST" && segments.length === 1 && segments[0] === "runs")
-    return true;
-  if (segments[0] !== "runs" || !/^run_[A-Za-z0-9_-]+$/.test(segments[1] || ""))
-    return false;
-  if (method === "GET" && segments.length === 2) return true;
-  if (method === "GET" && segments.length === 3 && segments[2] === "events")
-    return true;
-  return (
-    method === "POST" &&
-    segments.length === 3 &&
-    ["cancel", "respond"].includes(segments[2])
-  );
-};
-
-export const agentGatewayProxyHandler = async (
-  req: NextApiRequest,
-  res: NextApiResponse
-): Promise<void> => {
-  const config = getAgentGatewayConfig();
-  if (!config) {
-    res.status(503).json({
-      error: {
-        code: "gateway_not_configured",
-        message: "Agent gateway is not configured",
-      },
-    });
-    return;
-  }
-  let segments: string[] = [];
-  if (Array.isArray(req.query.path)) {
-    segments = req.query.path;
-  } else if (typeof req.query.path === "string") {
-    segments = [req.query.path];
-  }
-  const method = req.method || "";
-  if (!allowedProxyRequest(method, segments)) {
-    res.status(404).json({
-      error: { code: "not_found", message: "Agent gateway route not found" },
-    });
-    return;
-  }
-
-  const controller = new AbortController();
-  const onClose = (): void => {
-    if (!res.writableEnded) controller.abort();
-  };
-  res.once("close", onClose);
-  try {
-    const headers: Record<string, string> = {};
-    if (typeof req.headers["last-event-id"] === "string")
-      headers["Last-Event-ID"] = req.headers["last-event-id"];
-    if (typeof req.headers["idempotency-key"] === "string")
-      headers["Idempotency-Key"] = req.headers["idempotency-key"];
-    let body: string | undefined;
-    if (method === "POST") {
-      headers["Content-Type"] = "application/json";
-      body = JSON.stringify(req.body ?? {});
-    }
-    const after =
-      typeof req.query.after === "string" && /^\d+$/.test(req.query.after)
-        ? `?after=${req.query.after}`
-        : "";
-    const upstream = await gatewayFetch(
-      config,
-      `/v1/${segments.map(encodeURIComponent).join("/")}${after}`,
-      {
-        method,
-        headers,
-        body,
-        signal: controller.signal,
-      }
-    );
-    res.status(upstream.status);
-    for (const name of [
-      "content-type",
-      "cache-control",
-      "x-accel-buffering",
-      "idempotency-replayed",
-    ]) {
-      const value = upstream.headers.get(name);
-      if (value) res.setHeader(name, value);
-    }
-
-    if (method === "POST" && segments.length === 1 && segments[0] === "runs") {
-      const payload = (await upstream.json()) as JsonObject;
-      if (upstream.ok && typeof payload.run_id === "string") {
-        payload.events_url = `/api/agent/runs/${encodeURIComponent(
-          payload.run_id
-        )}/events`;
-        payload.cancel_url = `/api/agent/runs/${encodeURIComponent(
-          payload.run_id
-        )}/cancel`;
-      }
-      res.json(payload);
-      return;
-    }
-    if (!upstream.body) {
-      res.end();
-      return;
-    }
-    res.flushHeaders?.();
-    const reader = upstream.body.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(Buffer.from(value));
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    res.end();
-  } catch (error) {
-    if (controller.signal.aborted) return;
-    const message =
-      error instanceof Error ? error.message : "Agent gateway proxy failed";
-    if (res.headersSent) {
-      res.end();
-    } else {
-      res.status(502).json({ error: { code: "gateway_unavailable", message } });
-    }
-  } finally {
-    res.off("close", onClose);
   }
 };

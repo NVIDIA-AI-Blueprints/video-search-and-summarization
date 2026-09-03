@@ -18,10 +18,11 @@ a cold NIM start.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
   endpoints because their `/v1/models` response can list many models.
-- External agent UI mode (`agent-gateway`): requires two distinct credentials:
-  a newly generated `VSS_AGENT_GATEWAY_TOKEN` for the UI-server-to-gateway hop,
-  and the selected harness's `VSS_AGENT_BACKEND_TOKEN`. An OpenClaw/Hermes
-  gateway token is operator-level access; it must remain server-side.
+- External agent UI mode: requires the selected harness's
+  `VSS_AGENT_BACKEND_TOKEN`. It is operator-level access and must remain in the
+  existing VSS UI server; never place it in browser code or a `NEXT_PUBLIC_*`
+  variable. There is no second UI-to-adapter credential because the adapter is
+  part of that server.
 
 ## Discovery
 
@@ -38,8 +39,7 @@ Surface discovered credentials to the user; do not auto-source them without conf
 - Only after the user explicitly requests external-harness chat, obtain the
   selected sandbox token through its `gateway-token --quiet` command. Capture
   it directly into the protected artifact-generation process and report only
-  whether discovery succeeded; never echo or paste the value. Generate the VSS
-  gateway token separately with a cryptographically secure random generator.
+  whether discovery succeeded; never echo or paste the value.
 
 ## Probes
 
@@ -118,11 +118,12 @@ localhost; it
 catches wrong ports, stale tunnels, missing auth, and model-name mismatches
 before the deploy flow spends time generating compose or warming containers.
 
-When `agent-gateway` is selected, also probe the harness's authenticated
-`/v1/models` endpoint using `VSS_AGENT_BACKEND_TOKEN`. For OpenClaw, first
-enable `gateway.http.endpoints.responses.enabled=true`; for Hermes, use its API
-forward (default `:8642`). A failed API/auth probe is a blocker. Do not put the
-token in a command-line URL, notebook output, or captured logs.
+When external-agent UI chat is selected, probe the harness using
+`VSS_AGENT_BACKEND_TOKEN`. For OpenClaw, probe the native Gateway health and
+protocol-v4 WebSocket path; do not enable the Responses compatibility endpoint.
+For Hermes, probe its API forward (default `:8642`) and authenticated
+`/v1/models` and `/v1/responses` routes. A failed API/auth probe is a blocker.
+Do not put the token in a command-line URL, notebook output, or captured logs.
 
 Use the base URL without a trailing `/v1`; the script strips `/v1` and
 `/v1/models` if the user supplied them. If the endpoint requires auth, set

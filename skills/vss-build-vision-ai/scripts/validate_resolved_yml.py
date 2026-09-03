@@ -118,7 +118,9 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
                     "time — set it and regenerate resolved.yml"
                 )
 
-    ngc_model_ref = any(NGC_MODEL_REF.search(value) for _, value in walk_strings(document))
+    ngc_model_ref = any(
+        NGC_MODEL_REF.search(value) for _, value in walk_strings(document)
+    )
     if ngc_model_ref and not (seen["NGC_API_KEY"] or seen["NGC_CLI_API_KEY"]):
         errors.append(
             "resolved model references an ngc: model path but no "
@@ -140,10 +142,17 @@ def no_agent_ui_errors(document: dict[str, Any]) -> list[str]:
     ui = services.get("vss-ui") if isinstance(services, dict) else None
     if not isinstance(ui, dict):
         return []
-    if "vss-agent" in services or "agent-gateway" in services:
+    environment = dict(iter_env(ui))
+    adapter_enabled = (
+        str(environment.get("NEXT_PUBLIC_AGENT_GATEWAY_ENABLED", "")).strip().lower()
+        == "true"
+    )
+    backend_url = environment.get("AGENT_BACKEND_URL")
+    if "vss-agent" in services or (
+        adapter_enabled and isinstance(backend_url, str) and backend_url.strip()
+    ):
         return []
 
-    environment = dict(iter_env(ui))
     errors: list[str] = []
     for key in NO_AGENT_UI_FLAGS:
         value = environment.get(key)
@@ -152,7 +161,7 @@ def no_agent_ui_errors(document: dict[str, Any]) -> list[str]:
         )
         if not is_false:
             errors.append(
-                f"service 'vss-ui' has no vss-agent or agent-gateway; {key!r} "
+                f"service 'vss-ui' has no vss-agent or configured embedded adapter; {key!r} "
                 "must resolve to 'false' so the UI does not expose a dead agent surface"
             )
     return errors

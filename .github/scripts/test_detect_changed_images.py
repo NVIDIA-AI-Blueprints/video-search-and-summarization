@@ -120,9 +120,7 @@ class ResolveDiffBaseTest(unittest.TestCase):
             )
             self.assertEqual(base, before)
             self.assertIn("push range", reason)
-            self.assertEqual(
-                selected_names(repo, base), ["vss-agent", "vss-agent-ui"]
-            )
+            self.assertEqual(selected_names(repo, base), ["vss-agent", "vss-agent-ui"])
 
     def test_initial_push_zero_sha_builds_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,9 +153,7 @@ class ResolveDiffBaseTest(unittest.TestCase):
             )
             self.assertEqual(base, fork_point)
             self.assertIn("merge-base", reason)
-            self.assertEqual(
-                selected_names(repo, base), ["vss-agent", "vss-agent-ui"]
-            )
+            self.assertEqual(selected_names(repo, base), ["vss-agent", "vss-agent-ui"])
 
     def test_non_push_event_builds_everything(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -217,10 +213,6 @@ class SelectImagesTest(unittest.TestCase):
                 "context": "services/analytics/behavior-analytics",
                 "source_path": "services/analytics/behavior-analytics",
             },
-            "vss-agent-gateway": {
-                "context": "services/agent-gateway",
-                "source_path": "services/agent-gateway",
-            },
             "sdr-mw-l": {
                 "context": "services/sdrc",
                 "source_path": "services/sdrc",
@@ -262,9 +254,7 @@ class SelectImagesTest(unittest.TestCase):
             [entry["name"] for entry in ba_entries],
             ["vss-behavior-analytics"],
         )
-        sdr_entries, _ = dci.select_images(
-            inventory, ["services/sdrc/app.py"]
-        )
+        sdr_entries, _ = dci.select_images(inventory, ["services/sdrc/app.py"])
         self.assertEqual([entry["name"] for entry in sdr_entries], ["sdr-mw-l"])
 
         configurator_entries, _ = dci.select_images(
@@ -287,20 +277,10 @@ class SelectImagesTest(unittest.TestCase):
             ["vss-rt-config-adaptor"],
         )
 
-        agent_entries, _ = dci.select_images(
-            inventory, ["services/agent/app.py"]
-        )
+        agent_entries, _ = dci.select_images(inventory, ["services/agent/app.py"])
         self.assertEqual(
             [entry["name"] for entry in agent_entries],
-            ["vss-agent", "vss-agent-gateway", "vss-agent-ui", "vss-alert-ms"],
-        )
-
-        gateway_entries, _ = dci.select_images(
-            inventory, ["services/agent-gateway/vss_agent_gateway/server.py"]
-        )
-        self.assertEqual(
-            [entry["name"] for entry in gateway_entries],
-            ["vss-agent", "vss-agent-gateway", "vss-agent-ui", "vss-alert-ms"],
+            ["vss-agent", "vss-agent-ui", "vss-alert-ms"],
         )
 
     def test_repository_inventory_builds_rtvi_embed_with_lfs_assets(self):
@@ -368,9 +348,7 @@ class SelectImagesTest(unittest.TestCase):
 
     def test_rtvi_embed_lfs_assets_are_verified_in_both_build_paths(self):
         repo_root = Path(__file__).resolve().parents[2]
-        workflow = (
-            repo_root / ".github/workflows/build-dev-images.yml"
-        ).read_text()
+        workflow = (repo_root / ".github/workflows/build-dev-images.yml").read_text()
         verifier = """      - name: Verify RT Embed LFS shared objects
         if: matrix.name == 'vss-rt-embed' || matrix.name == 'vss-rt-embed-sbsa'
         run: |
@@ -385,20 +363,14 @@ class SelectImagesTest(unittest.TestCase):
 
     def test_workflow_passes_dash_prefixed_variant_suffix_unambiguously(self):
         repo_root = Path(__file__).resolve().parents[2]
-        workflow = (
-            repo_root / ".github/workflows/build-dev-images.yml"
-        ).read_text()
+        workflow = (repo_root / ".github/workflows/build-dev-images.yml").read_text()
 
-        self.assertEqual(
-            workflow.count('--tag-suffix="${{ matrix.tag_suffix }}"'), 3
-        )
+        self.assertEqual(workflow.count('--tag-suffix="${{ matrix.tag_suffix }}"'), 3)
         self.assertNotIn('--tag-suffix "${{ matrix.tag_suffix }}"', workflow)
 
     def test_native_manifest_uses_declared_platforms(self):
         repo_root = Path(__file__).resolve().parents[2]
-        workflow = (
-            repo_root / ".github/workflows/build-dev-images.yml"
-        ).read_text()
+        workflow = (repo_root / ".github/workflows/build-dev-images.yml").read_text()
 
         self.assertIn("PLATFORM_LIST: ${{ matrix.platforms }}", workflow)
         self.assertIn("for platform in ${PLATFORM_LIST//,/ }; do", workflow)
@@ -551,9 +523,7 @@ class SelectImagesTest(unittest.TestCase):
                 "vss-video-summarization-sbsa",
             },
         )
-        self.assertNotIn(
-            "native_platform_build", dci.matrix_entry(by_name["sdr-mw-l"])
-        )
+        self.assertNotIn("native_platform_build", dci.matrix_entry(by_name["sdr-mw-l"]))
 
     def test_native_matrix_rejects_platform_without_runner(self):
         entries = [
@@ -598,10 +568,18 @@ class PathsChangedUnderTest(unittest.TestCase):
 
 
 BUILDABLE = [
-    {"name": "vss-agent", "source_path": "services/agent",
-     "strategy": "build", "ghcr_build": True},
-    {"name": "vss-agent-ui", "source_path": "services/ui",
-     "strategy": "build", "ghcr_build": True},
+    {
+        "name": "vss-agent",
+        "source_path": "services/agent",
+        "strategy": "build",
+        "ghcr_build": True,
+    },
+    {
+        "name": "vss-agent-ui",
+        "source_path": "services/ui",
+        "strategy": "build",
+        "ghcr_build": True,
+    },
 ]
 
 
@@ -614,8 +592,20 @@ def _content_repo() -> Path:
         (d / "f").write_text("x")
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
     subprocess.run(
-        ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-qm", "init"], check=True)
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "init",
+        ],
+        check=True,
+    )
     return root
 
 
@@ -626,34 +616,46 @@ class ContentTagGapTest(unittest.TestCase):
 
     def test_missing_content_tag_is_added_to_the_matrix(self):
         selected, added = dci.add_missing_content_tags(
-            BUILDABLE, [], _content_repo(), "HEAD",
-            lambda ref: "vss-agent:" not in ref, "Org")
+            BUILDABLE,
+            [],
+            _content_repo(),
+            "HEAD",
+            lambda ref: "vss-agent:" not in ref,
+            "Org",
+        )
         self.assertEqual(added, ["vss-agent"])
 
     def test_present_content_tag_is_not_added(self):
         selected, added = dci.add_missing_content_tags(
-            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: True, "Org")
+            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: True, "Org"
+        )
         self.assertEqual(added, [])
         self.assertEqual(selected, [])
 
     def test_probe_failure_fails_open_to_building(self):
         """Unknown must never look like 'already published'."""
         _, added = dci.add_missing_content_tags(
-            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: None, "Org")
+            BUILDABLE, [], _content_repo(), "HEAD", lambda _ref: None, "Org"
+        )
         self.assertEqual(added, ["vss-agent", "vss-agent-ui"])
 
     def test_already_selected_images_are_not_reprobed(self):
         selected, added = dci.add_missing_content_tags(
-            BUILDABLE, [BUILDABLE[0]], _content_repo(), "HEAD",
-            lambda _ref: None, "Org")
+            BUILDABLE, [BUILDABLE[0]], _content_repo(), "HEAD", lambda _ref: None, "Org"
+        )
         self.assertEqual(added, ["vss-agent-ui"])
         self.assertEqual(len(selected), 2)
 
     def test_probe_reference_is_the_content_tag(self):
         seen: list[str] = []
         dci.add_missing_content_tags(
-            BUILDABLE[:1], [], _content_repo(), "HEAD",
-            lambda ref: seen.append(ref) or True, "Org")
+            BUILDABLE[:1],
+            [],
+            _content_repo(),
+            "HEAD",
+            lambda ref: seen.append(ref) or True,
+            "Org",
+        )
         self.assertEqual(len(seen), 1)
         self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
 

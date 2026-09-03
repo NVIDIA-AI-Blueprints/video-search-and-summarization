@@ -1,0 +1,169 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import {
+  ARTIFACT_CLOSE,
+  ARTIFACT_OPEN,
+  ArtifactStreamParser,
+  stripArtifactsFromValue,
+} from "../../../utils/server/agentGatewayRuntime/artifacts";
+import { loadEmbeddedGatewayConfig } from "../../../utils/server/agentGatewayRuntime/config";
+import {
+  fullTranscript,
+  parseCreateRunRequest,
+} from "../../../utils/server/agentGatewayRuntime/contract";
+import { strictJsonParse } from "../../../utils/server/agentGatewayRuntime/json";
+import {
+  EventsExpiredError,
+  IdempotencyConflictError,
+  RunStore,
+  ThreadBusyError,
+} from "../../../utils/server/agentGatewayRuntime/store";
+
+const request = () =>
+  parseCreateRunRequest({
+    thread_id: "thread-1",
+    input: [{ role: "user", content: "hello" }],
+    history: [{ role: "assistant", content: "previous" }],
+  });
+
+describe("embedded agent gateway runtime", () => {
+  it("strictly parses JSON and rejects duplicate keys", () => {
+    expect(strictJsonParse('{"a":1,"nested":{"b":2}}')).toEqual({
+      a: 1,
+      nested: { b: 2 },
+    });
+    expect(() => strictJsonParse('{"a":1,"a":2}')).toThrow(
+      "invalid strict JSON"
+    );
+    expect(() => strictJsonParse('{"a":NaN}')).toThrow("invalid strict JSON");
+    const special = strictJsonParse(
+      '{"__proto__":{"polluted":true}}'
+    ) as Record<string, unknown>;
+    expect(Object.hasOwn(special, "__proto__")).toBe(true);
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+
+  it("validates run input and avoids duplicating the current turn", () => {
+    const parsed = parseCreateRunRequest({
+      thread_id: "thread-1",
+      input: [{ role: "user", content: "new" }],
+      history: [
+        { role: "assistant", content: "old" },
+        { role: "user", content: "new" },
+      ],
+    });
+    expect(fullTranscript(parsed)).toEqual([
+      { role: "assistant", content: "old" },
+      { role: "user", content: "new" },
+    ]);
+    expect(() =>
+      parseCreateRunRequest({
+        thread_id: "thread-1",
+        input: [{ role: "tool", content: "unsafe" }],
+      })
+    ).toThrow("input[0].role");
+  });
+
+  it("extracts fragmented artifacts and never hides malformed envelopes", () => {
+    const parser = new ArtifactStreamParser();
+    const encoded = JSON.stringify({
+      version: "1.0",
+      kind: "vss.search.results",
+      payload: { data: [] },
+    });
+    expect(
+      parser.feed(`answer${ARTIFACT_OPEN}${encoded.slice(0, 10)}`)
+    ).toEqual([{ type: "message.delta", data: { delta: "answer" } }]);
+    expect(parser.feed(`${encoded.slice(10)}${ARTIFACT_CLOSE}`)).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({ kind: "vss.search.results" }),
+      }),
+    ]);
+
+    const malformed = `${ARTIFACT_OPEN}{bad}${ARTIFACT_CLOSE}`;
+    expect(new ArtifactStreamParser().feed(malformed)).toEqual([
+      { type: "message.delta", data: { delta: malformed } },
+    ]);
+  });
+
+  it("derives a search artifact only from a matching successful CLI completion", () => {
+    const parser = new ArtifactStreamParser();
+    const result = JSON.stringify({
+      job_id: "job-1",
+      data: [{ video_name: "clip.mp4" }],
+      search_messages: [],
+    });
+    const completion = JSON.stringify({
+      event: "vss_job_completed",
+      group: "search",
+      status: "completed",
+      exit_hint: 0,
+      job_id: "job-1",
+    });
+    expect(parser.inspectComplete(`${result}\n${completion}`)).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({ kind: "vss.search.results" }),
+      }),
+    ]);
+  });
+
+  it("removes artifact envelopes from nested private tool output", () => {
+    const artifact = `${ARTIFACT_OPEN}${JSON.stringify({
+      version: "1.0",
+      kind: "vss.alert.incidents",
+      payload: { incidents: [] },
+    })}${ARTIFACT_CLOSE}`;
+    expect(stripArtifactsFromValue({ output: `done${artifact}` })).toEqual({
+      output: "done",
+    });
+  });
+
+  it("enforces idempotency, one active run per thread, and bounded replay", () => {
+    const store = new RunStore(60_000, 2, 2, 1_000_000);
+    const first = store.create(request(), "same-key");
+    expect(store.create(request(), "same-key")).toEqual({
+      record: first.record,
+      replayed: true,
+    });
+    expect(() => store.create(request())).toThrow(ThreadBusyError);
+    expect(() =>
+      store.create(
+        parseCreateRunRequest({
+          thread_id: "thread-2",
+          input: [{ role: "user", content: "different" }],
+        }),
+        "same-key"
+      )
+    ).toThrow(IdempotencyConflictError);
+
+    first.record.append("message.delta", { delta: "one" });
+    first.record.append("message.delta", { delta: "two" });
+    first.record.append("message.delta", { delta: "three" });
+    expect(() => first.record.eventsAfter(0)).toThrow(EventsExpiredError);
+  });
+
+  it("rejects reserved and unsafe upstream headers", () => {
+    expect(() =>
+      loadEmbeddedGatewayConfig({
+        AGENT_BACKEND_URL: "http://backend",
+        AGENT_BACKEND_HEADERS_JSON: '{"Authorization":"secret"}',
+      })
+    ).toThrow("cannot override Authorization");
+    expect(() =>
+      loadEmbeddedGatewayConfig({
+        AGENT_BACKEND_URL: "http://backend",
+        AGENT_BACKEND_HEADERS_JSON: '{"X-Test":"bad\\nvalue"}',
+      })
+    ).toThrow("invalid HTTP header value");
+    expect(() =>
+      loadEmbeddedGatewayConfig({
+        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
+        AGENT_BACKEND_URL: "ws://backend",
+        AGENT_BACKEND_HEADERS_JSON: '{"X-Route":"one"}',
+      })
+    ).toThrow("unsupported with openclaw-ws");
+  });
+});

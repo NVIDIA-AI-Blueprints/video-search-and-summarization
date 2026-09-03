@@ -349,14 +349,10 @@ class OrchestratorRuntimeSettings(BaseSettings):
     rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
     llm_device_id: str = Field(default="", validation_alias="LLM_DEVICE_ID")
     vlm_device_id: str = Field(default="", validation_alias="VLM_DEVICE_ID")
-    # Optional VSS UI -> external harness gateway. These are explicit fields so
+    # Optional VSS UI -> external harness adapter. These are explicit fields so
     # only allowlisted deployment settings cross from the notebook process into
     # generated Compose artifacts.
     vss_agent_gateway_enabled: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_ENABLED")
-    vss_agent_gateway_url: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_URL")
-    vss_agent_gateway_token: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_TOKEN")
-    vss_agent_gateway_port: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_PORT")
-    vss_agent_gateway_bind_host: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_BIND_HOST")
     vss_agent_gateway_require_capabilities: str = Field(
         default="", validation_alias="VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"
     )
@@ -368,6 +364,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
         default="", validation_alias="VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"
     )
     vss_agent_backend_protocol: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PROTOCOL")
+    vss_agent_backend_bind_host: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_BIND_HOST")
     vss_agent_backend_url: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_URL")
     vss_agent_backend_path: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PATH")
     vss_agent_backend_token: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_TOKEN")
@@ -394,15 +391,12 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "llm_device_id",
         "vlm_device_id",
         "vss_agent_gateway_enabled",
-        "vss_agent_gateway_url",
-        "vss_agent_gateway_token",
-        "vss_agent_gateway_port",
-        "vss_agent_gateway_bind_host",
         "vss_agent_gateway_require_capabilities",
         "vss_agent_gateway_capabilities_b64",
         "vss_agent_gateway_capabilities_sha256",
         "vss_agent_gateway_expected_runtime_ref",
         "vss_agent_backend_protocol",
+        "vss_agent_backend_bind_host",
         "vss_agent_backend_url",
         "vss_agent_backend_path",
         "vss_agent_backend_token",
@@ -1244,7 +1238,7 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
-                # Carry only the explicitly modeled gateway/backend settings
+                # Carry only the explicitly modeled adapter/backend settings
                 # from notebook startup. Per-call overrides keep precedence.
                 for field_name, field_info in OrchestratorRuntimeSettings.model_fields.items():
                     env_name = field_info.validation_alias

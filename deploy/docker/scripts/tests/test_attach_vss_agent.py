@@ -78,9 +78,8 @@ def make_args(root: Path, runtime: str = "openclaw") -> argparse.Namespace:
         agent_api_url="http://127.0.0.1:18789",
         skip_api_check=False,
         receipt_output=None,
-        gateway_env_output=None,
-        gateway_bind_host=None,
-        gateway_port=18090,
+        ui_env_output=None,
+        backend_bind_host=None,
         dry_run=False,
     )
 
@@ -306,6 +305,62 @@ class ValidationTests(unittest.TestCase):
                 "http://127.0.0.1:18789",
             )
 
+    def test_private_backend_forward_binds_only_the_docker_bridge(self) -> None:
+        runner = RecordingRunner()
+        readiness = attach.ApiReadiness(
+            origin="http://127.0.0.1:18789",
+            token="backend-token",
+            model="openclaw",
+        )
+        with mock.patch.object(
+            attach, "backend_ready_at", side_effect=[False, True]
+        ) as ready:
+            origin = attach.ensure_private_backend_forward(
+                runner,
+                attach.PROFILES["openclaw"],
+                "demo",
+                readiness,
+                "172.17.0.1",
+            )
+
+        self.assertEqual(origin, "ws://host.docker.internal:18789")
+        self.assertIn(
+            [
+                "openshell",
+                "forward",
+                "start",
+                "--background",
+                "172.17.0.1:18789",
+                "demo",
+            ],
+            runner.commands,
+        )
+        self.assertEqual(ready.call_args_list[0].args[1], "http://172.17.0.1:18789")
+
+    def test_existing_private_backend_forward_is_reused(self) -> None:
+        runner = RecordingRunner()
+        readiness = attach.ApiReadiness(
+            origin="http://127.0.0.1:8642",
+            token="backend-token",
+            model="hermes-agent",
+        )
+        with mock.patch.object(attach, "backend_ready_at", return_value=True):
+            origin = attach.ensure_private_backend_forward(
+                runner,
+                attach.PROFILES["hermes"],
+                "demo",
+                readiness,
+                "172.17.0.1",
+            )
+
+        self.assertEqual(origin, "http://host.docker.internal:8642")
+        self.assertFalse(
+            any(
+                command[:3] == ["openshell", "forward", "start"]
+                for command in runner.commands
+            )
+        )
+
     def test_api_probe_requires_the_live_responses_route(self) -> None:
         runner = RecordingRunner()
         models = io.BytesIO(b'{"data":[{"id":"hermes-agent"}]}')
@@ -523,12 +578,14 @@ class AttachFlowTests(unittest.TestCase):
             attach.attach(make_args(self.root), runner)
         self.assertFalse(any("upload" in command for command in runner.commands))
 
-    def test_gateway_overlay_is_protected_and_binds_the_verified_receipt(self) -> None:
+    def test_ui_adapter_overlay_is_protected_and_binds_the_verified_receipt(
+        self,
+    ) -> None:
         runner = RecordingRunner()
         args = make_args(self.root)
-        args.gateway_env_output = self.root / "agent-gateway.env"
+        args.ui_env_output = self.root / "agent-ui.env"
         args.receipt_output = self.root / "agent-capabilities.json"
-        args.gateway_bind_host = "172.17.0.1"
+        args.backend_bind_host = "172.17.0.1"
         api = attach.ApiReadiness(
             origin="http://127.0.0.1:18789",
             token="backend-token",
@@ -539,11 +596,16 @@ class AttachFlowTests(unittest.TestCase):
             mock.patch.object(attach.shutil, "which", return_value="/usr/bin/nemoclaw"),
             mock.patch.object(attach, "verify_source_snapshot"),
             mock.patch.object(attach, "verify_api", return_value=api),
+            mock.patch.object(
+                attach,
+                "ensure_private_backend_forward",
+                return_value="ws://host.docker.internal:18789",
+            ),
             contextlib.redirect_stdout(output),
         ):
             result = attach.attach(args, runner)
 
-        overlay = args.gateway_env_output.read_text(encoding="utf-8")
+        overlay = args.ui_env_output.read_text(encoding="utf-8")
         values = {
             key: json.loads(value)
             for key, value in (
@@ -556,17 +618,22 @@ class AttachFlowTests(unittest.TestCase):
         self.assertEqual(values["VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"], "a" * 40)
         self.assertEqual(values["VSS_AGENT_BACKEND_TOKEN"], "backend-token")
         self.assertEqual(values["VSS_AGENT_BACKEND_PROTOCOL"], "openclaw-ws")
-        self.assertEqual(values["VSS_AGENT_BACKEND_URL"], "ws://127.0.0.1:18789")
+        self.assertEqual(
+            values["VSS_AGENT_BACKEND_URL"], "ws://host.docker.internal:18789"
+        )
+        self.assertEqual(values["VSS_AGENT_BACKEND_BIND_HOST"], "172.17.0.1")
+        self.assertNotIn("VSS_AGENT_GATEWAY_TOKEN", values)
+        self.assertNotIn("VSS_AGENT_GATEWAY_URL", values)
         self.assertEqual(values["VSS_AGENT_BACKEND_PATH"], "/")
         self.assertEqual(values["VSS_AGENT_BACKEND_SESSION_FIELD"], "")
         self.assertEqual(values["VSS_AGENT_BACKEND_SESSION_HEADER"], "")
         self.assertNotIn("backend-token", output.getvalue())
-        self.assertEqual(args.gateway_env_output.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(args.ui_env_output.stat().st_mode & 0o777, 0o600)
         self.assertEqual(args.receipt_output.stat().st_mode & 0o777, 0o600)
 
-    def test_gateway_overlay_requires_a_verified_api(self) -> None:
+    def test_ui_adapter_overlay_requires_a_verified_api(self) -> None:
         args = make_args(self.root)
-        args.gateway_env_output = self.root / "agent-gateway.env"
+        args.ui_env_output = self.root / "agent-ui.env"
         args.skip_api_check = True
         with (
             mock.patch.object(attach, "verify_source_snapshot"),

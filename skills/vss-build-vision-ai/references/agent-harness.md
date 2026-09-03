@@ -18,11 +18,11 @@ A **harness** is the agent runtime that drives a build. Two exist, they are
 `vss-agent` is removed unless the request names it, so a build carries the
 NemoClaw sandbox, the in-stack agent, or no harness at all — never two agent
 runtimes. A single external runtime may still have two presentation surfaces:
-its own Agent UI and VSS UI through `agent-gateway`.
+its own Agent UI and VSS UI through the UI's embedded server adapter.
 
 | Harness | Where it runs | Reached by | Selected by |
 |---|---|---|---|
-| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its Agent UI and VSS UI through `agent-gateway`, with the VSS skills installed into the sandbox | this file |
+| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its Agent UI and VSS UI through the embedded `vss-ui` adapter, with the VSS skills installed into the sandbox | this file |
 | `vss-agent` | inside the Compose project | the agent REST API (`/generate`), Web UI | the Agent owner ([`services/agent.md`](services/agent.md)), like any other capability |
 
 `vss-agent` is in-stack: it is a container, it is reached through the build's own
@@ -60,11 +60,11 @@ to NemoClaw never means adding a harness to a headless build.
 on the invented key. Treat it exactly as `<name>` is treated in the artifact
 contract: a label outside the Compose model.
 
-Selecting NemoClaw never adds a `nemoclaw` key. When VSS UI is retained, it does
-add the separate `agent-gateway` service key so that the UI can reach the
-host-side runtime. Provision the host runtime before resolving that Compose
-graph, because the protected gateway configuration contains its live endpoint
-and credentials.
+Selecting NemoClaw never adds a `nemoclaw` key or any replacement service. When
+VSS UI is retained, configure its embedded server adapter so that the UI can
+reach the host-side runtime. Provision the host runtime before resolving that
+Compose graph, because the protected UI configuration contains its live
+endpoint and credential.
 
 ## Replacing the in-stack agent
 
@@ -73,11 +73,11 @@ whose request named the in-stack agent.
 
 **Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`.** Keep `vss-ui`,
 `phoenix`, and the `llm_*` peer at this decision point; pruning them is a
-capability decision, not a harness one. A `yes` adds `agent-gateway`; a `no`
-adds no replacement service.
+capability decision, not a harness one. Neither answer adds a replacement
+service.
 
-`vss-ui`'s dependencies on both possible agent services ship as
-`required: false` so the filtered project resolves, and
+`vss-ui`'s dependency on `vss-agent` ships as `required: false` so the filtered
+project resolves, and
 `scripts/normalize_resolved_yml.py` drops dangling entries. Never re-add a hard
 `depends_on` in a build override — Compose rejects a project whose enabled
 service hard-depends on a filtered one, and Step 8 fails with no `resolved.yml`.
@@ -107,7 +107,7 @@ Report the applicable behavior explicitly:
 
 | Surface | NemoClaw (`yes`) | No harness (`no`) |
 |---|---|---|
-| VSS UI chat sidebar and Chat tab | functional through same-origin `/api/agent` → `agent-gateway` → the sandbox | unavailable because no agent runtime exists |
+| VSS UI chat sidebar and Chat tab | functional through same-origin `/api/agent` → embedded Next.js adapter → the sandbox | unavailable because no agent runtime exists |
 | VSS UI Search and Alerts *Generate Report* | functional through the same chat path; Search and incident skills publish versioned artifacts that update the owning tab | Search is hidden; Alerts hides *Generate Report*, while direct incident list/rule CRUD remain |
 | NemoClaw Agent UI | functional against the same sandbox and VSS skills | absent |
 | Dashboard and Video Management | unchanged; they address Kibana and VST directly | unchanged |
@@ -118,7 +118,8 @@ Report the applicable behavior explicitly:
 No `vss` CLI command group requires `vss-agent`: `configure` probes each route
 independently, while `summarize`, `search`, `vlm`, `vios`, and `memory` address
 their service owners directly. The external harness executes those same skills
-and commands; `agent-gateway` only transports and normalizes its run events.
+and commands; the embedded UI adapter only transports and normalizes its run
+events.
 
 ### Source lifecycle without `vss-agent`
 
@@ -150,8 +151,8 @@ must preserve the `HOST_INTERNAL_ALIAS` allowlist and main-host routing rules.
 ### Either answer makes it a delta build
 
 Removing `vss-agent` is a capability delta, so a named profile that reaches Q3
-is a **delta build** on a `no` as much as a `yes`; a yes also adds
-`agent-gateway`. Create `_builds/<name>/` and follow Delta mode from Step 2.
+is a **delta build** on a `no` as much as a `yes`; neither answer adds another
+service. Create `_builds/<name>/` and follow Delta mode from Step 2.
 Only a request that explicitly names the in-stack agent, and so never reaches
 Q3, can stay a stock deploy.
 
@@ -177,25 +178,26 @@ Two things the user should hear up front rather than discover:
 
 ## Ordering
 
-For a gateway-enabled Compose build, the planned origin is known from the
-selected host and HAProxy port before containers start. The gateway env cannot
-be created afterward: it contains the live harness endpoint, credentials, and
-commit-bound capability receipt consumed by `docker compose config`. Use this
-order:
+For an external-harness Compose build, the planned origin is known from the
+selected host and HAProxy port before containers start. The protected UI env
+cannot be created afterward: it contains the live harness endpoint, credential,
+and commit-bound capability receipt consumed by `docker compose config`. Use
+this order:
 
 | # | Step | Why here |
 |---|---|---|
 | 1 | Write `override.env` and `compose.yml`; determine the planned `http://host.openshell.internal:<HAPROXY_HOST_PORT>` origin | the sandbox needs a stable target even though it is not live yet |
 | 2 | Create the dedicated sandbox with `deploy_nemoclaw.ipynb`, or select the existing BYO sandbox | the harness API and operator credential must exist first |
-| 3 | Run `attach_vss_agent.py` with the planned origin and protected output paths | binds the exact source commit, installs the full capability plane, probes the harness API, and writes `agent-capabilities.json` plus `agent-gateway.env` |
-| 4 | Generate and validate `resolved.yml`, with `agent-gateway.env` last | bakes the verified endpoint and credentials into the standalone model without exposing them at `up` time |
-| 5 | Deploy and pass the Compose readiness gate | proves the VSS services and gateway are live |
+| 3 | Run `attach_vss_agent.py` with the planned origin and protected output paths | binds the exact source commit, installs the full capability plane, probes the harness API, starts its private bridge forward, and writes `agent-capabilities.json` plus `agent-ui.env` |
+| 4 | Generate and validate `resolved.yml`, with `agent-ui.env` last | bakes the verified endpoint and credential into the standalone model without exposing it at `up` time |
+| 5 | Deploy and pass the Compose readiness gate | proves the VSS services and embedded UI adapter are live |
 | 6 | Run the sandbox-to-VSS and VSS-UI-to-sandbox end-to-end checks | distinguishes transport health from actual skill and artifact behavior |
 
 For harness-only attachment to a running deployment, its origin is already
 known and Step 1 reduces to resolving that origin. Connecting VSS UI still
-requires `agent-gateway` to be present in the deployed graph; attachment alone
-cannot retrofit a missing service.
+requires restarting or rebuilding `vss-ui` with the embedded adapter
+configuration; attachment alone cannot change a running container's
+environment.
 
 ## Prerequisites
 
@@ -206,8 +208,8 @@ Beyond everything in [`prerequisites.md`](prerequisites.md) and
 reach these requirements without anyone having asked for them. Any one missing is
 a **blocker at harness selection**: name it, ask whether to supply it, proceed
 with no harness, or name the in-stack agent instead, and deploy nothing until
-that is answered. Discovering it after artifacts are resolved would leave a
-gateway graph bound to a harness that was never made ready.
+that is answered. Discovering it after artifacts are resolved would leave a UI
+graph bound to a harness that was never made ready.
 
 - **Python 3.11+ to run the notebook**, plus `docker`, `python3`, and `curl` on
   `PATH`, and outbound reach to the installer. **Do not require the NemoClaw CLI
@@ -345,7 +347,7 @@ python3 "$REPO/deploy/docker/scripts/attach_vss_agent.py" \
   --sandbox "$NEMOCLAW_SANDBOX_NAME" \
   --vss-origin "http://host.openshell.internal:<planned-haproxy-port>" \
   --receipt-output "$BUILD_DIR/agent-capabilities.json" \
-  --gateway-env-output "$BUILD_DIR/agent-gateway.env"
+  --ui-env-output "$BUILD_DIR/agent-ui.env"
 ```
 
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
@@ -398,7 +400,7 @@ checked-in attachment script above. Its companion,
 `deploy_vss_orchestrator.ipynb`, exists so the sandbox can deploy and manage VSS
 itself; this skill owns that lifecycle. Add it as a second `--notebook` only
 when the user explicitly wants the agent to own deployment too. That companion
-already generates its own gateway-enabled graph, so do not also resolve and
+already generates its own external-harness UI graph, so do not also resolve and
 deploy the build artifacts through the normal Steps.
 
 Because the notebook installs every `SKILL.md` under `skills/`, the sandbox receives
@@ -409,7 +411,7 @@ produced.
 ## Verification
 
 The notebook runs with errors fatal, and the attachment then verifies the live
-harness API and writes the commit-bound receipt and gateway overlay. After the
+harness API and writes the commit-bound receipt and protected UI overlay. After
 Compose readiness gate, confirm what those pre-deployment checks cannot cover:
 
 1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in

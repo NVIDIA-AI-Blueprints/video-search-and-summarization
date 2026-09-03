@@ -86,7 +86,7 @@ There are two integration modes:
   VSS policy, recursively installs the repository's VSS Skills and optional VSS
   workspace identity, and starts the harness API. For a build-owned Compose
   lifecycle, run `attach_vss_agent.py` next to bind the planned VSS origin and
-  produce the protected UI-gateway overlay. Run the companion
+  produce the protected UI adapter overlay. Run the companion
   `deploy_vss_orchestrator.ipynb` instead only when the assistant should own VSS
   deployment and the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 - To bring an existing OpenClaw or Hermes agent, run
@@ -94,7 +94,7 @@ There are two integration modes:
   VSS skills, project CLI, deployment route, network policy, and UI-artifact
   contract while preserving that agent's persona, memory, model, provider,
   workspace identity, and chat history. When VSS UI chat is part of a Compose
-  build, have it also write the protected `agent-gateway.env` overlay and pass
+  build, have it also write the protected `agent-ui.env` overlay and pass
   that overlay last while resolving the standalone deployment model.
 
 The NemoClaw Harbor evaluation environment executes the same two checked-in
@@ -103,9 +103,10 @@ recursive VSS skill catalog and commit-pinned CLI. Harbor's isolated
 task-specific Skills directory is evaluation input and is not a substitute for
 provisioning a production sandbox.
 
-VSS UI presents one gateway run/event contract for both harnesses, but their
-wire connectors differ: OpenClaw uses its native protocol-v4 WebSocket so tool
-events remain visible, while Hermes uses its Responses API. From VSS UI chat
+VSS UI's existing Next.js server presents one run/event contract for both
+harnesses, but their wire connectors differ: OpenClaw uses its native
+protocol-v4 WebSocket so tool events remain visible, while Hermes uses its
+Responses API. No additional service is deployed. From VSS UI chat
 they can manage cameras and streams, query
 incidents, run searches, summarize videos, and pull logs. Search and incident
 skills also emit versioned VSS UI artifacts, allowing the Search and Alerts

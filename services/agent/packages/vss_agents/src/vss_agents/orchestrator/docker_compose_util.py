@@ -103,7 +103,6 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
 _COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
 _TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off", ""})
-DEFAULT_AGENT_GATEWAY_PORT: Final[int] = 18090
 MAX_AGENT_CAPABILITY_RECEIPT_BYTES: Final[int] = 256_000
 
 
@@ -519,11 +518,11 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
 
 
 def apply_agent_gateway_env(merged: dict[str, str]) -> None:
-    """Add the production UI-to-harness services and defaults when requested.
+    """Configure the Next.js UI's embedded harness adapter when requested.
 
-    The gateway runs with host networking so it can reach notebook-managed
-    OpenClaw/Hermes forwards on host loopback. It binds only to Docker's private
-    bridge address; the UI reaches that address through ``host-gateway``.
+    The harness forward binds only to Docker's private bridge address. The UI
+    reaches it through ``host-gateway`` while credentials remain in its
+    server-side environment.
     """
 
     raw_enabled = merged.get("VSS_AGENT_GATEWAY_ENABLED", "").strip().lower()
@@ -532,8 +531,6 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     if raw_enabled not in _TRUE_VALUES:
         raise ValidationError("VSS_AGENT_GATEWAY_ENABLED must be true or false.")
 
-    if not merged.get("VSS_AGENT_GATEWAY_TOKEN", "").strip():
-        raise ValidationError("VSS_AGENT_GATEWAY_TOKEN is required when VSS_AGENT_GATEWAY_ENABLED=true.")
     if not merged.get("VSS_AGENT_BACKEND_URL", "").strip():
         raise ValidationError("VSS_AGENT_BACKEND_URL is required when VSS_AGENT_GATEWAY_ENABLED=true.")
 
@@ -560,45 +557,33 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", expected_runtime_ref):
         raise ValidationError("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF must be a full Git commit ID.")
 
-    bind_host = merged.get("VSS_AGENT_GATEWAY_BIND_HOST", "").strip()
+    bind_host = merged.get("VSS_AGENT_BACKEND_BIND_HOST", "").strip()
     if not bind_host:
         raise ValidationError(
-            "VSS_AGENT_GATEWAY_BIND_HOST is required when VSS_AGENT_GATEWAY_ENABLED=true; "
-            "set it to the private gateway from `docker network inspect bridge`."
+            "VSS_AGENT_BACKEND_BIND_HOST is required when VSS_AGENT_GATEWAY_ENABLED=true; "
+            "set it to the private address from `docker network inspect bridge`."
         )
     try:
         bind_address = ipaddress.ip_address(bind_host)
     except ValueError as exc:
-        raise ValidationError("VSS_AGENT_GATEWAY_BIND_HOST must be a private IPv4 address.") from exc
+        raise ValidationError("VSS_AGENT_BACKEND_BIND_HOST must be a private IPv4 address.") from exc
     if (
         bind_address.version != 4
         or not bind_address.is_private
         or bind_address.is_loopback
         or bind_address.is_unspecified
     ):
-        raise ValidationError("VSS_AGENT_GATEWAY_BIND_HOST must be a private, non-loopback IPv4 address.")
-
-    raw_port = merged.get("VSS_AGENT_GATEWAY_PORT", "").strip() or str(DEFAULT_AGENT_GATEWAY_PORT)
-    try:
-        port = int(raw_port)
-    except ValueError as exc:
-        raise ValidationError("VSS_AGENT_GATEWAY_PORT must be an integer.") from exc
-    if not 1024 <= port <= 65535:
-        raise ValidationError("VSS_AGENT_GATEWAY_PORT must be between 1024 and 65535.")
+        raise ValidationError("VSS_AGENT_BACKEND_BIND_HOST must be a private, non-loopback IPv4 address.")
 
     merged["VSS_AGENT_GATEWAY_ENABLED"] = "true"
-    merged["VSS_AGENT_GATEWAY_BIND_HOST"] = bind_host
-    merged["VSS_AGENT_GATEWAY_PORT"] = str(port)
+    merged["VSS_AGENT_BACKEND_BIND_HOST"] = bind_host
     merged["VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"] = "true"
-    # The gateway is an HTTP/SSE transport. Lock every UI chat surface to the
-    # same-origin HTTP API so a persisted WebSocket preference cannot bypass it.
+    # The embedded adapter is an HTTP/SSE transport. Lock every UI chat surface
+    # to the same-origin API so a persisted WebSocket preference cannot bypass it.
     merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] = "true"
     merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] = "false"
     merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] = "false"
     defaults = {
-        # NOSONAR S5332: this hop stays on the single-host private Docker bridge;
-        # bearer authentication remains mandatory and no public route is created.
-        "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",  # NOSONAR
         "VSS_AGENT_BACKEND_PROTOCOL": "responses",
         "VSS_AGENT_BACKEND_MODEL": "agent",
         "VSS_AGENT_BACKEND_SESSION_FIELD": "user",
@@ -609,7 +594,7 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
             merged[key] = value
 
     profiles = [item.strip() for item in merged.get("COMPOSE_PROFILES", "").split(",") if item.strip()]
-    for required_profile in ("vss-ui", "agent-gateway"):
+    for required_profile in ("vss-ui",):
         if required_profile not in profiles:
             profiles.append(required_profile)
     merged["COMPOSE_PROFILES"] = ",".join(profiles)
@@ -971,10 +956,10 @@ def sanitize_resolved_compose(
     if not isinstance(services, dict):
         return compose_text
 
-    # Gateway-mode UI routes are part of this source checkout. Until a
+    # Embedded-adapter UI routes are part of this source checkout. Until a
     # compatible released UI image is pinned, build the selected UI service
-    # from the same checkout as the locally built gateway.
-    if agent_gateway_ui_source_root is not None and "agent-gateway" in services:
+    # from the same checkout.
+    if agent_gateway_ui_source_root is not None:
         ui_service = services.get("vss-ui")
         if isinstance(ui_service, dict) and "build" not in ui_service:
             ui_service["build"] = {

@@ -74,17 +74,19 @@ class ExternalAgentNotebookContractTest(unittest.TestCase):
         self.assertIn("env.VSS_ORIGIN", source)
         self.assertIn("env.SHELL", source)
 
-    def test_orchestrator_passes_a_commit_bound_receipt_to_the_gateway(self) -> None:
+    def test_orchestrator_passes_a_commit_bound_receipt_to_the_embedded_adapter(
+        self,
+    ) -> None:
         notebook = _notebook(ORCHESTRATOR_NOTEBOOK)
         notebook_source = "\n".join(_source(cell) for cell in notebook["cells"])
-        gateway_cell = next(
+        adapter_cell = next(
             cell
             for cell in notebook["cells"]
             if "_fetch_agent_capabilities" in _source(cell)
         )
-        source = _source(gateway_cell)
+        source = _source(adapter_cell)
 
-        compile(source, f"{ORCHESTRATOR_NOTEBOOK}:agent-gateway", "exec")
+        compile(source, f"{ORCHESTRATOR_NOTEBOOK}:embedded-agent-adapter", "exec")
         self.assertIn("/sandbox/.vss/agent-capabilities.json", source)
         self.assertIn('"VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true"', source)
         self.assertIn("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256", source)
@@ -100,6 +102,12 @@ class ExternalAgentNotebookContractTest(unittest.TestCase):
         self.assertIn(
             '"VSS_AGENT_BACKEND_PROTOCOL": VSS_AGENT_BACKEND_PROTOCOL', source
         )
+        self.assertIn(
+            '"VSS_AGENT_BACKEND_BIND_HOST": VSS_AGENT_BACKEND_BIND_HOST', source
+        )
+        self.assertIn('"openshell", "forward", "start", "--background"', source)
+        self.assertNotIn("VSS_AGENT_GATEWAY_URL", source)
+        self.assertNotIn("VSS_AGENT_GATEWAY_TOKEN", source)
 
     def test_harbor_nemoclaw_setup_executes_both_checked_in_notebooks(self) -> None:
         source = HARBOR_ADAPTER.read_text(encoding="utf-8")

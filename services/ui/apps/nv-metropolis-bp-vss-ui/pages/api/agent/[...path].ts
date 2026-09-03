@@ -9,4 +9,4 @@ export const config = {
   },
 };
 
-export { agentGatewayProxyHandler as default } from "../../../utils/server/agentGateway";
+export { embeddedAgentGatewayHandler as default } from "../../../utils/server/agentGatewayRuntime";
