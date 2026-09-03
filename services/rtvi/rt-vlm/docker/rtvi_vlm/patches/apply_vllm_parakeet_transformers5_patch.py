@@ -1,6 +1,6 @@
 ######################################################################################################
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
 ######################################################################################################
 
 """Make vLLM's Parakeet config compatible with Transformers 5 dataclasses."""
