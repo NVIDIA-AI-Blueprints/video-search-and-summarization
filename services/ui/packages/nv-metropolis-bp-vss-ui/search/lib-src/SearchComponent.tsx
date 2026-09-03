@@ -17,7 +17,6 @@ import { VideoModalTooltip } from 'common';
 import { SearchComponentProps, SearchData } from './types';
 
 // Hooks
-import { useSearch } from './hooks/useSearch';
 import { useSearchByImage } from './hooks/useSearchByImage';
 import { extractSearchResultsFromAgentResponse } from './utils/agentResponseParser';
 
@@ -69,17 +68,12 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       });
   }, []);
 
-  const agentApiUrl = searchData?.agentApiUrl;
   const vstApiUrl = searchData?.vstApiUrl;
   const mdxWebApiUrl = searchData?.mdxWebApiUrl;
   const mediaWithObjectsBbox = searchData?.mediaWithObjectsBbox ?? false;
 
   const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl);  
   const { streams, filterParams, setFilterParams, addFilter, removeFilterTag, filterTags, refetch: refetchStreams } = useFilter({vstApiUrl});
-  const { searchResults, loading, error, refetch, onUpdateSearchParams, cancelSearch, clearSearchResults } = useSearch({
-    agentApiUrl, 
-    params: filterParams
-  });
 
   // Map streamId (UUID) -> sensor name for /frames API lookup
   const sensorIdToNameMap = React.useMemo(() => {
@@ -146,60 +140,16 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   }, [submitChatMessage, cancelSearchByImage, closeVideoModal]);
 
   const refetchStreamsRef = React.useRef(refetchStreams);
-  const getPendingQueryRef = React.useRef<() => string>(() => '');
 
   React.useEffect(() => {
     refetchStreamsRef.current = refetchStreams;
   }, [refetchStreams]);
-
-  const handleGetPendingQuery = React.useCallback((getPendingFn: () => string) => {
-    getPendingQueryRef.current = getPendingFn;
-  }, []);
 
   React.useEffect(() => {
     if (isActive) {
       refetchStreamsRef.current();
     }
   }, [isActive]);
-
-  // When agent mode is off, show normal search results (clear agent-driven results).
-  React.useEffect(() => {
-    if (!filterParams.agentMode) {
-      setAgentSearchResults(null);
-    }
-  }, [filterParams.agentMode]);
-
-  // Clear video results only when a new search starts (loading transitions to true), not on every render while loading.
-  const prevLoadingRef = React.useRef(loading);
-  React.useEffect(() => {
-    const becameLoading = loading && !prevLoadingRef.current;
-    prevLoadingRef.current = loading;
-    if (becameLoading) {
-      setAgentSearchResults(null);
-    }
-  }, [loading]);
-
-  // Only clear results when an agent-mode search query was submitted (via submitChatMessage),
-  // not when the user sends a regular chat message (e.g. "+ Chat" + question).
-  const agentSearchSubmittedRef = React.useRef(false);
-  const wrappedSubmitChatMessage = React.useMemo(() => {
-    if (!submitChatMessage) return undefined;
-    return (message: string) => {
-      agentSearchSubmittedRef.current = true;
-      submitChatMessage(message);
-    };
-  }, [submitChatMessage]);
-
-  const prevChatSidebarBusyRef = React.useRef(chatSidebarBusy);
-  React.useEffect(() => {
-    const becameBusy = chatSidebarBusy && !prevChatSidebarBusyRef.current;
-    prevChatSidebarBusyRef.current = chatSidebarBusy;
-    if (becameBusy && agentSearchSubmittedRef.current) {
-      agentSearchSubmittedRef.current = false;
-      setAgentSearchResults(null);
-      clearSearchResults?.();
-    }
-  }, [chatSidebarBusy, clearSearchResults]);
 
   // Stable forwarder + ref so Home's register callback stays identity-stable while we always invoke the latest parser/setState.
   const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
@@ -221,28 +171,17 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   }, [registerChatAnswerHandler, forwardAgentAnswer]);
 
   // Clear main results on any Chat sidebar send (bridge emits messageSubmitted to Search even when another tab is focused).
-  // Header-driven submit also sets agentSearchSubmittedRef for the chatSidebarBusy path.
   React.useEffect(() => {
     if (!registerSidebarChatEventSubscriber) return;
     const unsubscribe = registerSidebarChatEventSubscriber((event) => {
       if (event.type === 'messageSubmitted') {
         setAgentSearchResults(null);
-        clearSearchResults?.();
       }
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
-  }, [registerSidebarChatEventSubscriber, clearSearchResults]);
+  }, [registerSidebarChatEventSubscriber]);
 
-  const hasSearchedRef = React.useRef(false);
-  const wrappedOnUpdateSearchParams = React.useCallback((params: any) => {
-    hasSearchedRef.current = true;
-    onUpdateSearchParams(params);
-  }, [onUpdateSearchParams]);
-  React.useEffect(() => {
-    if (!loading) hasSearchedRef.current = false;
-  }, [loading]);
-  const effectiveLoading = loading && hasSearchedRef.current;
-  const contentDisabled = !chatSidebarCollapsed || effectiveLoading || chatSidebarBusy;
+  const contentDisabled = !chatSidebarCollapsed || chatSidebarBusy;
 
   const controlsComponent = React.useMemo(
     () => (
@@ -254,13 +193,9 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
         streams={streams}
         filterParams={filterParams}
         setFilterParams={setFilterParams}
-        onUpdateSearchParams={wrappedOnUpdateSearchParams}
         addFilter={addFilter}
         removeFilterTag={removeFilterTag}
         filterTags={filterTags}
-        isSearching={effectiveLoading}
-        onCancelSearch={cancelSearch}
-        onGetPendingQuery={handleGetPendingQuery}
         contentDisabled={contentDisabled}
       />
     ),
@@ -270,13 +205,9 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       streams,
       filterParams,
       setFilterParams,
-      wrappedOnUpdateSearchParams,
       addFilter,
       removeFilterTag,
       filterTags,
-      effectiveLoading,
-      cancelSearch,
-      handleGetPendingQuery,
       contentDisabled,
     ]
   );
@@ -285,11 +216,11 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     if (onControlsReady && renderControlsInLeftSidebar) {
       onControlsReady({
         isDark,
-        onRefresh: refetch,
+        onRefresh: refetchStreams,
         controlsComponent,
       });
     }
-  }, [onControlsReady, renderControlsInLeftSidebar, isDark, refetch, controlsComponent]);
+  }, [onControlsReady, renderControlsInLeftSidebar, isDark, refetchStreams, controlsComponent]);
 
   const searchByImageFooterElement = React.useMemo(() => {
     if (!searchByImageActive) return undefined;
@@ -373,7 +304,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       data-testid="search-component"
       className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
-      {/* Query + filters live in the left sidebar when the parent app renders them
+      {/* Source type + filters live in the left sidebar when the parent app renders them
           there; the in-tab header is the standalone-only alternative. Rendering
           both would mount two copies of the same controls, each with its own
           sourceType state. */}
@@ -384,25 +315,20 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
             streams={streams}
             filterParams={filterParams}
             setFilterParams={setFilterParams}
-            onUpdateSearchParams={wrappedOnUpdateSearchParams}
             addFilter={addFilter}
             removeFilterTag={removeFilterTag}
             filterTags={filterTags}
-            isSearching={effectiveLoading}
-            onCancelSearch={cancelSearch}
-            onGetPendingQuery={handleGetPendingQuery}
-            submitChatMessage={wrappedSubmitChatMessage}
             contentDisabled={contentDisabled}
           />
         </div>
       )}
       <div className="flex-1 overflow-auto">
         <VideoSearchList
-          data={agentSearchResults ?? searchResults}
-          loading={agentSearchResults !== null ? false : loading}
-          error={agentSearchResults !== null ? null : error}
+          data={agentSearchResults ?? []}
+          loading={false}
+          error={null}
           isDark={isDark}
-          onRefresh={refetch}
+          onRefresh={refetchStreams}
           onPlayVideo={handlePlayVideo}
           showObjectsBbox={mediaWithObjectsBbox}
           onAddContext={addChatQueryContext}
