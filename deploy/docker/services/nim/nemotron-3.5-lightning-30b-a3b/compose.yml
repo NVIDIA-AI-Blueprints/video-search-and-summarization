@@ -93,16 +93,7 @@ services:
       nemotron-3.5-lightning-30b-a3b-init:
         condition: service_completed_successfully
         required: true
-      cosmos-reason2-8b-shared-gpu:
-        condition: service_healthy
-        required: false
       cosmos3-reasoner-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b-shared-gpu:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
         required: false
       rtvi-vlm:
