@@ -102,7 +102,8 @@ Reached from Q1 → industry blueprint, or when the request names warehouse
 directly. Expand the selected variant's service list verbatim — warehouse is
 variant selection, not composition, so there is no delta path. Read
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) before
-asking, and apply its Hard constraints while asking, not after.
+asking, and apply its Hard constraints while asking, not after. Apply any build
+requirements its **Profile Service Set** states.
 
 Up to four single-select questions, each inside the four-option cap. Describe
 each option from warehouse.md's **Profile Service Set** table; do not restate

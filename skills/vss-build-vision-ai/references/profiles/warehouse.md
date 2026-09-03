@@ -99,9 +99,7 @@ Extended adds ELK, `vss-video-analytics-api`, `vss-haproxy-ingress`,
 `prometheus`, `grafana`, `node-exporter`, `cadvisor`). Minimal lists carry none
 of these.
 
-> `MINIMAL_PROFILE` and `ELASTICSEARCH_MODE` are **dead knobs** on this path —
-> read only by `blueprint-deploy.sh` and the launchable, never by the compose
-> stack. Size is selected *only* by which list `COMPOSE_PROFILES` points at.
+> Size is selected *only* by which list `COMPOSE_PROFILES` points at.
 
 ## Capability owners present
 
@@ -161,30 +159,17 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
 | `MODE=3d` or `mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
 
-### Remote VLM is exposed but not wired (Docker path)
+### Remote VLM is not supported (Docker path)
 
-`VLM_MODE=remote` looks supported and is not. `blueprint-deploy.sh
---use-remote-vlm` (2D + `bp_wh` only) sets `VLM_BASE_URL`,
-`RTVI_VLM_ENDPOINT=${VLM_BASE_URL}/v1` and `RTVI_VLM_MODEL_PATH=none`, but it
-never switches the two selectors that decide which backend serves the request:
+Warehouse uses the integrated RTVI VLM, which runs locally only, so `VLM_MODE`
+and `VLM_NAME_SLUG` stay `none` — `scripts/validate_warehouse_env.py` enforces
+it. The supported remote configuration is **remote LLM with local RT-VLM**
+(`LLM_MODE=remote`, `LLM_BASE_URL` without a trailing `/v1`).
 
-| Knob | Warehouse default | Remote needs | Set by `--use-remote-vlm`? |
-|---|---|---|---|
-| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | `openai-compat` | no |
-| `VLM_MODEL_TYPE` | `rtvi` | non-`rtvi` | only if `--vlm-model-type` is passed explicitly |
-
-Both live in `industry-profiles/warehouse-operations/overrides.env`. The result
-is a deployment that starts cleanly and keeps routing through the local RT-VLM
-proxy against a model path of `none`. The same backend-selection bug was fixed
-for **Helm only** in
-[NVIDIA-AI-Blueprints/video-search-and-summarization#1501](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/pull/1501);
-the Docker warehouse path was not updated, and no warehouse end-to-end run has
-validated remote VLM — the validated remote configuration is **remote LLM with
-local RT-VLM**, which is unaffected and remains supported.
-
-`scripts/validate_warehouse_env.py` therefore rejects any non-`none` `VLM_MODE`
-or `VLM_NAME_SLUG`. Lift that rule only once the Docker path sets both
-selectors.
+Setting `VLM_MODE=remote` looks plausible and is not wired: the Docker path never
+switches `RTVI_VLM_MODEL_TO_USE` (`cosmos-reason3`) or `VLM_MODEL_TYPE` (`rtvi`),
+so the deployment starts cleanly and keeps routing through the local RT-VLM
+against a model path of `none`.
 
 ### Calibration is already in the repo
 
