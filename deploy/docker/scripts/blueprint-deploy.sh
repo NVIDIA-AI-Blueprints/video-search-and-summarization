@@ -1258,6 +1258,39 @@ function state_up() {
     echo "[INFO] Warehouse COMPOSE_PROFILES=\${${compose_profiles_selector}}"
   fi
 
+  if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${hardware_profile}" == "GB200" ]] || [[ "${hardware_profile}" == "GB300" ]] || [[ "${use_sbsa_images}" == "true" ]]; then
+    # Warehouse overrides may not contain the legacy commented *-sbsa lines
+    # consumed by apply_sbsa_image_tags_to_env. Write explicit tag overrides so
+    # the shared promoted channel resolves to its SBSA variants.
+    local _sbsa_base_tag="${VSS_CONTAINER_TAG:-}"
+    local _generated_container_tag
+    _generated_container_tag="$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_generated_env}")"
+    if [[ -n "${_generated_container_tag}" ]] && [[ "${_generated_container_tag}" != *'${'* ]]; then
+      _sbsa_base_tag="${_generated_container_tag}"
+    fi
+    if [[ -z "${_sbsa_base_tag}" ]]; then
+      _sbsa_base_tag="$(
+        set +u
+        # shellcheck disable=SC1091
+        source "${deployment_directory}/containers.env"
+        printf '%s' "${VSS_CONTAINER_TAG}"
+      )"
+    fi
+    _sbsa_base_tag="${_sbsa_base_tag%-sbsa}"
+
+    local _sbsa_tag_key _existing_sbsa_tag _resolved_sbsa_tag
+    for _sbsa_tag_key in VSS_RT_CV_TAG VSS_RT_VLM_TAG VSS_RT_EMBED_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _existing_sbsa_tag="$(get_env_value_from_files "${_sbsa_tag_key}" "${_generated_env}")"
+      if [[ "${_existing_sbsa_tag}" == *-sbsa ]]; then
+        _resolved_sbsa_tag="${_existing_sbsa_tag}"
+      elif [[ -n "${_existing_sbsa_tag}" ]] && [[ "${_existing_sbsa_tag}" != *'${'* ]]; then
+        _resolved_sbsa_tag="${_existing_sbsa_tag}-sbsa"
+      else
+        _resolved_sbsa_tag="${_sbsa_base_tag}-sbsa"
+      fi
+      set_env_var "${_sbsa_tag_key}" "${_resolved_sbsa_tag}"
+    done
+  fi
   if [[ "${hardware_profile}" == "DGX-SPARK" ]] || [[ "${hardware_profile}" == "GB200" ]] || [[ "${hardware_profile}" == "GB300" ]]; then
     apply_sbsa_image_tags_to_env "${_generated_env}" "${hardware_profile}"
   elif [[ "${use_sbsa_images}" == "true" ]]; then
