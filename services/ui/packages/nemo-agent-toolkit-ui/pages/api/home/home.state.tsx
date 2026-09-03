@@ -140,9 +140,7 @@ export const initialState: HomeInitialState = {
   webSocketMode:
     !forceHttpTransport &&
     (env('NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON') === 'true' ||
-      process?.env?.NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON === 'true')
-      ? true
-      : false,
+      process?.env?.NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON === 'true'),
   webSocketConnected: false,
   webSocketURL:
     env('NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL') ||

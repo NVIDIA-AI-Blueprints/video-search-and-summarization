@@ -13,6 +13,9 @@ const INCIDENTS_CLOSE = "</incidents>";
 const INTERMEDIATE_OPEN = "<intermediatestep>";
 const INTERMEDIATE_CLOSE = "</intermediatestep>";
 
+const escapeTagOpen = (value: string): string =>
+  value.replaceAll("<", String.raw`\u003c`);
+
 type JsonObject = Record<string, unknown>;
 
 export interface GatewayEvent {
@@ -60,9 +63,9 @@ const serializedPayload = (value: unknown): string => {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? "";
   } catch {
-    return String(value);
+    return "[unserializable payload]";
   }
 };
 
@@ -83,7 +86,7 @@ const intermediateChunk = (
     index: Number.parseInt(event.id, 10) || 0,
   };
   // A backend string must not be able to terminate the wrapper tag consumed by the legacy renderer.
-  const json = JSON.stringify(intermediate).replace(/</g, "\\u003c");
+  const json = escapeTagOpen(JSON.stringify(intermediate));
   return `<intermediatestep>${json}</intermediatestep>`;
 };
 
@@ -101,10 +104,7 @@ const vssUiArtifactChunk = (data: JsonObject): string | null => {
     return null;
   }
   try {
-    const json = JSON.stringify({ version, kind, payload }).replace(
-      /</g,
-      "\\u003c"
-    );
+    const json = escapeTagOpen(JSON.stringify({ version, kind, payload }));
     return `<vss-ui-artifact>${json}</vss-ui-artifact>`;
   } catch {
     return null;
@@ -219,8 +219,8 @@ const alertIncidentsChunk = (data: JsonObject): string | null => {
       const legacyDetails = incident["Alert Details"];
       const legacyClip = incident["Clip Information"];
       const hasLegacyShape =
-        Object.prototype.hasOwnProperty.call(incident, "Alert Details") ||
-        Object.prototype.hasOwnProperty.call(incident, "Clip Information");
+        Object.hasOwn(incident, "Alert Details") ||
+        Object.hasOwn(incident, "Clip Information");
       if (
         hasLegacyShape &&
         (!legacyDetails ||
@@ -312,13 +312,15 @@ const alertIncidentsChunk = (data: JsonObject): string | null => {
         },
       ];
     });
-  const json = JSON.stringify({
-    incidents: normalized,
-    total_incidents:
-      typeof (payload as JsonObject).total === "number"
-        ? (payload as JsonObject).total
-        : normalized.length,
-  }).replace(/</g, "\\u003c");
+  const json = escapeTagOpen(
+    JSON.stringify({
+      incidents: normalized,
+      total_incidents:
+        typeof (payload as JsonObject).total === "number"
+          ? (payload as JsonObject).total
+          : normalized.length,
+    })
+  );
   return `<incidents>${json}</incidents>`;
 };
 
@@ -337,8 +339,15 @@ export const gatewayRunStatusChunk = (
     time_stamp: new Date().toISOString(),
     index,
   };
-  const json = JSON.stringify(intermediate).replace(/</g, "\\u003c");
+  const json = escapeTagOpen(JSON.stringify(intermediate));
   return `<intermediatestep>${json}</intermediatestep>`;
+};
+
+const legacyToolStatus = (eventType: string): string => {
+  if (eventType === "tool.failed") return "failed";
+  if (eventType === "tool.completed") return "complete";
+  if (eventType === "tool.requested") return "waiting";
+  return "in_progress";
 };
 
 /**
@@ -401,14 +410,7 @@ export const gatewayEventToLegacyChunks = (
     } else if (typeof data.arguments === "string") {
       state.toolArguments.set(id, data.arguments);
     }
-    const status =
-      event.type === "tool.failed"
-        ? "failed"
-        : event.type === "tool.completed"
-        ? "complete"
-        : event.type === "tool.requested"
-        ? "waiting"
-        : "in_progress";
+    const status = legacyToolStatus(event.type);
     const payload =
       data.error ??
       data.output ??
@@ -455,7 +457,7 @@ export class GatewaySseDecoder {
   private buffer = "";
 
   push(chunk: string): GatewayEvent[] {
-    this.buffer = (this.buffer + chunk).replace(/\r\n/g, "\n");
+    this.buffer = (this.buffer + chunk).replaceAll("\r\n", "\n");
     if (this.buffer.length > MAX_SSE_BUFFER_LENGTH) {
       throw new GatewayProtocolError(
         "Agent gateway emitted an oversized SSE frame"
@@ -828,11 +830,11 @@ export const agentGatewayChatHandler = async (
     if (controller.signal.aborted) return;
     const message =
       error instanceof Error ? error.message : "Agent gateway request failed";
-    if (!res.headersSent) {
-      res.status(502).json({ error: { code: "gateway_unavailable", message } });
-    } else {
+    if (res.headersSent) {
       res.write(`\n\n**Agent gateway error:** ${message}`);
       res.end();
+    } else {
+      res.status(502).json({ error: { code: "gateway_unavailable", message } });
     }
     if (runId && !terminal) void cancelRun(config, runId);
   } finally {
@@ -877,11 +879,12 @@ export const agentGatewayProxyHandler = async (
     });
     return;
   }
-  const segments = Array.isArray(req.query.path)
-    ? req.query.path
-    : typeof req.query.path === "string"
-    ? [req.query.path]
-    : [];
+  let segments: string[] = [];
+  if (Array.isArray(req.query.path)) {
+    segments = req.query.path;
+  } else if (typeof req.query.path === "string") {
+    segments = [req.query.path];
+  }
   const method = req.method || "";
   if (!allowedProxyRequest(method, segments)) {
     res.status(404).json({
@@ -964,10 +967,10 @@ export const agentGatewayProxyHandler = async (
     if (controller.signal.aborted) return;
     const message =
       error instanceof Error ? error.message : "Agent gateway proxy failed";
-    if (!res.headersSent) {
-      res.status(502).json({ error: { code: "gateway_unavailable", message } });
-    } else {
+    if (res.headersSent) {
       res.end();
+    } else {
+      res.status(502).json({ error: { code: "gateway_unavailable", message } });
     }
   } finally {
     res.off("close", onClose);
