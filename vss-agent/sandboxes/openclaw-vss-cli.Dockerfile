@@ -14,3 +14,9 @@ USER ubuntu
 # USER root
 # RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 # USER ubuntu
+
+ARG OPENCLAW_VERSION=latest
+RUN . $NVM_DIR/nvm.sh && nvm use 22 \
+    && npm install -g @openclaw/openclaw@${OPENCLAW_VERSION} && openclaw --version
+
+LABEL harness.agent="openclaw"

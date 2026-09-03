@@ -40,6 +40,19 @@ variant experiment, builds a content-addressed image from the edited text, and
 pulls the published base from GHCR onto the cluster. Real changes belong in a PR
 here, not in the running environment.
 
+## One image, one harness
+
+The base carries **no agent**. Each variant installs exactly one runtime and
+declares it with `LABEL harness.agent=<name>`, so an image identifies the harness
+under test and an eval run pairs `(image, agent)` unambiguously. Comparing
+harnesses means running the same task tree against several images — not one image
+with several CLIs on `PATH`, which would leave the agent selectable at runtime and
+let a misbehaving agent invoke a different one.
+
+Harbor (the eval orchestrator) runs **outside** the sandbox: it creates the
+sandbox from the image and drives the agent adapter inside it. Nothing about the
+eval loop is baked into these images.
+
 ## Contract
 
 Sandboxes must keep: the contract dirs above, a declared `USER` (OpenShell

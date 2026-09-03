@@ -9,3 +9,5 @@ RUN curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/
       | bash -s -- --skip-setup \
     && export PATH="$HOME/.local/bin:$PATH" && command -v hermes
 ENV HERMES_HOME=/tmp/hermes
+
+LABEL harness.agent="hermes"
