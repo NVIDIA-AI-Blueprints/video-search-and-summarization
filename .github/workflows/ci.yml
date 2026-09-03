@@ -1348,6 +1348,8 @@ jobs:
           python3 .github/scripts/test_check_public_origin_split.py
           python3 .github/scripts/check_nginx_relative_redirects.py
           python3 .github/scripts/test_check_nginx_relative_redirects.py
+          python3 .github/scripts/check_agent_forwarded_proto.py
+          python3 .github/scripts/test_check_agent_forwarded_proto.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_ingress_rewrites.py
