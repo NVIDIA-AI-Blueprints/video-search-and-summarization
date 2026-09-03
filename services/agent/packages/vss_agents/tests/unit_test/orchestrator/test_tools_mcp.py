@@ -286,7 +286,7 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
         )
         compose_path.write_text(
             "services:\n"
-            "  agent-gateway:\n"
+            "  vss-ui:\n"
             "    environment:\n"
             "      VSS_AGENT_BACKEND_TOKEN: backend-secret\n"  # pragma: allowlist secret
             "      VSS_AGENT_GATEWAY_CAPABILITIES_B64: receipt-payload\n"
@@ -696,16 +696,13 @@ async def test_docker_generate_applies_external_agent_settings_from_runtime(
 ):
     settings = {
         "VSS_AGENT_GATEWAY_ENABLED": "true",
-        "VSS_AGENT_GATEWAY_URL": "http://host.docker.internal:18090",
-        "VSS_AGENT_GATEWAY_TOKEN": "gateway-secret",  # pragma: allowlist secret
-        "VSS_AGENT_GATEWAY_PORT": "18090",
-        "VSS_AGENT_GATEWAY_BIND_HOST": "172.17.0.1",
         "VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true",
         "VSS_AGENT_GATEWAY_CAPABILITIES_B64": "eyJzY2hlbWFfdmVyc2lvbiI6MX0=",  # pragma: allowlist secret
         "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": "a9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",  # pragma: allowlist secret
         "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "a" * 40,
         "VSS_AGENT_BACKEND_PROTOCOL": "responses",
-        "VSS_AGENT_BACKEND_URL": "http://127.0.0.1:18789",
+        "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
+        "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:18789",
         "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret
         "VSS_AGENT_BACKEND_MODEL": "openclaw/default",
         "VSS_AGENT_BACKEND_SESSION_HEADER": "x-openclaw-session-key",
@@ -716,8 +713,8 @@ async def test_docker_generate_applies_external_agent_settings_from_runtime(
     builder = MagicMock()
     async with vss_orchestrator(config, builder) as group:
         mdx_data_dir = Path(config.mdx_data_dir)
-        env_path = Path(config.output_dir) / "generated.base-agent-gateway.dry-run.env"
-        compose_path = Path(config.output_dir) / "compose.resolved.base-agent-gateway.dry-run.yml"
+        env_path = Path(config.output_dir) / "generated.base-agent-ui.dry-run.env"
+        compose_path = Path(config.output_dir) / "compose.resolved.base-agent-ui.dry-run.yml"
         fake_recipe = MagicMock()
 
         with (
@@ -730,7 +727,9 @@ async def test_docker_generate_applies_external_agent_settings_from_runtime(
             result = await _call(
                 group,
                 "docker_generate",
-                GenerateInput(profile="base", env_overrides=["VSS_AGENT_BACKEND_MODEL=explicit-model"]),  # pragma: allowlist secret
+                GenerateInput(
+                    profile="base", env_overrides=["VSS_AGENT_BACKEND_MODEL=explicit-model"]
+                ),  # pragma: allowlist secret
             )
 
     assert result["status"] == ComposeStatus.SUCCESS.value

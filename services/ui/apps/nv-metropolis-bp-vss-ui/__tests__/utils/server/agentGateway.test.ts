@@ -7,9 +7,9 @@ import {
   createLegacyEventState,
   gatewayEventToLegacyChunks,
   gatewayRunStatusChunk,
-  getAgentGatewayConfig,
   sanitizeGatewayHistoryContent,
 } from "../../../utils/server/agentGateway";
+import { loadEmbeddedGatewayConfig } from "../../../utils/server/agentGatewayRuntime/config";
 
 const event = (
   type: string,
@@ -187,10 +187,7 @@ describe("agent gateway transport", () => {
         version: "1.0",
         kind: "vss.alert.incidents",
         payload: {
-          incidents: [
-            { "Alert Details": "bad", "Clip Information": [] },
-            null,
-          ],
+          incidents: [{ "Alert Details": "bad", "Clip Information": [] }, null],
         },
       }),
       createLegacyEventState()
@@ -246,21 +243,30 @@ describe("agent gateway transport", () => {
   });
 
   it("keeps credentials server-side and validates the configured URL", () => {
-    expect(
-      getAgentGatewayConfig({
-        AGENT_GATEWAY_URL: "http://agent-gateway:8090/",
-        AGENT_GATEWAY_TOKEN: "secret",
+    const config = loadEmbeddedGatewayConfig({
+      AGENT_BACKEND_PROTOCOL: "responses",
+      AGENT_BACKEND_URL: "http://host.docker.internal:8642/",
+      AGENT_BACKEND_TOKEN: "secret",
+    });
+    expect(config).toEqual(
+      expect.objectContaining({
+        backendUrl: "http://host.docker.internal:8642",
+        backendToken: "secret",
       })
-    ).toEqual({ baseUrl: "http://agent-gateway:8090", token: "secret" });
-    expect(getAgentGatewayConfig({})).toBeNull();
+    );
+    expect(loadEmbeddedGatewayConfig({})).toBeNull();
     expect(() =>
-      getAgentGatewayConfig({ AGENT_GATEWAY_URL: "file:///tmp/socket" })
-    ).toThrow("http(s)");
+      loadEmbeddedGatewayConfig({ AGENT_BACKEND_URL: "file:///tmp/socket" })
+    ).toThrow("must use http: or https:");
     expect(() =>
-      getAgentGatewayConfig({ AGENT_GATEWAY_URL: "http://user:pass@host" }) // pragma: allowlist secret
-    ).toThrow("embedded credentials");
+      loadEmbeddedGatewayConfig({
+        AGENT_BACKEND_URL: "http://user:pass@host", // pragma: allowlist secret
+      })
+    ).toThrow("must not contain credentials");
     expect(() =>
-      getAgentGatewayConfig({ AGENT_GATEWAY_URL: "http://host?token=secret" })
-    ).toThrow("query or fragment");
+      loadEmbeddedGatewayConfig({
+        AGENT_BACKEND_URL: "http://host?token=secret",
+      })
+    ).toThrow("query");
   });
 });

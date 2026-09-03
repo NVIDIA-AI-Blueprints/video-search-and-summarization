@@ -18,7 +18,6 @@ import ipaddress
 import json
 import os
 import re
-import secrets
 import shutil
 import subprocess
 import sys
@@ -905,24 +904,24 @@ def write_receipt(
         )
 
 
-def validate_gateway_bind_host(value: str) -> str:
+def validate_backend_bind_host(value: str) -> str:
     try:
         address = ipaddress.ip_address(value.strip())
     except ValueError as error:
-        raise AttachError("gateway bind host must be a private IPv4 address") from error
+        raise AttachError("backend bind host must be a private IPv4 address") from error
     if (
         address.version != 4
         or not address.is_private
         or address.is_loopback
         or address.is_unspecified
     ):
-        fail("gateway bind host must be a private, non-loopback IPv4 address")
+        fail("backend bind host must be a private, non-loopback IPv4 address")
     return str(address)
 
 
-def resolve_gateway_bind_host(runner: CommandRunner, explicit_host: str | None) -> str:
+def resolve_backend_bind_host(runner: CommandRunner, explicit_host: str | None) -> str:
     if explicit_host:
-        return validate_gateway_bind_host(explicit_host)
+        return validate_backend_bind_host(explicit_host)
     output = runner.run(
         [
             "docker",
@@ -938,9 +937,9 @@ def resolve_gateway_bind_host(runner: CommandRunner, explicit_host: str | None) 
     if not output:
         fail(
             "could not discover Docker's private bridge gateway; pass "
-            "--gateway-bind-host"
+            "--backend-bind-host"
         )
-    return validate_gateway_bind_host(output.splitlines()[-1])
+    return validate_backend_bind_host(output.splitlines()[-1])
 
 
 def encode_receipt(receipt: dict[str, object]) -> tuple[str, str]:
@@ -957,7 +956,71 @@ def dotenv_quote(value: str) -> str:
     return json.dumps(value, ensure_ascii=True)
 
 
-def write_gateway_env(
+def backend_ready_at(
+    profile: HarnessProfile,
+    origin: str,
+    token: str,
+) -> bool:
+    path = "/health" if profile.backend_protocol == "openclaw-ws" else "/v1/models"
+    headers = {"Accept": "application/json"}
+    if profile.backend_protocol != "openclaw-ws":
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"{origin.rstrip('/')}{path}", headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read(MAX_API_RESPONSE_BYTES + 1)
+            if len(body) > MAX_API_RESPONSE_BYTES:
+                return False
+            payload = json.loads(body)
+    except (urllib.error.URLError, TimeoutError, ValueError, UnicodeDecodeError):
+        return False
+    if profile.backend_protocol == "openclaw-ws":
+        return isinstance(payload, dict) and payload.get("ok") is True
+    return (
+        isinstance(payload, dict)
+        and isinstance(payload.get("data"), list)
+        and bool(payload["data"])
+    )
+
+
+def ensure_private_backend_forward(
+    runner: CommandRunner,
+    profile: HarnessProfile,
+    sandbox: str,
+    api: ApiReadiness,
+    bind_host: str,
+) -> str:
+    """Expose a loopback harness only on Docker's private bridge address."""
+
+    parsed = urlparse(api.origin)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    private_origin = f"{parsed.scheme}://{bind_host}:{port}"
+    if not backend_ready_at(profile, private_origin, api.token):
+        try:
+            runner.run(
+                [
+                    "openshell",
+                    "forward",
+                    "start",
+                    "--background",
+                    f"{bind_host}:{port}",
+                    sandbox,
+                ],
+                timeout=60,
+            )
+        except AttachError:
+            if not backend_ready_at(profile, private_origin, api.token):
+                raise
+        if not backend_ready_at(profile, private_origin, api.token):
+            fail("private Docker-bridge harness forward did not become ready")
+    container_origin = f"{parsed.scheme}://host.docker.internal:{port}"
+    if profile.backend_protocol == "openclaw-ws":
+        websocket_scheme = "wss" if parsed.scheme == "https" else "ws"
+        container_origin = f"{websocket_scheme}://host.docker.internal:{port}"
+    return container_origin
+
+
+def write_ui_adapter_env(
     path: Path,
     *,
     profile: HarnessProfile,
@@ -965,21 +1028,12 @@ def write_gateway_env(
     receipt: dict[str, object],
     runtime_ref: str,
     bind_host: str,
-    port: int,
+    backend_origin: str,
 ) -> None:
     encoded_receipt, receipt_digest = encode_receipt(receipt)
-    gateway_token = secrets.token_hex(32)
-    parsed_api_origin = urlparse(api.origin)
-    backend_origin = api.origin
-    if profile.backend_protocol == "openclaw-ws":
-        websocket_scheme = "wss" if parsed_api_origin.scheme == "https" else "ws"
-        backend_origin = parsed_api_origin._replace(scheme=websocket_scheme).geturl()
     values = {
         "VSS_AGENT_GATEWAY_ENABLED": "true",
-        "VSS_AGENT_GATEWAY_BIND_HOST": bind_host,
-        "VSS_AGENT_GATEWAY_PORT": str(port),
-        "VSS_AGENT_GATEWAY_URL": f"http://host.docker.internal:{port}",
-        "VSS_AGENT_GATEWAY_TOKEN": gateway_token,
+        "VSS_AGENT_BACKEND_BIND_HOST": bind_host,
         "VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true",
         "VSS_AGENT_GATEWAY_CAPABILITIES_B64": encoded_receipt,
         "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": receipt_digest,
@@ -1192,21 +1246,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional protected host copy of the installed capability receipt",
     )
     parser.add_argument(
+        "--ui-env-output",
         "--gateway-env-output",
+        dest="ui_env_output",
         type=Path,
         help=(
-            "Write a protected Compose env overlay containing gateway/backend "
+            "Write a protected Compose env overlay containing UI adapter/backend "
             "settings and the verified capability receipt"
         ),
     )
     parser.add_argument(
+        "--backend-bind-host",
         "--gateway-bind-host",
+        dest="backend_bind_host",
         help=(
-            "Private Docker bridge address for the gateway listener; discovered "
+            "Private Docker bridge address for the harness forward; discovered "
             "from the default bridge when omitted"
         ),
     )
-    parser.add_argument("--gateway-port", type=int, default=18090)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args(argv)
 
@@ -1220,15 +1277,13 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> AttachmentResult:
     runtime_ref = resolve_runtime_ref(root, args.runtime_ref)
     verify_source_snapshot(root, runtime_ref)
     runtime_dir = validate_runtime_dir(args.runtime_dir)
-    if args.gateway_env_output and args.skip_api_check:
-        fail("--gateway-env-output cannot be combined with --skip-api-check")
-    if args.gateway_env_output and runner.dry_run:
-        fail("--gateway-env-output is unavailable during --dry-run")
-    if not 1024 <= args.gateway_port <= 65535:
-        fail("gateway port must be between 1024 and 65535")
-    gateway_bind_host = (
-        resolve_gateway_bind_host(runner, args.gateway_bind_host)
-        if args.gateway_env_output
+    if args.ui_env_output and args.skip_api_check:
+        fail("--ui-env-output cannot be combined with --skip-api-check")
+    if args.ui_env_output and runner.dry_run:
+        fail("--ui-env-output is unavailable during --dry-run")
+    backend_bind_host = (
+        resolve_backend_bind_host(runner, args.backend_bind_host)
+        if args.ui_env_output
         else None
     )
     if shutil.which(profile.cli) is None and not runner.dry_run:
@@ -1304,21 +1359,28 @@ def attach(args: argparse.Namespace, runner: CommandRunner) -> AttachmentResult:
             json.dumps(receipt, indent=2, sort_keys=True) + "\n",
         )
         print(f"Host capability receipt: {args.receipt_output.expanduser()}")
-    if args.gateway_env_output:
-        if api is None or gateway_bind_host is None:  # pragma: no cover - guarded above
-            fail("verified agent API and gateway bind host are required")
-        write_gateway_env(
-            args.gateway_env_output,
+    if args.ui_env_output:
+        if api is None or backend_bind_host is None:  # pragma: no cover - guarded above
+            fail("verified agent API and backend bind host are required")
+        backend_origin = ensure_private_backend_forward(
+            runner,
+            profile,
+            sandbox,
+            api,
+            backend_bind_host,
+        )
+        write_ui_adapter_env(
+            args.ui_env_output,
             profile=profile,
             api=api,
             receipt=receipt,
             runtime_ref=runtime_ref,
-            bind_host=gateway_bind_host,
-            port=args.gateway_port,
+            bind_host=backend_bind_host,
+            backend_origin=backend_origin,
         )
         print(
-            "Protected agent-gateway Compose overlay: "
-            f"{args.gateway_env_output.expanduser()}"
+            "Protected VSS UI adapter Compose overlay: "
+            f"{args.ui_env_output.expanduser()}"
         )
     print(
         "VSS capabilities attached; existing agent identity and memory were preserved."

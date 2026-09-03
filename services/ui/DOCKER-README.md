@@ -12,10 +12,13 @@ RUN_APP_NAME=nv-metropolis-bp-vss-ui
 NEXT_PUBLIC_APP_TITLE=VSS BLUEPRINT
 NEXT_PUBLIC_APP_SUBTITLE=Warehouse
 
-# Optional backend-neutral run/event gateway. These are server-only: never use NEXT_PUBLIC_* for tokens.
+# Optional backend-neutral run/event adapter embedded in the Next.js server.
+# The backend token is server-only: never expose it through NEXT_PUBLIC_*.
 # When omitted, the UI keeps using the legacy HTTP/WebSocket settings below.
-AGENT_GATEWAY_URL=http://agent-gateway:8090
-AGENT_GATEWAY_TOKEN=replace-with-a-random-secret
+AGENT_BACKEND_PROTOCOL=openclaw-ws
+AGENT_BACKEND_URL=ws://host.docker.internal:18789
+AGENT_BACKEND_PATH=/
+AGENT_BACKEND_TOKEN=replace-with-the-harness-token
 
 NEXT_PUBLIC_ENABLE_CHAT_TAB=true
 NEXT_PUBLIC_WORKFLOW=Warehouse Management Agent

@@ -3070,7 +3070,6 @@ pytest-xdist,3.8.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_test
 python,3.12-slim,UNKNOWN,services/vios,container,container,services/vios/test/bdd_tests/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-bookworm,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-python,3.13-slim,UNKNOWN,services/agent-gateway,container,container,services/agent-gateway/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-slim,UNKNOWN,services/alert,container,container,services/alert/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-trixie,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-trixie,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown

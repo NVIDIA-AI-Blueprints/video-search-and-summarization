@@ -227,8 +227,8 @@ or `down`, and deploy with `pull --ignore-buildable && up -d --build`
 
 All three primary files are required in stock and delta mode. An existing
 external harness also requires `agent-capabilities.json` and the protected
-`agent-gateway.env` final resolution layer produced by its host-side bootstrap.
-`_builds/` is gitignored because `override.env`, `agent-gateway.env`, and
+`agent-ui.env` final resolution layer produced by its host-side bootstrap.
+`_builds/` is gitignored because `override.env`, `agent-ui.env`, and
 `resolved.yml` can contain credentials. Keep them local, set every
 credential-bearing file to mode `0600`, and never commit them.
 
@@ -263,12 +263,12 @@ env_args=(
 
 # Existing OpenClaw/Hermes builds receive this protected final layer from the
 # host-side capability bootstrap. Use it for config resolution only.
-if [[ -f "$BUILD_DIR/agent-gateway.env" ]]; then
-  [[ "$(stat -c '%a' "$BUILD_DIR/agent-gateway.env")" == "600" ]] || {
-    echo "agent-gateway.env must have mode 0600" >&2
+if [[ -f "$BUILD_DIR/agent-ui.env" ]]; then
+  [[ "$(stat -c '%a' "$BUILD_DIR/agent-ui.env")" == "600" ]] || {
+    echo "agent-ui.env must have mode 0600" >&2
     exit 1
   }
-  env_args+=(--env-file "$BUILD_DIR/agent-gateway.env")
+  env_args+=(--env-file "$BUILD_DIR/agent-ui.env")
 fi
 
 docker compose "${env_args[@]}" \
@@ -378,9 +378,10 @@ Then verify:
   a source profile's default.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
-- When `vss-ui` resolves without either `vss-agent` or `agent-gateway`, its chat
-  sidebar, Chat tab, and current agent-owned Search tab all resolve disabled;
-  `validate_resolved_yml.py` rejects a dead visible surface.
+- When `vss-ui` resolves without either `vss-agent` or a configured embedded
+  external-agent adapter, its chat sidebar, Chat tab, and current agent-owned
+  Search tab all resolve disabled; `validate_resolved_yml.py` rejects a dead
+  visible surface.
 
 ## Sources
 
