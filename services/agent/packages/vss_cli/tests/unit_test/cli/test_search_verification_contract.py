@@ -85,6 +85,19 @@ def test_zero_candidates_may_not_be_reported_as_absence() -> None:
     assert "a threshold or embedding gap yields the same empty result as a genuine absence" in normalized
 
 
+def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
+    """Neutrality scoped to progress messages let an agent obey it and still
+    close by naming the model, the endpoint and the resolved sensor UUID. The
+    rule has to reach the reply the user actually reads, and cover the
+    identifiers the workflow resolves along the way."""
+    verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
+    normalized = " ".join(verification.split())
+
+    assert "Keep progress and the final reply implementation-neutral" in normalized
+    assert "name the source as the user did rather than by its resolved UUID" in normalized
+    assert "those describe how the answer was produced, not what was seen" in normalized
+
+
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
     """The recipe maps the synthetic interval and mints the clip through the CLI.
 
