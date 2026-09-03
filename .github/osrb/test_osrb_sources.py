@@ -158,13 +158,13 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \\
     def test_apk_and_dnf_versions_are_captured(self) -> None:
         dockerfile = b"""
 FROM alpine:3.24.1
-RUN apk add --no-cache curl=8.22.0-r0 bash
+RUN apk add --no-cache curl=8.21.0-r0 bash
 RUN dnf install -y libarchive
 """
         rows = osrb_sources.parse_dockerfile(dockerfile, "svc/Dockerfile")
 
         self.assertEqual({"curl", "bash"}, packages(rows, "apk"))
-        self.assertEqual({"8.22.0-r0"}, versions(rows, "curl"))
+        self.assertEqual({"8.21.0-r0"}, versions(rows, "curl"))
         self.assertEqual({"libarchive"}, packages(rows, "rpm"))
 
     def test_package_list_hidden_behind_a_shell_substitution_invents_nothing(self) -> None:
