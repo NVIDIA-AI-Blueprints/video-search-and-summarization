@@ -27,12 +27,6 @@ interface AddRtspDialogProps {
 
 type SubmitPhase = 'idle' | 'adding' | 'confirming';
 
-/** A sensor VST took, keyed by the RTSP URL it was created from. */
-interface AcceptedSensor {
-  sensorId: string;
-  sensorUrl: string;
-}
-
 /** The message to show for bad input, or `null` when it is good. */
 function validateRtspInput(url: string, name: string): string | null {
   if (!url) return 'RTSP URL is required.';
@@ -65,10 +59,10 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const [userEditedName, setUserEditedName] = useState(false); // Track if user manually edited the name
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<SubmitPhase>('idle');
-  // Sensor VST accepted but has not listed yet. A retry must only resume the
-  // wait: re-sending the add would be rejected as a duplicate URL, which reads
-  // as a failure for a sensor that in fact exists.
-  const [accepted, setAccepted] = useState<AcceptedSensor | null>(null);
+  // Sensors VST accepted in this dialog session, keyed by RTSP URL. A later
+  // add of a different URL must not forget an earlier one: reverting the field
+  // would otherwise re-POST a URL VST already holds and come back as a duplicate.
+  const [acceptedByUrl, setAcceptedByUrl] = useState<Record<string, string>>({});
   // Bumped on close and on each submit, so an attempt whose wait outlives the
   // dialog — or a superseded one — stops writing to it.
   const attemptRef = useRef(0);
@@ -81,9 +75,8 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   // VST keys sensors on the RTSP URL. A listing timeout leaves the fields
   // editable, but a name-only edit is still the same sensor — re-POSTing the
   // URL would come back as a duplicate. An edited URL is a different stream
-  // and has to be added, not confirmed against the previous sensorId.
-  const acceptedSensorId =
-    accepted && accepted.sensorUrl === trimmedUrl ? accepted.sensorId : null;
+  // unless this session already accepted it.
+  const acceptedSensorId = acceptedByUrl[trimmedUrl] ?? null;
 
   const extractNameFromUrl = (url: string): string =>
     url.split('?')[0].split('/').filter((p) => p.trim()).pop() ?? '';
@@ -110,7 +103,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     setUserEditedName(false);
     setError(null);
     setPhase('idle');
-    setAccepted(null);
+    setAcceptedByUrl({});
     onClose();
   };
 
@@ -157,7 +150,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
         const result = await addRtspStream(vstApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
         if (!isCurrentAttempt()) return;
         sensorId = result.sensorId;
-        setAccepted({ sensorId, sensorUrl: trimmedUrl });
+        setAcceptedByUrl((prev) => ({ ...prev, [trimmedUrl]: sensorId }));
         setPhase('confirming');
       }
 

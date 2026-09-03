@@ -234,6 +234,36 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     expect(onAwaitStream).toHaveBeenCalledTimes(2);
   });
 
+  // A second accepted URL must not forget the first. Reverting the field and
+  // re-POSTing would be a duplicate of a sensor VST already holds.
+  it('resumes the wait for an earlier URL after a later URL also times out', async () => {
+    const onAwaitStream = jest.fn(async () => ({ found: false }));
+    mockAddRtspStream
+      .mockResolvedValueOnce({ sensorId: 'sensor-first' })
+      .mockResolvedValueOnce({ sensorId: 'sensor-second' });
+    renderDialog({ onAwaitStream });
+
+    fillUrl();
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    fillUrl('rtsp://cam.example.com:554/cam02');
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
+
+    fillUrl();
+    expect(submitButton()).toHaveTextContent('Retry');
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
+    expect(onAwaitStream).toHaveBeenLastCalledWith('sensor-first');
+  });
+
   it('surfaces an add failure without waiting on a sensor it never got', async () => {
     mockAddRtspStream.mockRejectedValueOnce(
       new Error('{"error_code":"InvalidParameterError","error_message":"sensor exists"}'),
