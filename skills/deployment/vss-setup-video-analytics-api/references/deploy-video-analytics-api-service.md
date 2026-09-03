@@ -201,8 +201,9 @@ mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
 docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 
 docker ps --filter "name=vss-video-analytics-api" --format '{{.Names}}\t{{.Status}}'
-# The Compose service sets container_name explicitly.
-docker logs -f vss-video-analytics-api
+# Compose auto-names the standalone container <project>-<service>-<index>; project defaults to
+# the compose file's parent dir, so the full name is:
+docker logs -f video-analytics-api-vss-video-analytics-api-1
 ```
 
 Healthy log lines include:
@@ -252,7 +253,7 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` te
 **Inspect a mounted config inside the container** (same path as `command: node index.js --config …`):
 
 ```bash
-docker exec vss-video-analytics-api node -e \
+docker exec video-analytics-api-vss-video-analytics-api-1 node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```
 
