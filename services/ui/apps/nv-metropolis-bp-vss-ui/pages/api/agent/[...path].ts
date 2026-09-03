@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { agentGatewayProxyHandler } from "../../../utils/server/agentGateway";
-
 export const config = {
   api: {
     bodyParser: {
@@ -11,4 +9,4 @@ export const config = {
   },
 };
 
-export default agentGatewayProxyHandler;
+export { agentGatewayProxyHandler as default } from "../../../utils/server/agentGateway";

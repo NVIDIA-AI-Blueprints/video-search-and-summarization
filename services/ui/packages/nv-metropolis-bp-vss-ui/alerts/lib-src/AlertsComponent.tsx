@@ -287,7 +287,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
       (artifact) => artifact.kind === 'vss.alert.incidents',
     );
     if (!hasAlertArtifact) return false;
-    void refetch({ includeSensorList: true });
+    refetch({ includeSensorList: true });
     return true;
   };
   const forwardAgentAnswer = React.useCallback(
@@ -303,7 +303,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   React.useEffect(() => {
     if (!registerSidebarChatEventSubscriber) return;
     return registerSidebarChatEventSubscriber((event) => {
-      if (event.type === 'answerComplete') void refetch();
+      if (event.type === 'answerComplete') refetch();
     });
   }, [registerSidebarChatEventSubscriber, refetch]);
 
