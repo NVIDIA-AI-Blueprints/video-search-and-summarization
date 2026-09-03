@@ -86,12 +86,12 @@ WORKDIR /repo
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/.next/standalone ./apps/nv-metropolis-bp-vss-ui/
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/.next/static ./apps/nv-metropolis-bp-vss-ui/apps/nv-metropolis-bp-vss-ui/.next/static
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=755 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/public ./apps/nv-metropolis-bp-vss-ui/apps/nv-metropolis-bp-vss-ui/public
-COPY --from=target-native-deps --chown=${USER_ID}:${GROUP_ID} --chmod=555 /target-native-deps/node_modules/@img ./apps/nv-metropolis-bp-vss-ui/node_modules/@img
+COPY --from=target-native-deps --chmod=555 /target-native-deps/node_modules/@img ./apps/nv-metropolis-bp-vss-ui/node_modules/@img
 
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nemo-agent-toolkit-ui/.next/standalone ./apps/nemo-agent-toolkit-ui/
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nemo-agent-toolkit-ui/.next/static ./apps/nemo-agent-toolkit-ui/apps/nemo-agent-toolkit-ui/.next/static
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=755 /repo/services/ui/apps/nemo-agent-toolkit-ui/public ./apps/nemo-agent-toolkit-ui/apps/nemo-agent-toolkit-ui/public
-COPY --from=target-native-deps --chown=${USER_ID}:${GROUP_ID} --chmod=555 /target-native-deps/node_modules/@img ./apps/nemo-agent-toolkit-ui/node_modules/@img
+COPY --from=target-native-deps --chmod=555 /target-native-deps/node_modules/@img ./apps/nemo-agent-toolkit-ui/node_modules/@img
 
 # Copy required configuration files with their dependencies for next-runtime-env in custom-server.js (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/node_modules/next-runtime-env ./node_modules/next-runtime-env
