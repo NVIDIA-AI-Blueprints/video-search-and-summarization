@@ -236,7 +236,8 @@ services:
         {"name": "mdx-vlm-captions"},
         {"name": "mdx-structured-events-summary"},
         {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"}]'
+        {"name": "mdx-embed-filtered"},
+        {"name": "mdx-compressed-embeddings"}]'
     depends_on:
       kafka:
         condition: service_healthy
@@ -344,7 +345,8 @@ services:
         {"name": "mdx-vlm-captions"},
         {"name": "mdx-structured-events-summary"},
         {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"}]'
+        {"name": "mdx-embed-filtered"},
+        {"name": "mdx-compressed-embeddings"}]'
     container_name: vss-broker-health-check
     restart: "no"
 

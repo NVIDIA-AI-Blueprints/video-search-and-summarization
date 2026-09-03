@@ -293,6 +293,14 @@
       "notes": "Built by GitHub with the managed first-party image set; GitLab consumes the exact GHCR digest."
     },
     {
+      "name": "reid-embed",
+      "strategy": "mirror",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["reid-embed"],
+      "tag_variables": ["VSS_REID_EMBED_TAG"],
+      "notes": "Docker-only (warehouse MV3DT). Coordinates live in containers.env as VSS_REID_EMBED_IMAGE / VSS_REID_EMBED_TAG; not in this repo's GHCR build set."
+    },
+    {
       "name": "vss-auto-calibration",
       "strategy": "mirror",
       "platforms": ["linux/amd64"],

@@ -601,6 +601,20 @@ commons:
         updates:
           property.model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b${final_stream_count}_gpu0_fp16.engine
 
+      # Keep the tracker's ReIDService port in step with the port reid-embed-mv3dt
+      # actually binds; DeepStream does not expand env vars in its own configs.
+      # text_replace rather than yaml_update so the surrounding ReID block keeps
+      # its inline comments, which a round-trip through a YAML parser would put
+      # at risk. servicePort occurs once, hence the line-anchored pattern.
+      - operation_type: "text_replace"
+        target_file: "${DS_CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+        backup: true
+        operations:
+          - action: "replace"
+            pattern: '(?m)^(\s*)servicePort:.*$'
+            replacement: '\1servicePort: ${REID_SERVICE_PORT}'
+            regex: true
+
       # Update NVStreamer configs
       - operation_type: "json_update"
         target_file: ${VSS_APPS_DIR}/services/nvstreamer/configs/vst-config.json
