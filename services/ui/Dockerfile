@@ -3,9 +3,10 @@ ARG GROUP_ID=65532
 ARG BUILD_TYPE=prod
 
 
-# Builder phase. This remains target-platform-specific because the dependency
-# graph includes native SWC/Sharp/Turbo packages.
-FROM node:22.23.2 AS builder
+# Build the architecture-independent Next.js output once on the native build
+# host. SWC and Turbo are build-only dependencies, so their architecture does
+# not need to match the runtime image.
+FROM --platform=$BUILDPLATFORM node:22.23.2 AS builder
 ARG USER_ID
 ARG GROUP_ID
 
@@ -34,6 +35,37 @@ RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
     chown -R ${USER_ID}:${GROUP_ID} apps/nemo-agent-toolkit-ui/public
 
 
+# Next.js traces Sharp into the standalone runtime. Resolve only that small
+# native dependency set for each target architecture while still running npm
+# natively on the build host; this avoids repeating the full UI build in QEMU.
+FROM --platform=$BUILDPLATFORM node:22.23.2 AS target-native-deps
+ARG TARGETARCH
+
+COPY services/ui/package-lock.json /tmp/package-lock.json
+
+# npm validates direct package CPU against the build host, so --force is needed
+# for the cross-target fetch. Scripts stay disabled and versions are lock-pinned.
+RUN case "${TARGETARCH}" in \
+      amd64) npm_cpu=x64 ;; \
+      arm64) npm_cpu=arm64 ;; \
+      *) echo "Unsupported target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    sharp_package="@img/sharp-linux-${npm_cpu}" && \
+    libvips_package="@img/sharp-libvips-linux-${npm_cpu}" && \
+    sharp_version="$(node -p \
+      "require('/tmp/package-lock.json').packages['node_modules/${sharp_package}'].version")" && \
+    libvips_version="$(node -p \
+      "require('/tmp/package-lock.json').packages['node_modules/${libvips_package}'].version")" && \
+    npm_config_cpu="${npm_cpu}" npm_config_os=linux \
+      npm install \
+        --prefix /target-native-deps \
+        --force \
+        --ignore-scripts \
+        --no-package-lock \
+        "${sharp_package}@${sharp_version}" \
+        "${libvips_package}@${libvips_version}"
+
+
 # Conditional runner phase
 FROM nvcr.io/nvidia/distroless/node:22-v4.1.2 AS runner-prod
 ARG BUILD_TYPE
@@ -54,10 +86,12 @@ WORKDIR /repo
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/.next/standalone ./apps/nv-metropolis-bp-vss-ui/
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/.next/static ./apps/nv-metropolis-bp-vss-ui/apps/nv-metropolis-bp-vss-ui/.next/static
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=755 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/public ./apps/nv-metropolis-bp-vss-ui/apps/nv-metropolis-bp-vss-ui/public
+COPY --from=target-native-deps --chown=${USER_ID}:${GROUP_ID} --chmod=555 /target-native-deps/node_modules/@img ./apps/nv-metropolis-bp-vss-ui/node_modules/@img
 
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nemo-agent-toolkit-ui/.next/standalone ./apps/nemo-agent-toolkit-ui/
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nemo-agent-toolkit-ui/.next/static ./apps/nemo-agent-toolkit-ui/apps/nemo-agent-toolkit-ui/.next/static
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=755 /repo/services/ui/apps/nemo-agent-toolkit-ui/public ./apps/nemo-agent-toolkit-ui/apps/nemo-agent-toolkit-ui/public
+COPY --from=target-native-deps --chown=${USER_ID}:${GROUP_ID} --chmod=555 /target-native-deps/node_modules/@img ./apps/nemo-agent-toolkit-ui/node_modules/@img
 
 # Copy required configuration files with their dependencies for next-runtime-env in custom-server.js (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/node_modules/next-runtime-env ./node_modules/next-runtime-env
