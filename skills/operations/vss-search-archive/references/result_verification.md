@@ -98,6 +98,9 @@ missing criteria or broaden the interval. State that fallback evidence is one
 representative image. If it is unavailable, retain the retrieval hit and report
 verification as unavailable.
 
-Keep progress implementation-neutral: say that verification is running or
-that a secondary method is being used. Do not expose skill, model, endpoint, or
-parser details.
+Keep progress and the final reply implementation-neutral: say that
+verification is running or that a secondary method is being used, then report
+the verdict and the visual evidence for it. Do not expose skill, model,
+endpoint, or parser details, and name the source as the user did rather than by
+its resolved UUID — those describe how the answer was produced, not what was
+seen.

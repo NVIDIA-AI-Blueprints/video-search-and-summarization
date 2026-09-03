@@ -4,13 +4,13 @@
 
 | Capability | Canonical service profile keys | Foundation |
 |---|---|---|
-| Stream and hardware configuration rendering | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` | `warehouse` |
+| Stream and hardware configuration rendering | `bp-configurator-<mode>` | `warehouse` |
 
-`<mode>` is `2d` or `3d`; both use the container name `vss-configurator`.
+`<mode>` is `2d`, `3d` or `mv3dt`; all use the container name `vss-configurator`.
 
-> **`bp-configurator-<mode>-init` renders no config.** Despite the name it is a
-> one-shot **broker readiness gate**: it polls Kafka/Redis and exits `0`. An
-> `Exited (0)` is success.
+> The broker readiness gate is a separate key, `broker-health-check` — a one-shot
+> that polls Kafka/Redis and exits `0`, which perception and analytics wait on via
+> `service_completed_successfully`. An `Exited (0)` is success.
 
 ## Required peers
 

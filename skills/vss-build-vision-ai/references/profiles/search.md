@@ -15,8 +15,11 @@ Authoritative source:
 `deploy/docker/developer-profiles/dev-profile-search/overrides.env`.
 
 ```text
-kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,init-dirs,render-config,wdm-env-from-config,wait-for-redis,sdr-controller,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}
+kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-api,nvstreamer-2d-fusion,perception-2d-fusion,vss-agent,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-embed,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,rtvi-vlm,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
+
+Docker search runs VIOS in **direct** mode (`VST_USE_SDRC=false`, no SDRC
+compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 
 ## Capability owners present
 
@@ -27,7 +30,7 @@ kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-
 | RT-Embed | `rtvi-embed` |
 | RT-VLM | `rtvi-vlm` |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-search` |
-| VIOS | `nvstreamer-2d-fusion`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sdr-controller`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
+| VIOS | `nvstreamer-2d-fusion`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
 | Agent | `vss-agent`, `vss-ui`, `phoenix` |
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
@@ -36,9 +39,12 @@ kibana-init-container-search,vss-search-analytics-2d-fusion,vss-video-analytics-
 
 | Knob | Purpose |
 |---|---|
+| `VST_USE_SDRC`, `VST_NGINX_MODE`, `STREAM_PROCESSOR_MODULE_ENDPOINT` | Pin VIOS to direct routing (`false` / `vst` / `http://vss-vios-streamprocessing:30001`). All three move together — see `services/vios.md`. A build that reintroduces SDRC must flip all three and re-add the SDRC compose tokens plus `SDR_CONTROLLER_CONFIG_PATH` / `SDRC_*_HOST_PORT`. |
+| `VST_ENABLE_NOTIFICATION` | Independent publish toggle for `vst.event` (Redis/Kafka) — not a routing knob. VIOS composes default it to `${VST_USE_SDRC:-false}`, so it follows the routing mode unless pinned; this profile pins it `false` explicitly since nothing here consumes `vst.event`. See `services/vios.md`. |
 | `RT_CV_DEVICE_ID`, `RTVI_CV_HOST_PORT`, `DS_MODEL_FAMILY` | Configure the perception pipeline. |
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the vision encoder NGC artifact downloaded by ds-start phase 0; the checked-in RT-CV config uses the fixed RT-DETR warehouse artifact. |
 | `RT_EMBED_DEVICE_ID`, `RTVI_EMBED_PORT`, `MODEL_PATH`, `HF_TOKEN` | Place and configure RT-Embed. |
+| `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `ERROR_BUS` | RT-Embed's output and error buses, set to `kafka`/`mdx-embed`/`kafka` by this Foundation so the `mdx-embed` -> `mdx-embed-filtered` path indexes. Inherit them; see `../services/rt-embed.md` for builds on other Foundations. |
 | `VLM_NAME`, `VLM_BASE_URL`, `VLM_MODEL_TYPE`, `RTVI_VLM_*` | Wire the agent to RT-VLM for result critique and visual follow-up Q&A. Include these only when the build ships `rtvi-vlm` and the `vss-agent` tier that invokes it; critique is a per-request option (`use_critic`, default on), not a build-time flag — do not introduce an `ENABLE_CRITIC` delta. |
 | `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, `ELASTIC_SEARCH_INDEX` | Wire the agent to embedding and retrieval services. |
 | `ELASTICSEARCH_ENABLE_EMBEDDINGS`, `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM`, `ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM` | Configure indexed vectors. |

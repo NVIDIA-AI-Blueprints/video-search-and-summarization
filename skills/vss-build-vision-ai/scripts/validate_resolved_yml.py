@@ -38,6 +38,7 @@ FILE_TARGET_SUFFIXES = {
 }
 GENERATED_BIND_NAMES = {".wdm-env"}
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
+NGC_MODEL_REF = re.compile(r"(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
 NO_AGENT_UI_FLAGS = (
     "NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR",
@@ -117,9 +118,10 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
                     "time — set it and regenerate resolved.yml"
                 )
 
-    if ngc_required and not (seen["NGC_API_KEY"] or seen["NGC_CLI_API_KEY"]):
+    ngc_model_ref = any(NGC_MODEL_REF.search(value) for _, value in walk_strings(document))
+    if ngc_model_ref and not (seen["NGC_API_KEY"] or seen["NGC_CLI_API_KEY"]):
         errors.append(
-            "resolved model references NGC-gated artifacts (nvcr.io/ or ngc:) but no "
+            "resolved model references an ngc: model path but no "
             "NGC_API_KEY/NGC_CLI_API_KEY is wired into any service environment"
         )
     for key in extra_required:
