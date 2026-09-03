@@ -31,6 +31,14 @@ for report + trajectory evaluation that still depended on the agent container.
 Deploy the developer workflow (dev-base) blueprint so RT-VLM (Cosmos Reason 3)
 is reachable, then `vss configure --base-url <origin>`.
 
+Use a **routable** origin — `http://<host-ip>:7777`, not `localhost`. Clips are
+addressed as VIOS sensors so RT-VLM fetches them by URL, and that URL is built
+from the configured origin. A loopback origin mints a URL that means nothing
+inside the RT-VLM container, so the CLI inlines the clip as base64 instead and
+the larger `vss-devx-base` videos fail with
+`HTTP 422 ... content ... valid string`. `--inline-media` forces inlining and is
+only safe for clips under ~10 MB.
+
 
 ### 1. Download the `eval` Dataset
 
