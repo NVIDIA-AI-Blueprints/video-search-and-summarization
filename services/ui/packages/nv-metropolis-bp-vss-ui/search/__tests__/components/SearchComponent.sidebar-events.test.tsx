@@ -143,6 +143,26 @@ describe('SearchComponent sidebar events', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it('pushes current Search filters into Chat context before paint', () => {
+    const addChatQueryContext = jest.fn();
+    render(
+      <SearchComponent
+        {...defaultProps}
+        addChatQueryContext={addChatQueryContext}
+      />,
+    );
+
+    expect(addChatQueryContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'vss-search-filters',
+        data: expect.objectContaining({
+          top_k: 10,
+          min_cosine_similarity: 0.5,
+        }),
+      }),
+    );
+  });
+
   it('applies Search-tab filters to Chat-derived result cards', () => {
     let chatAnswerHandler: ((answer: string) => boolean | void) | undefined;
     const registerChatAnswerHandler = jest.fn((handler) => {

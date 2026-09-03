@@ -195,7 +195,7 @@ export const Chat = () => {
 
   const [queryContextItems, setQueryContextItems] = useState<QueryDataContext[]>([]);
   const queryContextRef = useRef<QueryDataContext[]>([]);
-  useEffect(() => { queryContextRef.current = queryContextItems; }, [queryContextItems]);
+  queryContextRef.current = queryContextItems;
 
   const getActiveConversationId = useCallback(
     () => selectedConversationRef.current?.id,
@@ -215,15 +215,18 @@ export const Chat = () => {
   const handleAddQueryContext = useCallback((item: QueryDataContext) => {
     setQueryContextItems((prev) => {
       const index = prev.findIndex((c) => c.id === item.id);
-      if (index === -1) return [...prev, item];
-      const next = [...prev];
-      next[index] = item;
+      const next = index === -1 ? [...prev, item] : prev.map((c, i) => (i === index ? item : c));
+      queryContextRef.current = next;
       return next;
     });
   }, []);
 
   const handleRemoveQueryContext = useCallback((itemId: string) => {
-    setQueryContextItems((prev) => prev.filter((c) => c.id !== itemId));
+    setQueryContextItems((prev) => {
+      const next = prev.filter((c) => c.id !== itemId);
+      queryContextRef.current = next;
+      return next;
+    });
   }, []);
 
   const [currentMessage, setCurrentMessage] = useState<Message>();
@@ -1859,6 +1862,7 @@ export const Chat = () => {
               );
               const prefix = `[Context: ${contextJson}]`;
               message = { ...message, content: message.content ? `${prefix}\n\n${message.content}` : prefix };
+              queryContextRef.current = [];
               setQueryContextItems([]);
             }
             setCurrentMessage(message);

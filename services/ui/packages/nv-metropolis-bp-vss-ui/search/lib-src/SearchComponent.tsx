@@ -14,7 +14,7 @@ import { InfoRound as InfoRoundIcon } from '@rsuite/icons';
 import { VideoModalTooltip } from 'common';
 
 // Types
-import { SearchComponentProps, SearchData } from './types';
+import { SearchComponentProps, SearchData, SearchParams } from './types';
 
 // Hooks
 import { useSearchByImage } from './hooks/useSearchByImage';
@@ -79,6 +79,19 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
   const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl);  
   const { streams, filterParams, setFilterParams, addFilter, removeFilterTag, filterTags, refetch: refetchStreams } = useFilter({vstApiUrl});
+  const filterParamsRef = React.useRef(filterParams);
+  filterParamsRef.current = filterParams;
+
+  const setFilterParamsAndSyncChat = React.useCallback(
+    (params: SearchParams | ((prev: SearchParams) => SearchParams)) => {
+      const prev = filterParamsRef.current;
+      const next = typeof params === 'function' ? params(prev) : { ...prev, ...(params ?? {}) };
+      filterParamsRef.current = next;
+      setFilterParams(next);
+      addChatQueryContext?.(buildSearchFilterChatContext(next));
+    },
+    [setFilterParams, addChatQueryContext],
+  );
 
   // Map streamId (UUID) -> sensor name for /frames API lookup
   const sensorIdToNameMap = React.useMemo(() => {
@@ -139,16 +152,16 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     if (!submitChatMessage) return;
     const prompt = prefixMessageWithSearchFilters(
       `Find similar objects matching object_id=${objectId}`,
-      filterParams,
+      filterParamsRef.current,
     );
     submitChatMessage(prompt);
     if (addChatQueryContext) {
-      addChatQueryContext(buildSearchFilterChatContext(filterParams));
+      addChatQueryContext(buildSearchFilterChatContext(filterParamsRef.current));
     }
     cancelSearchByImage();
     closeVideoModal();
     setActiveVideoData(null);
-  }, [submitChatMessage, filterParams, addChatQueryContext, cancelSearchByImage, closeVideoModal]);
+  }, [submitChatMessage, addChatQueryContext, cancelSearchByImage, closeVideoModal]);
 
   const refetchStreamsRef = React.useRef(refetchStreams);
 
@@ -164,12 +177,12 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
   const syncSearchFiltersToChat = React.useCallback(() => {
     if (!addChatQueryContext) return;
-    addChatQueryContext(buildSearchFilterChatContext(filterParams));
-  }, [addChatQueryContext, filterParams]);
+    addChatQueryContext(buildSearchFilterChatContext(filterParamsRef.current));
+  }, [addChatQueryContext]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     syncSearchFiltersToChat();
-  }, [syncSearchFiltersToChat]);
+  }, [syncSearchFiltersToChat, filterParams]);
 
   // Stable forwarder + ref so Home's register callback stays identity-stable while we always invoke the latest parser/setState.
   const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
@@ -218,7 +231,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
         outerPadding={renderControlsInLeftSidebar ? '8px 8px 12px' : 0}
         streams={streams}
         filterParams={filterParams}
-        setFilterParams={setFilterParams}
+        setFilterParams={setFilterParamsAndSyncChat}
         addFilter={addFilter}
         removeFilterTag={removeFilterTag}
         filterTags={filterTags}
@@ -230,7 +243,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       renderControlsInLeftSidebar,
       streams,
       filterParams,
-      setFilterParams,
+      setFilterParamsAndSyncChat,
       addFilter,
       removeFilterTag,
       filterTags,
@@ -340,7 +353,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
             theme={isDark ? 'dark' : 'light'}
             streams={streams}
             filterParams={filterParams}
-            setFilterParams={setFilterParams}
+            setFilterParams={setFilterParamsAndSyncChat}
             addFilter={addFilter}
             removeFilterTag={removeFilterTag}
             filterTags={filterTags}
