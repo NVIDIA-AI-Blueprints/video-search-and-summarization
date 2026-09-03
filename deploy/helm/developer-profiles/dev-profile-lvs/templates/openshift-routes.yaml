@@ -23,6 +23,13 @@
 {{- $vios := index .Values "vios" | default dict }}
 {{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
 {{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
+{{- $summVals := index .Values "vss-summarization" | default dict }}
+{{- $summEnabled := default false (index $summVals "enabled") }}
+{{- $esVals := index (.Values.infra | default dict) "elasticsearch" | default dict }}
+{{- $esEnabled := default false (index $esVals "enabled") }}
+{{- $rtvi := index .Values "rtvi" | default dict }}
+{{- $vlmVals := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- $vlmEnabled := default false (index $vlmVals "enabled") }}
 # Route: / -> vss-agent-ui (port 3000)
 apiVersion: route.openshift.io/v1
 kind: Route
@@ -202,6 +209,93 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
+{{- if $summEnabled }}
+---
+# Route: /lvs -> vss-summarization (port 38111) — LVS summarization API
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-lvs
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /lvs
+  to:
+    kind: Service
+    name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.lvsBackendPort | default 38111 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $vlmEnabled }}
+---
+# Route: /rtvi-vlm -> vss-rtvi-vlm (port 8000) — VLM inference endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-rtvi-vlm
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /rtvi-vlm
+  to:
+    kind: Service
+    name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.rtviVlmPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $esEnabled }}
+---
+# Route: /elasticsearch -> elasticsearch (port 9200)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-elasticsearch
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /elasticsearch
+  to:
+    kind: Service
+    name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "elasticsearch") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.elasticsearchPort | default 9200 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
 {{- if $phoenixEnabled }}
 ---
 # Route: /phoenix -> phoenix (port 6006)

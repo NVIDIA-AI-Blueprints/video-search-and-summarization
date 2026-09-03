@@ -32,6 +32,17 @@
 {{- $agentEnabled := and (index $agent "enabled" | default true) $vssAgent.enabled }}
 {{- $vioIng := index $vios "vss-vios-ingress" | default dict }}
 {{- $vioIngEnabled := default false $vioIng.enabled }}
+{{- $rtvi := index .Values "rtvi" | default dict }}
+{{- $vlmVals := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- $vlmEnabled := default false (index $vlmVals "enabled") }}
+{{- $cvVals := index $rtvi "vss-rtvi-cv" | default dict }}
+{{- $cvEnabled := default false (index $cvVals "enabled") }}
+{{- $embedVals := index $rtvi "vss-rtvi-embed" | default dict }}
+{{- $embedEnabled := default false (index $embedVals "enabled") }}
+{{- $esVals := index (.Values.infra | default dict) "elasticsearch" | default dict }}
+{{- $esEnabled := default false (index $esVals "enabled") }}
+{{- $behaviorVals := index $analytics "vss-behavior-analytics" | default dict }}
+{{- $behaviorEnabled := default false (index $behaviorVals "enabled") }}
 {{- if $agentUiEnabled }}
 # Route: / -> vss-agent-ui (port 3000)
 apiVersion: route.openshift.io/v1
@@ -227,6 +238,141 @@ spec:
     weight: 100
   port:
     targetPort: {{ $ing.videoAnalyticsApiPort | default 8081 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $vlmEnabled }}
+---
+# Route: /rtvi-vlm -> vss-rtvi-vlm (port 8000) — VLM inference endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-rtvi-vlm
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /rtvi-vlm
+  to:
+    kind: Service
+    name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
+    weight: 100
+  port:
+    targetPort: {{ $ing.rtviVlmPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $cvEnabled }}
+---
+# Route: /rtvi-cv -> vss-rtvi-cv (port 9000) — real-time computer vision endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-rtvi-cv
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /rtvi-cv
+  to:
+    kind: Service
+    name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-cv") }}
+    weight: 100
+  port:
+    targetPort: {{ $ing.rtviCvPort | default 9000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $embedEnabled }}
+---
+# Route: /rtvi-embed -> vss-rtvi-embed (port 8000) — Cosmos Embed endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-rtvi-embed
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /rtvi-embed
+  to:
+    kind: Service
+    name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-embed") }}
+    weight: 100
+  port:
+    targetPort: {{ $ing.rtviEmbedPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $esEnabled }}
+---
+# Route: /elasticsearch -> elasticsearch (port 9200)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-elasticsearch
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /elasticsearch
+  to:
+    kind: Service
+    name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "elasticsearch") }}
+    weight: 100
+  port:
+    targetPort: {{ $ing.elasticsearchPort | default 9200 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $behaviorEnabled }}
+---
+# Route: /behavior-analytics -> vss-behavior-analytics (port 8080)
+# No path rewrite: the canonical route table forwards this path intact.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-behavior-analytics
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "3600s"
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /behavior-analytics
+  to:
+    kind: Service
+    name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-behavior-analytics") }}
+    weight: 100
+  port:
+    targetPort: {{ $ing.behaviorAnalyticsPort | default 8080 }}
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect

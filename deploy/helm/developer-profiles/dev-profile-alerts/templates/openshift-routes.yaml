@@ -26,6 +26,14 @@
 {{- $analyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
 {{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}
 {{- $alertBridgeEnabled := default false (index $alertBridgeVals "enabled") }}
+{{- $esVals := index $infra "elasticsearch" | default dict }}
+{{- $esEnabled := default false (index $esVals "enabled") }}
+{{- $agentRoot := index .Values "agent" | default dict }}
+{{- $vaMcpVals := index $agentRoot "vss-va-mcp" | default dict }}
+{{- $vaMcpEnabled := default false (index $vaMcpVals "enabled") }}
+{{- $rtvi := index .Values "rtvi" | default dict }}
+{{- $cvVals := index $rtvi "vss-rtvi-cv" | default dict }}
+{{- $cvEnabled := default false (index $cvVals "enabled") }}
 {{- $vios := index .Values "vios" | default dict }}
 {{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
 {{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
@@ -262,6 +270,93 @@ spec:
     weight: 100
   port:
     targetPort: {{ $vi.alertBridgePort | default 9080 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $vaMcpEnabled }}
+---
+# Route: /va-mcp -> vss-va-mcp (port 9901) — Video Analytics MCP endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-va-mcp
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /va-mcp
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-va-mcp") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.vaMcpPort | default 9901 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $esEnabled }}
+---
+# Route: /elasticsearch -> elasticsearch (port 9200)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-elasticsearch
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /elasticsearch
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "elasticsearch") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.elasticsearchPort | default 9200 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if $cvEnabled }}
+---
+# Route: /rtvi-cv -> vss-rtvi-cv (port 9010) — real-time computer vision endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-rtvi-cv
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /rtvi-cv
+  to:
+    kind: Service
+    name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-cv") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.rtviCvPort | default 9010 }}
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect

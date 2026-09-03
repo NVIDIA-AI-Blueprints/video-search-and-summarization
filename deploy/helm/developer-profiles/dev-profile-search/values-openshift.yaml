@@ -37,12 +37,15 @@ global:
   externalScheme: "https"
 
 # Disable Kubernetes Ingress (replaced by OpenShift Routes in openshift-routes.yaml)
+# This profile's Ingress template reads `ingress:` (the legacy key) with priority
+# over `vssIngress:` — see templates/vss-ingress.yaml line "if hasKey $legacy".
+# Setting `ingress.enabled: false` here is intentional and correct for this chart.
 ingress:
   enabled: false
 
 # GPU settings for OpenShift cluster (set nims.gpuType via --set if needed)
 nims:
-  nemotron:
+  nemotron35:
     tolerations:
       # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
       # - key: "nvidia.com/gpu"
@@ -89,6 +92,12 @@ rtvi:
       #   operator: Exists
       #   effect: NoSchedule
   vss-rtvi-embed:
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+  vss-rtvi-vlm:
     tolerations:
       # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
       # - key: "nvidia.com/gpu"

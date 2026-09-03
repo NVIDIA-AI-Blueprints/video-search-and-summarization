@@ -195,4 +195,56 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /phoenix -> phoenix (port 6006)
+# Phoenix is configured with PHOENIX_HOST_ROOT_PATH=/phoenix so no path rewrite needed.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-phoenix
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /phoenix
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.phoenixPort | default 6006 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# Route: /rtvi-vlm -> vss-rtvi-vlm (port 8000) — VLM inference endpoint
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ .Release.Name }}-vss-rtvi-vlm
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"
+    haproxy.router.openshift.io/rewrite-target: /
+spec:
+  {{- if $host }}
+  host: {{ $host | quote }}
+  {{- end }}
+  path: /rtvi-vlm
+  to:
+    kind: Service
+    name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-rtvi-vlm" "chartName" "vss-rtvi-vlm") }}
+    weight: 100
+  port:
+    targetPort: {{ $vi.rtviVlmPort | default 8000 }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
 {{- end }}

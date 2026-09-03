@@ -43,7 +43,7 @@ vssIngress:
 
 # GPU settings for OpenShift cluster (set nims.gpuType via --set if needed)
 nims:
-  nemotron:
+  nemotron35:
     tolerations:
       # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
       # - key: "nvidia.com/gpu"
@@ -84,6 +84,12 @@ vios:
 # RTVI: null security contexts + GPU tolerations
 rtvi:
   vss-rtvi-cv:
+    tolerations:
+      # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
+      # - key: "nvidia.com/gpu"
+      #   operator: Exists
+      #   effect: NoSchedule
+  vss-rtvi-vlm:
     tolerations:
       # Tolerations for GPU-tainted nodes (uncomment and adjust for your cluster).
       # - key: "nvidia.com/gpu"
