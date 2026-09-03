@@ -268,33 +268,32 @@ jobs:
             exit 1
           }
 
-      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+      - name: Load eval env (GitHub secrets; no coordinator host)
+        env:
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CI_NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
         run: |
-          # Coordinator hosts keep secrets in /home/ubuntu/eval-coordinator/.env.
-          # OpenShell GPU runners keep the same keys in $HOME/.eval_env.
+          # Direct OpenShell GHA guests: secrets are injected on the agent
+          # step from repository secrets. An optional guest $HOME/.eval_env
+          # may overlay extra keys; it is never required. Do not persist
+          # API keys into GITHUB_ENV on a self-hosted VM.
           # Don't echo contents.
-          COORD_ENV="${SKILL_EVAL_ENV_FILE:-}"
-          if [ -z "$COORD_ENV" ]; then
-            for cand in "$HOME/.eval_env" /home/ubuntu/eval-coordinator/.env; do
-              [ -s "$cand" ] && COORD_ENV="$cand" && break
-            done
+          GUEST_ENV=""
+          if [ -n "${SKILL_EVAL_ENV_FILE:-}" ] && [ -s "$SKILL_EVAL_ENV_FILE" ]; then
+            GUEST_ENV="$SKILL_EVAL_ENV_FILE"
+          elif [ -s "${HOME}/.eval_env" ]; then
+            GUEST_ENV="${HOME}/.eval_env"
           fi
-          [ -n "$COORD_ENV" ] || { echo "no skill-eval env file" >&2; exit 1; }
-          set -a
-          # shellcheck source=/dev/null
-          source "$COORD_ENV"
-          set +a
-          printf "SKILL_EVAL_ENV_FILE=%s\n" "$COORD_ENV" >> "$GITHUB_ENV"
-          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          if [ -n "$GUEST_ENV" ]; then
+            printf "SKILL_EVAL_ENV_FILE=%s\n" "$GUEST_ENV" >> "$GITHUB_ENV"
+          fi
           printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
           # Pin Harbor to this guest whenever the planner placed the leg on
           # an OpenShell GHA cohort. Runner-name prefixes miss H200
           # (h200-2-g10-…) and send the agent down the coordinator brev path.
           if [ "${{ matrix.local_gpu }}" = "true" ]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
-            if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
-              printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
-            fi
+            printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
             # Do not persist corp remote LLM/VLM URLs into GITHUB_ENV.
             # Guests cannot reach 10.86.6.50; the skill then deploys
             # remote mode and local NIMs never occupy VRAM.
@@ -305,8 +304,14 @@ jobs:
             # sample-deployment judge requires a harness-provided NGC
             # resource (WAREHOUSE_APP_DATA_DIR or WAREHOUSE_APP_DATA_NGC).
             # Pin matches deploy/docker and helm 3.2.0 defaults.
-            if [ -z "${WAREHOUSE_APP_DATA_NGC:-}" ]; then
-              printf "WAREHOUSE_APP_DATA_NGC=nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0\n" >> "$GITHUB_ENV"
+            printf "WAREHOUSE_APP_DATA_NGC=nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0\n" >> "$GITHUB_ENV"
+            if [ -z "${CI_ANTHROPIC_API_KEY:-}" ]; then
+              echo "ANTHROPIC_API_KEY missing: set repository secret ANTHROPIC_API_KEY (OpenShell jobs do not use a coordinator .env)" >&2
+              exit 1
+            fi
+            if [ -z "${CI_NGC_CLI_API_KEY:-}" ]; then
+              echo "NGC_CLI_API_KEY missing: set repository secret NGC_CLI_API_KEY (OpenShell jobs do not use a coordinator .env)" >&2
+              exit 1
             fi
           fi
 
@@ -315,13 +320,14 @@ jobs:
         env:
           # github-actions[bot] token; scoped by the permissions: block.
           GH_TOKEN: ${{ github.token }}
-          # Prefer the rotatable repository secret for Anthropic auth. The
-          # coordinator .env remains the source for NGC/Brev and is loaded
-          # below, then this value is restored so it cannot overwrite the
-          # GitHub Actions secret.
+          # Repository secrets are the source of truth on OpenShell guests
+          # (no coordinator .env). Optional $HOME/.eval_env may overlay
+          # extra keys; GitHub secrets are restored after that source.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          CI_NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
+          CI_HF_TOKEN: ${{ secrets.HF_TOKEN }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -344,13 +350,19 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
-          set -a
-          # shellcheck source=/dev/null
-          source "${SKILL_EVAL_ENV_FILE:-$HOME/.eval_env}"   # Anthropic / NGC / Brev
-          set +a
-          # The coordinator .env is operator-managed and may define PATH.
-          # Reassert the per-leg runtime afterwards so Claude's Bash children
-          # use the same Python for adapters and run_leg.py.
+          guest_env="${SKILL_EVAL_ENV_FILE:-}"
+          if [ -z "$guest_env" ] && [ -s "${HOME}/.eval_env" ]; then
+            guest_env="${HOME}/.eval_env"
+          fi
+          if [ -n "$guest_env" ] && [ -s "$guest_env" ]; then
+            set -a
+            # shellcheck source=/dev/null
+            source "$guest_env"
+            set +a
+          fi
+          # A guest overlay may define PATH. Reassert the per-leg runtime
+          # afterwards so Claude's Bash children use the same Python for
+          # adapters and run_leg.py.
           export SKILL_EVAL_VENV="$skill_eval_venv_dir"
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
@@ -362,6 +374,13 @@ jobs:
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          if [ -n "${CI_NGC_CLI_API_KEY:-}" ]; then
+            export NGC_CLI_API_KEY="$CI_NGC_CLI_API_KEY"
+            export NVIDIA_API_KEY="$CI_NGC_CLI_API_KEY"
+          fi
+          if [ -n "${CI_HF_TOKEN:-}" ]; then
+            export HF_TOKEN="$CI_HF_TOKEN"
           fi
           # The repo secret is the NVIDIA inference-api key (same as helm-sync).
           # Hitting api.anthropic.com with it returns 401. Default the gateway

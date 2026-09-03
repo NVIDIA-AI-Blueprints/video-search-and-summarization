@@ -38,6 +38,9 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
             assert "uv tool run" in workflow
             assert "base64 -d" in workflow
             assert "python3.12" in workflow
+            assert "no skill-eval env file" not in workflow
+            assert "/home/ubuntu/eval-coordinator/.env" not in workflow
+            assert "secrets.NGC_CLI_API_KEY" in workflow
             assert not any(
                 line.startswith("#!/bin/sh") for line in workflow.splitlines()
             )
