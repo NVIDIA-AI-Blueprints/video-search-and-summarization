@@ -128,7 +128,7 @@ If you don't need image upload endpoints, you can drop this mount — the contai
 
 ### Elasticsearch (required)
 
-The server pings Elasticsearch on startup, then waits for the `insertion-timestamp-pipeline`. It does not bind port 8081 or make `/livez` available until both are ready. An open Elasticsearch port or a healthy cluster alone does not prove that the custom ingest pipeline exists.
+Elasticsearch-backed operations require the `insertion-timestamp-pipeline`. Ensure `elasticsearch-init-container` has created it; an open Elasticsearch port or a healthy cluster alone does not prove that the custom ingest pipeline exists. `/livez` is only a liveness response and does not check this prerequisite.
 
 Make sure the `elasticsearch.node` in your config matches the running ES instance. With `network_mode: "host"`, ES must also be on the host network.
 
@@ -181,7 +181,7 @@ The server auto-discovers controllers from `src/app/controllers/rest-apis/` and 
 | `/tracker` | Cross-sensor tracking: unique object counts and locations, full unique-object records with constituent behaviors, behavior locations matched to a global object, and last RTLS / AMR source record. |
 | `/clustering` | Retrieves sampled behavior clusters for a sensor and time range (`/clustering/behavior`); adds a label to a behavior cluster (`/clustering/add-label`). |
 
-The server must initialize against Elasticsearch, `insertion-timestamp-pipeline`, and any configured Kafka topics before `/livez` can return healthy. Data-query endpoints also need matching Elasticsearch indices and data. Endpoints that publish notifications (config, calibration) or expose RTLS / AMR streams also require Kafka.
+Data-query endpoints require Elasticsearch, the `insertion-timestamp-pipeline`, matching indices, and data. Endpoints that use configured Kafka features require their topics. `/livez` reports only that its HTTP route is live; Endpoints that publish notifications (config, calibration) or expose RTLS / AMR streams also require Kafka.
 
 ---
 
@@ -212,7 +212,7 @@ Healthy log lines include:
 {"timestamp":"...","level":"info","message":"[SERVER] Listening on port: 8081"}
 ```
 
-Verify the health endpoint:
+Verify the liveness endpoint:
 
 ```bash
 curl -sf http://localhost:8081/livez && echo "OK" || echo "DOWN"
@@ -224,7 +224,7 @@ While the ingest pipeline is absent, the API emits:
 {"message":"[ELASTICSEARCH] Ingest pipeline is not present.","pipelineId":"insertion-timestamp-pipeline"}
 ```
 
-The API checks once per second until the pipeline exists, then, only with `STREAM_TYPE=kafka` and configured brokers, performs the same loop for Kafka requirements. This is expected when the API starts before its infrastructure; wait for `/livez` rather than treating the container's running state or Elasticsearch port 9200 as API readiness.
+Logs reporting a missing ingest pipeline or Kafka requirement identify a dependency that must be fixed for the affected API operations. A `/livez` response remains only a liveness signal; verify Elasticsearch, the pipeline, Kafka, and any required data independently for end-to-end readiness.
 
 ## Teardown
 
@@ -240,12 +240,12 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` te
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| API never exposes `/livez`; logs say `Ingest pipeline is not present` | Elasticsearch is reachable but `insertion-timestamp-pipeline` has not been created. | Start or repair `elasticsearch-init-container`; verify with `curl -sf http://localhost:9200/_ingest/pipeline/insertion-timestamp-pipeline`. |
-| API never exposes `/livez`; logs say `Required Kafka topics are not present` | `STREAM_TYPE=kafka` with configured brokers, but one or more requirements are absent. | Create `mdx-notification`, `mdx-amr`, and a topic matching `mdx-rtls*`; select `STREAM_TYPE=redis`; or set `kafka.brokers: []`. |
+| Logs say `Ingest pipeline is not present` | Elasticsearch is reachable but `insertion-timestamp-pipeline` has not been created. | Start or repair `elasticsearch-init-container`; verify with `curl -sf http://localhost:9200/_ingest/pipeline/insertion-timestamp-pipeline`. `/livez` can still return 200. |
+| Logs say `Required Kafka topics are not present` | `STREAM_TYPE=kafka` with configured brokers, but one or more requirements are absent. | Create `mdx-notification`, `mdx-amr`, and a topic matching `mdx-rtls*`; select `STREAM_TYPE=redis`; or set `kafka.brokers: []`. `/livez` can still return 200. |
 | `[INPUT ERROR] Invalid path for bootstrap config file.` | The `--config` path doesn't exist inside the container. | Verify the volume mount target matches the `--config` flag path. Use an absolute path. |
 | Compose tries to mount `/data_log/vss_video_analytics_api` from the filesystem root | `$VSS_DATA_DIR` is unset while the default data-log bind mount is still present. | Export `VSS_DATA_DIR` to a writable host path and create `$VSS_DATA_DIR/data_log/vss_video_analytics_api`, or remove the `/web-api-app/files` mount if image uploads are not needed. |
 | `EADDRINUSE` | Port 8081 (or your configured port) is already in use. | Check with `ss -tlnp | grep :8081`. Stop the conflicting process or change `server.port` in the config. |
-| Container is running but port 8081 is unavailable | API is waiting for its Elasticsearch pipeline or configured Kafka requirements. | Read container logs for the missing readiness requirement; `/livez` returns 200 only after all gates pass. |
+| Container is running but port 8081 is unavailable | Host-port publication or a network path is unavailable. | Check the Compose port mapping and host network path. Dependency logs can explain unavailable API operations, but are independent of `/livez`. |
 | `/livez` returns 200 but data endpoints return empty results | Elasticsearch indices don't exist or have no data. | Check indices: `curl -s http://localhost:9200/_cat/indices?v \| grep mdx`. If empty, the upstream pipeline (behavior-analytics, perception) hasn't produced data yet. |
 | Config update via POST `/config` times out | The ACK from behavior-analytics didn't arrive within `configStatusTimeoutMs`. | Check that behavior-analytics is running and consuming from `mdx-notification`. Check the `configStatusTimeoutMs` value (default `30000`ms). |
 | Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.0.7`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
