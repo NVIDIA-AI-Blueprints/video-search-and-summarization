@@ -2554,8 +2554,6 @@ numpy,UNKNOWN,BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0,services/rtvi/r
 numpy,UNKNOWN,BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0,skills/benchmarking,python,manifest,skills/benchmarking/benchmark-video-summarization/scripts/requirements.txt,runtime,no,no,no,declared-manifest,None
 numpy/numpy,v2.2.6,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,source,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,no,build-fetch,Unknown
 nuscenes,UNKNOWN,UNKNOWN,libs/analytics/spatialai-data-utils,python,usage,libs/analytics/spatialai-data-utils/spatialai_data_utils/core/boxes/aicity_box.py,runtime,no,no,no,imported-only,Unknown
-nvcr.io/nim/nvidia/cosmos-reason1-7b,1.4.1,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/cosmos-reason1-7b/compose.yml,runtime,no,no,yes,container-image,Unknown
-nvcr.io/nim/nvidia/cosmos-reason2-8b,1.6.0,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/cosmos-reason2-8b/compose.yml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nim/nvidia/cosmos3-reasoner,1.7,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/cosmos3-reasoner/compose.yml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b,2.0.9-variant,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/compose.yml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/base/ubuntu,24.04,UNKNOWN,services/vios,container,container,services/vios/deployment/scaling/ingress/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2586,7 +2584,6 @@ nvcr.io/nvidia/k8s/dcgm-exporter,4.2.0-4.1.0-ubuntu22.04,UNKNOWN,services/rtvi/r
 nvcr.io/nvidia/pytorch,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/tritonserver,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/tritonserver,26.03-py3@sha256:72d1d796b49a17e6432d4908c95969be0dded2f4d06469fa0824a71ecf0b895b,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/vllm,25.12.post1-py3,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/qwen3-vl-8b-instruct/compose.yml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/vllm,26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/vllm,26.07-py3,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml,runtime,no,no,yes,container-image,Unknown
 NVIDIA-AI-IOT/deepstream_python_apps,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,source,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,no,build-fetch,Unknown
