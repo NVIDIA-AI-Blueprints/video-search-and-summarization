@@ -1353,6 +1353,8 @@ jobs:
           python3 .github/scripts/test_check_agent_forwarded_proto.py
           python3 .github/scripts/check_gateway_host_acls.py
           python3 .github/scripts/test_check_gateway_host_acls.py
+          python3 .github/scripts/check_helm_alias_root_rewrites.py
+          python3 .github/scripts/test_check_helm_alias_root_rewrites.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_ingress_rewrites.py
