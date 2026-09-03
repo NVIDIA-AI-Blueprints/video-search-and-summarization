@@ -10,8 +10,13 @@ export const strictJsonParse = (source: string): unknown => {
   const fail = (): never => {
     throw new SyntaxError("invalid strict JSON");
   };
+  const isWhitespace = (character: string | undefined): boolean =>
+    character === " " ||
+    character === "\t" ||
+    character === "\n" ||
+    character === "\r";
   const whitespace = (): void => {
-    while (/[\u0009\u000a\u000d\u0020]/u.test(source[cursor] ?? "")) {
+    while (isWhitespace(source[cursor])) {
       cursor += 1;
     }
   };
@@ -26,7 +31,7 @@ export const strictJsonParse = (source: string): unknown => {
         cursor += 1;
         return JSON.parse(source.slice(start, cursor)) as string;
       }
-      if (!escaped && character.charCodeAt(0) < 0x20) fail();
+      if (!escaped && (character.codePointAt(0) ?? 0) < 0x20) fail();
       if (!escaped && character === "\\") {
         escaped = true;
       } else {

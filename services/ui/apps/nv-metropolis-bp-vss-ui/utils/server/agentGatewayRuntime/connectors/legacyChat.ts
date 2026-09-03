@@ -16,6 +16,9 @@ import {
 import { type Connector, ConnectorError, connectorCapabilities } from "./base";
 import { createHash } from "node:crypto";
 
+const asString = (value: unknown, fallback: string): string =>
+  typeof value === "string" ? value : fallback;
+
 export class LegacyChatConnector implements Connector {
   readonly protocol = "legacy-chat";
   readonly capabilities = connectorCapabilities(this.protocol);
@@ -34,10 +37,10 @@ export class LegacyChatConnector implements Connector {
 
   private static stepEvent(payload: unknown): ConnectorEvent | null {
     if (!isJsonObject(payload)) return null;
-    const status = String(payload.status || "in_progress").toLowerCase();
+    const status = asString(payload.status, "in_progress").toLowerCase();
     const data = {
-      tool_call_id: String(payload.id || "tool"),
-      name: String(payload.name || "Agent step"),
+      tool_call_id: asString(payload.id, "tool"),
+      name: asString(payload.name, "Agent step"),
       payload: payload.payload,
     };
     if (["complete", "completed", "success", "succeeded"].includes(status)) {
@@ -103,12 +106,15 @@ export class LegacyChatConnector implements Connector {
       timeout.cleanup();
       if (signal.aborted) return;
       if (timeout.signal.aborted) {
-        throw new ConnectorError("backend timed out", "backend_timeout", true);
+        throw new ConnectorError("backend timed out", "backend_timeout", true, {
+          cause: error,
+        });
       }
       throw new ConnectorError(
         "backend is unreachable",
         "backend_unreachable",
-        true
+        true,
+        { cause: error }
       );
     }
     if (!response.ok) {
@@ -159,7 +165,8 @@ export class LegacyChatConnector implements Connector {
           ? "backend timed out"
           : "backend stream ended unexpectedly",
         timeout.signal.aborted ? "backend_timeout" : "backend_stream_error",
-        true
+        true,
+        { cause: error }
       );
     } finally {
       timeout.cleanup();

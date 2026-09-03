@@ -46,7 +46,9 @@ const PUBLISH_ARTIFACT_DEFINITION: JsonObject = {
       version: { type: "string", enum: ["1.0"] },
       kind: {
         type: "string",
-        enum: [...SUPPORTED_ARTIFACT_KINDS].sort(),
+        enum: [...SUPPORTED_ARTIFACT_KINDS].sort((left, right) =>
+          left.localeCompare(right)
+        ),
       },
       payload: { type: "object" },
     },
@@ -321,9 +323,7 @@ export class ResponsesConnector implements Connector {
       this.threadState.size > this.config.maxRuns ||
       this.threadStateChars > this.config.maxThreadStateChars
     ) {
-      const oldest = this.threadState.entries().next().value as
-        | [string, ThreadState]
-        | undefined;
+      const oldest = this.threadState.entries().next().value;
       if (!oldest) break;
       this.threadState.delete(oldest[0]);
       this.threadStateChars -= oldest[1].transcriptChars;
@@ -427,7 +427,10 @@ export class ResponsesConnector implements Connector {
 
       try {
         const contentType = response.headers.get("content-type") ?? "";
-        if (!contentType.toLowerCase().includes("text/event-stream")) {
+        const responseIsNotSse = !contentType
+          .toLowerCase()
+          .includes("text/event-stream");
+        if (responseIsNotSse) {
           let parsed: unknown;
           try {
             parsed = strictJsonParse(
@@ -481,9 +484,10 @@ export class ResponsesConnector implements Connector {
             } else if (eventType === "response.output_item.added") {
               const item = ResponsesConnector.functionCall(eventPayload);
               if (item) {
-                const itemId = String(item.id || item.call_id || "");
-                const callId = String(item.call_id || itemId);
-                const name = String(item.name || "tool");
+                const itemId =
+                  asString(item.id) ?? asString(item.call_id) ?? "";
+                const callId = asString(item.call_id) ?? itemId;
+                const name = asString(item.name) ?? "tool";
                 for (const identifier of new Set([itemId, callId])) {
                   if (!identifier) continue;
                   toolNames.set(identifier, name);
@@ -499,9 +503,10 @@ export class ResponsesConnector implements Connector {
               eventType === "response.function_call_arguments.delta" &&
               isJsonObject(eventPayload)
             ) {
-              const identifier = String(
-                eventPayload.item_id || eventPayload.call_id || ""
-              );
+              const identifier =
+                asString(eventPayload.item_id) ??
+                asString(eventPayload.call_id) ??
+                "";
               const delta = asString(eventPayload.delta);
               if (identifier && delta !== undefined) {
                 const callId = canonicalToolIds.get(identifier) ?? identifier;
@@ -524,15 +529,15 @@ export class ResponsesConnector implements Connector {
             } else if (eventType === "response.output_item.done") {
               const item = ResponsesConnector.functionCall(eventPayload);
               if (item) {
-                const itemId = String(item.id || item.call_id || "");
-                const callId = String(item.call_id || itemId);
+                const itemId =
+                  asString(item.id) ?? asString(item.call_id) ?? "";
+                const callId = asString(item.call_id) ?? itemId;
                 const argumentsText =
                   typeof item.arguments === "string"
                     ? item.arguments
                     : toolArguments.get(callId) ?? "";
-                const name = String(
-                  item.name || toolNames.get(itemId) || "tool"
-                );
+                const name =
+                  asString(item.name) ?? toolNames.get(itemId) ?? "tool";
                 if (name === PUBLISH_ARTIFACT_TOOL) {
                   yield {
                     type: "tool.requested",
@@ -565,7 +570,8 @@ export class ResponsesConnector implements Connector {
               const output =
                 ResponsesConnector.functionCallOutput(eventPayload);
               if (output) {
-                const callId = String(output.call_id || output.id || "tool");
+                const callId =
+                  asString(output.call_id) ?? asString(output.id) ?? "tool";
                 yield {
                   type: "tool.completed",
                   data: {

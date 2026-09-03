@@ -1,11 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  ConfigError,
-  loadEmbeddedGatewayConfig,
-  embeddedGatewayConfigured,
-} from "./config";
+import { ConfigError, loadEmbeddedGatewayConfig } from "./config";
 import {
   ContractError,
   createRunEvent,
@@ -85,7 +81,8 @@ export const resetEmbeddedGatewayForTests = (): void => {
   globalThis.__vssEmbeddedAgentGateway = undefined;
 };
 
-export { embeddedGatewayConfigured, ConfigError };
+export { embeddedGatewayConfigured } from "./config";
+export { ConfigError };
 
 export async function* observeRunEvents(
   record: RunRecord,

@@ -24,6 +24,17 @@ const PROTOCOL_VERSION = 4;
 const REQUESTED_SCOPES = ["operator.read", "operator.write"];
 const CLIENT_CAPABILITIES = ["tool-events", "session-scoped-events"];
 
+const asString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+const sequenceText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value.toString();
+  }
+  return "unknown";
+};
+
 interface ActiveRun {
   socket: JsonWebSocket;
   sessionKey: string;
@@ -109,7 +120,8 @@ export class OpenClawConnector implements Connector {
       throw new ConnectorError(
         "OpenClaw Gateway stream ended unexpectedly",
         "backend_stream_error",
-        true
+        true,
+        { cause: error }
       );
     }
   }
@@ -418,7 +430,7 @@ export class OpenClawConnector implements Connector {
     }
     if (!isJsonObject(toolData)) return { events: [], terminal: false };
 
-    const fallbackId = `tool-${String(payload.seq ?? "unknown")}`;
+    const fallbackId = `tool-${sequenceText(payload.seq)}`;
     const toolCallId = OpenClawConnector.safeIdentifier(
       toolData.toolCallId || toolData.id,
       fallbackId
@@ -428,8 +440,10 @@ export class OpenClawConnector implements Connector {
       state.toolNames.get(toolCallId) || "Agent tool"
     );
     state.toolNames.set(toolCallId, name);
-    const phase = String(
-      toolData.phase || toolData.status || "start"
+    const phase = (
+      asString(toolData.phase) ??
+      asString(toolData.status) ??
+      "start"
     ).toLowerCase();
     const events: ConnectorEvent[] = [];
     if (["start", "started", "running", "in_progress"].includes(phase)) {
