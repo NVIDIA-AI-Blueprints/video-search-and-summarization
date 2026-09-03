@@ -46,9 +46,8 @@ summarization, and benchmark-question tasks in the same evaluation leg.
 
 ## Video setup
 
-<!-- NOT YET SUPPORTED
 1. Download the videos:
-```
+```bash
 VIDEO_DIR="${TMPDIR:?}/videos"
 mkdir -p "${VIDEO_DIR}"
 cd "${VIDEO_DIR}"
@@ -72,62 +71,6 @@ $TMPDIR/videos/
 ```
 
 3. Consider `$DEST` being this `$TMPDIR/` for the rest of the video setup instructions
---> 
-
-<!-- TEMPORARY INSTRUCTIONS TO EXECUTE FOR VIDEO SETUP -->
-1. Verify that the dataset-service credentials are available. Do not print
-   their values:
-
-```bash
-: "${NGC_API_KEY:?NGC_API_KEY is required}"
-: "${NVDATASET_TENANTID:?NVDATASET_TENANTID is required}"
-: "${NVDATASET_GROUPID:?NVDATASET_GROUPID is required}"
-```
-
-2. Install the SDK, which also provides the `nvdataset` CLI, if the command is
-   not already available on the Brev worker:
-
-```bash
-if ! command -v nvdataset >/dev/null 2>&1; then
-  python3 -m pip install \
-    --extra-index-url https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple \
-    nvdataset
-fi
-
-nvdataset --version
-nvdataset --help >/dev/null
-```
-
-3. Download only the benchmark Parquet and the three videos exercised by this
-   evaluation from the pinned dataset snapshot:
-
-```bash
-DEST="${TMPDIR:?}/videos/physical-ai-video-mme-v2"
-mkdir -p "$DEST"
-
-for key in \
-  "questions.parquet" \
-  "videos/warehouse-monitoring/warehouse_sample.mp4" \
-  "videos/traffic-simulation/sample-sim-jaywalking.mp4" \
-  "videos/traffic-simulation/sample-sim-traffic.mp4"
-do
-  nvdataset download \
-    physical-ai-video-mme-v2 \
-    "$DEST" \
-    --filter "key == '$key'"
-done
-```
-
-The resulting task-private subset is:
-
-```text
-physical-ai-video-mme-v2/
-├── questions.parquet
-└── videos/
-    ├── traffic-simulation/sample-sim-jaywalking.mp4
-    ├── traffic-simulation/sample-sim-traffic.mp4
-    └── warehouse-monitoring/warehouse_sample.mp4
-```
 
 4. For every supplied `dataset_video_id`:
 
