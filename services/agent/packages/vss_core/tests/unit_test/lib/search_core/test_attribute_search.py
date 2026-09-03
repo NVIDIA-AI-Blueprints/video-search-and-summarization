@@ -4,16 +4,15 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
-from elasticsearch import NotFoundError as ESNotFoundError
 import pytest
 
 from vss_core.search_core.errors import IndexNotFoundError
 from vss_core.search_core.errors import InvalidInputError
 from vss_core.search_core.models.attribute_search import AttributeSearchInput
 from vss_core.search_core.primitives.attribute_search import AttributeSearch
+from vss_core.search_core.runtime import BEHAVIOR_INDEX_ANCHOR
 
 # --------------------------------------------------------------------- mocks
 
@@ -40,7 +39,7 @@ class _MockEs:
     async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
         self.calls.append({"index": index, "body": body})
         if self._raise_not_found:
-            raise ESNotFoundError("index_not_found_exception", SimpleNamespace(status=404), {})
+            raise IndexNotFoundError(index)
         if body and "knn" in body:
             return {"hits": {"hits": self._behavior_hits}}
         return {"hits": {"hits": []}}
@@ -67,13 +66,18 @@ class _MockEmbed:
 
 @pytest.fixture
 def make_attr():
-    def _make(*, behavior_hits: list[dict] | None = None, raise_not_found: bool = False):
+    def _make(
+        *,
+        behavior_hits: list[dict] | None = None,
+        raise_not_found: bool = False,
+        behavior_index: str = "behavior_index",
+    ):
         es = _MockEs(behavior_hits, raise_not_found=raise_not_found)
         embed = _MockEmbed()
         attr = AttributeSearch(
             es=es,
             embed=embed,
-            behavior_index="behavior_index",
+            behavior_index=behavior_index,
             behavior_index_wildcard="mdx-behavior-*",
             frames_index=None,
             frames_index_wildcard="mdx-raw-*",
@@ -207,28 +211,33 @@ class TestAttributeSearchContract:
 
     @pytest.mark.asyncio
     async def test_append_mode_propagates_systemic_error(self, make_attr):
-        # A missing index affects every attribute — fail fast, don't return partial.
+        # A missing wildcard affects every attribute: fail fast, don't return
+        # partial. (rtsp targets a wildcard list, so a NotFound there is a genuine
+        # fault, unlike an absent video_file anchor.)
         attr, _es, _embed = make_attr(raise_not_found=True)
         with pytest.raises(IndexNotFoundError):
             await attr.run(
-                AttributeSearchInput(query=["person", "red hat"], source_type="video_file", fuse_multi_attribute=False)
+                AttributeSearchInput(query=["person", "red hat"], source_type="rtsp", fuse_multi_attribute=False)
             )
 
     @pytest.mark.asyncio
-    async def test_missing_index_raises_index_not_found(self, make_attr):
-        attr, _es, _embed = make_attr(raise_not_found=True)
-        with pytest.raises(IndexNotFoundError) as exc_info:
-            await attr.run(AttributeSearchInput(query="q", source_type="video_file"))
-        assert exc_info.value.index == "behavior_index"
-        assert exc_info.value.backend == "elasticsearch"
+    async def test_missing_anchor_video_file_returns_empty(self, make_attr):
+        # A live-only deployment has no uploads anchor index. The video_file leg
+        # queries that concrete anchor, so its absence is an empty uploads
+        # partition (graceful []), not a fault: no IndexNotFoundError, no exit 5.
+        # Graceful-empty is gated on equality with the pinned anchor, so the base
+        # must be that anchor (a customized base would raise instead).
+        attr, _es, _embed = make_attr(raise_not_found=True, behavior_index=BEHAVIOR_INDEX_ANCHOR)
+        out = await attr.run(AttributeSearchInput(query="q", source_type="video_file"))
+        assert out.results == []
 
     @pytest.mark.asyncio
     async def test_missing_index_rtsp_message_lists_indices(self, make_attr):
         attr, _es, _embed = make_attr(raise_not_found=True)
         with pytest.raises(IndexNotFoundError) as exc_info:
             await attr.run(AttributeSearchInput(query="q", source_type="rtsp"))
-        assert exc_info.value.index == ["mdx-behavior-*", "-behavior_index"]
-        assert "mdx-behavior-*, -behavior_index" in str(exc_info.value)
+        assert exc_info.value.index == "mdx-behavior-*,-behavior_index"
+        assert "mdx-behavior-*,-behavior_index" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_empty_query_raises_invalid_input(self, make_attr):
@@ -434,11 +443,13 @@ class TestFuseMode:
 
     @pytest.mark.asyncio
     async def test_fuse_propagates_systemic_error(self, make_attr):
-        # M4: a missing index affects every attribute — fail fast in fuse mode too.
+        # M4: a missing wildcard affects every attribute: fail fast in fuse mode
+        # too. (rtsp targets a wildcard list; an absent video_file anchor instead
+        # yields a graceful empty, see test_missing_anchor_video_file_returns_empty.)
         attr, _es, _embed = make_attr(raise_not_found=True)
         with pytest.raises(IndexNotFoundError):
             await attr.run(
-                AttributeSearchInput(query=["person", "red hat"], source_type="video_file", fuse_multi_attribute=True)
+                AttributeSearchInput(query=["person", "red hat"], source_type="rtsp", fuse_multi_attribute=True)
             )
 
     @pytest.mark.asyncio

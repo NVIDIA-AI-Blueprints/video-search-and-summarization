@@ -40,29 +40,34 @@ ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') ||
 RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || exit 1
 RTVI_VLM_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er \
   '.services.rt_vlm.url // empty') || RTVI_VLM_URL=
-resolve_search_indexes() {
+RTSP_EMBED_INDEX="mdx-embed-filtered-*"
+resolve_upload_indexes() {
+  # File uploads always land in the fixed epoch anchors. Read those exact names
+  # from the configured inventory so file readiness and deletion never absorb
+  # same-named live-stream documents from another date shard.
   CONFIG_JSON=$("${VSS[@]}" configure show) || return 1
   printf '%s' "${CONFIG_JSON}" |
     jq -e '.services.elasticsearch.indices | type == "array"' >/dev/null || return 1
   EMBED_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-embed-"))] | sort | first') || return 1
+    '[.services.elasticsearch.indices[] | select(. == "mdx-embed-filtered-2025-01-01")] | first') || return 1
   BEHAVIOR_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-behavior-"))] | sort | first') || return 1
+    '[.services.elasticsearch.indices[] | select(. == "mdx-behavior-2025-01-01")] | first') || return 1
   RAW_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
-    '[.services.elasticsearch.indices[] | select(startswith("mdx-raw-"))] | sort | first') || return 1
+    '[.services.elasticsearch.indices[] | select(. == "mdx-raw-2025-01-01")] | first') || return 1
   [ "${EMBED_INDEX}" != "${BEHAVIOR_INDEX}" ] &&
     [ "${EMBED_INDEX}" != "${RAW_INDEX}" ] &&
     [ "${BEHAVIOR_INDEX}" != "${RAW_INDEX}" ]
 }
 ```
 
-Indexes are created lazily by ingestion, so `resolve_search_indexes` fails on a
-fresh stack and keeps failing until the embedding index exists. Never call it
-once and treat the failure as fatal — pair it with `vss configure --base-url
-"${VSS_ORIGIN}"` inside the bounded readiness wait below, so each pass re-reads
-the deployment and a late-created index is picked up.
-Never use `ELASTIC_SEARCH_INDEX`, an index template, or a guessed date in place
-of `vss configure show`.
+Use `RTSP_EMBED_INDEX` only for live-stream readiness: wall-clock RTSP documents
+may land in any date shard, and the sensor-id filter scopes the wildcard count.
+Use `resolve_upload_indexes` only after file ingestion or before file deletion;
+it reads the three exact epoch anchors from `vss configure show` and fails until
+all are present. Re-run `vss configure --base-url "${VSS_ORIGIN}"` after file
+ingestion so its lazy-created index inventory is current. Never substitute
+`ELASTIC_SEARCH_INDEX`, an index template, a wildcard for an upload tuple, or a
+single date shard for live-stream readiness.
 
 Before downloading or ingesting media, require bounded Agent and VST health
 through the deployment's host-reachable origin and RTVI-CV readiness. If
@@ -129,7 +134,13 @@ fi
 Never assemble a Brev hostname from guesswork: the documented
 `7777-<BREV_ENV_ID>.<BREV_LINK_DOMAIN>` form, built only from values read out
 of `/etc/environment`, is the one sanctioned construction, and letting the
-deployment workflow write it is preferred. Never rewrite a returned media URL.
+deployment workflow write it is preferred. Never rewrite a media URL returned
+in a search result: the CLI already anchors those on the recorded origin, so
+editing one only hides which origin answered. The upload handshake URL in
+**File source** is the one exception, because the Agent mints it from
+`VST_EXTERNAL_URL` rather than from the recorded origin — re-anchor that one on
+`VSS_ORIGIN`, or ingestion fails whenever the selector chose the host-local
+fallback.
 
 On Kubernetes, use only routed Ingress services. Do not port-forward
 Elasticsearch for readiness or cleanup. When Elasticsearch is not routed,
@@ -268,6 +279,14 @@ UPLOAD_URL_RESPONSE=$(curl -sfS --max-time "${UPLOAD_REQUEST_TIMEOUT}" -X POST \
 UPLOAD_URL=$(printf '%s' "${UPLOAD_URL_RESPONSE}" |
   jq -er '.url | select(type == "string" and length > 0)') || exit 1
 
+# Keep the returned path, but re-anchor it on `VSS_ORIGIN`: the Agent builds
+# this URL from `VST_EXTERNAL_URL`, which need not be reachable from here.
+UPLOAD_TARGET=${UPLOAD_URL}
+while [ "${UPLOAD_TARGET#*://}" != "${UPLOAD_TARGET}" ]; do
+  UPLOAD_TARGET=${UPLOAD_TARGET#*://}
+done
+UPLOAD_URL="${VSS_ORIGIN%/}/${UPLOAD_TARGET#*/}"
+
 IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
 UPLOAD_TIMEOUT=$(readiness_timeout 300) || exit 1
 UPLOAD_RESPONSE=$(curl -sfS --connect-timeout 10 --max-time "${UPLOAD_TIMEOUT}" -X POST \
@@ -310,6 +329,11 @@ Never call the deprecated single-step
 `PUT /api/v1/videos-for-search/{filename}`. Use
 `UPLOAD_FILENAME` consistently in every request and multipart field; use that
 same value for the upload request, VST metadata, and completion body.
+Post the bytes to the re-anchored `UPLOAD_URL`, never to the raw `.url` the
+handshake returned: that value carries `VST_EXTERNAL_URL`, which is the public
+secure link even when the selector proved it unreachable and chose the
+host-local origin. A connection or DNS failure at this step is that mismatch,
+not a reason to retry the upload against the same URL.
 Completion alone is not readiness. After completing all intended uploads, run
 one bounded readiness wait (at most 20 minutes) until VST lists the sources and
 the search indexes contain the required documents:
@@ -333,11 +357,11 @@ bounded wait:
 : "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
 while :; do
   # Re-read the deployment every pass. Indexes are created lazily by ingestion,
-  # so `configure` + `resolve_search_indexes` run inside this wait, not before
+  # so `configure` + `resolve_upload_indexes` run inside this wait, not before
   # it: resolving once while the embedding index does not yet exist fails
   # outright and never reaches the document counts below.
   if "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" >/dev/null 2>&1 &&
-     resolve_search_indexes; then
+     resolve_upload_indexes; then
     SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
       "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
     LADDER_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
@@ -357,7 +381,7 @@ while :; do
 done
 # Fail loudly if the wait expired without the indexes appearing, rather than
 # falling through with EMBED_INDEX unset into a search that reads nothing.
-resolve_search_indexes || {
+resolve_upload_indexes || {
   echo "search indexes never appeared before the deadline (embedding index missing)" >&2
   exit 1
 }
@@ -418,9 +442,11 @@ The response is `{status, message, error}` and does not contain a sensor UUID;
 the agent keys the stream by `name`. Do not log credentials. Poll boundedly
 until the source is registered, then resolve its exact VST sensor identity
 before search. A successful add only starts embedding generation; it does not
-prove that searchable documents exist. Poll the selected embedding index for
-the exact registered stream identity and require a count greater than zero
-within five minutes.
+prove that searchable documents exist. Poll the embed index family wildcard
+(`RTSP_EMBED_INDEX`), scoped to the exact registered stream identity, and
+require a count greater than zero within five minutes. Do not poll a single
+date-stamped index: a live stream's docs are in today's index, not the uploads
+anchor.
 
 ## Delete source
 
@@ -430,9 +456,10 @@ Confirm the target unless deletion was already explicit:
 ```bash
 : "${SAVED_SENSOR_ID:?save the exact file-source UUID before deletion}"
 : "${SAVED_SOURCE_NAME:?save the canonical source name before deletion}"
-: "${EMBED_INDEX:?resolve from vss configure show}"
-: "${BEHAVIOR_INDEX:?resolve from vss configure show}"
-: "${RAW_INDEX:?resolve from vss configure show}"
+resolve_upload_indexes || exit 1
+: "${EMBED_INDEX:?resolve the exact upload embedding index first}"
+: "${BEHAVIOR_INDEX:?resolve the exact upload behavior index first}"
+: "${RAW_INDEX:?resolve the exact upload raw index first}"
 
 DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))
 delete_timeout() {
