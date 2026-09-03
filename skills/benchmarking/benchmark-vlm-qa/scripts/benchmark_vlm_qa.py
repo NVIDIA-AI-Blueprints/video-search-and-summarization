@@ -30,6 +30,7 @@ import argparse
 import csv
 from dataclasses import asdict
 from dataclasses import dataclass
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -428,6 +429,26 @@ def judge_completions_url(base_url: str) -> str:
     return f"{trimmed}/v1/chat/completions"
 
 
+def is_nvidia_or_onprem_host(host: str) -> bool:
+    """Whether ``host`` is somewhere an NVIDIA credential may be sent.
+
+    Matched structurally, not by substring. ``endswith("nvidia.com")`` also accepts
+    ``evilnvidia.com``, and ``startswith("10.")`` also accepts ``10.example.com`` --
+    both registrable by anyone, so both turn this check into the disclosure it is
+    meant to prevent. A bare name is trusted only as an exact NVIDIA domain, and an
+    address only once parsed as one: every RFC 1918 range counts, since a judge on
+    192.168/16 is no less on-premise than one on 10/8.
+    """
+    host = host.lower().removesuffix(".")
+    if host == "localhost" or host == "nvidia.com" or host.endswith(".nvidia.com"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # a name we cannot place is a third party
+    return ip.is_private or ip.is_loopback
+
+
 def judge_api_key(judge_url: str, env: dict[str, str] | None = None) -> str | None:
     """Pick the credential for the judge endpoint.
 
@@ -441,11 +462,9 @@ def judge_api_key(judge_url: str, env: dict[str, str] | None = None) -> str | No
     explicit = env.get("EVAL_LLM_JUDGE_API_KEY") or env.get("OPENAI_API_KEY")
     if explicit:
         return explicit
-    host = (urllib.parse.urlparse(judge_url).hostname or "").lower()
-    nvidia_host = host.endswith("nvidia.com") or host in {"localhost", "127.0.0.1", "::1"} or host.startswith("10.")
-    if nvidia_host:
-        return env.get("NVIDIA_API_KEY") or env.get("NGC_API_KEY")
-    return None
+    if not is_nvidia_or_onprem_host(urllib.parse.urlparse(judge_url).hostname or ""):
+        return None
+    return env.get("NVIDIA_API_KEY") or env.get("NGC_API_KEY")
 
 
 def judge_answer(
@@ -479,10 +498,19 @@ def judge_answer(
         request.add_header("Authorization", f"Bearer {api_key}")
     try:
         with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            body = json.loads(response.read().decode("utf-8"))
+            body = json.loads(response.read().decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
         raise RuntimeError(f"LLM judge HTTP {exc.code}: {detail}") from exc
+    except OSError as exc:
+        # A refused connection, DNS failure or timeout arrives as URLError or
+        # TimeoutError -- both OSError, and neither one caught by the item loop. Raised
+        # as-is they escape past `write_outputs`, so a judge that merely went away
+        # would throw out every VLM answer the run had already paid for. Scoring is
+        # the only thing that should be lost.
+        raise RuntimeError(f"LLM judge unreachable at {judge_url}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"LLM judge returned a non-JSON body: {exc}") from exc
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
@@ -563,6 +591,20 @@ def register_sensor(vss: list[str], video_path: Path, timeout_s: int) -> str | N
     return str(payload["name"]) if payload else None
 
 
+def sensor_handle(path: Path, known: set[str]) -> str | None:
+    """The handle VIOS already filed ``path`` under, or ``None`` if it has not.
+
+    VIOS names a sensor after the file it was given, but whether that keeps the
+    suffix is the service's business. Assuming one form and addressing the result
+    would point ``--sensor`` at a name that need not exist, so take the handle from
+    what VIOS listed and accept either form.
+    """
+    for candidate in (path.stem, path.name):
+        if candidate in known:
+            return candidate
+    return None
+
+
 def resolve_sensors(vss: list[str], items: list[QaItem], timeout_s: int) -> dict[Path, str]:
     """Map each clip to a VIOS sensor name, registering the ones not yet known.
 
@@ -580,8 +622,9 @@ def resolve_sensors(vss: list[str], items: list[QaItem], timeout_s: int) -> dict
         return {}
     sensors: dict[Path, str] = {}
     for path in sorted({item.video_path for item in items}):
-        if path.stem in known:
-            sensors[path] = path.stem
+        existing = sensor_handle(path, known)
+        if existing is not None:
+            sensors[path] = existing
             continue
         name = register_sensor(vss, path, timeout_s)
         if name is None:

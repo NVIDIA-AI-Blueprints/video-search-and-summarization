@@ -14,12 +14,14 @@ from benchmark_vlm_qa import QaItem
 from benchmark_vlm_qa import download_dataset
 from benchmark_vlm_qa import dss_credential
 from benchmark_vlm_qa import is_qa_item
+from benchmark_vlm_qa import judge_answer
 from benchmark_vlm_qa import judge_api_key
 from benchmark_vlm_qa import judge_completions_url
 from benchmark_vlm_qa import latency_stats
 from benchmark_vlm_qa import parse_args
 from benchmark_vlm_qa import parse_score
 from benchmark_vlm_qa import parse_vlm_stdout
+from benchmark_vlm_qa import resolve_sensors
 from benchmark_vlm_qa import run_bounded
 from benchmark_vlm_qa import run_vlm_item
 from benchmark_vlm_qa import select_qa_items
@@ -390,6 +392,64 @@ def test_vios_sensor_names_reports_unreachable_rather_than_empty() -> None:
     assert vios_sensor_names(_fake_vss(listed), 30) == {"warehouse"}
 
 
+def _fake_vios(marker: Path, listed: list[str], added_name: str = "clip") -> list[str]:
+    """A `vss` stand-in that lists `listed` and touches `marker` on any `vios add`."""
+    script = (
+        "import json, sys, pathlib\n"
+        "if 'add' in sys.argv:\n"
+        f"    pathlib.Path({str(marker)!r}).write_text('called')\n"
+        f"    print(json.dumps({{'name': {added_name!r}}}))\n"
+        "else:\n"
+        f"    print(json.dumps({{'count': 0, 'sensors': [{{'name': n}} for n in {listed!r}]}}))\n"
+    )
+    return [sys.executable, "-c", script]
+
+
+def _one_item(tmp_path: Path) -> tuple[Path, QaItem]:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"x")
+    return video, QaItem(id="qa_001", query="?", ground_truth="x", video_path=video)
+
+
+def test_resolve_sensors_reuses_the_listed_handle_rather_than_adding_again(tmp_path: Path) -> None:
+    """A rerun that misses its own upload re-adds, then inlines, then 422s on big clips."""
+    video, item = _one_item(tmp_path)
+    marker = tmp_path / "add_called"
+
+    assert resolve_sensors(_fake_vios(marker, listed=["clip"]), [item], 30) == {video: "clip"}
+    assert not marker.exists(), "re-registered a clip VIOS had already listed"
+
+
+def test_resolve_sensors_matches_a_handle_that_kept_the_suffix(tmp_path: Path) -> None:
+    """Whether VIOS keeps `.mp4` is its business, so both forms have to be recognised."""
+    video, item = _one_item(tmp_path)
+    marker = tmp_path / "add_called"
+
+    assert resolve_sensors(_fake_vios(marker, listed=["clip.mp4"]), [item], 30) == {video: "clip.mp4"}
+    assert not marker.exists()
+
+
+def test_resolve_sensors_registers_a_clip_vios_does_not_have(tmp_path: Path) -> None:
+    video, item = _one_item(tmp_path)
+    marker = tmp_path / "add_called"
+
+    assert resolve_sensors(_fake_vios(marker, listed=[]), [item], 30) == {video: "clip"}
+    assert marker.exists()
+
+
+def test_judge_reports_an_unreachable_endpoint_as_a_recordable_error() -> None:
+    """A refused connection must not escape as OSError; that would skip write_outputs."""
+    with pytest.raises(RuntimeError, match="unreachable"):
+        judge_answer(
+            question="?",
+            answer="a",
+            reference="a",
+            judge_url="http://127.0.0.1:1/v1/chat/completions",
+            judge_model="m",
+            timeout_s=5,
+        )
+
+
 def test_judge_url_normalizes_base() -> None:
     assert judge_completions_url("http://llm:8000") == "http://llm:8000/v1/chat/completions"
     assert judge_completions_url("http://llm:8000/v1") == "http://llm:8000/v1/chat/completions"
@@ -407,6 +467,21 @@ def test_judge_key_uses_nvidia_credential_for_nvidia_and_onprem_hosts() -> None:
     assert judge_api_key("https://integrate.api.nvidia.com/v1/chat/completions", env) == "ngc-secret"
     assert judge_api_key("http://10.86.83.113:30081/v1/chat/completions", env) == "ngc-secret"
     assert judge_api_key("http://localhost:8000/v1/chat/completions", env) == "ngc-secret"
+
+
+def test_judge_key_is_not_fooled_by_a_host_that_merely_looks_nvidia_or_internal() -> None:
+    """Both lookalikes are registrable, so a substring check hands the key to anyone."""
+    env = {"NGC_API_KEY": "ngc-secret", "NVIDIA_API_KEY": "nvidia-secret"}
+    assert judge_api_key("https://evilnvidia.com/v1/chat/completions", env) is None
+    assert judge_api_key("https://10.example.com/v1/chat/completions", env) is None
+
+
+def test_judge_key_treats_every_private_range_as_on_premise() -> None:
+    """A judge on 192.168/16 is no less on-premise than one on 10/8."""
+    env = {"NGC_API_KEY": "ngc-secret"}
+    assert judge_api_key("http://192.168.1.9/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("http://172.16.4.5/v1/chat/completions", env) == "ngc-secret"
+    assert judge_api_key("http://[::1]:8000/v1/chat/completions", env) == "ngc-secret"
 
 
 def test_judge_key_prefers_the_explicitly_named_key() -> None:

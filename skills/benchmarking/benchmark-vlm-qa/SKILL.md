@@ -58,7 +58,9 @@ score tool-calling or trajectories.
     [org.ngc.nvidia.com/setup/personal-keys](https://org.ngc.nvidia.com/setup/personal-keys)
     scoped to the service `NVIDIA Dataset Service`, with the NGC org switched to the
     one owning the dataset. This is *not* the global NGC key used by the NGC CLI; a
-    global key returns 403. `NGC_API_KEY` is accepted only for backward compatibility.
+    global key returns 403. `NVDATASET_NGC_API_KEY` and `NGC_API_KEY` are also read,
+    in that order, for backward compatibility only — the run prints the variable it
+    picked as `dss credential: <name>`, so check that line if a 403 surprises you.
   - `nvdataset auth login` (Starfleet SSO), which needs no key. Add `--flow device`
     on a remote box with no browser. Group access requires membership in
     `ngc-datasetservice-viewer-<tenant>-<group>` (reader) or `...-user-...` (writer).
@@ -92,7 +94,7 @@ export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
 # Optional: already-extracted dataset
 # export VSS_EVAL_DATASET=/path/to/vss-devx-base
 
-<repo>/deploy/docker/developer-profiles/dev-profile-base/eval/run_vlm_qa_benchmark.sh \
+<repo>/skills/benchmarking/benchmark-vlm-qa/scripts/run_vlm_qa_benchmark.sh \
   --dataset-name vss-devx-base \
   --dataset-file dataset_single_turn.json
 ```
@@ -160,5 +162,6 @@ Failures worth recognising by their message:
 - Accuracy far from the ~0.465 baseline is not a harness failure. The judge model and
   `--num-frames` both move it; check `judge_model` and `model_served` before filing.
 
-Implementation: [`deploy/docker/developer-profiles/dev-profile-base/eval/benchmark_vlm_qa.py`](../../../deploy/docker/developer-profiles/dev-profile-base/eval/benchmark_vlm_qa.py).
+Implementation: [`scripts/benchmark_vlm_qa.py`](scripts/benchmark_vlm_qa.py), tested by
+[`scripts/tests/`](scripts/tests/).
 Dataset download contract: [`README_eval.md`](../../../deploy/docker/developer-profiles/dev-profile-base/eval/README_eval.md).

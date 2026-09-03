@@ -21,14 +21,18 @@ export EVAL_LLM_JUDGE_API_KEY="${LLM_API_KEY}"
 
 # The dataset is named, never assumed: the script carries no default so it does
 # not bake one team's DSS coordinates into the blueprint.
-./run_vlm_qa_benchmark.sh \
+<repo>/skills/benchmarking/benchmark-vlm-qa/scripts/run_vlm_qa_benchmark.sh \
   --dataset-name vss-devx-base \
   --dataset-file dataset_single_turn.json
 ```
 
+The benchmark lives with its skill, not in this directory, so that copying the skill
+takes its implementation along.
+
 Outputs: `results/vlm_qa/summary.json` (mean accuracy + latency percentiles),
 `qa_evaluator_output.json`, `latency_summary.json`, `summary.csv`.
-See `benchmark_vlm_qa.py --help` and `skills/benchmarking/benchmark-vlm-qa/SKILL.md`.
+See `benchmark_vlm_qa.py --help` and
+[`skills/benchmarking/benchmark-vlm-qa/SKILL.md`](../../../../../skills/benchmarking/benchmark-vlm-qa/SKILL.md).
 
 Report and trajectory evaluation still run through `nat eval` inside the `vss-agent`
 container — section 4. That container is being deprecated and there is no replacement
@@ -135,8 +139,9 @@ data-dir/agent_eval/
 
 ### 3. Run the benchmark
 
-Use the command at the top of this file. `benchmark_vlm_qa.py --help` lists the
-flags; `--dry-run` resolves items without calling the VLM, `--limit N` runs a
+Use the command at the top of this file — the script sits in
+`skills/benchmarking/benchmark-vlm-qa/scripts/`, not here. `benchmark_vlm_qa.py --help`
+lists the flags; `--dry-run` resolves items without calling the VLM, `--limit N` runs a
 smoke subset, and `--skip-judge` collects latency only.
 
 ### 4. Report and trajectory eval (`nat eval`, inside vss-agent)
