@@ -1536,16 +1536,30 @@ def run_invocations(
             bootstrap, bootstrap_results, model, base_url, "claude-code"
         )
         print("[run-leg] provisioning with Build Vision AI before NemoClaw scenarios", flush=True)
+        bootstrap_started_at = time.time() - 1.0
         with phase("harbor:build-vision-bootstrap"):
             bootstrap_rc = run_command(bootstrap_cmd, bootstrap_env, harbor_timeout_sec)
-        if bootstrap_rc != 0:
-            (results_root / "provisioning-failure.txt").write_text(
+        bootstrap_reward = latest_reward(
+            bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
+        )
+        if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
+            diagnostic = (
                 "Build Vision AI provisioning failed before operational scenarios. "
-                f"Harbor exit code: {bootstrap_rc}.\n",
+                f"Harbor exit code: {bootstrap_rc}; readiness reward: "
+                f"{bootstrap_reward if bootstrap_reward is not None else 'missing'}.\n"
+            )
+            exceptions = sorted(bootstrap_results.rglob("exception.txt"))
+            if exceptions:
+                diagnostic += "\nBootstrap exception tail:\n" + exceptions[-1].read_text(
+                    encoding="utf-8", errors="replace"
+                )[-4000:]
+            (results_root / "provisioning-failure.txt").write_text(
+                diagnostic,
                 encoding="utf-8",
             )
             print(
-                f"[run-leg] Build Vision AI provisioning failed (rc={bootstrap_rc}); "
+                "[run-leg] Build Vision AI provisioning failed "
+                f"(rc={bootstrap_rc}, readiness={bootstrap_reward}); "
                 "operational scenarios were not started",
                 file=sys.stderr,
             )

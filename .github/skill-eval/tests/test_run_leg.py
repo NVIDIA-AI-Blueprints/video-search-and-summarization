@@ -819,6 +819,7 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
                 mock.patch.object(run_leg, "run_command", side_effect=[0, 0]) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
             ):
                 rc = run_leg.run_invocations(

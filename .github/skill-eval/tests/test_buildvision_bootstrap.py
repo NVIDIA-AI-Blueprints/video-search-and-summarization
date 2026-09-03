@@ -51,6 +51,7 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             self.assertIn("`/vss-manage-alerts`", instruction)
             self.assertIn("host-side\nNemoClaw", instruction)
             self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
+            self.assertIn("openshell sandbox exec", (task / "tests" / "test.sh").read_text())
 
     def test_rejects_a_non_object_spec(self):
         with tempfile.TemporaryDirectory() as td:

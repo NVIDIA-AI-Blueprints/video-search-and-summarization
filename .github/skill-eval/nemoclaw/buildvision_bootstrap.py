@@ -46,7 +46,25 @@ the VSS origin, then bring up NemoClaw. Ensure the operational skill
 
 The following Harbor task will exercise only that operational skill through the
 NemoClaw sandbox. Do not use individual deployment skills as an alternative to
-`/vss-build-vision-ai`. Run autonomously and do not request confirmation.
+`/vss-build-vision-ai`. Do not stop at a generated `resolved.yml`: complete the
+host-side harness bring-up and verify the sandbox gateway answers before you
+finish. Run autonomously and do not request confirmation.
+"""
+
+
+def _health_check_script() -> str:
+    """Verifier for the contract handed from Build Vision AI to NemoClaw."""
+
+    return """#!/bin/sh
+set -eu
+sandbox="${NEMOCLAW_SANDBOX_NAME:-skill-eval}"
+port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+code="$(timeout 30 openshell sandbox exec -n "$sandbox" -- sh -lc \
+  "curl -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health")"
+case "$code" in
+  200|401) printf 'NemoClaw sandbox %s gateway is healthy on %s\\n' "$sandbox" "$port" ;;
+  *) echo "NemoClaw sandbox $sandbox gateway is not healthy (HTTP $code)" >&2; exit 1 ;;
+esac
 """
 
 
@@ -90,7 +108,7 @@ def create_bootstrap_task(
     (solution / "solve.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     tests = task_dir / "tests"
     tests.mkdir()
-    (tests / "test.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (tests / "test.sh").write_text(_health_check_script(), encoding="utf-8")
 
     build_skill = repo_root / "skills" / "vss-build-vision-ai"
     if not (build_skill / "SKILL.md").is_file():
