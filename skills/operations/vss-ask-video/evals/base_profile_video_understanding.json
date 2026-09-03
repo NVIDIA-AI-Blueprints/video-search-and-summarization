@@ -1,7 +1,6 @@
 {
   "skills": [
-    "vss-ask-video",
-    "vss-deploy-profile"
+    "vss-ask-video"
   ],
   "resources": {
     "platforms": {
@@ -12,47 +11,45 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile on the target host: VST reachable at http://localhost:30888/vst/api/v1. After deploying, run `vss configure` (from the vss-ask-video SKILL.md setup block) to discover the rt_vlm endpoint — the skill uses `vss vlm run` to call it, it does NOT call POST /generate directly. Set Brev secure-link vars if checks validate media URLs. (See `skills/vss-ask-video/SKILL.md`).",
+      "query": "The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
       "checks": [
-        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
-        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0"
+        "The final answer says 10:14 UTC from hot conversation context.",
+        "No vss memory command, vss vlm run, or direct chat/completions call is made."
       ]
     },
     {
-      "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
+      "query": "Read the stored VSS summary with job id sum-01JXYZ.",
       "checks": [
-        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload — for example `vss vios list --type video`, the agent tools, or equivalent REST such as curl /vst/api/v1/sensor/list — not an unconditional upload.",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
+        "The trajectory uses the project-local CLI bootstrap from root AGENTS.md and runs vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ.",
+        "It does not run memory introspect, vss vlm run, or direct chat/completions."
       ]
     },
     {
-      "query": "Verify the VSS stack is ready for the **vss-ask-video** skill. Confirm VST is reachable and lists at least one stream, and that a VLM endpoint resolves.",
+      "query": "Find stored VSS results about forklifts for sensor dock_cam.",
       "checks": [
-        "curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:30888/vst/api/v1/sensor/version returns 200",
-        "curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams returns HTTP 200 and a non-empty JSON body",
-        "Either VLM_BASE_URL + VLM_NAME (NIM Cosmos) or RTVI_VLM_BASE_URL + VLM_NAME (RT-VLM Cosmos) are resolvable from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`; the image is distroless so `docker exec vss-agent env` will not work), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
+        "The trajectory runs vss memory query with forklift text and dock_cam sensor scope.",
+        "It does not run memory introspect or vss vlm run."
       ]
     },
     {
-      "query": "Is the worker in warehouse_safety_0001 wearing PPE?",
+      "query": "Use any past VSS analysis that may exist to answer: was anyone missing PPE on warehouse_safety_0001?",
       "checks": [
-        "The run used `vss vlm run --sensor warehouse_safety_0001` (Path B of vss-ask-video) to send the question and the VIOS-resolved clip to RT-VLM in one call. The CLI resolves the sensor by name, reads the recorded range, mints the clip URL, and sends it to the VLM endpoint internally — no separate clip-URL step is required. The command exited 0. A bare hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check.",
-        "The `vss vlm run` command output (the body JSON line) contains `\"status\": \"completed\"` and a non-empty `\"answer\"` field, confirming that the CLI successfully POSTed to the rt_vlm /v1/chat/completions endpoint and received a 2xx response with a valid answer.",
-        "The run did NOT POST to http://localhost:8000/generate.",
-        "The final assistant reply answers in plain text or light markdown whether the worker is wearing PPE according to the user question, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
+        "The trajectory runs vss memory introspect with the verbatim question and warehouse_safety_0001 scope.",
+        "It does not call an OpenAI chat/completions endpoint directly."
       ]
     },
     {
-      "query": "At what timestamp did the worker climb up the ladder in warehouse_safety_0001? Answer from the clip recorded on that VIOS sensor — not from a local copy of the file and not from any pre-extracted frames left on this host.",
+      "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a hard hat?",
       "checks": [
-        "The run used `vss vlm run --sensor warehouse_safety_0001` (Path B of vss-ask-video) to send the question and the VIOS-resolved clip to RT-VLM in one call. The CLI resolves the sensor by name, reads the recorded range, mints the clip URL, and sends it to the VLM endpoint internally. The command exited 0. A bare hand-built REST call to /vst/api/v1/storage/file/<streamId>/url does not satisfy this check.",
-        "The `vss vlm run` command output (the body JSON line) contains `\"status\": \"completed\"` and a non-empty `\"answer\"` field, confirming that the CLI successfully POSTed to the rt_vlm /v1/chat/completions endpoint and received a 2xx response with a valid answer.",
-        "The run did NOT POST to http://localhost:8000/generate.",
-        "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped). There should be no errors included in the final response."
+        "The trajectory runs exactly one vss vlm run with dock_cam, the exact supplied UTC bounds, and the question.",
+        "It does not run memory introspect or call chat/completions directly."
+      ]
+    },
+    {
+      "query": "The preceding vss memory introspect result is no_memory. No exact sensor or UTC window is available. Continue safely.",
+      "checks": [
+        "The response explains that no matching memory/window is available and requests an exact recorded sensor and UTC window.",
+        "It does not invoke vss vlm run and does not switch to local-file/base64 inference."
       ]
     }
   ]

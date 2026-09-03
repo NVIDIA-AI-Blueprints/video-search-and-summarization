@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill to ask a fresh visual question about a recorded video clip using the vss vlm run CLI, including a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL. Not for retrieval or metadata-answerable questions.
+description: Routes VSS video questions through hot conversation context, stored memory, bounded introspection, or an exact-window vss vlm run CLI job, including a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL. Not for retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -8,318 +8,244 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
-# Video QnA using `vss vlm run`
+# Ask a VSS video question
 
-Answer a fresh visual question about a video by running **`vss vlm run`** — the VSS CLI command
-that resolves the VLM endpoint from the recorded deployment config, sends the user's question with
-the video, persists the answer to memory, and returns the result. **This skill does not call**
-`POST /generate` on the VSS agent. It requires a **deployed VSS with `vss configure` already run**
-and a reachable `rt_vlm` service.
+Answer from the cheapest grounded source that can satisfy the question. For a
+running VSS deployment, use the project-local `vss` CLI. Do not call an
+OpenAI-compatible `/chat/completions` endpoint directly or fall back to raw REST
+when a CLI command fails.
 
-> **Hard rule — every answer comes from `vss vlm run`.** Every question, including
-> **temporal / timing ones** ("at what timestamp did X happen", "how long", "when does Y
-> start"), is answered by a single **`vss vlm run`** call. A timing question is not a
-> reason to reach for another tool: put it in `--prompt` and read the timing out of the
-> answer.
+This skill does not call `POST /generate` on the VSS agent. It requires a
+**deployed VSS with `vss configure` already run**.
+
+> **Hard rule — never substitute a hand-built HTTP call for the CLI.**
+> Specifically, do **not**:
+> - `POST` to `/v1/chat/completions` yourself. `vss vlm run` owns that call.
+> - Build VIOS clip URLs by hand (e.g. `/vst/api/v1/storage/file/<id>/url`).
+>   `--sensor` resolves the sensor, recorded window and clip URL internally.
+> - `POST` to `http://<host>:8000/generate` or `/v1/summarize`.
 >
-> Never substitute a hand-built HTTP call for the CLI. Specifically, do **not**:
-> - `POST` to `/v1/chat/completions` yourself. `vss vlm run` owns that call and sends the
->   frame-sampling parameter with it; a hand-rolled request omits it, the model sees only
->   the opening frame, and timing questions become unanswerable.
-> - Build VIOS clip URLs by hand (e.g. `/vst/api/v1/storage/file/<id>/url`). `--sensor`
->   resolves the sensor, the recorded window and the clip URL internally.
-> - `POST` to `http://<host>:8000/generate` (the agent's summarize pipeline) or
->   `/v1/summarize` under any circumstances.
->
-> If `vss vlm run` fails, report the exit code (see *Error Handling*). Do not retry the
-> question by hand-rolling the request.
-
----
-
-## Agent harness
-
-**Harness-agnostic** — whatever runs it (Claude Code, Codex, Cursor, or the NAT VSS Agent)
-calls `vss vlm run` via the CLI. A running `vss-agent` is optional; what is required is
-`vss configure` having been run once against the deployed VSS so the rt_vlm service URL is
-recorded.
-
----
-
-## When to Use
-
-- The user asks **what happens in the video**, what **objects / people / actions** appear,
-  **colors**, **timing**, **safety**, or other **visual facts** that require watching the clip.
-- The user asks for **details** that **cannot be answered** from existing messages, summaries,
-  Elasticsearch/MCP results, or filenames alone—you need **model inference on the video**.
-- Follow-up questions about **content details** after a coarse summary or after report generation.
-- `vss-search-archive` has already displayed only `unverified` results, the user
-  explicitly confirmed visual verification, and the caller supplies one exact
-  bounded clip as `VIDEO_URL`. Treat that URL as Path A; do not rerun search or
-  resolve a different interval.
-
----
-
-## Negative Triggers
-
-Do **not** use this skill when the request is one of the following:
-
-- A **database / MCP / prior tool output** already answers the question, unless
-  the user explicitly wants fresh visual verification. The confirmed bounded
-  `vss-search-archive` handoff above is the only search-result exception; use
-  `/vss-query-analytics` for analytics-result verification.
-- Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating")
-  → use `/vss-search-archive`. This skill may inspect only the pre-resolved
-  bounded clip that search hands off after confirmation; it never performs the
-  retrieval itself.
-- A request for a **formatted/structured report** ("generate a report", "analysis report")
-  → use `/vss-generate-video-report`.
-- Summarizing a long recording → use `/vss-summarize-video`.
-- Deploy/teardown/profile changes → use `/vss-deploy-profile`.
-
----
+> If `vss vlm run` fails, report the exit code. Do not retry the question by
+> hand-rolling the request.
 
 ## Prerequisites
 
-A deployed VSS stack with **`rt_vlm` service reachable through the configured origin**. Run
-`vss configure` once per deployment — all subsequent `vss vlm run` calls read the recorded URL.
-
-### Setup
-
-Set up the CLI and run `vss configure` per [AGENTS.md](../../AGENTS.md).
-
-Verify `rt_vlm` was discovered:
+A deployed VSS stack with **`rt_vlm` reachable through the configured origin**.
+Run `vss configure` once per deployment. Bootstrap, exit codes, and common CLI
+rules live in [AGENTS.md](../../../AGENTS.md).
 
 ```bash
 vss configure check
 # Expected: rt_vlm   ok   http://<origin>/rtvi-vlm   HTTP 200
 ```
 
-Bootstrap detail, exit codes and the rules that go with them are in
-[AGENTS.md](../../AGENTS.md).
-
----
-
 ## Instructions
 
-1. **Run the numbered steps** — *Step 1* (obtain the video source — directly from the user, or
-   optionally resolve a clip URL from VST/VIOS) → *Step 2* (`vss vlm run` — one command) →
-   *Step 3* (return the answer).
-2. **Return only the final answer text** to the user.
-
-For a confirmed search-result handoff, use only the caller-supplied `VIDEO_URL`
-and visual question. Do not consume similarity scores, filenames, object IDs,
-or other retrieval metadata as visual evidence, and do not rerun search,
-resolve a sensor, broaden the clip, or choose another interval. The caller owns
-verdict validation and any fallback after this skill returns.
-
----
-
-## Sensor check (only when sourcing the clip from VST/VIOS)
-
-**This section applies only on Step 1, Path B — when you are sourcing the video from VST/VIOS.**
-If the user provided the video directly (a file path or URL), **skip this entirely** and use
-Step 1, Path A.
-
-When using VST/VIOS, **you MUST list VST sensors before resolving a clip URL.** This is required
-even when the user names the sensor explicitly, even when the user asserts the video is already
-uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
-
-> **Running the CLI.** Bootstrap, `vss configure`, exit codes and the sensor-resolution
-> rules live in [AGENTS.md](../../AGENTS.md) at the repo root — read it once rather than per skill.
-
-1. List sensors (capture first — a bare pipe into `jq` would hide a failed
-   `vss` behind `jq`'s exit code and read as "no sensors"):
-   ```bash
-   # Each block is its own shell; define what it uses.
-   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
-   set -o pipefail
-   SENSORS=$("${VSS[@]}" vios list --type video) || { echo "vss vios list failed" >&2; exit 1; }
-   printf '%s' "${SENSORS}" | jq -r '.sensors[].name'
-   ```
-
-2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**,
-   e.g. `warehouse_safety_0001`).
-
-   A row may carry an `error` field — VIOS listed the sensor but could not describe it (no
-   streams, or no id). It is still listed on purpose: the name **exists**, so treating it as
-   absent and uploading would create a duplicate and a 409.
-
-3. **If a matching sensor is present** → proceed to Step 1. If its row carries an `error`,
-   report that rather than uploading over it.
-
-4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new
-   sensor appears:
-   ```bash
-   # Each block is its own shell; define what it uses.
-   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
-   "${VSS[@]}" vios add /path/to/<filename>
-   ```
-   See `/vss-manage-video-io-storage` for the REST-level upload semantics (v1 vs v2, conflict
-   handling, delete flow). In interactive runs, confirm with the user before uploading. **Never**
-   upload without first running the sensor-list check above.
-
----
-
-## Step 1 — Identify the video source
-
-Determine whether the video comes from the user directly (Path A) or from a named VST/VIOS
-sensor (Path B). This decides which `vss vlm run` flag to use in Step 2.
-
-### Path A — provided directly by the user (default; no VST/VIOS)
-
-If the user hands you a file path or a URL, use Path A in Step 2:
-
-- **URL** → pass as `--media-url <url>`. RT-VLM fetches the video directly.
-- **Local file** → pass as `--file /path/to/clip.mp4`. The CLI reads the file and sends it
-  inline as a base64-encoded `data:video/mp4;base64,…` URI.
-
-A user-confirmed search-result handoff with a pre-resolved bounded `VIDEO_URL` uses this
-same path. Do not discard that URL and enter Path B merely because the caller also retains
-a sensor ID or timestamps for reporting.
-
-Then go straight to Step 2 — **skip the Sensor check**.
-
-### Path B — resolve from VST/VIOS (optional)
-
-> **Hard rule — a question that names a sensor is Path B and MUST use `--sensor`.**
-> When the question references a VIOS sensor (e.g. `warehouse_safety_0001`), pass
-> `--sensor <name>` to `vss vlm run`. The CLI resolves the sensor by name, reads the recorded
-> range, mints a normalised and warmed clip URL, and sends it to RT-VLM — all in one call.
-> Do **not** hand-build a `/storage/file/<streamId>/url` call or inline a local copy as base64.
->
-> **A follow-up that names no video stays on the sensor already in play.** Re-use the same
-> `--sensor <name>` (and optionally `--start-time` / `--end-time`) from the prior turn.
-
-When the clip lives on a named sensor: confirm the sensor exists (the *Sensor check* above
-— required on this path), then use `--sensor <name>` in Step 2.
-
-To restrict the clip to a known time window, add `--start-time` / `--end-time` (ISO 8601):
+### Bootstrap the CLI once
 
 ```bash
-# Optional window. Both or neither — not one alone.
-START_TIME='2025-01-01T00:00:00Z'
-END_TIME='2025-01-01T00:00:30Z'
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss --version
 ```
 
----
+Never construct an endpoint or replace a failed CLI call with raw HTTP.
 
-## Step 2 — Ask the VLM
+### Choose exactly one initial route
 
-One call, one attempt. `vss vlm run` reads the `rt_vlm` endpoint from the recorded config,
-sends the prompt with the video, and prints the result as JSON.
+Apply these routes in order:
 
-**Path A — URL or local file:**
+1. **Hot conversation context -> answer directly.** If current messages or
+   current-turn tool output already contain the answer, answer from that
+   evidence. Do not query memory or run a model.
+2. **Explicit stored summary/result -> `vss memory get`, `vss summarize get`,
+   or `vss memory query`.** For a known `job_id`, read the stored parent with
+   `vss memory get` or, for a summarize job, `vss summarize get`. To find or
+   list stored results by text, sensor, type, status, or time, use `query`.
+3. **General video question where past memory may exist -> `vss memory
+   introspect`.** Use this for a substantive question about prior video analysis
+   when hot context does not answer it and the user did not request one exact
+   stored record or fresh visual verification.
+4. **Exact sensor/time or explicit fresh visual verification -> `vss vlm
+   run`.** Bypass introspection when the user supplies a grounded VIOS sensor
+   plus exact ISO-8601 UTC start/end times, or explicitly asks to watch, inspect,
+   re-check, or freshly verify that exact window. A user-confirmed
+   vss-search-archive handoff with a pre-resolved bounded `VIDEO_URL` uses this
+   route as Path A; do not rerun search or resolve a different interval.
+5. **`introspect` returns `no_memory` -> conditional `vss vlm run`.** Run the
+   VLM only when a grounded sensor and exact ISO-8601 UTC start/end window are
+   already available from the request, hot context, or trusted tool output.
+   Otherwise explain that no matching memory was found and that an exact
+   recorded sensor/window is needed. Never invent or broaden a window.
+
+Do not call `memory query`, `memory introspect`, and `vlm run` speculatively or
+in parallel. The only escalation is the specified `no_memory` fallback.
+
+For a confirmed search-result handoff, use only the caller-supplied `VIDEO_URL`
+and visual question. Treat that URL as Path A; do not rerun search or
+resolve a different interval. Do not consume similarity scores, filenames,
+object IDs, or other retrieval metadata as visual evidence, and do not rerun
+search, resolve a sensor, broaden the clip, or choose another interval. The
+caller owns verdict validation and any fallback after this skill returns.
+
+### Run the selected command
+
+For an explicit stored parent:
 
 ```bash
-# Each block is its own shell; define what it uses.
+vss memory get --job-id '<job-id>'
+# summarize jobs may also use:
+vss summarize get --job-id '<job-id>'
+```
+
+For a known child, add both `--record-type event|search_hit|incident` and
+`--record-id '<record-id>'`. For discovery, apply only relevant filters:
+
+```bash
+vss memory query --query '<search text>' --sensor-id '<sensor-name>' --limit 20
+```
+
+For bounded introspection, preserve the user's question verbatim:
+
+```bash
+vss memory introspect --query '<user question>' --sensor '<sensor-name>'
+```
+
+`introspect` requires grounded, useful scope: `--sensor`, `--job-id`,
+`--record-id`, or a complete UTC time range. Add only grounded selectors. A time range requires
+both `--start-time` and `--end-time`. `--record-type` and `--group` refine scope
+but do not establish it. The command may perform its own bounded VLM follow-ups;
+do not duplicate them manually. `no_memory` returns JSON with status
+`"no_memory"` and exit code 5; this is an expected not-found result, not a
+general command or backend failure. Do not automatically run a VLM afterward
+unless an exact sensor and exact ISO-8601 UTC start/end window were already
+grounded before introspection returned.
+
+For one fresh inspection, use **`vss vlm run`** — never a hand-built VLM request.
+
+**Path A — URL or local file** (default when the user or search handoff provides
+media directly; skip the sensor check):
+
+```bash
 VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
 # Exit 6 means the answer was produced but could not be written to memory.
-# The answer is still valid, so keep it; only persistence needs retrying.
 check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit "$1"; }; }
 
-# URL (RT-VLM fetches it):
 RC=0
-RESULT=$("${VSS[@]}" vlm run \
-  --prompt "${USER_QUESTION}" \
-  --media-url "${VIDEO_URL}") || RC=$?
+RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --media-url "${VIDEO_URL}") || RC=$?
 check_rc "${RC}"
 
 # Local file (inlined as base64):
-# RC=0
-# RESULT=$("${VSS[@]}" vlm run \
-#   --prompt "${USER_QUESTION}" \
-#   --file "${VIDEO_FILE}") || RC=$?
-# check_rc "${RC}"
+# RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --file "${VIDEO_FILE}") || RC=$?
 ```
 
-**Path B — named sensor (with optional time window):**
+**Path B — named VIOS sensor** (optional window). List sensors first even when
+the user names the sensor. Then:
 
 ```bash
-# Each block is its own shell; define what it uses.
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
-# Exit 6 means the answer was produced but could not be written to memory.
-# The answer is still valid, so keep it; only persistence needs retrying.
-check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit "$1"; }; }
-
-# Without a time window (full recorded clip):
 RC=0
 RESULT=$("${VSS[@]}" vlm run \
   --prompt "${USER_QUESTION}" \
-  --sensor "${SENSOR_NAME}") || RC=$?
+  --sensor "${SENSOR_NAME}" \
+  --start-time "${START_TIME}" \
+  --end-time "${END_TIME}") || RC=$?
 check_rc "${RC}"
-
-# With a time window:
-# RC=0
-# RESULT=$("${VSS[@]}" vlm run \
-#   --prompt "${USER_QUESTION}" \
-#   --sensor "${SENSOR_NAME}" \
-#   --start-time "${START_TIME}" \
-#   --end-time "${END_TIME}") || RC=$?
-# check_rc "${RC}"
 ```
 
-**Optional flags:**
+A question that names a sensor is Path B and MUST use `--sensor`. Do not
+hand-build a `/storage/file/<streamId>/url` call. The window must be fully
+recorded and start before end. Cite the returned `job_id`, sensor, and window.
+Do not substitute `vss vios clip`, direct VLM HTTP, or a local copy for a
+failed `vss vlm run`.
 
-| Flag | Default | When to use |
-|---|---|---|
-| `--intent <critic\|report\|qa\|introspection>` | `qa` | Set when the question has a known intent for memory tagging. |
-| `--no-persist` | persist | Pass when you do not want the answer written to the memory index. |
-| `--model <id>` | first model from rt_vlm | Override when the deployment serves multiple models. |
-| `--timeout <sec>` | 30 | Raise for long clips or slow inference. |
-| `--num-frames <N>` | 8 | Fixed-frame budget sent to RT-VLM as `num_frames_per_second_or_fixed_frames_chunk`. Raise for long clips where the default 8 frames misses key moments. |
+### Return a grounded answer
 
----
+State whether the answer came from hot context, stored memory, introspection, or
+a fresh VLM job when that distinction matters. Preserve uncertainty and cite
+available handles. Extract `.answer` from the CLI JSON. On CLI failure, report
+the diagnostic and a useful recovery step; do not fabricate an answer.
 
-## Step 3 — Return the answer
-
-Extract the answer from the JSON result and return it to the user:
-
-```bash
-# The CLI emits a body JSON line then a completion-marker JSON line.
-# Print the full output so the trajectory contains the status and answer.
-printf '%s\n' "${RESULT}"
-# Select the line that carries .answer so the marker line is silently skipped.
-ANSWER=$(printf '%s' "${RESULT}" | jq -rR 'try (fromjson | objects | select(has("answer")) | .answer)')
-```
-
-Return only `$ANSWER` to the user — plain text, light markdown is fine. Do not wrap it in a
-report template.
-
----
+If `vss vlm run` exits non-zero, stop and report the error:
+- `2` — invalid input. Fix the request; do not retry it unchanged.
+- `3` — backend unreachable. Retrying is reasonable.
+- `4` — required service missing from the recorded config. Re-run `vss configure`.
+- `5` — the sensor name is not in VIOS. List sensors and confirm the name.
+- `6` — the answer was produced but could not be written to memory. Keep the answer.
+- `7` — timeout (raise `--timeout`).
 
 ## Examples
 
-- "What's happening in this clip? `/home/me/forklift.mp4`" → Path A (`--file /home/me/forklift.mp4`).
-- "Is the worker wearing PPE? `https://example.com/clip.mp4`" → Path A (`--media-url https://example.com/clip.mp4`).
-- "Is the worker in `warehouse_safety_0001` wearing PPE?" → sensor check → Path B (`--sensor warehouse_safety_0001`).
-- "At what timestamp did the worker climb the ladder?" → same Path B; `vss vlm run` handles the clip.
-- "What color is the truck at 00:12 in `dock_cam`?" → Path B with `--start-time` / `--end-time`.
+- **Hot conversation:** The previous turn says, "A forklift crossed the loading
+  aisle at 10:14 UTC." User: "When did the forklift cross?" -> answer `10:14
+  UTC` directly; run no command.
+- **Explicit stored parent:** "Show me the summary from job `sum-01JXYZ`." ->
+  `vss memory get --job-id sum-01JXYZ` or `vss summarize get --job-id
+  sum-01JXYZ`.
+- **Stored-result discovery:** "Find stored search results about forklifts on
+  `dock_cam`." -> `vss memory query --query 'forklifts' --sensor-id dock_cam`.
+- **General memory-aware question:** "Was anyone missing PPE on
+  `warehouse_safety_0001`?" -> `vss memory introspect --query ... --sensor
+  warehouse_safety_0001`.
+- **Exact fresh verification:** "Freshly verify whether the worker wore a hard
+  hat on `dock_cam` from `2026-08-13T20:00:00Z` to
+  `2026-08-13T20:00:30Z`." -> `vss vlm run` with that exact sensor/window.
+- **Search handoff:** confirmed unverified hit with bounded `VIDEO_URL` -> Path A
+  `--media-url`.
+- **No-memory with scope:** Introspection returns `no_memory`, while trusted
+  context provides `dock_cam` and `2026-08-13T20:00:00Z` through
+  `2026-08-13T20:00:30Z` -> run one `vss vlm run` for exactly that interval.
+- **No-memory without scope:** "Did a forklift enter the loading area last
+  week?" returns `no_memory`, with no exact sensor/window -> explain no matching
+  memory/window exists and ask for the sensor and exact UTC window; do not run
+  the VLM.
 
----
+## Explicit non-VSS local-file fallback
 
-## Error Handling
+This separate fallback applies only when the user explicitly asks about a
+standalone local file/base64 video and no VSS deployment or VIOS sensor is in
+scope. It may use a caller-provided OpenAI-compatible VLM according to that
+service's documented media format. Label the result as non-VSS.
 
-- If `vss vlm run` exits non-zero, stop and report the error. The code says what to do next:
-  - `2` — invalid input: conflicting or missing media source, a time window without `--sensor`, an unreadable `--file`, or a URL RT-VLM rejected (e.g. SSRF-blocked). Fix the request; do not retry it unchanged.
-  - `3` — backend unreachable: rt_vlm returned 5xx, refused the connection, or replied with an unusable or empty answer. Infrastructure rather than the request — retrying is reasonable.
-  - `4` — required service missing from the recorded config: `rt_vlm` for every request, or `vst` when using `--sensor`. Re-run `vss configure` against an origin that exposes every required service.
-  - `5` — the sensor name is not in VIOS. Do not retry as-is: list the sensors (see *Sensor check*) and confirm the intended name with the user.
-  - `6` — the answer was produced but could not be written to memory. The answer on stdout is valid; only the memory write failed.
-  - `7` — timeout (raise `--timeout`).
-- If **no video is available** (neither a URL/file nor a sensor), stop and ask the user for one.
-- If `rt_vlm` is not listed as `ok` in `vss configure check`, the deployment does not serve it.
-  Stop and report that; standing the service up is a deployment task (see *Cross-Reference*).
+For an MP4, send the **native MP4 bytes as one video input**. Read the file
+directly, base64-encode the complete byte sequence, and construct exactly:
 
----
+```text
+data:video/mp4;base64,<base64 of the complete MP4 file>
+```
+
+Pass that URI in one OpenAI-compatible `video_url` content part:
+
+```json
+{"type":"video_url","video_url":{"url":"data:video/mp4;base64,<complete MP4 base64>"}}
+```
+
+Do not run `ffmpeg`, OpenCV, or any frame extractor. Do not convert the video
+to JPEG/PNG images or send an `image_url` array: extracted frames are not the
+requested native video input and can discard motion, timing, and audio. If the
+caller-provided VLM does not support a native MP4 `video_url` data URI, report
+that incompatibility instead of silently changing the media format.
+
+Never enter this fallback after `vss memory introspect`, use it for a named VIOS
+sensor or stored VSS result, or combine local/base64 media with introspection.
+If the request could refer to VSS memory, ask the user to choose the standalone
+file or the VSS sensor. If a VSS deployment is configured, use Path A
+`vss vlm run --file` / `--media-url` instead.
+
+## Negative triggers
+
+- Archive/semantic similarity retrieval ("find videos of ...") -> `/vss-search-archive`.
+  This skill may inspect only the pre-resolved bounded clip that search hands
+  off after confirmation; it never performs the retrieval itself.
+- Long-form summarization -> `/vss-summarize-video`.
+- Structured reports -> `/vss-generate-video-report`.
+- Existing analytics incidents or metrics -> `/vss-query-analytics`.
+- Deployment/profile changes -> `/vss-deploy-profile`.
 
 ## Cross-Reference
 
-- **`/vss-manage-video-io-storage`** — *optional* (Step 1, Path B): REST-level upload semantics.
-- **`/vss-deploy-dense-captioning`** — *optional*: stand up a standalone RT-VLM if rt_vlm is
-  not deployed. **Do not re-run `vss configure` against the standalone RT-VLM URL** if you also
-  use Path B (`--sensor` / `vss vios`): doing so replaces the deployment config with one that
-  lacks VIOS routes, breaking the sensor path. Instead, expose RT-VLM through the same origin
-  as VIOS and re-run `vss configure` against that shared origin.
-- **`/vss-generate-video-report`** — timestamped **reports** via the same VLM path; this skill
-  returns an ad-hoc **answer**, not a report.
-- **`/vss-query-analytics`** — read already-computed incidents/metrics (no live VLM inference).
+- **`/vss-manage-video-io-storage`** — optional Path B upload semantics.
+- **`/vss-deploy-dense-captioning`** — optional standalone RT-VLM. Do not
+  re-run `vss configure` against a standalone RT-VLM URL if you also need VIOS.
+- **`/vss-generate-video-report`** — timestamped reports; this skill returns an
+  ad-hoc answer.
+- **`/vss-query-analytics`** — already-computed incidents/metrics.

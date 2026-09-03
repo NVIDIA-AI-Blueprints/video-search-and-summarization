@@ -148,7 +148,8 @@ co-resident services sum to at most `0.8`. The Lightning NIM's shared env sets
 `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4` (DGX Spark) or `0.35` (Thor) in the
 build override for RT-VLM. If other tenants are resident, lower the fractions
 to fit — for the LLM that means lowering `NIM_GPU_MEM_FRACTION` in
-`services/nim/nemotron-3.5-lightning-30b-a3b/hw-<profile>-shared.env`. If `nvidia-smi`
+`services/nim/nemotron-3.5-lightning-30b-a3b/hw-<profile>-shared.env` (the FP8
+fallback reads the same key from its own `hw-*.env`). If `nvidia-smi`
 cannot read free memory (common on Thor/Tegra), start at `0.4` and reduce by
 `0.05` after the first `Free … less than desired` abort.
 

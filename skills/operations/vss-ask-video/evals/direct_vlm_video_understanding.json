@@ -1,7 +1,6 @@
 {
   "skills": [
-    "vss-ask-video",
-    "vss-deploy-profile"
+    "vss-ask-video"
   ],
   "resources": {
     "platforms": {
@@ -12,35 +11,19 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base` so a local NIM Cosmos VLM is serving. Run autonomously.\n\n**Purpose of this eval:** it exercises the **vss-ask-video direct-VLM path with NO VST/VIOS** — later steps answer a question about a *local* video file by POSTing it straight to the VLM's `/v1/chat/completions` (inline base64 or a self-served URL). The skill does NOT call `POST /generate` and does NOT resolve a VST clip URL. For this step, only bring the base profile up so a VLM endpoint resolves. Read `VLM_BASE_URL` / `VLM_NAME` / `VLM_MODE` (and `RTVI_VLM_BASE_URL` for RT-VLM) off the `vss-agent` container env — the image is distroless, so use `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`, not `docker exec`. (See `skills/vss-ask-video/SKILL.md`.)",
+      "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
       "checks": [
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "A VLM endpoint resolves from the vss-agent container environment (read via `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}'`): either VLM_BASE_URL + VLM_NAME (NIM Cosmos, base default :30082) or RTVI_VLM_BASE_URL + VLM_NAME (RT-VLM), and a GET against the chosen endpoint's /v1/models returns 200 with the model id present in .data[].id"
+        "The response clearly labels this as the explicit non-VSS local-file fallback.",
+        "The complete local MP4 is base64-encoded and sent as one video_url content part whose URI starts with data:video/mp4;base64,. No ffmpeg, OpenCV, frame extraction, image/jpeg, image/png, or image_url inputs are used.",
+        "The trajectory does not run vss memory introspect, vss memory query, vss memory get, vss vlm run, or access VIOS.",
+        "The answer is derived from the standalone VLM response."
       ]
     },
     {
-      "query": "Obtain the VSS sample data **as a local file on disk** (do NOT upload it to VST/VIOS). Configure NGC access, then run `ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0` and extract it (e.g. `tar -xf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz -C ./sample-data`) so that a local copy of `warehouse_safety_0001.mp4` exists on disk. This route uses the local file directly — it must NOT be registered as a VST sensor or uploaded via VIOS.",
+      "query": "Answer this question about the local video file warehouse_safety_0001.mp4 using a configured VSS deployment and vss-ask-video Path A --file — do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: Is the worker wearing PPE?",
       "checks": [
-        "A local, non-empty file named warehouse_safety_0001.mp4 exists on disk after this step (e.g. `find . -name warehouse_safety_0001.mp4` returns a path to a file with size > 0), sourced from the NGC `nvidia/vss-developer/dev-profile-sample-data` resource.",
-        "The trajectory shows the video was obtained as a local file (NGC resource download + extract) and was NOT uploaded to VIOS/VST for this step (no PUT to the VST sensor/stream registration endpoints such as /vst/api/v1/... for warehouse_safety_0001)."
-      ]
-    },
-    {
-      "query": "Answer this question about the **local** video file `warehouse_safety_0001.mp4` (the on-disk copy from the previous step) using the **vss-ask-video** skill with the local file as input (Path A `--file`) — do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: **Is the worker wearing PPE?**",
-      "checks": [
-        "The run used `vss vlm run --file <path/to/warehouse_safety_0001.mp4>` (or the `${VSS[@]} vlm run --file` equivalent from the skill’s SKILL.md bootstrap) to send the local video to RT-VLM. The CLI inlines the file as base64 internally and POSTs it to the rt_vlm /v1/chat/completions endpoint. The command exited 0 and the output JSON contains `\"status\": \"completed\"` and a non-empty `\"answer\"` field.",
-        "The run did NOT perform any GET to a VST clip-URL endpoint (no request to a http://<host>:30888/vst/api/v1/storage/file/.../url style URL) — the video came from the local file, not VST.",
-        "The run did NOT POST to http://<host>:8000/generate.",
-        "The final assistant reply answers whether the worker is wearing PPE in plain text or light markdown, derived from the VLM response (any <think>...</think> block stripped), with no errors in the final response."
-      ]
-    },
-    {
-      "query": "Now answer a second question about the same local `warehouse_safety_0001.mp4` using the **vss-ask-video** skill with a self-served URL (Path A `--media-url`) instead of inline base64 — still WITHOUT VST/VIOS and WITHOUT `POST /generate`. Serve the local file over a simple HTTP URL the VLM can reach (e.g. `python3 -m http.server` bound to the host IP), then use `vss vlm run --media-url <url>` as the skill instructs: **At what timestamp does the worker climb the ladder?**",
-      "checks": [
-        "The run used `vss vlm run --media-url <self-served-url>` (or the `${VSS[@]} vlm run --media-url` equivalent from the skill’s SKILL.md) to send the self-served video URL to RT-VLM. The command exited 0 and the output JSON contains `\"status\": \"completed\"` and a non-empty `\"answer\"` field. Backend-conditional kwargs — RT-VLM (default for vss configure’s rt_vlm) must receive `num_frames_per_second_or_fixed_frames_chunk` with a non-zero value so it samples more than the opening frame; the CLI always includes this. Earlier failed or empty attempts do not count against this check.",
-        "The run did NOT perform any GET to a VST clip-URL endpoint (no http://<host>:30888/vst/api/v1/storage/file/.../url request).",
-        "The run did NOT POST to http://<host>:8000/generate.",
-        "The final assistant reply answers the question in plain text or light markdown and includes a timestamp, derived from the VLM response (any <think>...</think> block stripped), with no errors in the final response."
+        "The run used `vss vlm run --file` to send the local video to RT-VLM. The command exited 0 and the output JSON contains a non-empty answer.",
+        "The run did NOT POST to http://<host>:8000/generate."
       ]
     }
   ]

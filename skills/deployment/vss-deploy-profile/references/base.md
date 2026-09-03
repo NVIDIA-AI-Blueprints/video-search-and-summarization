@@ -19,7 +19,7 @@ Container names below are exactly what `docker ps` reports (sourced from the `co
 | VIOS Postgres | `vss-vios-postgres` | — | VIOS metadata store |
 | VIOS Sensor MS | `vss-vios-sensor` | — | VIOS sensor management |
 | VIOS Stream Processing | `vss-vios-streamprocessing` | — | VIOS stream processing |
-| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Nemotron LLM for reasoning. Activated by `llm_<mode>_<slug>` COMPOSE_PROFILES; container name = `${LLM_NAME_SLUG}` (the only other in-tree LLM is `nvidia-nemotron-nano-9b-v2-fp8`, the edge build). |
+| LLM NIM (default) | `nemotron-3.5-lightning-30b-a3b` | 30081 | Nemotron LLM for reasoning. Activated by `llm_<mode>_<slug>` COMPOSE_PROFILES; container name = `${LLM_NAME_SLUG}` (the only other in-tree LLM is `nvidia-nemotron-nano-9b-v2-fp8`, the smaller-GPU alternative). |
 | VLM NIM (default) | `nvidia-cosmos3-reasoner` | 30082 | Cosmos Reason VLM for vision. Activated by `vlm_<mode>_<slug>`; container name = `${VLM_NAME_SLUG}` (e.g. `cosmos3-reasoner`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`). |
 | Redis | `redis` | 6379 | Cache |
 | Phoenix | `phoenix` | 6006 | Observability / telemetry |
@@ -36,7 +36,7 @@ The base `.env` defaults both sides to shared local deployment:
 `LLM_DEVICE_ID=0` and `VLM_DEVICE_ID=0`. `dev-profile.sh` writes the same
 mode when LLM/VLM device IDs match and no remote flags are selected.
 
-**Alternate LLM:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` — the edge build (DGX Spark / AGX Thor / IGX Thor); see [`edge.md`](edge.md). Those two are the only local LLMs in the tree; `LLM_MODE=remote` still accepts any model id a remote endpoint serves.
+**Alternate LLM:** `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` — **11.7 GB**, for GPUs that cannot host the default. Lightning's pinned INT4 profile refuses to load below its `min_vram_per_device_gb: 32.0` metadata floor, and its observed footprint is ~45 GB, so cards in or below that range need this build or a remote endpoint. It ships sizing only for `OTHER` and the three edge profiles, and is never selected automatically — pass `--llm`. Those two are the only local LLMs in the tree; `LLM_MODE=remote` still accepts any model id a remote endpoint serves.
 
 **Alternate VLMs:** `nvidia/cosmos-reason1-7b`, `nvidia/cosmos-reason2-8b`, `Qwen/Qwen3-VL-8B-Instruct`
 

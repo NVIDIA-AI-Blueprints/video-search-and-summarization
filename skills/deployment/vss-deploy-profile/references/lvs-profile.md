@@ -59,7 +59,7 @@ This prevents a deploy from passing when the local LLM NIM is down.
 
 > **`VLM_NAME` must be the basename of `RTVI_VLM_MODEL_PATH` — NOT the friendly NIM name.** RT-VLM advertises this exact string in `/v1/models`, and the LVS service / agent calls the model by that id. Setting `VLM_NAME=nvidia/cosmos3-nano-reasoner` (the friendly NIM name) reproduces the same class of `400 BadParameters: No such model` failure. **Always set `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_bf16-final` for the default integrated path.** Same caveat as `alerts.md`.
 
-Local LVS deployments default to `nvidia/nemotron-3.5-lightning-30b-a3b`. The one alternate is the same as base — `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, the edge build (see `edge.md`); of the hardware profiles LVS accepts it ships a sizing file only for `OTHER`, so it needs `HARDWARE_PROFILE=OTHER`.
+Local LVS deployments default to `nvidia/nemotron-3.5-lightning-30b-a3b`. The one alternate is the same as base — `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, the smaller-GPU build (see `base.md`); of the hardware profiles LVS accepts it ships a sizing file only for `OTHER`, so it needs `HARDWARE_PROFILE=OTHER`.
 
 VLM alternates: see [VLM serving paths](#vlm-serving-paths) below.
 

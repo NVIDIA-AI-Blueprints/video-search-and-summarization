@@ -157,20 +157,44 @@ describe('ChatInput – query context item rendering', () => {
 });
 
 describe('Query context item deduplication logic', () => {
-  it('prevents duplicate items by id', () => {
+  it('prevents duplicate items by id and replaces the existing payload', () => {
     const items: Array<{ id: string; label: string; contextType: string; data: Record<string, unknown> }> = [];
 
     const addItem = (item: typeof items[0]) => {
-      if (items.some((c) => c.id === item.id)) return;
-      items.push(item);
+      const index = items.findIndex((c) => c.id === item.id);
+      if (index === -1) {
+        items.push(item);
+        return;
+      }
+      items[index] = item;
     };
 
     addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip' } });
-    addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip' } });
+    addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip', top_k: 5 } });
     addItem({ id: 'y', label: 'Cam-2', contextType: 'media/video', data: { sensorName: 'Cam-2', mediaType: 'sensor-clip' } });
 
     expect(items).toHaveLength(2);
     expect(items.map((c) => c.id)).toEqual(['x', 'y']);
+    expect(items[0].data.top_k).toBe(5);
+  });
+
+  it('returns the previous state when re-adding an unchanged item', () => {
+    // Mirrors Chat's handleAddQueryContext reducer. Callers re-send a freshly
+    // built object on re-render, so an unchanged payload has to be a no-op —
+    // otherwise every add schedules a render that triggers the next add.
+    type Item = { id: string; label: string; contextType: string; data: Record<string, unknown> };
+    const addItem = (prev: Item[], item: Item): Item[] => {
+      const index = prev.findIndex((c) => c.id === item.id);
+      if (index !== -1 && JSON.stringify(prev[index]) === JSON.stringify(item)) return prev;
+      return index === -1 ? [...prev, item] : prev.map((c, i) => (i === index ? item : c));
+    };
+
+    const first: Item = { id: 'x', label: 'Filters', contextType: 'search/filters', data: { top_k: 5 } };
+    const state = addItem([], first);
+    const resent: Item = { id: 'x', label: 'Filters', contextType: 'search/filters', data: { top_k: 5 } };
+
+    expect(addItem(state, resent)).toBe(state);
+    expect(addItem(state, { ...resent, data: { top_k: 6 } })).not.toBe(state);
   });
 });
 
