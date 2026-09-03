@@ -3,7 +3,7 @@
  * Extracts Search API–shaped JSON from agent response text and transforms to SearchData[].
  * The agent may return markdown or plain text with an embedded JSON block (e.g. ```json ... ``` or raw { "data": [...] }).
  */
-import { extractVssUiArtifacts } from 'common';
+import { extractVssUiArtifacts } from '@nemo-agent-toolkit/ui';
 import type { SearchData } from '../types';
 
 /** Same shape as the Search API response: { data: Array<...> } */

@@ -211,6 +211,12 @@ export {
   uploadFileChunked,
   CHUNK_SIZE_BYTES,
   MAX_CHUNK_RETRIES,
+  VSS_UI_ARTIFACT_CLOSE,
+  VSS_UI_ARTIFACT_MAX_LENGTH,
+  VSS_UI_ARTIFACT_OPEN,
+  VSS_UI_ARTIFACT_VERSION,
+  extractVssUiArtifacts,
+  type VssUiArtifact,
   type FileUploadResult,
   type ChunkedUploadOptions,
   type ChunkedUploadResponse,
@@ -218,4 +224,3 @@ export {
 
 // Re-export next-i18next config
 export const nextI18nConfig: any;
-

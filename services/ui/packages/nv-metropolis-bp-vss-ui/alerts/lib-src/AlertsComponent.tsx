@@ -9,8 +9,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
-import { extractVssUiArtifacts } from 'common';
+import { VideoModal, extractVssUiArtifacts, useVideoModal } from '@nemo-agent-toolkit/ui';
 
 import {
   AlertsComponentProps,

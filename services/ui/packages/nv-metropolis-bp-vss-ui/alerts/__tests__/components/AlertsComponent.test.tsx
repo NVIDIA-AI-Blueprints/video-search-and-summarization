@@ -65,22 +65,6 @@ jest.mock('@nvidia/foundations-react-core', () => {
   };
 });
 
-// Mock common (VideoModal + useVideoModal)
-jest.mock('common', () => ({
-  VideoModal: jest.fn(() => null),
-  useVideoModal: jest.fn(() => ({
-    videoModal: { isOpen: false, videoUrl: '', title: '' },
-    openVideoModalFromAlert: jest.fn(),
-    closeVideoModal: jest.fn(),
-    loadingAlertId: null,
-  })),
-  extractVssUiArtifacts: jest.fn((text: string) =>
-    text.includes('"kind":"vss.alert.incidents"')
-      ? [{ version: '1.0', kind: 'vss.alert.incidents', payload: { incidents: [] } }]
-      : [],
-  ),
-}));
-
 // Mock the hooks
 jest.mock('../../lib-src/hooks/useAlerts', () => ({
   useAlerts: jest.fn(() => ({
