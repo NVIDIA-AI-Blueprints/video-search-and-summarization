@@ -77,6 +77,25 @@ PASSTHROUGH_DEFAULT = re.compile(rf"^\$\{{{TARGET}:-(?P<default>.*)\}}$")
 
 SCHEME_TOKENS = ("http://", "https://", "VST_EXTERNAL_URL", "VSS_PUBLIC_HTTP_PROTOCOL")
 
+# The Helm charts set the same variable through a template helper rather than a
+# ':-' chain, so they are checked by shape instead: whatever a branch emits has
+# to carry its scheme, for the same reason the Compose value does.
+HELM_HELPERS = (
+    (
+        Path("deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl"),
+        "vss-vios-streamprocessing.vstIngressEndpoint",
+    ),
+    (
+        Path("deploy/helm/services/vios/charts/vios-sensor/templates/_helpers.tpl"),
+        "vss-vios-sensor.vstIngressEndpointUrl",
+    ),
+)
+
+# A `{{- printf ... }}` on its own is the helper's output; a `$internal :=` is
+# the in-cluster default it may fall back to. Both become the variable's value.
+HELM_EMIT = re.compile(r"^\{\{-?\s*printf\s")
+HELM_INTERNAL = re.compile(r"\$internal\s*:=")
+
 # The only reader of the variable, and the other half of the contract.
 MINTER = Path("services") / "vios" / "src" / "framework" / "utilities" / "utils.cpp"
 MINTER_FUNCTION = "getIngressBaseUrl"
@@ -139,12 +158,10 @@ def assignments(path: Path) -> list[tuple[int, str]]:
 def default_paths() -> list[Path]:
     """Every file under ``deploy/docker`` that mentions the variable.
 
-    Scoped to the Compose deployment deliberately. The Helm chart resolves the
-    same variable through ``vss-vios-streamprocessing.vstIngressEndpoint``
-    (``deploy/helm/services/vios/charts/vios-streamprocessing/templates/_helpers.tpl``),
-    which already prefers ``global.externalHost``/``externalPort`` over the
-    internal service name -- the shape asked for here, expressed in template
-    rather than in ``:-``. ``test-scripts`` is excluded because it asserts
+    Scoped to the Compose deployment because Helm sets the same variable from a
+    template helper rather than a ``:-`` chain, and a ``value: {{ include ... }}``
+    line says nothing about what it resolves to. ``scan_helm`` checks those
+    helpers by shape instead. ``test-scripts`` is excluded because it asserts
     *about* these values rather than setting them.
     """
     base = ROOT / "deploy" / "docker"
@@ -209,6 +226,61 @@ def scan_paths(paths: Iterable[Path]) -> tuple[list[str], int]:
     return failures, checked
 
 
+def scan_helm(root: Path | None = None) -> list[str]:
+    """Check the Helm helpers emit an endpoint that carries its scheme.
+
+    The charts disagreed: ``vios-sensor`` already emitted ``https://host/vst``
+    while ``vios-streamprocessing`` emitted ``host:443/vst`` under a comment
+    saying the app would prepend the scheme. Against an https ``externalHost``
+    that second form was minted ``http://`` and answered by a TLS listener.
+    Both are checked so neither drifts back.
+
+    A ``{{- $explicit }}`` branch is deliberately not checked -- that is the
+    operator's own ``vstIngressEndpoint``, and the minter accepts it with or
+    without a scheme.
+    """
+    failures: list[str] = []
+
+    for relative, helper in HELM_HELPERS:
+        path = (root or ROOT) / relative
+        if not path.is_file():
+            failures.append(
+                f"{relative}: not found, so the Helm media origin is "
+                f"unchecked. If the chart moved, point this check at it."
+            )
+            continue
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        try:
+            start = next(i for i, line in enumerate(lines) if f'define "{helper}"' in line)
+        except StopIteration:
+            failures.append(
+                f"{relative}: helper {helper!r} not found. It sets "
+                f"{TARGET} for this chart; if it was renamed, update this check."
+            )
+            continue
+
+        end = next(
+            (i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("{{- end }}") and i > start),
+            len(lines),
+        )
+
+        for offset, line in enumerate(lines[start : end + 1], start + 1):
+            stripped = line.strip()
+            emits = HELM_EMIT.match(stripped) or HELM_INTERNAL.search(stripped)
+            if emits and "://" not in stripped:
+                failures.append(
+                    f"{relative}:{offset}: {helper} emits an endpoint with no "
+                    f"scheme ({stripped!r}). VIOS stamps it into every "
+                    f"imageUrl/videoUrl, and without a scheme getIngressBaseUrl() "
+                    f"falls back to security.use_https -- which cannot say 'TLS "
+                    f"terminates upstream', so an https externalHost is minted "
+                    f"http://. Build it from global.externalScheme."
+                )
+
+    return failures
+
+
 def scan_minter(root: Path | None = None) -> list[str]:
     """Check that the endpoint's own scheme survives being turned into a URL.
 
@@ -260,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     # Explicit paths mean a caller is linting specific fixtures, so only the
     # repository-wide run checks the minter that pairs with them.
     if not args.paths:
-        failures = failures + scan_minter()
+        failures = failures + scan_helm() + scan_minter()
 
     # A lint with nothing to check passes forever. The variable is set in the
     # VIOS env file and defaulted in the streamprocessing Compose file; if both
@@ -278,11 +350,18 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(failures), file=sys.stderr)
         return 1
 
-    minted = "" if args.paths else f", scheme passthrough intact in {MINTER.name}"
+    extra = (
+        ""
+        if args.paths
+        else (
+            f", {len(HELM_HELPERS)} Helm helper(s) emitting a scheme"
+            f", scheme passthrough intact in {MINTER.name}"
+        )
+    )
     print(
         f"VIOS media origin lint passed "
         f"({checked} resolvable definition(s) of {TARGET} in "
-        f"{len(paths)} file(s){minted})."
+        f"{len(paths)} file(s){extra})."
     )
     return 0
 
