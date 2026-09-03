@@ -58,6 +58,39 @@ def _render(tmp: Path, declared=None, platform="L40S") -> str:
                                      head_sha="0862faf3", declared=declared)
 
 
+def _group_score(trial_dir: Path, score: float, correctness: list[bool]) -> None:
+    payload = {
+        "group_id": "video",
+        "group_type": "relevance",
+        "score": score,
+        "question_accuracy": sum(correctness) / len(correctness),
+        "grades": [
+            {"case_id": f"video-{index}", "correct": correct}
+            for index, correct in enumerate(correctness, 1)
+        ],
+    }
+    (trial_dir / "verifier" / leg_report.BENCHMARK_GROUP_SCORE_NAME).write_text(
+        json.dumps(payload)
+    )
+
+
+def _benchmark_report(
+    trial_dir: Path,
+    *,
+    score: float,
+    minimum: float,
+) -> None:
+    payload = {
+        "overall_group_score": score,
+        "minimum": minimum,
+        "passed": score >= minimum,
+        "groups": [],
+    }
+    (trial_dir / "verifier" / leg_report.BENCHMARK_REPORT_NAME).write_text(
+        json.dumps(payload)
+    )
+
+
 # --- structure --------------------------------------------------------------
 
 def test_run_level_result_json_is_not_mistaken_for_a_trial(tmp_path: Path) -> None:
@@ -94,6 +127,68 @@ def test_steps_render_once_and_in_order(tmp_path: Path) -> None:
     assert "step-1" in rows[0] and "step-2" in rows[1]
     assert leg_report.MARK_PASS in rows[0]
     assert leg_report.MARK_FAIL in rows[1] and "(3/4)" in rows[1]
+
+
+def test_benchmark_scores_render_separately_from_harbor_rewards(tmp_path: Path) -> None:
+    _trial(
+        tmp_path, "r", "step-1__setup", reward=1.0, passed=2, total=2,
+        start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+    )
+    group = _trial(
+        tmp_path, "r", "step-2__group", reward=1.0, passed=1, total=1,
+        start="2026-08-20T08:05:00Z", finish="2026-08-20T08:10:00Z",
+    )
+    aggregate = _trial(
+        tmp_path, "r", "step-3__aggregate", reward=0.0, passed=0, total=1,
+        start="2026-08-20T08:10:00Z", finish="2026-08-20T08:11:00Z",
+    )
+    _group_score(group, 0.25, [True, True, False, False])
+    _benchmark_report(aggregate, score=0.2777777778, minimum=0.75)
+
+    body = _render(tmp_path, declared=["setup", "questions", "aggregate"])
+    rows = _rows(body)
+
+    assert "Benchmark score" in body
+    assert leg_report.MISSING in rows[0]
+    assert "0.250 (2/4)" in rows[1]
+    assert "0.278 (min 0.750)" in rows[2]
+    assert "**Benchmark score:** `0.2778` · minimum `0.7500` · ❌ failed" in body
+    assert "1.0" in rows[1]
+
+
+def test_passing_benchmark_summary_is_rendered(tmp_path: Path) -> None:
+    aggregate = _trial(
+        tmp_path, "r", "step-1__aggregate", reward=1.0, passed=1, total=1,
+        start="2026-08-20T08:00:00Z", finish="2026-08-20T08:01:00Z",
+    )
+    _benchmark_report(aggregate, score=0.8, minimum=0.75)
+
+    body = _render(tmp_path, declared=["aggregate"])
+
+    assert "**Benchmark score:** `0.8000` · minimum `0.7500` · ✅ passed" in body
+
+
+def test_normal_eval_table_has_no_benchmark_score_column(tmp_path: Path) -> None:
+    _trial(
+        tmp_path, "r", "step-1__setup", reward=1.0, passed=2, total=2,
+        start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+    )
+
+    assert "Benchmark score" not in _render(tmp_path, declared=["setup"])
+
+
+def test_malformed_benchmark_score_is_reported(tmp_path: Path) -> None:
+    trial = _trial(
+        tmp_path, "r", "step-1__group", reward=1.0, passed=1, total=1,
+        start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+    )
+    (trial / "verifier" / leg_report.BENCHMARK_GROUP_SCORE_NAME).write_text(
+        "{not json"
+    )
+
+    body = _render(tmp_path, declared=["questions"])
+
+    assert "Unreadable benchmark score artifacts" in body
 
 
 # --- the false-red the earlier draft introduced ------------------------------

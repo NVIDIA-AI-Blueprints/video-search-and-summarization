@@ -64,6 +64,10 @@ def main() -> None:
         / "groups"
     )
     _write_model_atomic(state / f"{spec.group_id}.json", group_score)
+    _write_model_atomic(
+        Path("/logs/verifier") / "benchmark-group-score.json",
+        group_score,
+    )
     _write_reward(1.0, group_score.model_dump_json())
 
 
