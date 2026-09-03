@@ -241,6 +241,87 @@ set_ini tiled-display columns "$COLS"
 set_ini tiled-display width "$TILE_WIDTH"
 set_ini tiled-display height "$TILE_HEIGHT"
 set_ini tiled-display enable 1                  # tiler on: on-screen grid + SAVE_VIDEO grid sink
+# OSD needs the GPU driving the display to be visible to the container. gpu-id is
+# a CUDA ordinal within that visible set, and the runtime orders it by PCI
+# address, so it is not the nvidia-smi index. Resolve both here, where every GPU
+# is visible. Nothing is changed when the display GPU cannot be determined, to
+# avoid moving the workload to a GPU nobody chose.
+resolve_gpu_selection() {   # echoes "<visible_csv> <gpu_id>", or nothing
+  GPU_DEVICE="$GPU_DEVICE" OSD="$OSD" python3 - <<'PY'
+import os, re, subprocess, sys
+
+def smi(q):
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=" + q, "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=10)
+        return [l.strip() for l in out.stdout.splitlines() if l.strip()]
+    except Exception:
+        return []
+
+rows = [l.split(", ") for l in smi("index,pci.bus_id")]
+if not rows:
+    sys.exit(0)
+bus = {r[0]: r[1].upper() for r in rows if len(r) == 2}
+
+want = (os.environ.get("GPU_DEVICE") or "0").strip()
+compute = [d.strip() for d in want.split(",") if d.strip()]
+if want == "all":
+    compute = sorted(bus, key=lambda i: bus[i])
+# UUIDs cannot be ordered here.
+if any(not d.isdigit() for d in compute):
+    sys.exit(0)
+
+visible = list(compute)
+
+# xorg.conf states the bus in decimal, nvidia-smi in hex.
+if os.environ.get("OSD") == "1":
+    disp = None
+    try:
+        conf = open("/etc/X11/xorg.conf").read()
+        m = re.search(r'BusID\s+"PCI:(\d+)', conf)
+        if m:
+            tag = ":%02X:00" % int(m.group(1))
+            disp = next((i for i, b in bus.items() if tag in b), None)
+    except Exception:
+        disp = None
+    if disp is None:
+        # Only worth reporting when there is a choice to get wrong.
+        if len(bus) > 1:
+            print("UNKNOWN")
+        sys.exit(0)
+    if disp not in visible:
+        visible.append(disp)
+
+visible = sorted(set(visible), key=lambda i: bus.get(i, ""))
+try:
+    gpu_id = visible.index(compute[0])    # CUDA ordinal, not nvidia-smi index
+except ValueError:
+    sys.exit(0)
+print("%s %s" % (",".join(visible), gpu_id))
+PY
+}
+
+read -r RESOLVED_VISIBLE RESOLVED_GPU_ID <<<"$(resolve_gpu_selection)"
+if [ "${RESOLVED_VISIBLE:-}" = UNKNOWN ]; then
+  echo "   ⚠ cannot tell which GPU drives the display (no BusID in /etc/X11/xorg.conf)." >&2
+  echo "     GPU_DEVICE=$GPU_DEVICE is unchanged. If the OSD fails to start, add the GPU" >&2
+  echo "     that drives the display to GPU_DEVICE and restage." >&2
+elif [ -n "${RESOLVED_GPU_ID:-}" ]; then
+  if [ "$RESOLVED_VISIBLE" != "$GPU_DEVICE" ]; then
+    ENV_FILE="$ROOT/docker/.env"
+    if [ -f "$ENV_FILE" ] && grep -qE '^[[:space:]]*GPU_DEVICE=' "$ENV_FILE"; then
+      sed -i -E "s|^[[:space:]]*GPU_DEVICE=.*|GPU_DEVICE=$RESOLVED_VISIBLE|" "$ENV_FILE"
+      echo "   GPU_DEVICE: $GPU_DEVICE -> $RESOLVED_VISIBLE (added the GPU driving the display)"
+    else
+      echo "   ⚠ OSD needs GPU_DEVICE=$RESOLVED_VISIBLE; docker/.env has no GPU_DEVICE line" >&2
+    fi
+    GPU_DEVICE="$RESOLVED_VISIBLE"
+  fi
+  sed -i -E "s|^gpu-id=.*|gpu-id=$RESOLVED_GPU_ID|" "$STAGE/ds-main-config-mv3dt.txt"
+  sed -i -E "s|^([[:space:]]*)gpu-id:.*|\1gpu-id: $RESOLVED_GPU_ID|" "$STAGE/ds-pgie-config.yml" 2>/dev/null || true
+  echo "   gpu-id=$RESOLVED_GPU_ID within GPU_DEVICE=$GPU_DEVICE"
+fi
+
 set_ini source-list  max-batch-size "$NUM_CAMS"
 set_ini source-list  http-port "$DS_HTTP_PORT"
 set_ini streammux    batch-size "$NUM_CAMS"

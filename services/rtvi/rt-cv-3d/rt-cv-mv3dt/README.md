@@ -46,7 +46,8 @@ includes a 4-camera warehouse **sample dataset** you can run end-to-end.
 - [3. Launch](#3-launch)
   - [3.1 Option A — bundled brokers](#31-option-a--bundled-brokers)
   - [3.2 Option B — your own brokers](#32-option-b--your-own-brokers)
-  - [3.3 Verify startup](#33-verify-startup)
+  - [3.3 On screen, display, and GPU selection](#33-on-screen-display-and-gpu-selection)
+  - [3.4 Verify startup](#34-verify-startup)
 - [4. Add streams dynamically (RTSP)](#4-add-streams-dynamically-rtsp)
 - [5. Check logs and receive metadata from Kafka](#5-check-logs-and-receive-metadata-from-kafka)
 - [6. Visualization](#6-visualization)
@@ -221,7 +222,21 @@ docker compose up -d
 #   docker compose --profile "*" down
 ```
 
-### 3.3 Verify startup
+### 3.3 On screen, display, and GPU selection
+
+`GPU_DEVICE` in [docker/.env](docker/.env) picks the GPU the pipeline computes on. With `OSD=1` the container also has to reach the GPU that drives the X display, which is often a different one on a multi-GPU host.
+
+`stage-configs.sh` resolves this: it adds the display GPU to `GPU_DEVICE` when it is missing, and writes `gpu-id` into the staged config as the compute GPU's ordinal within that set. The two are not the same number, because the container runtime orders the visible devices by PCI address rather than by the order you list them.
+
+```
+GPU_DEVICE=7   OSD=1   ->   GPU_DEVICE=3,7   gpu-id=1     # compute on 7, display via 3
+```
+
+When the display GPU cannot be determined, staging says so and changes nothing. The on-screen display may then fail with `Failed to set pipeline to PAUSED`; add the GPU driving the display to `GPU_DEVICE` and restage.
+
+On a laptop or any host whose display is rendered by Mesa rather than by an NVIDIA GPU, this is a different problem with a different fix: uncomment the `devices` block in [docker/compose.yml](docker/compose.yml). The preflight names whichever of the two it sees.
+
+### 3.4 Verify startup
 
 Either option — follow the perception logs until the pipeline reports ready:
 
@@ -283,6 +298,8 @@ testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 > not: VST unifies their SEI). A source that does not go through VST must supply
 > `NVDS_CUSTOMMETA` SEI itself.
 >
+> **Restage after any `docker/.env` change.** Several values are resolved at staging and written into `generated/`: the camera count, the broker endpoints, and the GPU selection. Editing `docker/.env` and bringing the stack up without re-running `./scripts/stage-configs.sh` leaves the staged configuration describing the previous settings. The container checks the ones it can and refuses rather than starting wrong.
+
 > `scripts/add-streams.sh` checks this before registering anything and refuses
 > with the remedy. To fix it, set `"enable_proxy_server_sei_metadata": true` in
 > both the VST and NVStreamer `vst_config.json` your deployment uses, redeploy,

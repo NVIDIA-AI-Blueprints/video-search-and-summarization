@@ -50,6 +50,7 @@ services:
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
       OTEL_SDK_DISABLED: "true"
       DISPLAY: ${DISPLAY:-:0}
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
       NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
     volumes:
       - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage

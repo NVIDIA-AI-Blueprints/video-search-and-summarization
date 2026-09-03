@@ -153,10 +153,19 @@ PY
     # pipeline's failure: stop rather than stall at PAUSED.
     { echo "** ERROR: the EGL sink could not render a test frame, so OSD will not work."
       grep -iE 'drm|dri2|EGL' /tmp/egl-probe.log 2>/dev/null | tail -3 | sed 's/^/          /'
-      # The NVIDIA runtime always exposes a couple of DRI nodes, so their
-      # presence says nothing about whether the full set is mapped.
-      grep -qiE 'drm|dri2' /tmp/egl-probe.log 2>/dev/null &&
-        echo "          Mesa cannot reach the DRM device: uncomment the devices block in docker/compose.yml"; } >&2
+      # Same failure, opposite remedies, so pick by what the probe logged:
+      # hybrid graphics render through a DRM device, multi-GPU hosts through an
+      # NVIDIA GPU the container was not given.
+      if grep -qiE 'mesa|dri2|drm' /tmp/egl-probe.log 2>/dev/null; then
+        echo "          The display is rendered through Mesa, so it needs the DRM device."
+        echo "          Uncomment the devices block in docker/compose.yml."
+      else
+        echo "          The GPUs given to this container do not include the one driving"
+        echo "          ${DISPLAY}. Restage if docker/.env changed since, and if staging"
+        echo "          reported it could not tell, add that GPU to GPU_DEVICE by hand."
+        echo "          This is GPU selection, not permissions: privileged and group_add"
+        echo "          do not help."
+      fi; } >&2
     return 1
   fi
   return 0
