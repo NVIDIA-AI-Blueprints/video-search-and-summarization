@@ -39,6 +39,20 @@ reason:
   * Every ``use_backend`` in the frontend is gated on ``h_main``. An ungated
     route would serve any Host whatsoever, quietly punching a hole in the
     allowlist.
+  * Every variable the ACLs read is guaranteed non-empty. An empty one is not a
+    harmless no-op: HAProxy refuses to parse an empty quoted argument, so the
+    gateway does not start at all. Verified against haproxy 3.4.2 with the real
+    template -- blanking either ``HOST_IP`` or ``EXTERNAL_IP`` (or leaving it
+    unset) aborts the parse on both the ``known_host`` line and its ``h_main``
+    twin::
+
+        [ALERT] config : parsing [haproxy.cfg:184]: argument number 4 at
+        position 44 is empty and marks the end of the argument list
+
+    Four of the seven variables have no Compose default, so what keeps a
+    never-configured deployment parseable is the profile chain bottoming out in
+    ``HOST_IP='<HOST_IP>'``. That placeholder looks like something to tidy away
+    and is load-bearing, which is exactly what this rule is here to say.
   * Every variable the ACLs read is named in the runbook section that tells
     operators which origins are declared, so documentation cannot drift away
     from behaviour.
@@ -55,6 +69,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 TEMPLATE = ROOT / "deploy/docker/services/infra/haproxy/haproxy.cfg.template"
 README = ROOT / "deploy/docker/README.md"
+GATEWAY_COMPOSE = ROOT / "deploy/docker/services/infra/haproxy/compose.yml"
+# The profile every developer profile is copied from, and the last place an ACL
+# variable can pick up a value the gateway container will see.
+BASE_PROFILE = ROOT / "deploy/docker/developer-profiles/dev-profile-base/overrides.env"
 
 # The runbook heading under which the declared origins are listed. Matched on
 # the heading rather than a line number so ordinary edits above it do not break
@@ -64,6 +82,11 @@ README_SECTION = "### The origin callers use has to be declared"
 ACL_LINE = re.compile(r"^\s*acl\s+(?P<name>known_host|h_main)\s+hdr\(host\)\s+-i\s+(?P<value>\S.*?)\s*$")
 USE_BACKEND = re.compile(r"^\s*use_backend\s+(?P<backend>\S+)(?P<rest>.*)$")
 INTERPOLATION = re.compile(r"\$\{[^}]*\}")
+# `NAME: ${NAME:-default}` in the gateway service's `environment:` block.
+COMPOSE_DEFAULT = re.compile(r"^\s*(?P<name>[A-Z0-9_]+):\s*\$\{[A-Z0-9_]+:-(?P<default>.*)\}\s*$")
+ENV_ASSIGN = re.compile(r"^(?P<name>[A-Z0-9_]+)=(?P<value>.*)$")
+# `${VAR}` or `$VAR`, so one env value can be resolved through another.
+ENV_REF = re.compile(r"\$\{([A-Z0-9_]+)(?::-[^}]*)?\}|\$([A-Z0-9_]+)")
 
 
 def unquote(value: str) -> str:
@@ -168,6 +191,76 @@ def scan_template(path: Path) -> tuple[list[str], set[str]]:
     return failures, used
 
 
+def compose_defaults(path: Path) -> dict[str, str]:
+    """Return the non-empty ``${VAR:-default}`` fallbacks the gateway declares."""
+    if not path.is_file():
+        return {}
+    found: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        match = COMPOSE_DEFAULT.match(line)
+        if match and match.group("default").strip():
+            found[match.group("name")] = match.group("default")
+    return found
+
+
+def env_assignments(path: Path) -> dict[str, str]:
+    """Return the last assignment of each variable in an env file."""
+    if not path.is_file():
+        return {}
+    found: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = ENV_ASSIGN.match(stripped)
+        if match:
+            found[match.group("name")] = match.group("value").strip().strip("\"'")
+    return found
+
+
+def resolves_non_empty(name: str, env: dict[str, str], seen: frozenset[str] = frozenset()) -> bool:
+    """True when ``name`` resolves to a non-empty value within ``env``.
+
+    Follows one variable to another -- the profile writes
+    ``EXTERNAL_IP="${HOST_IP}"`` and ``VSS_PUBLIC_HOST=${EXTERNAL_IP}`` -- and
+    refuses to loop.
+    """
+    if name in seen or name not in env:
+        return False
+    value = env[name]
+    if not value:
+        return False
+    references = {group for match in ENV_REF.findall(value) for group in match if group}
+    if not references:
+        return True
+    # Every reference has to land somewhere non-empty, since HAProxy sees the
+    # fully expanded string and one empty part is enough to empty the argument.
+    return all(resolves_non_empty(reference, env, seen | {name}) for reference in references)
+
+
+def scan_non_empty(used: set[str], compose: Path, profile: Path) -> list[str]:
+    """Every ACL variable must be guaranteed non-empty somewhere."""
+    if not used:
+        return []
+    defaults = compose_defaults(compose)
+    env = env_assignments(profile)
+    try:
+        display = profile.relative_to(ROOT)
+    except ValueError:
+        display = profile
+    failures: list[str] = []
+    for name in sorted(used):
+        if name in defaults or resolves_non_empty(name, env, frozenset()):
+            continue
+        failures.append(
+            f"{display}: the Host allowlist reads {name}, which has neither a "
+            "non-empty Compose default in the gateway service nor a non-empty "
+            "value here; HAProxy refuses to parse an empty quoted ACL argument, "
+            "so the gateway would not start at all"
+        )
+    return failures
+
+
 def scan_readme(path: Path, used: set[str]) -> list[str]:
     """Every variable the ACLs read must be named in the runbook."""
     if not used:
@@ -201,9 +294,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--template", type=Path, default=TEMPLATE)
     parser.add_argument("--readme", type=Path, default=README)
+    parser.add_argument("--compose", type=Path, default=GATEWAY_COMPOSE)
+    parser.add_argument("--profile", type=Path, default=BASE_PROFILE)
     args = parser.parse_args(argv)
 
     failures, used = scan_template(args.template)
+    failures += scan_non_empty(used, args.compose, args.profile)
     failures += scan_readme(args.readme, used)
     if failures:
         print("\n".join(failures), file=sys.stderr)
