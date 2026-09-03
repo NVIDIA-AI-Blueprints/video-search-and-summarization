@@ -48,6 +48,9 @@ DEFAULT_DATASET_FILE = "dataset_single_turn.json"
 DEFAULT_NVDATASET_TENANT = "0573334707593577"
 DEFAULT_NVDATASET_GROUP = "vss-bp-team"
 DEFAULT_TIMEOUT_S = 300
+# vss-devx-base is ~290 MB. Generous enough for a slow link, but still an upper bound:
+# a stalled DSS would otherwise hang the run before a single item is measured.
+DEFAULT_DOWNLOAD_TIMEOUT_S = 1800
 DEFAULT_NUM_FRAMES = 20
 # Watchdog margin over `vss vlm --timeout`. The CLI bounds its own HTTP call; this
 # only covers a CLI that never returns at all, so one stuck item cannot cost the
@@ -383,14 +386,25 @@ def download_dataset(
     *,
     name: str = DEFAULT_DATASET_NAME,
     nvdataset_bin: str = "nvdataset",
+    timeout_s: float = DEFAULT_DOWNLOAD_TIMEOUT_S,
 ) -> None:
+    """Fetch the dataset, bounded.
+
+    An unresponsive DSS must not hang the run before a single item is measured, so
+    this gets the same watchdog as the VLM calls. Output is left uncaptured: the
+    download is the long step, and its progress is the only sign of life.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env.setdefault("NVDATASET_TENANTID", DEFAULT_NVDATASET_TENANT)
     env.setdefault("NVDATASET_GROUPID", DEFAULT_NVDATASET_GROUP)
     cmd = [nvdataset_bin, "download", name, str(dest)]
     print(f"+ {' '.join(cmd)}", file=sys.stderr)
-    subprocess.run(cmd, check=True, env=env)
+    returncode, _stdout, _stderr, timed_out = run_bounded(cmd, timeout_s, capture=False, env=env)
+    if timed_out:
+        raise RuntimeError(f"`{nvdataset_bin} download` exceeded {timeout_s:g}s and was killed")
+    if returncode != 0:
+        raise RuntimeError(f"`{nvdataset_bin} download` failed with exit {returncode}")
 
 
 def dataset_ready(dataset_dir: Path, dataset_file: str) -> bool:
@@ -470,25 +484,36 @@ def judge_answer(
     return parse_score(content)
 
 
-def run_bounded(cmd: list[str], timeout_s: float) -> tuple[int, str, str, bool]:
+def run_bounded(
+    cmd: list[str],
+    timeout_s: float,
+    *,
+    capture: bool = True,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str, bool]:
     """Run ``cmd`` with a hard upper bound, returning ``(rc, stdout, stderr, timed_out)``.
 
     The child gets its own session so a timeout kills the whole group. ``vss`` runs
     under ``uv``, so signalling only the direct child orphans the python process that
     is actually talking to the VLM: it survives, keeps occupying the GPU, and inflates
     the latency measured for every item after it.
+
+    ``capture=False`` leaves the child on this process's streams so a long download
+    keeps reporting progress; the bound and the group kill are unaffected.
     """
+    pipe = subprocess.PIPE if capture else None
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=pipe,
+        stderr=pipe,
         text=True,
         start_new_session=True,
+        env=env,
     )
     try:
         stdout, stderr = proc.communicate(timeout=timeout_s)
-        return proc.returncode, stdout, stderr, False
+        return proc.returncode, stdout or "", stderr or "", False
     except subprocess.TimeoutExpired:
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -692,6 +717,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None, help="Evaluate at most N QA items.")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S, help="Per-call vss vlm --timeout seconds.")
+    parser.add_argument(
+        "--download-timeout",
+        type=float,
+        default=DEFAULT_DOWNLOAD_TIMEOUT_S,
+        help="Upper bound on the nvdataset download, in seconds.",
+    )
     parser.add_argument("--num-frames", type=int, default=DEFAULT_NUM_FRAMES)
     parser.add_argument("--model", default=None, help="RT-VLM model id. Default: whatever vss configure recorded.")
     parser.add_argument(
@@ -732,7 +763,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         print(f"dss credential: {credential}", file=sys.stderr)
-        download_dataset(dataset_dir, name=args.dataset_name, nvdataset_bin=args.nvdataset_bin)
+        try:
+            download_dataset(
+                dataset_dir,
+                name=args.dataset_name,
+                nvdataset_bin=args.nvdataset_bin,
+                timeout_s=args.download_timeout,
+            )
+        except (RuntimeError, OSError) as exc:
+            print(f"vss: {exc}", file=sys.stderr)
+            return 3
     if not dataset_ready(dataset_dir, args.dataset_file):
         print(f"vss: dataset not found at {dataset_dir} (need {args.dataset_file} and videos/)", file=sys.stderr)
         return 2

@@ -10,6 +10,7 @@ import sys
 import time
 
 from benchmark_vlm_qa import QaItem
+from benchmark_vlm_qa import download_dataset
 from benchmark_vlm_qa import dss_credential
 from benchmark_vlm_qa import is_qa_item
 from benchmark_vlm_qa import judge_api_key
@@ -298,6 +299,33 @@ def test_run_vlm_item_falls_back_to_inline_media_without_a_sensor(tmp_path: Path
 
     assert f"--file {video}" in str(answer)
     assert "--sensor" not in str(answer)
+
+
+def test_download_dataset_is_bounded_and_kills_a_stalled_download(tmp_path: Path) -> None:
+    """An unresponsive DSS must not hang the run before a single item is measured."""
+    stall = tmp_path / "stalling-nvdataset"
+    stall.write_text(f"#!/bin/sh\nexec {sys.executable} -c 'import time; time.sleep(300)'\n", encoding="utf-8")
+    stall.chmod(0o755)
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="exceeded"):
+        download_dataset(tmp_path / "ds", nvdataset_bin=str(stall), timeout_s=2)
+    assert time.monotonic() - started < 60
+
+
+def test_download_dataset_reports_a_failing_download(tmp_path: Path) -> None:
+    failing = tmp_path / "failing-nvdataset"
+    failing.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+    failing.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match="exit 7"):
+        download_dataset(tmp_path / "ds", nvdataset_bin=str(failing), timeout_s=30)
+
+
+def test_run_bounded_without_capture_still_reports_exit_status() -> None:
+    """Leaving the child on our streams keeps download progress visible."""
+    rc, stdout, stderr, timed_out = run_bounded([sys.executable, "-c", "raise SystemExit(5)"], 30, capture=False)
+    assert (rc, stdout, stderr, timed_out) == (5, "", "", False)
 
 
 def test_vios_sensor_names_reports_unreachable_rather_than_empty() -> None:
