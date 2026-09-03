@@ -770,6 +770,68 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 124)
         run.assert_called_once()
 
+    def test_build_vision_ai_stays_on_the_coding_agent_path(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/build"),
+            include_task_name="l40s",
+            chain_key="build_l40s",
+        )
+        env = {**self.ENV, "EVAL_AGENT": "nemoclaw", "EVAL_SKILL": "vss-build-vision-ai"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "build", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(command.call_args.args[4], "claude-code")
+        run.assert_called_once()
+
+    def test_operational_nemoclaw_leg_bootstraps_build_vision_first(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "dataset" / "target"
+            task_dir.mkdir(parents=True)
+            (task_dir / "task.toml").write_text("[metadata]\ngpu_count = 1\n")
+            spec = root / "alerts.json"
+            spec.write_text(json.dumps({"profile": "alerts", "expects": []}))
+            invocation = run_leg.HarborInvocation(
+                harbor_root=task_dir.parent,
+                include_task_name="target",
+                chain_key="alerts",
+            )
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+                "EVAL_SPEC_PATH": str(spec),
+            }
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(run_leg, "run_command", side_effect=[0, 0]) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(command.call_args_list[0].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[1].args[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
+
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.
 
@@ -1704,4 +1766,3 @@ class BoxRejectedForCapacity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

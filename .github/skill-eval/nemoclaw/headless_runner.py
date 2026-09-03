@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Run one Harbor prompt through the notebook-managed NemoClaw sandbox."""
+"""Run one Harbor prompt through the Build Vision AI-provisioned sandbox."""
 
 from __future__ import annotations
 

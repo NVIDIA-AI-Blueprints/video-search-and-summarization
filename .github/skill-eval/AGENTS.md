@@ -591,9 +591,12 @@ markers; and releases the lock when it exits.
 
 `EVAL_AGENT` selects the Harbor runtime (`claude-code` by default,
 `codex`, or `nemoclaw`). NemoClaw still uses this exact wrapper and task
-dispatch. The only runtime-specific pieces are its Harbor agent adapter and
-the Brev environment that executes the checked-in setup notebooks. Like every
-other runtime, NemoClaw leaves worker selection and locking to `run_leg.py`.
+dispatch. For an operational skill, `run_leg.py` first uses the coding-agent
+runtime with `/vss-build-vision-ai`; that skill owns deployment, readiness, and
+host-side NemoClaw setup. Harbor then sends only the operational prompts to the
+ready sandbox. A `vss-build-vision-ai` spec itself stays on the coding-agent
+runtime. Like every other runtime, worker selection and locking stay in
+`run_leg.py`.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
