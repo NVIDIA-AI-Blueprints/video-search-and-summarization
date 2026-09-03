@@ -87,6 +87,20 @@ Management tabs address Alert Bridge, Kibana, and VST directly. An explicit
 "headless" request drops it as well — honour that, and report the loss of those
 three tabs.
 
+For a no-harness build that retains `vss-ui`, put all three of these values in
+the build's `override.env` before resolving Compose:
+
+```dotenv
+NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=false
+NEXT_PUBLIC_ENABLE_CHAT_TAB=false
+NEXT_PUBLIC_ENABLE_SEARCH_TAB=false
+```
+
+The Search tab is disabled because this revision still reaches an agent-owned
+search API; a visible tab would fail rather than provide a direct service-owner
+path. Alerts remains useful without an agent, and its *Generate Report* action
+is already omitted when no sidebar submit callback exists.
+
 ### Surface behavior
 
 Report the applicable behavior explicitly:
@@ -94,7 +108,7 @@ Report the applicable behavior explicitly:
 | Surface | NemoClaw (`yes`) | No harness (`no`) |
 |---|---|---|
 | VSS UI chat sidebar and Chat tab | functional through same-origin `/api/agent` → `agent-gateway` → the sandbox | unavailable because no agent runtime exists |
-| VSS UI Search and Alerts *Generate Report* | functional through the same chat path; Search and incident skills publish versioned artifacts that update the owning tab | conversational actions are unavailable; direct incident list/rule CRUD remain |
+| VSS UI Search and Alerts *Generate Report* | functional through the same chat path; Search and incident skills publish versioned artifacts that update the owning tab | Search is hidden; Alerts hides *Generate Report*, while direct incident list/rule CRUD remain |
 | NemoClaw Agent UI | functional against the same sandbox and VSS skills | absent |
 | Dashboard and Video Management | unchanged; they address Kibana and VST directly | unchanged |
 | Legacy ingress `/api`, `/chat`, `/websocket` routes | unavailable because they specifically target `vss-agent`; `/api/agent` is the replacement UI route | unavailable |

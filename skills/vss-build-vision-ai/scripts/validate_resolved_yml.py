@@ -12,11 +12,11 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
-
 
 SENTINELS = (
     "/path/to/deploy/docker",
@@ -39,6 +39,11 @@ FILE_TARGET_SUFFIXES = {
 GENERATED_BIND_NAMES = {".wdm-env"}
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
+NO_AGENT_UI_FLAGS = (
+    "NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR",
+    "NEXT_PUBLIC_ENABLE_CHAT_TAB",
+    "NEXT_PUBLIC_ENABLE_SEARCH_TAB",
+)
 
 
 def walk_strings(value: Any, location: str = "$") -> Iterator[tuple[str, str]]:
@@ -126,6 +131,31 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
     return errors
 
 
+def no_agent_ui_errors(document: dict[str, Any]) -> list[str]:
+    """Reject an enabled conversational surface with no runtime behind it."""
+
+    services = document.get("services") or {}
+    ui = services.get("vss-ui") if isinstance(services, dict) else None
+    if not isinstance(ui, dict):
+        return []
+    if "vss-agent" in services or "agent-gateway" in services:
+        return []
+
+    environment = dict(iter_env(ui))
+    errors: list[str] = []
+    for key in NO_AGENT_UI_FLAGS:
+        value = environment.get(key)
+        is_false = value is False or (
+            isinstance(value, str) and value.strip().lower() == "false"
+        )
+        if not is_false:
+            errors.append(
+                f"service 'vss-ui' has no vss-agent or agent-gateway; {key!r} "
+                "must resolve to 'false' so the UI does not expose a dead agent surface"
+            )
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
@@ -168,6 +198,7 @@ def validate_document(
             )
 
     errors.extend(secret_errors(document, extra_required or set()))
+    errors.extend(no_agent_ui_errors(document))
 
     return errors
 
@@ -201,9 +232,7 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    errors = validate_document(
-        document, args.repo_root, set(args.required_secret)
-    )
+    errors = validate_document(document, args.repo_root, set(args.required_secret))
     if errors:
         print(
             f"ERROR: {args.resolved_yml} failed pre-deployment validation:",
@@ -215,7 +244,8 @@ def main() -> None:
 
     print(
         f"Validated {args.resolved_yml}: no stale placeholders, invalid "
-        "checked-in bind sources, or empty mode-required credentials"
+        "checked-in bind sources, empty mode-required credentials, or "
+        "unbacked agent UI surfaces"
     )
 
 

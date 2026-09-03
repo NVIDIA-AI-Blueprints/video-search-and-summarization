@@ -405,10 +405,10 @@ class AttachFlowTests(unittest.TestCase):
                 "env.VSS_CAPABILITY_RECEIPT" in command
                 and "env.VSS_REPO_ROOT" in command
                 and "env.VSS_ORIGIN" in command
-                and "env.SHELL" in command
                 for command in flattened
             )
         )
+        self.assertFalse(any("env.SHELL" in command for command in flattened))
         self.assertTrue(
             any(
                 "/sandbox/vss-openclaw-workspace" in command

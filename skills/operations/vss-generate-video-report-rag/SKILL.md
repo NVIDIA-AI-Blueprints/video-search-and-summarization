@@ -8,6 +8,12 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
+## Shell contract
+
+Run every fenced `bash` recipe with Bash. If a command-string exec tool may
+default to POSIX `sh`, invoke the recipe through `bash -lc` or as a Bash script;
+never submit Bash syntax directly to that default shell.
+
 # VSS Generate Video Report RAG — Video Analysis with Enterprise RAG
 
 Generate video summary reports using the LVS profile's RAG-enabled agent config.
@@ -260,5 +266,4 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
 - The RAG-enabled agent config must keep its HITL templates and `hitl_enabled: true` settings for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
-
 

@@ -7,6 +7,12 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
+## Shell contract
+
+Run every fenced `bash` recipe with Bash. If a command-string exec tool may
+default to POSIX `sh`, invoke the recipe through `bash -lc` or as a Bash script;
+never submit Bash syntax directly to that default shell.
+
 ## Purpose
 
 Stand up the RT-VLM dense-captioning microservice on its own and exercise every endpoint it exposes (file upload, generate_captions, stream add/delete, chat-completions, Kafka topics).

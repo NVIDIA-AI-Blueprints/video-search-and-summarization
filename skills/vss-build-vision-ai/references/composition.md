@@ -378,6 +378,9 @@ Then verify:
   a source profile's default.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
+- When `vss-ui` resolves without either `vss-agent` or `agent-gateway`, its chat
+  sidebar, Chat tab, and current agent-owned Search tab all resolve disabled;
+  `validate_resolved_yml.py` rejects a dead visible surface.
 
 ## Sources
 

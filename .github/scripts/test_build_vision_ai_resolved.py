@@ -14,10 +14,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "skills"
-    / "vss-build-vision-ai"
-    / "scripts"
+    Path(__file__).resolve().parents[2] / "skills" / "vss-build-vision-ai" / "scripts"
 )
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -190,6 +187,70 @@ class ValidateResolvedYmlTest(unittest.TestCase):
 
             self.assertEqual(len(errors), 1)
             self.assertIn("mounts directory", errors[0])
+
+    def test_rejects_agent_surfaces_when_ui_has_no_agent_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            errors = validate_document(
+                {
+                    "services": {
+                        "vss-ui": {
+                            "environment": {
+                                "NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR": "true",
+                                "NEXT_PUBLIC_ENABLE_CHAT_TAB": "false",
+                                "NEXT_PUBLIC_ENABLE_SEARCH_TAB": "true",
+                            }
+                        }
+                    }
+                },
+                Path(directory),
+            )
+
+            self.assertEqual(len(errors), 2)
+            self.assertTrue(
+                any("NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR" in error for error in errors)
+            )
+            self.assertTrue(
+                any("NEXT_PUBLIC_ENABLE_SEARCH_TAB" in error for error in errors)
+            )
+
+    def test_accepts_ui_with_no_agent_when_agent_surfaces_are_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            errors = validate_document(
+                {
+                    "services": {
+                        "vss-ui": {
+                            "environment": [
+                                "NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=false",
+                                "NEXT_PUBLIC_ENABLE_CHAT_TAB=false",
+                                "NEXT_PUBLIC_ENABLE_SEARCH_TAB=false",
+                            ]
+                        }
+                    }
+                },
+                Path(directory),
+            )
+
+            self.assertEqual(errors, [])
+
+    def test_agent_runtime_keeps_ui_surface_selection_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            errors = validate_document(
+                {
+                    "services": {
+                        "vss-ui": {
+                            "environment": {
+                                "NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR": "true",
+                                "NEXT_PUBLIC_ENABLE_CHAT_TAB": "true",
+                                "NEXT_PUBLIC_ENABLE_SEARCH_TAB": "true",
+                            }
+                        },
+                        "agent-gateway": {"image": "example.test/gateway:latest"},
+                    }
+                },
+                Path(directory),
+            )
+
+            self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

@@ -71,8 +71,10 @@ recorded on the default agent. This prevents OpenClaw from shortening skill-card
 paths to a `~` that the gateway's exec child resolves differently. Together
 these let the agent invoke the pre-warmed `uv`/VSS runtime and read the exact
 installed skill. Attachment also supplies the receipt, repository, and VSS
-origin as explicit non-secret runtime environment values and selects Bash for
-the Bash-based VSS skill recipes.
+origin as explicit non-secret runtime environment values. Bash-based recipes
+declare their shell requirement inside each installed skill; OpenClaw rejects
+`SHELL` as a config-controlled environment variable, so attachment does not
+pretend that setting it can change the exec runtime.
 `deploy_nemoclaw.ipynb` applies the base runtime setup for a dedicated agent
 and intentionally installs the optional VSS persona; the attachment pass still
 records the planned origin, probes the harness API, and emits

@@ -760,7 +760,9 @@ def configure_runtime_path(
     so a successful provisioning probe does not otherwise mean that an agent
     turn can invoke the CLI. Merge the executable and managed-skill directories
     into their existing settings and provide explicit VSS locations instead of
-    relying on ambient values.
+    relying on ambient values. OpenClaw deliberately rejects ``SHELL`` as a
+    config-controlled environment variable, so Bash requirements stay in the
+    installed skill recipes rather than an ineffective config entry.
     """
 
     if profile.runtime != "openclaw":
@@ -796,7 +798,6 @@ merge_string_array skills.load.extraDirs "$managed_skills"
 "$openclaw_bin" config set env.VSS_CAPABILITY_RECEIPT "$receipt"
 "$openclaw_bin" config set env.VSS_REPO_ROOT "$runtime_dir"
 "$openclaw_bin" config set env.VSS_ORIGIN "$vss_origin"
-"$openclaw_bin" config set env.SHELL /bin/bash
 """.strip()
     sandbox_exec(
         runner,

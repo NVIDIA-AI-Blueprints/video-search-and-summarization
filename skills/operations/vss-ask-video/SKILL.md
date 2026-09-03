@@ -10,6 +10,12 @@ metadata:
 
 # Ask a VSS video question
 
+## Shell contract
+
+Run every fenced `bash` recipe with Bash. If a command-string exec tool may
+default to POSIX `sh`, invoke the recipe through `bash -lc` or as a Bash script;
+never submit Bash syntax directly to that default shell.
+
 Answer from the cheapest grounded source that can satisfy the question. For a
 running VSS deployment, use the project-local `vss` CLI. Do not call an
 OpenAI-compatible `/chat/completions` endpoint directly or fall back to raw REST
