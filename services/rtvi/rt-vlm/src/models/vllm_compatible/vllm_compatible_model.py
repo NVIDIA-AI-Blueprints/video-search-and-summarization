@@ -675,7 +675,7 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
         kwargs["min_tokens"] = config.min_tokens
     response_format = config.response_format or {}
     response_type = response_format.get("type")
-    is_structured_output = response_type in {"json_object", "json_schema"}
+    is_structured_output = response_type in {"choice", "json_object", "json_schema"}
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
     if is_structured_output:
         kwargs["ignore_eos"] = False
@@ -691,6 +691,12 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
         json_schema = response_format["json_schema"]
         kwargs["structured_outputs"] = StructuredOutputsParams(
             json=json_schema["schema"],
+        )
+    elif response_type == "choice":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        kwargs["structured_outputs"] = StructuredOutputsParams(
+            choice=response_format["choices"],
         )
     return kwargs
 
