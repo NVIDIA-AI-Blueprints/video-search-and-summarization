@@ -108,6 +108,70 @@ class ToolArtifactConnector(FakeConnector):
         yield ConnectorEvent("message.delta", {"delta": artifact})
 
 
+class JsonWrappedToolArtifactConnector(FakeConnector):
+    def run(
+        self,
+        request: CreateRunRequest,
+        *,
+        run_id: str,
+        cancel_event: threading.Event,
+    ) -> Iterator[ConnectorEvent]:
+        del request, run_id, cancel_event
+        result = {
+            "data": [{"video_name": "clip.mp4"}],
+            "search_messages": [],
+            "job_id": "search-hermes",
+        }
+        completed = {
+            "event": "vss_job_completed",
+            "group": "search",
+            "job_id": "search-hermes",
+            "status": "completed",
+            "exit_hint": 0,
+        }
+        artifact = json.dumps(
+            {
+                "version": "1.0",
+                "kind": "vss.search.results",
+                "payload": result,
+            }
+        )
+        terminal_output = (
+            f"{json.dumps(result)}\n{json.dumps(completed)}\n"
+            f"<vss-ui-artifact>{artifact}</vss-ui-artifact>"
+        )
+        yield ConnectorEvent(
+            "tool.completed",
+            {
+                "tool_call_id": "tool_hermes",
+                "name": "terminal",
+                "output": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(
+                            {
+                                "output": terminal_output,
+                                "exit_code": 0,
+                                "error": None,
+                            }
+                        ),
+                    }
+                ],
+            },
+        )
+        # A Responses model may damage the JSON while copying it into prose.
+        yield ConnectorEvent(
+            "message.delta",
+            {
+                "delta": (
+                    'done<vss-ui-artifact>{"version":"1.0",'
+                    '"kind":"vss.search.results","payload":{"data":[}'
+                    "</vss-ui-artifact>"
+                )
+            },
+        )
+
+
 def wait_terminal(service: GatewayService, run_id: str) -> None:
     record = service.store.get(run_id)
     with record.condition:
@@ -209,6 +273,33 @@ class GatewayServiceTest(unittest.TestCase):
             ],
         )
         self.assertEqual(record.events[2].data["kind"], "vss.alert.incidents")
+
+    def test_extracts_json_wrapped_terminal_artifact_without_transport_markup(
+        self,
+    ) -> None:
+        service = GatewayService(make_config(), JsonWrappedToolArtifactConnector())
+        request = CreateRunRequest.from_dict(
+            {
+                "thread_id": "thread-1",
+                "input": [{"role": "user", "content": "search"}],
+            },
+        )
+        record, _ = service.create_run(request, idempotency_key=None)
+        wait_terminal(service, record.run_id)
+
+        self.assertEqual(
+            [event.type for event in record.events],
+            [
+                "run.started",
+                "tool.completed",
+                "artifact.created",
+                "message.delta",
+                "run.completed",
+            ],
+        )
+        self.assertNotIn("vss-ui-artifact", json.dumps(record.events[1].data))
+        self.assertEqual(record.events[2].data["kind"], "vss.search.results")
+        self.assertEqual(record.events[3].data, {"delta": "done"})
 
     def test_cancel_interrupts_connector_and_ends_with_cancelled_event(self) -> None:
         connector = BlockingConnector()

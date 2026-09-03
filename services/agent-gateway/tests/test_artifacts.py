@@ -214,6 +214,46 @@ class ArtifactStreamParserTests(unittest.TestCase):
             {"content": [{"text": "beforeafter"}]},
         )
 
+    def test_extracts_and_strips_json_encoded_terminal_artifact(self) -> None:
+        result = {
+            "data": [{"video_name": "clip.mp4", "similarity": 0.9}],
+            "search_messages": [],
+            "job_id": "search-hermes",
+        }
+        completed = {
+            "event": "vss_job_completed",
+            "group": "search",
+            "job_id": "search-hermes",
+            "status": "completed",
+            "exit_hint": 0,
+        }
+        artifact = {
+            "version": "1.0",
+            "kind": "vss.search.results",
+            "payload": result,
+        }
+        terminal_output = (
+            f"{json.dumps(result)}\n{json.dumps(completed)}\n"
+            f"{ARTIFACT_OPEN}{json.dumps(artifact)}{ARTIFACT_CLOSE}"
+        )
+        wrapped = [
+            {
+                "type": "input_text",
+                "text": json.dumps(
+                    {"output": terminal_output, "exit_code": 0, "error": None}
+                ),
+            }
+        ]
+
+        events = ArtifactStreamParser().inspect_complete(wrapped)
+
+        self.assertEqual([event.type for event in events], ["artifact.created"])
+        self.assertEqual(events[0].data["kind"], "vss.search.results")
+        cleaned = strip_artifacts_from_value(wrapped)
+        cleaned_text = cleaned[0]["text"]  # type: ignore[index]
+        self.assertNotIn(ARTIFACT_OPEN, cleaned_text)
+        self.assertIn("vss_job_completed", cleaned_text)
+
 
 if __name__ == "__main__":
     unittest.main()

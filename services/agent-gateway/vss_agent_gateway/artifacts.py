@@ -212,6 +212,15 @@ class ArtifactStreamParser:
                 if len(candidate) > MAX_ARTIFACT_LENGTH * 2:
                     continue
                 events.extend(self._inspect_vss_cli_search(candidate))
+                # Responses-compatible harnesses may serialize a terminal
+                # result as JSON inside an ``input_text`` item. Traverse that
+                # decoded object too so the validated CLI result/envelope is
+                # not left for the model to copy back into its final answer.
+                if depth < 4:
+                    stack.extend(
+                        (document, depth + 1)
+                        for document in self._json_documents(candidate)
+                    )
                 cursor = 0
                 while cursor < len(candidate):
                     opening = candidate.find(ARTIFACT_OPEN, cursor)
@@ -317,7 +326,27 @@ def strip_artifacts_from_value(value: object, *, depth: int = 0) -> object:
     """Remove valid envelopes from a bounded nested tool-output structure."""
 
     if isinstance(value, str):
-        return strip_artifact_envelopes(value)
+        stripped = strip_artifact_envelopes(value)
+        if stripped != value or depth >= 4 or ARTIFACT_OPEN not in value:
+            return stripped
+        # Hermes-style Responses output can contain a JSON-encoded result
+        # object inside an input_text string. Clean the decoded value and
+        # serialize it only when doing so removed an artifact.
+        try:
+            decoded = strict_json_loads(value)
+        except ValueError:
+            return value
+        if not isinstance(decoded, (dict, list)):
+            return value
+        cleaned = strip_artifacts_from_value(decoded, depth=depth + 1)
+        if cleaned == decoded:
+            return value
+        return json.dumps(
+            cleaned,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
     if depth >= 4:
         return value
     if isinstance(value, dict):

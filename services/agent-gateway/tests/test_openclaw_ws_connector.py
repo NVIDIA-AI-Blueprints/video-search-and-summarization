@@ -147,7 +147,9 @@ class OpenClawWebSocketConnectorTest(unittest.TestCase):
 
         message = connector._message(self.request)
 
-        self.assertIn("VSS skills are installed in the current OpenClaw workspace", message)
+        self.assertIn(
+            "VSS skills are installed in the current OpenClaw workspace", message
+        )
         self.assertIn("./skills/<skill-name>/SKILL.md", message)
         self.assertIn("User:\nfind the delivery truck", message)
 
