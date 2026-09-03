@@ -9,8 +9,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 from typing import TYPE_CHECKING
+
+import pytest
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -63,6 +66,36 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert "ordinary user-supplied `VIDEO_URL` interface" in verification
     assert "VERIFY_" not in verification
     assert "VERIFY_PIXELS" not in main
+
+
+def test_zero_candidates_may_not_be_reported_as_absence() -> None:
+    """An empty result set is a fact about retrieval, not about the recording.
+
+    Forbidding only the conclusion left the two routes to it open, and an agent
+    took both: it described what the footage contained and argued the object was
+    not one you would expect to find there. Name them, and say why the inference
+    does not hold.
+    """
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    normalized = " ".join(main.split())
+
+    assert "a fact about retrieval, not about the video" in normalized
+    assert "describe what the footage contains" in normalized
+    assert "argue it is not something you would expect there" in normalized
+    assert "a threshold or embedding gap yields the same empty result as a genuine absence" in normalized
+
+
+def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
+    """Neutrality scoped to progress messages let an agent obey it and still
+    close by naming the model, the endpoint and the resolved sensor UUID. The
+    rule has to reach the reply the user actually reads, and cover the
+    identifiers the workflow resolves along the way."""
+    verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
+    normalized = " ".join(verification.split())
+
+    assert "Keep progress and the final reply implementation-neutral" in normalized
+    assert "name the source as the user did rather than by its resolved UUID" in normalized
+    assert "those describe how the answer was produced, not what was seen" in normalized
 
 
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
@@ -119,15 +152,63 @@ test "${VSS_PUBLIC_URL}" = 'https://public.example'
     )
 
 
-def test_ask_video_accepts_only_pre_resolved_confirmed_search_handoff() -> None:
+def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     ask_video = (ASK_VIDEO_SKILL / "SKILL.md").read_text(encoding="utf-8")
     normalized = " ".join(ask_video.split())
+    evals = json.loads((ASK_VIDEO_SKILL / "evals/evals.json").read_text(encoding="utf-8"))
+    direct_vlm_evals = json.loads(
+        (ASK_VIDEO_SKILL / "evals/direct_vlm_video_understanding.json").read_text(encoding="utf-8")
+    )
+    evals_by_id = {case["id"]: case for case in evals}
 
-    assert 'version: "3.2.0"' in ask_video
+    assert 'version: "3.3.0"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
     assert "Treat that URL as Path A; do not rerun search or resolve a different interval" in normalized
     assert "The caller owns verdict validation and any fallback" in normalized
     assert "do not rerun search, resolve a sensor, broaden the clip, or choose another interval" in normalized
+    assert "Hot conversation context -> answer directly" in normalized
+    assert (
+        "Explicit stored summary/result -> `vss memory get`, `vss summarize get`, or `vss memory query`" in normalized
+    )
+    assert "General video question where past memory may exist -> `vss memory introspect`" in normalized
+    assert "Exact sensor/time or explicit fresh visual verification -> `vss vlm run`" in normalized
+    assert "`introspect` returns `no_memory` -> conditional `vss vlm run`" in normalized
+    assert "`introspect` requires grounded, useful scope" in normalized
+    assert '`"no_memory"` and exit code 5' in normalized
+    assert "expected not-found result, not a general command or backend failure" in normalized
+    assert (
+        "Do not automatically run a VLM afterward unless an exact sensor and exact ISO-8601 UTC start/end window"
+        in normalized
+    )
+    assert "Do not call an OpenAI-compatible `/chat/completions` endpoint directly" in normalized
+    assert "Never enter this fallback after `vss memory introspect`" in normalized
+    assert "send the **native MP4 bytes as one video input**" in normalized
+    assert "data:video/mp4;base64,<base64 of the complete MP4 file>" in ask_video
+    assert "Do not run `ffmpeg`, OpenCV, or any frame extractor" in normalized
+    assert "image/jpeg" in json.dumps(direct_vlm_evals)
+    assert "data:video/mp4;base64," in json.dumps(direct_vlm_evals)
+    assert "curl " not in ask_video
+    assert {
+        "ask-video-hot-context",
+        "ask-video-memory-get",
+        "ask-video-memory-query",
+        "ask-video-introspect",
+        "ask-video-direct-vlm",
+        "ask-video-no-memory-with-window",
+        "ask-video-no-memory-without-window",
+    } <= evals_by_id.keys()
+    assert any(
+        "Does not invoke vss vlm run" in behavior
+        for behavior in evals_by_id["ask-video-no-memory-without-window"]["expected_behavior"]
+    )
+    assert any(
+        "Runs one vss vlm run" in behavior
+        for behavior in evals_by_id["ask-video-no-memory-with-window"]["expected_behavior"]
+    )
+    assert any(
+        "vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ" in behavior
+        for behavior in evals_by_id["ask-video-memory-get"]["expected_behavior"]
+    )
 
 
 def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
@@ -140,7 +221,7 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     deployment_checks = spec["expects"][0]["checks"]
     ingestion_checks = spec["expects"][1]["checks"]
 
-    assert len(spec["expects"]) == 9
+    assert len(spec["expects"]) == 10
     assert spec["expects"][0]["scenario"] == "deploy-search-profile"
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
     assert "vss-ask-video" in spec["skills"]
@@ -253,6 +334,13 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))" in lifecycle
     assert "delete_timeout()" in lifecycle
     assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
+    assert 'RTSP_EMBED_INDEX="mdx-embed-filtered-*"' in lifecycle
+    assert "resolve_upload_indexes()" in lifecycle
+    assert "resolve_upload_indexes || exit 1" in lifecycle
+    assert 'select(. == "mdx-embed-filtered-2025-01-01")' in lifecycle
+    assert 'select(. == "mdx-behavior-2025-01-01")' in lifecycle
+    assert 'select(. == "mdx-raw-2025-01-01")' in lifecycle
+    assert not re.search(r'(?m)^EMBED_INDEX="mdx-embed-filtered-\*"$', lifecycle)
     assert 'delete_index_count "${BEHAVIOR_INDEX}" sensor.id.keyword' in lifecycle
     assert 'delete_index_count "${RAW_INDEX}" sensorId.keyword' in lifecycle
     assert "SAMPLE_RTVI_LOG == 1" not in lifecycle
@@ -264,6 +352,15 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "The host CLI stamps the origin you gave `vss configure`" in prose
     assert "Editing `VST_EXTERNAL_URL` in `generated.env` cannot change them" in prose
     assert "`VST_EXTERNAL_URL` governs the Agent-served path" in prose
+
+    # The handshake mints the upload URL from VST_EXTERNAL_URL, so posting the
+    # bytes to it verbatim fails whenever the selector chose the host-local
+    # fallback -- which the budget prose above promises will not block
+    # ingestion. Keep the re-anchor, and keep the media-URL prohibition scoped
+    # so it cannot be read as forbidding it.
+    assert 'UPLOAD_URL="${VSS_ORIGIN%/}/${UPLOAD_TARGET#*/}"' in lifecycle
+    assert "Never rewrite a media URL returned in a search result" in prose
+    assert "Post the bytes to the re-anchored `UPLOAD_URL`" in prose
 
 
 def test_public_probe_rejects_redirects_and_accepts_vst_json(tmp_path: Path) -> None:
@@ -323,6 +420,70 @@ SEARCH_READINESS_DEADLINE=$(($(date +%s) - 1))
     subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
 
 
+@pytest.mark.parametrize(
+    ("returned_url", "origin", "expected"),
+    [
+        # The failure this recipe exists for: the handshake answers with the
+        # public secure link while the selector chose the host-local origin.
+        (
+            "https://7777-env.brevlab.com:443/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        # Already anchored on the origin we are using: unchanged.
+        (
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        # VIOS 3.2.0 defects the CLI repairs for media URLs, absorbed here too.
+        (
+            "http://http://localhost:30888/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        (
+            "/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+        # The returned path is carried over as-is, so a deployment that serves
+        # VST under a prefix is re-anchored rather than mangled.
+        (
+            "https://public.example/edge/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777",
+            "http://10.0.0.1:7777/edge/vst/api/v1/storage/file",
+        ),
+        # A trailing slash on the recorded origin must not double up.
+        (
+            "https://public.example/vst/api/v1/storage/file",
+            "http://10.0.0.1:7777/",
+            "http://10.0.0.1:7777/vst/api/v1/storage/file",
+        ),
+    ],
+)
+def test_upload_url_is_reanchored_on_the_configured_origin(returned_url: str, origin: str, expected: str) -> None:
+    """The re-anchor block in the skill must move any handshake URL onto the
+    origin `vss configure` recorded. Run the block the agent actually reads
+    rather than a copy, so a doc edit that breaks it fails here."""
+    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"(UPLOAD_TARGET=\$\{UPLOAD_URL\}\n.*?UPLOAD_URL=\"\$\{VSS_ORIGIN%/\}/\$\{UPLOAD_TARGET#\*/\}\")",
+        lifecycle,
+        flags=re.DOTALL,
+    )
+    assert match is not None, "the upload re-anchor block is missing from source_lifecycle.md"
+
+    script = f"""set -euo pipefail
+UPLOAD_URL={shlex.quote(returned_url)}
+VSS_ORIGIN={shlex.quote(origin)}
+{match.group(1)}
+printf '%s' "${{UPLOAD_URL}}"
+"""
+    completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+    assert completed.stdout == expected
+
+
 def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
     lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
     source_setup = lifecycle.split("## Pre-ingestion cleanup", 1)[1].split("## Delete source", 1)[0]
@@ -336,6 +497,9 @@ def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
 
 def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
     lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
+    resolver_match = re.search(r"resolve_upload_indexes\(\) \{\n.*?\n\}", lifecycle, flags=re.DOTALL)
+    assert resolver_match is not None
+    resolver = resolver_match.group(0)
     blocks = [
         block
         for block in re.findall(r"```bash\n(.*?)```", lifecycle, flags=re.DOTALL)
@@ -356,6 +520,10 @@ curl() {{
 vss_stub() {{
   case "$*" in
     'vios list') printf '%s\n' '{{"count":0,"type":null,"sensors":[]}}' ;;
+    'configure show')
+      printf '%s\n' \
+        '{{"services":{{"elasticsearch":{{"indices":["mdx-embed-filtered-2025-01-01","mdx-behavior-2025-01-01","mdx-raw-2025-01-01"]}}}}}}'
+      ;;
     *) return 9 ;;
   esac
 }}
@@ -367,6 +535,7 @@ SAVED_SOURCE_NAME=warehouse-ladder
 EMBED_INDEX=mdx-embed-filtered-2025-01-01
 BEHAVIOR_INDEX=mdx-behavior-2025-01-01
 RAW_INDEX=mdx-raw-2025-01-01
+{resolver}
 {blocks[0]}
 """
     completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)

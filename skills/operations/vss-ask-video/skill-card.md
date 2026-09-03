@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill to ask a fresh visual question about a recorded video clip by calling a VLM endpoint directly (OpenAI-compatible chat/completions). <br>
+Routes VSS video questions through hot conversation context, exact stored-memory reads, bounded memory introspection, or an exact-window `vss vlm run`. Direct VLM HTTP is reserved for an explicitly separate non-VSS local-file fallback. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,25 +9,24 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers building video analytics applications who need to ask ad-hoc visual questions about recorded video clips by calling a vision language model endpoint directly. <br>
+Developers and operators answering ad-hoc questions about current or previously analyzed VSS video while preserving provenance and avoiding unnecessary fresh inference. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
 
 ## Known Risks and Mitigations: <br>
-Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
-Mitigation: Review and scan skill before deployment. <br>
+Risk: Answers can be misleading if an agent invents a media window or treats missing memory as visual evidence. <br>
+Mitigation: The skill requires grounded scope, routes `no_memory` explicitly, and uses the project-local VSS CLI. <br>
 
 ## Reference(s): <br>
 - [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
-
 ## Skill Output: <br>
-**Output Type(s):** [Analysis, API Calls] <br>
-**Output Format:** [Markdown with extracted VLM response text] <br>
+**Output Type(s):** [Analysis, CLI Calls] <br>
+**Output Format:** [Markdown grounded in conversation, memory, or VLM job output] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [VLM reasoning (`<think>...</think>`) blocks are stripped before returning the final answer] <br>
+**Other Properties Related to Output:** [Includes available VSS job/record provenance. VLM reasoning (`<think>...</think>`) blocks are stripped before returning the final answer] <br>
 
 ## Evaluation Agents Used: <br>
 - Claude Code (`claude-code`) <br>
@@ -67,7 +66,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 1 | 27% (+0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
-3.2.0 (source: frontmatter) <br>
+3.3.0 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>

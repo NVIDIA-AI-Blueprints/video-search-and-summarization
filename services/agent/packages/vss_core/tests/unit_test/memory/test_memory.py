@@ -575,6 +575,55 @@ def test_query_children_by_job_and_type() -> None:
     assert all(k.job.is_child for k in kids)
 
 
+@pytest.mark.parametrize(
+    "sensor",
+    [
+        {"id": "west-entrance"},
+        {"id": "sensor-uuid", "info": {"name": "west-entrance"}},
+    ],
+    ids=["canonical-name", "legacy-info-name"],
+)
+def test_memory_query_sensor_matches_canonical_and_legacy_names(sensor: dict[str, object]) -> None:
+    store = InMemoryStore()
+    store.upsert(_parent(input={"query": "q", "sensors": [sensor]}))
+
+    matches = store.query(MemoryQuery(sensor_id="west-entrance"))
+    assert [record.job.job_id for record in matches] == ["summarize-01TEST"]
+
+
+def test_text_query_sorts_relevance_before_recency() -> None:
+    store = InMemoryStore()
+    store.upsert(
+        _parent(
+            job={
+                "job_id": "older-relevant",
+                "group": "summary",
+                "operation": "run",
+                "status": "completed",
+                "created_at": "2026-07-20T12:00:00Z",
+            },
+            output={"answer": "forklift forklift forklift"},
+        )
+    )
+    store.upsert(
+        _parent(
+            job={
+                "job_id": "newer-less-relevant",
+                "group": "summary",
+                "operation": "run",
+                "status": "completed",
+                "created_at": "2026-07-22T12:00:00Z",
+            },
+            output={"answer": "forklift"},
+        )
+    )
+
+    matches = store.query(MemoryQuery(text="forklift"))
+    assert [record.job.job_id for record in matches] == ["older-relevant", "newer-less-relevant"]
+    recent = store.query(MemoryQuery())
+    assert [record.job.job_id for record in recent] == ["newer-less-relevant", "older-relevant"]
+
+
 def test_parent_lifecycle_preserves_created_at() -> None:
     store = InMemoryStore()
     adapter = SummaryAdapter()

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { FilterControls } from '../../lib-src/components/FilterControls';
-import { VLM_VERDICT, VlmVerdict } from '../../lib-src/types';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { AlertsViewFilterControls } from '../../lib-src/components/AlertsSidebarControls';
+import { VLM_VERDICT } from '../../lib-src/types';
 
 jest.mock('@nemo-agent-toolkit/ui');
 
@@ -45,123 +45,78 @@ jest.mock('@nvidia/foundations-react-core', () => {
         onChange: (e: any) => onValueChange?.(e.target.value),
       }),
     ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Tag', type: 'button' }, children),
+    ),
   };
 });
 
 const defaultProps = {
   isDark: false,
   vlmVerified: true,
-  vlmVerdict: VLM_VERDICT.ALL as VlmVerdict,
+  vlmVerdict: VLM_VERDICT.ALL,
+  uniqueValues: {
+    sensors: ['Cam-A'],
+    alertTypes: ['Tailgating'],
+    alertTriggered: ['Motion'],
+  },
+  onVlmVerifiedChange: jest.fn(),
+  onVlmVerdictChange: jest.fn(),
+  onAddFilter: jest.fn(),
+  activeFilters: {
+    sensors: new Set<string>(),
+    alertTypes: new Set<string>(),
+    alertTriggered: new Set<string>(),
+  },
+  onRemoveFilter: jest.fn(),
+  onClearAllFilters: jest.fn(),
   timeWindow: 10,
   showCustomTimeInput: false,
   customTimeValue: '',
   customTimeError: '',
-  uniqueValues: {
-    sensors: ['Cam-A', 'Cam-B'],
-    alertTypes: ['Tailgating', 'Loitering'],
-    alertTriggered: ['Motion', 'Zone'],
-    byVlmVerified: {
-      enabled: { alertTypes: ['Tailgating', 'Loitering'], alertTriggered: ['Motion', 'Zone'] },
-      disabled: { alertTypes: ['Intrusion'], alertTriggered: ['Thermal'] },
-    },
-  },
-  loading: false,
-  autoRefreshEnabled: false,
-  autoRefreshInterval: 5000,
-  onVlmVerifiedChange: jest.fn(),
-  onVlmVerdictChange: jest.fn(),
   onTimeWindowChange: jest.fn(),
   onCustomTimeValueChange: jest.fn(),
   onCustomTimeApply: jest.fn(),
   onCustomTimeCancel: jest.fn(),
   onOpenCustomTime: jest.fn(),
-  onAddFilter: jest.fn(),
+  fetchSize: 100,
+  onFetchSizeChange: jest.fn(),
+  loading: false,
+  autoRefreshEnabled: false,
+  autoRefreshInterval: 5000,
   onRefresh: jest.fn(),
   onAutoRefreshToggle: jest.fn(),
   onAutoRefreshIntervalChange: jest.fn(),
-  fetchSize: 500,
-  onFetchSizeChange: jest.fn(),
 };
 
-describe('FilterControls', () => {
+describe('View Alerts sidebar refresh controls', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('renders without crashing', () => {
-    render(<FilterControls {...defaultProps} />);
-    expect(screen.getByText('VLM Verified')).toBeInTheDocument();
+    render(<AlertsViewFilterControls {...defaultProps} />);
+    expect(screen.getByTitle('Refresh alerts now')).toBeInTheDocument();
   });
 
-  it('renders VLM Verified toggle', () => {
-    render(<FilterControls {...defaultProps} />);
-    expect(screen.getByText('VLM Verified')).toBeInTheDocument();
-  });
+  it('groups Refresh now and Auto Refresh settings under Auto Refresh, after Fetch Settings', () => {
+    render(<AlertsViewFilterControls {...defaultProps} />);
 
-  it('calls onVlmVerifiedChange when toggle is clicked', () => {
-    const onVlmVerifiedChange = jest.fn();
-    render(<FilterControls {...defaultProps} onVlmVerifiedChange={onVlmVerifiedChange} />);
+    expect(screen.getByText('Fetch Settings')).toBeInTheDocument();
 
-    const toggleButton = screen.getByTestId('vlm-verified-toggle');
-    expect(toggleButton).toBeTruthy();
-    fireEvent.click(toggleButton);
-    expect(onVlmVerifiedChange).toHaveBeenCalledWith(false);
-  });
+    const group = screen.getByTestId('alerts-auto-refresh-group');
+    expect(within(group).getByText('Settings')).toBeInTheDocument();
+    expect(group).toContainElement(screen.getByTitle('Refresh alerts now'));
+    expect(group).toContainElement(screen.getByTestId('alerts-auto-refresh-toggle'));
+    expect(screen.getByTestId('alerts-settings-toggle')).not.toContainElement(group);
 
-  it('shows Verdict dropdown when vlmVerified is true', () => {
-    render(<FilterControls {...defaultProps} vlmVerified={true} />);
-    expect(screen.getByText('Verdict:')).toBeInTheDocument();
-  });
-
-  it('hides Verdict dropdown when vlmVerified is false', () => {
-    render(<FilterControls {...defaultProps} vlmVerified={false} />);
-    expect(screen.queryByText('Verdict:')).not.toBeInTheDocument();
-  });
-
-  it('renders settings button', () => {
-    render(<FilterControls {...defaultProps} />);
-    expect(screen.getByTitle('Query range & fetch size settings')).toBeInTheDocument();
-  });
-
-  it('renders sensor filter dropdown with options', () => {
-    render(<FilterControls {...defaultProps} />);
-    expect(screen.getByText('Sensor...')).toBeInTheDocument();
-  });
-
-  it('renders alert type filter dropdown', () => {
-    render(<FilterControls {...defaultProps} />);
-    expect(screen.getByText('Alert Type...')).toBeInTheDocument();
-  });
-
-  it('does not render alert triggered filter dropdown', () => {
-    render(<FilterControls {...defaultProps} />);
-    expect(screen.queryByText('Alert Triggered...')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('alert-triggered-select')).not.toBeInTheDocument();
-  });
-
-  it('calls onAddFilter when a sensor is selected', () => {
-    const onAddFilter = jest.fn();
-    render(<FilterControls {...defaultProps} onAddFilter={onAddFilter} />);
-
-    const sensorSelect = screen.getByDisplayValue('Sensor...');
-    fireEvent.change(sensorSelect, { target: { value: 'Cam-A' } });
-
-    expect(onAddFilter).toHaveBeenCalledWith('sensors', 'Cam-A');
-  });
-
-  it('calls onAddFilter when an alert type is selected', () => {
-    const onAddFilter = jest.fn();
-    render(<FilterControls {...defaultProps} onAddFilter={onAddFilter} />);
-
-    const alertTypeSelect = screen.getByDisplayValue('Alert Type...');
-    fireEvent.change(alertTypeSelect, { target: { value: 'Tailgating' } });
-
-    expect(onAddFilter).toHaveBeenCalledWith('alertTypes', 'Tailgating');
+    fireEvent.click(screen.getByTestId('alerts-auto-refresh-toggle'));
+    expect(screen.getByText('Refresh Interval')).toBeInTheDocument();
   });
 
   it('calls onRefresh when refresh button is clicked', () => {
     const onRefresh = jest.fn();
-    render(<FilterControls {...defaultProps} onRefresh={onRefresh} />);
+    render(<AlertsViewFilterControls {...defaultProps} onRefresh={onRefresh} />);
 
     const refreshButton = screen.getByTitle('Refresh alerts now');
     fireEvent.click(refreshButton);
@@ -169,47 +124,23 @@ describe('FilterControls', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onTimeWindowChange when a predefined time is selected in settings', () => {
-    const onTimeWindowChange = jest.fn();
-    render(<FilterControls {...defaultProps} onTimeWindowChange={onTimeWindowChange} />);
-
-    fireEvent.click(screen.getByTitle('Query range & fetch size settings'));
-
-    const periodSelect = document.getElementById('settings-period-select')!;
-    expect(periodSelect).toBeTruthy();
-    fireEvent.change(periodSelect, { target: { value: '60' } });
-    expect(onTimeWindowChange).toHaveBeenCalledWith(60);
-  });
-
-  it('calls onOpenCustomTime when Custom is selected in settings', () => {
-    const onOpenCustomTime = jest.fn();
-    render(<FilterControls {...defaultProps} onOpenCustomTime={onOpenCustomTime} />);
-
-    fireEvent.click(screen.getByTitle('Query range & fetch size settings'));
-
-    const periodSelect = document.getElementById('settings-period-select')!;
-    expect(periodSelect).toBeTruthy();
-    fireEvent.change(periodSelect, { target: { value: '-1' } });
-    expect(onOpenCustomTime).toHaveBeenCalledTimes(1);
-  });
-
   it('shows auto-refresh indicator when enabled', () => {
-    render(<FilterControls {...defaultProps} autoRefreshEnabled={true} />);
+    render(<AlertsViewFilterControls {...defaultProps} autoRefreshEnabled={true} />);
     expect(screen.getByTestId('auto-refresh-indicator')).toBeInTheDocument();
   });
 
   it('does not show auto-refresh indicator when disabled', () => {
-    render(<FilterControls {...defaultProps} autoRefreshEnabled={false} />);
+    render(<AlertsViewFilterControls {...defaultProps} autoRefreshEnabled={false} />);
     expect(screen.queryByTestId('auto-refresh-indicator')).not.toBeInTheDocument();
   });
 
   it('shows auto-refresh interval in tooltip when enabled', () => {
-    render(<FilterControls {...defaultProps} autoRefreshEnabled autoRefreshInterval={5000} />);
+    render(<AlertsViewFilterControls {...defaultProps} autoRefreshEnabled autoRefreshInterval={5000} />);
     expect(screen.getByTitle('Auto-refresh every 5s')).toBeInTheDocument();
   });
 
   it('renders with dark theme', () => {
-    render(<FilterControls {...defaultProps} isDark={true} />);
-    expect(screen.getByText('VLM Verified')).toBeInTheDocument();
+    render(<AlertsViewFilterControls {...defaultProps} isDark={true} />);
+    expect(screen.getByTitle('Refresh alerts now')).toBeInTheDocument();
   });
 });

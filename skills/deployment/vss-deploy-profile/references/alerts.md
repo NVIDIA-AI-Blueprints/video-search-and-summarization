@@ -54,7 +54,7 @@ Container names below are the actual `container_name:` keys from `deploy/docker/
 | VLM | Cosmos Reason3 Nano BF16 (integrated) | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** / slug **`none`** | RT-VLM (port 8018), `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | Perception (2d_cv only) | Grounding DINO | (`DS_MODEL_FAMILY=rtdetr-gdino`, `MODEL_NAME_2D=GDINO`) | RT-CV (DeepStream) |
 
-LLM alternate: same as `base` — `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`, the edge build (DGX Spark / AGX Thor / IGX Thor). Those two are the only local LLMs in the tree.
+LLM alternate: same as `base` — `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` (11.7 GB), for GPUs too small for the default (~45 GB observed, 32 GB profile floor). Those two are the only local LLMs in the tree.
 
 VLM alternates: see [VLM serving paths](#vlm-serving-paths) below.
 

@@ -22,6 +22,8 @@ interface FilterDialogProps {
   /** When true, filter inputs are disabled (e.g. when Chat sidebar is open or query is running). */
   disabled?: boolean;
   sourceType?: string;
+  /** Render filters inline (sidebar) instead of as a popover. */
+  inline?: boolean;
 }
 
 export const FilterDialog: React.FC<FilterDialogProps> = ({
@@ -36,6 +38,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
   triggerRef,
   disabled = false,
   sourceType = 'video_file',
+  inline = false,
 }) => {
   const [pendingParams, setPendingParams] = useState(filterParams);
   const [wasOpen, setWasOpen] = useState(isOpen);
@@ -79,22 +82,45 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
     return streams.filter(stream => stream.type === targetType);
   }, [streams, sourceType]);
   
-  const labelStyle: React.CSSProperties = useMemo(() => ({ 
-    width: 70, textAlign: 'right', flexShrink: 0 
-  }), []);
-  const inputStyle = useMemo(() => ({ width: 230 }), []);
+  const labelStyle: React.CSSProperties = useMemo(() => (
+    inline
+      ? { width: '100%', textAlign: 'left', flexShrink: 0 }
+      : { width: 70, textAlign: 'right', flexShrink: 0 }
+  ), [inline]);
+  const inputStyle = useMemo(() => (
+    inline
+      ? { width: '100%', minWidth: 0 }
+      : { width: 230 }
+  ), [inline]);
 
-  // Memoized handlers - update local pending state only
-  const handleStartDateChange = useCallback((value: Date | null) => 
-    setPendingParams((prev: any) => ({ ...prev, startDate: value })), []);
-  const handleEndDateChange = useCallback((value: Date | null) => 
-    setPendingParams((prev: any) => ({ ...prev, endDate: value })), []);
-  const handleSimilarityChange = useCallback((value: string | number | null) => 
-    setPendingParams((prev: any) => ({ ...prev, similarity: value })), []);
-  const handleVideoSourcesChange = useCallback((value: string[]) => 
-    setPendingParams((prev: any) => ({ ...prev, videoSources: value })), []);
-  const handleTopKChange = useCallback((value: string | number | null) => 
-    setPendingParams((prev: any) => ({ ...prev, topK: value })), []);
+  const pendingParamsRef = useRef(pendingParams);
+  pendingParamsRef.current = pendingParams;
+
+  const updatePendingParams = useCallback(
+    (patch: Record<string, unknown>) => {
+      const next = { ...pendingParamsRef.current, ...patch };
+      pendingParamsRef.current = next;
+      setPendingParams(next);
+      // Apply outside the updater: React may replay setState functions, so
+      // tag/storage sync must not live inside them. handleConfirm also
+      // writes filterParams when given newParams.
+      if (inline) {
+        handleConfirm(next);
+      }
+    },
+    [inline, handleConfirm],
+  );
+
+  const handleStartDateChange = useCallback((value: Date | null) =>
+    updatePendingParams({ startDate: value }), [updatePendingParams]);
+  const handleEndDateChange = useCallback((value: Date | null) =>
+    updatePendingParams({ endDate: value }), [updatePendingParams]);
+  const handleSimilarityChange = useCallback((value: string | number | null) =>
+    updatePendingParams({ similarity: value }), [updatePendingParams]);
+  const handleVideoSourcesChange = useCallback((value: string[]) =>
+    updatePendingParams({ videoSources: value }), [updatePendingParams]);
+  const handleTopKChange = useCallback((value: string | number | null) =>
+    updatePendingParams({ topK: value }), [updatePendingParams]);
 
   const handleApply = useCallback(() => {
     handleConfirm(pendingParams);
@@ -122,8 +148,8 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
 
   if (!isOpen) return null;
 
-  const usePortal = Boolean(triggerRef && portalPosition !== null);
-  if (triggerRef && portalPosition === null) return null;
+  const usePortal = !inline && Boolean(triggerRef && portalPosition !== null);
+  if (!inline && triggerRef && portalPosition === null) return null;
   const popoverContent = (
     <div
       data-testid="search-filter-dialog"
@@ -132,21 +158,30 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
         if (containerRef) (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
       }}
       style={{
-        position: usePortal ? 'fixed' : 'absolute',
-        ...(usePortal && portalPosition
-          ? { top: portalPosition.top, left: portalPosition.left }
-          : { top: '100%', left: 0, marginTop: 8 }),
+        position: inline ? 'relative' : (usePortal ? 'fixed' : 'absolute'),
+        ...(inline
+          ? {}
+          : usePortal && portalPosition
+            ? { top: portalPosition.top, left: portalPosition.left }
+            : { top: '100%', left: 0, marginTop: 8 }),
         padding: 12,
-        borderRadius: 6,
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        border: `1px solid ${isDark ? '#3c3f43' : '#e5e5ea'}`,
-        backgroundColor: isDark ? '#1a1d24' : '#fff',
-        zIndex: usePortal ? FILTER_POPOVER_Z_INDEX : 1050,
-        minWidth: 350,
+        borderRadius: inline ? 0 : 6,
+        boxShadow: inline ? 'none' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+        border: inline ? 'none' : `1px solid ${isDark ? '#3c3f43' : '#e5e5ea'}`,
+        backgroundColor: inline ? 'transparent' : (isDark ? '#1a1d24' : '#fff'),
+        zIndex: inline ? 'auto' : (usePortal ? FILTER_POPOVER_Z_INDEX : 1050),
+        width: inline ? '100%' : undefined,
+        boxSizing: 'border-box',
+        minWidth: inline ? 'auto' : 350,
       }}
     >
-      <Stack direction="column" spacing={12}>
-        <Stack spacing={10} alignItems="center">
+      <Stack direction="column" spacing={12} alignItems="stretch" style={{ width: '100%' }}>
+        <Stack
+          spacing={inline ? 6 : 10}
+          alignItems={inline ? 'stretch' : 'center'}
+          direction={inline ? 'column' : 'row'}
+          style={inline ? { width: '100%' } : undefined}
+        >
           <span style={labelStyle}>From:</span>
           <DatePicker
             data-testid="search-filter-from"
@@ -163,7 +198,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
             placeholder="From"
           />
         </Stack>
-        <Stack spacing={10} alignItems="center">
+        <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
           <span style={labelStyle}>To:</span>
           <DatePicker
             data-testid="search-filter-to"
@@ -180,9 +215,9 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
             placeholder="To"
           />
         </Stack>
-        <Stack spacing={10} alignItems="center">
+        <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
           <span style={labelStyle}>Video sources:</span>
-          <div style={inputStyle}>
+          <div style={{ ...inputStyle, width: '100%', minWidth: 0 }}>
             <CheckPicker
               data-testid="search-filter-video-sources"
               value={videoSources}
@@ -192,10 +227,11 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
               placeholder="Video sources"
               block
               disabled={disabled}
+              style={{ width: '100%' }}
             />
           </div>
         </Stack>
-        <Stack spacing={10} alignItems="center">
+        <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
           <span style={labelStyle}>Min Cosine Similarity:</span>
           <NumberInput
             data-testid="search-filter-similarity"
@@ -213,7 +249,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
             style={inputStyle}
           />
         </Stack>
-        <Stack spacing={10} alignItems="center">
+        <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
           <span style={labelStyle}>
             <span style={{ color: 'red' }}>*</span> Show top K Results:
           </span>
@@ -226,7 +262,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
             onBlur={(e) => {
               const value = (e.target as HTMLInputElement)?.value;
               if (!value) {
-                setPendingParams((prev: any) => ({ ...prev, topK: DEFAULT_TOP_K }));
+                updatePendingParams({ topK: DEFAULT_TOP_K });
               }
             }}
             onChange={handleTopKChange}
@@ -235,7 +271,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
           />
         </Stack>
       </Stack>
-      {/* Footer */}
+      {!inline && (
       <div style={{
         marginTop: 15,
         paddingTop: 12,
@@ -259,6 +295,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
           Apply
         </Button>
       </div>
+      )}
     </div>
   );
 

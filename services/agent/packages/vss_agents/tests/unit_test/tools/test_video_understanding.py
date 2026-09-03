@@ -14,6 +14,8 @@
 # limitations under the License.
 """Unit tests for video_understanding module."""
 
+import base64
+
 import pytest
 
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
@@ -186,7 +188,7 @@ class TestShouldUseVideoBase64:
             model_name="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
         )
 
-    def test_enable_audio_non_omni_remote_falls_back_to_jpeg(self, caplog):
+    def test_enable_audio_non_omni_remote_inlines_mp4_with_warning(self, caplog):
         with caplog.at_level("WARNING"):
             assert _should_use_video_base64(
                 use_base64=False,
@@ -195,7 +197,7 @@ class TestShouldUseVideoBase64:
                 model_name="Qwen/Qwen3-VL-8B-Instruct",
             )
         assert "non-Omni remote VLM" in caplog.text
-        assert "Falling back to JPEG" in caplog.text
+        assert "Sending the full MP4 inline" in caplog.text
 
     def test_enable_audio_warns_when_use_base64_explicit(self, caplog):
         # Local VLM (URL reachable), Omni model: enable_audio takes precedence over
@@ -278,10 +280,10 @@ class TestBuildVlmMessages:
     """Test VLM media message construction."""
 
     @pytest.mark.asyncio
-    async def test_base64_uses_sampled_image_frames(self, monkeypatch):
-        class FakeResponse:
-            # aiohttp response: _build_vlm_messages reads Content-Type and validates body bytes.
+    async def test_base64_inlines_one_native_mp4(self, monkeypatch):
+        video_bytes = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 200
 
+        class FakeResponse:
             async def __aenter__(self):
                 self.headers = {"Content-Type": "video/mp4"}
                 return self
@@ -293,7 +295,7 @@ class TestBuildVlmMessages:
                 return None
 
             async def read(self):
-                return b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 200
+                return video_bytes
 
         class FakeSession:
             def __init__(self, timeout):
@@ -309,32 +311,22 @@ class TestBuildVlmMessages:
                 assert url == "http://10.0.0.1:30888/vst/storage/video.mp4"
                 return FakeResponse()
 
-        def fake_frame_select(path, start, end, step_size):
-            assert path.endswith(".mp4")
-            assert start == 0.0
-            assert end == 4.0
-            assert step_size == 2.0
-            return ["frame-a", "frame-b"]
-
         monkeypatch.setattr("vss_agents.tools.video_understanding.aiohttp.ClientSession", FakeSession)
-        monkeypatch.setattr("vss_agents.tools.video_understanding.frame_select", fake_frame_select)
 
         messages = await _build_vlm_messages(
             "http://10.0.0.1:30888/vst/storage/video.mp4",
             "What is happening?",
             use_base64=True,
-            video_length_seconds=4.0,
-            num_frames=2,
-            max_fps=1,
         )
 
         content = messages[0].content
-        assert content[0]["type"] == "text"
-        assert "sequence of frames" in content[0]["text"]
-        assert content[1:] == [
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,frame-a"}},
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,frame-b"}},
-        ]
+        assert content[0] == {"type": "text", "text": "What is happening?"}
+        assert len(content) == 2
+        video_part = content[1]
+        assert video_part["type"] == "video_url"
+        data_uri = video_part["video_url"]["url"]
+        assert data_uri.startswith("data:video/mp4;base64,")
+        assert base64.b64decode(data_uri.partition(",")[2]) == video_bytes
 
     @pytest.mark.asyncio
     async def test_video_file_base64_inlines_full_mp4(self, monkeypatch):
@@ -371,9 +363,6 @@ class TestBuildVlmMessages:
             "What is said?",
             use_base64=False,
             use_video_file_base64=True,
-            video_length_seconds=4.0,
-            num_frames=2,
-            max_fps=1,
         )
 
         content = messages[0].content

@@ -8,7 +8,9 @@
 
 ## Required peers
 
-- Requires Agent, one reachable LLM, and one reachable VLM/RT-VLM.
+- Requires one reachable LLM and one reachable VLM/RT-VLM. Not the Agent owner:
+  something must *drive* `/v1/summarize` — the agent's summarization tool, or
+  `vss summarize run` — but no agent need be deployed.
 - The current developer profile uses RT-VLM and ELK/Kafka.
 - Graph database backends require a compatible text-embedding endpoint; do not
   point them at RT-Embed unless the adapter explicitly supports that API.

@@ -188,7 +188,17 @@ class ElasticsearchMemoryStore:
         if status:
             filters.append({"term": {"job.status.keyword": status}})
         if sensor_id:
-            filters.append({"term": {"input.sensors.id.keyword": sensor_id}})
+            filters.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {"input.sensors.id.keyword": sensor_id}},
+                            {"term": {"input.sensors.info.name.keyword": sensor_id}},
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
         if record_type:
             filters.append({"term": {"job.record_type.keyword": record_type}})
         if record_id:
@@ -270,9 +280,13 @@ class ElasticsearchMemoryStore:
             bool_query["filter"] = filters
         if must_not:
             bool_query["must_not"] = must_not
+        recency_sort = [
+            {"job.updated_at": {"order": "desc", "missing": "_last"}},
+            {"job.created_at": {"order": "desc"}},
+        ]
         return {
             "size": max(limit, 0),
-            "sort": [{"job.updated_at": {"order": "desc", "missing": "_last"}}, {"job.created_at": {"order": "desc"}}],
+            "sort": [{"_score": {"order": "desc"}}, *recency_sort] if text else recency_sort,
             "query": {"bool": bool_query},
         }
 

@@ -371,6 +371,7 @@ workflow:
   plan_prompt: |
     Review the available tools, the conversation history, and the user's question, then produce a concise numbered execution plan. Start each step with a tool name and a brief description of the step.
     Put relevant context (for example, sensor IDs or time ranges) from the conversation history directly in the plan steps so the execution agent does not need to re-read the history.
+    For a specific content question about named media, use one compound plan step: call `vst_video_list` to resolve `<name>`'s media type, then call `video_understanding` with `<name>` and the original question when it is `video`; use the live-stream content-question route only when it is `rtsp`. Use `lvs_video_understanding` only for whole-video summarization.
     A non-empty name supplied in the request is the sensor_id. For example, in "Generate a report for warehouse_sample", the sensor_id is "warehouse_sample"; this request is complete and MUST NOT trigger a clarifying question.
     If the user requests a report and supplies a name, the plan MUST contain exactly one action: call `report_agent` directly with that exact name as sensor_id and the original request as user_query. Do not verify the name or media type first.
     Ask which video or camera the user means only when the request contains no name and the conversation provides no usable name.
@@ -462,6 +463,7 @@ workflow:
 
   tool_call_prompt: |
     - ALWAYS include ALL required parameters when calling tools
+    - OVERRIDE THE EXECUTION PLAN if necessary: for a specific content question, once the target is known to be `media_type='video'`, call `video_understanding` next even if the plan names another tool. Use `lvs_video_understanding` only for whole-video summarization.
     - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
     - Error Handling: if a tool fails more than 3 times, just return a summarized error message. Do not endlessly try again.
 

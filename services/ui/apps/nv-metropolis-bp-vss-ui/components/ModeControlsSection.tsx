@@ -55,7 +55,7 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
       className="flex flex-col flex-1 overflow-hidden border-b border-gray-300 dark:border-gray-600"
     >
       {/* Section Header */}
-      <div className="px-4 pt-3 pb-2 flex-shrink-0" title={activeTabLabel ? `${activeTabLabel} Tab Controls` : undefined}>
+      <div className="px-4 pt-3 pb-3 flex-shrink-0 border-b border-gray-300 dark:border-gray-600" title={activeTabLabel ? `${activeTabLabel} Tab Controls` : undefined}>
         <h2 className="text-base font-normal text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">
         {activeTabLabel}
         </h2>

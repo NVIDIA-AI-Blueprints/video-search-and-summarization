@@ -114,7 +114,7 @@ Read-only sections (`kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`,
 
 ## Component map
 
-Under `video-search-and-summarization/services/analytics/behavior-analytics/`:
+Under `services/analytics/behavior-analytics/`:
 
 ```
 src/mdx/analytics/core/transform/config/
@@ -126,7 +126,7 @@ src/mdx/analytics/core/transform/config/
 └── config_monitor.py          # Per-worker watchdog: pick up files written by the listener
 ```
 
-Wired up in `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_runner.py` (one `ConfigListener` per main process) and `video-search-and-summarization/services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_base.py` (one `ConfigFileMonitor` per worker). The listener writes a JSON file into `CONFIG_DIR` (default `/tmp/checkpoint/config`) on every successful apply; each worker's `ConfigFileMonitor` picks up the file via watchdog `on_moved` and applies through its own local `ConfigApplier`.
+Wired up in `services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_runner.py` (one `ConfigListener` per main process) and `services/analytics/behavior-analytics/src/mdx/analytics/core/app/app_base.py` (one `ConfigFileMonitor` per worker). The listener writes a JSON file into `CONFIG_DIR` (default `/tmp/checkpoint/config`) on every successful apply; each worker's `ConfigFileMonitor` picks up the file via watchdog `on_moved` and applies through its own local `ConfigApplier`.
 
 ### Why per-worker monitor, not per-process
 

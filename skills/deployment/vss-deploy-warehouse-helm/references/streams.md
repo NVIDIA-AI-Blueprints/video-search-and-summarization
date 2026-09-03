@@ -1,6 +1,6 @@
 # Warehouse Helm — Stream Sizing and Install
 
-## Why `syncFileCount` has to match `NUM_STREAMS`
+## Why `syncFileCount` and `rtsp.instanceCount` have to match `NUM_STREAMS`
 
 `vios.vss-vios-nvstreamer.syncFileCount` controls how many sample video files NVStreamer syncs
 into its own volume. If it's lower than the effective `NUM_STREAMS`, `bp-configurator` will find
@@ -8,6 +8,12 @@ fewer streams than it expects and under-register cameras with VST; if it's highe
 wastes time/storage syncing files nothing will consume. `compute_stream_cap.py` prints the
 effective (capped) stream count specifically so this can be set to match — see
 `warehouse-2d-app/README.md` line ~168: "Keep in step with `bp-configurator` `NUM_STREAMS`."
+
+`vios.vss-vios-nvstreamer.rtsp.instanceCount` (default `8`) caps how many RTSP ports the
+NVStreamer Service/Deployment expose. Below the effective stream count, streams above the cap get
+no Service port and silently fail to connect — same failure mode as an unmatched `syncFileCount`,
+but with no error, just a stuck DESCRIBE. `compute_stream_cap.py` now prints a `--set` for this
+too; keep it equal to `NUM_STREAMS`.
 
 ## Full install sequence
 
@@ -29,6 +35,7 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
   --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana \
   --set vios.vss-vios-nvstreamer.syncFileCount=<N> \
+  --set vios.vss-vios-nvstreamer.rtsp.instanceCount=<N> \
   -f values-stream-cap.generated.yaml
 # <N> is the effective (possibly capped) count printed in step 1, not necessarily
 # the --num-streams you requested

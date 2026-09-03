@@ -596,6 +596,7 @@ _QWEN3VL_ARCHS = frozenset(
         "Qwen3VLMoeForConditionalGeneration",
     }
 )
+_QWEN3_OMNI_ARCHS = frozenset({"Qwen3OmniMoeForConditionalGeneration"})
 _COSMOS3_DIFFUSERS_ARCHS = frozenset({"Cosmos3ForConditionalGeneration"})
 _COSMOS3_EDGE_ARCHS = frozenset(
     {
@@ -850,6 +851,25 @@ def _build_video_message_content(query_text, vlm_model_type, model_architecture)
     ):
         return [video, text]
     return [text, video]
+
+
+def _default_mm_processor_kwargs(
+    vlm_model_type: str,
+    model_architecture: str,
+    has_audio: bool,
+) -> dict:
+    """Return model-required multimodal processor arguments.
+
+    Qwen3-Omni's vLLM processor unconditionally reads
+    ``use_audio_in_video`` for every video item. Supplying ``False`` for a
+    video-only request is therefore required, not merely an audio opt-in.
+    """
+    kwargs = {}
+    if vlm_model_type == "cosmos-reason1":
+        kwargs["chain_of_thought"] = True
+    if model_architecture in _QWEN3_OMNI_ARCHS:
+        kwargs["use_audio_in_video"] = has_audio
+    return kwargs
 
 
 def _uses_cosmos3_vllm_plugin(model_architecture: str) -> bool:
@@ -3717,10 +3737,11 @@ class VllmCompatible(BaseVlmModel):
                 logger.warning("Audio processing returned None — audio will NOT be sent to model")
 
         # Prepare LLM inputs
-        base_mm_processor_kwargs = {}
-
-        if self._vlm_model_type == "cosmos-reason1":
-            base_mm_processor_kwargs["chain_of_thought"] = True
+        base_mm_processor_kwargs = _default_mm_processor_kwargs(
+            self._vlm_model_type,
+            self._model_architecture,
+            has_audio,
+        )
 
         # Merge user-provided mm_processor_kwargs from request
         mm_processor_kwargs = _merge_mm_processor_kwargs(

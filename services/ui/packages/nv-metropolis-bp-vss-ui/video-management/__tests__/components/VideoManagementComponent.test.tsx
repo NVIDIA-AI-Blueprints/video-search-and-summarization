@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { VideoManagementComponent } from '../../lib-src/VideoManagementComponent';
 import { videoStream, rtspStream } from '../helpers/streamFixtures';
 
@@ -64,10 +64,13 @@ const mockTimelines = new Map([
 let mockStreamsList = [videoStream, rtspStream];
 const mockRefetch = jest.fn(() => Promise.resolve());
 const mockWaitUntilStreamsRemoved = jest.fn(async () => ({ remainingSensorIds: [] as string[] }));
+const mockWaitUntilStreamAdded = jest.fn(async () => ({ found: true }));
+const mockAddRtspStream = jest.fn(() => Promise.resolve({ sensorId: 'sensor-new' }));
 const mockDeleteRtspStream = jest.fn(() => Promise.resolve({ status: 'success' }));
 const mockDeleteVideo = jest.fn(() => Promise.resolve({ status: 'success' }));
 
 jest.mock('../../lib-src/rtspStream', () => ({
+  addRtspStream: (...args: unknown[]) => mockAddRtspStream(...(args as [])),
   deleteRtspStream: (...args: unknown[]) => mockDeleteRtspStream(...(args as [])),
 }));
 
@@ -82,6 +85,7 @@ jest.mock('../../lib-src/hooks', () => ({
     error: null,
     refetch: mockRefetch,
     waitUntilStreamsRemoved: mockWaitUntilStreamsRemoved,
+    waitUntilStreamAdded: mockWaitUntilStreamAdded,
   }),
   useStorageTimelines: () => ({
     timelines: mockTimelines,
@@ -348,6 +352,142 @@ describe('VideoManagementComponent — video playback', () => {
           }),
         ]),
       );
+    });
+  });
+});
+
+// Same lag as Add RTSP: VST answers the last chunk before the uploaded file's
+// sensor appears in its streams listing, so "Done" used to be able to precede
+// the grid actually holding the video.
+describe('VideoManagementComponent — upload waits for VST to list the file', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    lastUploadDialogProps = null;
+    lastUploadProgressPopupProps = null;
+    lastUploadSuccessPopupProps = null;
+    mockChunkedUpload.mockResolvedValue({ sensorId: 'upload-sensor' });
+    mockWaitUntilStreamAdded.mockResolvedValue({ found: true });
+  });
+
+  const uploadOneFile = async (id = 'upload-1', name = 'clip.mp4') => {
+    const file = new File(['data'], name, { type: 'video/mp4' });
+    await act(async () => {
+      lastUploadDialogProps.onConfirm([{ id, file, uploadFilename: name, formData: {} }]);
+    });
+  };
+
+  function deferWait() {
+    let settle: (value: { found: boolean }) => void = () => {};
+    mockWaitUntilStreamAdded.mockImplementationOnce(
+      () => new Promise<{ found: boolean }>((resolve) => { settle = resolve; }),
+    );
+    return () => settle({ found: true });
+  }
+
+  it('keeps the file in flight until VST lists the uploaded sensor', async () => {
+    const settleWait = deferWait();
+
+    renderComponent();
+    await uploadOneFile();
+
+    expect(mockWaitUntilStreamAdded).toHaveBeenCalledWith('upload-sensor');
+    // Parked at 100% rather than reported Done
+    expect(lastUploadProgressPopupProps.files[0]).toEqual(
+      expect.objectContaining({ uploadStatus: 'uploading', uploadProgress: 100 }),
+    );
+    expect(screen.queryByTestId('upload-success-popup')).not.toBeInTheDocument();
+
+    await act(async () => {
+      settleWait();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(lastUploadSuccessPopupProps.results).toEqual([
+      { filename: 'clip.mp4', result: { status: 'success' } },
+    ]);
+  });
+
+  it('reports success with the listing caveat when VST never lists the file', async () => {
+    mockWaitUntilStreamAdded.mockResolvedValueOnce({ found: false });
+
+    renderComponent();
+    await uploadOneFile();
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(lastUploadSuccessPopupProps.results[0]).toEqual({
+      filename: 'clip.mp4',
+      result: {
+        status: 'success',
+        vst_listing: 'pending',
+        note: expect.stringContaining('has not listed it yet'),
+      },
+    });
+  });
+
+  // The bytes are in VST by then, so cancelling only abandons the listing wait
+  it('settles a file cancelled mid-wait as success, not cancelled', async () => {
+    const settleWait = deferWait();
+
+    renderComponent();
+    await uploadOneFile();
+
+    await act(async () => {
+      lastUploadProgressPopupProps.onCancelAll();
+    });
+    // A wait that lands after the cancel must not overwrite that outcome
+    await act(async () => {
+      settleWait();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    const [result] = lastUploadSuccessPopupProps.results;
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual(expect.objectContaining({ vst_listing: 'pending' }));
+  });
+
+  it('settles a per-file cancel mid-wait the same way', async () => {
+    const settleWait = deferWait();
+
+    renderComponent();
+    await uploadOneFile('single-cancel');
+
+    await act(async () => {
+      lastUploadProgressPopupProps.onCancelSingle('single-cancel');
+    });
+    await act(async () => {
+      settleWait();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    const [result] = lastUploadSuccessPopupProps.results;
+    expect(result.cancelled).toBeUndefined();
+    expect(result.result).toEqual(expect.objectContaining({ vst_listing: 'pending' }));
+  });
+
+  it('does not wait when the upload response carries no sensorId', async () => {
+    mockChunkedUpload.mockResolvedValueOnce({} as { sensorId: string });
+
+    renderComponent();
+    await uploadOneFile();
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(mockWaitUntilStreamAdded).not.toHaveBeenCalled();
+    expect(lastUploadSuccessPopupProps.results[0].result).toEqual({ status: 'success' });
+  });
+
+  it('reports an upload that fails outright as an error, not a listing caveat', async () => {
+    mockChunkedUpload.mockRejectedValueOnce(new Error('chunk 3 failed'));
+
+    renderComponent();
+    await uploadOneFile();
+
+    await waitFor(() => expect(screen.getByTestId('upload-success-popup')).toBeInTheDocument());
+    expect(mockWaitUntilStreamAdded).not.toHaveBeenCalled();
+    expect(lastUploadSuccessPopupProps.results[0]).toEqual({
+      filename: 'clip.mp4',
+      error: 'chunk 3 failed',
     });
   });
 });
@@ -635,6 +775,80 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
   });
 });
 
+// Add RTSP used to close on VST's add response, which precedes the sensor
+// showing up in the streams listing — the grid was left without the camera the
+// user had just added until a manual refresh or a tab switch.
+describe('VideoManagementComponent — Add RTSP waits for VST to list the stream', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    mockAddRtspStream.mockResolvedValue({ sensorId: 'sensor-new' });
+    mockWaitUntilStreamAdded.mockResolvedValue({ found: true });
+  });
+
+  const addRtspButton = () => screen.getByRole('button', { name: '+ Add RTSP' });
+
+  async function submitRtsp() {
+    await act(async () => {
+      fireEvent.click(addRtspButton());
+    });
+    fireEvent.change(screen.getByPlaceholderText(/^rtsp:\/\/cam-warehouse/), {
+      target: { value: 'rtsp://cam.example.com:554/cam01' },
+    });
+    // The toolbar's "+ Add RTSP" trigger stays in the DOM, so scope to the dialog
+    const dialog = within(screen.getByTestId('add-rtsp-dialog'));
+    await act(async () => {
+      fireEvent.click(dialog.getByRole('button', { name: 'Add RTSP' }));
+    });
+  }
+
+  it('polls the streams listing for the new sensor before closing the dialog', async () => {
+    renderComponent();
+    await submitRtsp();
+
+    expect(mockWaitUntilStreamAdded).toHaveBeenCalledWith('sensor-new');
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+  });
+
+  it('holds the dialog open while the listing has yet to catch up', async () => {
+    let settleWait: (value: { found: boolean }) => void = () => {};
+    mockWaitUntilStreamAdded.mockImplementationOnce(
+      () => new Promise<{ found: boolean }>((resolve) => { settleWait = resolve; }),
+    );
+
+    renderComponent();
+    await submitRtsp();
+
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('add-rtsp-confirming')).toBeInTheDocument();
+
+    await act(async () => {
+      settleWait({ found: true });
+    });
+
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the dialog open with a retry when the listing never catches up', async () => {
+    mockWaitUntilStreamAdded.mockResolvedValueOnce({ found: false });
+
+    renderComponent();
+    await submitRtsp();
+
+    expect(screen.getByTestId('add-rtsp-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('add-rtsp-error')).toHaveTextContent('has not listed it yet');
+
+    // Retry re-polls the same accepted sensor instead of adding it again
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    });
+
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(1);
+    expect(mockWaitUntilStreamAdded).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('add-rtsp-dialog')).not.toBeInTheDocument();
+  });
+});
+
 // The RTSP and delete dialogs overlay the pane but not the toolbar above it, so their
 // trigger buttons stay clickable while a dialog is open. A second dialog opened that way
 // could end up stacked behind the first and be unreachable until the top one was closed.
@@ -701,3 +915,43 @@ describe('VideoManagementComponent — only one dialog at a time', () => {
     expect(lastUploadDialogProps.open).toBe(true);
   });
 });
+
+describe('VideoManagementComponent — left sidebar controls', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+  });
+
+  it('keeps the toolbar in the tab when the host app does not use the left sidebar', async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '+ Upload Video' })).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('video-management-sidebar-controls')).not.toBeInTheDocument();
+  });
+
+  it('moves the toolbar into onControlsReady instead of the tab header', async () => {
+    const onControlsReady = jest.fn();
+    renderComponent({ renderControlsInLeftSidebar: true, onControlsReady });
+
+    await waitFor(() => {
+      expect(onControlsReady).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByTestId('video-management-sidebar-controls')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Upload Video' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Selected' })).not.toBeInTheDocument();
+
+    const { controlsComponent } = onControlsReady.mock.calls[onControlsReady.mock.calls.length - 1][0];
+    render(<>{controlsComponent}</>);
+
+    expect(screen.getByTestId('video-management-sidebar-controls')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Upload Video' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add RTSP' })).toBeInTheDocument();
+    expect(screen.getByTestId('search-video-input')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Selected' })).toBeInTheDocument();
+    expect(screen.getByText('Display')).toBeInTheDocument();
+  });
+});
+
