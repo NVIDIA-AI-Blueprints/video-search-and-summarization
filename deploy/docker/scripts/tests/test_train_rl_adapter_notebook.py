@@ -197,6 +197,7 @@ def test_default_dry_run_and_measurement_gates(dry_namespace, monkeypatch, tmp_p
     assert ns["NEMO_RL_DIR"] == ns["WORK_DIR"] / "nemo-rl"
     assert re.fullmatch(r"lvs_aggregate_[0-9a-f]{12}", ns["RESOURCE_DIR_NAME"])
     assert ns["VLLM_CONTAINER_NAME"].startswith("vss-rl-")
+    assert ns["VLLM_HOST_BIND"] == "127.0.0.1"
     assert ns["NEMO_RL_COMMIT"] == "5fb588932bf835506a8a5bac01de4f8c7ab0a065"
     assert ns["NEMO_RL_UV_LOCK_SHA256"] == (
         "7b1d1d41cc1945c4fec6ff7285d2e6a633b727f98a9cc97241b7bebb11387bec"
@@ -226,6 +227,15 @@ def test_default_dry_run_and_measurement_gates(dry_namespace, monkeypatch, tmp_p
     )
     with pytest.raises(TypeError, match="Unsupported Hydra mapping value"):
         ns["hydra_inline_mapping"]({"nested": {"value": 1}})
+    assert ns["validated_vllm_host_bind"]("127.0.0.1", route_back=False) == (
+        "127.0.0.1"
+    )
+    assert ns["validated_vllm_host_bind"]("::1", route_back=False) == "[::1]"
+    assert ns["validated_vllm_host_bind"]("0.0.0.0", route_back=True) == "0.0.0.0"
+    with pytest.raises(ValueError, match="non-loopback"):
+        ns["validated_vllm_host_bind"]("127.0.0.1", route_back=True)
+    with pytest.raises(ValueError, match="IPv4 or IPv6"):
+        ns["validated_vllm_host_bind"]("localhost", route_back=False)
 
     original_run_checked = ns["run_checked"]
     ns["run_checked"] = lambda *unused, **unused_kwargs: types.SimpleNamespace(
@@ -270,6 +280,10 @@ def test_default_dry_run_and_measurement_gates(dry_namespace, monkeypatch, tmp_p
     )
     assert "com.nvidia.vss-rl.run={RAY_RUN_MARKER}" in serving_source
     assert '"--gpus", \'"device=\' +' in serving_source
+    assert (
+        '"-p", f"{publish_host}:{VLLM_HOST_PORT}:{VLLM_CONTAINER_PORT}"'
+        in serving_source
+    )
     assert "container_id = result.stdout.strip()" in serving_source
     assert serving_source.index(
         "check_compute_and_disk(SERVING_GPU_IDS)"
