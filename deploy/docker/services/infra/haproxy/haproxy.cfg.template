@@ -195,6 +195,51 @@ frontend fe_http
     # cause instead.
     http-request deny deny_status 404 hdr x-vss-gateway-deny unknown-host content-type text/plain string "VSS gateway: this Host is not one of the deployment's known origins. Add the hostname callers use to VSS_PUBLIC_HOST and recreate vss-haproxy-ingress. See deploy/docker/README.md." if !known_host
 
+    # --- Forwarded scheme ---
+    #
+    # `option forwardfor` in defaults sets X-Forwarded-For and nothing else, so
+    # a backend that has to build an absolute URL has no way to learn the scheme
+    # the client used. It then assumes the scheme of the hop it can see, which
+    # is this listener's plain HTTP -- and where TLS terminates outside the
+    # deployment that means a browser on the https secure link is handed an http
+    # URL and blocks it as mixed content. Starlette's trailing-slash redirect on
+    # the agent's /static is the live example.
+    #
+    # The Host header already carries the client's authority verbatim, so
+    # X-Forwarded-Host and X-Forwarded-Port are deliberately NOT synthesised
+    # here. A gateway-invented X-Forwarded-Port could only name this listener's
+    # port, which is the wrong port for exactly the terminator case the scheme
+    # header exists to serve -- it would reintroduce the leak. A terminator that
+    # sets either header itself is left alone.
+    #
+    # Neither blindly overwritten nor blindly trusted:
+    #
+    #   - An external terminator is the only party that knows TLS happened, so a
+    #     value it set is honoured. Overwriting unconditionally would break the
+    #     Brev secure link, which is the case this rule exists for.
+    #   - What is honoured is a token, not a string. Whatever arrives is reduced
+    #     to one lowercase word and accepted only if it is exactly http or
+    #     https; anything else -- a full URL, an injection attempt, an empty
+    #     value -- is dropped in favour of this hop's own scheme. So a backend
+    #     can never splice an arbitrary caller-supplied string into a URL.
+    #
+    # Occurrence 1 rather than req.hdr's default: HAProxy treats a comma-
+    # delimited header as multiple values and returns the LAST, but in a chain
+    # of proxies the FIRST is the client's own scheme, so "https, http" from a
+    # second proxy in front must read as https. `lower` because Starlette
+    # compares the token case-sensitively and would silently ignore "HTTPS".
+    # Re-set unconditionally so the header leaves here in exactly one shape.
+    #
+    # Residual, stated rather than hidden: a caller reaching the listener
+    # directly can still assert https and be believed. That is self-inflicted --
+    # it gets https URLs it asked for -- and nothing in this deployment makes an
+    # authorisation decision on the forwarded scheme. ssl_fc rather than a
+    # literal so the rule stays correct if this bind ever terminates TLS itself.
+    http-request set-var(txn.xfp) req.hdr(x-forwarded-proto,1),lower
+    acl xfp_valid var(txn.xfp) -m str http https
+    http-request set-header X-Forwarded-Proto %[var(txn.xfp)] if xfp_valid
+    http-request set-header X-Forwarded-Proto %[ssl_fc,iif(https,http)] unless xfp_valid
+
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}"
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}"
     acl h_main hdr(host) -i "${VSS_GATEWAY_HOST}"
