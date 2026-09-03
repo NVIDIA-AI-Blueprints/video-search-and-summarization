@@ -361,6 +361,15 @@ deployment was told about: `VSS_PUBLIC_HOST`, `VSS_GATEWAY_HOST`, `HOST_IP`,
 correct the route is — the common cases being a public DNS record, a client-side
 `/etc/hosts` alias, and a Brev secure link.
 
+The match is exact, and the port is part of the identity rather than an
+afterthought. Each host value is paired with one specific port: `VSS_PUBLIC_HOST`
+with `VSS_PUBLIC_PORT`, `VSS_GATEWAY_HOST` with `VSS_GATEWAY_PORT`, and
+`HOST_IP` / `EXTERNAL_IP` / `localhost` / `127.0.0.1` with `HAPROXY_PORT`. So a
+name declared for a TLS terminator on 443 is *not* admitted on 7777, and neither
+a suffix nor a prefix of a declared name is admitted at all —
+`example.com.evil`, `evil-example.com` and `example.com:9999` are each refused
+alongside any other undeclared origin.
+
 Set `VSS_PUBLIC_HOST` to the hostname callers use and recreate
 `vss-haproxy-ingress`. The IP entries stay valid alongside it, so declaring a
 name does not cost you the address:
@@ -372,6 +381,50 @@ curl -fsS -o /dev/null -w '%{http_code}\n' "https://${PUBLIC_NAME}/va-mcp/health
 An unrecognised Host is answered with `x-vss-gateway-deny: unknown-host` and a
 plain-text body naming this setting, which is what separates it from a 404 for a
 path no service mounts. Check that header before looking for a routing bug.
+
+A **503 with no `x-vss-gateway-deny` header** on one origin while the others
+still work is a different fault and is worth naming, because it looks like a
+dead backend and is not. The origins are declared twice in
+`services/infra/haproxy/haproxy.cfg.template` — once as `known_host`, which
+gates the deny, and once as `h_main`, which gates every `use_backend`. An origin
+added to the first but not the second is admitted and then routed nowhere.
+`.github/scripts/check_gateway_host_acls.py` fails CI on that divergence.
+
+#### Do you have to configure `HOST_IP` or `EXTERNAL_IP`?
+
+For the Host allowlist: **no, and not by hand in any supported topology.** Both
+`dev-profile.sh` and `blueprint-deploy.sh` derive `HOST_IP` from
+`ip route get 1.1.1.1` and write it into `generated.env` on every run, and the
+profiles default `EXTERNAL_IP="${HOST_IP}"`. What a non-default topology may
+still need is `VSS_PUBLIC_HOST`.
+
+| Topology | `HOST_IP` | `EXTERNAL_IP` | What the operator sets |
+|---|---|---|---|
+| Single host, reached by its own address | auto-derived, leave it | auto (`= HOST_IP`) | nothing |
+| Reached by a DNS name or a client-side `/etc/hosts` alias | auto-derived, leave it | not needed | `VSS_PUBLIC_HOST` = the name |
+| TLS terminated outside the stack (Brev secure link) | auto-derived, leave it | not needed | `VSS_PUBLIC_HOST`/`_PORT`/`_HTTP_PROTOCOL`, which `dev-profile.sh` fills in from `BREV_ENV_ID` |
+| Remote agent off-host (`compose.remote-agent.yml`) | auto-derived on the deployment | not needed | `VSS_GATEWAY_ORIGIN` on the agent host, naming an origin the deployment already declares |
+
+Two things that follow from the table and are easy to get wrong:
+
+- `EXTERNAL_IP` earns its keep in exactly one case: the box has an external
+  address that differs from the one on its interfaces, callers use that address
+  rather than a name, **and** `VSS_PUBLIC_PORT` is not the listener port — as it
+  is not behind a terminator on 443. Then `EXTERNAL_IP` is what admits the raw
+  address on `HAPROXY_PORT`, because `VSS_PUBLIC_HOST` is paired with 443.
+  Whenever the public origin is already the address callers use, it is a
+  duplicate of the `VSS_PUBLIC_HOST` entry and changes nothing.
+- Pointing `VSS_PUBLIC_HOST` at a name does not retire the address, but only
+  because `HOST_IP` is still set. In a hand-written env file that leaves
+  `HOST_IP` at its `<HOST_IP>` placeholder, declaring a name **does** cost you
+  the address: the box's own IP starts answering 404 `unknown-host` while the
+  name works.
+
+Leave both variables non-empty. An empty value is worse than a placeholder:
+Compose refuses the run outright in profiles that include the SDRC services
+(`HOST_IP must be set in .env or shell before running compose`), and an empty
+string interpolated into a quoted HAProxy ACL argument aborts the config parse,
+so the gateway would not start at all.
 
 Then configure the host-side CLI with the public origin. The CLI does not read
 service endpoints from process environment and must not be pointed at
