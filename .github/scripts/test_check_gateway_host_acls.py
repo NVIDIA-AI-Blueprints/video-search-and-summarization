@@ -207,6 +207,258 @@ class NonEmptyTest(unittest.TestCase):
             self.assertNotEqual([], LINT.scan_non_empty({"HOST_IP"}, compose, profile))
 
 
+ACL_VARS = {"HOST_IP", "EXTERNAL_IP", "VSS_PUBLIC_HOST", "VSS_PUBLIC_PORT"}
+GATEWAY_ON = f"COMPOSE_PROFILES=redis,{LINT.GATEWAY_SERVICE},vss-ui\n"
+# What a profile has to say for the ACL variables to resolve, indirection and
+# all, exactly as the real profiles write it.
+CONFIGURED = GATEWAY_ON + (
+    "HOST_IP='<HOST_IP>'\n"
+    'EXTERNAL_IP="${HOST_IP}"\n'
+    "VSS_PUBLIC_HOST=${EXTERNAL_IP}\n"
+    "VSS_PUBLIC_PORT=7777\n"
+)
+
+
+def _names(paths: list[str]) -> list[str]:
+    """Trim the temp-directory prefix so assertions read on the layout.
+
+    ``display`` only relativises paths inside the real repository, so a tree
+    built under /tmp comes back absolute.
+    """
+    return [path[path.index("deploy/docker") :] for path in paths]
+
+
+def _tree(directory: str, *, profile_env: str, overlay_env: str, overlay_deployable: bool) -> Path:
+    """Build a miniature deploy/docker: one deployable profile, one overlay.
+
+    Mirrors the real layout closely enough for the include graph to mean the
+    same thing -- a root compose that includes a per-tree compose, which in turn
+    includes each profile's own.
+    """
+    root = Path(directory) / "deploy" / "docker"
+    (root / "developer-profiles" / "dev-profile-base").mkdir(parents=True)
+    (root / "industry-profiles" / "overlay-profile").mkdir(parents=True)
+
+    (root / "compose.yml").write_text(
+        "include:\n"
+        "  - path: ./developer-profiles/compose.yml\n"
+        "  - path: ./industry-profiles/compose.yml\n"
+    )
+    (root / "developer-profiles" / "compose.yml").write_text(
+        "include:\n  - path: ./dev-profile-base/compose.yml\n"
+    )
+    industry = "include:\n"
+    if overlay_deployable:
+        industry += "  - path: ./overlay-profile/compose.yml\n"
+    (root / "industry-profiles" / "compose.yml").write_text(industry)
+
+    for path, body in (
+        (root / "developer-profiles" / "dev-profile-base", profile_env),
+        (root / "industry-profiles" / "overlay-profile", overlay_env),
+    ):
+        (path / "compose.yml").write_text("services: {}\n")
+        (path / ".env").write_text("")
+        (path / "overrides.env").write_text(body)
+    return root
+
+
+class ProfileTest(unittest.TestCase):
+    """The ACL variables must be guaranteed by the profile being deployed.
+
+    ``scan_non_empty`` checks one profile. This rule checks every profile that
+    can be brought up on its own, which is the claim that actually matters.
+    """
+
+    def test_the_tree_passes(self) -> None:
+        _, used = LINT.scan_template(LINT.TEMPLATE)
+        failures, _, _ = LINT.scan_profiles(used, LINT.GATEWAY_COMPOSE)
+        self.assertEqual([], failures)
+
+    def test_the_real_profiles_are_actually_in_scope(self) -> None:
+        # Non-vacuity, and specific: warehouse-operations is the deployable
+        # industry profile, and it was outside this lint's reach entirely until
+        # this rule existed.
+        _, used = LINT.scan_template(LINT.TEMPLATE)
+        _, checked, _ = LINT.scan_profiles(used, LINT.GATEWAY_COMPOSE)
+        self.assertIn("deploy/docker/industry-profiles/warehouse-operations", checked)
+        for name in ("base", "alerts", "lvs", "search"):
+            self.assertIn(f"deploy/docker/developer-profiles/dev-profile-{name}", checked)
+
+    def test_smartcities_is_classified_as_an_overlay(self) -> None:
+        # The false positive this rule was written to settle. smartcities
+        # enables the gateway and defines none of the ACL variables, so read on
+        # its own it looks fatal; it is deployed by merging into
+        # dev-profile-alerts, whose values it inherits.
+        _, used = LINT.scan_template(LINT.TEMPLATE)
+        failures, checked, overlays = LINT.scan_profiles(used, LINT.GATEWAY_COMPOSE)
+        self.assertIn("deploy/docker/industry-profiles/smartcities", overlays)
+        self.assertNotIn("deploy/docker/industry-profiles/smartcities", checked)
+        self.assertEqual([], failures)
+
+    def test_the_smartcities_overlay_really_does_lack_the_variables(self) -> None:
+        # If the overlay ever gains them, the test above stops proving anything
+        # about the skip, so pin the premise rather than the conclusion.
+        env = LINT.profile_env(LINT.DOCKER_ROOT / "industry-profiles/smartcities")
+        for name in sorted(ACL_VARS):
+            self.assertFalse(LINT.resolves_non_empty(name, env, frozenset()), name)
+
+    def test_an_unconfigured_deployable_profile_is_caught(self) -> None:
+        # The canary: a profile that can be brought up on its own, enables the
+        # gateway, and never defines the ACL variables. haproxy 3.4.2 aborts the
+        # parse on exactly this input.
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=GATEWAY_ON,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            failures, checked, _ = LINT.scan_profiles(ACL_VARS, _gw_compose(directory, ""), root)
+            self.assertEqual(["deploy/docker/developer-profiles/dev-profile-base"], _names(checked))
+            for name in sorted(ACL_VARS):
+                self.assertTrue(any(name in failure for failure in failures), (name, failures))
+            self.assertTrue(any("would not start at all" in f for f in failures), failures)
+
+    def test_a_configured_deployable_profile_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            failures, _, _ = LINT.scan_profiles(ACL_VARS, _gw_compose(directory, ""), root)
+            self.assertEqual([], failures)
+
+    def test_an_unconfigured_overlay_is_skipped_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=GATEWAY_ON,
+                overlay_deployable=False,
+            )
+            failures, _, overlays = LINT.scan_profiles(ACL_VARS, _gw_compose(directory, ""), root)
+            self.assertEqual([], failures)
+            # Skipped, but named on stdout rather than passed over in silence.
+            self.assertEqual(["deploy/docker/industry-profiles/overlay-profile"], _names(overlays))
+
+    def test_an_overlay_that_becomes_deployable_is_caught(self) -> None:
+        # The property that keeps the smartcities skip honest: the distinction
+        # comes from the include graph, so wiring the overlay into a deployable
+        # stack without giving it the ACL variables fails on that same commit.
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=GATEWAY_ON,
+                overlay_deployable=True,
+            )
+            failures, checked, overlays = LINT.scan_profiles(
+                ACL_VARS, _gw_compose(directory, ""), root
+            )
+            self.assertEqual([], overlays)
+            self.assertIn("deploy/docker/industry-profiles/overlay-profile", _names(checked))
+            self.assertNotEqual([], failures)
+
+    def test_a_compose_default_covers_a_profile_that_omits_the_variable(self) -> None:
+        # VSS_GATEWAY_HOST is the real instance: no profile has to set it,
+        # because the gateway service defaults it to vss.local.
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=GATEWAY_ON,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            compose = _gw_compose(directory, "      HOST_IP: ${HOST_IP:-127.0.0.1}\n")
+            failures, _, _ = LINT.scan_profiles({"HOST_IP"}, compose, root)
+            self.assertEqual([], failures)
+
+    def test_a_profile_that_does_not_enable_the_gateway_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            base = root / "developer-profiles" / "dev-profile-base"
+            (base / "overrides.env").write_text("COMPOSE_PROFILES=redis,vss-ui\nHOST_IP=\n")
+            # Nothing left that enables the gateway, so the rule reports that it
+            # is checking nothing rather than passing quietly.
+            failures, checked, _ = LINT.scan_profiles(ACL_VARS, _gw_compose(directory, ""), root)
+            self.assertEqual([], checked)
+            self.assertTrue(any("not checking anything" in f for f in failures), failures)
+
+    def test_a_commented_out_gateway_does_not_count_as_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            base = root / "developer-profiles" / "dev-profile-base"
+            (base / "overrides.env").write_text(
+                f"# COMPOSE_PROFILES=redis,{LINT.GATEWAY_SERVICE}\nCOMPOSE_PROFILES=redis\n"
+            )
+            self.assertFalse(LINT.enables_gateway(base))
+
+    def test_a_substring_service_name_does_not_count_as_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            base = root / "developer-profiles" / "dev-profile-base"
+            (base / "overrides.env").write_text(
+                f"COMPOSE_PROFILES=redis,{LINT.GATEWAY_SERVICE}-metrics\n"
+            )
+            self.assertFalse(LINT.enables_gateway(base))
+
+    def test_the_overrides_file_is_resolved_against_the_profile_env(self) -> None:
+        # The runbook passes .env then the overrides file, so an override may
+        # legitimately reference something only .env sets.
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=CONFIGURED,
+                overlay_deployable=False,
+            )
+            base = root / "developer-profiles" / "dev-profile-base"
+            (base / ".env").write_text("HOST_IP=10.0.0.1\n")
+            (base / "overrides.env").write_text(GATEWAY_ON + 'EXTERNAL_IP="${HOST_IP}"\n')
+            env = LINT.profile_env(base)
+            self.assertEqual("10.0.0.1", env["HOST_IP"])
+            self.assertTrue(LINT.resolves_non_empty("EXTERNAL_IP", env, frozenset()))
+
+    def test_the_include_graph_is_followed_transitively(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _tree(
+                directory,
+                profile_env=CONFIGURED,
+                overlay_env=CONFIGURED,
+                overlay_deployable=True,
+            )
+            reachable = LINT.include_graph(root / "compose.yml")
+            for relative in (
+                "developer-profiles/dev-profile-base/compose.yml",
+                "industry-profiles/overlay-profile/compose.yml",
+            ):
+                self.assertIn((root / relative).resolve(), reachable)
+
+    def test_an_include_cycle_does_not_hang(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a.yml").write_text("include:\n  - path: ./b.yml\n")
+            (root / "b.yml").write_text("include:\n  - path: ./a.yml\n")
+            self.assertEqual(2, len(LINT.include_graph(root / "a.yml")))
+
+
 class ReadmeTest(unittest.TestCase):
     def test_a_documented_allowlist_passes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
