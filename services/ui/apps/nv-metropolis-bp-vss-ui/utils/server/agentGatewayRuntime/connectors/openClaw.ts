@@ -138,7 +138,8 @@ export class OpenClawConnector implements Connector {
       throw new ConnectorError(
         "OpenClaw Gateway stream ended unexpectedly",
         "backend_stream_error",
-        true
+        true,
+        { cause: error }
       );
     }
     return id;
