@@ -72,6 +72,27 @@ ships **without SDRC**: `init-dirs`, `render-config`, `wdm-env-from-config`,
 `wait-for-redis` and `sdr-controller` are absent by design, so the infrastructure
 floor for this mode is the common set only.
 
+**Auto-calibration build requirements.** In `override.env`, restore the
+direct-VST defaults — `overrides.env` sets the SDRC trio for `2d`/`3d`/`mv3dt`,
+and a later env layer can only override a variable, not un-set it:
+
+```text
+VST_USE_SDRC=false
+VST_NGINX_MODE=vst
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001
+```
+
+Create the project store before `up` — it is not in the repo, and the container
+writes to it as uid 1000:
+
+```bash
+mkdir -p "$VSS_APPS_DIR/services/auto-calibration/projects"
+chmod 0777 "$VSS_APPS_DIR/services/auto-calibration/projects"
+```
+
+**VGGT is optional — nothing to do.** `VGGT available: False` in the logs is
+expected, not a failure: the weight is gated on HuggingFace, so the service may falls back to base AMC.
+
 Extended adds ELK, `vss-video-analytics-api`, `vss-haproxy-ingress`,
 `import-calibration-output-container-<mode>`, and monitoring (`dcgm-exporter`,
 `prometheus`, `grafana`, `node-exporter`, `cadvisor`). Minimal lists carry none
@@ -351,8 +372,11 @@ browser-reachable origin that rewrites paths to internal services. The
 | Video Analytics API | `<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | same |
 | Grafana | `<HOST_IP>:35000` (`GRAFANA_HOST_PORT`) | `bp_wh`, or extended Kafka/Redis; no ingress route |
 | VSS Agent, Phoenix | `<HOST_IP>:8000`, `<HOST_IP>:6006` | `bp_wh` only; prefer `/api` and `/phoenix` |
+| Auto-calibration API | `<HOST_IP>:8010/docs` (`VSS_AUTO_CALIBRATION_HOST_PORT`) | `auto-calibration` only; no ingress route |
+| Auto-calibration UI | `<HOST_IP>:5000` (`VSS_AUTO_CALIBRATION_UI_HOST_PORT`) | `auto-calibration` only; no ingress route |
 
-Nothing listens on `8001` — there is no VST MCP container.
+Nothing listens on `8001` — there is no VST MCP container. On `auto-calibration`
+nothing listens on `10000` either: that mode deploys no `sdr-controller`.
 
 > **A wrong `Host` header looks like "every path 404s".** HAProxy first denies
 > any request whose `Host` is not in its `known_host` ACL — `VSS_PUBLIC_HOST`,
@@ -401,6 +425,24 @@ curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 > Endpoint quirks that read as a dead service are in
 > [`../services/elk.md`](../services/elk.md); routes that never answer are in
 > Access points above.
+
+### `MODE=auto-calibration` readiness
+
+This mode deploys no `vss-rtvi-cv` and processes no streams, so the liveness
+check above does not apply. Use instead:
+
+```bash
+curl -sf -o /dev/null -w '%{http_code}\n' "http://${HOST_IP}:8010/docs"   # API  -> 200
+curl -sf -o /dev/null -w '%{http_code}\n' "http://${HOST_IP}:5000/"       # UI   -> 200
+docker inspect -f '{{.RestartCount}} {{.State.Health.Status}}' vss-auto-calibration
+docker logs --since 60s vss-auto-calibration 2>&1 | grep -c "Failed to persist project state"
+```
+
+Expect `200`, `200`, `0 healthy`, and a count of **0** — the last probe is what
+confirms the `projects/` mount is writable.
+
+`/docs` is the endpoint that answers; `/openapi.json`, `/v1/health` and `/health`
+return **404** on this image.
 
 ## Sources
 
