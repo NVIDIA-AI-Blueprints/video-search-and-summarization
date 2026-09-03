@@ -137,7 +137,7 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     // A poll that failed says nothing about what VST holds, so it counts as
     // "not yet listed" and the next poll decides.
     const isListed = (listed: StreamInfo[] | null) =>
-      listed !== null && listed.some((s) => s.sensorId === sensorId);
+      listed?.some((s) => s.sensorId === sensorId) ?? false;
 
     // Immediate check — VST may already list the sensor by the time the
     // add call returned.

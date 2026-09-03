@@ -52,6 +52,37 @@ const settleOnCancel = (upload: UploadProgress): UploadProgress =>
 const isCancellableUpload = (status: UploadProgress['status']) =>
   status === 'pending' || status === 'uploading' || status === 'processing' || status === 'confirming';
 
+// `setUploadProgress` updaters, built out here so the per-file upload routine
+// stays readable and its callbacks stop nesting four deep.
+const toConfirming = (id: string) => (prev: UploadProgress[]): UploadProgress[] =>
+  prev.map((p) => (p.id === id && p.status === 'processing' ? { ...p, status: 'confirming' } : p));
+
+const isUploadInFlight = (status: UploadProgress['status']) =>
+  status === 'uploading' || status === 'processing' || status === 'confirming';
+
+const toUploadSuccess = (id: string, listed: boolean) => (prev: UploadProgress[]): UploadProgress[] =>
+  prev.map((p) => (p.id === id && isUploadInFlight(p.status)
+    ? { ...p, status: 'success', progress: 100, ...(listed ? {} : { unconfirmed: UNCONFIRMED_UPLOAD_NOTE }) }
+    : p));
+
+const toUploadFailure = (
+  id: string,
+  { cancelled, message }: { cancelled: boolean; message: string },
+) => (prev: UploadProgress[]): UploadProgress[] =>
+  prev.map((p) => {
+    if (p.id !== id) return p;
+    // Only the listing wait can fail this late, and it failing does not take the
+    // file back out of VST. Reporting an upload error here would be wrong, and
+    // leaving it `confirming` would keep the popup up forever.
+    if (p.status === 'confirming') return asUnconfirmedSuccess(p);
+    if (p.status !== 'pending' && !isUploadInFlight(p.status)) return p;
+    return {
+      ...p,
+      status: cancelled ? 'cancelled' : 'error',
+      error: cancelled ? undefined : message,
+    };
+  });
+
 export const VideoManagementComponent: React.FC<VideoManagementComponentProps> = ({
   videoManagementData,
   renderControlsInLeftSidebar = false,
@@ -240,9 +271,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         // VST answers the last chunk before the file's sensor turns up in its
         // streams listing, the same lag the RTSP add hits. Hold the file in
         // `confirming` until the listing agrees, so "Done" means the grid has it.
-        setUploadProgress((prev) =>
-          prev.map((p) => (p.id === id && p.status === 'processing' ? { ...p, status: 'confirming' } : p))
-        );
+        setUploadProgress(toConfirming(id));
 
         const listed = uploaded?.sensorId
           ? await waitUntilStreamAddedRef.current(uploaded.sensorId)
@@ -250,14 +279,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         if (!isSessionValid() || cancelledFileIdsRef.current.has(id)) return;
 
-        setUploadProgress((prev) =>
-          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'processing' || p.status === 'confirming') ? {
-            ...p,
-            status: 'success',
-            progress: 100,
-            ...(listed.found ? {} : { unconfirmed: UNCONFIRMED_UPLOAD_NOTE }),
-          } : p))
-        );
+        setUploadProgress(toUploadSuccess(id, listed.found));
       } catch (err) {
         if (!isSessionValid()) return;
 
@@ -265,22 +287,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         const isAborted = err instanceof Error && (err.name === 'AbortError' || err.message === 'Upload was cancelled');
         const isCancelled = isAborted || cancelledFileIdsRef.current.has(id);
 
-        setUploadProgress((prev) =>
-          prev.map((p) => {
-            if (p.id !== id) return p;
-            // Only the listing wait can fail this late, and it failing does not
-            // take the file back out of VST. Reporting an upload error here would
-            // be wrong, and leaving it `confirming` would keep the popup up forever.
-            if (p.status === 'confirming') return asUnconfirmedSuccess(p);
-            return p.status === 'uploading' || p.status === 'pending' || p.status === 'processing'
-              ? {
-                ...p,
-                status: isCancelled ? 'cancelled' : 'error',
-                error: isCancelled ? undefined : errorMessage,
-              }
-              : p;
-          })
-        );
+        setUploadProgress(toUploadFailure(id, { cancelled: isCancelled, message: errorMessage }));
       } finally {
         abortControllerMapRef.current.delete(id);
       }
@@ -494,7 +501,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   // the stream the user just added.
   const handleAwaitRtspStream = useCallback(async (sensorId: string) => {
     const result = await waitUntilStreamAdded(sensorId);
-    void refetchTimelinesRef.current();
+    // Timeline fetches report failure through their own state, never a rejection
+    await refetchTimelinesRef.current();
     return result;
   }, [waitUntilStreamAdded]);
 

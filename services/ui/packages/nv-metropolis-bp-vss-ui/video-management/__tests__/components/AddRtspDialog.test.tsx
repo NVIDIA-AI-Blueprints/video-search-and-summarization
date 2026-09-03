@@ -149,6 +149,88 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     expect(props.onSuccess).toHaveBeenCalledTimes(1);
   });
 
+  // The timeout leaves the fields editable. An acceptance carried over to an
+  // edited URL would confirm the old sensor and close over a stream that was
+  // never added.
+  it('adds afresh when the URL is edited after a listing timeout', async () => {
+    const onAwaitStream = jest
+      .fn<Promise<{ found: boolean }>, [string]>()
+      .mockResolvedValueOnce({ found: false })
+      .mockResolvedValueOnce({ found: true });
+    mockAddRtspStream
+      .mockResolvedValueOnce({ sensorId: 'sensor-first' })
+      .mockResolvedValueOnce({ sensorId: 'sensor-second' });
+    const { props } = renderDialog({ onAwaitStream });
+
+    fillUrl();
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+    expect(screen.getByTestId('add-rtsp-error')).toBeInTheDocument();
+
+    fillUrl('rtsp://cam.example.com:554/cam02');
+    // No longer a retry of the accepted sensor
+    expect(submitButton()).toHaveTextContent('Add RTSP');
+
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
+    expect(mockAddRtspStream).toHaveBeenLastCalledWith(
+      props.vstApiUrl,
+      { sensorUrl: 'rtsp://cam.example.com:554/cam02', name: 'cam02' },
+    );
+    expect(onAwaitStream).toHaveBeenLastCalledWith('sensor-second');
+  });
+
+  it('adds afresh when only the sensor name is edited after a listing timeout', async () => {
+    const onAwaitStream = jest.fn(async () => ({ found: false }));
+    const { props } = renderDialog({ onAwaitStream });
+
+    fillUrl();
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    fireEvent.change(screen.getByLabelText(/Sensor Name/), {
+      target: { value: 'Renamed Camera' },
+    });
+    expect(submitButton()).toHaveTextContent('Add RTSP');
+
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
+    expect(mockAddRtspStream).toHaveBeenLastCalledWith(
+      props.vstApiUrl,
+      { sensorUrl: RTSP_URL, name: 'Renamed Camera' },
+    );
+  });
+
+  // Editing back to the accepted values should not force a duplicate add
+  it('resumes the wait when an edit is reverted to the accepted values', async () => {
+    const onAwaitStream = jest.fn(async () => ({ found: false }));
+    renderDialog({ onAwaitStream });
+
+    fillUrl();
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    fillUrl('rtsp://cam.example.com:554/cam02');
+    fillUrl();
+    expect(submitButton()).toHaveTextContent('Retry');
+
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    expect(mockAddRtspStream).toHaveBeenCalledTimes(1);
+    expect(onAwaitStream).toHaveBeenCalledTimes(2);
+  });
+
   it('surfaces an add failure without waiting on a sensor it never got', async () => {
     mockAddRtspStream.mockRejectedValueOnce(
       new Error('{"error_code":"InvalidParameterError","error_message":"sensor exists"}'),
@@ -197,6 +279,43 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
     // The abandoned wait must not write back into a dialog the user closed
     await act(async () => {
       wait.resolve({ found: false });
+    });
+    expect(props.onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('closes on Escape when idle', () => {
+    const { props } = renderDialog();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores Escape during the add call and honours it during the wait', async () => {
+    const add = deferred<{ sensorId: string }>();
+    const wait = deferred<{ found: boolean }>();
+    mockAddRtspStream.mockImplementationOnce(() => add.promise);
+    const { props } = renderDialog({ onAwaitStream: jest.fn(() => wait.promise) });
+
+    fillUrl();
+    await act(async () => {
+      fireEvent.click(submitButton());
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      add.resolve({ sensorId: 'sensor-new' });
+    });
+    await act(async () => {
+      fireEvent.keyDown(document, { key: 'Escape' });
+    });
+
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      wait.resolve({ found: true });
     });
     expect(props.onSuccess).not.toHaveBeenCalled();
   });

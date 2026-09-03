@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button, TextInput } from '@nvidia/foundations-react-core';
 import { parseApiError } from '../utils';
 import { addRtspStream } from '../rtspStream';
@@ -27,6 +27,32 @@ interface AddRtspDialogProps {
 
 type SubmitPhase = 'idle' | 'adding' | 'confirming';
 
+/** A sensor VST took, and the values it was created from. */
+interface AcceptedSensor {
+  sensorId: string;
+  sensorUrl: string;
+  name: string;
+}
+
+/** The message to show for bad input, or `null` when it is good. */
+function validateRtspInput(url: string, name: string): string | null {
+  if (!url) return 'RTSP URL is required.';
+  if (!url.startsWith('rtsp://')) return 'RTSP URL must start with "rtsp://".';
+  if (!name) return 'Sensor Name is required.';
+  return null;
+}
+
+function getSubmitLabel(phase: SubmitPhase, canResumeWait: boolean): string {
+  switch (phase) {
+    case 'adding':
+      return 'Adding...';
+    case 'confirming':
+      return 'Waiting for VST...';
+    default:
+      return canResumeWait ? 'Retry' : 'Add RTSP';
+  }
+}
+
 export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   isOpen,
   vstApiUrl,
@@ -43,12 +69,24 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   // Sensor VST accepted but has not listed yet. A retry must only resume the
   // wait: re-sending the add would be rejected as a duplicate URL, which reads
   // as a failure for a sensor that in fact exists.
-  const [acceptedSensorId, setAcceptedSensorId] = useState<string | null>(null);
+  const [accepted, setAccepted] = useState<AcceptedSensor | null>(null);
   // Bumped on close and on each submit, so an attempt whose wait outlives the
   // dialog — or a superseded one — stops writing to it.
   const attemptRef = useRef(0);
 
   const isSubmitting = phase !== 'idle';
+
+  const trimmedUrl = rtspUrl.trim();
+  const trimmedName = sensorName.trim();
+
+  // An acceptance describes the values that produced it. A timeout leaves the
+  // fields editable, so once either one is edited the accepted sensor is no
+  // longer what the dialog shows: submitting has to add the stream on screen
+  // rather than confirm the previous one and close over it.
+  const acceptedSensorId =
+    accepted && accepted.sensorUrl === trimmedUrl && accepted.name === trimmedName
+      ? accepted.sensorId
+      : null;
 
   const extractNameFromUrl = (url: string): string =>
     url.split('?')[0].split('/').filter((p) => p.trim()).pop() ?? '';
@@ -75,25 +113,38 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     setUserEditedName(false);
     setError(null);
     setPhase('idle');
-    setAcceptedSensorId(null);
+    setAccepted(null);
     onClose();
   };
 
+  // Closing mid-wait is safe — VST already holds the sensor and the poll keeps
+  // refreshing the grid — but closing mid-add would drop the sensorId the wait
+  // needs, leaving an added stream with nothing watching for it.
+  const canClose = phase !== 'adding';
+  const handleDismiss = () => {
+    if (canClose) handleClose();
+  };
+
+  useEffect(() => {
+    if (!isOpen || !canClose) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+    // handleClose is rebuilt every render; listing it would resubscribe the
+    // listener on each one, and all it touches is state and the onClose prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, canClose]);
+
   const handleSubmit = async () => {
-    const trimmed = rtspUrl.trim();
-    const trimmedName = sensorName.trim();
-    const validationError =
-      !trimmed
-        ? 'RTSP URL is required.'
-        : !trimmed.startsWith('rtsp://')
-          ? 'RTSP URL must start with "rtsp://".'
-          : !trimmedName
-            ? 'Sensor Name is required.'
-            : !vstApiUrl
-              ? 'VST API URL not configured.'
-              : null;
+    const validationError = validateRtspInput(trimmedUrl, trimmedName);
     if (validationError) {
       setError(validationError);
+      return;
+    }
+    if (!vstApiUrl) {
+      setError('VST API URL not configured.');
       return;
     }
 
@@ -106,10 +157,10 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     try {
       let sensorId = acceptedSensorId;
       if (!sensorId) {
-        const result = await addRtspStream(vstApiUrl!, { sensorUrl: trimmed, name: trimmedName });
+        const result = await addRtspStream(vstApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
         if (!isCurrentAttempt()) return;
         sensorId = result.sensorId;
-        setAcceptedSensorId(sensorId);
+        setAccepted({ sensorId, sensorUrl: trimmedUrl, name: trimmedName });
         setPhase('confirming');
       }
 
@@ -148,25 +199,11 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const overlayClass =
     overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
 
-  // Closing mid-wait is safe — VST already holds the sensor and the poll keeps
-  // refreshing the grid — but closing mid-add would drop the sensorId the wait
-  // needs, leaving an added stream with nothing watching for it.
-  const canClose = phase !== 'adding';
-  const handleDismiss = () => {
-    if (canClose) handleClose();
-  };
-
-  const submitLabel =
-    phase === 'adding'
-      ? 'Adding...'
-      : phase === 'confirming'
-        ? 'Waiting for VST...'
-        : acceptedSensorId
-          ? 'Retry'
-          : 'Add RTSP';
+  const submitLabel = getSubmitLabel(phase, acceptedSensorId !== null);
 
   return (
-    <div className={overlayClass} onClick={handleDismiss}>
+    // Backdrop: a click target only, with Escape wired up above for the keyboard
+    <div className={overlayClass} role="presentation" onClick={handleDismiss}>
       <div
         data-testid="add-rtsp-dialog"
         role="dialog"
