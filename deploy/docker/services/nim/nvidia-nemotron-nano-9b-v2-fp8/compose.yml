@@ -32,27 +32,31 @@ services:
   nvidia-nemotron-nano-9b-v2-fp8:
     # Nemotron-Nano-V2 and tool-parser (nemotron_toolcall_parser_no_streaming.py) require vLLM 25.12+; 25.10 does not support Nemotron.
     image: nvcr.io/nvidia/vllm:26.07-py3
+    # Invokes sh so the container shell expands the hw-*.env sizing keys
+    # (env_file only sets container env; the previous exec-form array never read
+    # it, so those values were dead letters). $$ keeps Compose from interpolating
+    # on the host -- same escaping as the healthcheck below. The argv is built
+    # with set -- and quoted expansions so a malformed value becomes one bad
+    # argument vLLM rejects, not extra injected flags. Optional flags are added
+    # only when the env file sets them, so an empty file keeps exactly the
+    # previous behavior.
     command:
-      - python3
-      - -m
-      - vllm.entrypoints.openai.api_server
-      - --model
-      - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
-      - --trust-remote-code
-      - --tensor-parallel-size
-      - "1"
-      - --gpu-memory-utilization
-      - "0.85"
-      - --port
-      - "8000"
-      - --mamba_ssm_cache_dtype
-      - float32
-      - --enable-auto-tool-choice
-      - --tool-parser-plugin
-      # Script path from init-container volume (fetched from Hugging Face, no token).
-      - /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
-      - --tool-call-parser
-      - nemotron_json
+      - sh
+      - -c
+      - >-
+        set -- python3 -m vllm.entrypoints.openai.api_server
+        --model nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+        --trust-remote-code
+        --tensor-parallel-size 1
+        --gpu-memory-utilization "$${NIM_GPU_MEM_FRACTION:-0.85}"
+        --port 8000
+        --mamba_ssm_cache_dtype float32;
+        [ -n "$${NIM_MAX_MODEL_LEN:-}" ] && set -- "$$@" --max-model-len "$$NIM_MAX_MODEL_LEN";
+        [ -n "$${NIM_MAX_NUM_SEQS:-}" ] && set -- "$$@" --max-num-seqs "$$NIM_MAX_NUM_SEQS";
+        set -- "$$@" --enable-auto-tool-choice
+        --tool-parser-plugin /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
+        --tool-call-parser nemotron_json;
+        exec "$$@"
     container_name: nvidia-nemotron-nano-9b-v2-fp8
     profiles:
     - llm_local_nvidia-nemotron-nano-9b-v2-fp8
@@ -68,6 +72,7 @@ services:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
@@ -95,27 +100,31 @@ services:
   nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
     # Nemotron-Nano-V2 and tool-parser require vLLM 25.12+ (see rel-25-12 release notes).
     image: nvcr.io/nvidia/vllm:26.07-py3
+    # Invokes sh so the container shell expands the hw-*.env sizing keys
+    # (env_file only sets container env; the previous exec-form array never read
+    # it, so those values were dead letters). $$ keeps Compose from interpolating
+    # on the host -- same escaping as the healthcheck below. The argv is built
+    # with set -- and quoted expansions so a malformed value becomes one bad
+    # argument vLLM rejects, not extra injected flags. Optional flags are added
+    # only when the env file sets them, so an empty file keeps exactly the
+    # previous behavior.
     command:
-      - python3
-      - -m
-      - vllm.entrypoints.openai.api_server
-      - --model
-      - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
-      - --trust-remote-code
-      - --tensor-parallel-size
-      - "1"
-      - --gpu-memory-utilization
-      - "0.40"
-      - --port
-      - "8000"
-      - --mamba_ssm_cache_dtype
-      - float32
-      - --enable-auto-tool-choice
-      - --tool-parser-plugin
-      # Script path from init-container volume (fetched from Hugging Face, no token).
-      - /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
-      - --tool-call-parser
-      - nemotron_json
+      - sh
+      - -c
+      - >-
+        set -- python3 -m vllm.entrypoints.openai.api_server
+        --model nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+        --trust-remote-code
+        --tensor-parallel-size 1
+        --gpu-memory-utilization "$${NIM_GPU_MEM_FRACTION:-0.40}"
+        --port 8000
+        --mamba_ssm_cache_dtype float32;
+        [ -n "$${NIM_MAX_MODEL_LEN:-}" ] && set -- "$$@" --max-model-len "$$NIM_MAX_MODEL_LEN";
+        [ -n "$${NIM_MAX_NUM_SEQS:-}" ] && set -- "$$@" --max-num-seqs "$$NIM_MAX_NUM_SEQS";
+        set -- "$$@" --enable-auto-tool-choice
+        --tool-parser-plugin /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
+        --tool-call-parser nemotron_json;
+        exec "$$@"
     container_name: nvidia-nemotron-nano-9b-v2-fp8
     profiles:
     - llm_local_shared_nvidia-nemotron-nano-9b-v2-fp8
@@ -131,6 +140,7 @@ services:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
       - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}-shared.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro

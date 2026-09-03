@@ -148,7 +148,8 @@ shared env sets `NIM_GPU_MEM_FRACTION=0.30`, and `dev-profile.sh`
 sets RT-VLM to `0.4` on DGX Spark and `0.35` on AGX/IGX Thor for `base`. If other
 tenants are resident (so `free` is lower than the formula's value), **lower the
 fractions to fit** — for the LLM that means lowering `NIM_GPU_MEM_FRACTION` in
-`services/nim/nemotron-3.5-lightning-30b-a3b/hw-<profile>-shared.env`. If `nvidia-smi` can't read
+`services/nim/nemotron-3.5-lightning-30b-a3b/hw-<profile>-shared.env` (the FP8
+fallback reads the same key from its own `hw-*.env`). If `nvidia-smi` can't read
 free (Thor/Tegra often reports `[N/A]`), keep the conservative ~0.4 and drop by `0.05`
 on the first `Free … less than desired` abort.
 

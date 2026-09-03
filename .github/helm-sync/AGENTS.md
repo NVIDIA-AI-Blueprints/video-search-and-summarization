@@ -113,13 +113,23 @@ repo evolves.
    → helm   = deploy/helm/developer-profiles/dev-profile-alerts/
    ```
 
-   Both `developer-profiles/*` and `services/*` have full helm parity
-   on develop today, so the candidate helm dir always exists for paths
-   in scope. If you ever encounter a docker change in scope whose helm
-   counterpart unexpectedly doesn't exist (chart was deleted, layout
-   restructured), comment on the source PR with a one-line note and
-   exit `BLOCKED: no helm counterpart for <path>`. Don't scaffold a
-   chart from scratch — that's a deliberate, human-driven decision.
+   Most of `developer-profiles/*` and `services/*` have helm parity on
+   develop, but not all of it: some docker NIM services (for example
+   `cosmos-reason1-7b`, `nvidia-nemotron-nano-9b-v2-fp8` and
+   `qwen3-vl-8b-instruct`) have never had a helm chart. So when a
+   docker change in scope has no helm counterpart, check the **base
+   branch** before concluding anything:
+
+   - Counterpart absent on the base branch too → a pre-existing gap
+     the PR did not create. That is not drift; say so in the summary
+     and keep going (`DONE: in sync` if nothing else drifted). Do not
+     block the PR for a parity hole it merely touched.
+   - Counterpart exists on the base branch but not on the head (chart
+     deleted, layout restructured) → comment on the source PR with a
+     one-line note and exit `BLOCKED: no helm counterpart for <path>`.
+
+   Either way, don't scaffold a chart from scratch — introducing a
+   helm counterpart is a deliberate, human-driven decision.
 
 3. **For every docker-side change, look up the matching helm
    counterpart and compare semantics.** Concrete signals to check
