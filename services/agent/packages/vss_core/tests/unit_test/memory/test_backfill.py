@@ -95,6 +95,18 @@ def test_dry_run_scans_parent_and_child_without_provider_or_writes() -> None:
     assert store.upsert_ids == writes_before
 
 
+def test_dry_run_does_not_require_an_embedding_companion() -> None:
+    store = InMemoryStore()
+    store.upsert(_record("a"))
+    service = EmbeddingBackfillService(store, None)
+
+    result = service.run(batch_size=8, dry_run=True)
+
+    assert result.scanned == 1
+    assert result.eligible == 1
+    assert result.embedded == 0
+
+
 def test_batches_in_storage_id_order_counts_reuse_and_continues_failures() -> None:
     service, store, embeddings = _service(
         {

@@ -296,8 +296,8 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
     built: list[Memory] = []
     original_build = memory_mod.build
 
-    def capture_build(value: Any) -> Memory:
-        facade = original_build(value)
+    def capture_build(value: Any, **kwargs: Any) -> Memory:
+        facade = original_build(value, **kwargs)
         built.append(facade)
         return facade
 
@@ -334,6 +334,66 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
 
     built[0].close()
     assert closed == ["companion", "provider", "authoritative"]
+
+
+def test_dry_run_backfill_skips_dimension_discovery_for_handwritten_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss_core.memory as core_memory
+    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
+
+    set_test_memory(None)
+    observed: dict[str, Any] = {}
+
+    class FakeAuthoritativeStore(InMemoryStore):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__()
+            self.upsert(UnifiedMemoryRecord.model_validate(_parent()))
+
+        def close(self) -> None:
+            return None
+
+    class FakeProvider:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["provider"] = True
+            raise AssertionError("dry-run must not construct the embedding provider")
+
+        def embed_query(self, _text: str) -> list[float]:
+            observed["embed_query"] = True
+            raise AssertionError("dry-run must not contact the embedding provider")
+
+    class FakeCompanion:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["companion"] = True
+            raise AssertionError("dry-run must not construct the companion index")
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://es.test")},
+        memory=config_mod.MemoryConfig(
+            embeddings=config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://embed.test/v1",
+                model="embed-model",
+                dimensions=None,
+                index="memory-vectors-v1",
+            )
+        ),
+    )
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(elasticsearch_mod, "ElasticsearchMemoryStore", FakeAuthoritativeStore)
+    monkeypatch.setattr(core_memory, "OpenAICompatibleEmbeddingProvider", FakeProvider)
+    monkeypatch.setattr(core_memory, "ElasticsearchEmbeddingStore", FakeCompanion)
+
+    result = _invoke("embeddings", "backfill", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert observed == {}
+    payload = json.loads(result.output)
+    assert payload["scanned"] == 1
+    assert payload["eligible"] == 1
+    assert payload["embedded"] == 0
+    assert payload["failed"] == 0
 
 
 def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -> None:
@@ -502,6 +562,7 @@ def test_introspect_no_memory_emits_json_and_exit_five() -> None:
         "sufficient_from_memory": False,
         "answer": None,
         "memory_evidence": [],
+        "sufficiency": None,
         "vlm_evidence": [],
         "unresolved_gaps": [],
     }

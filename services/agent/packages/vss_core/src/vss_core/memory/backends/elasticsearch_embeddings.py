@@ -184,6 +184,10 @@ class ElasticsearchEmbeddingStore:
                     )
                 action: SyncAction = "reused"
             else:
+                # Drop the former vector before replacement. A failed re-embed
+                # must not keep semantic search pointed at the updated record.
+                if existing is not None:
+                    self.delete_record(record)
                 vector = self._provider.embed_passages([text])[0]
                 if len(vector) != self._provider.dimensions:
                     raise ConfigurationError(
@@ -251,6 +255,8 @@ class ElasticsearchEmbeddingStore:
                         record=referenced,
                     )
                 else:
+                    if existing is not None:
+                        self.delete_record(record)
                     pending.append((record, text, metadata, existing is not None))
             except Exception as error:
                 outcomes[doc_id] = EmbeddingSyncFailure(doc_id, str(error))

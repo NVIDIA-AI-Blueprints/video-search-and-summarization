@@ -394,6 +394,54 @@ def test_service_is_authoritative_first_nonfatal_and_does_not_recurse(caplog: py
     assert "0.1" not in caplog.text
 
 
+def test_failed_reembed_drops_stale_vector_after_authoritative_update() -> None:
+    class FailOnReplacement(_Provider):
+        def embed_passages(self, texts: Any) -> list[list[float]]:
+            if self.passages:
+                raise RuntimeError("provider unavailable")
+            return super().embed_passages(texts)
+
+    backend, client, _, raw = _backend(provider=FailOnReplacement())
+    service = MemoryService(raw, semantic_memory=backend)
+    service.upsert(_record(answer="Forklift arrived."))
+    assert "job-1" in client.docs
+    assert "Forklift arrived." in client.docs["job-1"]["content"]
+
+    updated = service.upsert(_record(answer="Truck arrived."))
+
+    assert updated.output is not None and updated.output.answer == "Truck arrived."
+    stored = raw.get("job-1")
+    assert stored is not None and stored.output is not None
+    assert stored.output.answer == "Truck arrived."
+    assert "job-1" not in client.docs
+
+
+def test_batch_provider_failure_drops_obsolete_vectors() -> None:
+    class FailBatch(_Provider):
+        def embed_passages(self, texts: Any) -> list[list[float]]:
+            values = list(texts)
+            self.batches.append(values)
+            if self.passages:
+                raise RuntimeError("cannot embed batch")
+            self.passages.extend(values)
+            return [[0.1, 0.2, 0.3] for _ in values]
+
+    provider = FailBatch()
+    backend, client, _, raw = _backend(provider=provider)
+    first = _record(job_id="a", answer="forklift")
+    second = _record(job_id="b", answer="pallet")
+    raw.upsert(first)
+    raw.upsert(second)
+    backend.sync_records([first, second])
+    assert set(client.docs) == {"a", "b"}
+
+    changed = [_record(job_id="a", answer="truck"), _record(job_id="b", answer="crate")]
+    outcomes = backend.sync_records(changed)
+
+    assert all(isinstance(outcome, EmbeddingSyncFailure) for outcome in outcomes)
+    assert client.docs == {}
+
+
 def test_bundle_finishes_writes_then_syncs_final_partial_parent_and_successful_deduped_children() -> None:
     events: list[str] = []
 

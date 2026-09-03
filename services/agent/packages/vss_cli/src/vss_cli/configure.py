@@ -581,12 +581,8 @@ def configure_memory_introspection(
             else config_mod.DEFAULT_INTROSPECTION_CRITERIA_PROMPT
         ),
     )
-    candidate = config_mod.MemoryConfig(
-        enabled=current_memory.enabled,
-        backend=current_memory.backend,
-        index=current_memory.index,
-        persist_by_default=current_memory.persist_by_default,
-        markdown=current_memory.markdown,
+    candidate = replace(
+        current_memory,
         introspection=config_mod.IntrospectionMemoryConfig(judge=candidate_judge),
     )
     try:

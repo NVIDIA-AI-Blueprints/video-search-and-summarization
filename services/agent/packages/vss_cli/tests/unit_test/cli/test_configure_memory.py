@@ -393,6 +393,39 @@ def test_first_introspection_configuration_requires_only_endpoint(config_home: P
     assert judge.api_key_env is None
 
 
+def test_introspection_update_preserves_configured_embeddings_and_retrieval(config_home: Path) -> None:
+    configured = _invoke(
+        "--embeddings",
+        "--embedding-provider",
+        "openai_compatible",
+        "--embedding-endpoint",
+        "http://embedding.example/v1",
+        "--embedding-model",
+        "example-embedding-model",
+        "--embedding-dimensions",
+        "384",
+        "--no-embedding-auth",
+        "--retrieval-mode",
+        "semantic",
+        "--semantic-candidate-count",
+        "17",
+        "--rrf-rank-constant",
+        "41",
+    )
+    assert configured.exit_code == 0, configured.output
+    before = config_mod.load().memory
+    assert before is not None
+
+    result = _invoke("introspection", "--judge-endpoint", "http://127.0.0.1:18789/v1")
+    assert result.exit_code == 0, result.output
+    after = config_mod.load().memory
+    assert after is not None
+    assert after.embeddings == before.embeddings
+    assert after.retrieval == before.retrieval
+    assert after.introspection is not None
+    assert after.introspection.judge.endpoint == "http://127.0.0.1:18789/v1"
+
+
 def test_introspection_criteria_file_stores_utf8_contents(config_home: Path) -> None:
     criteria_file = config_home / "criteria.txt"
     criteria_file.write_text("Require direct evidence.\nPreserve uncertainty.\n", encoding="utf-8")
@@ -726,6 +759,24 @@ def test_switching_provider_profiles_applies_new_defaults_before_overrides(confi
             ),
             config_mod.RetrievalConfig(),
             "embedded credentials",
+        ),
+        (
+            config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://example/v1?api_key=secret",
+                dimensions=3,
+            ),
+            config_mod.RetrievalConfig(),
+            "query string or fragment",
+        ),
+        (
+            config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://example/v1#token=secret",
+                dimensions=3,
+            ),
+            config_mod.RetrievalConfig(),
+            "query string or fragment",
         ),
         (config_mod.EmbeddingConfig(dimensions=0), config_mod.RetrievalConfig(), "positive integer"),
         (config_mod.EmbeddingConfig(timeout_seconds=0), config_mod.RetrievalConfig(), "timeout"),

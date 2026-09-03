@@ -52,10 +52,14 @@ def set_test_introspect(
     _TEST_INTROSPECT = function
 
 
-def _memory(deployment: config_mod.Deployment | None = None) -> Memory:
+def _memory(
+    deployment: config_mod.Deployment | None = None,
+    *,
+    discover_dimensions: bool = True,
+) -> Memory:
     if _TEST_MEMORY is not None:
         return _TEST_MEMORY
-    memory = memory_mod.build(deployment or config_mod.load())
+    memory = memory_mod.build(deployment or config_mod.load(), discover_dimensions=discover_dimensions)
     context = click.get_current_context(silent=True)
     if context is not None:
         context.call_on_close(memory.close)
@@ -334,7 +338,7 @@ def backfill_embeddings(
 ) -> None:
     """Backfill derived embeddings for all eligible memory records."""
     try:
-        facade = _memory()
+        facade = _memory(discover_dimensions=not dry_run)
         backfill = facade.embedding_backfill
         configured_batch_size = facade.embedding_batch_size
         if backfill is None or configured_batch_size is None:

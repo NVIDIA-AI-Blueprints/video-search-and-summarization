@@ -358,6 +358,11 @@ class EmbeddingConfig:
                 raise ConfigError(
                     "embedding endpoint must not contain embedded credentials; use `--embedding-api-key-env`"
                 )
+            if parsed.query or parsed.fragment:
+                raise ConfigError(
+                    "embedding endpoint must not contain a query string or fragment; "
+                    "use `--embedding-api-key-env` for authentication"
+                )
         if self.enabled and (not self.endpoint or not self.model):
             if self.provider == "openai_compatible":
                 raise ConfigError(

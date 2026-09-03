@@ -195,8 +195,13 @@ class Memory:
         return record
 
 
-def build(deployment: config_mod.Deployment | None) -> Memory:
-    """Open the statically configured authoritative memory store."""
+def build(deployment: config_mod.Deployment | None, *, discover_dimensions: bool = True) -> Memory:
+    """Open the statically configured authoritative memory store.
+
+    ``discover_dimensions=False`` skips the first-use provider probe so a
+    scan-only caller (``vss memory embeddings backfill --dry-run``) can inspect
+    eligibility without contacting the embedding endpoint.
+    """
     if deployment is None:
         raise MemoryUnavailable(
             "cannot reach unified memory: no deployment is configured. Run `vss configure --base-url <origin>` first."
@@ -239,6 +244,15 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
         )
 
     embedding_config = memory_config.embeddings
+    if embedding_config.dimensions is None and not discover_dimensions:
+        return Memory(
+            MemoryService(authoritative),
+            index=memory_config.index,
+            embedding_backfill=EmbeddingBackfillService(authoritative, None),
+            embedding_batch_size=embedding_config.batch_size,
+            closeables=(authoritative,),
+        )
+
     provider: OpenAICompatibleEmbeddingProvider | None = None
     companion: ElasticsearchEmbeddingStore | None = None
     try:

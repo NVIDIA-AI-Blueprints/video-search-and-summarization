@@ -58,7 +58,7 @@ class EmbeddingBackfillService:
     def __init__(
         self,
         store: MemoryStore,
-        embeddings: ElasticsearchEmbeddingStore,
+        embeddings: ElasticsearchEmbeddingStore | None,
     ) -> None:
         self._store = store
         self._embeddings = embeddings
@@ -86,6 +86,8 @@ class EmbeddingBackfillService:
             result.eligible += 1
             if dry_run:
                 continue
+            if self._embeddings is None:
+                raise ValueError("embedding companion is required unless dry_run is set")
             pending.append(record)
             if len(pending) == batch_size:
                 self._sync_batch(pending, result)
@@ -99,6 +101,8 @@ class EmbeddingBackfillService:
         records: list[UnifiedMemoryRecord],
         result: EmbeddingBackfillResult,
     ) -> None:
+        if self._embeddings is None:
+            raise ValueError("embedding companion is required unless dry_run is set")
         try:
             outcomes = self._embeddings.sync_records(records)
         except Exception as error:
