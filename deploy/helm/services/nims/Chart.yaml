@@ -30,12 +30,6 @@ dependencies:
     alias: nemotron35
     condition: nemotron35.enabled
 
-  - name: cosmos-reason2-8b
-    version: 3.3.0
-    repository: "file://./charts/cosmos-reason2-8b"
-    alias: cosmos
-    condition: cosmos.enabled
-
   - name: cosmos3-reasoner
     version: 3.3.0
     repository: "file://./charts/cosmos3-reasoner"

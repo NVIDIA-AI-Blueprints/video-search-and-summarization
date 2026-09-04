@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -100,7 +101,6 @@ class OpenAIIntrospectionClient:
     async def _chat(self, prompt: str) -> str:
         payload: dict[str, Any] = {
             "model": self._model,
-            "temperature": 0,
             "messages": [{"role": "user", "content": prompt}],
         }
         headers = {"Content-Type": "application/json"}
@@ -117,7 +117,7 @@ class OpenAIIntrospectionClient:
             raise ValueError("OpenAI-compatible response contained no message content") from error
         if not isinstance(content, str):
             raise ValueError("OpenAI-compatible message content must be text")
-        return content
+        return _strip_reasoning(content)
 
     @property
     def _chat_completions_url(self) -> str:
@@ -134,11 +134,37 @@ def _parse_decision(content: str) -> SufficiencyDecision:
     stripped = _strip_code_fence(content)
     try:
         payload = json.loads(stripped)
-    except json.JSONDecodeError as error:
-        raise InvalidJudgeResponseError("response is not valid JSON") from error
+    except json.JSONDecodeError:
+        payload = _extract_json_object(stripped)
     if not isinstance(payload, dict):
         raise InvalidJudgeResponseError("response JSON must be an object")
     return SufficiencyDecision.model_validate(payload)
+
+
+_REASONING_BLOCK = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.DOTALL)
+_REASONING_CLOSE = re.compile(r"</(?:think|thinking|reasoning)>")
+
+
+def _strip_reasoning(content: str) -> str:
+    """Drop chain-of-thought that reasoning-capable models emit around their answer."""
+    without_blocks = _REASONING_BLOCK.sub("", content)
+    # Some models emit only the closing tag, leaving the answer after it.
+    return _REASONING_CLOSE.split(without_blocks)[-1].strip()
+
+
+def _extract_json_object(content: str) -> Any:
+    """Recover the first embedded JSON object from a response wrapped in prose."""
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(content):
+        if character != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(content[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise InvalidJudgeResponseError("response is not valid JSON")
 
 
 def _strip_code_fence(content: str) -> str:

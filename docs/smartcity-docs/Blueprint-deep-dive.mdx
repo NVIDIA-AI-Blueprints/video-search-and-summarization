@@ -140,12 +140,12 @@ The agent is configured through a YAML file that defines the general settings, f
 * **General**: Frontend settings (FastAPI), object stores, telemetry, and health endpoints
 * **Function Groups**: MCP client connections to Video Analytics and Video Storage microservices
 * **Functions**: Individual tool definitions for video understanding, report generation, chart creation, sensor operations, and sub-agents
-* **LLMs**: Configuration for primary reasoning LLM (NVIDIA Nemotron Nano 9B v2 - `nvidia/nvidia-nemotron-nano-9b-v2`) and VLM (NVIDIA Cosmos3 Nano Reasoner - `nvidia/cosmos3-nano-reasoner`)
+* **LLMs**: Configuration for primary reasoning LLM (NVIDIA Nemotron 3.5 Lightning 30B A3B - `nvidia/nemotron-3.5-lightning-30b-a3b`) and VLM (NVIDIA Cosmos3 Nano Reasoner - `nvidia/cosmos3-nano-reasoner`)
 * **Workflow**: Top-level agent orchestration with routing logic, retry settings, and iteration limits
 
 **Models Used**
 
-* **Primary LLM**: NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`) - Used for natural language understanding, query routing, and orchestrating sub-agents
+* **Primary LLM**: NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`) - Used for natural language understanding, query routing, and orchestrating sub-agents
 * **Vision Language Model (VLM)**: NVIDIA Cosmos3 Nano Reasoner (`nvidia/cosmos3-nano-reasoner`) - Used for video understanding and analyzing traffic incidents from video segments
 
 The configuration file can be found under `deployments/smartcities/vss-agent/configs/config.yml` once you download the resource from NGC.

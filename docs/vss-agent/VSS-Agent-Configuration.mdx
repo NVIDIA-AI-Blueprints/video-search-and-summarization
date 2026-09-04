@@ -24,7 +24,7 @@ workflow:       # Top agent
 llms:
   nim_llm:
     _type: nim
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    model_name: nvidia/nemotron-3.5-lightning-30b-a3b
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
     temperature: 0.0
@@ -353,7 +353,7 @@ VST_MCP_PORT=8001
 VST_MCP_URL=http://${HOST_IP}:${VST_MCP_PORT}
 
 # LLM Configuration
-LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
+LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 NEMOTRON_PORT=30081
 LLM_BASE_URL=http://${HOST_IP}:${NEMOTRON_PORT}
 

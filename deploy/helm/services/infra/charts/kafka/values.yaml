@@ -51,6 +51,7 @@ topics:
   - name: mdx-structured-events-summary
   - name: mdx-embed
   - name: mdx-embed-filtered
+  - name: mdx-compressed-embeddings
 defaultPartitions: "8"
 defaultReplicationFactor: "1"
 defaultRetentionMs: "14400000"

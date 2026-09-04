@@ -52,10 +52,18 @@ def set_test_introspect(
     _TEST_INTROSPECT = function
 
 
-def _memory(deployment: config_mod.Deployment | None = None) -> Memory:
+def _memory(
+    deployment: config_mod.Deployment | None = None,
+    *,
+    discover_dimensions: bool = True,
+) -> Memory:
     if _TEST_MEMORY is not None:
         return _TEST_MEMORY
-    return memory_mod.build(deployment or config_mod.load())
+    memory = memory_mod.build(deployment or config_mod.load(), discover_dimensions=discover_dimensions)
+    context = click.get_current_context(silent=True)
+    if context is not None:
+        context.call_on_close(memory.close)
+    return memory
 
 
 def _emit(value: Any, *, pretty: bool) -> None:
@@ -148,7 +156,6 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
                 f"introspection judge credential environment variable {judge_config.api_key_env!r} is missing or empty"
             )
     memory = _memory(deployment)
-    owns_memory = _TEST_MEMORY is None
     client: OpenAIIntrospectionClient | None = None
     try:
         settings = IntrospectionSettings()
@@ -176,10 +183,6 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
     finally:
         if client is not None:
             await client.aclose()
-        if owns_memory:
-            close_memory = getattr(memory.service.store, "close", None)
-            if close_memory is not None:
-                close_memory()
 
     if result.failure_kind == "timeout" or runner.timed_out:
         return result, Exit.TIMEOUT
@@ -248,6 +251,7 @@ def get_record(
 
 @memory.command("query")
 @click.option("--query", "text", default=None, help="Free-text match over memory content.")
+@click.option("--mode", type=click.Choice(("keyword", "semantic", "hybrid")), help="Override the retrieval strategy.")
 @click.option("--job-id")
 @click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
@@ -262,6 +266,7 @@ def get_record(
 @_output_options
 def query_records(
     text: str | None,
+    mode: str | None,
     job_id: str | None,
     group: str | None,
     status: str | None,
@@ -292,14 +297,66 @@ def query_records(
             until=until,
             time_field=time_field,
             limit=limit,
+            mode=mode,  # type: ignore[arg-type]
         )
-        records = _memory().service.query(query)
+        service = _memory().service
+        if mode in {"semantic", "hybrid"} and not service.semantic_retrieval_available:
+            click.echo(
+                "vss memory: warning: memory embeddings are disabled; falling back to keyword retrieval",
+                err=True,
+            )
+            query.mode = "keyword"
+        records = service.query(query)
     except ValueError as error:
         _fail("invalid input", error, Exit.INVALID_INPUT)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
     _emit({"records": [record.model_dump_memory() for record in records]}, pretty=pretty)
+
+
+@memory.group("embeddings")
+def embeddings() -> None:
+    """Manage derived memory embeddings."""
+
+
+@embeddings.command("backfill")
+@click.option(
+    "--batch-size",
+    type=click.IntRange(1),
+    default=None,
+    help="Records per backfill batch (default: configured embedding batch size).",
+)
+@click.option("--limit", type=click.IntRange(1), default=None, help="Maximum records to scan (default: all).")
+@click.option("--dry-run", is_flag=True, help="Scan eligibility without provider calls or writes.")
+@_output_options
+def backfill_embeddings(
+    batch_size: int | None,
+    limit: int | None,
+    dry_run: bool,
+    pretty: bool,
+) -> None:
+    """Backfill derived embeddings for all eligible memory records."""
+    try:
+        facade = _memory(discover_dimensions=not dry_run)
+        backfill = facade.embedding_backfill
+        configured_batch_size = facade.embedding_batch_size
+        if backfill is None or configured_batch_size is None:
+            raise config_mod.ConfigError(
+                "memory embeddings are disabled or incomplete; run `vss configure memory "
+                "--embeddings --embedding-endpoint http[s]://host[/v1]`"
+            )
+        result = backfill.run(
+            batch_size=batch_size or configured_batch_size,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except Exception as error:
+        _fail("embedding backfill failed", error, _exception_exit(error))
+        raise AssertionError("unreachable") from error
+    _emit(result.to_dict(), pretty=pretty)
+    if result.failed:
+        raise SystemExit(int(Exit.PARTIAL))
 
 
 @memory.command("introspect")

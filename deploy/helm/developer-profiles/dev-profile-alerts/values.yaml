@@ -594,11 +594,11 @@ nims:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
-  cosmos:
+  cosmos3:
     enabled: false
     image:
-      repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
-      tag: "1.6.0"
+      repository: nvcr.io/nim/nvidia/cosmos3-reasoner
+      tag: "1.7"
       pullPolicy: IfNotPresent
     replicas: 1
     resources:
@@ -609,7 +609,8 @@ nims:
     storage:
       pvc:
         storageClass: ""
-        size: 120Gi
+        size: 200Gi
+      sharedMemorySizeLimit: 32Gi
     service:
       type: ClusterIP
       port: 8000
@@ -618,8 +619,7 @@ nims:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
-    env:
-      CUDA_VISIBLE_DEVICES: "0"
-      NIM_KVCACHE_PERCENT: "0.75"
-      NIM_MAX_MODEL_LEN: "16384"
-      NIM_LOW_MEMORY_MODE: "true"
+    nimModelSize: "nano"
+    # Empty so the NIM uses its built-in manifest; BF16 pinned via nimModelProfile.
+    nimModelName: ""
+    nimModelProfile: "e55fdb44f41441032f546360d0dcf61caa8b39fa2852d31124c03953d01e1cb3"

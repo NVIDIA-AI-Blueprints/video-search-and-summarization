@@ -153,10 +153,19 @@ PY
     # pipeline's failure: stop rather than stall at PAUSED.
     { echo "** ERROR: the EGL sink could not render a test frame, so OSD will not work."
       grep -iE 'drm|dri2|EGL' /tmp/egl-probe.log 2>/dev/null | tail -3 | sed 's/^/          /'
-      # The NVIDIA runtime always exposes a couple of DRI nodes, so their
-      # presence says nothing about whether the full set is mapped.
-      grep -qiE 'drm|dri2' /tmp/egl-probe.log 2>/dev/null &&
-        echo "          Mesa cannot reach the DRM device: uncomment the devices block in docker/compose.yml"; } >&2
+      # Same failure, opposite remedies, so pick by what the probe logged:
+      # hybrid graphics render through a DRM device, multi-GPU hosts through an
+      # NVIDIA GPU the container was not given.
+      if grep -qiE 'mesa|dri2|drm' /tmp/egl-probe.log 2>/dev/null; then
+        echo "          The display is rendered through Mesa, so it needs the DRM device."
+        echo "          Uncomment the devices block in docker/compose.yml."
+      else
+        echo "          The GPUs given to this container do not include the one driving"
+        echo "          ${DISPLAY}. Restage if docker/.env changed since, and if staging"
+        echo "          reported it could not tell, add that GPU to GPU_DEVICE by hand."
+        echo "          This is GPU selection, not permissions: privileged and group_add"
+        echo "          do not help."
+      fi; } >&2
     return 1
   fi
   return 0
@@ -165,9 +174,66 @@ PY
 MQTT_HOST=${MQTT_HOST:-localhost}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
+
+# MQTT is rewritten at every start, so docker/.env alone is enough. Kafka is
+# baked into the staged config, so an edit without a restage leaves the old
+# endpoint and the app retries a broker that is not there. Compare and report.
+kafka_endpoint_matches_env() {  # $1=staged main config
+  local cfg="$1" staged want_host want_port
+  [ -n "${KAFKA_BOOTSTRAP:-}" ] || return 0          # nothing to compare against
+  [ -f "$cfg" ] || return 0
+  staged="$(awk '/^[[:space:]]*\[/ { s = ($0 ~ /^[[:space:]]*\[sink1\]/) }
+                 s && /^[[:space:]]*msg-broker-conn-str[[:space:]]*=/ {
+                   sub(/.*=[[:space:]]*/, ""); print $1; exit }' "$cfg")"
+  [ -n "$staged" ] || return 0
+  want_host="${KAFKA_BOOTSTRAP%%:*}"
+  want_port="${KAFKA_BOOTSTRAP##*:}"
+  [ "$staged" = "${want_host};${want_port};${RAW_TOPIC:-mdx-raw}" ] && return 0
+
+  { echo "** ERROR: the staged Kafka endpoint does not match docker/.env."
+    echo "          staged  [sink1] msg-broker-conn-str = ${staged}"
+    echo "          .env    KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP} RAW_TOPIC=${RAW_TOPIC:-mdx-raw}"
+    echo "          Unlike MQTT, the Kafka endpoint is written into the staged config, so"
+    echo "          editing docker/.env is not enough. Restage, then bring the stack up:"
+    echo "            ./scripts/stage-configs.sh"
+    echo "          Starting now would retry a broker that is not there and then abort."; } >&2
+  return 1
+}
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
 APP_DIR="$(pwd)"
 CONFIG_DIR="${APP_DIR}/configs"
+
+if ! kafka_endpoint_matches_env "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
+  exit 1
+fi
+
+# A refused restage leaves the previous staged config in place, so the stack can
+# still come up against it. Compare what was staged with what is mounted.
+batch_matches_caminfo() {  # $1=staged main config
+  local cfg="$1" staged mounted
+  [ -f "$cfg" ] || return 0
+  [ -d /tmp/camInfo ] || return 0
+  mounted="$(find /tmp/camInfo -maxdepth 1 -name '*.yml' 2>/dev/null | wc -l)"
+  [ "$mounted" -gt 0 ] || return 0
+  staged="$(awk '/^[[:space:]]*\[/ { s = ($0 ~ /^[[:space:]]*\[streammux\]/) }
+                 s && /^[[:space:]]*batch-size[[:space:]]*=/ {
+                   sub(/.*=[[:space:]]*/, ""); print $1; exit }' "$cfg")"
+  [ -n "$staged" ] || return 0
+  [ "$staged" = "$mounted" ] && return 0
+
+  { echo "** ERROR: the staged config and the mounted camera set disagree."
+    echo "          staged  [streammux] batch-size = ${staged}"
+    echo "          mounted generated/camInfo      = ${mounted} camera(s)"
+    echo "          This is a stale staging: scripts/stage-configs.sh refused the last"
+    echo "          run and left the previous config in place. Restage for this camera"
+    echo "          set, with NUM_CAMS matching it:"
+    echo "            ./scripts/stage-configs.sh"; } >&2
+  return 1
+}
+
+if ! batch_matches_caminfo "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
+  exit 1
+fi
 
 if ! osd_preflight "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
   { echo

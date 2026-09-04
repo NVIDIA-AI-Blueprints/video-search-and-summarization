@@ -126,9 +126,14 @@ class VLMEvidence(_StrictModel):
     sensor: str
     start_time: str
     end_time: str
+    question: str
     answer: str
+    intent: str = "introspection"
+    model: str | None = None
+    num_frames: int | None = Field(default=None, ge=1)
+    timeout_seconds: float | None = Field(default=None, gt=0)
 
-    @field_validator("job_id", "sensor", "answer", mode="after")
+    @field_validator("job_id", "sensor", "question", "answer", "intent", mode="after")
     @classmethod
     def _require_text(cls, value: str, info: Any) -> str:
         return _nonempty(value, info.field_name)
@@ -221,6 +226,7 @@ class IntrospectionResult(_StrictModel):
     sufficient_from_memory: bool
     answer: str | None
     memory_evidence: list[MemoryEvidence] = Field(default_factory=list)
+    sufficiency: SufficiencyDecision | None = None
     vlm_evidence: list[VLMEvidence] = Field(default_factory=list)
     unresolved_gaps: list[str] = Field(default_factory=list)
     failure_kind: Literal["backend_unreachable", "timeout"] | None = Field(default=None, exclude=True)

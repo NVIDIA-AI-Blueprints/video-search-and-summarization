@@ -155,11 +155,42 @@ def test_vlm_evidence_validation(updates: dict[str, object]) -> None:
         "sensor": "camera-east",
         "start_time": "2026-08-26T12:00:10Z",
         "end_time": "2026-08-26T12:00:20Z",
+        "question": "Was the worker wearing a hard hat?",
         "answer": "A person carried a small box.",
     }
     payload.update(updates)
     with pytest.raises(ValidationError):
         VLMEvidence.model_validate(payload)
+
+
+def test_vlm_evidence_records_call_parameters() -> None:
+    evidence = VLMEvidence.model_validate(
+        {
+            "job_id": "vlm-1",
+            "persisted": False,
+            "sensor": "camera-east",
+            "start_time": "2026-08-26T12:00:10Z",
+            "end_time": "2026-08-26T12:00:20Z",
+            "question": "Was the worker wearing a hard hat?",
+            "answer": "No",
+            "model": "nim_nvidia_cosmos3-nano-reasoner",
+            "num_frames": 8,
+            "timeout_seconds": 180.0,
+        }
+    )
+    assert evidence.model_dump() == {
+        "job_id": "vlm-1",
+        "persisted": False,
+        "sensor": "camera-east",
+        "start_time": "2026-08-26T12:00:10Z",
+        "end_time": "2026-08-26T12:00:20Z",
+        "question": "Was the worker wearing a hard hat?",
+        "answer": "No",
+        "intent": "introspection",
+        "model": "nim_nvidia_cosmos3-nano-reasoner",
+        "num_frames": 8,
+        "timeout_seconds": 180.0,
+    }
 
 
 def test_grounding_accepts_canonical_and_legacy_sensor_names() -> None:
@@ -233,7 +264,7 @@ async def test_judge_retries_once_after_invalid_json_then_accepts_fenced_json() 
         nonlocal calls
         calls += 1
         body = json.loads(request.content)
-        assert body["temperature"] == 0
+        assert "temperature" not in body
         assert body["model"] == "openclaw/default"
         assert "response_format" not in body
         assert request.headers["authorization"] == "Bearer gateway-secret"
@@ -411,6 +442,7 @@ async def test_synthesize_uses_supplied_evidence_only() -> None:
             "sensor": "camera-east",
             "start_time": "2026-08-26T12:00:10Z",
             "end_time": "2026-08-26T12:00:20Z",
+            "question": "Was the worker wearing a hard hat?",
             "answer": "A person carried a small box.",
         }
     )

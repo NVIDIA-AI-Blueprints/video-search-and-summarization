@@ -263,8 +263,43 @@ _FIRST_PARTY_RE = re.compile(
     r"pynvvideocodec)",
     re.IGNORECASE,
 )
+# NVIDIA-published packages. OSRB reviews third-party open source; what
+# NVIDIA ships is governed by NVIDIA's own agreements, so a proprietary
+# licence on an NVIDIA artifact is the expected answer rather than a finding.
+# The agent researched nvcr.io/nvidia/distroless/python, read "NVIDIA
+# proprietary" from its NGC licenseTerms, and asked for OSRB review of an
+# NVIDIA base image (#2006).
+#
+# Anchored on the namespace, never a substring: `langchain-nvidia-ai-endpoints`
+# and `llama-index-embeddings-nvidia` are LangChain and LlamaIndex packages
+# that merely carry the word, and suppressing those would hide real
+# third-party dependencies.
+_NVIDIA_OWNED_RE = re.compile(
+    r"^(?:"
+    r"nvcr\.io/"                                       # NGC, NVIDIA's registry
+    r"|(?:docker\.io/|ghcr\.io/)?nvidia(?:[-_][a-z0-9]+)*/"  # NVIDIA orgs
+    r"|@nvidia/"                                       # npm scope
+    r"|nvidia[-_]"                                     # PyPI namespace
+    r"|cuda[-_]"                                       # CUDA components
+    r")",
+    re.IGNORECASE,
+)
 _ARTIFACT_RE = re.compile(r"^\$\{|\.deb$|\.tar\.|^install\.|\.org$|^https?://")
 _IMAGE_LANGS = {"container", "deb", "apk"}
+
+
+def is_nvidia_owned(package: str) -> bool:
+    """True when the package is NVIDIA's own, so OSRB has nothing to review.
+
+    A condition or refusal on file still outranks this: if OSRB has looked at
+    an NVIDIA component and said something about it, that stands.
+    """
+    name = (package or "").strip()
+    if not name:
+        return False
+    return bool(_NVIDIA_OWNED_RE.match(name)) or bool(
+        _FIRST_PARTY_RE.match(canonical_package(name))
+    )
 
 
 def _not_approved_class(row: dict[str, str]) -> str:
@@ -1117,6 +1152,17 @@ def build_comment(
         for entry in triage["refused_or_conditional"]
     }
 
+    nvidia_owned_skipped: set[str] = set()
+
+    def _osrb_skip_nvidia(package: str) -> bool:
+        """Skip NVIDIA's own components, unless OSRB has ruled on them."""
+        if canonical_package(package) in conditioned:
+            return False
+        if not is_nvidia_owned(package):
+            return False
+        nvidia_owned_skipped.add(package)
+        return True
+
     lines: list[str] = [MARKER, "# OSRB triage", ""]
     if skip_agent:
         lines += ["_Agent triage skipped this run"
@@ -1146,6 +1192,8 @@ def build_comment(
             continue  # unknowns are triage rows; permissive is section 2's verdict
         if dep_key(row) in cleared_keys:
             continue
+        if _osrb_skip_nvidia(row.get("package", "")):
+            continue
         osrb_rows.append([
             row.get("package", ""),
             row.get("new_version", ""),
@@ -1156,6 +1204,8 @@ def build_comment(
         ])
     for row in triage["license_changes"]:
         if not _risk_band_moved(row):
+            continue
+        if _osrb_skip_nvidia(row.get("package", "")):
             continue
         osrb_rows.append([
             row.get("package", ""),
@@ -1168,6 +1218,8 @@ def build_comment(
             row.get("repository_url", ""),
         ])
     for row in triage["usage_drift"]:
+        if _osrb_skip_nvidia(row.get("package", "")):
+            continue
         osrb_rows.append([
             row.get("package", ""),
             row.get("version", ""),
@@ -1176,6 +1228,8 @@ def build_comment(
             row.get("source_file", ""),
         ])
     for verdict in rejected:
+        if _osrb_skip_nvidia(verdict.get("package", "")):
+            continue
         osrb_rows.append([
             verdict.get("package", ""),
             verdict.get("version", ""),
@@ -1184,6 +1238,8 @@ def build_comment(
             verdict.get("evidence_url", ""),
         ])
     for row in unverifiable:
+        if _osrb_skip_nvidia(row.get("package", "")):
+            continue
         osrb_rows.append([
             row.get("package", ""),
             row.get("new_version", "") or row.get("version", ""),
@@ -1192,6 +1248,8 @@ def build_comment(
             "",
         ])
     for verdict in flagged:
+        if _osrb_skip_nvidia(verdict.get("package", "")):
+            continue
         osrb_rows.append([
             verdict.get("package", ""),
             verdict.get("version", ""),
@@ -1201,6 +1259,8 @@ def build_comment(
         ])
     for entry in not_triaged:
         row, why = entry["row"], entry["reason"]
+        if _osrb_skip_nvidia(row.get("package", "")):
+            continue
         osrb_rows.append([
             row.get("package", ""),
             row.get("new_version", "") or row.get("version", ""),
@@ -1220,6 +1280,19 @@ def build_comment(
             "conditional package is touched, every new dependency is "
             "permissively licensed, no licence change moves a risk band, and "
             "no usage drift was detected."
+        )
+    if nvidia_owned_skipped:
+        names = ", ".join(f"`{n}`" for n in sorted(nvidia_owned_skipped)[:6])
+        more = len(nvidia_owned_skipped) - 6
+        lines.append("")
+        lines.append(
+            f"{len(nvidia_owned_skipped)} NVIDIA-published component"
+            f"{'' if len(nvidia_owned_skipped) == 1 else 's'} "
+            f"({names}{f' and {more} more' if more > 0 else ''}) "
+            "are not listed. OSRB reviews third-party open source; what NVIDIA "
+            "ships is governed by NVIDIA's own agreements, so a proprietary "
+            "licence on one of these is the expected answer rather than a "
+            "finding. An OSRB condition on file still overrides this."
         )
     lines.append("")
 

@@ -917,6 +917,72 @@ class RepoStateSectionTest(unittest.TestCase):
         # the escape hatch must be stated with the rule
         self.assertIn("condition on file outranks", comment)
 
+    def test_nvidia_published_components_are_not_osrb_findings(self) -> None:
+        """OSRB reviews third-party open source, not what NVIDIA ships.
+
+        The agent researched nvcr.io/nvidia/distroless/python, read "NVIDIA
+        proprietary" from its NGC licence terms and asked for OSRB review of an
+        NVIDIA base image (#2006). Proprietary is the expected answer for an
+        NVIDIA artifact, not a finding.
+        """
+        comment = agent.build_comment(
+            {"new_deps": [], "license_changes": [], "usage_drift": [],
+             "new_unknowns": [], "refused_or_conditional": [], "removed": []},
+            {"validated": [], "rejected": [], "unverifiable": [],
+             "not_triaged": [],
+             "flagged": [{"package": "nvcr.io/nvidia/distroless/python",
+                          "version": "3.13-v4.1.2", "license": "NVIDIA proprietary",
+                          "reasoning": "NGC licenseTerms declare NVIDIA proprietary",
+                          "evidence_url": "https://catalog.ngc.nvidia.com/x"}]})
+        self.assertIn("Nothing in this change requires OSRB review", comment)
+        self.assertNotIn("agent flagged for OSRB", comment)
+        # suppression is disclosed by name, never silent
+        self.assertIn("NVIDIA-published component", comment)
+        self.assertIn("nvcr.io/nvidia/distroless/python", comment)
+
+    def test_third_party_packages_named_nvidia_are_still_flagged(self) -> None:
+        """`langchain-nvidia-ai-endpoints` is LangChain's, not NVIDIA's.
+
+        Matching the word anywhere in the name would hide real third-party
+        dependencies, so the rule is anchored on the namespace.
+        """
+        comment = agent.build_comment(
+            {"new_deps": [], "license_changes": [], "usage_drift": [],
+             "new_unknowns": [], "refused_or_conditional": [], "removed": []},
+            {"validated": [], "rejected": [], "unverifiable": [],
+             "not_triaged": [],
+             "flagged": [{"package": "langchain-nvidia-ai-endpoints",
+                          "version": "1.0", "license": "UNKNOWN",
+                          "reasoning": "could not resolve", "evidence_url": ""}]})
+        self.assertIn("agent flagged for OSRB", comment)
+        self.assertIn("langchain-nvidia-ai-endpoints", comment)
+
+    def test_an_osrb_condition_outranks_nvidia_ownership(self) -> None:
+        """If OSRB ruled on an NVIDIA component, that ruling stands.
+
+        The guard has to be consulted for this to mean anything, so the
+        conditioned package is also put in front of it as an agent verdict:
+        without the override that row is silently dropped as NVIDIA-owned.
+        """
+        triage = agent.build_triage_input(
+            [delta_row(package="pyds", new_license="NVIDIA proprietary")],
+            [],
+            [{"package": "pyds", "decision": "refused", "evidence": "comment-95",
+              "condition": "must not ship", "module": "", "version": "",
+              "license": "", "quote": "", "repo_modules": ""}])
+        comment = agent.build_comment(
+            triage,
+            {"validated": [], "rejected": [], "unverifiable": [],
+             "not_triaged": [],
+             "flagged": [{"package": "pyds", "version": "1.0",
+                          "license": "NVIDIA proprietary",
+                          "reasoning": "proprietary metadata",
+                          "evidence_url": ""}]})
+        self.assertIn("OSRB refused", comment)
+        # the agent row for the SAME conditioned package must survive the guard
+        self.assertIn("agent flagged for OSRB", comment)
+        self.assertNotIn("NVIDIA-published component", comment)
+
     def test_no_repo_state_means_no_section(self) -> None:
         comment = agent.build_comment({"new_deps": [], "license_changes": [],
             "usage_drift": [], "new_unknowns": [], "refused_or_conditional": [],

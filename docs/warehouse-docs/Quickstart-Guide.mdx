@@ -36,78 +36,18 @@ Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/
 
 The Warehouse Blueprint offers flexible deployment options with the following profiles:
 
-1. **2D Vision AI Profile** - 2D detection and tracking (bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib)
-2. **2D Vision AI with Agents Profile** - 2D detection and tracking with VSS agent integration (bp_wh)
-3. **3D Vision AI Profile** - 3D multi-camera detection, tracking, and analytics using Sparse4D (bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib)
-4. **MV3DT Vision AI Profile** - 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT (bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib)
-
-| Profile Type | Features | Constraints | Supported GPUs |
-| --- | --- | --- | --- |
-| 2D Vision AI Profile | 2D single-camera detection, tracking, and analytics | Model trained on real-world data | RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK |
-| 2D Vision AI with Agents Profile | 2D single-camera detection, tracking, analytics, and VSS agent integration | Model trained on real and synthetic data | RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR |
-| 3D Vision AI Profile | 3D multi-camera detection, tracking, and analytics | Model trained on synthetic data, recommended for simulated environments | RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK |
-| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices | RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK |
+| Profile Type | Features | Constraints |
+| --- | --- | --- |
+| 2D Vision AI Profile | 2D single-camera detection, tracking, and analytics | Model trained on real-world data |
+| 2D Vision AI with Agents Profile | 2D single-camera detection, tracking, analytics, and VSS agent integration | Model trained on real and synthetic data |
+| 3D Vision AI Profile | 3D multi-camera detection, tracking, and analytics | Model trained on synthetic data, recommended for simulated environments |
+| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices |
 
 ## Supported GPU Hardware
 
-This section provides an overview of the hardware profiles supporting the various deployment options described in the previous section. Each profile is designed to meet specific use case performance and resource requirements, ensuring optimal operation of the blueprint.
-
-See supported deployment options per GPU type for 2D, 3D, and MV3DT Warehouse Blueprint further in this section.
-
-Warehouse blueprints are optimized to work on a single supported GPU serving 4 real-time camera streams.
-When you choose to install the Agents, you have the following options:
-
-* Download and locally run the required NVIDIA NIM services (requires additional GPU resources)
-* Use a remote NVIDIA NIM endpoint or any OpenAI API compatible endpoint (no additional GPU required)
+See [Hardware Profiles and Deployment Paths](#hardware-profile-configuration) for supported profiles, published performance, and GPU placement.
 
 [NVIDIA Certified GPU Servers and Workstations](https://marketplace.nvidia.com/en-us/enterprise/qualified-system-catalog/?limit=15)
-
-| GPU Type | Number of streams | 2D Vision AI Profile (Number of GPUs) | 2D Vision AI with Agents Profile (Number of GPUs) |
-| --- | --- | --- | --- |
-| RTX PRO 6000 BW | 16 | 1 | \| 2 (remote LLM + local RTVI-VLM) \| 3 (local LLM + local RTVI-VLM (dedicated GPU each) (default)) |
-| H100 (NVL, SXM HBM3) | 26 | 1 | \| 2 (remote LLM + local RTVI-VLM) \| 3 (local LLM + local RTVI-VLM (dedicated GPU each) (default)) |
-| L40S | 12 | 1 | \| 2 (remote LLM + local RTVI-VLM) \| 3 (local LLM + local RTVI-VLM (dedicated GPU each) (default)) |
-| IGX-THOR | 7 | 1 | \| 2 (remote LLM + local RTVI-VLM) \| Local RTVI-VLM is supported only on IGX-THOR systems with an iGPU and dGPU. |
-| DGX-SPARK | 7 | 1 | Not supported |
-
-<Note>
-Recommended GPUs:
-
-- **2D Vision AI Profile**: RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK
-- **2D Vision AI with Agents Profile**: RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S
-
-When you choose to install the agents, you have the following options:
-
-- Download and locally run the required NVIDIA NIM services (requires additional GPU resources).
-</Note>
-
-| GPU Type | Number of Streams | FPS | 3D Vision AI Profile (Number of GPUs) |
-| --- | --- | --- | --- |
-| RTX PRO 6000 Blackwell | 19 | 30 | 1 |
-| H100 (NVL, SXM HBM3) | 16 | 30 | 1 |
-| L40S | 6 | 30 | 1 |
-| IGX THOR | 7 | 15 | 1 |
-| DGX SPARK | 7 | 15 | 1 |
-
-<Note>
-We recommend RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK GPUs for 3D Vision AI Profile.
-</Note>
-
-| GPU Type | Number of Streams | FPS | MV3DT Vision AI Profile (Number of GPUs) |
-| --- | --- | --- | --- |
-| RTX PRO 6000 Blackwell | 18 | 30 | 1 |
-| H100 (NVL, SXM HBM3) | 13 | 30 | 1 |
-| L40S | 7 | 30 | 1 |
-| IGX THOR | 4 | 30 | 1 |
-| DGX SPARK | 4 | 30 | 1 |
-
-<Note>
-We recommend RTX PRO 6000 BW, H100 NVL, H100 SXM HBM3, L40S, IGX-THOR, DGX-SPARK GPUs for MV3DT Vision AI Profile.
-</Note>
-
-<Note>
-To use different hardware than the ones listed above, you can use the **VSS Configurator**. Add a new hardware profile in `blueprint_config.yml` with stream limits (and optional config overrides), then set `HARDWARE_PROFILE` to that profile name when deploying. For a step-by-step guide and examples, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/vss/system-components/configuration/vss-configurator) documentation.
-</Note>
 
 ## Download Warehouse Artifacts
 
@@ -136,7 +76,7 @@ git checkout tags/v3.2.1
 git lfs install
 git lfs pull
 cd deploy/docker
-# This is the path to the deployments directory. It is set in the industry-profiles/warehouse-operations/.env file for env VSS_APPS_DIR.
+# This is the path to the deploy/docker directory. Set VSS_APPS_DIR in industry-profiles/warehouse-operations/overrides.env.
 #VSS_APPS_DIR="/path/to/deploy/docker"
 ```
 
@@ -146,15 +86,17 @@ Warehouse App Data contains sample video datasets, pre-trained TensorRT models (
 
 The package includes the following MP4 datasets at 1920x1080 and 30 FPS:
 
-| Dataset | Applies To | Cameras | Duration | Scene Details |
-| --- | --- | --- | --- | --- |
-| `nv-warehouse-4cams` | 2D with Agents, and Auto-Calibration profile | 4 | Approximately 10 minutes per camera (600 seconds) | Real-world high-angle aisle footage with racks, palletized inventory, workers in safety vests, boxes, shrink-wrapped pallets, forklift activity, and pallet movement. |
-| `warehouse-loading-dock-3cams-synthetic` | 2D Kafka, Redis, and Auto-Calibration profiles | 3 | 4 minutes per camera (240 seconds) | Synthetic loading dock footage with overhead views, loading bays, yellow-and-black floor safety zones, boxes on pallets, and forklift equipment. |
-| `warehouse-4cams-20mx20m-synthetic` | 3D and MV3DT Kafka, Redis, and Auto-Calibration profiles | 4 | 5 minutes per camera (300 seconds) | Synthetic 20mx20m 3D warehouse scene with overlapping corner-mounted camera views, numbered zones, palletized boxes, forklifts, workers, safety boundaries, and barriers. Used for multi-camera tracking, spatial analytics, and cross-camera object re-identification. |
-| `warehouse-loading-dock-3cams-synthetic-degraded` | 2D Kafka, Redis, and Auto-Calibration profiles | 3 | 4 minutes per camera (240 seconds) | Degraded synthetic loading dock footage with low-light and lower-quality camera visuals, representing deployments where camera feeds vary in quality. Used for testing detection, tracking, and analytics under degraded visibility. |
+Every included dataset is supported by every Warehouse profile.
+
+| Dataset | Cameras | Duration | Scene Details |
+| --- | --- | --- | --- |
+| `nv-warehouse-4cams` | 4 | Approximately 10 minutes per camera (600 seconds) | Real-world high-angle aisle footage with racks, palletized inventory, workers in safety vests, boxes, shrink-wrapped pallets, forklift activity, and pallet movement. |
+| `warehouse-loading-dock-3cams-synthetic` | 3 | 4 minutes per camera (240 seconds) | Synthetic loading dock footage with overhead views, loading bays, yellow-and-black floor safety zones, boxes on pallets, and forklift equipment. |
+| `warehouse-4cams-20mx20m-synthetic` | 4 | 5 minutes per camera (300 seconds) | Synthetic 20mx20m 3D warehouse scene with overlapping corner-mounted camera views, numbered zones, palletized boxes, forklifts, workers, safety boundaries, and barriers. Used for multi-camera tracking, spatial analytics, and cross-camera object re-identification. |
+| `warehouse-loading-dock-3cams-synthetic-degraded` | 3 | 4 minutes per camera (240 seconds) | Degraded synthetic loading dock footage with low-light and lower-quality camera visuals, representing deployments where camera feeds vary in quality. Used for testing detection, tracking, and analytics under degraded visibility. |
 
 <Note>
-After extracting the package, set `VSS_DATA_DIR` in `industry-profiles/warehouse-operations/.env` to point to the extracted data directory.
+After extracting the package, set `VSS_DATA_DIR` in `industry-profiles/warehouse-operations/overrides.env` to point to the extracted data directory.
 
 If you use your own videos or RTSP streams, they must have a resolution of `1920 x 1080` and be encoded without B-frames.
 
@@ -166,25 +108,21 @@ AMC relies heavily on moving people in the input videos. Ensure that the videos 
 </Note>
 
 ```bash
-ngc \
-   registry \
-   resource \
-   download-version \
-   nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026"
 
 # OR Manually download the tar file from NGC
-# URL https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
+# URL https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09042026
 
 # Extract the package
 
-cd vss-warehouse-app-data_v3.2.0
+cd vss-warehouse-app-data_vv3.3.0-09042026
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # Set permissions
 
 sudo chmod -R 777 /path/to/vss-warehouse-app-data
 
-# This is the path to the data directory. It is set in the industry-profiles/warehouse-operations/.env file for VSS_DATA_DIR.
+# This is the path to the extracted data directory. Set VSS_DATA_DIR in industry-profiles/warehouse-operations/overrides.env.
 #VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
 ```
 
@@ -192,49 +130,603 @@ sudo chmod -R 777 /path/to/vss-warehouse-app-data
 
 ### Configure Environment settings
 
-This section explains the most commonly edited variables in `industry-profiles/warehouse-operations/.env`.
+This section explains the most commonly edited variables in `industry-profiles/warehouse-operations/.env` and `overrides.env`.
 
 #### Deployment Selection
 
-Select the appropriate configuration based on your deployment profile:
+Select the deployment profile, message broker, and deployment size below. Update the corresponding existing values in `industry-profiles/warehouse-operations/overrides.env`; do not append duplicate keys. Keep the shipped `COMPOSE_PROFILES_WH_*` definitions and update the `COMPOSE_PROFILES` selector that follows them. Dataset selection is independent because every profile supports every included dataset.
 
-| Profile | MODE | BP_PROFILE | SAMPLE_VIDEO_DATASET | NUM_STREAMS |
-| --- | --- | --- | --- | --- |
-| 2D Vision AI with Agents Profile | `2d` | `bp_wh` or `bp_wh_auto_calib` | `nv-warehouse-4cams` | 4 |
-| 2D Vision AI Profile | `2d` | `bp_wh_kafka` or `bp_wh_redis` or `bp_wh_auto_calib` | `warehouse-loading-dock-3cams-synthetic` | 3 |
-| 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` or `bp_wh_auto_calib` | `warehouse-4cams-20mx20m-synthetic` | 4 |
-| MV3DT Vision AI Profile | `mv3dt` | `bp_wh_kafka` or `bp_wh_redis` or `bp_wh_auto_calib` | `warehouse-4cams-20mx20m-synthetic` | 4 |
+<Tabs>
+<Tab title="2D + Agents">
 
-#### Hardware Profile Configuration
+```ini
+MODE=2d
+BP_PROFILE=bp_wh
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}
 
-Determine your `HARDWARE_PROFILE` by running `nvidia-smi -L` to identify your GPU model.
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="2D">
+<Tabs>
+<Tab title="Kafka">
+<Tabs>
+<Tab title="Extended">
 
-| GPU | HARDWARE_PROFILE Value |
-| --- | --- |
-| RTX PRO 6000 BW | `RTXPRO6000BW` |
-| H100 (NVL, SXM HBM3) | `H100` |
-| L40S | `L40S` |
-| IGX-THOR | `IGX-THOR` |
-| DGX-SPARK | `DGX-SPARK` |
+```ini
+MODE=2d
+BP_PROFILE=bp_wh_kafka
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="Minimal">
+
+```ini
+MODE=2d
+BP_PROFILE=bp_wh_kafka
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="Redis">
+<Tabs>
+<Tab title="Extended">
+
+```ini
+MODE=2d
+BP_PROFILE=bp_wh_redis
+STREAM_TYPE=redis
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_2D}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="Minimal">
+
+```ini
+MODE=2d
+BP_PROFILE=bp_wh_redis
+STREAM_TYPE=redis
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="3D">
+<Tabs>
+<Tab title="Kafka">
+<Tabs>
+<Tab title="Extended">
+
+```ini
+MODE=3d
+BP_PROFILE=bp_wh_kafka
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="Minimal">
+
+```ini
+MODE=3d
+BP_PROFILE=bp_wh_kafka
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="Redis">
+<Tabs>
+<Tab title="Extended">
+
+```ini
+MODE=3d
+BP_PROFILE=bp_wh_redis
+STREAM_TYPE=redis
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_3D}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="Minimal">
+
+```ini
+MODE=3d
+BP_PROFILE=bp_wh_redis
+STREAM_TYPE=redis
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="MV3DT">
+<Tabs>
+<Tab title="Kafka">
+<Tabs>
+<Tab title="Extended">
+
+```ini
+MODE=mv3dt
+BP_PROFILE=bp_wh_kafka
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_MV3DT}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="Minimal">
+
+```ini
+MODE=mv3dt
+BP_PROFILE=bp_wh_kafka
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="Redis">
+<Tabs>
+<Tab title="Extended">
+
+```ini
+MODE=mv3dt
+BP_PROFILE=bp_wh_redis
+STREAM_TYPE=redis
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_MV3DT}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+<Tab title="Minimal">
+
+```ini
+MODE=mv3dt
+BP_PROFILE=bp_wh_redis
+STREAM_TYPE=redis
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL}
+
+# Warehouse profiles use SDRC.
+VST_USE_SDRC=true
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="Auto-Calibration">
+
+```ini
+MODE=auto-calibration
+BP_PROFILE=bp_wh_auto_calib
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
+
+# Auto-calibration does not use SDRC.
+# Comment out these existing lines in overrides.env:
+# VST_USE_SDRC=true
+# STREAM_PROCESSOR_MODULE_ENDPOINT=http://sdr-controller:10000
+# VST_NGINX_MODE=vst-sdrc
+```
+</Tab>
+</Tabs>
 
 <Note>
-To update the existing configs of a hardware profile or to add a GPU which is not present in the above list, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/vss/system-components/configuration/vss-configurator) documentation.
+**Extended and minimal deployments**
+
+Minimal deployments are available for the Kafka and Redis 2D, 3D, and MV3DT profiles and are recommended on resource-constrained edge systems. They exclude ELK (Elasticsearch, Logstash, and Kibana), Video Analytics API, HAProxy, monitoring, and import helpers.
+
+In the VST UI, metadata for live streams is read from Kafka or Redis, while metadata for recorded streams is read from Elasticsearch. Because Elasticsearch is not deployed in a minimal configuration, bounding boxes do not appear for recorded streams.
 </Note>
 
-#### Deployment Paths and Services
+<a id="hardware-profile-configuration"></a>
+<a id="deployment-paths-and-services"></a>
+
+#### Hardware Profiles and Deployment Paths
+
+Run `nvidia-smi -L` to identify the GPU model, then use the architecture tab below to set `HARDWARE_PROFILE` and the GPU placement for your deployment path.
+
+Set the common deployment variables in `industry-profiles/warehouse-operations/overrides.env`:
 
 | Variable | Description |
 | --- | --- |
-| VSS_APPS_DIR | **(Required)** Path to your deploy/docker directory |
-| VSS_DATA_DIR | **(Required)** Path to the extracted warehouse app data directory |
-| HOST_IP | \| **(Required)** Host IP address of the machine where the blueprint is deployed. \| For hosts that cannot be accessed from the browser via the HOST_IP, such as cloud VMs, set HOST_IP to the private IP address of the instance and set EXTERNAL_IP to the public IP address of the instance. |
-| EXTERNAL_IP | **(Required only if HOST_IP is not accessible from the browser)** External IP address of the machine where the blueprint is deployed |
-| STREAM_TYPE | \| `kafka` or `redis`. \| **Default**: `kafka` |
-| PERCEPTION_TAG | \| Tag for RTVI CV container image. \| Use `3.2.1-<version>` for x86_64/aarch64 (IGX-THOR), or `3.2.1-sbsa-<version>` for aarch64 (DGX-SPARK). |
-| BEV_FUSION_MV3DT_TAG | \| Tag for the BEV Fusion MV3DT container image (`mv3dt` mode). \| Use `3.2.0-<version>`. |
-| RTVI_VLM_IMAGE_TAG | \| Tag for the RTVI-VLM container image (VLM inference for the `bp_wh` 2D agent profile). \| Use `3.2.1-<version>` for x86_64. |
-| \| VST_STREAM_PROCESSOR_IMAGE_TAG \| VST_SENSOR_IMAGE_TAG \| NVSTREAMER_IMAGE_TAG \| VST_INGRESS_IMAGE_TAG | \| Tags for the VIOS / VST (Video IO and Storage) container images — stream processor, sensor manager, NvStreamer, and ingress. \| Common across all platforms. |
-| NUM_STREAMS | \| Number of concurrent streams to process. \| **Default**: `4` |
+| `VSS_APPS_DIR` | **Required.** Absolute path to this repository's `deploy/docker` directory. |
+| `VSS_DATA_DIR` | **Required.** Absolute path to the extracted warehouse application data directory. |
+| `HOST_IP` | **Required.** Host IP address of the machine where the blueprint is deployed. For cloud VMs, use the private instance IP and set `EXTERNAL_IP` to the public IP or hostname. |
+| `EXTERNAL_IP` | Required only when clients cannot reach `HOST_IP`; used for externally reachable service URLs. |
+| `SAMPLE_VIDEO_DATASET` | Dataset to process. Every included dataset is supported by every Warehouse profile. |
+| `NUM_STREAMS` | Number of concurrent streams to process. This must match the camera count of `SAMPLE_VIDEO_DATASET`; it is not selected by system architecture. |
+
+Container image coordinates are centralized in `containers.env` and loaded by the deployment command. In your hardware tab:
+
+1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`.
+2. Choose exactly one deployment path and copy its settings into the same file.
+
+<Tabs>
+<Tab title="H100">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 26 | 30 FPS |
+| 3D | 16 | 30 FPS |
+| MV3DT | 13 | 30 FPS |
+
+```ini
+# The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
+# to the same H100 profile key; variant-specific profile names are not defined.
+HARDWARE_PROFILE=H100
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="RTXPRO6000BW">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 16 | 30 FPS |
+| 3D | 19 | 30 FPS |
+| MV3DT | 18 | 30 FPS |
+
+```ini
+# Use RTXPRO6000BW-SE instead for RTX PRO 6000 Blackwell Server Edition.
+HARDWARE_PROFILE=RTXPRO6000BW
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="RTXPRO4500BW">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+Published performance figures are not currently listed for this hardware profile.
+
+```ini
+# Supports 2D and 3D. MV3DT is not defined for this hardware profile.
+HARDWARE_PROFILE=RTXPRO4500BW
+
+# Required when this profile runs bp_wh with local RTVI-VLM.
+RTVI_VLM_MAX_MODEL_LEN=18000
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d or 3d.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="L40S">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 12 | 30 FPS |
+| 3D | 6 | 30 FPS |
+| MV3DT | 7 | 30 FPS |
+
+```ini
+HARDWARE_PROFILE=L40S
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="IGX-THOR">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 7 | 30 FPS |
+| 3D | 7 | 15 FPS |
+| MV3DT | 4 | 30 FPS |
+
+```ini
+# The bp_wh agent profile is not supported on IGX-THOR.
+# Use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+# All supported deployments use one GPU.
+HARDWARE_PROFILE=IGX-THOR
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+
+</Tab>
+<Tab title="DGX-SPARK">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 7 | 30 FPS |
+| 3D | 7 | 15 FPS |
+| MV3DT | 4 | 30 FPS |
+
+```ini
+# The bp_wh agent profile is not supported on DGX-SPARK.
+# Use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+# All supported deployments use one GPU.
+HARDWARE_PROFILE=DGX-SPARK
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+
+</Tab>
+<Tab title="Other x86_64">
+
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+Published performance figures are not currently listed on this page for these profiles.
+
+```ini
+# Select the profile that matches the x86_64 GPU:
+# L40, L4, RTXA6000, or RTXA6000ADA.
+HARDWARE_PROFILE=L40
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+</Tabs>
+
+<Note>
+`HARDWARE_PROFILE` also selects the per-GPU stream cap and any required DeepStream latency, tracker, and frame-interval tuning through the VSS Configurator. Do not copy those generated settings into `overrides.env`.
+</Note>
+
+<Note>
+To update an existing hardware profile or add a GPU that is not listed above, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/vss/system-components/configuration/vss-configurator) documentation.
+</Note>
 
 <Note>
 **Switch between Kafka and Redis**
@@ -247,18 +739,6 @@ With `ENABLE_PROFILE_CONFIGURATOR=true`, the VSS Configurator uses `STREAM_TYPE`
 - Video Analytics API: sets `kafka.brokers` to `["localhost:9092"]` for Kafka or `null` for Redis.
 
 For the common configuration pattern and examples of file updates automated by the VSS Configurator, see [VSS Configurator commons and profiles](/vss/system-components/configuration/vss-configurator#two-part-structure-commons-profiles).
-</Note>
-
-#### Minimal Profile
-
-The minimal profile applies to 2D Vision AI Profile, 3D Vision AI Profile, and MV3DT Vision AI Profile only. It is recommended for Thor deployment. The default is the minimal profile.
-
-Set `MINIMAL_PROFILE="true"` in `industry-profiles/warehouse-operations/.env` for a **minimal** deployment. This excludes ELK (Elasticsearch, Logstash, Kibana), Video Analytics API, monitoring, and their dependent services.
-
-For a full **extended** deployment (ELK, Video Analytics API, and monitoring included), set `MINIMAL_PROFILE=""` in `industry-profiles/warehouse-operations/.env`.
-
-<Note>
-In the VST UI, metadata for live streams is read from Kafka or Redis, while metadata for recorded streams is read from Elasticsearch. In the minimal profile, bounding boxes (bboxes) do not appear for recorded streams in the VST UI because Elasticsearch is not deployed.
 </Note>
 
 #### Elasticsearch ILM policy retention period
@@ -285,11 +765,11 @@ The following modes apply to the `LLM_MODE` environment variable.
 | --- | --- | --- |
 | `local` | \| `MODE=2d` \| `BP_PROFILE=bp_wh` \| `NGC_CLI_API_KEY` | Download and run NIMs locally (requires additional GPU resources), Run LLM on a dedicated GPU device. |
 | `remote` | \| `MODE=2d` \| `BP_PROFILE=bp_wh` \| `LLM_BASE_URL` \| `NVIDIA_API_KEY` | \| Use remote NIM endpoints (no additional GPU resources required). \| Obtain a valid `NVIDIA_API_KEY` via https://build.nvidia.com/explore/discover or via the NVIDIA Developer Program website. |
-| `none` | \| `MODE=2d/3d/mv3dt` \| `BP_PROFILE=bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib` | Deploy 2D, 3D, or MV3DT Vision AI profiles without agents. NIM is not required for `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib` profiles. |
+| `none` | \| `MODE=2d/3d/mv3dt` with `BP_PROFILE=bp_wh_kafka/bp_wh_redis` \| `MODE=auto-calibration` with `BP_PROFILE=bp_wh_auto_calib` | Deploy Vision AI or auto-calibration without agents. NIM is not required for `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib`. |
 
 <Note>
-The Warehouse Blueprint uses `rtvi-vlm` for VLM inference. Configure the local `rtvi-vlm` service with `RTVI_VLM_BASE_URL`, `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` in `industry-profiles/warehouse-operations/.env`.
-RTVI-VLM is not supported on DGX-SPARK.
+The Warehouse Blueprint uses `rtvi-vlm` for VLM inference. Configure `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` in `industry-profiles/warehouse-operations/overrides.env`. The shared `RTVI_VLM_BASE_URL` default is defined in `services/rtvi/rtvi.env` and normally does not need to be changed.
+The `bp_wh` agent profile that deploys RTVI-VLM is not supported on IGX-THOR or DGX-SPARK.
 For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm).
 </Note>
 
@@ -301,45 +781,52 @@ For details on the RTVI-VLM microservice (configuration, supported models, and A
 
 <Note>
 For the full set of variables (ports, agent settings, VST adaptor, calibration, etc.), use the inline comments in the shipped `industry-profiles/warehouse-operations/.env`.
-
-For DGX-SPARK (SBSA), RTVI CV(Perception) and VST separate container tags to be used ( Refer warehouse/.env for the latest tags commented out in the file, use the uncommented tags for the deployment and make sure to comment out the default  multi-arch tags).
 </Note>
 
 ### Deploy the Blueprint
 
 <Warning>
-Ensure `industry-profiles/warehouse-operations/.env` is configured for your deployment before proceeding. Review the Deployment Selection and environment settings sections above.
+Ensure `industry-profiles/warehouse-operations/.env` and `overrides.env` are configured for your deployment before proceeding. Review the Deployment Selection and environment settings sections above.
 </Warning>
 
 **Deploy Warehouse Blueprint**
 
 ```bash title="Deploy Warehouse Blueprint"
-source /path/to/deploy/docker/industry-profiles/warehouse-operations/.env
 cd /path/to/deploy/docker
 
-# Docker login to the NGC docker registry
+# Log in to the NGC container registry.
 docker login \
     --username '$oauthtoken' \
     --password "${NGC_CLI_API_KEY}" \
     nvcr.io
 
-# Start the blueprint
-docker compose \
-    --env-file "industry-profiles/warehouse-operations/.env" \
-    --env-file "industry-profiles/warehouse-operations/overrides.env" \
-    up \
-    --detach \
-    --pull always \
-    --force-recreate \
-    --build
+# Start the blueprint.
+docker compose -f compose.yml \
+    --env-file containers.env \
+    --env-file industry-profiles/warehouse-operations/.env \
+    --env-file industry-profiles/warehouse-operations/overrides.env \
+    up --detach --pull always --force-recreate --build
 ```
+
+<Note>
+For DGX-SPARK, use `blueprint-deploy.sh` instead of the direct Compose command so the required platform-specific image selection is applied automatically:
+
+```bash
+./scripts/blueprint-deploy.sh up \
+    --deployment warehouse \
+    --mode 2d \
+    --bp-profile bp_wh_kafka \
+    --data-dir "/path/to/vss-warehouse-app-data" \
+    --hardware-profile DGX-SPARK
+```
+</Note>
 
 <Note>
 Initialization of some components might take a while, especially the first time, because large container images will be pulled.
 </Note>
 
 <Note>
-Before updating the warehouse `.env` file or running `docker compose up`, check whether containers from a previous Docker Compose deployment are still present:
+Before updating the Warehouse configuration or running `docker compose up`, check whether containers from a previous deployment are still present:
 
 ```bash
 docker ps -a
@@ -404,8 +891,7 @@ Once deployed, the following service access points are available:
 | Service | Access Point |
 | --- | --- |
 | Video-Analytics-API | `http://<HOST_IP>:8081` |
-| VST-MCP | `http://<HOST_IP>:8001` |
-| VA-MCP | `http://<HOST_IP>:5005` |
+| VA-MCP (2D Vision AI with Agents Profile) | `http://<HOST_IP>:9901` |
 | LLM-NIM | `http://<HOST_IP>:30081` |
 
 ## Teardown the Deployment
@@ -414,17 +900,18 @@ To stop and remove the Warehouse Blueprint deployment:
 
 ```bash
 # Stop the running deployment
-
-docker compose \
-    --env-file "industry-profiles/warehouse-operations/.env" \
-    --env-file "industry-profiles/warehouse-operations/overrides.env" \
+cd /path/to/deploy/docker
+docker compose -f compose.yml \
+    --env-file containers.env \
+    --env-file industry-profiles/warehouse-operations/.env \
+    --env-file industry-profiles/warehouse-operations/overrides.env \
     down
 
 # Alternatively to remove all the containers, images and volume
-
-docker compose \
-    --env-file "industry-profiles/warehouse-operations/.env" \
-    --env-file "industry-profiles/warehouse-operations/overrides.env" \
+docker compose -f compose.yml \
+    --env-file containers.env \
+    --env-file industry-profiles/warehouse-operations/.env \
+    --env-file industry-profiles/warehouse-operations/overrides.env \
     down -v --rmi all
 
 # Tear down all dangling volumes
@@ -565,10 +1052,11 @@ For the Warehouse Blueprint, `vss-deploy-profile` loads
 as its per-profile playbook. That reference owns the warehouse-specific decisions the
 Skill makes on the operator's behalf:
 
-* **Profile variants** - picks one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or
-  `bp_wh_auto_calib` against `MODE=2d|3d|mv3dt`, including the recommended
-  `SAMPLE_VIDEO_DATASET` and `NUM_STREAMS` for each combination. See
-  [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options).
+* **Profile variants** - picks `bp_wh`, `bp_wh_kafka`, or `bp_wh_redis` with
+  `MODE=2d|3d|mv3dt`, or selects `bp_wh_auto_calib` with
+  `MODE=auto-calibration`, along with the matching Compose profile list. Dataset
+  selection is independent of this choice. See
+  [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection).
 * **Minimal vs extended** - for `bp_wh_kafka` and `bp_wh_redis`, chooses whether to
   deploy ELK, Video Analytics API, and monitoring on top of the core CV pipeline. See
   the Minimal Profile section above for the comparison.
@@ -579,15 +1067,16 @@ Skill makes on the operator's behalf:
   * `LLM_DEVICE_ID` - GPU for the LLM in `bp_wh` 2D agent profile when using `LLM_MODE=local`. This setting is not used when `LLM_MODE=remote` or `LLM_MODE=none`.
 * **LLM placement** - for the `bp_wh` 2D agent profile, picks
   `LLM_MODE=local` or `LLM_MODE=remote` from the user's hardware and request.
-  For `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib` in 2D, 3D, or
-  MV3DT mode, sets `LLM_MODE=none`.
+  For `bp_wh_kafka` and `bp_wh_redis` in 2D, 3D, or MV3DT mode, and for
+  `bp_wh_auto_calib` in auto-calibration mode, sets `LLM_MODE=none`.
 * **App data source** - chooses between `<repo>/data`, a custom local path, or the
-  `nvidia/vss-warehouse/vss-warehouse-app-data` NGC resource.
+  `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026` NGC resource.
 * **Calibration** - for own-data deployments, routes to the standalone or warehouse
   auto-calibration profile to generate calibration JSON before the full warehouse stack
   comes up.
-* **Bring up and monitor** - runs `docker compose ... up` against
-  `industry-profiles/warehouse-operations/.env`, then watches logs and `docker ps`
+* **Bring up and monitor** - runs `docker compose -f compose.yml ... up` with
+  `containers.env`, `industry-profiles/warehouse-operations/.env`, and
+  `industry-profiles/warehouse-operations/overrides.env`, then watches logs and `docker ps`
   until every expected container reports `Up` and FPS is flowing through
   `vss-rtvi-cv` or `vss-rtvi-cv-mv3dt` for MV3DT.
 
@@ -648,7 +1137,7 @@ To obtain the required NGC API Key, follow the steps in:
 
 ### Deployment Profiles
 
-The launchable notebook uses the same `MODE`, `BP_PROFILE`, `STREAM_TYPE`, `SAMPLE_VIDEO_DATASET`, and `NUM_STREAMS` values described in the [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection) section above. In the notebook's first code cell, set them to match your chosen profile.
+The launchable notebook uses the same `MODE`, `BP_PROFILE`, and `STREAM_TYPE` values described in the [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection) section above. Select `SAMPLE_VIDEO_DATASET` independently, then set `NUM_STREAMS` to its camera count.
 
 See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options) for full details on each profile.
 
@@ -658,7 +1147,13 @@ See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-exa
 
     ![Brev Launchable configuration page for the Warehouse Blueprint](/assets/images/cloud/brev_launchable.png)
 
+2. Click **Deploy Launchable** in the upper-right corner.
+3. Click **Go to Instance Page**.
+4. After the instance is enabled, click **Open Notebook**.
+
     ![Warehouse Brev Launchable Notebook](/assets/images/cloud/brev_notebook_button.png)
+
+   Close any warning dialogs that appear in JupyterLab.
 
 5. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_warehouse_launchable.ipynb` notebook.
 
@@ -675,7 +1170,7 @@ The complete setup takes around 20 minutes on first run as it downloads containe
 Browser-facing services are reached through their service ports:
 
 - **Agent UI** → `<secure_link>` directly (the HAProxy ingress serves the Agent UI at the root path)
-- **Kibana** → `<secure_link>/kibana/` (requires extended profile, `MINIMAL_PROFILE=""`)
+- **Kibana** → `<secure_link>/kibana/` (requires an extended `COMPOSE_PROFILES_WH_*` service list without the `_MINIMAL` suffix)
 - **VST UI** → `<secure_link>/vst`
 
 <Note>

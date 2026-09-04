@@ -103,29 +103,37 @@ Reached from Q1 → industry blueprint, or when the request names warehouse
 directly. Expand the selected variant's service list verbatim — warehouse is
 variant selection, not composition, so there is no delta path. Read
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) before
-asking, and apply its Hard constraints while asking, not after.
+asking, and apply its Hard constraints while asking, not after. Apply any build
+requirements its **Profile Service Set** states.
 
-Up to three single-select questions, each inside the four-option cap. Describe
+Up to four single-select questions, each inside the four-option cap. Describe
 each option from warehouse.md's **Profile Service Set** table; do not restate
 its service lists here, or this table drifts from the one that is authoritative:
 
 | Question | Options |
 |---|---|
-| **Q2w-mode** — *"Which warehouse perception mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) |
+| **Q2w-mode** — *"Which warehouse mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) · `mv3dt` (multi-view 3D tracking, BEV fusion) · `auto-calibration` (produce a calibration) |
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
+| **Q2w-dataset** — *"Which sample dataset?"* | `nv-warehouse-4cams` · `warehouse-loading-dock-3cams-synthetic` · `warehouse-4cams-20mx20m-synthetic` |
 
 Filter the remaining options rather than validating the answers afterwards.
 Both filters below are warehouse.md's to state; it is the source of truth for
 why, and this list only says when to apply them:
 
-- **Omit `bp_wh` from Q2w-profile when Q2w-mode is `3d`** — Hard constraints:
+- **Omit `bp_wh` from Q2w-profile unless Q2w-mode is `2d`** — Hard constraints:
   `bp_wh` is 2D-only. Leaving it selectable turns an impossible deployment into
   a late runtime failure.
+- **Skip Q2w-profile and Q2w-size entirely when Q2w-mode is `auto-calibration`** —
+  that mode pairs only with `bp_wh_auto_calib` and has a single list, so both
+  answers are forced.
 - **Skip Q2w-size entirely for `bp_wh`** — the Profile Service Set table lists
   no minimal variant for it.
-- Set `SAMPLE_VIDEO_DATASET` and `NUM_STREAMS` from the chosen variant, not from
-  the Foundation default; the dataset ↔ variant pairing is a Hard constraint.
+- **Ask Q2w-dataset for every mode, including `auto-calibration`.** Dataset and
+  mode are independent — all three ship calibration for `2d`, `3d` and `mv3dt`,
+  and auto-calibration needs to know which dataset it is calibrating. Set
+  `NUM_STREAMS` to the chosen dataset's camera count (4 / 3 / 4); that is the
+  Hard constraint that survives, and there is no dataset ↔ variant pairing rule.
 
 The answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its name in
 `FOUNDATION_VARIANT`, expand it verbatim into `COMPOSE_PROFILES`, and continue
@@ -157,7 +165,7 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 | **Real-time alerting / verification** — VLM-verified incidents | `alerts.md` | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api` | `alerts` | Real-time needs RT-VLM; CV-verification needs RT-CV + Behavior Analytics |
 | **Video summarization** — time-windowed summaries on demand | `lvs.md` | `lvs-server` | `lvs` | Requires one reachable LLM + one VLM/RT-VLM; something must drive `/v1/summarize`, but no agent need be deployed |
 
-**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`), the HAProxy ingress (`ingress.md`) — providing a stable, unified interface to the VSS stack so agents and skills reference a single endpoint rather than per-service ports — plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** the **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka **only** when `RTVI_VLM_KAFKA_ENABLED=true`. A dense-captioning-only build on `base` therefore adds **no** ELK/Kafka, preserving the smallest-delta contract. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
+**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** retain the HAProxy ingress (`ingress.md`) only with the Agent/UI tier or when the request explicitly asks for a unified browse/operate origin; otherwise prune `vss-haproxy-ingress` and create no ingress patch. The **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka when its resolved `RTVI_VLM_MESSAGE_BUS` is `kafka`. Kibana is not implied by selecting Elasticsearch: retain `kibana` and exactly the selected Foundation's initializer only when that Foundation already ships them, and never add or borrow Kibana keys for a Foundation that does not. A dense-captioning-only build means the request does not publish or index captions; it adds **no** ELK/Kafka and sets both `RTVI_VLM_MESSAGE_BUS=` and `RTVI_VLM_KAFKA_ENABLED=false` during the VSS Compose compatibility transition. If the request publishes captions or stores them in Elasticsearch, it is not dense-captioning-only: retain the approved Kafka/ELK service set and message-bus settings unchanged when generating artifacts. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
 
 Rules for the multi-select:
 - **Offer exactly the table rows** whose owner contract exists under `references/services/` (all rows are present on this branch); show any pending capability disabled with a short "not yet available" note. **Never offer a foundational or model-backend owner as a choice** — do **not** silently offer a capability the skill cannot resolve.

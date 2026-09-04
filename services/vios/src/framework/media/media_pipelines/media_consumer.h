@@ -240,6 +240,17 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         {
             m_consumerType = type;
         }
+        /* Whether this consumer takes a decoded picture and encodes it itself.
+         * The WebRTC sink always does. The DASH packager does only where there
+         * is no hardware encoder to have produced an encoded frame further up,
+         * so it answers for itself rather than being inferred from its type -
+         * inferring it fed decoded pictures to a packager that wanted an
+         * encoded stream and published nothing. */
+        virtual bool wantsDecodedPictures() const
+        {
+            return m_consumerType == ConsumerType::webrtcConsumer;
+        }
+
         virtual ConsumerType getConsumerType()
         {
             return m_consumerType;

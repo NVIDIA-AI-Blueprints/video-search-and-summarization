@@ -43,7 +43,7 @@
 # Layers are split for cacheability, which preserves execution order; the
 # sequence itself is untouched.
 # -----------------------------------------------------------------------------
-ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1plus-sbsa"
+ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255"
 ARG DS_VERSION=9.1
 
 # =============================================================================
@@ -67,9 +67,6 @@ ADD src/metropolis_perception_app.c /opt/nvidia/deepstream/deepstream/sources/ap
 ADD src/perception_utc.c /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/perception_utc.c
 ADD src/metropolis_perception_app.h /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/metropolis_perception_app.h
 ADD src/Makefile /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/Makefile
-
-ADD src/frame_dump.cpp /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/src/frame_dump.cpp
-ADD src/frame_dump.h /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/includes/frame_dump.h
 
 # Copy reference configs
 ADD reference-configs /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs
@@ -121,10 +118,6 @@ LABEL com.nvidia.mm.nspect=NSPECT-L6GX-URGA
 # app tree + the installed binary on PATH
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/metropolis_perception_app /opt/nvidia/deepstream/deepstream/bin/metropolis_perception_app
-
-# frame_dump sources: shipped for reference/debug, already compiled into the binary
-COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/src/frame_dump.cpp /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/src/frame_dump.cpp
-COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/includes/frame_dump.h /opt/nvidia/deepstream/deepstream/sources/apps/apps-common/includes/frame_dump.h
 
 # Triton model repos, with the arch-correct GDINO plugin already renamed
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/TritonGdino/ /opt/nvidia/deepstream/deepstream/sources/TritonGdino/

@@ -18,6 +18,7 @@ from vss_cli.memory_cmd import memory
 from vss_cli.memory_cmd import set_test_introspect
 from vss_cli.memory_cmd import set_test_memory
 from vss_core.introspection import IntrospectionResult
+from vss_core.memory import EmbeddingBackfillResult
 from vss_core.memory import MemoryService
 from vss_core.memory import UnifiedMemoryRecord
 from vss_core.memory.backends.in_memory import InMemoryStore
@@ -94,6 +95,54 @@ def test_memory_verbs_do_not_expose_static_index_selection() -> None:
         assert "--memory-index" not in result.output
 
 
+def test_embeddings_backfill_help_has_only_global_backfill_controls() -> None:
+    result = _invoke("embeddings", "backfill", "--help")
+    assert result.exit_code == 0, result.output
+    for option in ("--batch-size", "--limit", "--dry-run", "--pretty"):
+        assert option in result.output
+    for excluded in ("--job-id", "--markdown", "--vlm", "--no-persist"):
+        assert excluded not in result.output
+
+
+def test_embeddings_backfill_uses_configured_batch_size_and_stable_json() -> None:
+    observed: dict[str, Any] = {}
+
+    class Backfill:
+        def run(self, **kwargs: Any) -> EmbeddingBackfillResult:
+            observed.update(kwargs)
+            return EmbeddingBackfillResult(scanned=3, eligible=2, embedded=1, reused=1, skipped=1)
+
+    facade = Memory(
+        MemoryService(InMemoryStore()),
+        index="vss-memory",
+        embedding_backfill=Backfill(),  # type: ignore[arg-type]
+        embedding_batch_size=7,
+    )
+    set_test_memory(facade)
+
+    result = _invoke("embeddings", "backfill", "--dry-run", "--pretty")
+
+    assert result.exit_code == 0, result.output
+    assert observed == {"batch_size": 7, "limit": None, "dry_run": True}
+    assert json.loads(result.output) == {
+        "scanned": 3,
+        "eligible": 2,
+        "embedded": 1,
+        "reused": 1,
+        "skipped": 1,
+        "failed": 0,
+        "failures": [],
+    }
+    assert '\n  "scanned"' in result.output
+
+
+def test_embeddings_backfill_requires_enabled_configuration() -> None:
+    result = _invoke("embeddings", "backfill")
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "embeddings are disabled or incomplete" in result.output
+    assert "configure memory --embeddings" in result.output
+
+
 def test_events_does_not_advertise_undefined_duration_window() -> None:
     result = _invoke("events", "--help")
     assert result.exit_code == 0, result.output
@@ -137,6 +186,214 @@ def test_query_and_events_return_child_records(injected_memory: Memory) -> None:
     events = json.loads(recalled.output)["events"]
     assert events[0]["record_id"] == "event-1"
     assert events[0]["description"] == "forklift entered aisle"
+
+
+def test_query_help_exposes_only_dynamic_retrieval_mode_override() -> None:
+    result = _invoke("query", "--help")
+    assert result.exit_code == 0
+    assert "--mode" in result.output
+    assert "keyword" in result.output
+    assert "semantic" in result.output
+    assert "hybrid" in result.output
+    for option in (
+        "--embedding-model",
+        "--embedding-endpoint",
+        "--embedding-index",
+        "--embedding-dimensions",
+        "--device",
+    ):
+        assert option not in result.output
+
+
+@pytest.mark.parametrize("mode", ("semantic", "hybrid"))
+def test_explicit_semantic_mode_warns_and_preserves_json_when_embeddings_disabled(
+    injected_memory: Memory,
+    mode: str,
+) -> None:
+    injected_memory.service.upsert(UnifiedMemoryRecord.model_validate(_event()))
+
+    result = _invoke("query", "--query", "forklift", "--mode", mode)
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["records"][0]["job"]["record_id"] == "event-1"
+    assert "embeddings are disabled" in result.stderr
+
+
+def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss_cli.memory as memory_mod
+    import vss_core.memory as core_memory
+    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
+
+    set_test_memory(None)
+    closed: list[str] = []
+    observed: dict[str, Any] = {}
+
+    class FakeAuthoritativeStore(InMemoryStore):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__()
+            observed["authoritative"] = self
+            observed["authoritative_kwargs"] = kwargs
+
+        def close(self) -> None:
+            closed.append("authoritative")
+
+    class FakeProvider:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["provider"] = self
+            observed["provider_kwargs"] = kwargs
+
+        @property
+        def model(self) -> str:
+            return "embed-model"
+
+        @property
+        def dimensions(self) -> int:
+            return 4
+
+        @property
+        def resolved_model(self) -> str | None:
+            return None
+
+        def embed_query(self, _text: str) -> list[float]:
+            return [1.0] * 4
+
+        def close(self) -> None:
+            closed.append("provider")
+
+    class FakeCompanion:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["companion"] = self
+            observed["companion_kwargs"] = kwargs
+
+        def semantic_search(self, *_args: Any) -> list[str]:
+            return []
+
+        def sync_record(self, _record: Any) -> None:
+            return None
+
+        def close(self) -> None:
+            closed.append("companion")
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://es.test")},
+        memory=config_mod.MemoryConfig(
+            embeddings=config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://embed.test/v1",
+                model="embed-model",
+                dimensions=4,
+                index="memory-vectors-v1",
+                timeout_seconds=12,
+                batch_size=3,
+                api_key_env="EMBED_TOKEN",
+            ),
+            retrieval=config_mod.RetrievalConfig(mode="hybrid", candidate_count=17, rrf_rank_constant=41),
+        ),
+    )
+    built: list[Memory] = []
+    original_build = memory_mod.build
+
+    def capture_build(value: Any, **kwargs: Any) -> Memory:
+        facade = original_build(value, **kwargs)
+        built.append(facade)
+        return facade
+
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(memory_mod, "build", capture_build)
+    monkeypatch.setattr(elasticsearch_mod, "ElasticsearchMemoryStore", FakeAuthoritativeStore)
+    monkeypatch.setattr(core_memory, "OpenAICompatibleEmbeddingProvider", FakeProvider)
+    monkeypatch.setattr(core_memory, "ElasticsearchEmbeddingStore", FakeCompanion)
+
+    result = _invoke("query", "--job-id", "missing")
+
+    assert result.exit_code == 0, result.output
+    assert len(built) == 1
+    assert observed["companion_kwargs"]["authoritative_store"] is observed["authoritative"]
+    assert observed["companion_kwargs"]["provider"] is observed["provider"]
+    assert observed["companion_kwargs"]["provider_name"] == "openclaw_gateway"
+    assert observed["companion_kwargs"]["embedding_endpoint_identity"].startswith("sha256:")
+    assert built[0].service.store is observed["authoritative"]
+    assert built[0].service.semantic_retrieval_available is True
+    assert built[0].service._retrieval_mode == "hybrid"
+    assert built[0].service._semantic_candidate_count == 17
+    assert built[0].service._rrf_rank_constant == 41
+    assert observed["provider_kwargs"] == {
+        "endpoint": "http://embed.test/v1",
+        "model": "embed-model",
+        "dimensions": 4,
+        "timeout_seconds": 12,
+        "batch_size": 3,
+        "api_key_env": "EMBED_TOKEN",
+        "query_input_type": None,
+        "document_input_type": None,
+    }
+    assert closed == ["companion", "provider", "authoritative"]
+
+    built[0].close()
+    assert closed == ["companion", "provider", "authoritative"]
+
+
+def test_dry_run_backfill_skips_dimension_discovery_for_handwritten_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import vss_core.memory as core_memory
+    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
+
+    set_test_memory(None)
+    observed: dict[str, Any] = {}
+
+    class FakeAuthoritativeStore(InMemoryStore):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__()
+            self.upsert(UnifiedMemoryRecord.model_validate(_parent()))
+
+        def close(self) -> None:
+            return None
+
+    class FakeProvider:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["provider"] = True
+            raise AssertionError("dry-run must not construct the embedding provider")
+
+        def embed_query(self, _text: str) -> list[float]:
+            observed["embed_query"] = True
+            raise AssertionError("dry-run must not contact the embedding provider")
+
+    class FakeCompanion:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["companion"] = True
+            raise AssertionError("dry-run must not construct the companion index")
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={"elasticsearch": config_mod.Service(url="http://es.test")},
+        memory=config_mod.MemoryConfig(
+            embeddings=config_mod.EmbeddingConfig(
+                enabled=True,
+                endpoint="http://embed.test/v1",
+                model="embed-model",
+                dimensions=None,
+                index="memory-vectors-v1",
+            )
+        ),
+    )
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(elasticsearch_mod, "ElasticsearchMemoryStore", FakeAuthoritativeStore)
+    monkeypatch.setattr(core_memory, "OpenAICompatibleEmbeddingProvider", FakeProvider)
+    monkeypatch.setattr(core_memory, "ElasticsearchEmbeddingStore", FakeCompanion)
+
+    result = _invoke("embeddings", "backfill", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert observed == {}
+    payload = json.loads(result.output)
+    assert payload["scanned"] == 1
+    assert payload["eligible"] == 1
+    assert payload["embedded"] == 0
+    assert payload["failed"] == 0
 
 
 def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -> None:
@@ -305,6 +562,7 @@ def test_introspect_no_memory_emits_json_and_exit_five() -> None:
         "sufficient_from_memory": False,
         "answer": None,
         "memory_evidence": [],
+        "sufficiency": None,
         "vlm_evidence": [],
         "unresolved_gaps": [],
     }

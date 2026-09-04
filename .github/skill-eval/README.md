@@ -46,7 +46,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `NGC_CLI_API_KEY` | Pull VSS NIM containers from `nvcr.io` |
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
-| `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
+| `HF_TOKEN` | Required by RT-VLM / RT-Embed when loading Hugging Face checkpoints |
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |

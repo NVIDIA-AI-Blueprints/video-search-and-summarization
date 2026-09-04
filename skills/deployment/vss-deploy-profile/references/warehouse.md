@@ -50,7 +50,7 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only (all modes: 2d, 3d, mv3dt).
 
 The selected warehouse variant boots the service set identified by `BP_PROFILE`, `MODE`, and deployment size. Only `BP_PROFILE=bp_wh` adds the agent, UI, and RTVI VLM to the warehouse CV pipeline. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
-**MV3DT naming — the `-mv3dt` suffix is not universal.** It comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-kibana-init-mv3dt`, and `vss-import-calibration-output-mv3dt`. The shared `vss-video-analytics-api` stays unsuffixed in every mode. Everything else in an MV3DT deployment keeps its unsuffixed name — including `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`, which extends `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, and referenced by `warehouse-mv3dt-app.yml` only via `depends_on`) — both are MV3DT-only in practice, since their profiles appear solely in the MV3DT Kafka/Redis lists. The VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check` are also unsuffixed.
+**MV3DT naming — the `-mv3dt` suffix is not universal.** It comes from each service's own `container_name:`, not from which file defines it. The deployed suffixed containers are exactly: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt` (+ `-init`), `vss-behavior-analytics-mv3dt`, `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`, and the ReID stack `vss-reid-embed-init-mv3dt`, `vss-reid-embed-mv3dt`, `vss-reid-milvus-mv3dt`, `vss-reid-etcd-mv3dt`, `vss-reid-minio-mv3dt`. Note that the ReID etcd/MinIO/Milvus containers take the `vss-` prefix even though they run third-party images, following `vss-vios-postgres` and `vss-turnserver`: third-party containers dedicated to a single VSS subsystem are prefixed, while shared singletons like `kafka` and `elasticsearch` are not. The shared `vss-video-analytics-api` stays unsuffixed in every mode. Everything else in an MV3DT deployment keeps its unsuffixed name — including `vss-rtvi-cv-bev-fusion` (declared in `warehouse-mv3dt-app.yml`, which extends `services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml`) and `mosquitto` (defined in the shared `services/infra/compose.yml`, and referenced by `warehouse-mv3dt-app.yml` only via `depends_on`) — both are MV3DT-only in practice, since their profiles appear solely in the MV3DT Kafka/Redis lists. The VST stack, `vss-turnserver`, `kafka`/`redis` and `vss-broker-health-check` are also unsuffixed.
 
 ### Warehouse CV core (2D and 3D variants)
 
@@ -68,7 +68,7 @@ The selected warehouse variant boots the service set identified by `BP_PROFILE`,
 | `redis` | Deployed in **every** warehouse list — it backs `sdr-controller`, and is additionally the CV message broker when `STREAM_TYPE=redis` (`bp_wh_redis`) |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
 
-One-shot init containers also appear in these lists and exit `0` when done: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output`, and the per-mode `vss-configurator-<mode>-init` broker gate. In MV3DT the last three carry the suffix: `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`, `vss-configurator-mv3dt-init`. An `Exited (0)` here is success, not a failure.
+One-shot init containers also appear in these lists and exit `0` when done: `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, `sdrc-wait-for-redis`, `sdrc-wait-for-workloads`, `sensor-bp-wait-bp-configurator`, `vss-kafka-topics`, `vss-elasticsearch-init`, `vss-kibana-init`, `vss-import-calibration-output`, and the per-mode `vss-configurator-<mode>-init` broker gate. In MV3DT the last three carry the suffix: `vss-kibana-init-mv3dt`, `vss-import-calibration-output-mv3dt`, `vss-configurator-mv3dt-init`, and MV3DT adds one more, `vss-reid-embed-init-mv3dt`. An `Exited (0)` here is success, not a failure.
 
 > **There is no `vss-rtvi-cv-sdr` container.** Its service definition is commented out in `warehouse-3d-app.yml` and it appears in no `COMPOSE_PROFILES_WH_*` list. HAProxy still defines a `/perception-sdr` route pointing at that hostname, so that route answers 503 on warehouse deployments.
 
@@ -86,8 +86,14 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `mosquitto` | MQTT broker for cross-camera messaging between perception and BEV fusion |
 | `vss-configurator-mv3dt` (+ `vss-configurator-mv3dt-init`) | Blueprint configurator — stream and hardware configs |
 | `vss-behavior-analytics-mv3dt` | Behavior analytics — 3D spatial analytics |
+| `vss-reid-embed-init-mv3dt` | One-shot: downloads SigLIP2 from NGC and exports the CLIP-ReID tracker ONNX into `$VSS_DATA_DIR/models/reid` |
+| `vss-reid-embed-mv3dt` | Appearance-based re-association for the tracker (host port `8088`); consumes `mdx-raw` and republishes compressed embeddings to `mdx-compressed-embeddings` |
+| `vss-reid-milvus-mv3dt` | Milvus standalone holding the ReID embedding gallery |
+| `vss-reid-etcd-mv3dt`, `vss-reid-minio-mv3dt` | Milvus's required etcd and MinIO backends (not published to the host) |
 | `kafka` (kafka variant) / `redis` (always; also the broker for `bp_wh_redis`) | Message broker for CV metadata and `sdr-controller` state |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
+
+See [ReID embedding and re-association](#reid-embedding-and-re-association) for how these five fit together. The ReID stack is in all four `COMPOSE_PROFILES_WH_*_MV3DT` lists — Kafka, Redis, and both `_MINIMAL` — but not in `COMPOSE_PROFILES_PLAYBACK_{KAFKA,REDIS}_MV3DT`, which run no perception.
 
 ### Warehouse Auto-Calibration (select with `BP_PROFILE=bp_wh_auto_calib`)
 
@@ -120,7 +126,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 
 | Container | Port | Deployed when |
 |---|---|---|
-| `elasticsearch` | `ELASTICSEARCH_HOST_PORT` (default `9200`) | `BP_PROFILE=bp_wh` (always — vss-agent storage), **or** kafka/redis extended (any mode — for `mdx-bev`, ELK, overlays, analytics API) |
+| `elasticsearch` | `ELASTICSEARCH_HOST_PORT` (default `9200`) | `BP_PROFILE=bp_wh` (always — vss-agent storage), **or** kafka/redis extended (any mode — for `mdx-bev`, MV3DT's `mdx-compressed-embeddings`, ELK, overlays, analytics API) |
 | `kibana` / `logstash` / `vss-video-analytics-api` | `KIBANA_HOST_PORT` `5601` / — / `VIDEO_ANALYTICS_API_HOST_PORT` `8081` | Same condition as `elasticsearch` |
 | `dcgm-exporter`, `prometheus`, `grafana`, `node-exporter`, `cadvisor` | `9400` / `9090` / `GRAFANA_HOST_PORT` `35000` / `19100` / `18080` | `BP_PROFILE=bp_wh`, or **2D/3D** kafka/redis extended. The MV3DT service lists do not include monitoring. `node-exporter` and `cadvisor` set no `container_name` — in `docker ps` they appear as `<COMPOSE_PROJECT_NAME>-node-exporter-1` / `-cadvisor-1` |
 
@@ -144,13 +150,39 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 - **3D model:** Sparse4D (depth-aware perception, requires 4-camera dataset)
 - **MV3DT model:** Per-camera DeepStream perception + BEV Fusion (multi-view 3D tracking, fuses detections from multiple cameras into a unified BEV frame via MQTT)
 - **Detects:** People, humanoid robots, forklifts, autonomous vehicles, warehouse equipment
-- **Output (broker topic depends on mode):** **2D** — detections with tracked object IDs on `mdx-raw`. **3D** — Sparse4D publishes BEV frames directly to `mdx-bev`; `mdx-raw` stays empty, so do not use it to check whether 3D perception is alive. **MV3DT** — per-camera detections on `mdx-raw`, which `vss-rtvi-cv-bev-fusion` consumes and republishes as `mdx-bev`. Logstash indexes these into date-suffixed Elasticsearch indices (`mdx-bev-YYYY-MM-DD`), extended lists only
+- **Output (broker topic depends on mode):** **2D** — detections with tracked object IDs on `mdx-raw`. **3D** — Sparse4D publishes BEV frames directly to `mdx-bev`; `mdx-raw` stays empty, so do not use it to check whether 3D perception is alive. **MV3DT** — per-camera detections on `mdx-raw`, which `vss-rtvi-cv-bev-fusion` consumes and republishes as `mdx-bev`. MV3DT additionally emits `mdx-compressed-embeddings` from `vss-reid-embed-mv3dt`. Logstash indexes all of these into date-suffixed Elasticsearch indices (`mdx-bev-YYYY-MM-DD`, `mdx-compressed-embeddings-YYYY-MM-DD`), extended lists only
+
+## ReID embedding and re-association
+
+MV3DT runs appearance-based ReID by default. Two models are involved, and they are **not** the ones in `models-download.json` — both come from the one-shot init container instead:
+
+| Model | Used by | Path | Role |
+|---|---|---|---|
+| CLIP-ReID (Market-1501 ViT-B-16) | DeepStream tracker | `$VSS_DATA_DIR/models/reid/reid_model.onnx` | Per-object appearance embedding extracted in the perception pipeline (1280-D, `inferDims: [3, 256, 128]`) |
+| SigLIP2 (`nvidia/tao/siglip_v2:deployable_v1.0`) | `vss-reid-embed-mv3dt` | `$VSS_DATA_DIR/models/reid/siglip_v2_vdeployable_v1.0/siglip2_v1.0.onnx` | Secondary embedding computed inside the service (`ENABLE_SECONDARY_EMBEDDING=True`, `SECONDARY_EMBEDDING_MODEL=siglip2`) |
+
+**Data flow.** The tracker runs with `--tracker-reid` (appended to `metropolis_perception_app` in `ds-start-mv3dt.sh`) and `reidType: 2` (ReID-based re-association), extracting an embedding every `reidExtractionInterval: 8` frames and publishing frames to `mdx-raw` as before. `vss-reid-embed-mv3dt` consumes `mdx-raw`, keeps the embedding gallery in Milvus, and answers the tracker's re-association queries over HTTP at `reid-embed:${REID_SERVICE_PORT}`. It also compresses those embeddings and retains only the samples that best represent each object (`ENABLE_COMPRESSION=True`, `COMPRESSION_INTERVAL_SEC=1`); SigLIP2 secondary embeddings are generated **only for those kept samples**, then published on `mdx-compressed-embeddings`. Re-association runs on **Person only** (`operateOnClassIds: [0]` in the tracker's `ReIDService` block — class 0 in `ds-detector-labels.txt`).
+
+**Broker-agnostic.** `MESSAGE_BROKER` is derived from `STREAM_TYPE`, so the service consumes and republishes over Kafka or Redis to match the rest of the deployment. Both brokers' settings are passed unconditionally and the unselected pair is ignored. On the Redis path the stream field name matters: `REDIS_CONSUMER_PAYLOAD_KEY` must equal `payloadkey` in `deepstream/configs/ds-redis-config.txt` and `REDIS_PRODUCER_PAYLOAD_KEY` must equal `data_field` in the Logstash Redis pipeline. Both are set to `value` here, overriding the image default of `metadata`; a producer-side mismatch fails **silently**, yielding an empty index rather than an error.
+
+**Networking.** All ReID containers run on the Compose `default` bridge with short aliases (`reid-embed`, `reid-milvus`, `reid-etcd`, `reid-minio`) — not host networking. Only `vss-reid-embed-mv3dt` is published to the host, at `${REID_SERVICE_HOST_PORT}:${REID_SERVICE_PORT}` (both `8088`), for host-side probes.
+
+**Port consistency.** The tracker config ships `servicePort: 8088`, and `bp-configurator` rewrites that line from `${REID_SERVICE_PORT}` on every deploy (a `text_replace` operation in `blueprint-configurator/blueprint_config.yml`). Changing `REID_SERVICE_PORT` in `generated.env` is therefore enough — do not hand-edit `ds-mv3dt-tracker-config.yml`, since the edit is silently overwritten.
+
+**Startup order.** `vss-reid-embed-mv3dt` waits for Milvus healthy, `vss-reid-embed-init-mv3dt` completed successfully, and `broker-health-check`; perception (`vss-rtvi-cv-mv3dt`) then waits for `vss-reid-embed-mv3dt` **healthy**. Its healthcheck polls `/health/ready` every 10s with a **300s `start_period`**. That period is a ceiling on how long a not-yet-ready service is tolerated, not a fixed delay: the container flips to healthy on the first successful probe, so once the models are staged and the engines are built, readiness lands in seconds and perception starts right behind it. Only the first deploy consumes a meaningful part of the 300s, for the initial model load.
+
+**State is ephemeral.** `vss-reid-etcd-mv3dt`, `vss-reid-minio-mv3dt`, and `vss-reid-milvus-mv3dt` declare **no volumes at all**, named or bind. The embedding gallery therefore starts empty on every deploy and is lost when the containers are removed, with or without `down -v`. That is intended — the gallery is rebuilt from live traffic. Only the downloaded models under `$VSS_DATA_DIR/models/reid` persist, which is what makes redeploys skip the CLIP-ReID export.
+
+**Storage and indexing.** The Kafka topic / Redis stream `mdx-compressed-embeddings` is registered in `services/infra/compose.yml`, consumed by both Logstash pipelines (`nv.Frame` protobuf), and indexed under `mdx-compressed-embeddings-*` via `mdx_compressed_embeddings_template` (priority 516) with the `mdx-compressed-embeddings-ilm-policy` retention policy. The template deliberately **omits `dims`** on the `dense_vector` field. The width is a property of the secondary embedding model — SigLIP2 by default, selected by `SECONDARY_EMBEDDING_MODEL` — and *not* a function of compression, which reduces how many samples are published rather than how wide each vector is. Since that model is configurable, the template lets Elasticsearch infer the width from the first indexed document instead of hard-coding a value that a model swap would invalidate. To see the width a running deployment settled on, read it back from the mapping: `curl -s "localhost:9200/mdx-compressed-embeddings-*/_mapping" | python3 -m json.tool | grep -A3 '"vector"'`. A matching Kibana index pattern ships in `kibana-dashboard/warehouse-mv3dt-kibana-objects.ndjson`.
+
+**Images.** `vss-reid-embed-init-mv3dt` and `vss-reid-embed-mv3dt` share one image, `${VSS_REID_EMBED_IMAGE}:${VSS_REID_EMBED_TAG}`, defined in `containers.env` (the Compose `image:` lines carry the same literal defaults as a safety net). Override either in `generated.env` to pin a different registry or tag; changing only one of the two containers will make the init container stage models the service does not expect.
 
 ## GPU Layout
 
 | Role | Device | Used by |
 |---|---|---|
 | RT-CV perception (DeepStream — RT-DETR for 2D, Sparse4D for 3D, per-camera MV3DT for mv3dt) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse variants except `BP_PROFILE=bp_wh_auto_calib`. `vss-rtvi-cv-bev-fusion` takes no device id — it is CPU-only |
+| ReID (MV3DT only) | `vss-reid-embed-init-mv3dt` pins `RT_CV_DEVICE_ID`; `vss-reid-embed-mv3dt` reserves **all** GPUs | MV3DT variants. The init container needs a GPU only because the CLIP-ReID ONNX export calls `.cuda()`. `vss-reid-embed-mv3dt` is not pinned to a device id, so on a multi-GPU host it may place its SigLIP2 work anywhere — pin it with `CUDA_VISIBLE_DEVICES` if that collides with the LLM or VLM |
 | RTVI VLM — always local | `RT_VLM_DEVICE_ID` (default: `1`) | `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
 
@@ -204,6 +236,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode); prefer `/video-analytics-api` via HAProxy |
 | Grafana | `http://<HOST_IP>:35000` (`GRAFANA_HOST_PORT`) | `BP_PROFILE=bp_wh`, or **2D/3D** extended Kafka/Redis — not in the MV3DT lists. No HAProxy route |
 | SDR controller | `http://<HOST_IP>:10000` (`SDRC_PROXY_HOST_PORT`); controller `5003`, direct `8011`, Envoy admin `9902` | All warehouse variants |
+| ReID service health | `http://<HOST_IP>:8088/health/ready` (`REID_SERVICE_HOST_PORT`) | MV3DT variants only — no HAProxy route. Also `/health/live`, which comes up well before `/health/ready` |
 
 > There is **no VST MCP container** (`vss-vios-mcp` was removed) — nothing listens on `8001`.
 
@@ -241,7 +274,7 @@ Ask the user which source they want and whether they already have the assets on 
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, playback, calibration) | `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026` | `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data/` — **this inner directory is `VSS_DATA_DIR`** |
+| App data (videos, playback, calibration) | `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026` | `vss-warehouse-app-data_vv3.3.0-09042026/vss-warehouse-app-data/` — **this inner directory is `VSS_DATA_DIR`** |
 
 `VSS_DATA_DIR` must be the directory that holds `videos/`, `playback/`, `models/` and `data_log/`, not its parent.
 
@@ -256,6 +289,8 @@ Ask the user which source they want and whether they already have the assets on 
 > Prefix both with `sudo` only if you do not own `$VSS_DATA_DIR`. Containers run as varying UIDs, which is why the mode is `0777`.
 >
 > `videos/` and `playback/` are **not** in the list: they are read-only inputs that come from the app data itself, and `mkdir` cannot substitute for missing content. `models/` is here because ds-start phase 0 *writes* into it — the `mkdir` is a no-op when the app data already ships it, but the `chmod` is not.
+>
+> **MV3DT only:** `models/reid` needs no separate `mkdir`. Docker auto-creates it for the bind mount, and `vss-reid-embed-init-mv3dt` runs as root and chowns everything it writes to `STORAGE_UID:STORAGE_GID` (`1001:1001`) so perception can read it after dropping privileges. If you pre-stage models there by hand, match that ownership yourself.
 
 > **Org:** the bundle lives in the **`nvstaging`** org (team `vss-warehouse`). Set `NGC_CLI_ORG=nvstaging`, or just pass the fully-qualified `org/team/name:version` path as below. A `403 Access Denied` means the NGC key has no access to that org.
 
@@ -266,6 +301,7 @@ Ask the user which source they want and whether they already have the assets on 
 - `nv-warehouse-4cams` dataset is only valid with `BP_PROFILE=bp_wh` and `MODE=2d`.
 - `warehouse-4cams-20mx20m-synthetic` dataset is valid with `MODE=3d` or `MODE=mv3dt`.
 - MV3DT mode (`MODE=mv3dt`) does not support `BP_PROFILE=bp_wh` (agents) — use `bp_wh_kafka` or `bp_wh_redis`. Calibrate first with `MODE=auto-calibration` and `BP_PROFILE=bp_wh_auto_calib`.
+- MV3DT's ReID model download needs outbound internet **beyond NGC**: the CLIP-ReID source comes from GitHub and the Market-1501 checkpoint from Google Drive. On a restricted host, stage `$VSS_DATA_DIR/models/reid` manually — see [ReID embedding and re-association](#reid-embedding-and-re-association).
 - The `BP_PROFILE=bp_wh`, `MODE=2d` variant is not supported on IGX-THOR or DGX-SPARK.
 
 ---
@@ -411,12 +447,12 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 - 2D / 3D Kafka/Redis variants: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `kafka` and/or `redis`, `vss-turnserver`, plus the VST stack (`vss-vios-postgres`, `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress`, `sdr-controller`)
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker, `vss-turnserver`, plus the same VST stack
+- MV3DT Kafka/Redis variants: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker, `vss-turnserver`, the ReID stack (`vss-reid-embed-mv3dt`, `vss-reid-milvus-mv3dt`, `vss-reid-etcd-mv3dt`, `vss-reid-minio-mv3dt`), plus the same VST stack. `vss-rtvi-cv-mv3dt` will not appear until `vss-reid-embed-mv3dt` reports healthy — seconds on a warm host, up to 5 minutes on the very first deploy while the ReID models load
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local`
 - Extended extra (kafka/redis): `vss-haproxy-ingress`; monitoring in 2D/3D only
 - `elasticsearch`, `logstash`, `kibana`, `vss-video-analytics-api`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis extended (any mode)
 - `BP_PROFILE=bp_wh_auto_calib`: `vss-vios-nvstreamer-amc`, `vss-configurator-base`, auto-calibration (+ UI), `vss-haproxy-ingress`, `vss-turnserver`, `redis` and a VST subset — no broker health check, no perception, no analytics
-- **Expected `Exited (0)`, not `Up`:** `vss-broker-health-check` (the broker gate — it polls, exits, and releases its dependents via `service_completed_successfully`), plus `sdrc-*`, `*-init`, `vss-kafka-topics`, `sensor-bp-wait-bp-configurator` and `vss-import-calibration-output`. A non-zero exit on any of these *is* a finding; `Exited (0)` is not
+- **Expected `Exited (0)`, not `Up`:** `vss-broker-health-check` (the broker gate — it polls, exits, and releases its dependents via `service_completed_successfully`), plus `sdrc-*`, `*-init`, `vss-kafka-topics`, `sensor-bp-wait-bp-configurator`, `vss-import-calibration-output` and — MV3DT only — `vss-reid-embed-init-mv3dt`. A non-zero exit on any of these *is* a finding; `Exited (0)` is not
 
 Check FPS (same container for 2D/3D; use `vss-rtvi-cv-mv3dt` for MV3DT):
 
@@ -964,11 +1000,11 @@ export NGC_CLI_API_KEY='<your-ngc-api-key>'
 
 export NGC_CLI_ORG=nvstaging
 
-APP_DATA_RESOURCE="nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026"
+APP_DATA_RESOURCE="nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026"
 ngc registry resource download-version "$APP_DATA_RESOURCE"
 
 # NGC prefixes _v to the version, which already starts with v -> doubled _vv.
-cd vss-warehouse-app-data_vv3.3.0-08052026
+cd vss-warehouse-app-data_vv3.3.0-09042026
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # The inner directory is VSS_DATA_DIR. Do not use the literal string
@@ -980,9 +1016,9 @@ mkdir -p "$VSS_DATA_DIR"/models \
 chmod -R 0777 "$VSS_DATA_DIR"/models "$VSS_DATA_DIR"/data_log
 ```
 
-`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data` — the **inner** directory. The bundle supplies the sample `videos/` and `playback/` assets.
+`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-09042026/vss-warehouse-app-data` — the **inner** directory. The bundle supplies the sample `videos/` and `playback/` assets.
 
-`v3.3.0-08052026` extracts to exactly `agent_eval/`, `auto-calib/`, `data_log/`, `playback/`, `videos/` and a license PDF — it ships **no `models/`**. (Older bundles carried a legacy `models/` subtree that is no longer used.) The `mkdir` + `chmod` above is therefore **mandatory, not a no-op** on this version: ds-start phase 0 downloads the RT-CV weights into `models/` and builds the TensorRT engine there (~171 MB for 2D — `rtdetr_warehouse_v1.0.2.fp16.onnx` plus the generated `.engine`), writing as the container's UID, which is why the directory must exist and be `0777` first. `auto-calib/vggt/` is **not** bundle content: it is a user-created directory for the optional VGGT model.
+`v3.3.0-09042026` extracts to exactly `agent_eval/`, `auto-calib/`, `data_log/`, `playback/`, `videos/` and a license PDF — it ships **no `models/`**. (Older bundles carried a legacy `models/` subtree that is no longer used.) The `mkdir` + `chmod` above is therefore **mandatory, not a no-op** on this version: ds-start phase 0 downloads the RT-CV weights into `models/` and builds the TensorRT engine there (~171 MB for 2D — `rtdetr_warehouse_v1.0.2.fp16.onnx` plus the generated `.engine`), writing as the container's UID, which is why the directory must exist and be `0777` first. `auto-calib/vggt/` is **not** bundle content: it is a user-created directory for the optional VGGT model.
 
 ---
 
@@ -1050,6 +1086,13 @@ RTVI_VLLM_GPU_MEMORY_UTILIZATION='0.8'
 MQTT_HOST=mosquitto
 MQTT_PORT=1883
 
+# --- ReID (mv3dt only — appearance-based re-association) ---
+# REID_SERVICE_PORT is the in-container port and is propagated into the tracker
+# config by bp-configurator; change REID_SERVICE_HOST_PORT alone if 8088 is
+# already taken on the host. NGC_CLI_API_KEY must also reach nvidia/tao/siglip_v2.
+REID_SERVICE_PORT=8088
+REID_SERVICE_HOST_PORT=8088
+
 # --- Paths ---
 VSS_APPS_DIR="<repo>/deploy/docker"
 # One of: <repo>/data, a custom local path, or extracted NGC app-data dir (see Phase 4)
@@ -1062,7 +1105,7 @@ HAPROXY_HOST_PORT=7777               # host-published ingress for VSS UI
 HAPROXY_PORT=7777                    # HAProxy container listen port
 
 # --- Credentials ---
-NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for RT-CV model downloads, local NIMs, and image pulls
+NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for RT-CV model downloads, local NIMs, image pulls, and (mv3dt) SigLIP2
 NVIDIA_API_KEY=''                              # required for build.nvidia.com remote endpoints
 OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
@@ -1310,6 +1353,9 @@ When adding new cameras to an MV3DT deployment, run the MV3DT utility scripts un
 | Streams not appearing in VST | `docker logs vss-vios-nvstreamer` (2D/3D) or `docker logs vss-vios-nvstreamer-mv3dt` (MV3DT). If nvstreamer never started, check `vss-configurator` first — nvstreamer waits on it being healthy |
 | Perception not starting | `docker logs vss-rtvi-cv` (2D/3D) or `docker logs vss-rtvi-cv-mv3dt` (MV3DT) — verify models in `$VSS_DATA_DIR/models/` |
 | `vss-configurator` health check failing | Wait 60s and recheck (60s start period) |
+| MV3DT: perception stuck waiting on `vss-reid-embed-mv3dt` | Expected only on the first deploy, while the ReID models load into the 300s `start_period`. On a host that has run before, readiness is seconds — a long wait there is a real fault, so read `docker logs vss-reid-embed-mv3dt` |
+| MV3DT: `vss-reid-embed-init-mv3dt` exits non-zero | Usually the Google Drive CLIP-ReID checkpoint or NGC access to `nvidia/tao/siglip_v2`. See [ReID embedding and re-association](#reid-embedding-and-re-association) |
+| MV3DT: `mdx-compressed-embeddings-*` index never appears | A `_MINIMAL` list deploys no Elasticsearch at all. Otherwise check that `vss-kafka-topics` ran after this change (the topic list is a runtime env value, so recreating the container is enough — no `--build`), then that `logstash` is consuming, then that `vss-reid-embed-mv3dt` is producing |
 | Low FPS | GPU oversaturated — reduce `NUM_STREAMS` and redeploy |
 | Dataset/mode mismatch | `nv-warehouse-4cams` → `BP_PROFILE=bp_wh`, `MODE=2d`; `warehouse-4cams-20mx20m-synthetic` → `MODE=3d` or `MODE=mv3dt` |
 | Brev: UI loads but API calls fail / mixed-content errors | `VSS_PUBLIC_*` overrides not applied — URLs still use `http://7777-<BREV_ENV_ID>.brevlab.com:7777` instead of `https://7777-<BREV_ENV_ID>.brevlab.com`. Apply [Brev secure link overrides](#brev-secure-link-overrides) and redeploy |

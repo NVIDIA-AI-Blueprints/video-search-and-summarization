@@ -488,12 +488,9 @@ function get_removed_llm_message() {
 function get_vlm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
-    nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
     nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
     # No standalone NIM ships this checkpoint; RT-VLM serves it, so there is no slug to select.
     nvidia/cosmos3-reasoner-fp8) echo "none" ;;
-    Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
 }
@@ -504,11 +501,8 @@ function get_vlm_slug() {
 function get_rtvi_vlm_model_path() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/cosmos-reason1-7b) echo "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" ;;
-    nvidia/cosmos-reason2-8b) echo "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" ;;
     nvidia/cosmos3-reasoner) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" ;;
     nvidia/cosmos3-reasoner-fp8) echo "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" ;;
-    Qwen/Qwen3-VL-8B-Instruct) echo "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" ;;
     *) echo "" ;;
   esac
 }
@@ -516,11 +510,8 @@ function get_rtvi_vlm_model_path() {
 function get_rtvi_vlm_model_to_use() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/cosmos-reason1-7b) echo "cosmos-reason1" ;;
-    nvidia/cosmos-reason2-8b) echo "cosmos-reason2" ;;
     nvidia/cosmos3-reasoner) echo "cosmos-reason3" ;;
     nvidia/cosmos3-reasoner-fp8) echo "cosmos-reason3" ;;
-    Qwen/Qwen3-VL-8B-Instruct) echo "vllm-compatible" ;;
     *) echo "" ;;
   esac
 }
@@ -937,12 +928,9 @@ function usage() {
   echo ""
   echo "  --vlm                            VLM model name."
   echo "                                   • One of (local):"
-  echo "                                     - nvidia/cosmos-reason1-7b"
-  echo "                                     - nvidia/cosmos-reason2-8b"
   echo "                                     - nvidia/cosmos3-reasoner          (search: NIM_MODEL_SIZE=nano|super → nvidia/cosmos3-{size}-reasoner;"
   echo "                                                                         base/alerts/lvs: maps to RT-VLM MODEL_PATH + /v1/models basename)"
   echo "                                     - nvidia/cosmos3-reasoner-fp8      (Cosmos3 Nano FP8 via RT-VLM; smaller footprint for a shared GPU)"
-  echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
   echo "  --vlm-device-id                  VLM device ID."
@@ -1658,7 +1646,7 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, nvidia/cosmos3-reasoner-fp8, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos3-reasoner, nvidia/cosmos3-reasoner-fp8"
             ((_all_good++))
           fi
         fi
@@ -2340,10 +2328,10 @@ function state_up() {
       echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
     done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
   fi
-  # LVS keeps RTVI_VLM_IMAGE_TAG in its static .env, so write the ARM64
-  # override into generated.env where it wins during Compose interpolation.
+  # Write the ARM64 RT-VLM image selector into generated.env where it wins
+  # during Compose interpolation.
   if [[ "${hardware_profile}" == "GB300" ]]; then
-    set_env_var "RTVI_VLM_IMAGE_TAG" "3.3.0-26.08.2-sbsa"
+    set_env_var "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
     echo "[INFO] Selected SBSA RT-VLM image for GB300"
   fi
 

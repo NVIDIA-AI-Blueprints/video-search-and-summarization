@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { StreamInfo, StreamsApiResponse } from '../types';
 import { createApiEndpoints } from '../api';
 import { parseStreamsResponse } from '../utils';
-import { DELETED_STREAM_POLL_DELAYS_MS } from '../constants';
+import { ADDED_STREAM_POLL_DELAYS_MS, DELETED_STREAM_POLL_DELAYS_MS } from '../constants';
 
 interface UseStreamsOptions {
   vstApiUrl?: string | null;
@@ -12,6 +12,11 @@ interface UseStreamsOptions {
 interface WaitUntilStreamsRemovedResult {
   /** sensorIds that were still present in VST after the poll budget ran out */
   remainingSensorIds: string[];
+}
+
+interface WaitUntilStreamAddedResult {
+  /** `false` when VST never listed the sensor within the poll budget */
+  found: boolean;
 }
 
 interface UseStreamsResult {
@@ -26,6 +31,13 @@ interface UseStreamsResult {
    * resolves (NVBug 6243148).
    */
   waitUntilStreamsRemoved: (sensorIds: string[]) => Promise<WaitUntilStreamsRemovedResult>;
+  /**
+   * Re-poll VST until `sensorId` appears in the streams response, or until
+   * `ADDED_STREAM_POLL_DELAYS_MS` is exhausted. Updates `streams` on every
+   * poll. Callers should keep the add dialog open until this resolves, so the
+   * grid already holds the new stream by the time the dialog closes.
+   */
+  waitUntilStreamAdded: (sensorId: string) => Promise<WaitUntilStreamAddedResult>;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -119,6 +131,28 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     return { remainingSensorIds: Array.from(pending) };
   }, [fetchStreams]);
 
+  const waitUntilStreamAdded = useCallback(async (sensorId: string): Promise<WaitUntilStreamAddedResult> => {
+    if (!sensorId) return { found: false };
+
+    // A poll that failed says nothing about what VST holds, so it counts as
+    // "not yet listed" and the next poll decides.
+    const isListed = (listed: StreamInfo[] | null) =>
+      listed?.some((s) => s.sensorId === sensorId) ?? false;
+
+    // Immediate check — VST may already list the sensor by the time the
+    // add call returned.
+    if (isListed(await fetchStreams({ silent: true }))) return { found: true };
+
+    for (const pollDelay of ADDED_STREAM_POLL_DELAYS_MS) {
+      await sleep(pollDelay);
+      if (!isMountedRef.current) return { found: false };
+
+      if (isListed(await fetchStreams({ silent: true }))) return { found: true };
+    }
+
+    return { found: false };
+  }, [fetchStreams]);
+
   useEffect(() => {
     fetchStreams();
   }, [fetchStreams]);
@@ -129,5 +163,6 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     error,
     refetch,
     waitUntilStreamsRemoved,
+    waitUntilStreamAdded,
   };
 }

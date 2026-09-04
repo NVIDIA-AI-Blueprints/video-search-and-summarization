@@ -90,7 +90,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 For standalone RTVI-CV-3D/MV3DT deployment, follow the
 [Agents skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough) below. For the
 complete Warehouse Blueprint MV3DT deployment, follow the
-[Skill section in the Quickstart Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#warehouse-quickstart-skill).
+[Skill section in the Quickstart Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#warehouse-blueprint-skill).
 </Note>
 
 For detailed steps, see the [Quickstart](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
@@ -401,7 +401,7 @@ Each `rtsp_url` in `camera_info.json` must be reachable from the machine where y
 </Note>
 
 <Tip>
-You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). The warehouse MV3DT compose setup uses a single BEV group, so run the clustering tool with `--n_clusters 1` to place every camera in `bev-sensor-1`. These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile)). For installation and the full command reference, see [Camera Grouping Utilities](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-grouping-utilities).
+You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). The warehouse MV3DT compose setup uses a single BEV group, so run the clustering tool with `--n_clusters 1` to place every camera in `bev-sensor-1`. These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-mv3dt)). For installation and the full command reference, see [Camera Grouping Utilities](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#camera-grouping-utilities).
 </Tip>
 
     (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env`:
@@ -495,7 +495,9 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Deploy the auto-calibration profile (`bp_wh_auto_calib_mv3dt`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start-guide). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+
+<a id="calibration-group-region-note-mv3dt"></a>
 
 <Note>
 - Maintain a single `calibration.json` file per deployment.

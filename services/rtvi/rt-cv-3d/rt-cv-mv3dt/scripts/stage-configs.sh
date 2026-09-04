@@ -56,6 +56,11 @@ if [ -f "$ROOT/docker/.env" ]; then
     [[ "$k" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
     [ -n "${!k:-}" ] && continue          # already-exported value wins
     v="${v%$'\r'}"                         # tolerate CRLF line endings
+    # Strip an unquoted trailing comment: "NUM_CAMS=4  # four cams" is a normal
+    # .env line, and without this the value carries the comment into the staged
+    # config. Quoted values keep their # (paths and connection strings use it).
+    if [[ $v != \"* && $v != \'* ]]; then v="${v%%[[:space:]]#*}"; fi
+    v="${v%"${v##*[![:space:]]}"}"           # drop trailing whitespace
     if [[ $v == \"*\" ]]; then v="${v#\"}"; v="${v%\"}"; fi   # strip paired "…"
     if [[ $v == \'*\' ]]; then v="${v#\'}"; v="${v%\'}"; fi   # strip paired '…'
     printf -v "$k" '%s' "$v" && export "$k"
@@ -86,27 +91,48 @@ KAFKA_HOST="${KAFKA_BOOTSTRAP%%:*}"
 KAFKA_PORT_ONLY="${KAFKA_BOOTSTRAP##*:}"
 NVENC_LESS_GPU_NAME=""
 
-# /dev/v4l2-nvenc is a Tegra signal, not a dGPU signal. For dGPU hosts, only
-# switch when the selected GPU is a known encoder-less compute SKU.
-is_nvenc_less_gpu_name() {
-  local name="$1"
-  [[ "$name" =~ (^|[^[:alnum:]])(A100|H100|H200|GB200|GB300)([^[:alnum:]]|$) ]]
+# Which encoder [sink2] can use, asked of the hardware rather than a GPU name:
+# nvidia-smi reports encoder usage but never capability, and a name list misses
+# whatever ships next (a GB200 node reports its GPUs as B200). In order:
+# run DeepStream's encoder element in the image, then the Tegra encoder node,
+# then ffmpeg. If none can answer, staging refuses rather than guess.
+gpu_name() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  nvidia-smi --id="$GPU_DEVICE" --query-gpu=name --format=csv,noheader 2>/dev/null | head -1
 }
 
-detect_nvenc_less_gpu() {
-  local name
+# Positive-only: present means an encoder exists, absent means nothing.
+TEGRA_ENCODER_NODE="${TEGRA_ENCODER_NODE:-/dev/v4l2-nvenc}"
+has_tegra_encoder_node() { [ -e "$TEGRA_ENCODER_NODE" ]; }
 
-  command -v nvidia-smi >/dev/null 2>&1 || return 1
+# Encoding proves the encoder exists; only "unsupported device" proves it does
+# not. Any other failure is inconclusive.
+ffmpeg_encoder_kind() {
+  command -v ffmpeg >/dev/null 2>&1 || { echo unknown; return; }
+  ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc || { echo unknown; return; }
+  local out
+  if out="$(ffmpeg -hide_banner -loglevel error -f lavfi -i nullsrc=s=256x256:d=0.1 \
+            -pix_fmt yuv420p -c:v h264_nvenc -f null - 2>&1)"; then
+    echo hardware; return
+  fi
+  if printf '%s' "$out" | grep -qi "unsupported device"; then echo software; return; fi
+  echo unknown
+}
 
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    if is_nvenc_less_gpu_name "$name"; then
-      NVENC_LESS_GPU_NAME="$name"
-      return 0
-    fi
-  done < <(nvidia-smi --id="$GPU_DEVICE" --query-gpu=name --format=csv,noheader 2>/dev/null || true)
-
-  return 1
+# echoes: hardware | software | unknown
+encoder_kind() {
+  local rc=0
+  # Cheap and local first: on Jetson this answers outright, so we never reach the
+  # probe, which would otherwise pull a multi-GB image onto a small disk.
+  has_tegra_encoder_node && { echo hardware; return; }
+  if [ -x "$ROOT/scripts/prepare-sw-encoder.sh" ]; then
+    "$ROOT/scripts/prepare-sw-encoder.sh" --probe-hw >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+      0)  echo hardware; return ;;
+      10) echo software; return ;;
+    esac
+  fi
+  ffmpeg_encoder_kind
 }
 
 STAGE="$ROOT/generated/configs"
@@ -118,6 +144,73 @@ CAMS=()
 if ls "$GEN/camInfo"/*.yml >/dev/null 2>&1; then
   mapfile -t CAMS < <(cd "$GEN/camInfo" && LC_ALL=C ls -1 *.yml | sed 's/\.yml$//')
 fi
+
+# NUM_CAMS drives batch-size, the grid and the engine suffix; camInfo drives the
+# tracker map and the file-mode source list. When they disagree nothing notices
+# until sources fail to activate, so compare every source we have.
+check_camera_consistency() {
+  local problems=() calib_ids pubsub_ids
+  (( ${#CAMS[@]} )) || return 0          # no camInfo: handled separately per mode
+
+  [ "${#CAMS[@]}" = "$NUM_CAMS" ] || problems+=(
+    "NUM_CAMS=$NUM_CAMS but generated/camInfo has ${#CAMS[@]} camera(s): $(printf '%s ' "${CAMS[@]}")")
+
+  if [ -f "$GEN/calibration.json" ]; then
+    calib_ids="$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+s = d.get("sensors", d)
+ids = [x.get("id") or x.get("sensorId") for x in s] if isinstance(s, list) else list(s)
+print(" ".join(sorted(str(i) for i in ids if i)))
+' "$GEN/calibration.json" 2>/dev/null)"
+    if [ -n "$calib_ids" ] && [ "$calib_ids" != "$(printf '%s\n' "${CAMS[@]}" | sort | tr '\n' ' ' | sed 's/ $//')" ]; then
+      problems+=("calibration.json sensors [$calib_ids] do not match camInfo [$(printf '%s ' "${CAMS[@]}" | sed 's/ $//')]")
+    fi
+  fi
+
+  if [ -f "$GEN/pub_sub_info_config.yml" ]; then
+    pubsub_ids="$(awk '/^pubBrokerTopicStr:/ { p = 1; next }
+                       /^[^[:space:]]/       { p = 0 }
+                       p && /^[[:space:]]+[A-Za-z0-9_.-]+:/ {
+                         sub(/^[[:space:]]+/, ""); sub(/:.*$/, ""); print }' \
+                  "$GEN/pub_sub_info_config.yml" | sort | tr '\n' ' ' | sed 's/ $//')"
+    if [ -n "$pubsub_ids" ] && [ "$pubsub_ids" != "$(printf '%s\n' "${CAMS[@]}" | sort | tr '\n' ' ' | sed 's/ $//')" ]; then
+      problems+=("pub_sub_info_config.yml sensors [$pubsub_ids] do not match camInfo")
+    fi
+  fi
+
+  (( ${#problems[@]} )) || return 0
+  { echo "ERROR: camera configuration is inconsistent, nothing was staged."
+    printf '       %s\n' "${problems[@]}"
+    echo "       Re-run scripts/generate-configs.sh <calibration.json> for this camera set,"
+    echo "       and set NUM_CAMS in docker/.env to match it."; } >&2
+  exit 1
+}
+check_camera_consistency
+
+# enc-type=1 needs an encoder the stock image lacks. Settle it before staging so
+# a config known to fail at runtime is never written.
+ensure_sw_encoder() {
+  [ "$SAVE_VIDEO" = "1" ] || return 0
+  case "$(encoder_kind)" in
+    hardware) return 0 ;;
+    unknown)
+      { echo "ERROR: cannot tell whether this GPU has a hardware video encoder, and"
+        echo "       SAVE_VIDEO=1 needs that answer. Nothing was staged."
+        echo "       The check runs DeepStream's encoder in ${PERCEPTION_IMAGE:-the perception image};"
+        echo "       it needs docker, GPU access and that image on this host."; } >&2
+      exit 1 ;;
+  esac
+  NVENC_LESS_GPU_NAME="$(gpu_name || echo "this GPU")"
+  "$ROOT/scripts/prepare-sw-encoder.sh" && return 0
+  { echo "ERROR: SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} needs the software encoder and it"
+    echo "       could not be prepared. Nothing was staged."; } >&2
+  exit 1
+}
+ensure_sw_encoder
 
 # file-mode source URIs / sensor ids (file:///videos/<cam>.mp4), built from CAMS.
 URIS=""; IDS=""
@@ -190,6 +283,87 @@ set_ini tiled-display columns "$COLS"
 set_ini tiled-display width "$TILE_WIDTH"
 set_ini tiled-display height "$TILE_HEIGHT"
 set_ini tiled-display enable 1                  # tiler on: on-screen grid + SAVE_VIDEO grid sink
+# OSD needs the GPU driving the display to be visible to the container. gpu-id is
+# a CUDA ordinal within that visible set, and the runtime orders it by PCI
+# address, so it is not the nvidia-smi index. Resolve both here, where every GPU
+# is visible. Nothing is changed when the display GPU cannot be determined, to
+# avoid moving the workload to a GPU nobody chose.
+resolve_gpu_selection() {   # echoes "<visible_csv> <gpu_id>", or nothing
+  GPU_DEVICE="$GPU_DEVICE" OSD="$OSD" python3 - <<'PY'
+import os, re, subprocess, sys
+
+def smi(q):
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=" + q, "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=10)
+        return [l.strip() for l in out.stdout.splitlines() if l.strip()]
+    except Exception:
+        return []
+
+rows = [l.split(", ") for l in smi("index,pci.bus_id")]
+if not rows:
+    sys.exit(0)
+bus = {r[0]: r[1].upper() for r in rows if len(r) == 2}
+
+want = (os.environ.get("GPU_DEVICE") or "0").strip()
+compute = [d.strip() for d in want.split(",") if d.strip()]
+if want == "all":
+    compute = sorted(bus, key=lambda i: bus[i])
+# UUIDs cannot be ordered here.
+if any(not d.isdigit() for d in compute):
+    sys.exit(0)
+
+visible = list(compute)
+
+# xorg.conf states the bus in decimal, nvidia-smi in hex.
+if os.environ.get("OSD") == "1":
+    disp = None
+    try:
+        conf = open("/etc/X11/xorg.conf").read()
+        m = re.search(r'BusID\s+"PCI:(\d+)', conf)
+        if m:
+            tag = ":%02X:00" % int(m.group(1))
+            disp = next((i for i, b in bus.items() if tag in b), None)
+    except Exception:
+        disp = None
+    if disp is None:
+        # Only worth reporting when there is a choice to get wrong.
+        if len(bus) > 1:
+            print("UNKNOWN")
+        sys.exit(0)
+    if disp not in visible:
+        visible.append(disp)
+
+visible = sorted(set(visible), key=lambda i: bus.get(i, ""))
+try:
+    gpu_id = visible.index(compute[0])    # CUDA ordinal, not nvidia-smi index
+except ValueError:
+    sys.exit(0)
+print("%s %s" % (",".join(visible), gpu_id))
+PY
+}
+
+read -r RESOLVED_VISIBLE RESOLVED_GPU_ID <<<"$(resolve_gpu_selection)"
+if [ "${RESOLVED_VISIBLE:-}" = UNKNOWN ]; then
+  echo "   ⚠ cannot tell which GPU drives the display (no BusID in /etc/X11/xorg.conf)." >&2
+  echo "     GPU_DEVICE=$GPU_DEVICE is unchanged. If the OSD fails to start, add the GPU" >&2
+  echo "     that drives the display to GPU_DEVICE and restage." >&2
+elif [ -n "${RESOLVED_GPU_ID:-}" ]; then
+  if [ "$RESOLVED_VISIBLE" != "$GPU_DEVICE" ]; then
+    ENV_FILE="$ROOT/docker/.env"
+    if [ -f "$ENV_FILE" ] && grep -qE '^[[:space:]]*GPU_DEVICE=' "$ENV_FILE"; then
+      sed -i -E "s|^[[:space:]]*GPU_DEVICE=.*|GPU_DEVICE=$RESOLVED_VISIBLE|" "$ENV_FILE"
+      echo "   GPU_DEVICE: $GPU_DEVICE -> $RESOLVED_VISIBLE (added the GPU driving the display)"
+    else
+      echo "   ⚠ OSD needs GPU_DEVICE=$RESOLVED_VISIBLE; docker/.env has no GPU_DEVICE line" >&2
+    fi
+    GPU_DEVICE="$RESOLVED_VISIBLE"
+  fi
+  sed -i -E "s|^gpu-id=.*|gpu-id=$RESOLVED_GPU_ID|" "$STAGE/ds-main-config-mv3dt.txt"
+  sed -i -E "s|^([[:space:]]*)gpu-id:.*|\1gpu-id: $RESOLVED_GPU_ID|" "$STAGE/ds-pgie-config.yml" 2>/dev/null || true
+  echo "   gpu-id=$RESOLVED_GPU_ID within GPU_DEVICE=$GPU_DEVICE"
+fi
+
 set_ini source-list  max-batch-size "$NUM_CAMS"
 set_ini source-list  http-port "$DS_HTTP_PORT"
 set_ini streammux    batch-size "$NUM_CAMS"
@@ -198,9 +372,9 @@ set_ini sink1        msg-broker-conn-str "$KAFKA_HOST;$KAFKA_PORT_ONLY;$RAW_TOPI
 set_ini sink0 enable "$([ "$OSD" = 1 ] && echo 1 || echo 0)"          # on-screen OSD (needs a display)
 set_ini sink1 enable 1                                                # Kafka metadata sink
 set_ini sink2 enable "$([ "$SAVE_VIDEO" = 1 ] && echo 1 || echo 0)"   # grid file sink (SAVE_VIDEO)
-if [ "$SAVE_VIDEO" = "1" ] && detect_nvenc_less_gpu; then
+if [ "$SAVE_VIDEO" = "1" ] && [ -n "$NVENC_LESS_GPU_NAME" ]; then
   set_ini sink2 enc-type 1
-  echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; no NVENC hardware encoder available)"
+  echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; this GPU cannot encode in hardware)"
 fi
 
 # File input: static file:// [source-list], SEI extraction off, clips play once,

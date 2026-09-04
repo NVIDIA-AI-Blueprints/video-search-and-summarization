@@ -63,6 +63,7 @@ class OpenAIVLMAnalyzer:
         max_frames: int = 60,
         max_fps: int = 2,
         cosmos_nim_runtime_options: bool = True,
+        rt_vlm_frame_budget: int | None = None,
     ) -> None:
         if not base_url.strip():
             raise ConfigurationError("VLM base_url must be non-empty")
@@ -74,6 +75,8 @@ class OpenAIVLMAnalyzer:
             raise ConfigurationError(f"unsupported VLM media_mode: {media_mode!r}")
         if video_url_scope not in {"internal", "external"}:
             raise ConfigurationError(f"unsupported VLM video_url_scope: {video_url_scope!r}")
+        if rt_vlm_frame_budget is not None and rt_vlm_frame_budget < 1:
+            raise ConfigurationError("VLM rt_vlm_frame_budget must be >= 1")
         self._base_url = _normalize_base_url(base_url)
         self._model = model
         self._api_key = api_key
@@ -85,6 +88,7 @@ class OpenAIVLMAnalyzer:
         self._max_frames = max(1, max_frames)
         self._max_fps = max(1, max_fps)
         self._cosmos_nim_runtime_options = cosmos_nim_runtime_options
+        self._rt_vlm_frame_budget = rt_vlm_frame_budget
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -199,6 +203,11 @@ class OpenAIVLMAnalyzer:
                     "num_frames": _dynamic_num_frames(duration_seconds, self._max_frames, self._max_fps),
                 }
             }
+        if self._rt_vlm_frame_budget is not None:
+            # RT-VLM does its own preprocessing and ignores media_io_kwargs, but
+            # it defaults the budget to 0 (opening frame only) when absent, so a
+            # window-scoped question would be answered from a single frame.
+            payload["num_frames_per_second_or_fixed_frames_chunk"] = self._rt_vlm_frame_budget
         if not self._disable_audio and "omni" in model:
             payload["mm_processor_kwargs"] = {"use_audio_in_video": True}
 

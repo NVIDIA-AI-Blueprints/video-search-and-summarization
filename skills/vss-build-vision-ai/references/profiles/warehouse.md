@@ -5,9 +5,9 @@ end to end: what the Foundation is made of, what constrains it, how a build is
 resolved, and how the result is reached and verified. The rest of the skill's
 machinery applies unchanged by reference — see Build and resolve below.
 
-`overrides.env` defines further service lists; only the nine below are
-supported. The others are out of scope for this skill — do not compose or deploy
-them.
+`overrides.env` defines further service lists; the `COMPOSE_PROFILES_WH_*` lists
+in the table below are supported. The others are out of scope for this skill —
+do not compose or deploy them.
 
 **Warehouse is variant selection, not composition.** Pick the one
 `COMPOSE_PROFILES_WH_*` list that `MODE` + `BP_PROFILE` + size identify, expand
@@ -49,7 +49,7 @@ Resolve block below instead.
 Authoritative source:
 `deploy/docker/industry-profiles/warehouse-operations/overrides.env`. Select one
 list by variant; expand it verbatim into `COMPOSE_PROFILES` and record its name
-in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
+in `FOUNDATION_VARIANT`. The lists in scope are:
 
 | `MODE` | `BP_PROFILE` | Extended list | Minimal list |
 |---|---|---|---|
@@ -58,27 +58,62 @@ in `FOUNDATION_VARIANT`. Nine of the file's lists are in scope:
 | `2d` | `bp_wh_redis` | `…_WH_REDIS_2D` | `…_WH_REDIS_2D_MINIMAL` |
 | `3d` | `bp_wh_kafka` | `…_WH_KAFKA_3D` | `…_WH_KAFKA_3D_MINIMAL` |
 | `3d` | `bp_wh_redis` | `…_WH_REDIS_3D` | `…_WH_REDIS_3D_MINIMAL` |
+| `mv3dt` | `bp_wh_kafka` | `…_WH_KAFKA_MV3DT` | `…_WH_KAFKA_MV3DT_MINIMAL` |
+| `mv3dt` | `bp_wh_redis` | `…_WH_REDIS_MV3DT` | `…_WH_REDIS_MV3DT_MINIMAL` |
+| `auto-calibration` | `bp_wh_auto_calib` | `COMPOSE_PROFILES_WH_AUTO_CALIB` | — |
+
+`mv3dt` is multi-view 3D tracking with BEV fusion — the same analytics shape as
+`3d`, fed by a multi-camera tracker rather than single-view Sparse4D.
+
+**`auto-calibration` is a mode, not a size or a broker choice.** It pairs only
+with `BP_PROFILE=bp_wh_auto_calib`. It writes a calibration rather than reading
+one, so the calibration-presence rule below does not apply, and there is no
+`warehouse-auto-calibration-app` tree for a mode-embedded path to point at. It
+runs no perception and no broker, so `STREAM_TYPE` does not apply either. It
+ships without the SDRC chain — `init-dirs`, `render-config`,
+`wdm-env-from-config`, `wait-for-redis`, `sdr-controller` — so its
+infrastructure floor is the common set only.
+
+**Auto-calibration build requirements.** In `override.env`, restore the
+direct-VST defaults — `overrides.env` sets the SDRC trio for `2d`/`3d`/`mv3dt`,
+and a later env layer can only override a variable, not un-set it:
+
+```text
+VST_USE_SDRC=false
+VST_NGINX_MODE=vst
+STREAM_PROCESSOR_MODULE_ENDPOINT=http://vss-vios-streamprocessing:30001
+```
+
+Create the project store before `up` — it is not in the repo, and the container
+writes to it as uid 1000:
+
+```bash
+mkdir -p "$VSS_APPS_DIR/services/auto-calibration/projects"
+chmod 0777 "$VSS_APPS_DIR/services/auto-calibration/projects"
+```
+
+**VGGT is optional — nothing to do.** `VGGT available: False` in the logs is
+expected, not a failure: the weight is gated on HuggingFace, so the service may falls back to base AMC.
 
 Extended adds ELK, `vss-video-analytics-api`, `vss-haproxy-ingress`,
 `import-calibration-output-container-<mode>`, and monitoring (`dcgm-exporter`,
 `prometheus`, `grafana`, `node-exporter`, `cadvisor`). Minimal lists carry none
 of these.
 
-> `MINIMAL_PROFILE` and `ELASTICSEARCH_MODE` are **dead knobs** on this path —
-> read only by `blueprint-deploy.sh` and the launchable, never by the compose
-> stack. Size is selected *only* by which list `COMPOSE_PROFILES` points at.
+> Size is selected *only* by which list `COMPOSE_PROFILES` points at.
 
 ## Capability owners present
 
-`<mode>` is `2d` or `3d`; the suffix is on the compose *service* name only
-([`../services/vios.md`](../services/vios.md)).
+`<mode>` is `2d`, `3d` or `mv3dt`; the suffix is on the compose *service* name
+only ([`../services/vios.md`](../services/vios.md)).
 
 | Owner | Service profile keys |
 |---|---|
-| RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d` |
+| RT-CV | `perception-2d` / `perception-3d`; 3D additionally requires `ds-configurator-3d`. **`mv3dt` does not follow the `perception-<mode>` pattern**: it is two services, `vss-rtvi-cv-mv3dt` (per-camera tracking) and `vss-rtvi-cv-bev-fusion` (multi-view merge) |
 | Behavior Analytics | `vss-behavior-analytics-<mode>` |
-| Configurator | `bp-configurator-<mode>`, `bp-configurator-<mode>-init` |
+| Configurator | `bp-configurator-<mode>` |
 | ELK | `kafka`, `kafka-topic-init-container`, `redis`, `broker-health-check`, `elasticsearch`, `elasticsearch-init-container`, `kibana`, `logstash`, `kibana-init-container-<mode>` |
+| MQTT | `mosquitto` — **`mv3dt` lists only**; no 2d/3d list carries it (`MQTT_HOST_PORT` 1883) |
 | VIOS | `nvstreamer-<mode>`, `sensor-ms-<mode>`, `streamprocessing-ms-<mode>`, `centralizedb`, `vst-ingress`, `sdr-controller`, `turnserver`, `turnserver-init`, `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `sensor-bp-wait-bp-configurator` |
 | Video Analytics API | `vss-video-analytics-api`, `import-calibration-output-container-<mode>` |
 | Ingress | `vss-haproxy-ingress` |
@@ -115,40 +150,28 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 
 | Constraint | Symptom if violated |
 |---|---|
-| `MODE` must be `2d` or `3d`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis` | routes to a service list this skill does not support |
+| `MODE` must be `2d`, `3d`, `mv3dt` or `auto-calibration`, and `BP_PROFILE` one of `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` | routes to a service list this skill does not support |
 | `BP_PROFILE=bp_wh` is 2D-only | unsupported combination |
+| `BP_PROFILE=bp_wh_auto_calib` pairs only with `MODE=auto-calibration`, and vice versa | routes to a list that is not the one selected |
 | `BP_PROFILE=bp_wh` is rejected on `IGX-THOR` and `DGX-SPARK` | configurator refuses |
 | `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
 | `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
-| Dataset ↔ variant: `nv-warehouse-4cams` only with `bp_wh`+`2d` (4 streams); `warehouse-loading-dock-3cams-synthetic` with 2D kafka/redis (3); `warehouse-4cams-20mx20m-synthetic` with `3d` (4) | short stream count with every container healthy |
+| `NUM_STREAMS` must equal the dataset's camera count: `nv-warehouse-4cams` 4, `warehouse-loading-dock-3cams-synthetic` 3, `warehouse-4cams-20mx20m-synthetic` 4. **Dataset and mode are independent** — every shipped dataset now carries calibration for `2d`, `3d` and `mv3dt`, so any dataset pairs with any analytics mode | short stream count with every container healthy |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
-| `MODE=3d` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
+| `MODE=3d` or `mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
 
-### Remote VLM is exposed but not wired (Docker path)
+### Remote VLM is not supported (Docker path)
 
-`VLM_MODE=remote` looks supported and is not. `blueprint-deploy.sh
---use-remote-vlm` (2D + `bp_wh` only) sets `VLM_BASE_URL`,
-`RTVI_VLM_ENDPOINT=${VLM_BASE_URL}/v1` and `RTVI_VLM_MODEL_PATH=none`, but it
-never switches the two selectors that decide which backend serves the request:
+Warehouse uses the integrated RTVI VLM, which runs locally only, so `VLM_MODE`
+and `VLM_NAME_SLUG` stay `none` — `scripts/validate_warehouse_env.py` enforces
+it. The supported remote configuration is **remote LLM with local RT-VLM**
+(`LLM_MODE=remote`, `LLM_BASE_URL` without a trailing `/v1`).
 
-| Knob | Warehouse default | Remote needs | Set by `--use-remote-vlm`? |
-|---|---|---|---|
-| `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | `openai-compat` | no |
-| `VLM_MODEL_TYPE` | `rtvi` | non-`rtvi` | only if `--vlm-model-type` is passed explicitly |
-
-Both live in `industry-profiles/warehouse-operations/overrides.env`. The result
-is a deployment that starts cleanly and keeps routing through the local RT-VLM
-proxy against a model path of `none`. The same backend-selection bug was fixed
-for **Helm only** in
-[NVIDIA-AI-Blueprints/video-search-and-summarization#1501](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/pull/1501);
-the Docker warehouse path was not updated, and no warehouse end-to-end run has
-validated remote VLM — the validated remote configuration is **remote LLM with
-local RT-VLM**, which is unaffected and remains supported.
-
-`scripts/validate_warehouse_env.py` therefore rejects any non-`none` `VLM_MODE`
-or `VLM_NAME_SLUG`. Lift that rule only once the Docker path sets both
-selectors.
+Setting `VLM_MODE=remote` looks plausible and is not wired: the Docker path never
+switches `RTVI_VLM_MODEL_TO_USE` (`cosmos-reason3`) or `VLM_MODEL_TYPE` (`rtvi`),
+so the deployment starts cleanly and keeps routing through the local RT-VLM
+against a model path of `none`.
 
 ### Calibration is already in the repo
 
@@ -159,14 +182,21 @@ checked-in `calibration.json` that Compose bind-mounts by path:
 warehouse-<mode>-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json
 ```
 
-All three shipped datasets carry one. 3D mounts it three ways — behavior
-analytics reads `/resources/calibration.json`, `ds-configurator-3d` and
+All three shipped datasets carry one **for each of `2d`, `3d` and `mv3dt`**, which
+is why dataset and mode are chosen independently. 3D mounts it three ways —
+behavior analytics reads `/resources/calibration.json`, `ds-configurator-3d` and
 perception read `/opt/data/ds-configurator/calibration.json`. Nothing is staged
 under `$VSS_DATA_DIR`.
 
 Only a **custom** dataset needs a calibration run — produced by
-`vss-generate-video-calibration` — dropped at the path above under its dataset
-name. `scripts/validate_warehouse_env.py` fails the build when it is missing.
+`vss-generate-video-calibration`, or by a `MODE=auto-calibration` build — dropped
+at the path above under its dataset name.
+`scripts/validate_warehouse_env.py` fails the build when it is missing.
+
+`MODE=auto-calibration` is the exception to this whole section: it is the run that
+*produces* a calibration, so it has no `warehouse-auto-calibration-app` tree and the
+presence check is skipped for it. Pick the dataset you intend to calibrate and match
+`NUM_STREAMS` to it, exactly as for an analytics mode.
 
 `import-calibration-output-container-<mode>` (extended lists only) imports
 calibration into the analytics store; it does not produce calibration.
@@ -324,12 +354,14 @@ browser-reachable origin that rewrites paths to internal services. The
 |---|---|---|
 | NvStreamer UI | `<HOST_IP>:31000` (`NVSTREAMER_HTTP_HOST_PORT`) | all variants; no ingress route |
 | VST UI | `<HOST_IP>:30888/vst/` (`VST_INGRESS_HOST_PORT`) | all variants; prefer `/vst/` via ingress |
-| SDR controller | `<HOST_IP>:10000` (`SDRC_PROXY_HOST_PORT`) | all variants |
+| SDR controller | `<HOST_IP>:10000` (`SDRC_PROXY_HOST_PORT`); also publishes 5003, 8011, 9902 | all except `auto-calibration`, which deploys none |
 | Elasticsearch | `<HOST_IP>:9200` (`ELASTICSEARCH_HOST_PORT`) | `bp_wh`, or extended Kafka/Redis |
 | Kibana | `<HOST_IP>:5601/kibana` (`KIBANA_HOST_PORT`) | same — served under `/kibana` either way |
 | Video Analytics API | `<HOST_IP>:8081` (`VIDEO_ANALYTICS_API_HOST_PORT`) | same |
 | Grafana | `<HOST_IP>:35000` (`GRAFANA_HOST_PORT`) | `bp_wh`, or extended Kafka/Redis; no ingress route |
 | VSS Agent, Phoenix | `<HOST_IP>:8000`, `<HOST_IP>:6006` | `bp_wh` only; prefer `/api` and `/phoenix` |
+| Auto-calibration API | `<HOST_IP>:8010/docs` (`VSS_AUTO_CALIBRATION_HOST_PORT`) | `auto-calibration` only; no ingress route |
+| Auto-calibration UI | `<HOST_IP>:5000` (`VSS_AUTO_CALIBRATION_UI_HOST_PORT`) | `auto-calibration` only; no ingress route |
 
 Nothing listens on `8001` — there is no VST MCP container.
 
@@ -367,6 +399,13 @@ active-source count equal to `NUM_STREAMS`. Do **not** `grep -i fps` —
 DeepStream's only line containing that string is a valueless header, so it
 reports success regardless.
 
+On `mv3dt` the perception container is `vss-rtvi-cv-mv3dt`, and `mdx-bev` comes
+from a second service, `vss-rtvi-cv-bev-fusion` — check it is `healthy` too.
+**`mv3dt` publishes `mdx-raw` as well as `mdx-bev`** (per-camera tracks and the
+fused result), unlike `3d`. First output can take several minutes; a
+`vss-vios-ingress` restart count in the low teens while `sdr-controller` comes up
+is normal, provided it settles to `healthy`.
+
 HTTP probes, when the selected list ships them:
 
 ```bash
@@ -380,6 +419,24 @@ curl -sf "http://${HOST_IP}:8000/health"                   # bp_wh only
 > Endpoint quirks that read as a dead service are in
 > [`../services/elk.md`](../services/elk.md); routes that never answer are in
 > Access points above.
+
+### `MODE=auto-calibration` readiness
+
+This mode deploys no `vss-rtvi-cv` and processes no streams, so the liveness
+check above does not apply. Use instead:
+
+```bash
+curl -sf -o /dev/null -w '%{http_code}\n' "http://${HOST_IP}:8010/docs"   # API  -> 200
+curl -sf -o /dev/null -w '%{http_code}\n' "http://${HOST_IP}:5000/"       # UI   -> 200
+docker inspect -f '{{.RestartCount}} {{.State.Health.Status}}' vss-auto-calibration
+docker logs --since 60s vss-auto-calibration 2>&1 | grep -c "Failed to persist project state"
+```
+
+Expect `200`, `200`, `0 healthy`, and a count of **0** — the last probe is what
+confirms the `projects/` mount is writable.
+
+`/docs` is the endpoint that answers; `/openapi.json`, `/v1/health` and `/health`
+return **404** on this image.
 
 ## Sources
 

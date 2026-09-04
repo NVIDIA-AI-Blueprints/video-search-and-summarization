@@ -41,6 +41,11 @@
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
 
+  Every rewrite source renders `^`-anchored (`^<path>/(.*)`, `^<path>$`): the
+  rules run in order against the previous rule's output, so an unanchored
+  `/alerts` would fire again on what the /alert-bridge strip produced. There is
+  no per-row opt-out.
+
   Ordering is the rendered order: /api/chat before /api, and the UI catch-all
   last. The HAProxy controller matches longest-prefix regardless, but keeping
   the file readable in match order is worth more than the two lines it costs.

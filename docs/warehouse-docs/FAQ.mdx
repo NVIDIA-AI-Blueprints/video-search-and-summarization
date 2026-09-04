@@ -13,17 +13,17 @@ We recommend the following steps to resolve deployment failures -
 
     * Make sure a previous deployment isn't already running using `docker ps`. If a previous deployment exists, then stop the deployment and run the app again.
     * A failure can happen if the previous deployment was not stopped and a re-deployment was performed.
-    * Make sure the correct values are set in `.env` file in the foundational directory.
-    * Make sure the system have proper access to the downloaded `vss-warehouse-app-data` folder. You can give all permission to it by `$ sudo chmod -R 777 path/to/vss-warehouse-app-data`.
-    * We recommend you remove the elastic search data from previous runs before a fresh redeployment: `$ sudo rm -r path/to/vss-warehouse-app-data/data_log/elastic/nodes`
-    * Check the component logs using `docker logs mdx-<component>` to find the issue. We recommend starting with the DeepStream and the Kafka components.
+    * Make sure the correct values are set in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env` and `overrides.env`.
+    * Make sure the deployment user can read and write the directory configured by `VSS_DATA_DIR`.
+    * If you intentionally need a clean redeployment, follow [Teardown the Deployment](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#teardown-the-deployment) to remove the deployment volumes and data.
+    * Use `docker compose ps` to identify unhealthy services, then inspect a service with `docker compose logs <service>`. We recommend starting with the DeepStream and Kafka services.
     * A port being occupied is a common cause for deployment failure.
 
-### Why does mdx-elasticsearch-init fail during deployment (race condition with Elasticsearch)?
+### Why does vss-elasticsearch-init fail during deployment (race condition with Elasticsearch)?
 
-**Observation:** When deploying the blueprint with `docker compose up`, the `mdx-elasticsearch-init` container starts and tries to connect to Elasticsearch before it is fully ready. The init container uses all retry attempts (default 10) and exits with code 1, while Elasticsearch becomes healthy soon after.
+**Observation:** When deploying the blueprint with `docker compose up`, the `elasticsearch-init-container` service (`vss-elasticsearch-init` container) starts and tries to connect to Elasticsearch before it is fully ready. The init container uses all retry attempts (default 20) and exits with code 1, while Elasticsearch becomes healthy soon after.
 
-Example log output from `mdx-elasticsearch-init` container:
+Example log output from the `vss-elasticsearch-init` container:
 
 ```text
 Attempting to connect to the Elasticsearch server for ILM policy creation.
@@ -37,11 +37,11 @@ Exiting Script.
 Container status after failure:
 
 ```text
-mdx-elasticsearch-init Exited (1)
-mdx-elastic Up (healthy).
+vss-elasticsearch-init Exited (1)
+elasticsearch Up (healthy)
 ```
 
-This can also be caused by network issues on the host. Try increasing the number of connection retries by setting `ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS` in your `.env` file. Then redeploy.
+This can also be caused by network issues on the host. Try increasing `ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env`, then redeploy.
 
 ### Why does Kibana show request timeouts or ELK services fail startup health checks?
 
@@ -123,10 +123,13 @@ Generate NGC API Key from NGC: https://org.ngc.nvidia.com/setup and then `docker
 
 ### When I run reference application in playback mode could I loop through the playback data more than once?
 
-Currently the playback module will loop through the provided playback data once then stop. You can either restart the mdx-behavior-analytics-playback-2d or mdx-behavior-analytics-playback-3d container by `docker restart mdx-behavior-analytics-playback-2d` or `docker restart mdx-behavior-analytics-playback-3d` to replay the data one more time,
-or you can config vss-behavior-analytics-playback-2d or vss-behavior-analytics-playback-3d module to loop through playback data more than once before deployment.
+The number of passes is controlled by the `playbackLoop` setting in the behavior analytics configuration. To replay the data immediately without redeploying, restart `vss-behavior-analytics-playback` for the 2D and 3D profiles, or `vss-behavior-analytics-playback-mv3dt` for the MV3DT profile.
 
-Specifically, using warehouse blueprint 3D app as example, add the following in `deployments/warehouse/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json` under "app" section to loop through the data 10 times:
+To configure the number of passes before deployment, edit the existing `playbackLoop` entry under `app` in:
+
+`$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-<mode>-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json`
+
+Replace `<mode>` with `2d`, `3d`, or `mv3dt`. For example, the following value loops through the data 10 times:
 
 ```json
 { "name": "playbackLoop", "value": "10" }
@@ -134,7 +137,16 @@ Specifically, using warehouse blueprint 3D app as example, add the following in 
 
 ### What if I don't want to expose Kafka service when deploying it on different CSPs using docker compose?
 
-Go inside **deployments/foundational/** and update the Kafka paramater **KAFKA_ADVERTISED_LISTENERS** in the `mdx-foundational.yml` file. The value of the parameter will change from `PLAINTEXT://$HOST_IP:9092` to `PLAINTEXT://localhost:9092`. This way, we will not be exposing kafka's port (9092) to the external world for security purposes.
+Edit the `kafka` service in `$VSS_APPS_DIR/services/infra/compose.yml`. Bind the published port to the loopback interface and advertise the loopback address:
+
+```yaml
+environment:
+  KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-9092}
+ports:
+  - 127.0.0.1:${KAFKA_HOST_PORT:-9092}:9092
+```
+
+Containers in the Compose network continue to use `kafka:29092`, while the host port is reachable only from the deployment host.
 
 ### What are effective tripwire counts?
 
@@ -169,7 +181,7 @@ This change forces the PGIE scaling operation to run on the GPU, which may lower
 ### Why are streams not getting added to RTVI CV?
 
 This issue can be caused due to exhausted retry attempts to add the cameras because RTVI containers took more time for engine build and application startup.
-The parameter `WDM_ADD_REMOVE_RETRY_ATTEMPTS` can be updated to increase the number of retries in the path `deployments/warehouse/warehouse-<mode>-app/sdrc/configs/config.yml.tmpl` under `docker-workload-rtvi-cv` parameters.
+Increase `WDM_ADD_REMOVE_RETRY_ATTEMPTS` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-<mode>-app/sdrc/configs/config.yml.tmpl`. Update the value in the `docker-workload-rtvi-cv` section for the 2D and 3D profiles, or in `docker-workload-rtvi-cv-mv3dt` for the MV3DT profile.
 
 ## VST
 
@@ -440,6 +452,8 @@ Password: <Your_API_Key>
 `NGC API Key Setup` https://org.ngc.nvidia.com/setup/api-key
 
 ## IGX Thor
+
+<a id="nvidia-cdi-refresh-service-does-not-start-on-boot"></a>
 
 ### nvidia-cdi-refresh.service does not start on boot
 

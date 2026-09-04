@@ -137,8 +137,9 @@ preview the commands and generated environment without starting containers.
 - Docker uses one canonical RTVI CV startup entrypoint: `services/rtvi/rtvi-cv/ds-start.sh`.
 - Developer profiles (**alerts**, **search**) and warehouse **2D/3D** use the shared startup path selected by env/config data.
 - Per-profile startup wrapper scripts are not used.
-- **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override.
-- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) runs as phase 0 of the perception startup script (`ds-start.sh` / MV3DT `ds-start-mv3dt.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- **MV3DT is the documented exception** and keeps its dedicated `ds-start-mv3dt.sh` command override, invoked with `--tracker-reid` since this mode runs appearance-based ReID.
+- Model acquisition for **developer profiles** (alerts, search) and **warehouse RT-CV profiles** (2D, 3D, MV3DT) runs as phase 0 of the perception startup script (`ds-start.sh` / MV3DT `ds-start-mv3dt.sh`) when a per-profile `models-download.json` is mounted. There is no separate download init service for detection/pose models. Warehouse still uses the pre-extracted `VSS_DATA_DIR` bundle for videos, playback, and calibration (see the warehouse section below).
+- **ReID/embedding assets are the exception to that rule.** MV3DT runs a one-shot `vss-reid-embed-init-mv3dt` container that populates `$VSS_DATA_DIR/models/reid` (CLIP-ReID tracker ONNX + SigLIP2) before the ReID service and perception start. See the warehouse MV3DT reference for the full pipeline.
 
 ### Direct Compose usage and data directories
 
@@ -747,7 +748,7 @@ Default LVS model wiring:
 
 | Component | Local Compose behavior | Default model name |
 |-----------|------------------------|--------------------|
-| LLM | Starts the **`nvidia-nemotron-nano-9b-v2`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nvidia-nemotron-nano-9b-v2` |
+| LLM | Starts the **`nemotron-3.5-lightning-30b-a3b`** NIM container on **`LLM_PORT=30081`** when `LLM_MODE` is `local` or `local_shared`. | `nvidia/nemotron-3.5-lightning-30b-a3b` |
 | VLM / RT-VLM | Starts **`rtvi-vlm`** on **`RTVI_VLM_PORT=8018`**. The LVS profile sets **`VLM_NAME_SLUG=none`**, so Compose does not start a separate Cosmos VLM NIM by default; RT-VLM loads the integrated checkpoint. | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` |
 
 For external endpoints, use the helper flags instead of editing Compose files directly:
@@ -761,7 +762,7 @@ export VLM_ENDPOINT_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
   --hardware-profile H100 \
   --use-remote-llm \
   --use-remote-vlm \
-  --llm nvidia/nvidia-nemotron-nano-9b-v2 \
+  --llm nvidia/nemotron-3.5-lightning-30b-a3b \
   --vlm nim_nvidia_cosmos3-nano-reasoner_bf16-final
 ```
 

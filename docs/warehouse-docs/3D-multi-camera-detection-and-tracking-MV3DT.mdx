@@ -335,6 +335,8 @@ python generate_cam_info_configs.py \
 
 Place the generated `camInfo/` directory under the calibration sample-data path above so that it is mounted into the container on the next start.
 
+<a id="update-publish-subscribe-configuration"></a>
+
 #### Update Publish/Subscribe Configuration
 
 Provide a `pub_sub_info_config.yml` template that declares one publish topic per sensor and subscribes each camera to its actual vision neighbors. If you do not provide a template, the start script auto-generates a fully-connected publish/subscribe graph, which is suitable for small deployments but not recommended for large camera networks.

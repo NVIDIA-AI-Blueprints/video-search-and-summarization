@@ -84,6 +84,7 @@ services:
       STORAGE_GID: ${STORAGE_GID:-1001}
       DS_MODEL_DOWNLOAD: ${DS_MODEL_DOWNLOAD:-auto}
       DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
+      # NTP_START_DEBUG_TS: 1
     command:
       - bash
       - -c
