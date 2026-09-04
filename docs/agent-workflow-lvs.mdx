@@ -153,23 +153,32 @@ Stream summary and Q&A are experimental and are not available through Agent Skil
 
 ### With the VSS CLI
 
-The VSS CLI can upload media and run the Video Summarization service directly from the deployment host. Configure it once against the public VSS ingress, list the uploaded videos, and start a summary using the video's `stream_id`:
+The VSS CLI can upload media and run the Video Summarization service directly from the deployment host. Configure it once against the public VSS ingress, enable memory for persisted jobs, mint a clip URL for an uploaded video, and start a summary:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
 
-vss configure --base-url http://<HOST_IP>:7777
+vss configure --base-url "http://HOST_IP:7777"
 vss configure check
+vss configure memory --enable
+
+# From this output, record the video's name and sensor_id.
 vss vios list --type video
+
+# From this output, record media_url and start_time.
+vss vios clip --sensor "VIDEO_NAME"
+
 vss summarize run \
-  --id <stream_id-from-vss-vios-list> \
+  --url "MEDIA_URL" \
+  --video-id "SENSOR_ID" \
+  --creation-time "START_TIME" \
   --scenario "warehouse monitoring" \
   --event "boxes falling" \
   --event "person entering restricted area"
 ```
 
-`vss summarize run` is synchronous and can take several minutes for a long video. It records a job before starting the model request; use `vss summarize list` to find the job ID and `vss summarize status --job-id <id>` or `vss summarize get --job-id <id>` from another shell while it runs.
+Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with values from the deployment and command outputs. `vss summarize run` is synchronous and can take several minutes for a long video. With memory enabled, it records a job before starting the model request; use `vss summarize list` to find the job ID and `vss summarize status --job-id JOB_ID` or `vss summarize get --job-id JOB_ID` from another shell while it runs. Without `vss configure memory --enable`, the retrieval commands exit with code 4.
 
 ### Manually
 
