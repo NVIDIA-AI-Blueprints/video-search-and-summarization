@@ -2,49 +2,54 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # vss-harness-base — the substrate every sandbox image in this catalog builds on.
-# Published by CI to ghcr.io/<owner>/vss/vss-harness-base so nothing in the eval
-# harness is built from a file outside this repo: the agent variants here just add
-# their runtime on top of a pulled, tagged base.
 #
-# Apptainer-clean rules: no USER-dependent file ownership, no entrypoint reliance,
-# agent state relocatable via env, run-time writes to tmpfs/binds only.
+# It derives from the OpenShell/NemoClaw community sandbox base rather than
+# rebuilding one: that image is what `openshell sandbox create --from base`
+# resolves to, and it already carries the default sandbox policy
+# (/etc/openshell/policy.yaml), the agent-skills layout (/sandbox/.agents/skills),
+# uv-managed python and the node toolchain. Evaluating agents in the environment
+# they actually run in is the point — a bespoke base would drift from it.
+#
+# Note it is not agent-free: it already carries codex and claude. The variants
+# still exist because an eval run must pin the harness it is measuring — a
+# variant either installs an agent the base lacks (hermes, pi, openclaw) or
+# pins the version of one it has (codex).
+#
+# What we add is only what the eval harness contracts require: the Harbor trial
+# directories, and a stable place for skills the harness bakes in.
+# Pinned by digest, not :latest — a mutable tag with IfNotPresent silently
+# serves whatever the node happened to cache first. Refresh deliberately.
+ARG OPENSHELL_BASE=ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+FROM ${OPENSHELL_BASE}
 
-FROM ubuntu:24.04
+USER root
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-venv ca-certificates curl jq git nodejs npm ripgrep \
-      iproute2 xz-utils build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Harness contract dirs (Harbor trial layout): the agent writes its answer to
-# /output, logs to /logs, and works in /task; /solution and /tests belong to the
-# oracle and verifier planes.
+# Harbor trial contract: the agent works in /task, writes its answer to /output,
+# logs to /logs; /solution and /tests belong to the oracle and verifier planes.
+# World-writable because the trial may run as a different uid than we build with.
 RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts /solution /tests \
     && chmod -R 777 /task /output /logs /solution /tests
+
+# The VSS skills (skills/ at the repo root) are what let an agent drive a live
+# VSS deployment — vss-summarize-video, vss-ask-video, vss-deploy-profile and the
+# rest. Baking them in is what makes an image self-contained: an eval run must not
+# depend on the harness having network access to a skills repo at trial time.
+# Build context is the repo root (see .github/workflows/sandbox-images.yml).
+RUN mkdir -p /opt/skills && chmod 777 /opt/skills
+COPY --chown=sandbox:sandbox skills/ /opt/skills/
+# The community base discovers agent skills under these two paths; symlink rather
+# than copy so all three views stay one set of files.
+RUN for d in /sandbox/.agents/skills /sandbox/.claude/skills; do \
+      mkdir -p "$d"; \
+      for s in /opt/skills/*/; do ln -sfn "$s" "$d/$(basename "$s")"; done; \
+    done \
+    && chown -R sandbox:sandbox /sandbox/.agents /sandbox/.claude
+
+USER sandbox
 WORKDIR /task
 
-# OpenShell requires a declared OCI USER; keep file perms user-independent.
-RUN useradd -m -u 1000 -s /bin/bash ubuntu 2>/dev/null || true
-USER ubuntu
-ENV HOME=/home/ubuntu
+LABEL harness.base="openshell-community" \
+      harness.contract="harbor-trial-v1"
 
-# Node toolchain for the agent runtimes layered on top (nvm keeps versions
-# switchable inside the sandbox without root).
-ENV NVM_DIR=/home/ubuntu/.nvm
-RUN mkdir -p $NVM_DIR \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash \
-    && . $NVM_DIR/nvm.sh && nvm install 22 && nvm alias default 22 \
-    && ln -sfn "$NVM_DIR/versions/node/$(nvm version default)" "$NVM_DIR/default"
-
-# nvm's shell hook is only sourced by interactive login shells, and Ubuntu's
-# ~/.bashrc returns early for non-interactive ones. The harness starts agents
-# non-interactively (OpenShell exec / `docker exec sh -c ...`), so the default
-# toolchain and ~/.local/bin have to be on PATH for every process instead.
-# Without this, everything the variant images install - `npm install -g` under
-# nvm (openclaw, codex, pi) and hermes into ~/.local/bin - is unresolvable at
-# run time even though it is present in the image. $NVM_DIR/default is a stable
-# symlink to the node version aliased above, so the patch version is not baked
-# into PATH.
-ENV PATH=$NVM_DIR/default/bin:/home/ubuntu/.local/bin:$PATH
-
+ENTRYPOINT []
 CMD ["sleep", "infinity"]

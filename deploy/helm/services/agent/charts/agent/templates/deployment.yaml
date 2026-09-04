@@ -134,7 +134,20 @@ spec:
             {{- end }}
             {{- range (.Values.extraEnv | default list) }}
             - name: {{ .name }}
+              {{- /*
+                A secret must never be a plain `value`: the chart's `env` list is
+                rendered into the Deployment, so an API key set that way is
+                readable by anyone who can `get deploy` (and, under GitOps, ends
+                up in the Application spec). `valueFrom` lets an install point at
+                a Secret it created out of band instead — the only way to give
+                vss-agent NVIDIA_API_KEY without writing the key down.
+              */}}
+              {{- if .valueFrom }}
+              valueFrom:
+                {{- toYaml .valueFrom | nindent 16 }}
+              {{- else }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
+              {{- end }}
             {{- end }}
           {{- with .Values.startupProbe }}
           startupProbe:
