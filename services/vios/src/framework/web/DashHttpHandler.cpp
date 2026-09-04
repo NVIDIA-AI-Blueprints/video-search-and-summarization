@@ -220,6 +220,24 @@ public:
         const std::string key = directory.string();
         std::lock_guard<std::mutex> lock(m_mutex);
         std::map<uint64_t, uint64_t>& known = m_durations[key];
+        /* Forget what the pruner has deleted. Measurements accumulate here and
+         * used to survive the file they describe, so the manifest went on
+         * advertising segments that were no longer on disk - measured at 91
+         * listed against 63 present, every one of the difference a guaranteed
+         * 404 for any player that reached back into the window.
+         *
+         * Drop only what precedes the oldest surviving file, rather than
+         * everything absent from this listing. The pruner removes from the
+         * front, so that is the same set in normal operation - but the listing
+         * above abandons on error and can come back partial, and erasing on
+         * that basis empties the timeline, republishes it a second later and
+         * leaves the player with nothing to buffer. Measured as 0.57x playback
+         * against 1.000x. Trimming from the front cannot over-erase: a short
+         * listing simply trims less. */
+        if (!present.empty())
+        {
+            known.erase(known.begin(), known.lower_bound(*present.begin()));
+        }
         for (const uint64_t number : present)
         {
             if (known.count(number) != 0 || present.count(number + 1) == 0)
@@ -545,7 +563,7 @@ constexpr const char* kDashManifestRefreshPeriod = "PT0.25S";
 // and media under a playhead outside the window is evicted, which turns a lag
 // into a permanent freeze.  The segments are retained on disk regardless, so a
 // longer window costs only manifest size.
-constexpr int kDashTimeShiftBufferDepthSec = 90;
+constexpr int kDashTimeShiftBufferDepthSec = vst::dash::kDashTimeShiftBufferDepthSeconds;
 
 /* How often a player is told to refetch the manifest.
  *

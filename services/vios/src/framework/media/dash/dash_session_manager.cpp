@@ -75,7 +75,22 @@ unsigned parsePositive(const std::string& value, unsigned fallback)
 
 namespace
 {
+/* Retention has to cover the window the manifest advertises, and the manifest
+ * measures that window in seconds while this counts files. The two agreed only
+ * while segments happened to be long: at eight seconds apiece sixty of them
+ * held eight minutes, comfortably more than the ninety second window. A one
+ * second segment turns the same count into sixty seconds, which is less than
+ * the window, so the oldest third of what the manifest offered no longer
+ * existed. Derive the count from the window instead, with a margin so a player
+ * sitting at the far edge is not racing the pruner. */
 constexpr uint64_t kDashRetainedSegments = 60;
+
+uint64_t retainedSegmentsFor(unsigned segmentDurationSeconds)
+{
+    const unsigned seconds = segmentDurationSeconds > 0 ? segmentDurationSeconds : 1;
+    const uint64_t needed = (static_cast<uint64_t>(vst::dash::kDashTimeShiftBufferDepthSeconds) / seconds) + 10;
+    return std::max(kDashRetainedSegments, needed);
+}
 
 // A fresh session has no back catalogue, so a player that starts on the live
 // edge stalls once per segment.  Withhold the manifest until this many seconds
@@ -1548,7 +1563,7 @@ bool keepSegmentsForDiagnosis()
     return value != nullptr && value[0] == '1';
 }
 
-void pruneSegments(const std::filesystem::path& directory)
+void pruneSegments(const std::filesystem::path& directory, uint64_t retained)
 {
     if (keepSegmentsForDiagnosis())
     {
@@ -1582,7 +1597,7 @@ void pruneSegments(const std::filesystem::path& directory)
             continue;
         }
     }
-    if (segments.size() <= kDashRetainedSegments)
+    if (segments.size() <= retained)
     {
         return;
     }
@@ -1591,11 +1606,11 @@ void pruneSegments(const std::filesystem::path& directory)
     {
         newest = std::max(newest, segment.first);
     }
-    if (newest <= kDashRetainedSegments)
+    if (newest <= retained)
     {
         return;
     }
-    const uint64_t oldestKept = newest - kDashRetainedSegments;
+    const uint64_t oldestKept = newest - retained;
     for (const auto& [number, path] : segments)
     {
         if (number > 1 && number < oldestKept)
@@ -1662,26 +1677,28 @@ void DashSessionManager::reaperLoop()
                 ++iterator;
             }
         }
-        std::vector<std::filesystem::path> liveDirectories;
+        std::vector<std::pair<std::filesystem::path, uint64_t>> liveDirectories;
         for (const auto& [streamId, session] : m_sessionsByStream)
         {
-            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+            liveDirectories.emplace_back(session->packager->manifestPath().parent_path(),
+                                         retainedSegmentsFor(session->packager->targetDurationSeconds()));
         }
         // Replay is pruned on the same terms as live.  Publishing is paced at
         // the recording's own rate, so the viewer stays within the retained
         // window instead of trailing a session that has already run to the end.
         for (const auto& [token, session] : m_replaySessionsByToken)
         {
-            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+            liveDirectories.emplace_back(session->packager->manifestPath().parent_path(),
+                                         retainedSegmentsFor(session->packager->targetDurationSeconds()));
         }
         lock.unlock();
         for (const auto& session : expired)
         {
             destroySession(session);
         }
-        for (const auto& directory : liveDirectories)
+        for (const auto& [directory, retained] : liveDirectories)
         {
-            pruneSegments(directory);
+            pruneSegments(directory, retained);
         }
         lock.lock();
     }
