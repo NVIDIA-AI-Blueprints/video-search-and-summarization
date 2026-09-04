@@ -140,7 +140,8 @@ def paths_changed_under(changed: list[str] | None, directory: str) -> bool:
     if changed is None:
         return True
     return any(
-        path == directory or path.startswith(directory + "/") for path in changed
+        path == directory or path.startswith(directory + "/")
+        for path in changed
     )
 
 
@@ -172,7 +173,9 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
                 for entry in buildable
                 if entry["name"] in SHARED_TAG_IMAGE_NAMES
             )
-        selected = [entry for entry in buildable if entry["name"] in selected_names]
+        selected = [
+            entry for entry in buildable if entry["name"] in selected_names
+        ]
         changed_names = ", ".join(entry["name"] for entry in changed_images)
         selected_names_text = ", ".join(entry["name"] for entry in selected)
         return (
@@ -254,7 +257,10 @@ def content_tag_missing(
     tree_sha = result.stdout.strip()
     repository = entry.get("repository", entry["name"])
     tag_suffix = entry.get("tag_suffix", "")
-    reference = f"ghcr.io/{owner.lower()}/vss/{repository}:tree-{tree_sha}{tag_suffix}"
+    reference = (
+        f"ghcr.io/{owner.lower()}/vss/{repository}:"
+        f"tree-{tree_sha}{tag_suffix}"
+    )
     return probe(reference) is not True
 
 
