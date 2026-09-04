@@ -71,6 +71,27 @@ services:
       sensor-ms-3d:
         condition: service_healthy
         required: false
+      # nginx resolves a literal proxy_pass host once, at config load, and this
+      # config names vss-vios-streamprocessing with no resolver. Without this
+      # wait nginx exits before that container exists and `restart: always`
+      # backs it off, which costs more than the wait itself.
+      #
+      # service_started, not service_healthy: the network alias exists as soon
+      # as the container runs, so nginx resolves and 502s until the backend
+      # listens. service_healthy would hold ingress down for the whole
+      # streamprocessing install and bring it up later than it does today.
+      streamprocessing-ms:
+        condition: service_started
+        required: false
+      streamprocessing-ms-2d:
+        condition: service_started
+        required: false
+      streamprocessing-ms-3d:
+        condition: service_started
+        required: false
+      streamprocessing-ms-mv3dt:
+        condition: service_started
+        required: false
 
 volumes:
   vios_pg_data:
