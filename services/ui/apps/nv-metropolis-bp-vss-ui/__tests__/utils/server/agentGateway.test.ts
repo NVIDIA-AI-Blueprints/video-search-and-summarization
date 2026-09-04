@@ -4,12 +4,25 @@
 import {
   GatewayEvent,
   GatewaySseDecoder,
+  agentGatewayChatHandler,
   createLegacyEventState,
   gatewayEventToLegacyChunks,
   gatewayRunStatusChunk,
   sanitizeGatewayHistoryContent,
 } from "../../../utils/server/agentGateway";
+import * as gatewayRuntime from "../../../utils/server/agentGatewayRuntime";
 import { loadEmbeddedGatewayConfig } from "../../../utils/server/agentGatewayRuntime/config";
+import {
+  createRunEvent,
+  parseCreateRunRequest,
+} from "../../../utils/server/agentGatewayRuntime/contract";
+import type { EmbeddedGatewayService } from "../../../utils/server/agentGatewayRuntime/service";
+import {
+  EventsExpiredError,
+  RunStore,
+} from "../../../utils/server/agentGatewayRuntime/store";
+import type { NextApiRequest, NextApiResponse } from "next";
+import { EventEmitter } from "node:events";
 
 const event = (
   type: string,
@@ -132,6 +145,72 @@ describe("agent gateway transport", () => {
     expect(heartbeat).toContain("<intermediatestep>");
     expect(heartbeat).toContain("Waiting for the agent backend...");
     expect(heartbeat).toContain("\\u003c/intermediatestep>");
+  });
+
+  it("reports replay expiry locally without cancelling the shared run", async () => {
+    const request = parseCreateRunRequest({
+      thread_id: "thread-1",
+      input: [{ role: "user", content: "hello" }],
+    });
+    const record = new RunStore(60_000, 1, 10, 1_000_000).create(
+      request
+    ).record;
+    const cancelRun = jest.fn();
+    const service = {
+      createRun: jest.fn(() => ({ record, replayed: false })),
+      cancelRun,
+    } as unknown as EmbeddedGatewayService;
+    jest
+      .spyOn(gatewayRuntime, "getEmbeddedGatewayService")
+      .mockReturnValue(service);
+    jest
+      .spyOn(gatewayRuntime, "observeRunEvents")
+      .mockImplementation(async function* () {
+        yield createRunEvent(1, "message.delta", record.runId, "thread-1", {
+          delta: "partial answer",
+        });
+        throw new EventsExpiredError("requested events are no longer retained");
+      });
+
+    const req = new EventEmitter() as unknown as NextApiRequest & EventEmitter;
+    Object.assign(req, {
+      method: "POST",
+      body: { messages: [{ role: "user", content: "hello" }] },
+      headers: {
+        "conversation-id": "thread-1",
+        "user-message-id": "message-1",
+      },
+    });
+    const writes: string[] = [];
+    const res = new EventEmitter() as unknown as NextApiResponse & EventEmitter;
+    Object.assign(res, {
+      headersSent: false,
+      writableEnded: false,
+      statusCode: 200,
+      setHeader: jest.fn(),
+      status: jest.fn((statusCode: number) => {
+        Object.assign(res, { statusCode });
+        return res;
+      }),
+      flushHeaders: jest.fn(() => Object.assign(res, { headersSent: true })),
+      write: jest.fn((chunk: string) => {
+        writes.push(chunk);
+        return true;
+      }),
+      end: jest.fn(() => Object.assign(res, { writableEnded: true })),
+      json: jest.fn(),
+    });
+
+    await agentGatewayChatHandler(req, res);
+
+    expect(writes.join("")).toContain("partial answer");
+    expect(writes.join("")).toContain(
+      "**Agent run failed:** requested events are no longer retained"
+    );
+    expect(writes.join("")).not.toContain("**Agent gateway error:**");
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(record.terminal).toBe(false);
+    expect(res.writableEnded).toBe(true);
   });
 
   it("bridges structured search and alert artifacts into the legacy renderer", () => {

@@ -8,11 +8,13 @@ import {
 } from "./agentGatewayRuntime";
 import {
   ContractError,
+  createRunEvent,
   parseCreateRunRequest,
   runEventPayload,
 } from "./agentGatewayRuntime/contract";
 import type { EmbeddedGatewayService } from "./agentGatewayRuntime/service";
 import {
+  EventsExpiredError,
   IdempotencyConflictError,
   StoreCapacityError,
   ThreadBusyError,
@@ -606,6 +608,8 @@ export const agentGatewayChatHandler = async (
   const controller = new AbortController();
   let runId: string | undefined;
   let terminal = false;
+  let lastEventSequence = 0;
+  const legacyState = createLegacyEventState();
   const onDisconnect = (): void => {
     if (!terminal && !res.writableEnded) {
       controller.abort();
@@ -637,7 +641,6 @@ export const agentGatewayChatHandler = async (
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    const legacyState = createLegacyEventState();
     for await (const runEvent of observeRunEvents(
       created.record,
       0,
@@ -653,6 +656,7 @@ export const agentGatewayChatHandler = async (
         );
         continue;
       }
+      lastEventSequence = runEvent.sequence;
       const event = runEventPayload(runEvent) as unknown as GatewayEvent;
       for (const chunk of gatewayEventToLegacyChunks(event, legacyState)) {
         res.write(chunk);
@@ -668,6 +672,31 @@ export const agentGatewayChatHandler = async (
     res.end();
   } catch (error) {
     if (controller.signal.aborted) return;
+    if (error instanceof EventsExpiredError) {
+      // Retention expiry belongs to this observer. Report it through the same
+      // terminal-event adapter as a backend failure, but leave the shared run
+      // and connector available to consumers that have not fallen behind.
+      terminal = true;
+      const message = "requested events are no longer retained";
+      if (res.headersSent && runId) {
+        const failure = runEventPayload(
+          createRunEvent(lastEventSequence + 1, "run.failed", runId, threadId, {
+            error: {
+              code: "events_expired",
+              message,
+              retryable: false,
+            },
+          })
+        ) as unknown as GatewayEvent;
+        for (const chunk of gatewayEventToLegacyChunks(failure, legacyState)) {
+          res.write(chunk);
+        }
+        res.end();
+      } else {
+        res.status(410).json({ error: { code: "events_expired", message } });
+      }
+      return;
+    }
     const message =
       error instanceof Error ? error.message : "Agent gateway request failed";
     if (res.headersSent) {
