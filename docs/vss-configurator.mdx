@@ -1540,7 +1540,7 @@ The manager can fetch sensor information from these sources:
 | `msb` | `SENSOR_INFO_SOURCE=msb` | Metropolis Sensor Bridge - fetches RTSP URLs from sensor bridge service |
 | `nvstreamer` | `SENSOR_INFO_SOURCE=nvstreamer` | NVStreamer - fetches streams from NVIDIA streaming service with validation. Waits for a complete stream list before VST registration (see `NUM_STREAMS` below). |
 | `file` | `SENSOR_INFO_SOURCE=file` | JSON file - reads sensor definitions from a mounted file |
-| `not_required` | `SENSOR_INFO_SOURCE=not_required` | Skip sensor fetch, mapping, VMS add, and broker publish. Calibration and the HTTP API can still run. |
+| `not_required` | `SENSOR_INFO_SOURCE=not_required` | Skip sensor fetch, mapping, VMS add, broker publish, and startup calibration processing. Calibration HTTP endpoints remain available when `ENABLE_CALIBRATION_PROCESS=true`, but no sensor mapping is generated unless one was already loaded from disk. `/cameras` and `/groups` return 503 until a mapping exists. |
 
 #### Calibration Modes
 
@@ -1631,7 +1631,7 @@ curl -X POST http://localhost:5000/calibration \
 
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
-| `SENSOR_INFO_SOURCE` | `msb` | `msb`, `nvstreamer`, `file`, `not_required` | \| Source for sensor/camera information. \| **msb**: Metropolis Sensor Bridge - fetches RTSP URLs from sensor bridge service \| **nvstreamer**: NVStreamer - fetches streams from NVIDIA streaming service with validation \| **file**: JSON file - reads sensor definitions from mounted JSON file \| **not_required**: Skip sensor data processing |
+| `SENSOR_INFO_SOURCE` | `msb` | `msb`, `nvstreamer`, `file`, `not_required` | \| Source for sensor/camera information. \| **msb**: Metropolis Sensor Bridge - fetches RTSP URLs from sensor bridge service \| **nvstreamer**: NVStreamer - fetches streams from NVIDIA streaming service with validation \| **file**: JSON file - reads sensor definitions from mounted JSON file \| **not_required**: Skip sensor fetch, mapping, VMS add, broker publish, and startup calibration processing. HTTP endpoints still run; mapping-dependent routes return 503 unless a persisted mapping was loaded. |
 | `SENSOR_BRIDGE_HTTP_ENDPOINT` | `http://localhost:8000/mtmc/urls` | Valid HTTP URL | \| HTTP endpoint for Metropolis Sensor Bridge. \| Used when `SENSOR_INFO_SOURCE=msb` |
 | `SENSOR_BRIDGE_RTSP_SERVICE_NAME` | (empty) | Hostname or IP | \| Override hostname/IP in RTSP URLs from sensor bridge. \| Useful when sensor bridge returns internal IPs that need translation |
 | `SENSOR_FILE_PATH` | `${CALIBRATION_DIR_MOUNT_PATH}/sensors.json` | Valid file path | \| Path to sensors JSON file. \| Used when `SENSOR_INFO_SOURCE=file` |
