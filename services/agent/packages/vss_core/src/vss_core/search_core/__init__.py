@@ -93,7 +93,6 @@ if TYPE_CHECKING:
     from .events import SearchEvent
     from .events import StatusEvent
     from .host import VSSSearch
-    from .memory_adapter import SearchAdapter
     from .primitives._fusion import fuse_ranked_union
     from .primitives.attribute_search import AttributeSearch
     from .primitives.embed_search import EmbedSearch

@@ -47,17 +47,23 @@ vss configure check                         # re-probe; exit 3 if a route went a
 ## The five paths
 
 | command | fields | services required |
-|---|---|---|
+| --- | --- | --- |
 | `run embed` | `--query` | Elasticsearch, RT-Embed |
 | `run attribute` | `--attribute` (repeatable) | Elasticsearch, RT-CV |
-| `run tag` | `--query` + `--video-source` (repeatable, optional) | Elasticsearch, VST |
-| `run fusion` | `--query` + `--video-source` (repeatable, optional) + optional `--attribute` / `--description` / `--min-cosine-similarity` | Elasticsearch, RT-Embed, VST (RT-CV optional) |
+| `run tag` | `--query` + `--video-source` (repeatable, optional) | Elasticsearch |
+| `run fusion` | `--query` + `--video-source` (repeatable, optional) + optional `--attribute` / `--description` / `--min-cosine-similarity` | Elasticsearch, RT-Embed (RT-CV optional) |
 | `run object` | `--object-id` (repeatable) | Elasticsearch, RT-CV |
 
 Each path accepts only its own fields. `run embed` has no `--attribute`;
 `run attribute` and `run object` have no `--query`; `run tag` has no
 `--attribute`. A path whose services are absent exits 4 naming them, before any
 request.
+
+VST is not required by any path: it only mints `screenshot_url` media links
+and resolves source names to stream ids. A deployment that exposes
+Elasticsearch and the path's retrieval services but not VST still searches;
+hits return with an empty `screenshot_url`, and a named `--video-source`
+that VST cannot resolve narrows to an empty result rather than failing.
 
 ## Query controls
 
@@ -106,7 +112,7 @@ windows — expect fewer, longer results with averaged scores.
 JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 
 | exit | meaning |
-|---|---|
+| --- | --- |
 | 0 | success |
 | 2 | invalid input (unknown flag, bad value) |
 | 3 | backend unreachable |

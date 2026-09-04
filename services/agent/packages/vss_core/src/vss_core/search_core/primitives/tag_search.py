@@ -50,7 +50,7 @@ class TagSearch:
         self,
         *,
         es: ElasticIndex,
-        vst: VSTSnapshot,
+        vst: VSTSnapshot | None,
         tag_index: str = "default_*",
         default_max_results: int = 10,
         owns_es: bool = False,
@@ -111,7 +111,7 @@ class TagSearch:
                         timestamp=screenshot_time,
                         internal=False,
                     )
-                    if not timelines or timeline
+                    if self._vst is not None and (not timelines or timeline)
                     else ""
                 )
                 results.append(
@@ -137,8 +137,12 @@ class TagSearch:
         """Fetch the authoritative VST source mapping.
 
         Source resolution is part of the isolation boundary, so a VST failure
-        must fail the request rather than broaden or guess its scope.
+        must fail the request rather than broaden or guess its scope. With no
+        VST configured there is no mapping to fetch: return empty so a
+        source-less search still runs and a sourced search narrows to empty.
         """
+        if self._vst is None:
+            return {}
         return await self._vst.get_name_to_stream_id_map()
 
     async def _timelines_best_effort(self) -> dict[str, tuple[str, str]]:
@@ -199,15 +203,23 @@ class TagSearch:
 
         from ..clients.elastic import ElasticClient
 
+        # VST only mints media links and resolves source names; a deployment
+        # without it still serves source-less tag search (hits carry an empty
+        # `screenshot_url`), and a sourced search narrows to empty rather than
+        # failing on a missing service the path can run without.
+        if vst is not None:
+            vst_obj = vst
+        elif rt.vst_internal_url and rt.vst_external_url:
+            vst_obj = VSTClient(
+                internal_url=rt.vst_internal_url,
+                external_url=rt.vst_external_url,
+                timeout_seconds=rt.request_timeout_seconds,
+            )
+        else:
+            vst_obj = None
         return cls(
             es=es if es is not None else ElasticClient.from_runtime(rt),
-            vst=vst
-            if vst is not None
-            else VSTClient(
-                internal_url=rt.require("vst_internal_url"),
-                external_url=rt.require("vst_external_url"),
-                timeout_seconds=rt.request_timeout_seconds,
-            ),
+            vst=vst_obj,
             tag_index=rt.tag_index,
             default_max_results=rt.default_max_results,
             owns_es=es is None,

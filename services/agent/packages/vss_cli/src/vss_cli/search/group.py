@@ -371,7 +371,10 @@ class SearchGroup(CommandGroup):
     #: are now unrepresentable -- `run embed` has no --attribute to pass.
     #:
     #: `requires` is per path, and deliberately excludes VST: it only mints
-    #: media links, so a deployment without it still searches. `embed` not
+    #: media links, so a deployment without it still searches. `tag` and `fusion`
+    #: also resolve source names to VST stream ids; with no VST that name
+    #: resolution degrades to an empty (narrowed) result rather than failing,
+    #: and hits are returned without `screenshot_url` media links. `embed` not
     #: requiring `rtvi_cv` is the point -- a deployment running embeddings
     #: without the CV service can serve embedding search, and used to be
     #: refused for a service that path never calls.
@@ -392,13 +395,13 @@ class SearchGroup(CommandGroup):
             "tag",
             "BM25 keyword retrieval over source-scoped VLM tag documents.",
             TagInput,
-            requires=frozenset({"elasticsearch", "vst"}),
+            requires=frozenset({"elasticsearch"}),
         ),
         Action(
             "fusion",
             "Candidate-union fusion across tags, embeddings, and optional attributes.",
             FusionInput,
-            requires=frozenset({"elasticsearch", "rt_embed", "vst"}),
+            requires=frozenset({"elasticsearch", "rt_embed"}),
         ),
         Action(
             "object",

@@ -116,8 +116,11 @@ class AttributeSearch:
             frames_index_wildcard=rt.frames_index_wildcard,
             enable_frame_lookup=rt.enable_frame_lookup,
             default_max_results=rt.default_max_results,
-            vst_external_url=rt.require("vst_external_url"),
-            vst_internal_url=rt.require("vst_internal_url"),
+            # VST only mints screenshot URLs; a deployment without it still
+            # serves attribute search and returns hits with empty
+            # `screenshot_url` (enrich_attribute_results no-ops on empty bases).
+            vst_external_url=rt.vst_external_url or "",
+            vst_internal_url=rt.vst_internal_url,
             owns_es=owns_es,
             owns_embed=owns_embed,
         )

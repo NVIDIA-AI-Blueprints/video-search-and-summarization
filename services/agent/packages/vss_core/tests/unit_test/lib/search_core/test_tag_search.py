@@ -209,3 +209,29 @@ async def test_tag_and_description_at_length_limit_are_accepted() -> None:
     assert len(out.results) == 1
     assert out.malformed_documents == 0
     assert out.results[0].tags == [boundary_tag]
+
+
+@pytest.mark.asyncio
+async def test_sourceless_tag_search_without_vst_returns_hits_without_media_links() -> None:
+    # A deployment with Elasticsearch but no VST still serves a source-less
+    # tag search: hits come back with an empty `screenshot_url` rather than
+    # the constructor failing on a missing service the path can run without.
+    es = _Es([_hit()])
+    out = await TagSearch(es=es, vst=None, tag_index="default_*").run(
+        TagSearchInput(query="red forklift", source_type="video_file")
+    )
+    assert len(out.results) == 1
+    assert out.results[0].screenshot_url == ""
+    # The default_* family is queried unscoped.
+    assert es.index == "default_*"
+
+
+@pytest.mark.asyncio
+async def test_sourced_tag_search_without_vst_narrows_to_empty() -> None:
+    # With no VST there is no name->stream-id map, so a named source cannot be
+    # resolved. The search narrows to an empty result instead of raising or
+    # querying a guessed `default_<raw>` index.
+    es = _Es([_hit()])
+    out = await TagSearch(es=es, vst=None).run(TagSearchInput(query="forklift", video_sources=["dock camera"]))
+    assert out.results == []
+    assert es.index is None  # never queried

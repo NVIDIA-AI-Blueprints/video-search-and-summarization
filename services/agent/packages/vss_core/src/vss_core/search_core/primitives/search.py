@@ -410,8 +410,10 @@ class Search:
             embed_confidence_threshold=rt.embed_confidence_threshold,
             merge_adjacent=rt.merge_adjacent,
             default_max_results=rt.default_max_results,
-            vst_internal_url=rt.require("vst_internal_url"),
-            vst_external_url=rt.require("vst_external_url"),
+            # VST only mints media links; a deployment without it still
+            # searches and returns segments with empty `screenshot_url`.
+            vst_internal_url=rt.vst_internal_url or "",
+            vst_external_url=rt.vst_external_url or "",
             owns_embed=owns_embed,
             owns_attribute=owns_attribute,
             owns_tag=owns_tag,

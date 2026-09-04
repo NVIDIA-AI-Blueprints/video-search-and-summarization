@@ -853,6 +853,23 @@ class TestTagOnlyDeploymentAndFusionWeights:
         assert isinstance(search._embed, _EmbedSearchUnavailable)
         assert isinstance(search._attribute, _AttributeSearchUnavailable)
 
+    def test_search_from_runtime_without_vst_does_not_raise(self):
+        # A deployment that exposes Elasticsearch and retrieval services but
+        # not VST still builds the orchestrator: VST only mints media links,
+        # so retrieval-only operation returns segments with empty
+        # `screenshot_url` instead of exiting with a configuration error.
+        from vss_core.search_core.primitives.search import Search
+        from vss_core.search_core.runtime import SearchRuntime
+
+        rt = SearchRuntime.from_kwargs(
+            es_endpoint="http://es",
+            cosmos_embed_endpoint="http://embed",
+            # No vst_internal_url / vst_external_url.
+        )
+        search = Search.from_runtime(rt)
+        assert search._config.vst_internal_url == ""
+        assert search._config.vst_external_url == ""
+
     @pytest.mark.asyncio
     async def test_embed_unavailable_raises_only_when_invoked(self):
         from vss_core.search_core.primitives.search import _EmbedSearchUnavailable
