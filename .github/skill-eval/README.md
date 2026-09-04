@@ -176,7 +176,9 @@ python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
 #    (or let the skills-eval agent select one).
 #
 # ⚠️ On a spec's first trial the env provider WIPES the box's docker runtime
-#    (all containers, user-defined networks, and volumes; images are kept).
+#    before repo cleanup, then repeats reset, host purge, and repo sync at
+#    agent handoff (all containers, user-defined networks, and volumes;
+#    images are kept).
 #    NEVER point a manual run at a box a CI run currently holds — it will
 #    `docker rm -f` that run's deployment mid-trial. Use run_leg.py so the
 #    same per-box lock contract applies to manual runs.

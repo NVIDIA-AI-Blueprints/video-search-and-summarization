@@ -105,6 +105,9 @@ PREAMBLE = (
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
+BUILD_ARTIFACT_INSPECTOR = (
+    Path(__file__).resolve().parents[2] / "verifiers" / "build_artifact_inspector.py"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +146,7 @@ def _substitute_spec(spec: dict, platform: str) -> dict:
 # Per-file generators
 # ---------------------------------------------------------------------------
 
-def generate_test_script(step: int, spec_name: str) -> str:
+def generate_test_script(step: int, spec_name: str, build_profile: str) -> str:
     """Shell wrapper invoking the generic LLM-as-judge verifier for one step.
     Harbor reads /logs/verifier/reward.txt."""
     return (
@@ -152,6 +155,11 @@ def generate_test_script(step: int, spec_name: str) -> str:
         "set -uo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        'REPO_ROOT="${HOME}/video-search-and-summarization"\n'
+        'python3 "$TEST_DIR/build_artifact_inspector.py" \\\n'
+        '    --repo-root "$REPO_ROOT" \\\n'
+        f'    --build-dir "$REPO_ROOT/_builds/{build_profile}" \\\n'
+        '    --out /logs/verifier/build-artifacts.json\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
@@ -324,9 +332,16 @@ def generate_task(
         # ---- tests/ --------------------------------------------------------
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(idx, spec_name, build_profile)
+        )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        if BUILD_ARTIFACT_INSPECTOR.exists():
+            shutil.copy(
+                BUILD_ARTIFACT_INSPECTOR,
+                tests_dir / "build_artifact_inspector.py",
+            )
         # Ship the rendered spec so the verifier's judge sees substituted paths
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
