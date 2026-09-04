@@ -696,7 +696,7 @@ When an event is raised, it is matched against every entry in `webhooks.items[]`
 
 Delivery is asynchronous. Each receiver is attempted, retried, and given up on independently, following its own `timeout_ms` and `retry` settings, so one failing endpoint does not hold up or fail the others.
 
-By default the request body is the notification event as JSON, with the entry's `id` added as a `webhook_id` field. Setting `user_defined_metadata` merges extra fields into that body, and setting `body` replaces it entirely with a rendered template. Header and query parameter values may also reference event fields using the `{{event.<field>}}` form.
+By default the request body is the notification event as JSON, with the entry's `id` added as a `webhook_id` field. Setting `user_defined_metadata` merges extra fields into that body's `event.metadata` object, and setting `body` replaces the whole body with a rendered template. Header and query parameter values may also reference event fields using the `{{event.<field>}}` form.
 
 **`webhooks.items[]` — webhook definition**
 
@@ -721,7 +721,7 @@ By default the request body is the notification event as JSON, with the entry's 
 | retry.max_attempts | Maximum number of delivery attempts, including the first. Values below 1 are clamped to 1. | 1 |
 | retry.backoff_ms | Delay in milliseconds before each retry. The last entry is reused if there are more retries than entries; an empty list falls back to 1000 ms. | [1000, 5000, 15000] |
 | retry.retry_on_status | HTTP status codes that trigger a retry. An empty or absent list retries on any non-2xx response. | [408, 429, 500, 502, 503, 504] |
-| user_defined_metadata | Arbitrary JSON object merged into the default notification body. Ignored when `body` is set. | `{"model": "some_model_name", "chunk": 123}` |
+| user_defined_metadata | Arbitrary JSON object whose keys are merged into the `event.metadata` object of the default notification body, not into the body's top level. Receivers must read these fields from `event.metadata`. Ignored when `body` is set. | `{"model": "some_model_name", "chunk": 123}` |
 | body | Optional custom JSON body template. When absent, the default notification body is sent. When present, the rendered template is the complete request body, so default fields and `user_defined_metadata` are not added. Presence, not emptiness, selects custom rendering: `body: {}` sends `{}`. | `{"query": {"term": {"sensor.id.keyword": "{{event.camera_id}}"}}}` |
 
 #### Custom body templates
@@ -739,8 +739,8 @@ Braces are reserved. A string containing `{{` or `}}` must be exactly a full-wra
     "items": [
       {
         "enabled": true,
-        "id": "camera-add-notify",
-        "camera_status_change": "camera_add",
+        "id": "camera-remove-cleanup",
+        "camera_status_change": "camera_remove",
         "request": [
           {
             "url": "http://elasticsearch:9200/mdx-embed/_delete_by_query",
