@@ -32,6 +32,13 @@ What this asserts, and nothing more:
   7. the hand-applied vss-ingress-example*.yaml pair still describes the same
      mounts the chart renders.
 
+It reads only the Ingress objects of templates/vss-ingress.yaml. Per-backend
+behaviour that lives in a Service annotation -- `backend-config-snippet` is
+Service-scoped in this controller, and the VIOS `Location` rewrite, the
+Elasticsearch guard and the RT-CV stream affinity all ride there -- is outside
+what this can see, and is asserted against a real controller by
+.github/scripts/test_helm_ingress_live.py instead.
+
 It does NOT check parity with the Docker edge (haproxy.cfg.template): that
 config is aligned to this table separately and still carries Docker-only routes.
 
@@ -135,6 +142,11 @@ def mounted_paths(ingresses: list[dict]) -> set[str]:
     return found
 
 
+def rewrite_mount(src: str) -> str:
+    """The mount a rewrite rule's regex applies to: `^/vios$` -> `/vios`."""
+    return src.removeprefix("^").removesuffix("/(.*)").removesuffix("$")
+
+
 def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
     fails: list[str] = []
     by_path = {r["path"]: r for r in rows}
@@ -144,8 +156,13 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
     for ing in ingresses:
         annotations = ing["metadata"].get("annotations") or {}
         # Each rewriting route contributes a pair: the capture form and the
-        # bare form. Both destinations matter -- a wrong one silently sends the
-        # backend a path it does not serve.
+        # bare-root form. Both destinations matter -- a wrong one silently
+        # sends the backend a path it does not serve. Both are `^`-anchored,
+        # and that is asserted rather than tolerated: a path-rewrite rule
+        # replaces the whole path wherever its regex matches, and every rule in
+        # the annotation runs in order against the output of the one above, so
+        # an unanchored `/alerts/(.*)` fires a second time on the result of the
+        # `/alert-bridge` strip and eats alert-bridge's own /api/v1/alerts.
         rewrites = {}
         for line in annotations.get("haproxy.org/path-rewrite", "").splitlines():
             if line.strip():
@@ -185,10 +202,9 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                 if path in strips:
                     mounted_strip.add(path)
                     to = "" if row["rewrite"] == "strip" else row["rewrite"]
-                    anchor = "^" if row.get("anchored", False) else ""
                     for src, want in (
-                        (f"{anchor}{path}/(.*)", f"{to}/\\1"),
-                        (f"{anchor}{path}", to or "/"),
+                        (f"^{path}/(.*)", f"{to}/\\1"),
+                        (f"^{path}$", to or "/"),
                     ):
                         got = rewrites.get(src)
                         if got is None:
@@ -200,9 +216,7 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                                 f"{profile}: {src!r} rewrites to {got!r}, table says {want!r}"
                             )
 
-        surplus = {
-            src.removeprefix("^").replace("/(.*)", "") for src in rewrites
-        } - mounted_strip
+        surplus = {rewrite_mount(src) for src in rewrites} - mounted_strip
         if surplus:
             fails.append(f"{profile}: rewritten but not mounted: {sorted(surplus)}")
 
