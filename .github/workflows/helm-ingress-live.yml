@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Deploys the rendered Ingress objects to a throwaway kind cluster running a
+# real HAProxy ingress controller and asserts which backend each request
+# reaches and what path it arrives with.
+#
+# Separate from the lint job in ci.yml on purpose: this one needs Docker, pulls
+# a controller chart from the network and takes minutes, where those checks are
+# text assertions that take milliseconds. Folding it in would slow every push
+# and make a network blip look like a routing regression.
+#
+# No product image, GPU or NGC credential is involved. The backends are
+# path-echoing stubs, because what is under test is routing.
+name: Helm ingress (live)
+
+on:
+  pull_request:
+    paths:
+      - "deploy/helm/**"
+      - ".github/scripts/test_helm_ingress_live.py"
+      - ".github/workflows/helm-ingress-live.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-ingress-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Install kind, kubectl and helm
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSLo "$HOME/bin/kind" https://kind.sigs.k8s.io/dl/v0.30.0/kind-linux-amd64
+          curl -sSLo "$HOME/bin/kubectl" \
+            "https://dl.k8s.io/release/$(curl -sSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x "$HOME/bin/kind" "$HOME/bin/kubectl"
+          curl -sSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar -xz -C /tmp
+          install -m 0755 /tmp/linux-amd64/helm "$HOME/bin/helm"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Raise inotify limits for kind
+        # kind's default-limit failure mode is a node that never reports
+        # "Reached target Multi-User System", which reads as an unrelated
+        # timeout. Documented in kind's known-issues page.
+        run: |
+          sudo sysctl -w fs.inotify.max_user_instances=512
+          sudo sysctl -w fs.inotify.max_user_watches=524288
+
+      - name: Vendor chart dependencies
+        # The umbrella charts have file:// dependencies, so this resolves
+        # offline; `helm template` cannot render them until it has run.
+        run: |
+          set -euo pipefail
+          for chart in \
+            deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
+            deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app \
+            deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app \
+            deploy/helm/developer-profiles/dev-profile-search
+          do
+            helm dependency update "$chart" >/dev/null
+          done
+
+      - name: Assert live routing
+        run: python3 .github/scripts/test_helm_ingress_live.py
+
+      - name: Controller config and route maps on failure
+        if: failure()
+        run: |
+          pod=$(kubectl -n haproxy-controller get pods -o jsonpath='{.items[0].metadata.name}' || true)
+          [ -n "$pod" ] || exit 0
+          echo "--- rendered Ingress objects ---"
+          kubectl -n vss-ingress-test get ingress -o yaml || true
+          echo "--- path maps (which mount a request selects) ---"
+          kubectl -n haproxy-controller exec "$pod" -- \
+            sh -c 'for f in /etc/haproxy/maps/path-*.map; do echo "== $f =="; cut -f1 "$f"; done' || true
+          echo "--- generated replace-path rules ---"
+          kubectl -n haproxy-controller exec "$pod" -- \
+            grep -n replace-path /etc/haproxy/haproxy.cfg || true
