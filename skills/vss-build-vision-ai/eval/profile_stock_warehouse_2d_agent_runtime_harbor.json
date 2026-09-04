@@ -1,0 +1,41 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "stock-warehouse-2d-agent",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, remote LLM credentials/endpoints supplied by the harness, the VSS repository at `{{repo_root}}`, and access to `nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`. This eval transfers the old vss-deploy-profile warehouse agent deployment coverage to Build Vision AI. Coverage boundary: this is runtime deployment/readiness parity for the stock warehouse `MODE=2d`, `BP_PROFILE=bp_wh` agent variant; it is distinct from `profile_wh_2_2d_agent_chat`, which is a build-only warehouse contract check and does not deploy.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **warehouse** agents variant with `MODE=2d` and `BP_PROFILE=bp_wh` on `{{platform}}` from `{{repo_root}}`. Use a remote LLM endpoint. Get the App Data from `nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`, write build artifacts under `_builds/stock-warehouse-2d-agent/`, expand the warehouse `COMPOSE_PROFILES_WH_2D` service list verbatim, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running.",
+      "checks": [
+        "`{{repo_root}}/_builds/stock-warehouse-2d-agent/override.env` exists and declares `FOUNDATION=warehouse`, `FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_2D`, `MODE=2d`, `BP_PROFILE=bp_wh`, and the full expanded effective `COMPOSE_PROFILES`.",
+        "The effective service set matches the warehouse `COMPOSE_PROFILES_WH_2D` list verbatim and includes the agent/UI warehouse stack, RT-CV 2D perception, behavior analytics, alert bridge, Video Analytics API, VIOS, Kafka, Elasticsearch/Kibana/Logstash, ingress, RT-VLM, and one remote LLM profile token without adding an invented `stock-warehouse-2d-agent` or aggregate profile key.",
+        "`{{repo_root}}/_builds/stock-warehouse-2d-agent/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `configurator.env`, `compose.yml`, and `resolved.yml`.",
+        "The warehouse app-data gate confirms `${VSS_DATA_DIR}` points at the supplied warehouse app-data bundle before deployment.",
+        "The deployment is launched directly from `_builds/stock-warehouse-2d-agent/resolved.yml` after validation.",
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive).",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive).",
+        "`curl -sf --max-time 15 http://localhost:8081/livez` returns exit 0 (Video Analytics API health endpoint responsive).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-DETR DeepStream perception).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (VLM verifier for this warehouse variant).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-video-analytics-api` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx kafka` returns exit 0.",
+        "`{{repo_root}}/_builds/stock-warehouse-2d-agent/override.env` declares `LLM_MODE=remote` and `LLM_NAME_SLUG=none`, so no local LLM container is started.",
+        "`docker ps --format '{{.Names}}' | grep -qxE 'nemotron-3\\.5-lightning-30b-a3b|nvidia-nemotron-nano-9b-v2-fp8'` returns exit 1 (remote LLM mode must not start a local LLM container).",
+        "The agent does not invoke `/vss-deploy-profile` or `scripts/dev-profile.sh`."
+      ]
+    }
+  ]
+}

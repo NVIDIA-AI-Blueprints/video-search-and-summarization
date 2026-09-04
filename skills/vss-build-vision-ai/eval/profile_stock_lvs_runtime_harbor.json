@@ -1,0 +1,34 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "stock-lvs",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile LVS deployment coverage to Build Vision AI. Coverage boundary: this is stock LVS deployment/readiness parity with the profile service set unchanged; it does not replace the `an-1` LVS API build eval or the `an-1-runtime` stored-video summarization round-trip, which exercise a custom LVS build shape and API behavior.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **lvs** pre-built developer workflow on `{{platform}}` from `{{repo_root}}`. Keep the lvs profile's authoritative service set unchanged, write the build artifacts under `_builds/stock-lvs/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",
+      "checks": [
+        "`{{repo_root}}/_builds/stock-lvs/override.env` exists and declares `FOUNDATION=lvs` and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set matches the stock lvs profile and includes `lvs-server`, `rtvi-vlm`, Elasticsearch/Kafka/Kibana/Logstash, VIOS, Agent, UI, Phoenix, ingress, and one LLM profile token without adding an invented `stock-lvs` or aggregate profile key.",
+        "`{{repo_root}}/_builds/stock-lvs/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
+        "The deployment is launched directly from `_builds/stock-lvs/resolved.yml` after validation.",
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive).",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive).",
+        "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0 (LVS API responsive).",
+        "`curl -sf --max-time 15 http://localhost:8018/v1/health/ready` returns exit 0 (RT-VLM ready).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0.",
+        "The agent does not invoke `/vss-deploy-profile` or `scripts/dev-profile.sh`."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "stock-search",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A 2x RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, remote VLM credentials/endpoints supplied by the harness, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile search deployment coverage to Build Vision AI. Coverage boundary: this is the stock search runtime parity check with Agent/UI retained and RT-VLM kept as a remote-backed proxy; it is distinct from the headless `profile_search_standalone_harbor` and combined alerts/search composition evals.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **search** pre-built developer workflow on this two-GPU `{{platform}}` host from `{{repo_root}}`. Use the current `search` developer profile unchanged as the Foundation, write artifacts under `_builds/stock-search/`, override the default local RT-VLM backend to use the configured remote VLM endpoint while keeping local `vss-rtvi-vlm` as the OpenAI-compatible proxy, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running.",
+      "checks": [
+        "`{{repo_root}}/_builds/stock-search/override.env` exists and declares `FOUNDATION=search` and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set matches the stock search profile and includes RT-CV, RT-Embed, RT-VLM proxy, Elasticsearch/Kafka/Kibana/Logstash, VIOS, Agent, UI, Phoenix, ingress, and one LLM profile token without adding an invented `stock-search` or aggregate profile key.",
+        "`{{repo_root}}/_builds/stock-search/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
+        "The deployment is launched directly from `_builds/stock-search/resolved.yml` after validation.",
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive).",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0.",
+        "`curl -sf --max-time 15 http://localhost:8018/v1/models` returns exit 0 (search RT-VLM proxy responsive).",
+        "The deployed search configuration uses `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_MODE=remote`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, and `RTVI_VLM_MODEL_PATH=none`.",
+        "The agent does not invoke `/vss-deploy-profile` or `scripts/dev-profile.sh`."
+      ]
+    }
+  ]
+}
