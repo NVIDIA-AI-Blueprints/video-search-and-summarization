@@ -33,6 +33,18 @@ ENV HOME=/home/ubuntu
 ENV NVM_DIR=/home/ubuntu/.nvm
 RUN mkdir -p $NVM_DIR \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash \
-    && . $NVM_DIR/nvm.sh && nvm install 22 && nvm alias default 22
+    && . $NVM_DIR/nvm.sh && nvm install 22 && nvm alias default 22 \
+    && ln -sfn "$NVM_DIR/versions/node/$(nvm version default)" "$NVM_DIR/default"
+
+# nvm's shell hook is only sourced by interactive login shells, and Ubuntu's
+# ~/.bashrc returns early for non-interactive ones. The harness starts agents
+# non-interactively (OpenShell exec / `docker exec sh -c ...`), so the default
+# toolchain and ~/.local/bin have to be on PATH for every process instead.
+# Without this, everything the variant images install - `npm install -g` under
+# nvm (openclaw, codex, pi) and hermes into ~/.local/bin - is unresolvable at
+# run time even though it is present in the image. $NVM_DIR/default is a stable
+# symlink to the node version aliased above, so the patch version is not baked
+# into PATH.
+ENV PATH=$NVM_DIR/default/bin:/home/ubuntu/.local/bin:$PATH
 
 CMD ["sleep", "infinity"]

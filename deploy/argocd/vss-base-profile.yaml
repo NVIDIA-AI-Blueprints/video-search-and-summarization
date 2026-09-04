@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# =============================================================================
+# VSS base profile - long-lived ArgoCD Application (namespace: vss)
+# =============================================================================
+# Owner: runtime-pic. Deploys the chart that already lives in this repo at
+#   deploy/helm/developer-profiles/dev-profile-base
+# with its shipped install overlay values-base.yaml.
+#
+# SYNC IS MANUAL ON PURPOSE. This Application schedules GPUs
+# (nims.nemotron / nims.cosmos3 render apps.nvidia.com/v1alpha1 NIMCache +
+# NIMService objects, each requesting nvidia.com/gpu: "1") and pulls multi-GB
+# NIM images from nvcr.io. A self-healing controller that re-creates those on
+# every drift event will thrash a GPU node pool and re-pull tens of GB. Sync it
+# from the UI/CLI when a human is watching:
+#   argocd app sync vss-base-profile
+#
+# -----------------------------------------------------------------------------
+# WHAT A HUMAN MUST SET UP BEFORE THE FIRST SYNC
+# -----------------------------------------------------------------------------
+# 1. NGC credentials in the `vss` namespace. values-base.yaml ships
+#    ngc.createSecrets: true with an EMPTY ngc.apiKey, and templates/ngc-secrets.yaml
+#    only renders when BOTH are set - so with an empty key NOTHING is created and
+#    every nvcr.io pull fails. Never put the key in git. Pick one:
+#      a) Pre-create the secrets out of band and leave ngc.apiKey empty:
+#           kubectl create ns vss
+#           kubectl -n vss create secret docker-registry ngc-secret \
+#             --docker-server=nvcr.io --docker-username='$oauthtoken' \
+#             --docker-password="$NGC_API_KEY"
+#           kubectl -n vss create secret generic ngc-api \
+#             --from-literal=NGC_API_KEY="$NGC_API_KEY" \
+#             --from-literal=NGC_CLI_API_KEY="$NGC_API_KEY"
+#         (names match global.imagePullSecrets[0].name / global.ngcApiSecret.name
+#          and nims.global.pullSecretName / nims.global.authSecretName)
+#      b) Or let the chart create them by injecting the key at sync time, e.g.
+#           argocd app set vss-base-profile --helm-set ngc.apiKey=$NGC_API_KEY \
+#             --helm-set nims.global.ngcApiKey=$NGC_API_KEY
+#         The key then lives in the Application spec - only do this on an ArgoCD
+#         instance where the spec is not readable by everyone.
+# 2. The NVIDIA NIM Operator must already be installed in the cluster; without it
+#    the NIMCache/NIMService CRs (apps.nvidia.com/v1alpha1) have no controller and
+#    ArgoCD reports them Healthy-but-Unknown while nothing ever runs.
+# 3. GPU placement. The chart does not guess node labels. Set them here (see the
+#    commented parameters below) using the real keys:
+#      nims.nemotron.nodeSelector / nims.nemotron.tolerations
+#      nims.cosmos3.nodeSelector  / nims.cosmos3.tolerations
+#      vios.vss-vios-streamprocessing.nodeSelector / .tolerations
+#    nims.gpuType (values-base.yaml: RTXPRO6000BW) must match a key under
+#    nims.gpuProfiles in deploy/helm/services/nims/values.yaml.
+# 4. Storage + external host, which values-base.yaml ships as placeholders:
+#      global.storageClass  (empty = cluster default; e.g. local-path, gp3, oci-bv-high)
+#      global.externalHost  (ships as the literal string EXTERNAL_HOST)
+#      llmNameSlug          (ships as <replace-with-llm-name>)
+#    Override them with the parameters block below or a private values file.
+#    global.externalHost is not optional: EXTERNAL_HOST is uppercase, so the
+#    rendered vss-ingress Ingress is REJECTED by the API server -
+#      Ingress.networking.k8s.io "vss-ingress" is invalid:
+#      spec.rules[0].host: Invalid value: "EXTERNAL_HOST": a lowercase RFC 1123
+#      subdomain must consist of lower case alphanumeric characters, '-' or '.'
+#    - and the very first `argocd app sync` fails until it is set (or
+#    vssIngress.enabled is turned off).
+#
+# -----------------------------------------------------------------------------
+# PINNING
+# -----------------------------------------------------------------------------
+# targetRevision below tracks a branch, which means "whatever landed last". For
+# anything that matters, pin it: set targetRevision to a tag or a full commit SHA
+#   spec.source.targetRevision: v3.2.1        # git tag
+#   spec.source.targetRevision: 1ad234e8...   # 40-char commit SHA
+# and bump it deliberately (that is the whole release event for this lane).
+# Fork users: point repoURL at the fork and targetRevision at the fork branch, e.g.
+#   repoURL: https://github.com/zac-wang-nv/video-search-and-summarization
+#   targetRevision: harness/base-image-ghcr
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vss-base-profile
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: vss
+    vss.nvidia.com/profile: base
+    vss.nvidia.com/owner: runtime-pic
+  annotations:
+    # Webhook refresh filter: regenerate manifests only when the chart changes.
+    # It must NOT be "." - the app path is only the umbrella chart, while every
+    # subchart it renders (infra, vios, agent, ui, nims) lives in
+    # deploy/helm/services/, so "." would skip a refresh for a subchart change
+    # and `argocd app sync` would then apply stale cached manifests. A leading
+    # "/" is resolved from the repository root; ";" separates multiple paths.
+    argocd.argoproj.io/manifest-generate-paths: /deploy/helm
+  # No `finalizers:` on purpose - deleting this Application must NOT cascade-delete
+  # a running GPU deployment by accident. Add
+  #   resources-finalizer.argocd.argoproj.io
+  # explicitly if you want `argocd app delete` to tear the stack down.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
+    targetRevision: main
+    path: deploy/helm/developer-profiles/dev-profile-base
+    helm:
+      # Release name must stay `vss`: the chart's subchart Services default to
+      # unprefixed names (global.useReleaseNamePrefix: false), but NOTES/docs and
+      # the operator runbooks all assume `helm ... vss`.
+      releaseName: vss
+      valueFiles:
+        # values.yaml is always read first by Helm; this is the shipped install overlay.
+        - values-base.yaml
+      # Uncomment and fill in for this cluster. These are real keys from
+      # deploy/helm/developer-profiles/dev-profile-base/values.yaml.
+      # parameters:
+      #   - name: global.storageClass
+      #     value: local-path
+      #   - name: global.externalHost
+      #     value: vss.10.0.0.10.nip.io
+      #   - name: global.externalScheme
+      #     value: http
+      #   - name: llmNameSlug
+      #     value: nvidia-nemotron-nano-9b-v2
+      #   - name: vssIngress.ingressClassName
+      #     value: haproxy
+      #   - name: nims.nemotron.nodeSelector.nvidia\.com/gpu\.present
+      #     value: "true"
+      #   - name: nims.cosmos3.nodeSelector.nvidia\.com/gpu\.present
+      #     value: "true"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vss
+  syncPolicy:
+    # Deliberately no `automated:` block - no auto-sync, no prune, no selfHeal.
+    syncOptions:
+      - CreateNamespace=true
+      # NIMCache/NIMService and the VST ConfigMaps are large; SSA avoids the
+      # kubectl.kubernetes.io/last-applied-configuration size limit.
+      - ServerSideApply=true
+      # Keep deletions (PVCs, NIM CRs) until everything else is applied.
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  # NIM CRs are mutated by the NIM Operator after creation; ignore the fields it
+  # owns so a human-triggered sync does not fight the operator.
+  ignoreDifferences:
+    - group: apps.nvidia.com
+      kind: NIMService
+      jsonPointers:
+        - /spec/replicas
+    - group: apps.nvidia.com
+      kind: NIMCache
+      jsonPointers:
+        - /spec/source

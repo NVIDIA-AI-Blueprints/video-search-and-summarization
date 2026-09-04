@@ -1,0 +1,4 @@
+{
+  "expected_answer": "Yes — a forklift moved pallets from the dock to aisle 3 between 14:12 and 14:41.",
+  "expected_spans": [{"dss_key": "warehouse/cam03/shift-a.mp4", "t0": 852.0, "t1": 2460.0}]
+}
