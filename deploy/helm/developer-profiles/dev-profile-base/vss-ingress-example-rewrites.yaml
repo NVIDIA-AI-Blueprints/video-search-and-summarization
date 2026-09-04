@@ -36,6 +36,8 @@ metadata:
       ^/storage /vst/storage
       /rtvi-vlm/(.*) /\1
       /rtvi-vlm /
+      /llm/(.*) /\1
+      /llm /
       /phoenix/(.*) /\1
       /phoenix /
 spec:
@@ -56,6 +58,13 @@ spec:
         backend:
           service:
             name: <RELEASE_NAME>-vss-rtvi-vlm
+            port:
+              number: 8000
+      - path: /llm
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-nemotron-35-lightning-30b-a3b
             port:
               number: 8000
       - path: /phoenix

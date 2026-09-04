@@ -129,6 +129,14 @@
   path: /rtvi-embed
   pathType: Prefix
   rewrite: strip
+# The text LLM, mounted at its service name like its RTVI siblings and carrying
+# what it itself serves: /llm/v1/chat/completions, /llm/v1/models. A profile
+# pointed at a remote LLM declares no backend, so the route is not mounted at
+# all rather than mounted at a Service that was never created.
+- key: llm
+  path: /llm
+  pathType: Prefix
+  rewrite: strip
 - key: lvs
   path: /lvs
   pathType: Prefix
