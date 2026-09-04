@@ -408,6 +408,55 @@ async def _register_with_rtvi_cv(
         logger.warning("RTVI-CV timed out at %s, skipping", rtvi_cv_add_url)
 
 
+# rt-embed refuses a ``generate_video_embeddings`` call whose asset id is
+# already taken, and the status it uses depends on how far the other
+# registration has got: ``check_asset_exists`` rejects a published asset with
+# ``400 AssetAlreadyExists``, while ``_reserve_asset_slot`` rejects one that is
+# still reserved (mid-download) with ``409 DuplicateAssetId``. Both mean
+# something else owns this asset id, which on a deployment where VIOS
+# streamprocessing fans ``camera_streaming`` out to rt-embed's ``/v1/stream/add``
+# is the normal outcome: that webhook registers the asset *and* starts
+# generation, so the agent's call for the same id is redundant rather than
+# unlucky.
+#
+# It is only redundant where that webhook exists, which is why the call is not
+# simply dropped. The Docker ``dev-profile-search`` ships it; the Helm
+# ``dev-profile-search`` sets ``RTVI_EMBED_BASE_URL`` for the agent but renders
+# streamprocessing's ``notification_config.json`` with ``webhooks.enabled:
+# false``, so there the agent's call is the *only* thing that generates
+# embeddings for an uploaded file. Deleting it would turn this 502 into a 200
+# with an empty index — the same bug, now silent.
+_ALREADY_REGISTERED_CODE_BY_STATUS = {
+    400: "AssetAlreadyExists",
+    409: "DuplicateAssetId",
+}
+
+
+def _already_registered_code(response: httpx.Response) -> str | None:
+    """Return rt-embed's error code when it says the asset id is already owned.
+
+    ``None`` for anything else, so every other non-200 stays fatal. The pairing
+    is checked both ways round: a 400 must carry ``AssetAlreadyExists`` and a
+    409 must carry ``DuplicateAssetId``, because the whole point is to
+    distinguish "already done" from a request rt-embed rejected on its merits.
+    ``400 BadParameters`` (bad model, bad url) and ``409 DuplicateCameraId``
+    (a *different* asset already holds this camera id) are real failures that
+    share a status code with the tolerated pair, so the code is what decides.
+    An unparseable body is not tolerated either — same discipline as the
+    gateway's marked-vs-unmarked 503.
+    """
+    expected_code = _ALREADY_REGISTERED_CODE_BY_STATUS.get(response.status_code)
+    if expected_code is None:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get("code") != expected_code:
+        return None
+    return expected_code
+
+
 async def _run_rtvi_embedding(
     *,
     rtvi_embed_base_url: str,
@@ -422,7 +471,12 @@ async def _run_rtvi_embedding(
 
     The call is synchronous on the RTVI-Embed side — it blocks until the
     generation completes (up to the 600s client timeout). Any non-200 raises
-    ``HTTPException(502)`` so the caller can surface the failure.
+    ``HTTPException(502)`` so the caller can surface the failure, except the
+    two responses that mean the asset id is already registered — see
+    :func:`_already_registered_code`. Those return 0 chunks: generation is
+    someone else's, so we cannot count it, but the upload did succeed and
+    reporting a failure would make every caller either retry work that already
+    happened or report an upload that actually worked as broken.
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
@@ -451,6 +505,17 @@ async def _run_rtvi_embedding(
             )
 
         if response.status_code != 200:
+            already_registered = _already_registered_code(response)
+            if already_registered is not None:
+                logger.warning(
+                    "RTVI-Embed already holds asset %s (%d %s) — another registrant, normally"
+                    " VIOS streamprocessing's stream/add webhook, owns it and drives generation."
+                    " Treating the upload as successful; the chunk count is not ours to report.",
+                    sensor_id,
+                    response.status_code,
+                    already_registered,
+                )
+                return 0
             error_msg = f"Embedding generation failed with status {response.status_code}: {response.text}"
             logger.error(error_msg)
             raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
