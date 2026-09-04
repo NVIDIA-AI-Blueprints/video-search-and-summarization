@@ -336,11 +336,17 @@ class VideoUnderstandingOffsetInput(BaseModel):
     )
     start_timestamp: float | None = Field(
         None,
-        description="Optional start time offsets (in seconds since beginning of the stream), if None, then the entire stream is returned",
+        description=(
+            "Optional start time offset in seconds since the beginning of the stream. "
+            "For whole-video analysis, omit both timestamp fields; do not send a string placeholder."
+        ),
     )
     end_timestamp: float | None = Field(
         None,
-        description="Optional end time offsets (in seconds since beginning of the stream), if None, then the entire stream is returned",
+        description=(
+            "Optional end time offset in seconds since the beginning of the stream. "
+            "For whole-video analysis, omit both timestamp fields; do not send a string placeholder."
+        ),
     )
     user_prompt: str = Field(
         ...,
@@ -740,7 +746,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             end_timestamp: The end timestamp in offset seconds since beginning of the stream
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
             vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
-            Note: start_timestamp and end_timestamp are optional. If None, then the entire stream is returned.
+            Note: start_timestamp and end_timestamp are optional. For the entire stream, omit both fields; do not send string placeholders such as "None" or "null".
         """
 
         yield FunctionInfo.create(
