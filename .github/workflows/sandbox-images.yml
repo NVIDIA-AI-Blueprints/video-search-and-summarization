@@ -12,10 +12,12 @@ on:
     branches: [main, develop]
     paths:
       - "vss-agent/sandboxes/**"
+      - "skills/**"
       - ".github/workflows/sandbox-images.yml"
   pull_request:
     paths:
       - "vss-agent/sandboxes/**"
+      - "skills/**"
       - ".github/workflows/sandbox-images.yml"
   workflow_dispatch:
 
@@ -76,7 +78,7 @@ jobs:
       - name: Build (and push on branch builds)
         uses: docker/build-push-action@v6
         with:
-          context: vss-agent/sandboxes
+          context: .
           file: vss-agent/sandboxes/base.Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -134,7 +136,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             docker buildx build --load -t vss-harness-base:pr \
-              -f vss-agent/sandboxes/base.Dockerfile vss-agent/sandboxes
+              -f vss-agent/sandboxes/base.Dockerfile .
             echo "image=vss-harness-base:pr" >> "$GITHUB_OUTPUT"
           else
             echo "image=${{ needs.base.outputs.image }}" >> "$GITHUB_OUTPUT"
@@ -143,7 +145,7 @@ jobs:
       - name: Build (and push on branch builds)
         uses: docker/build-push-action@v6
         with:
-          context: vss-agent/sandboxes
+          context: .
           file: vss-agent/sandboxes/${{ matrix.variant }}.Dockerfile
           build-args: BASE_IMAGE=${{ steps.base.outputs.image }}
           push: ${{ github.event_name != 'pull_request' }}

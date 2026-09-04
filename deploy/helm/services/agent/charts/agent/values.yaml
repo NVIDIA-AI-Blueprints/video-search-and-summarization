@@ -15,7 +15,12 @@
 
 # Container env is the explicit `env` list below (Option B). Each `value` is rendered with Helm `tpl`
 # so you can reference .Values / .Release / global (see developer profile values for full examples).
-# Use `extraEnv` for late overrides (e.g. secrets) — duplicate names win (listed last).
+# Use `extraEnv` for late overrides — duplicate names win (listed last). Each entry
+# takes either `value` (templated with tpl) or `valueFrom` (passed through as-is),
+# so a secret can be referenced rather than inlined:
+#   extraEnv:
+#     - name: NVIDIA_API_KEY
+#       valueFrom: {secretKeyRef: {name: vss-inference-api, key: NVIDIA_API_KEY}}
 
 enabled: false
 global: {}
