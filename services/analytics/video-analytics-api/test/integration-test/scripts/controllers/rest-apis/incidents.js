@@ -67,11 +67,10 @@ function getTests(c) {
                 if (unexpectedAlertTypes.length > 0) {
                     return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}; not present: ${missingAlertTypes.join(', ') || 'none'}`;
                 }
-                return {
-                    details: missingAlertTypes.length === 0
-                        ? `all ${presentAlertTypes.join(', ')} types found`
-                        : `${presentAlertTypes.join(', ')} types found; ${missingAlertTypes.join(', ')} not found`
-                };
+                console.log(missingAlertTypes.length === 0
+                    ? `[VLM alert types] all ${presentAlertTypes.join(', ')} types found`
+                    : `[VLM alert types] ${presentAlertTypes.join(', ')} types found; ${missingAlertTypes.join(', ')} not found`);
+                return null;
             },
         });
     }
