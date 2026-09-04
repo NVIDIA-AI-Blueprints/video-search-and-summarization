@@ -59,17 +59,23 @@ def _health_check_script() -> str:
 set -eu
 sandbox="${NEMOCLAW_SANDBOX_NAME:-skill-eval}"
 port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+gateway_port="${NEMOCLAW_GATEWAY_PORT:-8990}"
+gateway="nemoclaw-$gateway_port"
+if [ "$gateway_port" = 8080 ]; then gateway="nemoclaw"; fi
 reward_dir="/logs/verifier"
 mkdir -p "$reward_dir"
-code="$(timeout 30 openshell sandbox exec -n "$sandbox" -- sh -lc \
-  "curl -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health")"
-case "$code" in
-  200|401)
+set +e
+output="$(timeout 30 openshell sandbox exec --name "$sandbox" -g "$gateway" -- sh -lc \
+  "code=\\$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health) && { [ \\"\\$code\\" = 200 ] || [ \\"\\$code\\" = 401 ]; }" 2>&1)"
+status=$?
+set -e
+case "$status" in
+  0)
     printf 'NemoClaw sandbox %s gateway is healthy on %s\\n' "$sandbox" "$port"
     printf '1.0\\n' > "$reward_dir/reward.txt"
     ;;
   *)
-    echo "NemoClaw sandbox $sandbox gateway is not healthy (HTTP $code)" >&2
+    printf 'NemoClaw sandbox %s gateway is not healthy: %s\\n' "$sandbox" "$output" >&2
     printf '0.0\\n' > "$reward_dir/reward.txt"
     ;;
 esac
