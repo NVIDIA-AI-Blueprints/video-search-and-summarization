@@ -436,7 +436,7 @@ class TestRequestOptionsContext:
         assert "Error: process exited with status 1" in result.plan
 
     @pytest.mark.asyncio
-    async def test_mixed_results_update_only_from_successes(self, monkeypatch):
+    async def test_mixed_results_preserve_plan_without_llm_rewrite(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         agent = TopAgent.__new__(TopAgent)
@@ -444,7 +444,8 @@ class TestRequestOptionsContext:
         agent.llm.ainvoke = AsyncMock(
             return_value=AIMessage(
                 content=(
-                    "1. [x] Inspect camera one. Result: A worker climbed a green ladder.\n2. [ ] Inspect camera two."
+                    "1. [x] Inspect camera one. Result: A worker climbed a green ladder.\n"
+                    "2. [x] Inspect camera two. Result: An unsupported incident."
                 )
             )
         )
@@ -477,16 +478,12 @@ class TestRequestOptionsContext:
 
         result = await agent._plan_update_node(state)
 
-        agent.llm.ainvoke.assert_awaited_once()
-        prompt = str(agent.llm.ainvoke.await_args.args[0][1].content)
-        assert "camera_one" in prompt
-        assert "A worker climbed a green ladder." in prompt
-        assert "camera_two" not in prompt
-        assert "invalid timestamp" not in prompt
-        assert "1. [x] Inspect camera one." in result.plan
+        agent.llm.ainvoke.assert_not_awaited()
+        assert "1. [ ] Inspect camera one." in result.plan
         assert "2. [ ] Inspect camera two." in result.plan
         assert "A worker climbed a green ladder." in result.plan
         assert "Tool call failed: invalid timestamp" in result.plan
+        assert "unsupported incident" not in result.plan
 
     @pytest.mark.parametrize(
         "tool_response",
