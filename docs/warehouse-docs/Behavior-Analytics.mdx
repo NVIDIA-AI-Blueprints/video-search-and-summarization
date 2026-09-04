@@ -60,7 +60,7 @@ The main configuration file for Behavior Analytics controls message broker setti
     {"name": "numWorkersForBehaviorCreation", "value": "2"},
     {"name": "numWorkersForFrameEnhancement", "value": "2"},
     {"name": "behaviorWatermarkSec", "value": "30"},
-    {"name": "behaviorStateTimeout", "value": "10"},
+    {"name": "behaviorStateValidInterval", "value": "6"},
     {"name": "behaviorMaxPoints", "value": "200"},
     {"name": "objectConfidenceThreshold", "value": "0.5"},
     {"name": "proximityViolationIncidentEnable", "value": "true"},
@@ -103,6 +103,7 @@ The main configuration file for Behavior Analytics controls message broker setti
 | `objectConfidenceThreshold` | Minimum confidence score for object detection | `0.5` |
 | `clusterThreshold` | Cosine similarity threshold for per-object embedding clustering (Chinese Restaurant Process) during state management | `0.9` |
 | `imageLocationMode` | For image coordinate system, which bbox point is used as the object location (`center` or `bottom_center`) | `bottom_center` |
+| `roiEventDetectionMode` | How ROI ENTRY/EXIT is decided: `coordinate` tests the object's representative point against the ROI polygon; `bbox` tests whether the object's bounding box overlaps it. `bbox` is supported only for **image** calibration, where the bbox and the ROI polygon share image-pixel coordinates; cartesian and geo calibration fall back to `coordinate` with a one-time warning | `coordinate` |
 
 #### Playback Configuration
 
@@ -121,10 +122,12 @@ The main configuration file for Behavior Analytics controls message broker setti
 
 | Parameter | Description | Default Value |
 | --- | --- | --- |
-| `behaviorStateTimeout` | Timeout (seconds) before object state cleanup | `10` |
-| `behaviorStateValidInterval` | Maximum gap (seconds) between an object's previous state end and next state start before treating them as separate behaviors | `6` |
+| `behaviorStateValidInterval` | Maximum gap (seconds) between an object's previous state end and next state start before treating them as separate behaviors. This is also the inactivity gap after which a track's state is reclaimed | `6` |
 | `behaviorWatermarkSec` | Watermark for behavior in seconds | `30` |
 | `behaviorMaxPoints` | Maximum behavior points to store | `200` |
+| `behaviorEmitOnce` | Write each behavior once — one `behaviorStateValidInterval` after its track goes quiet — instead of on every batch. Events, anomalies and incidents keep using the per-batch behaviors and are unaffected | `false` |
+| `behaviorStateEndToleranceSec` | Grace window (seconds) past a state's end within which late messages are still accepted | `0.1` |
+| `behaviorTimeThreshold` | Messages with a timestamp at or before this ISO-8601 instant are filtered out | `1970-01-01T00:00:00.000Z` |
 | `stateManagementFilter` | Whitelist of object types to admit into the pipeline; other types are dropped at frame ingest (empty = no filter) | `[]` |
 
 #### Proximity Detection Configuration (Sensor-level)
@@ -142,18 +145,18 @@ The main configuration file for Behavior Analytics controls message broker setti
 | --- | --- | --- |
 | `incidentObjectTtl` | TTL (seconds) for object presence data | `3600` |
 | `proximityViolationIncidentEnable` | Enable proximity violation incidents | `false` |
-| `proximityViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
-| `proximityViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `proximityViolationIncidentThreshold` | Minimum violation duration (seconds) before an incident is reported; accepts fractional values | `1` |
+| `proximityViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Keep it below the matching `...Threshold` | `0.5` |
 | `restrictedAreaViolationIncidentEnable` | Enable restricted area incidents | `false` |
-| `restrictedAreaViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
-| `restrictedAreaViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `restrictedAreaViolationIncidentThreshold` | Minimum violation duration (seconds) before an incident is reported; accepts fractional values | `1` |
+| `restrictedAreaViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Keep it below the matching `...Threshold` | `0.5` |
 | `confinedAreaViolationIncidentEnable` | Enable confined area incidents | `false` |
-| `confinedAreaViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
-| `confinedAreaViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `confinedAreaViolationIncidentThreshold` | Minimum violation duration (seconds) before an incident is reported; accepts fractional values | `1` |
+| `confinedAreaViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Keep it below the matching `...Threshold` | `0.5` |
 | `fovCountViolationIncidentEnable` | Enable FOV count violation incidents | `false` |
-| `fovCountViolationIncidentObjectThreshold` | Maximum objects allowed in FOV | `1` |
-| `fovCountViolationIncidentThreshold` | Duration (seconds) to confirm incident | `1` |
-| `fovCountViolationIncidentExpirationWindow` | Gap (seconds) before new violation state | `1` |
+| `fovCountViolationIncidentObjectThreshold` | Object count at which the violation fires, compared as `count >= threshold` (not `>`). Set to `N + 1` to alert on "more than N" | `1` |
+| `fovCountViolationIncidentThreshold` | Minimum violation duration (seconds) before an incident is reported; accepts fractional values | `1` |
+| `fovCountViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Keep it below the matching `...Threshold` | `0.5` |
 | `fovCountViolationIncidentObjectType` | Object type to count for FOV violations | `Person` |
 
 #### Tripwire Configuration (Sensor-level)
@@ -253,3 +256,21 @@ Override default configurations for specific sensors:
 ```
 
 Sensors inherit from the `default` configuration and override only the specified parameters.
+
+### Updating Configuration Without a Restart
+
+Most `app` and `sensors` keys can be changed at runtime by publishing an `upsert` to the
+`mdx-notification` topic with the message key `behavior-analytics-config`. The service validates
+each item against an allowlist, applies the accepted ones, and publishes an `ack` carrying the
+post-apply state and any per-item rejections.
+
+Keys that are read once at startup — `sourceType`, `sinkType`, every `numWorkersFor*` count, and
+the whole `kafka` / `redisStream` / `mqtt` / `coordinateReferenceSystem` / `inference`
+sections — are rejected by the validator rather than silently ignored, so those changes still require a
+restart.
+
+Calibration updates use the same topic with the message key `calibration`. Unlike config updates,
+calibration updates produce no ack; a rejected payload is visible only in the container logs.
+
+For the full wire contract, the mutable/read-only key lists, and ack semantics, see the
+[Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics#dynamic-configuration) reference.
