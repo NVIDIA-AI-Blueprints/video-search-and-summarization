@@ -27,6 +27,9 @@ function getTests(c) {
     const P = c.PLACE;
     const F = c.FROM_TS;
     const T = c.TO_TS;
+    const runsBpWh2d = process.env.COMPOSE_PROFILE === 'bp_wh_2d'
+        || (process.env.BP_PROFILE === 'bp_wh' && process.env.MODE === '2d')
+        || process.env.DEPLOY_PROFILE === 'COMPOSE_PROFILES_WH_2D';
     const expectedVlmAlertTypes = new Set([
         'Load Quality Violation',
         'Near Miss Violation',
@@ -34,11 +37,16 @@ function getTests(c) {
         'PPE Violation'
     ]);
 
-    return [
+    const tests = [
         { name: 'GET /incidents (sensorId+timestamps)', path: `/incidents?${qs({ sensorId: S, fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, validate: (b) => (Array.isArray(JSON.parse(b).incidents) ? null : 'missing incidents array') },
         { name: 'GET /incidents (place only)', path: `/incidents?${qs({ place: P })}`, method: 'GET', expectedStatus: 200 },
         { name: 'GET /incidents (no sensorId/place) returns 200', path: `/incidents?${qs({ fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, validate: (b) => (Array.isArray(JSON.parse(b).incidents) ? null : 'missing incidents array') },
-        {
+        { name: 'GET /incidents/severe (sensorId+timestamps)', path: `/incidents/severe?${qs({ sensorId: S, fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, skipOpenApiValidation: true },
+        { name: 'GET /incidents/severe (no sensorId/place) -> 400', path: '/incidents/severe', method: 'GET', expectedStatus: 400 },
+    ];
+
+    if (runsBpWh2d) {
+        tests.splice(3, 0, {
             name: 'GET /incidents (VLM verified alert types)',
             path: `/incidents?${qs({ place: P, fromTimestamp: F, toTimestamp: T, vlmVerified: true, maxResultSize: 10000 })}`,
             method: 'GET',
@@ -53,10 +61,10 @@ function getTests(c) {
                 const missingAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => !alertTypes.has(alertType));
                 return missingAlertTypes.length === 0 ? null : `missing alert types: ${missingAlertTypes.join(', ')}`;
             },
-        },
-        { name: 'GET /incidents/severe (sensorId+timestamps)', path: `/incidents/severe?${qs({ sensorId: S, fromTimestamp: F, toTimestamp: T })}`, method: 'GET', expectedStatus: 200, skipOpenApiValidation: true },
-        { name: 'GET /incidents/severe (no sensorId/place) -> 400', path: '/incidents/severe', method: 'GET', expectedStatus: 400 },
-    ];
+        });
+    }
+
+    return tests;
 }
 
 module.exports = { getTests };
