@@ -37,6 +37,15 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
+# Controller suites gate warehouse-2D-only cases on the deployment profile. The
+# integration stack loads the warehouse 2D dump, so declare that profile; a
+# caller exercising another profile overrides these before invoking this script.
+# MODE is deliberately not set here: test.sh uses it for dev/prod.
+export COMPOSE_PROFILE="${COMPOSE_PROFILE:-bp_wh_2d}"
+export BP_PROFILE="${BP_PROFILE:-bp_wh}"
+export DEPLOY_PROFILE="${DEPLOY_PROFILE:-COMPOSE_PROFILES_WH_2D}"
+echo "Deployment profile: COMPOSE_PROFILE=$COMPOSE_PROFILE BP_PROFILE=$BP_PROFILE DEPLOY_PROFILE=$DEPLOY_PROFILE"
+
 node "$SCRIPT_DIR/run_integration_tests.js" "$BASE_URL" "$FIXTURES_DIR" "$VIDEO_ANALYTICS_API_ROOT"
 
 echo "Running warehouse_2d_app tests..."
