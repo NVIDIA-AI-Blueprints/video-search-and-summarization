@@ -32,30 +32,33 @@ all, because there the two origins are the same.
 ## Why this is a script and not a CI job
 
 Most of what this file used to assert **has** been ported to Python and now runs
-in CI. What remains here is what a CI job cannot reach, because it needs a real
-TLS terminator in front of a real deployment:
+in CI. What remains here is what a CI job cannot reach: the first three need a
+real TLS terminator in front of a real deployment, and the fourth needs stored
+media, which a CI job has no way to produce.
 
 | Assertion | Where it is proven |
 |---|---|
 | Real-TLS transport: certificate validates for the public name, HTTP/2 negotiates, HSTS | **here only**, and only in `real-tls` mode (section 6) |
 | `X-Forwarded-Proto` honoured, so redirects and `Location` headers come back on the public origin | **here only** (section 3b) |
 | The advertised WebSocket scheme pairs with the page scheme | **here only** (section 5b) |
+| Byte-range requests: 206, `Content-Range`, measured body length, alias parity | **here only** (section 7), and only with stored media present |
 
 In CI those are **skipped, not passed**. A green CI run is not evidence for any
-of the three.
+of the four.
 
 Reproducing a synthetic public origin is a developer task, which is why this
 harness stays checked in rather than being deleted once CI went green.
 
-Two things this harness does **not** cover, stated so nobody infers otherwise:
+One thing this harness does **not** cover, stated so nobody infers otherwise:
 
-- **Range requests and `Content-Range`.** No assertion for these exists here.
-  The gateway's `Accept-Ranges` short-circuits are in `haproxy.cfg.template`,
-  but no shell harness has ever asserted the response shape, so nothing was
-  lost by not carrying one over.
 - **Mixed-content blocking in a real browser.** `curl` cannot observe it. The
   configuration-level preconditions are checked (section 3b, section 5b, and
   every minted absolute URL in section 3); the browser behaviour itself is not.
+
+Range requests **are** covered, as of section 7 — see below. They were not
+until then, and the gap is worth naming because it lasted: the `Accept-Ranges`
+short-circuits have been in `haproxy.cfg.template` throughout, and nothing
+anywhere asserted what came back when a client took them up on the offer.
 
 ## How to run it
 
@@ -116,6 +119,39 @@ and printed as `FAIL`, and the script still exits 1. That means **the tally has
 to be read against the configuration that produced it** — which is what the
 next section is for.
 
+### Section 7, range requests, and the two failures it finds
+
+Section 7 is the one place anything asserts what a byte-range request actually
+returns. It needs stored media, and it **discovers** it rather than building a
+path — sensor list, then `storage/timelines`, then the replay `picture/url`
+API, which is the same walk the product makes. With no file-backed sensor
+deployed the whole section skips and says so; that skip is not a pass. Add one
+with `vss vios add --type video <file>` and re-run.
+
+It asserts status, `Content-Range` and the **measured** body length together,
+because each one alone passes for a broken response: a 206 can carry the whole
+file, a correct `Content-Range` can accompany the wrong bytes, and a
+1024-byte body can arrive as a truncated 200.
+
+Two assertions fail against VIOS 3.2.0, and both are the media backend's
+behaviour rather than the gateway's — the harness attributes them by replaying
+the same request on the internal origin, so a reader is not left guessing which
+hop to fix:
+
+| Failure | Attribution |
+|---|---|
+| An unsatisfiable range answers **502**, not the 416 RFC 7233 §4.4 calls for | `vst-ingress` nginx answers 502 on both origins; HAProxy relays it faithfully |
+| The minted `imageUrl` carries a **doubled scheme** (`http://http://host/…`) | VIOS mints it; the host is correct, so nothing leaks, but it is unusable verbatim |
+
+The doubled scheme is invisible to `vss`, because
+`vss_core.vios.normalise_media_url` reduces any VIOS URL to its path and
+re-anchors it on the configured origin — which is exactly why it is worth
+asserting here. Every caller that does *not* do that repair, including a
+browser handed the REST payload directly, gets a URL it cannot fetch.
+
+Neither is a reason to change the gateway. Both are counted and printed as
+`FAIL` and both make the script exit 1, per the no-`known()` rule above.
+
 ### Expected tallies
 
 Measured on this branch at `4f0ebe7c7`, `dev-profile-alerts`, ten of eleven
@@ -126,6 +162,21 @@ mounts present (`lvs` absent):
 | Deployment's own origin, no `brevsim.env` | **54 pass / 0 fail / 4 skip** | 0 |
 | `brevsim.env` applied | **50 pass / 4 fail / 4 skip** | 1 |
 | `brevsim.env` applied, `PUBLIC_SCHEME=https PUBLIC_WS_SCHEME=wss` | **51 pass / 4 fail / 3 skip** | 1 |
+
+Those three predate section 7 and were taken with ten of eleven mounts. A
+fourth, measured on a NAT'd AWS host with a public DNS name, plain HTTP, and
+only **seven** of eleven mounts present (`alert-bridge`, `kibana`, `lvs`,
+`rtvi-vlm` absent — no GPU for the VLM or LLM on that box):
+
+| Configuration | Tally | Exit |
+|---|---|---|
+| `PUBLIC_HOST=<ec2 dns> PUBLIC_SCHEME=http PUBLIC_WS_SCHEME=ws`, one file sensor | **54 pass / 2 fail / 8 skip** | 1 |
+
+The 2 failures are the VIOS ones in the table above, not gateway regressions.
+Four of the eight skips are the four absent mounts, two are the TLS claims that
+`direct-http` cannot reach, and the section-7 skips do not fire because a
+sensor was present. Do not compare this row against the first three — a
+different mount set moves every count.
 
 **The 4 failures under `brevsim.env` are not a gateway regression.** They are
 all one thing — four absolute URLs still minted on the box's real address while

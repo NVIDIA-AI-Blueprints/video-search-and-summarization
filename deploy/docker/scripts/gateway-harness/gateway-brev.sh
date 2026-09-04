@@ -664,6 +664,279 @@ mixed-content block. The configuration-level preconditions for it ARE checked: t
 scheme pairing in 5b, and every minted absolute URL in section 3."
 fi
 
+# ------------------------------------------- 7. Range requests on media ----
+
+section "7. Range requests and Content-Range on gateway-served media"
+
+# Browser media playback is built on range requests: a <video> element seeks by
+# asking for a byte window, and it only ever asks because a previous response
+# advertised Accept-Ranges. If the window comes back as 200-with-everything, or
+# without Content-Range, or as a 5xx, seeking breaks -- and no status-code check
+# elsewhere in this file would notice, because every one of those is a status
+# the other sections would happily accept.
+#
+# Nothing in the repository asserted this before. The README said so in as many
+# words, so the Accept-Ranges short-circuits in haproxy.cfg.template were
+# carried on trust. This section is what retires that.
+#
+# The media object is DISCOVERED, never constructed, by walking the same three
+# calls the product itself walks: sensor/list -> storage/timelines ->
+# replay/.../picture/url. A path assembled from a sensor name would test the
+# harness's guess about VST's layout rather than the deployment's real media,
+# and would fail for a reason that has nothing to do with the gateway.
+
+# Reduce a VIOS-issued URL to its path, the way vss_core.vios.normalise_media_url
+# does. VIOS 3.2.0 answers with a doubled scheme -- "http://http://host/..." --
+# so a naive cut at the first "://" keeps a leading "http://host" in the path.
+media_url_path() {
+  local u="$1"
+  while [[ "${u}" == http://* || "${u}" == https://* ]]; do
+    u="${u#http://}"; u="${u#https://}"
+    [[ "${u}" == http://* || "${u}" == https://* ]] && continue
+    if [[ "${u}" == */* ]]; then u="/${u#*/}"; else u="/"; fi
+    break
+  done
+  [[ "${u}" == /* ]] || u="/${u}"
+  printf '%s' "${u}"
+}
+
+# A range request on the public origin: headers to $1, body to $2, prints the
+# byte count actually downloaded. Body length is measured rather than read off
+# Content-Length, so a truncated or over-long body is caught even when the
+# header is right.
+pub_range() {  # pub_range <range-spec> <hdr-file> <body-file> <path>
+  "${CURL_PUB[@]}" "${PUB_HOST_HDR[@]}" -H "Range: $1" -D "$2" -o "$3" \
+    -w '%{size_download}' "${PUB_URL_BASE}$4"
+}
+int_range() {  # int_range <range-spec> <path> -> status
+  docker exec "${BRIDGE_CTR}" curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+    -H "Range: $1" "${INTERNAL_ORIGIN}$2" 2>/dev/null
+}
+
+MEDIA_PATH="${MEDIA_PATH:-}"
+MEDIA_URL_RAW=""
+MEDIA_DISCOVERY=""
+
+if ! want vst "range requests on gateway-served media"; then
+  :
+elif [[ -n "${MEDIA_PATH}" ]]; then
+  MEDIA_DISCOVERY="MEDIA_PATH was supplied"
+else
+  SENSORS="$(pub_body /vst/api/v1/sensor/list)"
+  # A file-backed sensor with a timeline. An RTSP one has no stored bytes to
+  # range over, so picking one would produce a skip that looks like a defect.
+  SID="$(tr -d ' \t' <<<"${SENSORS}" | grep -oE '"(sensorId|type|isTimelinePresent)":("[^"]*"|true|false)' \
+        | awk -F'"' '/sensorId/{id=$4} /"type":"sensor_file"/{f=1} /isTimelinePresent.*true/{t=1}
+                     f&&t&&id{print id; exit}')"
+  if [[ -z "${SID}" ]]; then
+    skip "range requests on gateway-served media" \
+         "GET /vst/api/v1/sensor/list on the public origin lists no file-backed sensor with a \
+timeline, so the deployment holds no stored media to range over. Add one with \
+\`vss vios add --type video <file>\` and re-run. This is NOT evidence that ranges work."
+  else
+    START="$(pub_body /vst/api/v1/storage/timelines \
+             | tr -d ' \t\n' | grep -oE "\"${SID}\":\[\{[^}]*\}" | grep -oE '"startTime":"[^"]+"' \
+             | head -1 | sed 's/.*:"//; s/"$//')"
+    if [[ -z "${START}" ]]; then
+      skip "range requests on gateway-served media" \
+           "sensor ${SID} is listed with a timeline but GET /vst/api/v1/storage/timelines returned \
+no startTime for it, so there is no recorded instant to mint a media object at."
+    else
+      MEDIA_URL_RAW="$(pub_body "/vst/api/v1/replay/stream/${SID}/picture/url?startTime=${START}" \
+                       | grep -oE '"imageUrl"[^,}]*' | sed 's/.*: *"//; s/"$//')"
+      if [[ -z "${MEDIA_URL_RAW}" ]]; then
+        skip "range requests on gateway-served media" \
+             "the replay picture/url API returned no imageUrl for sensor ${SID} at ${START}, so no \
+media object could be minted to range over."
+      else
+        MEDIA_PATH="$(media_url_path "${MEDIA_URL_RAW}")"
+        MEDIA_DISCOVERY="sensor ${SID} at ${START} -> ${MEDIA_URL_RAW}"
+      fi
+    fi
+  fi
+fi
+
+if [[ -n "${MEDIA_PATH}" ]]; then
+  echo "  media discovered by: ${MEDIA_DISCOVERY}"
+  echo "  media path:          ${MEDIA_PATH}"
+
+  # -- the minted URL itself, before a single byte is fetched ----------------
+  #
+  # This is the same worry as section 3, on the surface where the VIOS origin
+  # leak actually lived, and it is checked here because this is where a real
+  # minted URL is in hand. Two separate properties, because they fail
+  # separately: the URL has to name the public origin, AND it has to be usable
+  # as written. normalise_media_url() repairs the second for CLI callers, so a
+  # break here is invisible to `vss` and visible to everyone else -- the UI,
+  # the VLM, and anything reading the REST API directly.
+  if [[ -n "${MEDIA_URL_RAW}" ]]; then
+    if [[ "${MEDIA_URL_RAW}" =~ ${BAD_ORIGIN_RE} ]]; then
+      bad "VIOS minted a media URL on an INTERNAL origin: ${MEDIA_URL_RAW}"
+    elif [[ "${MEDIA_URL_RAW}" == *"://"*"://"* ]]; then
+      bad "VIOS minted a media URL with a doubled scheme, unusable as written: ${MEDIA_URL_RAW} \
+-- the host is correct so nothing leaked, but only callers that repair it (vss_core's \
+normalise_media_url) can fetch it; a browser handed this verbatim cannot"
+    elif is_public_origin "${MEDIA_URL_RAW}"; then
+      ok "the minted media URL is well-formed and on the public origin: ${MEDIA_URL_RAW}"
+    else
+      bad "the minted media URL is neither the public origin ${PUBLIC_ORIGIN} nor recognisably internal: ${MEDIA_URL_RAW}"
+    fi
+  fi
+
+  RANGE_TMP="$(mktemp -d)"; trap 'rm -rf "${RANGE_TMP}"' EXIT
+  RH="${RANGE_TMP}/hdr"; RB="${RANGE_TMP}/body"
+
+  # -- HEAD: the edge short-circuit -----------------------------------------
+  #
+  # HAProxy answers HEAD on /storage itself rather than passing it to VST,
+  # because VST's nginx 404s a HEAD on media it will happily GET. Assert the
+  # advertisement, and pin the consequence: the short-circuit is a static
+  # return, so it is the same 200 for an object that does not exist. That is
+  # the deal the config makes, and writing it down here means a change that
+  # makes it conditional shows up as a failure to be reasoned about rather
+  # than a silent behaviour swap.
+  HEAD_HDR="$("${CURL_PUB[@]}" "${PUB_HOST_HDR[@]}" -I -D - -o /dev/null "${PUB_URL_BASE}${MEDIA_PATH}")"
+  HEAD_CODE="$(awk '/^HTTP\//{c=$2} END{print c}' <<<"${HEAD_HDR}")"
+  HEAD_AR="$(hdr_val "${HEAD_HDR}" accept-ranges)"
+  if [[ "${HEAD_CODE}" == "200" && "${HEAD_AR}" == "bytes" ]]; then
+    ok "HEAD ${MEDIA_PATH} -> 200 Accept-Ranges: bytes (the edge advertises range support)"
+  else
+    bad "HEAD ${MEDIA_PATH} -> ${HEAD_CODE} Accept-Ranges: '${HEAD_AR:-<absent>}', want 200 + bytes"
+  fi
+  MISSING_HEAD="$(pub_code HEAD "${MEDIA_PATH%/*}/definitely-not-a-real-object-$$.mp4")"
+  if [[ "${MISSING_HEAD}" == "200" ]]; then
+    ok "HEAD is an unconditional edge return -- 200 for a nonexistent object too, so it advertises \
+range support without being an existence probe (documented, not a defect)"
+  else
+    bad "HEAD on a nonexistent storage object returned ${MISSING_HEAD}, not the unconditional 200 \
+the edge short-circuit is written to give -- the short-circuit's scope changed"
+  fi
+
+  # -- the full object, to learn the true length ----------------------------
+  FULL_LEN="$("${CURL_PUB[@]}" "${PUB_HOST_HDR[@]}" -o "${RB}" -w '%{size_download}' "${PUB_URL_BASE}${MEDIA_PATH}")"
+  FULL_CODE="$(pub_code GET "${MEDIA_PATH}")"
+  if [[ "${FULL_CODE}" == "200" && "${FULL_LEN}" -gt 0 ]]; then
+    ok "GET ${MEDIA_PATH} -> 200, ${FULL_LEN} bytes (the object the ranges below are measured against)"
+  else
+    bad "GET ${MEDIA_PATH} -> ${FULL_CODE}, ${FULL_LEN} bytes -- no whole object to range against"
+  fi
+
+  # -- a real partial fetch -------------------------------------------------
+  #
+  # Status, Content-Range and the measured body length are asserted together
+  # on purpose. Any one alone passes for a broken response: a 206 can carry
+  # the whole file, a correct Content-Range can accompany the wrong bytes, and
+  # a 1024-byte body can arrive as a 200 that simply got truncated.
+  check_range() {  # check_range <label> <spec> <want-first> <want-last> <want-len>
+    local label="$1" spec="$2" wf="$3" wl="$4" wlen="$5" got len cr want_cr
+    len="$(pub_range "${spec}" "${RH}" "${RB}" "${MEDIA_PATH}")"
+    got="$(awk '/^HTTP\//{c=$2} END{print c}' <"${RH}")"
+    cr="$(hdr_val "$(cat "${RH}")" content-range)"
+    want_cr="bytes ${wf}-${wl}/${FULL_LEN}"
+    if [[ "${got}" != "206" ]]; then
+      bad "${label} (Range: ${spec}) -> ${got}, want 206 Partial Content"
+    elif [[ "${cr}" != "${want_cr}" ]]; then
+      bad "${label} (Range: ${spec}) -> 206 but Content-Range='${cr}', want '${want_cr}'"
+    elif [[ "${len}" != "${wlen}" ]]; then
+      bad "${label} (Range: ${spec}) -> 206 with correct Content-Range but ${len} bytes of body, want ${wlen}"
+    else
+      ok "${label} (Range: ${spec}) -> 206, Content-Range: ${cr}, ${len} bytes"
+    fi
+  }
+
+  if [[ "${FULL_LEN}" -gt 4096 ]]; then
+    check_range "leading range"  "bytes=0-1023"    0    1023 1024
+    check_range "mid-file range" "bytes=1000-1999" 1000 1999 1000
+    check_range "open-ended range" "bytes=$((FULL_LEN-100))-" "$((FULL_LEN-100))" "$((FULL_LEN-1))" 100
+
+    # A suffix range is the form a player uses to read a trailing MP4 moov
+    # atom. RFC 7233 lets a server ignore Range entirely and answer 200, so a
+    # whole-object answer is legal -- but it is worth naming, because a player
+    # that asks for the last 500 bytes and is handed megabytes still works and
+    # still wastes the transfer.
+    SUF_LEN="$(pub_range "bytes=-500" "${RH}" "${RB}" "${MEDIA_PATH}")"
+    SUF_CODE="$(awk '/^HTTP\//{c=$2} END{print c}' <"${RH}")"
+    SUF_CR="$(hdr_val "$(cat "${RH}")" content-range)"
+    if [[ "${SUF_CODE}" == "206" && "${SUF_CR}" == "bytes $((FULL_LEN-500))-$((FULL_LEN-1))/${FULL_LEN}" && "${SUF_LEN}" == "500" ]]; then
+      ok "suffix range (Range: bytes=-500) -> 206, Content-Range: ${SUF_CR}, 500 bytes"
+    elif [[ "${SUF_CODE}" == "200" && "${SUF_LEN}" == "${FULL_LEN}" ]]; then
+      ok "suffix range (Range: bytes=-500) -> 200 with the whole ${FULL_LEN}-byte object: the \
+backend ignored the Range, which RFC 7233 permits. Playback is correct but the transfer is not minimal."
+    else
+      bad "suffix range (Range: bytes=-500) -> ${SUF_CODE}, Content-Range='${SUF_CR:-<absent>}', \
+${SUF_LEN} bytes -- neither a 206 for the last 500 bytes nor a legal whole-object 200"
+    fi
+
+    # -- unsatisfiable ------------------------------------------------------
+    #
+    # A window past the end of the object. RFC 7233 s4.4 says answer 416 with
+    # `Content-Range: bytes */<length>`; a player reads that and re-seeks. A
+    # 5xx instead is not a legal answer in any reading of the spec, and a
+    # player cannot distinguish it from the media server having fallen over.
+    # Attributed against the internal origin so a failure names the culprit:
+    # HAProxy passing a bad answer through is a different bug from HAProxy
+    # producing one.
+    UNSAT="bytes=$((FULL_LEN+9999))-$((FULL_LEN+19999))"
+    pub_range "${UNSAT}" "${RH}" "${RB}" "${MEDIA_PATH}" >/dev/null
+    UNSAT_CODE="$(awk '/^HTTP\//{c=$2} END{print c}' <"${RH}")"
+    UNSAT_CR="$(hdr_val "$(cat "${RH}")" content-range)"
+    UNSAT_INT="$(int_range "${UNSAT}" "${MEDIA_PATH}")"
+    if [[ "${UNSAT_CODE}" == "416" ]]; then
+      if [[ "${UNSAT_CR}" == "bytes */${FULL_LEN}" ]]; then
+        ok "unsatisfiable range (${UNSAT}) -> 416 with Content-Range: ${UNSAT_CR}"
+      else
+        bad "unsatisfiable range (${UNSAT}) -> 416 but Content-Range='${UNSAT_CR:-<absent>}', want 'bytes */${FULL_LEN}'"
+      fi
+    elif [[ "${UNSAT_CODE}" =~ ^5 ]]; then
+      bad "unsatisfiable range (${UNSAT}) -> ${UNSAT_CODE}, want 416. The internal origin answers \
+${UNSAT_INT} for the same request, so this is the media backend's answer and the gateway is \
+relaying it faithfully -- but a player receiving ${UNSAT_CODE} cannot tell a bad seek from a dead \
+server, and will not recover by re-seeking the way a 416 lets it"
+    else
+      bad "unsatisfiable range (${UNSAT}) -> ${UNSAT_CODE}, want 416 (internal origin: ${UNSAT_INT})"
+    fi
+
+    # -- the alias must not diverge -----------------------------------------
+    #
+    # /storage, /vst/storage and /vios/storage are three routes onto one
+    # object, and haproxy.cfg.template says in a comment that without the
+    # /vios short-circuits "the alias would hand a range request whatever VST
+    # answers while /vst/storage answers here". That comment is a claim about
+    # range behaviour specifically, and this is the check that holds it.
+    ALIAS_REF=""
+    for variant in "${MEDIA_PATH}" "${MEDIA_PATH#/vst}" "/vios${MEDIA_PATH#/vst}"; do
+      alen="$(pub_range "bytes=0-1023" "${RH}" "${RB}" "${variant}")"
+      acode="$(awk '/^HTTP\//{c=$2} END{print c}' <"${RH}")"
+      acr="$(hdr_val "$(cat "${RH}")" content-range)"
+      sig="${acode}|${acr}|${alen}"
+      if [[ -z "${ALIAS_REF}" ]]; then
+        ALIAS_REF="${sig}"; ALIAS_REF_PATH="${variant}"
+      elif [[ "${sig}" == "${ALIAS_REF}" ]]; then
+        ok "range on ${variant} is identical to ${ALIAS_REF_PATH} (${sig})"
+      else
+        bad "range on ${variant} diverges from ${ALIAS_REF_PATH}: got '${sig}', want '${ALIAS_REF}'"
+      fi
+    done
+  else
+    skip "partial-fetch assertions" \
+         "the discovered object is ${FULL_LEN} bytes, too small for the 0-1023 / mid-file / \
+trailing windows to be distinguishable from the whole object."
+  fi
+
+  # -- leak sweep across every header a range response carries --------------
+  #
+  # Section 3b sweeps location headers on ordinary routes. The media surface
+  # was never swept, and it is the one that mints absolute URLs.
+  pub_range "bytes=0-1023" "${RH}" "${RB}" "${MEDIA_PATH}" >/dev/null
+  RANGE_LEAK="$(grep -iE '^(location|content-location|link|refresh|x-[a-z-]*url)[[:space:]]*:' "${RH}" \
+                | tr -d '\r' | grep -E "${BAD_ORIGIN_RE}|${HOST_IP}")"
+  if [[ -n "${RANGE_LEAK}" ]]; then
+    bad "a range response carries an internal origin in its headers: ${RANGE_LEAK//$'\n'/ | }"
+  else
+    ok "no range-response header carries an internal origin or ${HOST_IP}"
+  fi
+fi
+
 # --------------------------------------------------------------- summary ----
 
 section "Summary"
