@@ -59,11 +59,19 @@ def _health_check_script() -> str:
 set -eu
 sandbox="${NEMOCLAW_SANDBOX_NAME:-skill-eval}"
 port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+reward_dir="/logs/verifier"
+mkdir -p "$reward_dir"
 code="$(timeout 30 openshell sandbox exec -n "$sandbox" -- sh -lc \
   "curl -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health")"
 case "$code" in
-  200|401) printf 'NemoClaw sandbox %s gateway is healthy on %s\\n' "$sandbox" "$port" ;;
-  *) echo "NemoClaw sandbox $sandbox gateway is not healthy (HTTP $code)" >&2; exit 1 ;;
+  200|401)
+    printf 'NemoClaw sandbox %s gateway is healthy on %s\\n' "$sandbox" "$port"
+    printf '1.0\\n' > "$reward_dir/reward.txt"
+    ;;
+  *)
+    echo "NemoClaw sandbox $sandbox gateway is not healthy (HTTP $code)" >&2
+    printf '0.0\\n' > "$reward_dir/reward.txt"
+    ;;
 esac
 """
 
