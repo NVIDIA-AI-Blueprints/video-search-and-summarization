@@ -41,6 +41,15 @@ services:
       # the compose network, where the published port does not apply.
       RTVI_VLM_SERVICE_HOST: ${RTVI_VLM_SERVICE_HOST:-rtvi-vlm}
       RTVI_VLM_SERVICE_PORT: ${RTVI_VLM_SERVICE_PORT:-8000}
+      # vss-llm-nim is a network alias every LLM NIM compose service registers,
+      # dedicated and -shared-gpu alike, so this one name follows the model
+      # wherever it is placed. 8000 is its container port; LLM_PORT is the
+      # host-published one (30081) and must not be used here, same as
+      # RTVI_VLM_PORT above. Nothing resolves this name when the deployment runs
+      # no in-stack model, which is what leaves the backend DOWN and makes /llm
+      # report itself absent rather than broken.
+      LLM_SERVICE_HOST: ${LLM_SERVICE_HOST:-vss-llm-nim}
+      LLM_SERVICE_PORT: ${LLM_SERVICE_PORT:-8000}
       # BACKEND_PORT is lvs-server's container port, not BACKEND_HOST_PORT.
       LVS_SERVICE_HOST: ${LVS_SERVICE_HOST:-lvs-server}
       LVS_SERVICE_PORT: ${BACKEND_PORT:-38111}

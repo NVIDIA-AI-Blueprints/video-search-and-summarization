@@ -113,6 +113,33 @@ backend bk_rtvi_vlm_strip
     http-request replace-path ^/rtvi-vlm$ /
     server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
 
+# The in-deployment LLM NIM, mounted like its RTVI siblings: the NIM serves its
+# OpenAI-compatible surface at the root, so /llm/v1/chat/completions has to
+# arrive as /v1/chat/completions.
+#
+# Additive and unused by default. No profile's LLM_BASE_URL points here, and
+# none is changed to; a colocated agent keeps addressing vss-llm-nim directly.
+# This exists so a caller that has only the gateway origin -- a remote agent, a
+# host-side tool behind a secure link -- can reach the model without being told
+# a second endpoint.
+#
+# TCP `check`, not `option httpchk GET /v1/health/ready`, and the difference is
+# load-bearing for the absent-backend marker in the frontend. A NIM holds its
+# port open while it loads weights, which takes minutes; a readiness check would
+# leave this backend DOWN for that whole window and the marker would report the
+# model "not part of this deployment" when it is merely warming up. Port-open
+# means deployed, which is the fact the marker needs. Plain `check` is also what
+# every other backend in this file uses.
+backend bk_llm_strip
+    http-request replace-path ^/llm/(.*) /\1
+    http-request replace-path ^/llm$ /
+    # A non-streaming completion sends nothing until generation finishes, and a
+    # reasoning model can outlast the 120s default; a 504 mid-generation would
+    # read as a backend failure. Streaming is unaffected either way, since
+    # `timeout server` measures inactivity and a token stream is never idle.
+    timeout server 600s
+    server s1 "${LLM_SERVICE_HOST}:${LLM_SERVICE_PORT}" check resolvers docker init-addr none
+
 backend bk_lvs_strip
     http-request replace-path ^/lvs/(.*) /\1
     http-request replace-path ^/lvs$ /
@@ -407,6 +434,13 @@ frontend fe_http
     acl p_rtvi_vlm path_beg /rtvi-vlm/
     use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
 
+    # The LLM NIM. Profiles that run no in-stack model -- every LLM_MODE=remote
+    # deployment -- leave the backend DOWN, so this answers 503 with the
+    # absent-backend marker rather than pretending a model is mounted here.
+    acl p_llm path /llm
+    acl p_llm path_beg /llm/
+    use_backend bk_llm_strip if h_main p_llm
+
     # Profiles without lvs-server leave the backend DOWN, so this answers 503
     # and `vss configure` records the service absent, not present-but-broken.
     acl p_lvs path /lvs
@@ -556,6 +590,7 @@ frontend fe_http
     http-request set-var(txn.gw_absent) str(rtvi-embed) if h_main p_rtvi_embed { nbsrv(bk_rtvi_embed_strip) eq 0 }
     http-request set-var(txn.gw_absent) str(rtvi-cv) if h_main p_rtvi_cv { nbsrv(bk_rtvi_cv_strip) eq 0 }
     http-request set-var(txn.gw_absent) str(rtvi-vlm) if h_main p_rtvi_vlm { nbsrv(bk_rtvi_vlm_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(llm) if h_main p_llm { nbsrv(bk_llm_strip) eq 0 }
     http-request set-var(txn.gw_absent) str(lvs) if h_main p_lvs { nbsrv(bk_lvs_strip) eq 0 }
     http-request set-var(txn.gw_absent) str(video-summarization) if h_main p_video_summarization { nbsrv(bk_video_summarization_strip) eq 0 }
     http-request set-var(txn.gw_absent) str(phoenix) if h_main p_phoenix { nbsrv(bk_phoenix_strip) eq 0 }

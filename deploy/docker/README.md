@@ -468,6 +468,7 @@ serve that prefix natively.
 | `/rtvi-cv` | strip | `${VSS_GATEWAY_ORIGIN}/rtvi-cv` | `/rtvi-cv/api/v1/stream/add` | `/api/v1/stream/add` |
 | `/rtvi-embed` | strip | `${VSS_GATEWAY_ORIGIN}/rtvi-embed` | `/rtvi-embed/v1/models` | `/v1/models` |
 | `/lvs` | strip | `${VSS_GATEWAY_ORIGIN}/lvs` | `/lvs/v1/live` | `/v1/live` |
+| `/llm` | strip | opt-in; nothing is pointed here | `/llm/v1/chat/completions` | `/v1/chat/completions` |
 | `/phoenix` | strip | `${VSS_GATEWAY_ORIGIN}/phoenix` | `/phoenix` | `/` (keep `PHOENIX_HOST_ROOT_PATH=/phoenix`) |
 | `/vst` | preserve | `${VSS_GATEWAY_ORIGIN}` (not `/vst`) | `/vst/api/...` | `/vst/api/...` |
 | `/vios` | **rewrite to `/vst`** | `${VSS_GATEWAY_ORIGIN}/vios` | `/vios/api/...` | `/vst/api/...` |
@@ -477,6 +478,24 @@ serve that prefix natively.
 | `/kibana` | preserve | origin + `/kibana` | `/kibana/...` | `/kibana/...` |
 | `/api`, `/chat`, `/websocket`, `/static` | preserve | origin | `/api/v1/...` | `/api/v1/...` |
 | `/behavior-analytics`, `/perception-sdr` | preserve | origin + prefix | prefix paths | same (often 503 if backend has no HTTP) |
+
+#### `/llm` is available, not adopted
+
+The gateway mounts the in-deployment LLM NIM at `/llm`, and **nothing points at
+it**. Every profile keeps `LLM_BASE_URL=http://vss-llm-nim:8000`, the agent
+keeps addressing the model over Docker DNS, and the rule stated in
+`remote-agent.env.example` — model APIs are configured directly, not as gateway
+mounts — is still the default. The mount only makes the other arrangement
+possible: a caller that has been given one origin and nothing else can reach
+the model at `${VSS_GATEWAY_ORIGIN}/llm/v1` instead of needing a second
+endpoint, which is the same problem `/va-mcp` and `/elasticsearch` solve for
+their services.
+
+Adopting it is a per-deployment decision, made by setting `LLM_BASE_URL`, and
+it costs a hop and this listener's 600s server timeout. A deployment that runs
+no in-stack model leaves the backend with no server, so `/llm` answers 503 with
+`x-vss-gateway-unavailable: llm` — absent from this deployment, not broken —
+exactly like the other optional mounts.
 
 #### `/vios`, `/alerts`, `/video-summarization` are aliases, not renames
 
@@ -609,7 +628,7 @@ header is the contract** — the value names the route for logs, and a caller th
 switched on it would need editing every time a mount is added.
 
 Marked routes: `/video-analytics-api`, `/alert-bridge`, `/alerts`, `/kibana`,
-`/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/lvs`,
+`/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/llm`, `/lvs`,
 `/video-summarization`, `/phoenix`, `/behavior-analytics`, `/perception-sdr`,
 `/va-mcp`. The UI, agent and VST/VIOS routes are not marked: nothing treats the
 deployment's own front door or its media plane as optional, and their path
