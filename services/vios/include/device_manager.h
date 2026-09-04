@@ -160,6 +160,9 @@ struct DeviceConfig
     int dash_playlist_length;
     int dash_idle_timeout_sec;
     string dash_output_root;
+    /* Output bitrate in kbit/s for a DASH session, for both the hardware and
+     * the software encoder. Zero means derive it from the picture height. */
+    int dash_bitrate_kbps;
     string storage_config_file;
     size_t total_video_storage_size_MB;
     double storage_threshold_percentage;

@@ -17,6 +17,30 @@
 
 #pragma once
 
+/* Output bitrate for a DASH session, in kbit/s.
+ *
+ * A configured value wins outright; zero asks for one derived from the picture.
+ * The thresholds are inequalities rather than equalities on purpose - a source
+ * that is 1088 or 1200 tall is still a 1080p-class picture, and an exact match
+ * would send it to the smallest tier.
+ *
+ * This is deliberately not the WebRTC bitrate range. That range is the span a
+ * congestion controller is allowed to move within, and a DASH session has no
+ * congestion controller to move it, so it would sit at the bottom of the range
+ * forever - 2 Mbit/s for 1080p, and 2048 kbit/s (the x264 default) whatever the
+ * resolution on the software path. These are single target rates instead. */
+inline int dashBitrateKbpsForHeight(int configuredKbps, int height)
+{
+    if (configuredKbps > 0)
+    {
+        return configuredKbps;
+    }
+    if (height >= 2160) { return 20000; }
+    if (height >= 1440) { return 10000; }
+    if (height >= 1080) { return 5000; }
+    return 2000;
+}
+
 inline constexpr int WIDTH_2160p  = 3840;
 inline constexpr int HEIGHT_2160p = 2160;
 
