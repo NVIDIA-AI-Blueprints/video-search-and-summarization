@@ -63,9 +63,9 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # What skill-eval covers, split by shape so a path can be attributed without
 # touching the filesystem: a category holds skill dirs one level down, a named
 # root is itself a skill dir. Anything under skills/ outside these roots — the
-# deployment, tools and benchmarking categories — is attributed to no skill, so
+# deployment and tools categories — is attributed to no skill, so
 # changing it dispatches no eval leg.
-EVAL_SKILL_CATEGORIES = ("operations",)
+EVAL_SKILL_CATEGORIES = ("operations", "benchmarking")
 EVAL_SKILL_NAMES = ("vss-build-vision-ai",)
 EVAL_SKILL_ROOTS = EVAL_SKILL_CATEGORIES + EVAL_SKILL_NAMES
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
