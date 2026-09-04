@@ -45,6 +45,15 @@ config is aligned to this table separately and still carries Docker-only routes.
 Usage: python3 deploy/helm/scripts/verify-ingress-routes.py [--verbose]
 (location-independent: all paths resolve relative to this file)
 Requires: helm, PyYAML, and `helm dependency build` already run per profile.
+
+Re-run `helm dependency build` after ANY edit under services/common. A profile
+renders that chart from its vendored charts/common-*.tgz, so an un-vendored edit
+is invisible here and this exits 0 against the previous table -- a false green,
+not an error.
+
+CI runs this as the first pass of .github/workflows/helm-ingress-live.yml, ahead
+of the kind cluster the live controller test needs, so a rendering regression
+fails in seconds rather than after a spin-up.
 """
 
 from __future__ import annotations
