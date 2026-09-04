@@ -18,7 +18,7 @@
 		"max_webrtc_in_connections": 8,
 		"dash": {
 			"max_live_sessions": 8,
-			"segment_duration_sec": 1,
+			"segment_duration_sec": 2,
 			"playlist_length": 8,
 			"idle_timeout_sec": 45,
 			"output_root": "dash",

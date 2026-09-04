@@ -81,7 +81,7 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             // never reads a config file still holds usable numbers rather than
             // whatever the stack happened to contain.
             ,max_live_dash_sessions(8)
-            ,dash_segment_duration_sec(1)
+            ,dash_segment_duration_sec(2)
             ,dash_playlist_length(8)
             ,dash_idle_timeout_sec(45)
             ,dash_output_root("dash")

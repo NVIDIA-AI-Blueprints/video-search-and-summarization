@@ -86,7 +86,14 @@ constexpr uint64_t kDashRetainedSegments = 60;
 // than on it.  It must cover both the player live delay and the manifest's
 // availability shift, otherwise Chrome starts at the edge with no jitter
 // tolerance.  This adds startup time, but prevents recurring stalls.
-constexpr unsigned kDashPrerollSeconds = 8;
+/* Eight seconds was this floor while segments were published on a one second
+ * grid, where two of them bought a catalogue barely wider than the player's
+ * live delay and the rest of the wait was doing the work. On a grid that
+ * reaches the configured length, two segments already carry that catalogue, so
+ * the floor only has to cover the case where segments are shorter than asked
+ * for. Every second beyond it is a second of black screen: measured at eight,
+ * the manifest was withheld for ten seconds of a twelve second start-up. */
+constexpr unsigned kDashPrerollSeconds = 4;
 
 /* How much media must exist before the manifest is published, as a count of
  * segments.
@@ -137,6 +144,47 @@ double parseFrameRate(const std::string& value, double fallback)
  * was published as nine second segments, and a player that must hold a whole
  * segment before it can show any of it froze for ten seconds at a time with ten
  * seconds already buffered. */
+/* How long a segment should be, given the keyframe interval the media is
+ * arriving on and the length DASH has been configured to aim for.
+ *
+ * A segment can only end on a keyframe, so the achievable lengths are whole
+ * multiples of the keyframe interval and nothing else. Asking for a length that
+ * is not one of them does not split the difference: the muxer ends the segment
+ * at whichever keyframe is nearest and the published timeline comes back a
+ * mixture. Measured against a one second interval, asking for four produced
+ * alternating four and three second segments; a player sizes its buffer from
+ * the longest while the short ones arrive faster, and stalls on the difference.
+ *
+ * So round the target up to a whole number of intervals. A one second interval
+ * asked for two seconds gives exactly two, by ending every second keyframe
+ * rather than every one. An interval already longer than the target is left
+ * alone - it is the shortest segment that source can produce. */
+/* What to ask for when the source's keyframe interval is not known. One second
+ * is at or below every interval worth publishing, and a target at or below the
+ * interval ends the segment on each keyframe, so the timeline stays uniform. */
+constexpr unsigned kDashUnknownKeyframeSeconds = 1;
+
+unsigned segmentSecondsForKeyframeInterval(double keyframeSeconds, unsigned target)
+{
+    const unsigned wanted = target > 0 ? target : 1;
+    if (keyframeSeconds <= 0.0 || keyframeSeconds > 60.0)
+    {
+        return wanted;
+    }
+    if (keyframeSeconds >= static_cast<double>(wanted))
+    {
+        return static_cast<unsigned>(std::ceil(keyframeSeconds));
+    }
+    const double intervals = std::ceil(static_cast<double>(wanted) / keyframeSeconds);
+    return static_cast<unsigned>(std::lround(intervals * keyframeSeconds));
+}
+
+/* A session that re-encodes does not inherit the source's keyframe interval:
+ * the encoder is told its own. That interval is the WebRTC one, because both
+ * sinks share the encoder, so it is what the grid has to be built from - but it
+ * is a WebRTC tuning value and has no business deciding how DASH delivers.
+ * Round it up to the configured DASH length instead, which is a property of
+ * delivery rather than of encoding. */
 unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured)
 {
     const int interval = GET_CONFIG().webrtc_out_set_idr_interval > 0
@@ -147,14 +195,7 @@ unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured
     {
         return configured;
     }
-    const double seconds = static_cast<double>(interval) / rate;
-    if (seconds <= 0.0 || seconds > 60.0)
-    {
-        return configured;
-    }
-    // Never below one second: a sub-second grid multiplies requests per stream
-    // for no benefit a viewer can see.
-    return static_cast<unsigned>(std::max(1.0, std::ceil(seconds)));
+    return segmentSecondsForKeyframeInterval(static_cast<double>(interval) / rate, configured);
 }
 
 /* One place to see what a DASH request asked for and what the pipeline was
@@ -186,7 +227,15 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
     const double rate = parseFrameRate(frameRate, 0.0);
     if (pictures == 0 || rate <= 0.0)
     {
-        return configured;
+        /* The configured length is what DASH would like, and it is the right
+         * answer wherever we own the encoder. Here we do not: the keyframes are
+         * the camera's and their spacing is unknown. Asking for longer than
+         * they happen to be is what produces a mixed timeline - measured as one
+         * two second segment followed by three one second ones - so ask for the
+         * shortest thing instead. Any target at or below the interval ends the
+         * segment on every keyframe, which is uniform whatever the camera is
+         * doing; only asking for more than the interval is unsafe. */
+        return kDashUnknownKeyframeSeconds;
     }
     const double seconds = static_cast<double>(pictures) / rate;
     /* Asking for more than the keyframe interval does not lengthen the segment
@@ -196,12 +245,26 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
      * longest segment while the short ones arrive at twice the rate, and that
      * measured as a stall every few seconds.  Ask for what the source gives.
      *
+     * Re-measured against a two second target: a one second source published
+     * `d=6000` once and `d=3000` three times running, so grouping keyframes is
+     * not something the muxer can be asked for. A pass-through session is
+     * therefore stuck with the camera's grid, and a camera on a one second grid
+     * stays expensive to watch from far away. Lengthening it needs either the
+     * muxer to end a segment on a chosen keyframe rather than the next one, or
+     * the stream to be re-encoded - and re-encoding every pass-through session
+     * to save requests is not a trade worth making silently.
+     *
      * An implausible interval is not worth trusting over the configured value. */
-    if (seconds <= 1.0 || seconds > 60.0)
+    if (seconds <= 0.0 || seconds > 60.0)
     {
-        return configured;
+        return kDashUnknownKeyframeSeconds;
     }
-    return static_cast<unsigned>(std::ceil(seconds));
+    /* Round down, never up. A target at or below the interval ends the segment
+     * on every keyframe and the timeline is uniform; a target above it makes
+     * the muxer skip to the keyframe after, and which one that is varies. The
+     * configured length is deliberately not consulted here - it is what DASH
+     * would like, and a pass-through session cannot deliver it. */
+    return static_cast<unsigned>(std::max(1.0, std::floor(seconds)));
 }
 
 } // namespace

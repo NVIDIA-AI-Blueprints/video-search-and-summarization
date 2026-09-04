@@ -298,7 +298,7 @@ VmsConfigManager::VmsConfigManager()
          * value falls back to the same default it would have had on its own. */
         const Json::Value dash = network.get("dash", Json::objectValue);
         m_vmsConfig.max_live_dash_sessions = dash.get("max_live_sessions", 8).asInt();
-        m_vmsConfig.dash_segment_duration_sec = dash.get("segment_duration_sec", 1).asInt();
+        m_vmsConfig.dash_segment_duration_sec = dash.get("segment_duration_sec", 2).asInt();
         m_vmsConfig.dash_playlist_length = dash.get("playlist_length", 8).asInt();
         m_vmsConfig.dash_idle_timeout_sec = dash.get("idle_timeout_sec", 45).asInt();
         m_vmsConfig.dash_output_root = dash.get("output_root", "dash").asString();
