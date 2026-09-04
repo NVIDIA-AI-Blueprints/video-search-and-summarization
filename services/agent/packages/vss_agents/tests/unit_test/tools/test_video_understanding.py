@@ -57,6 +57,19 @@ class TestVideoUnderstandingOffsetInput:
         assert model.start_timestamp == 0.0
         assert model.end_timestamp == 12.5
 
+    def test_numeric_start_with_string_none_end_uses_open_ended_video(self):
+        model = VideoUnderstandingOffsetInput.model_validate(
+            {
+                "sensor_id": "warehouse_safety_001",
+                "start_timestamp": 0,
+                "end_timestamp": "None",
+                "user_prompt": "What happened in the video?",
+            }
+        )
+
+        assert model.start_timestamp == 0.0
+        assert model.end_timestamp is None
+
 
 class TestParseThinkingFromContent:
     """Test _parse_thinking_from_content function."""
