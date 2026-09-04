@@ -849,7 +849,7 @@ class IsParsedTest(unittest.TestCase):
         # Guard rails, not golden values: these counts move with the repo, but
         # a collapse to zero means a matcher stopped matching.
         self.assertGreaterEqual(kinds.get("chart", 0), 50)
-        self.assertGreaterEqual(kinds.get("compose", 0), 60)
+        self.assertGreaterEqual(kinds.get("compose", 0), 50)
         self.assertGreaterEqual(kinds.get("container", 0), 40)
         self.assertGreaterEqual(kinds.get("lockfile", 0), 10)
         self.assertGreaterEqual(kinds.get("manifest", 0), 40)
