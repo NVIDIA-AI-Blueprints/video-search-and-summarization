@@ -122,6 +122,16 @@
   rewrite: strip
 # No strip: the Docker edge forwards this one whole, and the service is
 # reached by Kibana/ES in most builds, so nothing depends on a stripped form.
+#
+# The three warehouse charts strip it instead, and that disagreement is left
+# standing on purpose: this mount serves no HTTP on either chart family, so
+# there is nothing to observe. `vss-behavior-analytics:develop-latest` -- the
+# image both families render -- ships no web framework and no app source that
+# builds an HTTP server, the running container has no listening TCP socket, and
+# the live Docker edge answers /behavior-analytics with 503 (`nbsrv(...) eq 0`).
+# Reconciling strip-vs-forward needs an image that answers HTTP first, and
+# whether the mount should exist at all is a product question about the service
+# rather than a routing one.
 - key: behavior-analytics
   path: /behavior-analytics
   pathType: Prefix
