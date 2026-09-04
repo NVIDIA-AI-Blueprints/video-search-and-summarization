@@ -1,28 +1,22 @@
 // SPDX-License-Identifier: MIT
+import React from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import Home from "../../components/Home";
-import { fireEvent, render, screen } from "@testing-library/react";
-import React from "react";
 
 jest.mock("next/dynamic", () => ({
   __esModule: true,
   default: (loader: () => Promise<unknown>) => {
     const source = loader.toString();
 
-    if (source.includes("NemoAgentToolkitApp")) {
-      return ({
-        onAnswerCompleteWithContent,
-      }: {
-        onAnswerCompleteWithContent?: (answer: string) => void;
-      }) => (
+    if (source.includes("ChatPanel")) {
+      return ({ onAnswer }: { onAnswer?: (answer: string) => void }) => (
         <button
           type="button"
-          data-testid="deliver-search-result"
-          onClick={() =>
-            onAnswerCompleteWithContent?.('{"data":[{"id":"retained-hit"}]}')
-          }
+          data-testid="deliver-search-artifact"
+          onClick={() => onAnswer?.('{"data":[{"id":"retained-hit"}]}')}
         >
-          Deliver search result
+          Deliver search artifact
         </button>
       );
     }
@@ -32,7 +26,7 @@ jest.mock("next/dynamic", () => ({
         registerChatAnswerHandler,
       }: {
         registerChatAnswerHandler: (
-          handler: (answer: string) => boolean
+          handler: (answer: string) => boolean,
         ) => () => void;
       }) => {
         const [answer, setAnswer] = React.useState("");
@@ -43,10 +37,10 @@ jest.mock("next/dynamic", () => ({
               setAnswer(nextAnswer);
               return true;
             }),
-          [registerChatAnswerHandler]
+          [registerChatAnswerHandler],
         );
 
-        return <div data-testid="search-result-state">{answer}</div>;
+        return <div data-testid="search-artifact-state">{answer}</div>;
       };
     }
 
@@ -59,11 +53,9 @@ jest.mock("next-runtime-env", () => ({
 }));
 
 jest.mock(
-  "@nemo-agent-toolkit/ui",
+  "@nv-metropolis-bp-vss-ui/chat",
   () => ({
-    RuntimeConfigProvider: ({ children }: { children: React.ReactNode }) =>
-      children,
-    ChatSidebarContent: () => null,
+    ConversationList: () => null,
   }),
   { virtual: true }
 );
@@ -118,18 +110,18 @@ describe("Home tab lifecycle", () => {
     for (const variable of featureVariables) delete process.env[variable];
   });
 
-  it("retains an agent search result when leaving the full-page Chat tab", () => {
+  it("retains an agent search artifact when leaving the full-page Chat tab", () => {
     render(<Home />);
 
-    fireEvent.click(screen.getByTestId("deliver-search-result"));
-    expect(screen.getByTestId("search-result-state")).toHaveTextContent(
-      "retained-hit"
+    fireEvent.click(screen.getByTestId("deliver-search-artifact"));
+    expect(screen.getByTestId("search-artifact-state")).toHaveTextContent(
+      "retained-hit",
     );
 
     fireEvent.click(screen.getByTestId("sidebar-tab-search"));
 
-    expect(screen.getByTestId("search-result-state")).toHaveTextContent(
-      "retained-hit"
+    expect(screen.getByTestId("search-artifact-state")).toHaveTextContent(
+      "retained-hit",
     );
   });
 });

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import type { RegisterChatVideoUploadComplete } from '@nemo-agent-toolkit/ui';
+import type { RegisterChatVideoUploadComplete } from '@nv-metropolis-bp-vss-ui/chat';
 
 export interface StreamMetadata {
   bitrate: string;

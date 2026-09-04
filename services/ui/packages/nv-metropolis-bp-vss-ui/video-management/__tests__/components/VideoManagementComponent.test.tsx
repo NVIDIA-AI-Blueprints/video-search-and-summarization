@@ -11,7 +11,7 @@ let lastUploadDialogProps: any = null;
 let lastUploadProgressPopupProps: any = null;
 let lastUploadSuccessPopupProps: any = null;
 
-jest.mock('@nemo-agent-toolkit/ui', () => ({
+jest.mock('common', () => ({
   UploadFilesDialog: (props: any) => {
     lastUploadDialogProps = props;
     return null;

@@ -71,7 +71,7 @@ docker run --rm \
     mkdir -p \"\$STAGING\"
 
     # Standalone node_modules = production deps traced for server execution (not dev tools).
-    for app in nemo-agent-toolkit-ui nv-metropolis-bp-vss-ui; do
+    for app in nv-metropolis-bp-vss-ui; do
       standalone_root=\"apps/\${app}/.next/standalone\"
       if [ ! -d \"\$standalone_root\" ]; then
         echo \"ERROR: missing \${standalone_root} after build\" >&2

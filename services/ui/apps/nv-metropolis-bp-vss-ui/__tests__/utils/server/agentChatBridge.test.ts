@@ -352,9 +352,9 @@ describe("agent chat compatibility bridge", () => {
     ).toBe(`answer${invalid}`);
   });
 
-  it("preserves an artifact-shaped envelope when its payload cannot be safely serialized", () => {
-    const depth = 20_000;
-    const payload = `${'{"nested":'.repeat(depth)}{}${"}".repeat(depth)}`;
+  it("preserves an artifact-shaped envelope whose payload exceeds the safe parse budget", () => {
+    // Larger than MAX_ARTIFACT_LENGTH, so the sanitizer must never parse it.
+    const payload = `{"nested":"${"x".repeat(1_000_001)}"}`;
     const envelope = `<vss-ui-artifact>{"version":"1.0","kind":"vss.search.results","payload":${payload}}</vss-ui-artifact>`;
 
     expect(sanitizeAgentHistoryContent(envelope)).toBe(envelope);

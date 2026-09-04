@@ -1,4 +1,4 @@
-# Embedded agent adapter
+# Embedded external-agent adapter
 
 The VSS UI's Next.js process contains the trusted adapter between browser chat
 and an external agent harness. It is not a separate service or image.

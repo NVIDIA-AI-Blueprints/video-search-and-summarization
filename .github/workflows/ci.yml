@@ -1130,29 +1130,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # UI: only three workspaces define `lint` (all run `eslint` without ESLint 9 flat config in-tree).
-      # Exclude them so CI does not run eslint here; no changes under services/ui required.
+      # The remaining app workspace defines `lint` but runs ESLint without an
+      # ESLint 9 flat config in-tree. Exclude it until that source is fixed.
       # TODO: remove this once the dev source is fixed for linting.
       - name: Lint
-        run: npm run lint -- --filter='!@nemo-agent-toolkit/ui' --filter='!nemo-agent-toolkit-ui' --filter='!nv-metropolis-bp-vss-ui'
+        run: npm run lint -- --filter='!nv-metropolis-bp-vss-ui'
 
-      # Skip nv-metropolis-bp-vss-ui workspaces: `tsc` cannot resolve sibling `@nv-metropolis-bp-vss-ui/*`
-      # without the full local build graph. Skip nemo app + `@nemo-agent-toolkit/ui` lib: workspace path/types
-      # for `common` and other packages do not satisfy `tsc` in CI; lib also has TS errors.
-      # Remaining typecheck: `common` only.
+      # The UI workspaces need the full local build graph before `tsc` can
+      # resolve sibling packages. Keep this check scoped to `common`.
       # TODO: remove these filters once the dev source is fixed for typechecking.
       - name: Typecheck
-        run: |
-          npm run typecheck -- \
-            --filter='!nv-metropolis-bp-vss-ui' \
-            --filter='!nemo-agent-toolkit-ui' \
-            --filter='!@nemo-agent-toolkit/ui' \
-            --filter='!@nv-metropolis-bp-vss-ui/alerts' \
-            --filter='!@nv-metropolis-bp-vss-ui/all' \
-            --filter='!@nv-metropolis-bp-vss-ui/dashboard' \
-            --filter='!@nv-metropolis-bp-vss-ui/map' \
-            --filter='!@nv-metropolis-bp-vss-ui/search' \
-            --filter='!@nv-metropolis-bp-vss-ui/video-management'
+        run: npm run typecheck -- --filter='common'
 
   # ---------------------------------------------------------------------------
   # Job 6: Frontend build

@@ -228,6 +228,56 @@ class DiffRequirementsTest(unittest.TestCase):
         self.assertIn("license changed", rows[0]["notes"])
 
 
+class DiffLanguageTest(unittest.TestCase):
+    def test_removing_one_coexisting_version_is_not_a_cross_module_update(self) -> None:
+        base = {
+            ("demo", "1.0.0"): {
+                "license": "MIT",
+                "source_file": "services/ui/package-lock.json",
+                "source_kind": "lockfile",
+            },
+            ("demo", "2.0.0"): {
+                "license": "BSD-2-Clause",
+                "source_file": "services/vios/package-lock.json",
+                "source_kind": "lockfile",
+            },
+        }
+        head = {("demo", "2.0.0"): base[("demo", "2.0.0")]}
+
+        rows = osrb_scan.diff_language("node", base, head)
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("removed", rows[0]["change"])
+        self.assertEqual("1.0.0", rows[0]["old_version"])
+        self.assertEqual("MIT", rows[0]["old_license"])
+        self.assertEqual("services/ui", rows[0]["module"])
+
+    def test_adding_one_coexisting_version_is_not_a_cross_module_update(self) -> None:
+        base = {
+            ("demo", "2.0.0"): {
+                "license": "BSD-2-Clause",
+                "source_file": "services/vios/package-lock.json",
+                "source_kind": "lockfile",
+            }
+        }
+        head = {
+            **base,
+            ("demo", "3.0.0"): {
+                "license": "MIT",
+                "source_file": "services/ui/package-lock.json",
+                "source_kind": "lockfile",
+            },
+        }
+
+        rows = osrb_scan.diff_language("node", base, head)
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("added", rows[0]["change"])
+        self.assertEqual("3.0.0", rows[0]["new_version"])
+        self.assertEqual("MIT", rows[0]["new_license"])
+        self.assertEqual("services/ui", rows[0]["module"])
+
+
 class ParsePyprojectTest(unittest.TestCase):
     def test_reads_pep621_pins_and_skips_dev_extras(self) -> None:
         manifest = b'''
@@ -895,6 +945,58 @@ class UncoveredDependencyFilesTest(unittest.TestCase):
             self.skipTest("git tree unavailable")
 
         self.assertEqual([], osrb_scan.uncovered_dependency_files(paths, paths))
+
+
+class ParseNodeLockTest(unittest.TestCase):
+    LOCK = b'''{
+  "lockfileVersion": 3,
+  "packages": {
+    "": { "workspaces": ["packages/*"] },
+    "packages/internal-ui": {
+      "name": "@example/internal-ui",
+      "version": "1.0.0"
+    },
+    "node_modules/@example/internal-ui": {
+      "resolved": "packages/internal-ui",
+      "link": true
+    },
+    "node_modules/react": {
+      "version": "19.2.0",
+      "license": "MIT"
+    }
+  }
+}'''
+
+    def test_workspace_links_are_not_third_party_lock_rows(self) -> None:
+        self.assertEqual(
+            {("react", "19.2.0")}, set(osrb_scan.parse_node_lock(self.LOCK))
+        )
+
+    def test_workspace_link_names_cover_star_manifest_ranges(self) -> None:
+        names = osrb_scan.parse_node_workspace_names(self.LOCK)
+        manifest = osrb_scan.parse_package_json(
+            b'{"dependencies":{"@example/internal-ui":"*"}}'
+        )
+
+        self.assertEqual({"@example/internal-ui"}, names)
+        self.assertEqual({}, osrb_scan._drop_covered(manifest, names))
+
+    def test_workspace_suppression_is_scoped_to_its_module(self) -> None:
+        inventory = {
+            ("common", "*"): {
+                "source_file": "services/consumer/package.json",
+            },
+            ("@example/internal-ui", "*"): {
+                "source_file": "services/ui/apps/web/package.json",
+            },
+        }
+
+        filtered = osrb_scan._drop_local_node_workspace_rows(
+            inventory,
+            {"services/ui": {"common", "@example/internal-ui"}},
+        )
+
+        self.assertEqual({("common", "*")}, set(filtered))
 
 
 class ParsePackageJsonTest(unittest.TestCase):

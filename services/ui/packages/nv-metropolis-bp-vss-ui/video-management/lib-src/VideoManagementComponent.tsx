@@ -9,11 +9,11 @@ import {
   UploadSuccessPopup,
   VideoModal,
   useVideoModal,
-  useChatVideoUploadCompleteSubscription,
   type UploadFilesDialogEntry,
   type UploadFileConfigTemplate,
   type UploadResultItem,
-} from '@nemo-agent-toolkit/ui';
+} from 'common';
+import { useChatVideoUploadCompleteSubscription } from '@nv-metropolis-bp-vss-ui/chat';
 import { chunkedUpload } from './chunkedUpload';
 import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';

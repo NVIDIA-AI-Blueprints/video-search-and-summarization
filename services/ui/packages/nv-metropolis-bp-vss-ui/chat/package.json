@@ -1,0 +1,59 @@
+{
+  "name": "@nv-metropolis-bp-vss-ui/chat",
+  "version": "3.3-dev",
+  "private": true,
+  "license": "MIT AND Apache-2.0",
+  "description": "Toolkit-free VSS chat interface for the structured agent API, with legacy chat-SSE compatibility.",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./lib/chat.css": "./lib/chat.css",
+    "./styles": "./lib/chat.css"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && swc lib-src -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && cp lib-src/*.css lib/ && tsc --project tsconfig.lib.json",
+    "dev": "swc lib-src -d lib --config-file .swcrc -w",
+    "clean": "rm -rf lib && rm -rf node_modules",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.46.0",
+    "common": "*",
+    "html-to-image": "^1.11.13",
+    "idb": "^8.0.3",
+    "isomorphic-dompurify": "^2.36.0",
+    "lodash": "^4.18.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "recharts": "^2.15.4",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
+  },
+  "devDependencies": {
+    "@swc/cli": "^0.8.1",
+    "@swc/core": "^1.16.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/lodash": "^4.17.25",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "ts-jest": "^29.4.12",
+    "typescript": "5.9.3"
+  }
+}
