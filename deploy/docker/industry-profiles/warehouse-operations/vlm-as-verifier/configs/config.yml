@@ -26,7 +26,7 @@ ALERT_REVIEW_MEDIA_BASE_DIR: ""
 # VST Configuration
 vst_config:
   # Base URL for general VST APIs already used elsewhere in the codebase
-  base_url: "http://vst-ingress:30888"
+  base_url: "${VST_INTERNAL_URL}"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
   add_overlay: false
   segment_duration_seconds: 15
@@ -37,7 +37,7 @@ vst_config:
   url_retention_minutes: 20160
   # Storage service configuration (separate base URL and endpoint similar to vss_agent)
   storage:
-    base_url: "http://vst-ingress:30888"
+    base_url: "${VST_INTERNAL_URL}"
     # Endpoint to fetch media file path by VST id
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
 
@@ -93,7 +93,7 @@ prompt:
   prefer_payload_prompt: false
   override_prompts_on_start: true
   default_system_prompt: "You are a helpful assistant."
-  
+
 # Alert Type Configuration
 alert_type_config_file: "alert_type_config.json"
 

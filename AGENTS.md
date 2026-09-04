@@ -56,8 +56,19 @@ vss configure show                              # what was recorded
 vss configure check                             # re-probe + what each group can serve
 ```
 
-`configure` probes the origin's ingress routes and writes `~/.vss/config.json`
-(0600, no credentials). Re-run it after any deployment change.
+`configure` probes the origin's ingress routes — `/api`, `/vst`,
+`/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/lvs`, `/va-mcp` —
+and writes `~/.vss/config.json` (0600, no credentials). Re-run it after any
+deployment change.
+
+**Use the origin the host can reach, never the in-network gateway name.**
+`VSS_PUBLIC_URL` is it: `http://<host>:7777` locally, or the platform's
+`https://…` URL where TLS terminates in front of the deployment (a Brev secure
+link forwards plain HTTP inward). Services *inside* the deployment address the
+same HAProxy front door as `http://vss.local:7777` — that is `VSS_GATEWAY_ORIGIN`,
+and it is correct for them and useless here: it is a container-network alias, so
+configuring it fails every probe with a connection error and makes a healthy
+deployment look broken. One front door, one path contract, two origins.
 
 **Never construct an endpoint.** No `kubectl port-forward`, no Service DNS, no
 NodePort, no reading `HOST_IP` or `VST_INTERNAL_URL` out of a container. The CLI

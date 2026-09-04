@@ -264,7 +264,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.vstIngressPort`** | **`30888`** | Backend port for **vss-vios-ingress** (**`/vst`**). |
 | **`vssIngress.lvsBackendPort`** | **`38111`** | Backend port for **vss-summarization** on **`/lvs`**. The prefix is stripped, so **`/lvs/v1/summarize`** reaches the backend as **`/v1/summarize`**. |
 | **`vssIngress.rtviVlmPort`** | **`8000`** | Kubernetes Service port for **vss-rtvi-vlm** on **`/rtvi-vlm`**. The OpenAI-compatible root is **`<host>/rtvi-vlm/v1`**. |
-| **`vssIngress.elasticsearchPort`** | **`9200`** | Backend port for **`/elasticsearch`**, mounted whenever **`infra.elasticsearch`** is deployed. The edge guard is on the **`elasticsearch`** **`Service`** (**`infra.elasticsearch.ingressGuard`**): guarded at the edge: PUT/DELETE, cluster-admin paths and the two-segment mutating operations are denied, but **POST still reaches Elasticsearch** (`_bulk`, `_reindex`, `/<index>/_doc`) — the same grant the Docker edge makes, not a read-only endpoint. |
+| **`vssIngress.elasticsearchPort`** | **`9200`** | Backend port for **`/elasticsearch`**, mounted whenever **`infra.elasticsearch`** is deployed. The edge guard is on the **`elasticsearch`** **`Service`** (**`infra.elasticsearch.ingressGuard`**): an **allowlist** of read operations (`_search`, `_msearch`, `_count`, `_mget`, `_field_caps`, index metadata, `_cat/*`, `_cluster/health`) plus the single write unified memory needs (`PUT vss-memory*/_doc/<id>`). Everything else is denied — `_bulk`, `_reindex`, `_scripts/<id>` and `/<index>/_doc` included — the same policy the Docker edge enforces. |
 | **`vssIngress.timeoutClient`** | **`3600s`** | Rendered for continuity, but **inert**: this controller reads **`timeout-client`** only from its own ConfigMap, never from an Ingress annotation. Raising it means a cluster-wide controller setting. Server-side timeouts *do* work per backend and are set on **vss-summarization**, **vss-rtvi-vlm** and **vss-agent**; set **`vssIngress.timeoutServer`** only to impose an ingress-wide floor on every route. |
 | **`vssIngress.kibanaHost`** | **`""`** | Host rule for Kibana; default **`kibana.<global.externalHost or vssIngress.host>`**. |
 | **`vssIngress.phoenixHost`** | **`""`** | Host rule for Phoenix; default **`phoenix.<global.externalHost or vssIngress.host>`**. |
@@ -431,7 +431,8 @@ The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`*
 
 - **`Ingress`** **`<release>-vss-ingress`** in the release namespace.
 - **`spec.ingressClassName`**: **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Main host: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**.
+- Main host: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** and **`/vios`** → **vss-vios-ingress**.
+- **`/vios`** is an alias for **`/vst`**, rewritten onto it (**`^/vios/(.*)`** → **`/vst/\1`**) rather than stripped, because VST serves its whole surface under **`/vst/`**. When **`vssIngress.cliRoutes.enabled`** is set, **`/video-summarization`** is likewise an alias for **`/lvs`** and strips identically. Both spellings of each work; the old ones are deprecated and removed no earlier than 3.4.0.
 - If **Kibana** is enabled: host **`kibana.<main-host>`** (or **`vssIngress.kibanaHost`**) → **Kibana** (**`vssIngress.kibanaPort`**).
 - If **Phoenix** is enabled: host **`phoenix.<main-host>`** (or **`vssIngress.phoenixHost`**) → **Phoenix**.
 

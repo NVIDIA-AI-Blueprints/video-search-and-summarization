@@ -77,9 +77,6 @@ backend bk_behavior_analytics
 backend bk_perception_sdr
     server s1 "${PERCEPTION_SDR_SERVICE_HOST}:${PERCEPTION_SDR_PORT}" check resolvers docker init-addr none
 
-backend bk_va_mcp
-    server s1 "${VSS_VA_MCP_SERVICE_HOST}:${VSS_VA_MCP_PORT}" check resolvers docker init-addr none
-
 backend bk_kibana
     server s1 "${KIBANA_SERVICE_HOST}:${KIBANA_PORT}" check resolvers docker init-addr none
 
@@ -129,12 +126,59 @@ backend bk_phoenix_strip
     http-request replace-path ^/phoenix$ /
     server s1 "${PHOENIX_SERVICE_HOST}:${PHOENIX_PORT}" check resolvers docker init-addr none
 
+# Strip /va-mcp so VIDEO_ANALYSIS_MCP_URL=${VSS_GATEWAY_ORIGIN}/va-mcp plus
+# the agent's /mcp suffix reaches the backend as /mcp, matching Helm
+# haproxy.org/path-rewrite and ${VSS_PUBLIC_URL}/va-mcp/mcp. Direct Docker
+# callers that still use http://vss-va-mcp:9901/mcp are unchanged.
+backend bk_va_mcp_strip
+    http-request replace-path ^/va-mcp/(.*) /\1
+    http-request replace-path ^/va-mcp$ /
+    server s1 "${VSS_VA_MCP_SERVICE_HOST}:${VSS_VA_MCP_PORT}" check resolvers docker init-addr none
+
+# --- Aliases: /vios, /alerts, /video-summarization ---
+#
+# Additive. Each alias points at the same backend as the prefix it renames,
+# and /vst, /alert-bridge and /lvs keep working unchanged. A hard rename would
+# reach into the skills tree, the CLI's vios client (which spells /vst/ in many
+# places), the Helm templates, notebooks and the skill evals all at once; the
+# old prefixes are retired in a follow-up after a soak period instead.
+
+# /vios REWRITES to /vst, it does not strip. VST serves its whole surface under
+# /vst/, so /vios/api/v1/x has to arrive as /vst/api/v1/x -- a strip would send
+# /api/v1/x and 404 every call. bk_vst_storage_compat above is the same shape.
+backend bk_vios_rewrite
+    http-request replace-path ^/vios/(.*) /vst/\1
+    http-request replace-path ^/vios$ /vst
+    server s1 "${VST_INGRESS_SERVICE_HOST}:${VST_PORT}" check resolvers docker init-addr none
+
+# Strips, exactly like bk_alert_bridge_strip. The backend's own /api/v1/alerts
+# paths are untouched: the strip runs after routing, so /alerts/api/v1/alerts
+# reaches alert-bridge as /api/v1/alerts.
+backend bk_alerts_strip
+    http-request replace-path ^/alerts/(.*) /\1
+    http-request replace-path ^/alerts$ /
+    server s1 "${ALERT_BRIDGE_SERVICE_HOST}:${ALERT_BRIDGE_PORT}" check resolvers docker init-addr none
+
+# Strips, exactly like bk_lvs_strip -- including its raised server timeout. A
+# summarization that outlives 120s must not 504 on the alias while succeeding
+# on /lvs; an alias that behaves differently is worse than no alias.
+backend bk_video_summarization_strip
+    http-request replace-path ^/video-summarization/(.*) /\1
+    http-request replace-path ^/video-summarization$ /
+    timeout server 3600s
+    server s1 "${LVS_SERVICE_HOST}:${LVS_SERVICE_PORT}" check resolvers docker init-addr none
+
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
 
     # Named vhosts (nip.io / DNS) plus common dev cases: bare IP, localhost (Host must match or you get 404).
+    # VSS_GATEWAY_* is the canonical service-to-service hostname. It may equal
+    # VSS_PUBLIC_HOST; when it differs, callers use one origin and DNS/alias
+    # choose the path. Do not add colocated vs remote Host exceptions here.
     acl known_host hdr(host) -i "${VSS_PUBLIC_HOST}"
     acl known_host hdr(host) -i "${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}"
+    acl known_host hdr(host) -i "${VSS_GATEWAY_HOST}"
+    acl known_host hdr(host) -i "${VSS_GATEWAY_HOST}:${VSS_GATEWAY_PORT}"
     acl known_host hdr(host) -i "${EXTERNAL_IP}"
     acl known_host hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
     acl known_host hdr(host) -i "${HOST_IP}"
@@ -143,10 +187,63 @@ frontend fe_http
     acl known_host hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl known_host hdr(host) -i 127.0.0.1
     acl known_host hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
-    http-request deny deny_status 404 if !known_host
+    # An origin the deployment was never told about is the most likely remote
+    # access failure: a public DNS name, an /etc/hosts alias, a Brev secure
+    # link. The status stays 404 because callers already branch on it, but a
+    # bare 404 is indistinguishable from a path that no service mounts, which
+    # sends operators looking for a routing bug that is not there. Name the
+    # cause instead.
+    http-request deny deny_status 404 hdr x-vss-gateway-deny unknown-host content-type text/plain string "VSS gateway: this Host is not one of the deployment's known origins. Add the hostname callers use to VSS_PUBLIC_HOST and recreate vss-haproxy-ingress. See deploy/docker/README.md." if !known_host
+
+    # --- Forwarded scheme ---
+    #
+    # `option forwardfor` in defaults sets X-Forwarded-For and nothing else, so
+    # a backend that has to build an absolute URL has no way to learn the scheme
+    # the client used. It then assumes the scheme of the hop it can see, which
+    # is this listener's plain HTTP -- and where TLS terminates outside the
+    # deployment that means a browser on the https secure link is handed an http
+    # URL and blocks it as mixed content. Starlette's trailing-slash redirect on
+    # the agent's /static is the live example.
+    #
+    # The Host header already carries the client's authority verbatim, so
+    # X-Forwarded-Host and X-Forwarded-Port are deliberately NOT synthesised
+    # here. A gateway-invented X-Forwarded-Port could only name this listener's
+    # port, which is the wrong port for exactly the terminator case the scheme
+    # header exists to serve -- it would reintroduce the leak. A terminator that
+    # sets either header itself is left alone.
+    #
+    # Neither blindly overwritten nor blindly trusted:
+    #
+    #   - An external terminator is the only party that knows TLS happened, so a
+    #     value it set is honoured. Overwriting unconditionally would break the
+    #     Brev secure link, which is the case this rule exists for.
+    #   - What is honoured is a token, not a string. Whatever arrives is reduced
+    #     to one lowercase word and accepted only if it is exactly http or
+    #     https; anything else -- a full URL, an injection attempt, an empty
+    #     value -- is dropped in favour of this hop's own scheme. So a backend
+    #     can never splice an arbitrary caller-supplied string into a URL.
+    #
+    # Occurrence 1 rather than req.hdr's default: HAProxy treats a comma-
+    # delimited header as multiple values and returns the LAST, but in a chain
+    # of proxies the FIRST is the client's own scheme, so "https, http" from a
+    # second proxy in front must read as https. `lower` because Starlette
+    # compares the token case-sensitively and would silently ignore "HTTPS".
+    # Re-set unconditionally so the header leaves here in exactly one shape.
+    #
+    # Residual, stated rather than hidden: a caller reaching the listener
+    # directly can still assert https and be believed. That is self-inflicted --
+    # it gets https URLs it asked for -- and nothing in this deployment makes an
+    # authorisation decision on the forwarded scheme. ssl_fc rather than a
+    # literal so the rule stays correct if this bind ever terminates TLS itself.
+    http-request set-var(txn.xfp) req.hdr(x-forwarded-proto,1),lower
+    acl xfp_valid var(txn.xfp) -m str http https
+    http-request set-header X-Forwarded-Proto %[var(txn.xfp)] if xfp_valid
+    http-request set-header X-Forwarded-Proto %[ssl_fc,iif(https,http)] unless xfp_valid
 
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}"
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}"
+    acl h_main hdr(host) -i "${VSS_GATEWAY_HOST}"
+    acl h_main hdr(host) -i "${VSS_GATEWAY_HOST}:${VSS_GATEWAY_PORT}"
     acl h_main hdr(host) -i "${EXTERNAL_IP}"
     acl h_main hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
     acl h_main hdr(host) -i "${HOST_IP}"
@@ -161,14 +258,21 @@ frontend fe_http
     acl p_vst_prefixed_storage path_reg ^/[^/]+:[0-9]+/vst/storage(/|$)
     acl p_storage path /storage
     acl p_storage path_beg /storage/
+    # /vios/storage is the same media surface under the alias, so it gets the
+    # same HEAD/OPTIONS short-circuits. Without these the alias would hand a
+    # range request whatever VST answers while /vst/storage answers here.
+    acl p_vios_storage path /vios/storage
+    acl p_vios_storage path_beg /vios/storage/
     acl m_head method HEAD
     acl m_options method OPTIONS
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_storage
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_storage
     http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_prefixed_storage
+    http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vios_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
+    http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vios_storage
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api
@@ -179,43 +283,111 @@ frontend fe_http
     acl p_alert_bridge path_beg /alert-bridge/
     use_backend bk_alert_bridge_strip if h_main p_alert_bridge
 
+    # Alias for /alert-bridge. Disjoint from the agent's /api route below --
+    # path_beg /api/ does not match /alerts -- so ordering between them is
+    # immaterial.
+    acl p_alerts path /alerts
+    acl p_alerts path_beg /alerts/
+    use_backend bk_alerts_strip if h_main p_alerts
+
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
 
-    # Elasticsearch, method- and path-restricted at the edge. The CLI needs
-    # query access to resolve searches through one origin; it does not need to
-    # administer the cluster, and exposing that through a public ingress would
-    # be a far larger grant than the use case requires.
+    # Elasticsearch, restricted at the edge to an ALLOWLIST of (method, path)
+    # pairs. The CLI and the agent need query access to resolve searches
+    # through one origin; they do not need to administer the cluster or write
+    # documents, and Elasticsearch runs with `xpack.security.enabled: false`
+    # (services/infra/elk/elasticsearch/configs/elasticsearch.yml), so
+    # whatever this route forwards is executed unauthenticated. That makes this
+    # block the only authorisation control in front of the cluster, which is
+    # why it is written to fail closed.
     #
-    # Not read-only: the rules below stop PUT/DELETE, cluster-admin paths and
-    # the two-segment mutating operations, but POST is allowed, so
-    # POST /_bulk, /_reindex, /_scripts/<id> and /<index>/_doc still reach ES.
-    # Closing that means deny-by-default with an allowlist of the handful of
-    # operations the CLI uses, not another entry on the denylist.
+    # This replaces a denylist that named `_bulk`, `_update`, `_close` and the
+    # cluster-admin prefixes. A denylist could not be finished: measured
+    # against a live 9.4.4 deployment, POST also reached Elasticsearch on
+    # `_reindex`, `_scripts/<id>` (stored Painless), `_aliases` (whose
+    # `remove_index` action deletes an index), `_clone`, `_split`, `_shrink`,
+    # `_rollover`, `<index>/_mapping`, `<index>/_doc`, `<index>/_create/<id>`
+    # and `_tasks/<id>/_cancel` -- none of which it named, and every ES
+    # release adds more. An allowlist inverts the failure: a new endpoint is
+    # denied until someone names it, and a percent-encoded spelling
+    # (`%5Fbulk`, `%5Fcluster`) no longer slips past a pattern into the
+    # backend, because it does not match an allowed shape either.
     acl p_elasticsearch path /elasticsearch
     acl p_elasticsearch path_beg /elasticsearch/
-    acl es_read_method method GET HEAD POST OPTIONS
-    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
-    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
 
-    # Unified memory persists a job as PUT /<index>/_doc/<job_id>, which the
-    # read-only method rule answers 405. Scoped to the unified-memory index
-    # itself -- `vss-memory`, plus a statically configured suffixed variant such
-    # as `vss-memory-dev` -- rather than to the `vss-` prefix, so the exception
-    # does not widen on its own if other indices are renamed into that prefix
-    # later (FR-30). Every other index stays read-only whatever it is called,
-    # which is what the earlier `vss-*` pattern rested on assuming.
+    # GET and HEAD are grouped: every shape below is a read, and HEAD on a
+    # read is the same read without a body. POST joins them only for the query
+    # endpoints, which are reads that carry their query in the request body --
+    # that, and nothing else, is why POST is served here at all.
+    acl es_m_read method GET HEAD
+    acl es_m_query method GET HEAD POST
+    acl es_m_put method PUT
+    acl es_m_options method OPTIONS
+    acl es_m_known method GET HEAD POST PUT OPTIONS
+
+    # `/+` after the mount tolerates a client that joins its base URL and path
+    # with a spare slash; every shape is `$`-anchored so a longer path cannot
+    # ride in on a prefix match. `path` excludes the query string, so
+    # `?refresh=wait_for` and `?h=index&format=json` do not affect a match.
     #
-    # Two denies rather than `http-request allow`: allow also skips the
-    # backend's replace-path rules, so the request would reach Elasticsearch
-    # with the /elasticsearch prefix still on it.
-    acl es_memory_write method PUT
-    acl es_memory_doc_path path_reg ^/elasticsearch/vss-memory(-[^/]+)?/_doc/[^/]+$
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method !es_memory_doc_path
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method es_memory_doc_path !es_memory_write
-    http-request deny status 403 if h_main p_elasticsearch es_admin_path
-    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    # An index-expression segment is spelled out rather than left as `[^/]+`:
+    # Elasticsearch index names are lowercase and cannot contain `/`, `%`, or
+    # uppercase, so this admits the real shapes -- `mdx-raw-*`, `mdx-a,mdx-b`,
+    # `.internal.alerts-*`, `_all`, `vss-memory` -- while refusing a segment
+    # carrying percent-encoding. Document-id segments stay `[^/]+`: a memory
+    # `_id` is `<job_id>#<record_type>#<record_id>` and arrives as `%23`, and
+    # an id is terminal, so nothing can follow it.
+
+    # Cluster banner (elasticsearch-py issues GET / as its product check before
+    # any other call, so this is load-bearing for every Python caller); the
+    # whole read-only `_cat` family, which is what `vss configure` probes and
+    # describes with GET /_cat/indices?h=index&format=json; cluster health,
+    # which is the knowledge layer's es_caption health check; per-index
+    # metadata and single-document reads; and an index existence check.
+    acl es_read_shape path_reg ^/elasticsearch/*$
+    acl es_read_shape path_reg ^/elasticsearch/+_cat(/|$)
+    acl es_read_shape path_reg ^/elasticsearch/+_cluster/health/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_mapping|_settings|_alias|_doc/[^/]+|_source/[^/]+)/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/*$
+
+    # Query endpoints, cluster-wide and per-index. Deliberately absent, because
+    # nothing in this repository calls them and each one grants more than a
+    # read: `_search/scroll`, `_pit` and `_async_search` allocate server-side
+    # state that only DELETE releases; `_search_template`, `_msearch/template`
+    # and `_render/template` execute stored scripts; `_sql` and `_query` open a
+    # second query language. Add one here when a caller needs it.
+    acl es_query_shape path_reg ^/elasticsearch/+(_search|_msearch|_count|_mget|_field_caps)/*$
+    acl es_query_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_search|_msearch|_count|_mget|_field_caps|_validate/query|_terms_enum|_explain/[^/]+|_termvectors/[^/]+)/*$
+
+    # The one write. Unified memory persists a job as
+    # PUT /<index>/_doc/<job_id> (vss_core/memory/backends/elasticsearch.py).
+    # Scoped to the unified-memory index itself -- `vss-memory`, plus a
+    # statically configured suffixed variant such as `vss-memory-dev` --
+    # rather than to the `vss-` prefix, so the exception does not widen on its
+    # own if other indices are renamed into that prefix later (FR-30).
+    acl es_memory_doc_path path_reg ^/elasticsearch/+vss-memory(-[a-z0-9._-]+)?/_doc/[^/]+$
+
+    # A transaction variable rather than `http-request allow`: allow also skips
+    # the backend's replace-path rules, so the request would reach
+    # Elasticsearch with the /elasticsearch prefix still on it. It also keeps
+    # the decision independent of rule order -- every set-var runs before the
+    # denies below, whatever HAProxy warns about placement relative to
+    # use_backend.
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_options
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_read es_read_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_query es_query_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_put es_memory_doc_path
+
+    # 405 where the verb is wrong for this mount at all, and for every PUT
+    # outside the memory exception, so the status a client sees is unchanged
+    # from the denylist it replaces. 403 for everything else: the verb is one
+    # this route serves, but the operation is not on the allowlist.
+    acl es_allowed var(txn.es_ok) -m found
+    http-request deny status 405 if h_main p_elasticsearch !es_m_known
+    http-request deny status 405 if h_main p_elasticsearch es_m_put !es_memory_doc_path
+    http-request deny status 403 if h_main p_elasticsearch !es_allowed
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
 
     # RT-Embed, mounted at the service name so it matches its sibling
@@ -240,6 +412,11 @@ frontend fe_http
     acl p_lvs path /lvs
     acl p_lvs path_beg /lvs/
     use_backend bk_lvs_strip if h_main p_lvs
+
+    # Alias for /lvs.
+    acl p_video_summarization path /video-summarization
+    acl p_video_summarization path_beg /video-summarization/
+    use_backend bk_video_summarization_strip if h_main p_video_summarization
 
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
@@ -280,6 +457,35 @@ frontend fe_http
     use_backend bk_vst_prefixed_compat if h_main p_vst_prefixed
     use_backend bk_vst_ingress if h_main p_vst
 
+    # Alias for /vst, rewritten rather than stripped (see bk_vios_rewrite).
+    # No /vios counterpart to bk_vst_prefixed_compat: that backend exists to
+    # repair legacy media URLs that embed host:port ahead of /vst, and nothing
+    # emits such a URL under a prefix introduced here.
+    acl p_vios path /vios
+    acl p_vios path_beg /vios/
+    use_backend bk_vios_rewrite if h_main p_vios
+    # A caller that follows the alias's redirect has to stay on the alias.
+    #
+    # VST's ingress answers GET /vst with `301 Location: /vst/`, and it is the
+    # only party that can -- it serves its whole surface under /vst/ and the
+    # trailing slash is what makes the UI's relative asset paths resolve. But
+    # bk_vios_rewrite has already turned /vios into /vst by the time nginx sees
+    # it, so nginx cannot know the caller said /vios, and a caller who followed
+    # that Location would land on the prefix this alias exists to replace --
+    # collecting a Deprecation header on the way to the successor.
+    #
+    # Same request-time-variable shape, and for the same reason, as the
+    # deprecation signalling at the foot of this frontend: by response time the
+    # path has been rewritten, so the decision has to be captured while the path
+    # is still what the client sent.
+    #
+    # Anchored on a RELATIVE Location, which is what the VIOS nginx configs now
+    # guarantee (absolute_redirect off). An absolute one would not match here,
+    # and deliberately so: this rule renames a path, it is not a second place
+    # that repairs an origin. Fixing the origin belongs at the service.
+    http-request set-var(txn.alias_vios) int(1) if h_main p_vios
+    http-response replace-header Location ^/vst(/.*)?$ /vios\1 if { var(txn.alias_vios) -m found }
+
     acl p_behavior path /behavior-analytics
     acl p_behavior path_beg /behavior-analytics/
     use_backend bk_behavior_analytics if h_main p_behavior
@@ -290,6 +496,152 @@ frontend fe_http
 
     acl p_va_mcp path /va-mcp
     acl p_va_mcp path_beg /va-mcp/
-    use_backend bk_va_mcp if h_main p_va_mcp
+    use_backend bk_va_mcp_strip if h_main p_va_mcp
 
     use_backend bk_vss_ui if h_main
+
+    # --- "This service is not part of this deployment" vs "it is, and it is unwell" ---
+    #
+    # Every route below fronts a service some profile does not deploy. HAProxy
+    # answers a route whose backend has no usable server with 503, and that is
+    # the same status the service itself returns when it is deployed but
+    # overloaded, restarting or broken. The two are not the same fact and a
+    # caller must not act on them the same way.
+    #
+    # Addressed directly on Docker DNS the transport drew that line for free: a
+    # service that is not deployed refuses the connection, and only a service
+    # that IS deployed can answer 503 at all. Consolidating every backend onto
+    # one origin destroyed the distinction -- both cases became "HTTP 503 from
+    # vss.local:7777" -- and it is restored here rather than in each caller,
+    # because the gateway is the only party that knows which of the two it is.
+    #
+    # `nbsrv(<backend>) eq 0` is that knowledge: no server in the backend is
+    # usable, so the request was never sent anywhere and no service formed this
+    # response. The reply is therefore synthesised HERE, carrying
+    # `x-vss-gateway-unavailable`, and the header's presence -- not the 503 --
+    # is what a caller may treat as "absent from this deployment". A 503 that
+    # arrives WITHOUT the header came from a live backend and still means
+    # present-and-failing, which stays an error for everyone.
+    #
+    # Two consequences, stated rather than left to be discovered:
+    #
+    #   - A service that is deployed but wholly down (crash-looped, or still
+    #     starting behind `init-addr none`) also has nbsrv 0, so it is reported
+    #     absent. That is not new: addressed directly it refused the connection
+    #     and read as absent too. This restores the old signal exactly, it does
+    #     not widen it.
+    #   - A service that is deployed and answering 503 itself -- the queue-full,
+    #     warming-up, dependency-down case -- keeps nbsrv >= 1, so nothing is
+    #     marked and the caller sees the hard failure it should.
+    #
+    # One line per mount, and only for the mounts whose path ACL is a dedicated
+    # prefix. The UI, agent and VST/VIOS routes are deliberately absent: their
+    # ACLs overlap (`/api` is a prefix of `/api/chat`, `/vst/api/v1/storage` of
+    # `/vst`, and the UI's catch-all has no path ACL at all), so a marker keyed
+    # on one of them would misfire on its neighbour -- and nothing treats the
+    # deployment's own front door or its media plane as optional anyway.
+    #
+    # A transaction variable feeding one `return`, rather than fourteen copies
+    # of the same rule, for the same reason as the deprecation block below: the
+    # decision is per-route and the response is not. The prefixes are mutually
+    # exclusive, so at most one of these can match and their order is
+    # immaterial. Rule placement is likewise immaterial -- HAProxy evaluates
+    # every http-request rule before any use_backend, which is why this block
+    # can sit below the routes it describes.
+    http-request set-var(txn.gw_absent) str(video-analytics-api) if h_main p_video_analytics { nbsrv(bk_video_analytics_api_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(alert-bridge) if h_main p_alert_bridge { nbsrv(bk_alert_bridge_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(alerts) if h_main p_alerts { nbsrv(bk_alerts_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(kibana) if h_main p_kibana { nbsrv(bk_kibana) eq 0 }
+    http-request set-var(txn.gw_absent) str(elasticsearch) if h_main p_elasticsearch { nbsrv(bk_elasticsearch_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(rtvi-embed) if h_main p_rtvi_embed { nbsrv(bk_rtvi_embed_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(rtvi-cv) if h_main p_rtvi_cv { nbsrv(bk_rtvi_cv_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(rtvi-vlm) if h_main p_rtvi_vlm { nbsrv(bk_rtvi_vlm_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(lvs) if h_main p_lvs { nbsrv(bk_lvs_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(video-summarization) if h_main p_video_summarization { nbsrv(bk_video_summarization_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(phoenix) if h_main p_phoenix { nbsrv(bk_phoenix_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(behavior-analytics) if h_main p_behavior { nbsrv(bk_behavior_analytics) eq 0 }
+    http-request set-var(txn.gw_absent) str(perception-sdr) if h_main p_perception_sdr { nbsrv(bk_perception_sdr) eq 0 }
+    http-request set-var(txn.gw_absent) str(va-mcp) if h_main p_va_mcp { nbsrv(bk_va_mcp_strip) eq 0 }
+
+    # The header value names the route so one log line explains itself; the
+    # CONTRACT is the header's presence, so a caller never has to keep a list of
+    # service names in step with this file.
+    acl gw_absent var(txn.gw_absent) -m found
+    http-request return status 503 hdr x-vss-gateway-unavailable "%[var(txn.gw_absent)]" content-type text/plain lf-string "VSS gateway: no server is up for %[var(txn.gw_absent)], so it is not part of this deployment. This response was synthesised by the gateway; the service never saw the request. See deploy/docker/README.md." if h_main gw_absent
+
+    # The marker means "the gateway made this up", so a backend must never be
+    # able to claim it. `http-response` rules run only on responses that came
+    # from a server -- an internally generated one is reachable only through
+    # `http-after-response` -- so this strips a forged or stale copy without
+    # touching the reply synthesised above.
+    http-response del-header x-vss-gateway-unavailable
+
+    # --- Deprecation signal on the aliased-away prefixes (RFC 9745 / RFC 8594) ---
+    #
+    # Response headers only. Status, body, routing and timeouts are untouched, so
+    # a client that works today keeps working identically and simply learns that
+    # the prefix it used is going away. The point is to turn the soak period into
+    # data about who is still calling /vst, /alert-bridge and /lvs.
+    #
+    # Two steps rather than one, and the reason is easy to get wrong: by the time
+    # a response is processed the backend's replace-path has already rewritten the
+    # path, so /alert-bridge/api/v1/alerts is /api/v1/alerts here. Keying an
+    # http-response rule on the path would therefore never match the prefix it
+    # meant to -- and would match a *different* route's prefix instead. So the
+    # decision is captured at request time, when the path is still what the client
+    # sent, into a transaction variable the response rules read.
+    #
+    # These reuse the routing ACLs above rather than restating `path /vst` and
+    # friends, so the signal cannot drift away from what actually routes. HAProxy
+    # warns that an http-request rule placed after a use_backend rule still runs
+    # first; that is exactly the behaviour relied on here.
+    #
+    # Deliberately silent on:
+    #   - /vios, /alerts, /video-summarization -- the successors.
+    #   - /storage and the host:port /vst compat route. Both rewrite into VST's
+    #     namespace, but neither is one of the three prefixes being retired: they
+    #     are shims for media URLs the product already emitted, with no removal
+    #     planned. Announcing a sunset for them would be a promise nobody made.
+    http-request set-var(txn.deprecated_successor) str(/vios) if h_main p_vst
+    http-request set-var(txn.deprecated_successor) str(/alerts) if h_main p_alert_bridge
+    http-request set-var(txn.deprecated_successor) str(/video-summarization) if h_main p_lvs
+
+    acl legacy_prefix var(txn.deprecated_successor) -m found
+    # RFC 9745 makes Deprecation an Item Structured Field whose value MUST be a
+    # Date (RFC 9651 section 3.3.7): `@<seconds since epoch>`. The bare `true`
+    # it replaces came from draft-dalal-deprecation-header, which the RFC
+    # dropped, and a conformant parser discards a field it cannot parse -- so
+    # `true` would have made the signal invisible to exactly the clients that
+    # implement the spec this rule cites.
+    #
+    # Unlike Sunset this date is not a guess. It is the deprecation date, not
+    # the removal date: these prefixes became deprecated when the aliases
+    # shipped, which is a fact already known. @1787702400 is
+    # 2026-08-26T00:00:00Z.
+    http-response set-header Deprecation "@1787702400" if legacy_prefix
+    http-response set-header Link "<%[var(txn.deprecated_successor)]>; rel=\"successor-version\"" if legacy_prefix
+
+    # Sunset carries an HTTP-date (RFC 8594) and 3.4.0 has no release date yet.
+    # Emitting a guess would be worse than saying nothing, because clients
+    # automate against this header, so it appears only once an operator supplies
+    # a real date. Removal is no earlier than 3.4.0; support runs through 3.3.x.
+    #
+    # Read at runtime through env() rather than expanded into the config, and
+    # gated on length rather than on a `.if defined(...)` preprocessor test.
+    # Both halves of that matter:
+    #
+    #   - `.if defined(...)` is true for a variable that exists but is empty,
+    #     and an empty `${...}` inside a quoted argument does not yield a blank
+    #     header: HAProxy aborts the parse ("argument ... is empty and marks the
+    #     end of the argument list") and the gateway does not start at all. So
+    #     `VSS_GATEWAY_LEGACY_SUNSET=` -- the obvious way to write the knob down
+    #     without setting it -- would take every service-to-service HTTP call in
+    #     the deployment with it.
+    #   - A config-time string predicate cannot express this either, because an
+    #     HTTP-date contains commas and commas separate `.if` predicate
+    #     arguments.
+    #
+    # env() sidesteps both: the argument is a literal format string, so it is
+    # never empty, and the value is never seen by the config parser.
+    acl has_sunset env(VSS_GATEWAY_LEGACY_SUNSET),length gt 0
+    http-response set-header Sunset "%[env(VSS_GATEWAY_LEGACY_SUNSET)]" if legacy_prefix has_sunset

@@ -50,7 +50,7 @@ deploys, the routes each consumer of the origin needs:
 | Consumer of the origin | Routes to retain (for deployed backends) |
 |---|---|
 | Human **browse** | `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only) `/alert-bridge` |
-| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
+| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (allowlist guard — copy verbatim), `/rtvi-embed`, `/rtvi-cv`, and `/api` when an agent ships |
 
 The operate set is the read-path subset of what `vss configure` probes to resolve
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
@@ -63,6 +63,13 @@ host-port resolved and deliberately **not** fronted here — it records `absent`
 which is expected and harmless because no read path consumes it. Do not add the
 route to satisfy the probe; that would re-expose RT-VLM's SSE generation endpoints
 through HAProxy.
+
+`/va-mcp` is the same shape: `vss configure` probes it, but no command group
+requires it — the agent is the MCP server's client, not the CLI. Keep the route
+when the build deploys `vss-va-mcp` (the agent reaches it through this origin as
+`${VSS_GATEWAY_ORIGIN}/va-mcp`, so pruning it breaks the agent's video-analytics
+tools even though the CLI is unaffected); drop it, and accept a `va_mcp absent`
+line, when the build has no MCP server.
 
 - **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the
@@ -154,7 +161,7 @@ backend bk_kibana
 backend bk_video_analytics_api_strip
     http-request replace-path ^/video-analytics-api/(.*) /\1
     http-request replace-path ^/video-analytics-api$ /
-    server s1 "${VIDEO_ANALYTICS_API_SERVICE_HOST}:${VIDEO_ANALYTICS_API_PORT}" check resolvers docker init-addr none
+    server s1 "${VIDEO_ANALYTICS_API_SERVICE_HOST}:8081" check resolvers docker init-addr none
 
 # Combined (alerts) builds only — drop this backend if no alerts capability ships:
 backend bk_alert_bridge_strip
@@ -211,17 +218,40 @@ frontend fe_http
     use_backend bk_vst_ingress if h_main p_vst
 
     # --- Operate route-set (`vss configure`) — keep for the deployed backends ---
-    # Elasticsearch is read-only at the edge: COPY the guard block below (method-
-    # deny + admin/mutating-deny) VERBATIM from haproxy.cfg.template — it is
-    # security-bearing, like the storage-preflight and h_main blocks.
+    # Elasticsearch is served through an ALLOWLIST of (method, path) pairs:
+    # queries, index metadata, `_cat`, cluster health, and one write for
+    # unified memory. Everything else is denied, including POST /_bulk,
+    # /_reindex and /_scripts/<id>. COPY the guard block below VERBATIM from
+    # haproxy.cfg.template — it is security-bearing, like the storage-preflight
+    # and h_main blocks, and it is the only authorisation control in front of a
+    # cluster that runs with security disabled. Do not "simplify" it into a
+    # denylist of dangerous endpoints; that is what it replaced.
     acl p_elasticsearch path /elasticsearch
     acl p_elasticsearch path_beg /elasticsearch/
-    acl es_read_method method GET HEAD POST OPTIONS
-    acl es_admin_path path_reg ^/elasticsearch/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
-    acl es_mutating_op path_reg ^/elasticsearch/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
-    http-request deny status 405 if h_main p_elasticsearch !es_read_method
-    http-request deny status 403 if h_main p_elasticsearch es_admin_path
-    http-request deny status 403 if h_main p_elasticsearch es_mutating_op
+    acl es_m_read method GET HEAD
+    acl es_m_query method GET HEAD POST
+    acl es_m_put method PUT
+    acl es_m_options method OPTIONS
+    acl es_m_known method GET HEAD POST PUT OPTIONS
+    acl es_read_shape path_reg ^/elasticsearch/*$
+    acl es_read_shape path_reg ^/elasticsearch/+_cat(/|$)
+    acl es_read_shape path_reg ^/elasticsearch/+_cluster/health/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_mapping|_settings|_alias|_doc/[^/]+|_source/[^/]+)/*$
+    acl es_read_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/*$
+    acl es_query_shape path_reg ^/elasticsearch/+(_search|_msearch|_count|_mget|_field_caps)/*$
+    acl es_query_shape path_reg ^/elasticsearch/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_search|_msearch|_count|_mget|_field_caps|_validate/query|_terms_enum|_explain/[^/]+|_termvectors/[^/]+)/*$
+    # Unified memory persists a job as PUT /vss-memory/_doc/<job_id>. A set-var
+    # plus one deny rather than `http-request allow`: allow also skips the
+    # backend's replace-path rules.
+    acl es_memory_doc_path path_reg ^/elasticsearch/+vss-memory(-[a-z0-9._-]+)?/_doc/[^/]+$
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_options
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_read es_read_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_query es_query_shape
+    http-request set-var(txn.es_ok) int(1) if h_main p_elasticsearch es_m_put es_memory_doc_path
+    acl es_allowed var(txn.es_ok) -m found
+    http-request deny status 405 if h_main p_elasticsearch !es_m_known
+    http-request deny status 405 if h_main p_elasticsearch es_m_put !es_memory_doc_path
+    http-request deny status 403 if h_main p_elasticsearch !es_allowed
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
 
     acl p_rtvi_embed path /rtvi-embed
@@ -250,7 +280,7 @@ frontend fe_http
 | Environment variable | Use |
 |---|---|
 | `HAPROXY_HOST_PORT`, `HAPROXY_PORT`, `HAPROXY_BIND_ADDR` | Publish and bind the proxy origin. |
-| `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`, `EXTERNAL_IP`, `HOST_IP` | Host-header allowlist — required, or every request 404s. |
+| `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`, `EXTERNAL_IP`, `HOST_IP` | Host-header allowlist. All four must be non-empty or HAProxy will not parse its config and the gateway does not start; the profile defaults supply that, so none needs setting by hand. What a caller's Host has to match is one declared origin, not all of them — `localhost`, `127.0.0.1` and `VSS_GATEWAY_HOST` are admitted unconditionally, so an undeclared DNS name 404s while those keep working. Declare a name with `VSS_PUBLIC_HOST`. See `deploy/docker/README.md` § "The origin callers use has to be declared". |
 | `KIBANA_SERVICE_HOST`, `KIBANA_PORT`, `VST_INGRESS_SERVICE_HOST`, `VST_PORT`, `BEHAVIOR_ANALYTICS_SERVICE_HOST`, `VIDEO_ANALYTICS_API_SERVICE_HOST`, `ALERT_BRIDGE_SERVICE_HOST` (+ ports) | Per-backend browse targets; Docker-DNS defaults suit the shipped service keys. |
 | `ELASTICSEARCH_SERVICE_HOST`/`_PORT`, `RTVI_EMBED_SERVICE_HOST`/`_PORT`, `RTVI_CV_SERVICE_HOST`/`_PORT` | Per-backend operate targets (`vss configure` route-set); add for the backends the build deploys. |
 

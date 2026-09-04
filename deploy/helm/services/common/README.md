@@ -38,9 +38,12 @@ the paths `vss configure` records
 | `ui` | `/api/chat`, `/` | kept | `/` is the catch-all and renders last |
 | `agent` | `/api`, `/chat`, `/websocket`, `/static`, `/docs`, `/redoc`, `/generate`, `/openapi.json` | kept | `/openapi.json` is `Exact`, the rest `Prefix` |
 | `vst` | `/vst` | kept | |
+| `vst` | `/vios` | → `/vst` | alias for `/vst`; the canonical prefix stays |
 | `vst` | `/storage` | → `/vst/storage` | VST mints absolute media links against the origin root |
+| `vst` | `/vios/storage` | → `/vst/storage` | same media surface under the `/vios` alias |
 | `va-mcp` | `/va-mcp` | stripped | public MCP endpoint is `/va-mcp/mcp` |
 | `alert-bridge` | `/alert-bridge` | stripped | |
+| `alert-bridge` | `/alerts` | stripped | alias for `/alert-bridge`; the canonical prefix stays |
 | `video-analytics-api` | `/video-analytics-api` | stripped | |
 | `behavior-analytics` | `/behavior-analytics` | kept | |
 | `elasticsearch` | `/elasticsearch` | stripped | edge guard on the ES Service, see below |
@@ -48,6 +51,7 @@ the paths `vss configure` records
 | `rtvi-cv` | `/rtvi-cv` | stripped | also on the host-less east-west rule |
 | `rtvi-embed` | `/rtvi-embed` | stripped | also on the host-less east-west rule |
 | `lvs` | `/lvs` | stripped | |
+| `lvs` | `/video-summarization` | stripped | alias for `/lvs`; the canonical prefix stays |
 | `phoenix` | `/phoenix` | stripped | keep `PHOENIX_HOST_ROOT_PATH` in step |
 
 Kibana and NVStreamer are **not** in the table. Both are served on their own host
@@ -128,7 +132,11 @@ the main object makes it easy to miss.
 ## Checking it
 
 ```bash
-python3 deploy/helm/scripts/verify-ingress-routes.py --verbose
+cd deploy/helm/developer-profiles
+for p in dev-profile-base dev-profile-alerts dev-profile-lvs dev-profile-search; do
+  helm dependency update "./$p"        # required after ANY edit under services/common
+done
+cd - && python3 deploy/helm/scripts/verify-ingress-routes.py --verbose
 ```
 
 Renders all four profiles and asserts: no path or `pathType` outside this table, no backend
@@ -137,5 +145,22 @@ mount `vss configure` probes present, a disabled component losing its route rath
 keeping a dangling backend, the host-less rule absent by default, and the hand-applied
 `vss-ingress-example*.yaml` files still describing what the chart renders.
 
-It deliberately does not check the Docker edge: `haproxy.cfg.template` is aligned to this
-table separately and still carries Docker-only routes (`/kibana`, `/perception-sdr`).
+**Re-vendor first, every time.** A profile renders this chart from its
+`charts/common-*.tgz`, not from these sources, so an edit here that has not been re-vendored
+is invisible to `helm template` — the script then passes on the *previous* version of the
+table. That failure mode is silent and it reads as a clean run.
+
+CI runs it, so this is a guard and not just a convenience: the **Helm ingress routes**
+workflow (`.github/workflows/helm-ingress-live.yml`) vendors all four profiles and runs it
+as its first pass, ahead of the `kind` cluster the live controller test needs. It is gated
+on `deploy/helm/**` and on `vss_cli/config.py`, and it costs about six seconds.
+
+Two things it does not cover:
+
+- **Service-scoped annotations.** It reads the Ingress objects of `templates/vss-ingress.yaml`
+  only, so the `backend-config-snippet` rewrites — the VIOS `Location` header, the
+  Elasticsearch edge guard, the RT-CV stream affinity — are outside what it can see. Those
+  are asserted against a real controller by `.github/scripts/test_helm_ingress_live.py`, the
+  second pass of the same workflow.
+- **The Docker edge.** `haproxy.cfg.template` is aligned to this table separately and still
+  carries Docker-only routes (`/kibana`, `/perception-sdr`).

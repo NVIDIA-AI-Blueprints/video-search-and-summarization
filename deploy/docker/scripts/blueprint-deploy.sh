@@ -367,6 +367,202 @@ function env_var_defined_in_files() {
   return 1
 }
 
+# ===== Single-GPU device clamp =====
+#
+# Same problem and same rules as dev-profile.sh, which carries the long-form
+# explanation next to its copy of these helpers (the two scripts already keep
+# private copies of get_env_value, get_llm_slug and friends). Warehouse is the
+# most exposed profile in the tree: RT-CV on device 0, RT-VLM on 1 and the LLM
+# on 2 means it needs three GPUs before Compose will start, and asking for an
+# index the host does not have is a hard container-start failure rather than a
+# fallback.
+#
+# A host with at least as many GPUs as the highest committed index clamps
+# nothing, so the three-GPU layout the warehouse profile was validated on
+# renders unchanged. A GPU count of 0 leaves placement alone: an unknown count
+# must not silently move a model.
+DEVICE_ID_KEYS=(
+  'LLM_DEVICE_ID'
+  'VLM_DEVICE_ID'
+  'SHARED_LLM_VLM_DEVICE_ID'
+  'RT_VLM_DEVICE_ID'
+  'RT_CV_DEVICE_ID'
+  'RT_EMBED_DEVICE_ID'
+  'FIXED_SHARED_DEVICE_IDS'
+)
+
+# shellcheck disable=SC2034  # read by .github/scripts/check_gpu_device_clamp.py
+DEVICE_RESERVATION_KEYS=(
+  'RESERVED_DEVICE_IDS'
+)
+
+gpu_count=0
+device_clamp_applied="false"
+shared_llm_vlm_device_id=""
+rt_vlm_device_id=""
+rt_cv_device_id=""
+rt_embed_device_id=""
+fixed_shared_device_ids=""
+reserved_device_ids=""
+
+function get_nvidia_smi_gpu_count() {
+  local _count
+  _count="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+  [[ "${_count}" =~ ^[0-9]+$ ]] || _count="0"
+  echo "${_count}"
+}
+
+# VSS_GPU_COUNT is a test hook (see dev-profile.sh): it makes both the
+# single-GPU and the multi-GPU branch reachable on any host. Deploying never
+# needs it.
+function get_deployment_gpu_count() {
+  if [[ "${VSS_GPU_COUNT:-}" =~ ^[0-9]+$ ]]; then
+    echo "${VSS_GPU_COUNT}"
+    return
+  fi
+  get_nvidia_smi_gpu_count
+}
+
+function clamp_device_index() {
+  local _index="${1}" _gpu_count="${2}"
+  if [[ ! "${_index}" =~ ^[0-9]+$ ]] || [[ ! "${_gpu_count}" =~ ^[0-9]+$ ]] || (( _gpu_count <= 0 )); then
+    echo "${_index}"
+    return
+  fi
+  if (( _index >= _gpu_count )); then
+    echo "$(( _gpu_count - 1 ))"
+  else
+    echo "${_index}"
+  fi
+}
+
+function clamp_device_index_list() {
+  local _list="${1}" _gpu_count="${2}"
+  local _entry _clamped _out=""
+  local -a _entries
+  IFS=',' read -ra _entries <<< "${_list}"
+  for _entry in "${_entries[@]}"; do
+    [[ -n "${_entry}" ]] || continue
+    _clamped="$(clamp_device_index "${_entry}" "${_gpu_count}")"
+    case ",${_out}," in *",${_clamped},"*) continue ;; esac
+    _out="${_out:+${_out},}${_clamped}"
+  done
+  echo "${_out}"
+}
+
+function filter_existing_device_ids() {
+  local _list="${1}" _gpu_count="${2}"
+  local _entry _out=""
+  local -a _entries
+  IFS=',' read -ra _entries <<< "${_list}"
+  for _entry in "${_entries[@]}"; do
+    [[ -n "${_entry}" ]] || continue
+    if [[ "${_entry}" =~ ^[0-9]+$ ]] && [[ "${_gpu_count}" =~ ^[0-9]+$ ]] && (( _gpu_count > 0 )) && (( _entry >= _gpu_count )); then
+      continue
+    fi
+    case ",${_out}," in *",${_entry},"*) continue ;; esac
+    _out="${_out:+${_out},}${_entry}"
+  done
+  echo "${_out}"
+}
+
+function count_device_ids() {
+  local _list="${1}"
+  local _entry _count=0
+  local -a _entries
+  IFS=',' read -ra _entries <<< "${_list}"
+  for _entry in "${_entries[@]}"; do
+    [[ -n "${_entry}" ]] && ((_count++))
+  done
+  echo "${_count}"
+}
+
+function get_profile_max_device_index() {
+  local _max=0 _key _value _entry
+  local -a _env_files=("$@")
+  local -a _entries
+  for _key in "${DEVICE_ID_KEYS[@]}"; do
+    _value="$(get_env_value_from_files "${_key}" "${_env_files[@]}")"
+    _value="${_value// /}"
+    IFS=',' read -ra _entries <<< "${_value}"
+    for _entry in "${_entries[@]}"; do
+      [[ "${_entry}" =~ ^[0-9]+$ ]] || continue
+      (( _entry > _max )) && _max="${_entry}"
+    done
+  done
+  echo "${_max}"
+}
+
+# Clamp one index and say so on stderr; stdout carries the value for capture.
+function clamp_and_log_device_index() {
+  local _key="${1}" _value="${2}"
+  local _clamped
+  _clamped="$(clamp_device_index "${_value}" "${gpu_count}")"
+  if [[ "${_clamped}" != "${_value}" ]]; then
+    echo "[WARNING]   ${_key}: device ${_value} does not exist here, using device ${_clamped}" >&2
+  fi
+  echo "${_clamped}"
+}
+
+function clamp_device_ids_to_gpu_count() {
+  local -a _env_files=("$@")
+  local _max_index _last_device _reserved_before _reserved_kept _fixed_shared_before
+
+  gpu_count="$(get_deployment_gpu_count)"
+  device_clamp_applied="false"
+
+  shared_llm_vlm_device_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_env_files[@]}")"
+  rt_vlm_device_id="$(get_env_value_from_files "RT_VLM_DEVICE_ID" "${_env_files[@]}")"
+  rt_cv_device_id="$(get_env_value_from_files "RT_CV_DEVICE_ID" "${_env_files[@]}")"
+  rt_embed_device_id="$(get_env_value_from_files "RT_EMBED_DEVICE_ID" "${_env_files[@]}")"
+  fixed_shared_device_ids="$(get_env_value_from_files "FIXED_SHARED_DEVICE_IDS" "${_env_files[@]}")"
+  fixed_shared_device_ids="${fixed_shared_device_ids// /}"
+  reserved_device_ids="$(get_env_value_from_files "RESERVED_DEVICE_IDS" "${_env_files[@]}")"
+  reserved_device_ids="${reserved_device_ids// /}"
+
+  _max_index="$(get_profile_max_device_index "${_env_files[@]}")"
+
+  if (( gpu_count <= 0 )); then
+    echo "[INFO] GPU count unavailable from nvidia-smi; keeping the committed device placement as-is."
+    return
+  fi
+  if (( _max_index < gpu_count )); then
+    return
+  fi
+
+  device_clamp_applied="true"
+  _last_device=$(( gpu_count - 1 ))
+  echo "[WARNING] This deployment's committed placement uses device indices up to ${_max_index}, so it assumes $(( _max_index + 1 )) GPU(s); this host has ${gpu_count}."
+  echo "[WARNING] Remapping every index >= ${gpu_count} onto device ${_last_device}. Services that were on separate GPUs will now share one:"
+
+  llm_device_id="$(clamp_and_log_device_index "LLM_DEVICE_ID" "${llm_device_id}")"
+  vlm_device_id="$(clamp_and_log_device_index "VLM_DEVICE_ID" "${vlm_device_id}")"
+  shared_llm_vlm_device_id="$(clamp_and_log_device_index "SHARED_LLM_VLM_DEVICE_ID" "${shared_llm_vlm_device_id}")"
+  rt_vlm_device_id="$(clamp_and_log_device_index "RT_VLM_DEVICE_ID" "${rt_vlm_device_id}")"
+  rt_cv_device_id="$(clamp_and_log_device_index "RT_CV_DEVICE_ID" "${rt_cv_device_id}")"
+  rt_embed_device_id="$(clamp_and_log_device_index "RT_EMBED_DEVICE_ID" "${rt_embed_device_id}")"
+
+  _fixed_shared_before="${fixed_shared_device_ids}"
+  fixed_shared_device_ids="$(clamp_device_index_list "${fixed_shared_device_ids}" "${gpu_count}")"
+  if [[ "${fixed_shared_device_ids}" != "${_fixed_shared_before}" ]]; then
+    echo "[WARNING]   FIXED_SHARED_DEVICE_IDS: '${_fixed_shared_before}' -> '${fixed_shared_device_ids}'"
+  fi
+
+  # A reservation keeps the LLM and VLM off a GPU. Clamping it would leave the
+  # models nowhere to go, so drop entries for devices that do not exist and drop
+  # it outright once it would cover every GPU the host has.
+  _reserved_before="${reserved_device_ids}"
+  _reserved_kept="$(filter_existing_device_ids "${reserved_device_ids}" "${gpu_count}")"
+  if (( $(count_device_ids "${_reserved_kept}") >= gpu_count )); then
+    reserved_device_ids=""
+  else
+    reserved_device_ids="${_reserved_kept}"
+  fi
+  if [[ "${reserved_device_ids}" != "${_reserved_before}" ]]; then
+    echo "[WARNING]   RESERVED_DEVICE_IDS: '${_reserved_before}' -> '${reserved_device_ids}' (a reservation covering every GPU cannot be honored)"
+  fi
+}
+
 function mask_secret() {
   local _secret="${1}"
   local _len="${#_secret}"
@@ -878,6 +1074,12 @@ function process_args() {
         fi
       fi
 
+      # Resolve the committed placement against the GPUs this host actually has.
+      # Runs for every warehouse mode, not just 2d/bp_wh: RT_CV_DEVICE_ID and
+      # RT_VLM_DEVICE_ID come from the deployment .env and apply to all of them,
+      # so gating this on the mode is how the general case gets missed.
+      clamp_device_ids_to_gpu_count "${_deploy_env}" "${_deploy_overrides_env}"
+
       if [[ "${deployment}" == "warehouse" ]]; then
         _valid_modes=('2d' '3d' 'mv3dt' 'auto-calibration')
         if [[ -n "${mode}" ]] && ! contains_element "${mode}" "${_valid_modes[@]}"; then
@@ -1084,6 +1286,30 @@ function state_up() {
     fi
     echo "[INFO] Set ${var_name}=${display_value}"
   }
+
+  # Push the clamped placement into generated.env, the last --env-file and so
+  # the one that wins Compose interpolation over the deployment's stable .env.
+  # Only keys whose value actually moved are written, so a host with enough GPUs
+  # emits nothing here and renders byte-identically. LLM_DEVICE_ID and
+  # VLM_DEVICE_ID are written further down from the same clamped variables.
+  if [[ "${device_clamp_applied}" == "true" ]]; then
+    local _clamp_key _clamp_committed _clamp_effective
+    for _clamp_key in SHARED_LLM_VLM_DEVICE_ID RT_VLM_DEVICE_ID RT_CV_DEVICE_ID RT_EMBED_DEVICE_ID FIXED_SHARED_DEVICE_IDS RESERVED_DEVICE_IDS; do
+      _clamp_committed="$(get_env_value_from_files "${_clamp_key}" "${_source_env}" "${_overrides_env}")"
+      _clamp_committed="${_clamp_committed// /}"
+      case "${_clamp_key}" in
+        SHARED_LLM_VLM_DEVICE_ID) _clamp_effective="${shared_llm_vlm_device_id}" ;;
+        RT_VLM_DEVICE_ID) _clamp_effective="${rt_vlm_device_id}" ;;
+        RT_CV_DEVICE_ID) _clamp_effective="${rt_cv_device_id}" ;;
+        RT_EMBED_DEVICE_ID) _clamp_effective="${rt_embed_device_id}" ;;
+        FIXED_SHARED_DEVICE_IDS) _clamp_effective="${fixed_shared_device_ids}" ;;
+        RESERVED_DEVICE_IDS) _clamp_effective="${reserved_device_ids}" ;;
+      esac
+      if [[ "${_clamp_committed}" != "${_clamp_effective}" ]]; then
+        set_env_var "${_clamp_key}" "${_clamp_effective}"
+      fi
+    done
+  fi
 
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
   set_env_var "VSS_DATA_DIR" "${data_directory}"

@@ -57,6 +57,8 @@ from pydantic import Field
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.utils.gateway import gateway_absent_service
+from vss_agents.utils.gateway import gateway_reports_service_absent
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
@@ -188,7 +190,15 @@ class VideoIngestResponse(BaseModel):
     message: str = Field(..., description="Status message indicating completion")
     sensor_id: str = Field(..., description="VST sensor id for the uploaded video (matches the {sensor_id} path param)")
     filename: str = Field(..., description="The filename returned by VST after upload")
-    chunks_processed: int = Field(default=0, description="Number of chunks processed")
+    chunks_processed: int | None = Field(
+        default=0,
+        description=(
+            "Number of chunks embedded by this request. ``null`` means the asset was already"
+            " registered by another party — generation is running there and is still in"
+            " progress, so no count is available and the video is not yet searchable."
+            " ``0`` means no embedding work was requested at all."
+        ),
+    )
 
 
 class VideoUploadUrlInput(BaseModel):
@@ -335,12 +345,27 @@ async def _register_with_rtvi_cv(
     start_timestamp: str,
     timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
 ) -> None:
-    """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates network errors).
+    """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates an absent service).
 
-    Connect/timeout failures degrade to a warning and silent skip — same as the
-    original inline path — because RTVI-CV is treated as optional infra. Other
-    HTTP errors (non-2xx) raise ``HTTPException(502)`` so the caller surfaces a
-    hard failure.
+    RTVI-CV is optional infrastructure: profiles that do not deploy it must
+    still be able to complete an upload. Three ways it can be absent, all of
+    which degrade to a warning and a skip:
+
+    * ``ConnectError`` — nothing is listening. This is what absence looks like
+      when RTVI-CV is addressed directly on Docker DNS.
+    * ``TimeoutException`` — it never answered.
+    * A 503 carrying ``x-vss-gateway-unavailable`` — the VSS gateway routed the
+      request nowhere because the backend has no usable server. This is what
+      absence looks like once ``RTVI_CV_ENDPOINT`` is one origin plus a path,
+      where the TCP connection always succeeds (to the gateway) and can no
+      longer report it.
+
+    Every other non-2xx raises ``HTTPException(502)`` — including a 503 with no
+    marker, which is RTVI-CV itself answering. That case is deliberately fatal:
+    a deployed-but-overloaded, restarting or failing service must not be
+    skipped as though it were absent, because the upload would then report
+    success having silently dropped the registration. See
+    ``vss_agents.utils.gateway``.
     """
     # `x-stream-id` is the routing key for SDR-fronted RTVI deployments: the
     # in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR coordinator)
@@ -373,6 +398,13 @@ async def _register_with_rtvi_cv(
                     json=rtvi_cv_payload,
                     headers={"x-stream-id": sensor_id},
                 )
+            if gateway_reports_service_absent(response):
+                logger.warning(
+                    "RTVI-CV not deployed behind %s (gateway reports %s absent), skipping",
+                    rtvi_cv_add_url,
+                    gateway_absent_service(response),
+                )
+                return
             if response.status_code not in (200, 201):
                 error_msg = f"RTVI-CV returned {response.status_code}: {response.text}"
                 logger.error(error_msg)
@@ -384,6 +416,55 @@ async def _register_with_rtvi_cv(
         logger.warning("RTVI-CV timed out at %s, skipping", rtvi_cv_add_url)
 
 
+# rt-embed refuses a ``generate_video_embeddings`` call whose asset id is
+# already taken, and the status it uses depends on how far the other
+# registration has got: ``check_asset_exists`` rejects a published asset with
+# ``400 AssetAlreadyExists``, while ``_reserve_asset_slot`` rejects one that is
+# still reserved (mid-download) with ``409 DuplicateAssetId``. Both mean
+# something else owns this asset id, which on a deployment where VIOS
+# streamprocessing fans ``camera_streaming`` out to rt-embed's ``/v1/stream/add``
+# is the normal outcome: that webhook registers the asset *and* starts
+# generation, so the agent's call for the same id is redundant rather than
+# unlucky.
+#
+# It is only redundant where that webhook exists, which is why the call is not
+# simply dropped. The Docker ``dev-profile-search`` ships it; the Helm
+# ``dev-profile-search`` sets ``RTVI_EMBED_BASE_URL`` for the agent but renders
+# streamprocessing's ``notification_config.json`` with ``webhooks.enabled:
+# false``, so there the agent's call is the *only* thing that generates
+# embeddings for an uploaded file. Deleting it would turn this 502 into a 200
+# with an empty index — the same bug, now silent.
+_ALREADY_REGISTERED_CODE_BY_STATUS = {
+    400: "AssetAlreadyExists",
+    409: "DuplicateAssetId",
+}
+
+
+def _already_registered_code(response: httpx.Response) -> str | None:
+    """Return rt-embed's error code when it says the asset id is already owned.
+
+    ``None`` for anything else, so every other non-200 stays fatal. The pairing
+    is checked both ways round: a 400 must carry ``AssetAlreadyExists`` and a
+    409 must carry ``DuplicateAssetId``, because the whole point is to
+    distinguish "already done" from a request rt-embed rejected on its merits.
+    ``400 BadParameters`` (bad model, bad url) and ``409 DuplicateCameraId``
+    (a *different* asset already holds this camera id) are real failures that
+    share a status code with the tolerated pair, so the code is what decides.
+    An unparseable body is not tolerated either — same discipline as the
+    gateway's marked-vs-unmarked 503.
+    """
+    expected_code = _ALREADY_REGISTERED_CODE_BY_STATUS.get(response.status_code)
+    if expected_code is None:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or body.get("code") != expected_code:
+        return None
+    return expected_code
+
+
 async def _run_rtvi_embedding(
     *,
     rtvi_embed_base_url: str,
@@ -393,12 +474,23 @@ async def _run_rtvi_embedding(
     rtvi_embed_chunk_duration: int,
     start_timestamp: str,
     timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
-) -> int:
+) -> int | None:
     """POST ``/v1/generate_video_embeddings``. Returns ``total_chunks_processed``.
 
     The call is synchronous on the RTVI-Embed side — it blocks until the
-    generation completes (up to the 600s client timeout). Any non-200 raises
-    ``HTTPException(502)`` so the caller can surface the failure.
+    generation completes (up to the 600s client timeout), so an ``int`` return
+    means the embeddings exist and the video is searchable.
+
+    Any non-200 raises ``HTTPException(502)`` so the caller can surface the
+    failure, except the two responses that mean the asset id is already
+    registered — see :func:`_already_registered_code`. Those return ``None``,
+    which is *not* the same as zero: the upload succeeded and generation is
+    running, but it belongs to the other registrant, so there is no count to
+    report and — crucially — no completion to report either. The owning path is
+    asynchronous: rt-embed's ``stream/add`` starts generation and answers
+    ``status: "processing"`` without waiting for it, so nothing in that flow
+    blocks until the embeddings land. ``None`` is what carries that "started
+    elsewhere, not finished" state to the caller; see the response model.
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
@@ -427,6 +519,19 @@ async def _run_rtvi_embedding(
             )
 
         if response.status_code != 200:
+            already_registered = _already_registered_code(response)
+            if already_registered is not None:
+                logger.warning(
+                    "RTVI-Embed already holds asset %s (%d %s) — another registrant, normally"
+                    " VIOS streamprocessing's stream/add webhook, owns it and drives generation."
+                    " The upload succeeded, but that generation is asynchronous and still in"
+                    " flight: the embeddings are not queryable yet and this request cannot tell"
+                    " when they will be. Callers that search straight after uploading must poll.",
+                    sensor_id,
+                    response.status_code,
+                    already_registered,
+                )
+                return None
             error_msg = f"Embedding generation failed with status {response.status_code}: {response.text}"
             logger.error(error_msg)
             raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
@@ -557,7 +662,7 @@ async def _run_post_upload_processing(
     else:
         logger.info("RTVI-CV not configured, skipping")
 
-    chunks_processed = 0
+    chunks_processed: int | None = 0
     if parsed_embed is not None:
         rtvi_tasks.append(
             (
@@ -591,13 +696,26 @@ async def _run_post_upload_processing(
                 logger.error("%s task failed: %s", label, result)
                 raise result
             if label == "rtvi-embed":
-                chunks_processed = result or 0
+                # ``None`` is meaningful here (generation deferred to whoever
+                # already owns the asset) so it must survive to the response —
+                # ``or 0`` would collapse it into "no work requested".
+                chunks_processed = result
 
-    message = (
-        f"Video {filename} successfully uploaded to VST and embeddings generated"
-        if parsed_embed is not None
-        else f"Video {filename} successfully uploaded to VST"
-    )
+    # Three distinct outcomes, and the message says which. The deferred one is
+    # the only case where the upload succeeded but the video is *not* yet
+    # searchable, so it must not read like the completed one — a caller that
+    # uploads and immediately searches was correct against the old synchronous
+    # behaviour and now races, and this is what tells it so.
+    if parsed_embed is None:
+        message = f"Video {filename} successfully uploaded to VST"
+    elif chunks_processed is None:
+        message = (
+            f"Video {filename} successfully uploaded to VST; embedding generation is owned by"
+            " another registrant and is still in progress. The video is not searchable yet —"
+            " poll for its embeddings before querying."
+        )
+    else:
+        message = f"Video {filename} successfully uploaded to VST and embeddings generated"
     return VideoIngestResponse(
         message=message,
         sensor_id=sensor_id,

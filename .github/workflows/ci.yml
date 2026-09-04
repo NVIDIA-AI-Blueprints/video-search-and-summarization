@@ -1343,8 +1343,34 @@ jobs:
 
       - name: Unit-test static CI and deployment guards
         run: |
+          python3 .github/scripts/check_agent_http_endpoints.py
+          python3 .github/scripts/test_check_agent_http_endpoints.py
+          python3 .github/scripts/check_public_origin_split.py
+          python3 .github/scripts/test_check_public_origin_split.py
+          python3 .github/scripts/check_nginx_relative_redirects.py
+          python3 .github/scripts/test_check_nginx_relative_redirects.py
+          python3 .github/scripts/check_agent_forwarded_proto.py
+          python3 .github/scripts/test_check_agent_forwarded_proto.py
+          python3 .github/scripts/check_gateway_host_acls.py
+          python3 .github/scripts/test_check_gateway_host_acls.py
+          python3 .github/scripts/check_elasticsearch_allowlist.py
+          python3 .github/scripts/test_check_elasticsearch_allowlist.py
+          python3 .github/scripts/check_gateway_optional_backends.py
+          python3 .github/scripts/test_check_gateway_optional_backends.py
+          python3 .github/scripts/check_brev_link_derivation.py
+          python3 .github/scripts/test_check_brev_link_derivation.py
+          python3 .github/scripts/check_helm_alias_root_rewrites.py
+          python3 .github/scripts/test_check_helm_alias_root_rewrites.py
+          python3 .github/scripts/check_vios_media_origin.py
+          python3 .github/scripts/test_check_vios_media_origin.py
+          python3 .github/scripts/check_gpu_device_clamp.py
+          python3 .github/scripts/test_check_gpu_device_clamp.py
+          python3 .github/scripts/check_loopback_host_publishes.py
+          python3 .github/scripts/test_check_loopback_host_publishes.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
+          python3 .github/scripts/test_helm_ingress_rewrites.py
+          python3 .github/scripts/test_helm_vios_nginx_relative_redirects.py
           python3 .github/scripts/test_helm_release_channel_policy.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
 

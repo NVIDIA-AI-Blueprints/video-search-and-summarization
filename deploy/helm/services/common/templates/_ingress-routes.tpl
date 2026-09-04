@@ -40,7 +40,11 @@
     rewrite  none  -> forwarded with the prefix intact
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
-    anchored prepend ^ to the HAProxy rewrite source when true
+
+  Every rewrite source renders `^`-anchored (`^<path>/(.*)`, `^<path>$`): the
+  rules run in order against the previous rule's output, so an unanchored
+  `/alerts` would fire again on what the /alert-bridge strip produced. There is
+  no per-row opt-out.
 
   Ordering is the rendered order: /api/chat before /api, and the UI catch-all
   last. The HAProxy controller matches longest-prefix regardless, but keeping
@@ -87,6 +91,12 @@
   path: /vst
   pathType: Prefix
   rewrite: none
+# Alias for /vst. Rewritten onto /vst, not stripped: VST serves its whole
+# surface under /vst/, so /vios/api/v1/x must arrive as /vst/api/v1/x.
+- key: vst
+  path: /vios
+  pathType: Prefix
+  rewrite: /vst
 # VST media links are minted absolute against the origin root. The Docker edge
 # answers them with the same replacement, so a clip URL works on either
 # deployment without the caller rewriting it.
@@ -94,7 +104,10 @@
   path: /storage
   pathType: Prefix
   rewrite: /vst/storage
-  anchored: true
+- key: vst
+  path: /vios/storage
+  pathType: Prefix
+  rewrite: /vst/storage
 - key: va-mcp
   path: /va-mcp
   pathType: Prefix
@@ -103,12 +116,27 @@
   path: /alert-bridge
   pathType: Prefix
   rewrite: strip
+# Alias for /alert-bridge; strips identically. The canonical prefix stays.
+- key: alert-bridge
+  path: /alerts
+  pathType: Prefix
+  rewrite: strip
 - key: video-analytics-api
   path: /video-analytics-api
   pathType: Prefix
   rewrite: strip
 # No strip: the Docker edge forwards this one whole, and the service is
 # reached by Kibana/ES in most builds, so nothing depends on a stripped form.
+#
+# The three warehouse charts strip it instead, and that disagreement is left
+# standing on purpose: this mount serves no HTTP on either chart family, so
+# there is nothing to observe. `vss-behavior-analytics:develop-latest` -- the
+# image both families render -- ships no web framework and no app source that
+# builds an HTTP server, the running container has no listening TCP socket, and
+# the live Docker edge answers /behavior-analytics with 503 (`nbsrv(...) eq 0`).
+# Reconciling strip-vs-forward needs an image that answers HTTP first, and
+# whether the mount should exist at all is a product question about the service
+# rather than a routing one.
 - key: behavior-analytics
   path: /behavior-analytics
   pathType: Prefix
@@ -131,6 +159,11 @@
   rewrite: strip
 - key: lvs
   path: /lvs
+  pathType: Prefix
+  rewrite: strip
+# Alias for /lvs; strips identically. The canonical prefix stays.
+- key: lvs
+  path: /video-summarization
   pathType: Prefix
   rewrite: strip
 - key: phoenix
@@ -213,9 +246,8 @@ true
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{- $anchor := ternary "^" "" ($row.anchored | default false) }}
-{{ $anchor }}{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $anchor }}{{ $row.path }} {{ $to | default "/" }}
+^{{ $row.path }}/(.*) {{ $to }}/\1
+^{{ $row.path }}$ {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}

@@ -18,6 +18,14 @@ export NGC_CLI_API_KEY
 # Skip hardware-profile vs nvidia-smi check so tests that pass a specific profile (e.g. DGX-SPARK) pass on CI without that GPU.
 # Unset SKIP_HARDWARE_CHECK in tests that assert the fail-fast mismatch behavior.
 export SKIP_HARDWARE_CHECK=true
+# Pin the GPU count the placement assertions are made against. Nearly every
+# generated.env expectation below encodes a committed multi-GPU layout (alerts
+# and search on two GPUs, warehouse on three), and dev-profile.sh now folds any
+# index the host cannot satisfy onto a device that exists. Without pinning, the
+# expected values would depend on how many GPUs the machine running the tests
+# happens to have -- 4 keeps every committed layout intact everywhere. The
+# single-GPU clamp itself is covered by the VSS_GPU_COUNT=1 cases further down.
+export VSS_GPU_COUNT="${VSS_GPU_COUNT:-4}"
 # Per-test timeout (seconds); dry-run can be slow on first run
 TEST_TIMEOUT="${TEST_TIMEOUT:-15}"
 TESTS_PASSED=0
@@ -442,6 +450,29 @@ run_negative_test "llm unknown id is rejected" 1 up -p base -i 127.0.0.1 --llm t
 run_negative_test "llm without sizing for the hardware is rejected" 1 up -p base -i 127.0.0.1 -H H100 --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
+# --- Brev environment context fixture ---
+# The Brev environment context is the source of truth for a secure link, and
+# dev-profile.sh refuses to invent one when it cannot read it. Every test that
+# sets BREV_ENV_ID therefore needs a context to point at, or it fails on the
+# missing link rather than on whatever it meant to exercise. Pointing at a
+# fixture also keeps a run on a real Brev box from reading that box's links.
+_brev_ctx_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_brev_ctx_dir}")
+_brev_ctx_absent="${_brev_ctx_dir}/absent.json"
+_brev_ctx="${_brev_ctx_dir}/environment-context.json"
+# The shape a real instance publishes: an HTTP link on 443 forwarding to a host
+# port that is not the gateway default, plus the SSH forward, which is not an
+# HTTP origin and must be ignored.
+cat > "${_brev_ctx}" <<'BREVCTX'
+{
+  "environment_id": "test-env",
+  "ports": [
+    {"public_port": 23189, "destination_port": 22, "fqdn": "global.example.com"},
+    {"public_port": 443, "destination_port": 8888, "fqdn": "jupyter-test-env.gobrev.dev"}
+  ]
+}
+BREVCTX
+
 _mock_nvidia_smi_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_nvidia_smi_dir}")
 cat > "${_mock_nvidia_smi_dir}/nvidia-smi" <<'EOF'
@@ -692,6 +723,60 @@ run_negative_test "invalid VLM model name" 1 up -p base --vlm invalid-vlm
 # Note: shared-llm-vlm-device-id is now from profile only; reserved check for it would require profile to set SHARED_LLM_VLM_DEVICE_ID=0
 run_negative_test "llm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 0 --vlm-device-id 1
 run_negative_test "vlm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 1 --vlm-device-id 0
+
+# ===== Single-GPU device clamp (VSS_GPU_COUNT=1) =====
+# alerts and search commit a two-GPU layout, so on one GPU Compose is handed a
+# device_ids entry of "1" and no container starts. Every index at or above the
+# GPU count folds onto device 0 instead. The 2-GPU expectations above are the
+# same assertions with nothing clamped, so the pair covers both branches.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts on one GPU folds the 2-GPU layout onto device 0" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_VLM_DEVICE_ID" "0" \
+  "LLM_MODE" "local_shared" \
+  "VLM_MODE" "local_shared"
+# RESERVED_DEVICE_IDS='0' keeps alerts' models off RT-CV's GPU. With one GPU
+# there is no other device to move them to, so the reservation is dropped --
+# leaving it would turn the crash into "Device ID 0 is reserved".
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts on one GPU drops the unsatisfiable reservation" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "RESERVED_DEVICE_IDS" ""
+# search splits RT-CV + RT-VLM on 0 from RT-Embed + LLM on 1, and treats both as
+# shared. On one GPU FIXED_SHARED_DEVICE_IDS='0,1' has to collapse to '0' rather
+# than '0,0' or the shared-device derivation reads a device twice.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env search on one GPU folds RT-Embed and the LLM onto device 0" "search" \
+  -i 127.0.0.1 -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "RT_EMBED_DEVICE_ID" "0" \
+  "RT_CV_DEVICE_ID" "0" \
+  "FIXED_SHARED_DEVICE_IDS" "0" \
+  "LLM_MODE" "local_shared"
+# base already places everything on device 0, so a one-GPU host must clamp
+# nothing at all: no remap, and no warning claiming one happened.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env base on one GPU is unchanged" "base" \
+  -i 127.0.0.1 -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_VLM_DEVICE_ID" "0"
+VSS_GPU_COUNT=1 run_dry_run_test "alerts on one GPU reports the remap" up -p alerts -i 127.0.0.1 -m verification -d
+assert_stdout_contains "alerts on one GPU names the profile's GPU assumption" \
+  "assumes 2 GPU(s); this host has 1"
+VSS_GPU_COUNT=1 run_dry_run_test "search on one GPU reports the remap" up -p search -i 127.0.0.1 -d
+assert_stdout_contains "search on one GPU logs which key moved" \
+  "RT_EMBED_DEVICE_ID: device 1 does not exist here"
+# A count of 0 means nvidia-smi could not be reached. Placement must be left
+# exactly as committed: an unknown count must never silently move a model.
+VSS_GPU_COUNT=0 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts with an unknown GPU count keeps the committed layout" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1"
 
 # L40S forbids a local_shared LLM (no hw-L40S-shared.env). Search RT-VLM may share GPU 0 with RT-CV.
 run_negative_test "L40S rejects local_shared LLM" 1 up -p search -i 127.0.0.1 -H L40S -d
@@ -973,8 +1058,8 @@ fi
 EOF
 chmod +x "${_mock_brev_one_gpu_dir}/nvidia-smi"
 # One GPU cannot host RT-CV + RT-VLM and RT-Embed + LLM, so local RT-VLM is rejected.
-PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
-PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "RTVI_VLM_MODEL_PATH" "none" "RT_VLM_DEVICE_ID" "0"
 
@@ -990,11 +1075,11 @@ fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
 # Two GPUs are enough for a local RT-VLM now that it shares GPU 0 with RT-CV.
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://127.0.0.1:9998" "VLM_PORT" "30082" \
@@ -1013,7 +1098,7 @@ EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
 # Placement comes from the profile env, not the host GPU count, so a 3-GPU host still
 # co-locates RT-VLM with RT-CV on GPU 0 and leaves GPU 2 unused.
-PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
+PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
@@ -2136,11 +2221,38 @@ for _env in \
 done
 
 # Search vss-agent config validates RTVI_CV_ENDPOINT at startup; compose must export it.
-if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV_PORT:-9000}}" "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
-  echo "PASS: vss-agent compose exports RTVI_CV_ENDPOINT for search config"
+if grep -Fq 'RTVI_CV_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/rtvi-cv' "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
+  echo "PASS: vss-agent compose routes RTVI_CV_ENDPOINT through the gateway"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
+  echo "FAIL: vss-agent compose should route RTVI_CV_ENDPOINT through the gateway"
+  ((TESTS_FAILED++)) || true
+fi
+
+# Render the shared agent service and pin the VST media origin contract used by
+# upload post-processing. A host-only rewrite must never combine the gateway's
+# vss.local alias with VST's direct 30888 port, and the preserved media path
+# must contain exactly one /vst prefix.
+_rendered_vst_internal_url="$(
+  VSS_GATEWAY_HOST=vss.local \
+  VSS_GATEWAY_PORT=7777 \
+  VSS_GATEWAY_ORIGIN=http://vss.local:7777 \
+  VSS_APPS_DIR=/tmp \
+  VSS_DATA_DIR=/tmp \
+  RTVI_EMBED_PORT=8017 \
+    docker compose \
+      --profile vss-agent \
+      -f "${REPO_ROOT}/deploy/docker/services/agent/compose.yml" \
+      config --no-consistency --format json 2>/dev/null \
+    | jq -r '.services["vss-agent"].environment.VST_INTERNAL_URL'
+)"
+if [[ "${_rendered_vst_internal_url}" == "http://vss.local:7777" ]] \
+  && [[ "${_rendered_vst_internal_url}" != *"vss.local:30888"* ]] \
+  && [[ "${_rendered_vst_internal_url}" != *"/vst/vst/"* ]]; then
+  echo "PASS: rendered agent VST media origin uses the gateway without a duplicate prefix"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: rendered agent VST media origin should be http://vss.local:7777 (got ${_rendered_vst_internal_url})"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -2419,8 +2531,33 @@ else
 fi
 
 # --- Brev: HAProxy + VSS_PUBLIC_HOST in generated.env (agent_ui uses HAPROXY_* / VSS_PUBLIC_HOST only; no BREV_* compose vars) ---
-# Brev resolves secure-link vars at generation time. Pin BREV_LINK_DOMAIN so this test is deterministic on hosts with NetBird/Skybridge configured.
-BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
+# The context fixture is defined once near the nvidia-smi mocks, because the
+# search Brev tests above need it too.
+#
+# The link is taken verbatim: its FQDN, its public port, and -- the part a
+# template cannot supply -- the host port the gateway must be published on.
+# HAPROXY_PORT stays the container listener, so in-deployment callers do not move.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env Brev link read from the environment context" "base" \
+ -i 127.0.0.1 -d -- \
+  "HAPROXY_PORT" "7777" \
+  "HAPROXY_HOST_PORT" "8888" \
+  "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
+  "VSS_PUBLIC_WS_PROTOCOL" "wss" \
+  "VSS_PUBLIC_HOST" "jupyter-test-env.gobrev.dev" \
+  "VSS_PUBLIC_PORT" "443" \
+  "BREV_LINK_PREFIX" "jupyter" \
+  "BREV_LINK_DOMAIN" "gobrev.dev"
+
+# An explicit VSS_PUBLIC_HOST outranks the context file, and does not drag the
+# context file's host port along with it.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VSS_PUBLIC_HOST=chosen.example.com run_dry_run_up_and_check_generated_env "generated.env Brev VSS_PUBLIC_HOST override wins over the context" "base" \
+ -i 127.0.0.1 -d -- \
+  "VSS_PUBLIC_HOST" "chosen.example.com" \
+  "VSS_PUBLIC_PORT" "443"
+
+# No context file: BREV_LINK_DOMAIN is the documented fallback for instances too
+# old to publish one, and is the only case where a hostname is composed.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx_absent}" BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
  -i 127.0.0.1 -d -- \
   "HAPROXY_PORT" "7777" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
@@ -2429,13 +2566,23 @@ BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_gener
   "VSS_PUBLIC_PORT" "443"
 
 # Brev with custom PROXY_PORT in env: generated.env records the resolved proxy port and secure-link host.
-BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx_absent}" BREV_LINK_DOMAIN=brevlab.com PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
  -i 127.0.0.1 -d -- \
   "HAPROXY_PORT" "8080" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" "8080-test-env.brevlab.com" \
   "VSS_PUBLIC_PORT" "443"
+
+# Nothing to read and nothing supplied: fail here, naming the overrides, rather
+# than writing a hostname the gateway's Host allowlist will silently refuse.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx_absent}" run_negative_test "Brev with no context and no override fails loudly" 1 \
+  up -p base -i 127.0.0.1 -d
+
+# A context file describing a different environment is not half-trusted: a stale
+# or copied file is exactly where a plausible wrong hostname would come from.
+BREV_ENV_ID=other-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_negative_test "Brev rejects a context for a different environment" 1 \
+  up -p base -i 127.0.0.1 -d
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \

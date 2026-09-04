@@ -339,7 +339,7 @@ browser-reachable origin that rewrites paths to internal services. The
 | `/vst`, `/vst/...` | `vst-ingress` | any ingress-enabled variant — VST is proxied, so this is the browser path to its UI |
 | `/storage/...` | `vst-ingress` (rewritten to `/vst/storage/...`) | any ingress-enabled variant |
 | `/kibana/...` | `kibana` | `bp_wh`, or extended Kafka/Redis |
-| `/elasticsearch/...` | `elasticsearch`, path-stripped; `GET/HEAD/POST/OPTIONS` only, cluster-admin and bulk-mutating paths denied | same as `/kibana` |
+| `/elasticsearch/...` | `elasticsearch`, path-stripped; allowlisted read operations only (`_search`, `_msearch`, `_count`, `_mget`, `_field_caps`, index metadata, `_cat/*`, `_cluster/health`) plus `PUT vss-memory*/_doc/<id>`; everything else denied | same as `/kibana` |
 | `/video-analytics-api/...` | `vss-video-analytics-api`, path-stripped | same as `/kibana` |
 | `/rtvi-cv/...` | `vss-rtvi-cv`, path-stripped | `bp_wh`, or extended Kafka/Redis |
 | `/rtvi-vlm/...` | `rtvi-vlm`, path-stripped | `bp_wh` only |

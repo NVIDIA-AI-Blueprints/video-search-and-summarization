@@ -84,11 +84,12 @@ services:
       dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
     profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
-    # Host networking bypasses Compose DNS, so the default kibana/elasticsearch
-    # service names are unresolvable here; dial the published host ports instead.
-    environment:
-      KIBANA_URL: http://${HOST_IP}:${KIBANA_HOST_PORT:-5601}/kibana
-      ES_URL: http://${HOST_IP}:${ELASTICSEARCH_HOST_PORT:-9200}
+    # No KIBANA_URL/ES_URL override: kibana-import-dashboard.sh defaults to
+    # http://kibana:5601/kibana and http://elasticsearch:9200, and this service
+    # runs on the Compose network, where both resolve. Nothing sets
+    # network_mode: host for it, so the ${HOST_IP} form an earlier revision used
+    # bought nothing and cost the dashboard -- ${HOST_IP} is a LAN address, and
+    # 9200 is published on loopback (ELASTICSEARCH_HOST_BIND, services/infra).
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
       kibana:

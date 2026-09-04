@@ -24,19 +24,30 @@ exposed and has no URL. Resolve it with the helpers under
 
 ## Architecture
 
+The deployment has **two origins** and they are not interchangeable:
+
 ```
 Browser  ──https──>  <fqdn published for port 7777>  (Cloudflare Access)
-                             │
+                             │           the PUBLIC origin: VSS_PUBLIC_*
                              ▼
-                   Brev network tunnel
+                   Brev network tunnel        (TLS terminates HERE, outside VSS)
                              │
                              ▼
               vss-haproxy-ingress :7777 on the instance
+                    ▲        │
+   http://vss.local:7777     │        the GATEWAY origin: VSS_GATEWAY_ORIGIN,
+   in-deployment callers     │        plain HTTP, never https and never :443
                              │
            ┌─────────────────┼─────────────────┐
            ▼                 ▼                 ▼
         UI :3000      Agent API :8000     VST :30888
 ```
+
+`VSS_PUBLIC_*` describes what the **browser** uses and is what report links,
+media URLs and `vss configure --base-url` are built from. `VSS_GATEWAY_ORIGIN`
+is HAProxy's own listener and is what containers call each other on. Do not set
+the gateway origin from the public one: `https://vss.local:443` is a listener
+that does not exist.
 
 ## Resolving a secure link
 
@@ -68,19 +79,97 @@ behind a port that has one. Do not fall back to constructing a hostname.
 
 ## Per-profile secure link requirements
 
+Everything HAProxy routes is reachable through the **single 7777 link** — that
+is the point of the consolidated gateway. Only ports it does *not* route need
+their own link.
+
 | Profile | Required links | Optional |
 |---|---|---|
-| `base` | **7777** (HAProxy ingress — UI + Agent + VST) | 6006 (Phoenix tracing) |
-| `lvs` | **7777**, **5601** (Kibana) | 6006 |
-| `search` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
-| `alerts` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
+| `base` | **7777** (HAProxy ingress) | — |
+| `lvs` | **7777**, **31000** (nvstreamer) | — |
+| `search` | **7777**, **31000** (nvstreamer) | — |
+| `alerts` | **7777**, **31000** (nvstreamer) | — |
 
-Ports that should NOT get their own secure link (they're behind HAProxy):
-3000 (UI), 8000 (Agent), 30888 (VST).
+Ports that should NOT get their own secure link — HAProxy already serves them
+under a path on the 7777 link, and a second link makes the browser treat them as
+a separate origin (see the CORS row in [Troubleshooting](#troubleshooting)):
+
+| Port | Service | Reachable at |
+|---|---|---|
+| 3000 | UI | `/` |
+| 8000 | Agent API | `/api`, `/chat`, `/websocket`, `/static` |
+| 30888 | VST / VIOS | `/vios` (and the legacy `/vst`) |
+| 5601 | Kibana | `/kibana` |
+| 6006 | Phoenix tracing | `/phoenix` |
+| 9200 | Elasticsearch | `/elasticsearch` (allowlisted read operations plus the one `vss-memory*` write; writes and cluster admin are denied at the edge) |
+
+`31000` (nvstreamer) is the exception: HAProxy has no backend for it, so a
+profile that needs the nvstreamer UI still needs its own secure link.
 
 ## Setup flow
 
-Before resolving Compose, set the Brev secure-link values in the build's
+Which of the two paths below applies depends on how you deploy.
+
+### If you deploy with `dev-profile.sh` (or a launchable notebook)
+
+**Nothing to set.** `deploy/docker/scripts/dev-profile.sh` configures the whole
+two-origin split itself when `BREV_ENV_ID` is in its environment. It reads the
+same context file the helpers above use, takes the published link verbatim, and
+writes `VSS_PUBLIC_HOST` (the link's FQDN), `VSS_PUBLIC_PORT` (its public port),
+`VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss` and
+`HAPROXY_HOST_PORT` into the profile's `generated.env`. The launchable notebooks
+call it, so they inherit this.
+
+`HAPROXY_HOST_PORT` is the part that is easy to miss. **Brev forwards a link
+only to the host port it was created with**, and it does not open ports on
+demand, so the gateway has to be published on *that* port rather than on its own
+default. An instance whose only HTTP link is `443 -> 8888` gets
+`HAPROXY_HOST_PORT=8888`; the container keeps listening on `HAPROXY_PORT`
+(`7777`), so in-deployment callers on `http://vss.local:7777` are unaffected.
+
+One thing is on you: **`dev-profile.sh` reads `BREV_ENV_ID` from its own
+environment, not from `/etc/environment`.** A login shell on a Brev instance
+has it; a service, cron job or non-login shell may not. Export it first if in
+doubt:
+
+```bash
+export BREV_ENV_ID="$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)"
+```
+
+Then deploy normally and check what it recorded:
+
+```bash
+grep -E '^(VSS_PUBLIC_|BREV_LINK_)' deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
+```
+
+**Nothing about a link can be derived from `BREV_ENV_ID`,** so `dev-profile.sh`
+does not try. The label, the domain and the host port are all chosen when the
+environment is created: a real instance serves
+`jupyter-<id>.gobrev.dev` on 443 forwarding to host port 8888 — the label is a
+name rather than a port, and the domain is one no template would have offered.
+
+That is also why it **fails loudly** instead of falling back to a template when
+the context file is missing, unreadable, or publishes no HTTP link. A wrong
+`VSS_PUBLIC_HOST` does not degrade the deployment: it lands on the gateway's Host
+**allowlist**, so every off-host request is refused with
+`x-vss-gateway-deny: unknown-host`, long after the deploy reported success. The
+error names the three overrides to set by hand:
+
+| Override | What to set it to |
+|---|---|
+| `VSS_PUBLIC_HOST` | the link's FQDN, copied verbatim |
+| `VSS_PUBLIC_PORT` | the port it is served on, usually `443` |
+| `HAPROXY_HOST_PORT` | the host port that link forwards to |
+
+`VSS_PUBLIC_HOST` set in the environment always wins outright. `BREV_LINK_PREFIX`
+and `BREV_LINK_DOMAIN` still work, but only as a fallback for instances too old
+to have a context file — where a context file exists it is authoritative, and a
+template cannot beat it. Never hard-code a domain into a deploy recipe.
+
+### If you resolve Compose through this skill's build pipeline
+
+The build pipeline does not go through `dev-profile.sh`, so set the Brev
+secure-link values in the build's
 `_builds/<name>/override.env`. **`EXTERNAL_IP` alone is not enough** — the Brev secure
 link is served over **HTTPS on the link's own `public_port`** (443 in current
 Brev — read it, per above), but the profile `.env` ships
@@ -107,6 +196,8 @@ Stop on an empty `host`; never substitute a constructed one. These values also
 fill HAProxy's `known_host` allowlist, so a wrong hostname `404`s every browser
 request while `curl localhost:7777` still succeeds.
 
+Leave `VSS_GATEWAY_*` alone. It is pinned to HAProxy's own listener on purpose.
+
 On a NemoClaw build other than `alerts`, drop the `EXTERNAL_IP` line above and
 leave that variable to the sandbox ([`agent-harness.md`](agent-harness.md)). The
 rest is unchanged: `VSS_PUBLIC_HOST` already carries the secure link, and the
@@ -117,29 +208,48 @@ rest is unchanged: `VSS_PUBLIC_HOST` already carries the secure link, and the
 After `docker compose up -d`:
 
 ```bash
-# 1. Proxy is up and routing. Probe /, not /health: the ingress is HAProxy and its
-# route table has no /health, so that path 404s on a perfectly healthy proxy.
-curl -sf -o /dev/null http://localhost:7777/ && echo "proxy OK"
+# 1. The gateway is up and routing. There is NO /health route on the gateway --
+#    it is a path router, not a health endpoint, and /health falls through to
+#    the UI and answers 404. Probe the UI root or a service's own health path.
+curl -sfo /dev/null http://localhost:7777/ && echo "gateway OK"
+curl -sf http://localhost:7777/va-mcp/health   # profiles that mount va-mcp
 
-# 2. UI reachable through the proxy (internally)
-curl -sfI http://localhost:7777/ | head -1
+# 2. The secure-link Host is admitted by the gateway's allowlist. This is the
+#    check that catches the 404-from-the-browser case, and it works before the
+#    link itself is reachable.
+host=$(grep -m1 '^VSS_PUBLIC_HOST=' deploy/docker/developer-profiles/dev-profile-<profile>/generated.env | cut -d= -f2)
+curl -so /dev/null -w '%{http_code}\n' -H "Host: ${host}" http://localhost:7777/   # want 200, not 404
 
 # 3. Print the browser URL the user should open — resolved, never constructed
 brev_origin 7777
 ```
 
-If step 1 fails, the haproxy container (`vss-haproxy-ingress`) hasn't come up — check
-`docker logs vss-haproxy-ingress`. Common reason: another service on the host is
-already bound to port 7777, or `EXTERNAL_IP` in the build override doesn't
-match the secure-link domain (haproxy's `known_host` ACL rejects the
-request as 404 from the browser even though `curl localhost:7777` works).
+If step 1 fails, `vss-haproxy-ingress` hasn't come up — check
+`docker logs vss-haproxy-ingress`. The usual cause is another service already
+bound to port 7777.
+
+If step 2 returns **404**, the gateway is running but was never told about that
+hostname. Confirm it with the response header rather than guessing:
+
+```bash
+curl -sI -H "Host: ${host}" http://localhost:7777/ | grep -i x-vss-gateway-deny
+# x-vss-gateway-deny: unknown-host
+```
+
+`VSS_PUBLIC_HOST` is the variable that admits it. Set it (`EXTERNAL_IP` is also
+on the allowlist but is not what `dev-profile.sh` writes for Brev), then
+`docker compose up -d --force-recreate vss-haproxy-ingress`.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
-| User says the Brev link won't load at all | Compare their URL with `brev_origin 7777`. A hostname absent from the context file is not exposed. If the deployment sits behind a different exposed port, resolve that port and redeploy. |
-| UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
+| Browser gets **404** on a link that `curl localhost:7777` serves fine | The gateway's Host allowlist was never told that hostname. Confirm with `curl -sI -H "Host: <secure-link>" http://localhost:7777/ \| grep -i x-vss-gateway-deny` → `unknown-host`. Fix `VSS_PUBLIC_HOST` and recreate `vss-haproxy-ingress`. A bare 404 with no such header is a genuinely unrouted path instead. |
+| User says the Brev link won't load at all | Compare their URL with `brev_origin 7777`. A hostname absent from the context file is not exposed. An older inherited launchable may still serve the legacy trailing-`0` form `77770-<id>...`, and a manually-created link may sit behind a different port — resolve that port and redeploy. Set `VSS_PUBLIC_HOST` (and `BREV_LINK_PREFIX` / `BREV_LINK_DOMAIN`) to whatever the context file publishes, then redeploy. |
+| Deployed on a Skybridge instance but the link 404s at Cloudflare | The domain was assumed. `apps.run.brev.nvidia.com` and `brevlab.com` are both live; check which one `generated.env` recorded in `BREV_LINK_DOMAIN` and compare it with `brev_fqdn 7777`. |
+| UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; everything is behind the 7777 link. |
+| Kibana or Phoenix "needs a secure link" | It doesn't — they are routed at `/kibana` and `/phoenix` on the 7777 link. A separate 5601 or 6006 link creates a second origin and is what breaks their embedded assets. |
 | `curl "$(brev_origin 7777)"` → 502 | HAProxy container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
 | `curl "$(brev_origin 7777)"` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
-| Agent-generated report URLs don't open | `EXTERNAL_IP` in the build override is still the internal `${HOST_IP}` default → reports hard-code internal IPs. Set it from `brev_fqdn 7777` in `_builds/<name>/override.env` (see [Setup flow](#setup-flow)), regenerate `resolved.yml`, and redeploy. |
+| Agent-generated report URLs don't open, or the browser blocks them as mixed content | The public origin was not applied before the services started. `VST_EXTERNAL_URL`, `VST_BASE_URL`, `VSS_AGENT_EXTERNAL_URL` and `VSS_AGENT_REPORTS_BASE_URL` are interpolated from `VSS_PUBLIC_*` **at Compose time** and baked into the agent container, so changing `VSS_PUBLIC_HOST` afterwards and recreating only the gateway leaves them pointing at the old origin. Check with `docker inspect vss-agent --format '{{range .Config.Env}}{{println .}}{{end}}' \| grep -E 'EXTERNAL_URL\|REPORTS_BASE_URL'`; if they are wrong, fix `VSS_PUBLIC_*` and recreate the agent, not just the gateway. |
+| Agent-generated report URLs hard-code an internal IP | `EXTERNAL_IP` in the build override is still the internal `${HOST_IP}` default. Set it from `brev_fqdn 7777` in `_builds/<name>/override.env` (see [Setup flow](#setup-flow)), regenerate `resolved.yml`, and redeploy. |

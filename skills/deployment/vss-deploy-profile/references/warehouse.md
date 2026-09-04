@@ -207,7 +207,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | `/vst`, `/vst/...` | `vst-ingress` | Any ingress-enabled warehouse variant — **VST is proxied**, this is the browser path to the VST UI |
 | `/storage`, `/storage/...` | `vst-ingress` (compat rewrite → `/vst/storage/...`) | Any ingress-enabled warehouse variant |
 | `/kibana`, `/kibana/...` | `kibana` | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
-| `/elasticsearch`, `.../...` | `elasticsearch` (path-stripped; `GET/HEAD/POST/OPTIONS` only, cluster-admin and bulk-mutating paths denied) | Same condition as `kibana` |
+| `/elasticsearch`, `.../...` | `elasticsearch` (path-stripped; allowlisted read operations only — `_search`, `_msearch`, `_count`, `_mget`, `_field_caps`, index metadata, `_cat/*`, `_cluster/health` — plus `PUT vss-memory*/_doc/<id>`; everything else denied) | Same condition as `kibana` |
 | `/video-analytics-api`, `.../...` | `vss-video-analytics-api` (path-stripped) | `BP_PROFILE=bp_wh`, or extended Kafka/Redis (any mode) |
 | `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | **Never** — the route is defined and the container runs, but `vss-behavior-analytics` publishes no HTTP listener (it is a broker consumer, and declares no ports), so `bk_behavior_analytics` never passes its `check` and every request logs `bk_behavior_analytics/<NOSRV>` and returns 503. Read behaviors from the `mdx-behavior` topic or the `mdx-behavior-*` Elasticsearch indices instead |
 | `/rtvi-cv`, `.../...` | `vss-rtvi-cv` (path-stripped) | `BP_PROFILE=bp_wh`, or **2D/3D** extended Kafka/Redis. **Not MV3DT** — the backend resolves `${RTVI_CV_SERVICE_HOST:-vss-rtvi-cv}`, which no warehouse env file overrides, and `vss-rtvi-cv-mv3dt` is the one MV3DT service defining no unsuffixed compat alias (nvstreamer, configurator, behavior-analytics and video-analytics-api all do), so this route 503s there. Use the direct port `RTVI_CV_MV3DT_HOST_PORT` (default `9000`), or set `RTVI_CV_SERVICE_HOST=vss-rtvi-cv-mv3dt` in `generated.env` |
@@ -216,7 +216,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | **Never** — that container is not deployed by any warehouse list, so this route 503s |
 | `/alert-bridge`, `.../...` | `alert-bridge` (path-stripped) | `BP_PROFILE=bp_wh` only |
 | `/phoenix`, `.../...` | `phoenix` (path-stripped) | `BP_PROFILE=bp_wh` only |
-| `/va-mcp`, `.../...` | `vss-va-mcp` | `BP_PROFILE=bp_wh` only |
+| `/va-mcp`, `.../...` | `vss-va-mcp` (path-stripped) | `BP_PROFILE=bp_wh` only |
 | `/api`, `/api/...` | `vss-agent` | `BP_PROFILE=bp_wh` only |
 | `/api/chat`, `.../...` | `vss-ui` (matched before `/api`) | `BP_PROFILE=bp_wh` only |
 | `/chat`, `/static`, `/websocket` | `vss-agent` | `BP_PROFILE=bp_wh` only |
@@ -240,7 +240,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 
 > There is **no VST MCP container** (`vss-vios-mcp` was removed) — nothing listens on `8001`.
 
-`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. HAProxy first denies anything whose `Host` header is not in its `known_host` ACL (`VSS_PUBLIC_HOST[:VSS_PUBLIC_PORT]`, `EXTERNAL_IP`, `HOST_IP`, `localhost`, `127.0.0.1`, each with and without `:HAPROXY_PORT`) with a **404**, then routes matching traffic via the identical `h_main` ACL. A wrong `Host` header therefore looks like "every path 404s".
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, apply the [Brev secure link overrides](#brev-secure-link-overrides) in Phase 5 — the HAProxy ingress, agent, and UI all need `https`/`wss` on the secure-link domain. HAProxy first denies anything whose `Host` header is not in its `known_host` ACL (`VSS_PUBLIC_HOST[:VSS_PUBLIC_PORT]`, `VSS_GATEWAY_HOST[:VSS_GATEWAY_PORT]`, `EXTERNAL_IP`, `HOST_IP`, `localhost`, `127.0.0.1`, each with and without the matching port) with a **404**, then routes matching traffic via the identical `h_main` ACL. A wrong `Host` header therefore looks like "every path 404s".
 
 ## Compose File Structure
 

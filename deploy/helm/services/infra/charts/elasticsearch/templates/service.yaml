@@ -18,30 +18,58 @@ metadata:
     # Elasticsearch backend alone -- on the Ingress it would deny on every
     # route sharing the origin.
     #
-    # Not read-only: this stops PUT/DELETE, the cluster-admin paths and the
-    # two-segment mutating operations, but POST is allowed, so POST /_bulk,
-    # /_reindex, /_scripts/<id> and /<index>/_doc still reach Elasticsearch.
-    # Closing that means deny-by-default with an allowlist of the handful of
-    # operations the CLI uses, not another entry on the denylist.
+    # An ALLOWLIST of (method, path) pairs, not a denylist. Elasticsearch runs
+    # with security disabled, so whatever this route forwards is executed
+    # unauthenticated and this guard is the only authorisation control in
+    # front of the cluster -- which is why it fails closed.
     #
-    # Unified memory persists a job as PUT /<index>/_doc/<job_id>, which the
-    # read-only method rule would answer 405. The exception is scoped to that
-    # index -- `vss-memory`, plus a suffixed variant such as `vss-memory-dev`
-    # for a --memory-index override -- rather than to the `vss-` prefix, so it
-    # does not widen on its own if other indices are renamed into that prefix.
+    # The denylist it replaces could not be finished: measured against a live
+    # 9.4.4 deployment, POST also reached Elasticsearch on `_reindex`,
+    # `_scripts/<id>` (stored Painless), `_aliases` (whose `remove_index`
+    # action deletes an index), `_clone`, `_split`, `_shrink`, `_rollover`,
+    # `<index>/_mapping`, `<index>/_doc`, `<index>/_create/<id>` and
+    # `_tasks/<id>/_cancel`, none of which it named. An allowlist inverts the
+    # failure: a new Elasticsearch endpoint is denied until someone names it.
+    #
+    # POST is served only for the query endpoints, which are reads that carry
+    # their query in the request body -- `POST /<index>/_search` and
+    # `POST /_msearch` are how every real caller searches.
+    #
+    # The one write is unified memory persisting a job as
+    # PUT /<index>/_doc/<job_id>. The exception is scoped to that index --
+    # `{{ $mem }}`, plus a suffixed variant such as `{{ $mem }}-dev` for a
+    # --memory-index override -- rather than to the `vss-` prefix, so it does
+    # not widen on its own if other indices are renamed into that prefix.
     #
     # The path prefix is optional in every pattern because the mount's
-    # replace-path may or may not have run by the time these rules do.
+    # replace-path may or may not have run by the time these rules do. An
+    # index-expression segment is spelled out rather than left as `[^/]+`:
+    # index names are lowercase and cannot contain `/`, `%`, or uppercase, so
+    # a segment carrying percent-encoding (`%5Fcluster`, `%5Fbulk`) matches no
+    # allowed shape. Document-id segments stay `[^/]+` -- a memory `_id`
+    # arrives with `#` encoded as `%23`, and an id is terminal.
     haproxy.org/backend-config-snippet: |
-      acl vss_es_read_method method GET HEAD POST OPTIONS
-      acl vss_es_admin_path path_reg ^(/elasticsearch)?/+_(cluster|nodes|snapshot|security|settings|shutdown|license)(/|$)
-      acl vss_es_mutating_op path_reg ^(/elasticsearch)?/.*/(_delete_by_query|_update_by_query|_update|_bulk|_forcemerge|_close|_open)(/|$)
-      acl vss_es_memory_write method PUT
-      acl vss_es_memory_doc path_reg ^(/elasticsearch)?/{{ $mem }}(-[^/]+)?/_doc/[^/]+$
-      http-request deny status 405 if !vss_es_read_method !vss_es_memory_doc
-      http-request deny status 405 if !vss_es_read_method vss_es_memory_doc !vss_es_memory_write
-      http-request deny status 403 if vss_es_admin_path
-      http-request deny status 403 if vss_es_mutating_op
+      acl vss_es_m_read method GET HEAD
+      acl vss_es_m_query method GET HEAD POST
+      acl vss_es_m_put method PUT
+      acl vss_es_m_options method OPTIONS
+      acl vss_es_m_known method GET HEAD POST PUT OPTIONS
+      acl vss_es_read_shape path_reg ^(/elasticsearch)?/*$
+      acl vss_es_read_shape path_reg ^(/elasticsearch)?/+_cat(/|$)
+      acl vss_es_read_shape path_reg ^(/elasticsearch)?/+_cluster/health/*$
+      acl vss_es_read_shape path_reg ^(/elasticsearch)?/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_mapping|_settings|_alias|_doc/[^/]+|_source/[^/]+)/*$
+      acl vss_es_read_shape path_reg ^(/elasticsearch)?/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/*$
+      acl vss_es_query_shape path_reg ^(/elasticsearch)?/+(_search|_msearch|_count|_mget|_field_caps)/*$
+      acl vss_es_query_shape path_reg ^(/elasticsearch)?/+(_all|[a-z0-9.*][a-z0-9._,*+-]*)/(_search|_msearch|_count|_mget|_field_caps|_validate/query|_terms_enum|_explain/[^/]+|_termvectors/[^/]+)/*$
+      acl vss_es_memory_doc path_reg ^(/elasticsearch)?/+{{ $mem }}(-[a-z0-9._-]+)?/_doc/[^/]+$
+      http-request set-var(txn.vss_es_ok) int(1) if vss_es_m_options
+      http-request set-var(txn.vss_es_ok) int(1) if vss_es_m_read vss_es_read_shape
+      http-request set-var(txn.vss_es_ok) int(1) if vss_es_m_query vss_es_query_shape
+      http-request set-var(txn.vss_es_ok) int(1) if vss_es_m_put vss_es_memory_doc
+      acl vss_es_allowed var(txn.vss_es_ok) -m found
+      http-request deny status 405 if !vss_es_m_known
+      http-request deny status 405 if vss_es_m_put !vss_es_memory_doc
+      http-request deny status 403 if !vss_es_allowed
   {{- end }}
 spec:
   type: {{ .Values.service.type }}

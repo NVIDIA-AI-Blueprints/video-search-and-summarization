@@ -233,6 +233,12 @@ agent:
         value: '0.0.0.0'
       - name: VSS_AGENT_PORT
         value: '8000'
+      # These profiles replace the agent chart's env list wholesale, and Helm
+      # replaces lists rather than merging them, so the chart's default does
+      # not reach the pod from here. See the agent chart's values.yaml for why
+      # the agent has to be told which peers may state the client's scheme.
+      - name: FORWARDED_ALLOW_IPS
+        value: '{{ .Values.forwardedAllowIps | default "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" }}'
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
@@ -467,11 +473,11 @@ vssIngress:
   vaMcpPort: 9901
   # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
   # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),
-  # not here, so it binds to that one backend. It denies PUT/DELETE,
-  # cluster-admin paths and the two-segment mutating operations, and allows a
-  # PUT to a unified-memory document path — but POST is allowed, so _bulk,
-  # _reindex and /<index>/_doc still reach Elasticsearch, exactly as on the
-  # Docker edge. This is not a read-only endpoint.
+  # not here, so it binds to that one backend. It is an allowlist: queries
+  # (_search, _msearch, _count, _mget, _field_caps), index metadata, _cat/*,
+  # _cluster/health, and one PUT to a unified-memory document path. Everything
+  # else is denied — _bulk, _reindex, _scripts/<id> and /<index>/_doc included
+  # — exactly as on the Docker edge.
   elasticsearchPort: 9200
   # Rendered for continuity with earlier releases, but inert: this controller
   # reads timeout-client only from its own ConfigMap, never from an Ingress

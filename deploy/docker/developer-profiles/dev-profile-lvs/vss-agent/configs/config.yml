@@ -282,7 +282,10 @@ functions:
     backend: es_caption
     top_k: 5
     backend_config:
-      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://elasticsearch:9200}
+      # Compose supplies ELASTIC_SEARCH_ENDPOINT as the gateway's /elasticsearch
+      # mount; the fallback matches it rather than naming a Compose service, so
+      # this config resolves the same way wherever the agent runs.
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://vss.local:7777/elasticsearch}
       index: default_*                                  # per-stream `default_<stream_id>` indices
       default_doc_type: raw_events
       api_key: ""

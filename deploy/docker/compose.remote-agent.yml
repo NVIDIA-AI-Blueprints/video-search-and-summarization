@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Overlay for running only vss-agent against an already-running deployment.
+# The remote host does not join the deployment bridge; all agent HTTP service
+# URLs are derived by services/agent/compose.yml from VSS_GATEWAY_ORIGIN.
+services:
+  vss-agent:
+    depends_on: !reset {}
