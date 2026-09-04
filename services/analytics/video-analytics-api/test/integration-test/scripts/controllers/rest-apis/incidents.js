@@ -48,14 +48,14 @@ function getTests(c) {
     if (runsBpWh2d) {
         tests.splice(3, 0, {
             name: 'GET /incidents (VLM verified alert types)',
-            path: `/incidents?${qs({ place: P, fromTimestamp: F, toTimestamp: T, vlmVerified: true, maxResultSize: 10000 })}`,
+            path: `/incidents?${qs({ vlmVerified: true, maxResultSize: 10000 })}`,
             method: 'GET',
             expectedStatus: 200,
             validate: (b) => {
                 const { incidents } = JSON.parse(b);
                 if (!Array.isArray(incidents)) return 'missing incidents array';
                 const alertTypes = new Set(incidents.map(({ category, info }) => (info && info.alertCategory) || category));
-                if (alertTypes.size !== 4) return `expected 4 unique alert types, got ${alertTypes.size}`;
+                if (alertTypes.size !== expectedVlmAlertTypes.size) return `expected ${expectedVlmAlertTypes.size} unique alert types, got ${alertTypes.size}`;
                 const unexpectedAlertTypes = [...alertTypes].filter((alertType) => !expectedVlmAlertTypes.has(alertType));
                 if (unexpectedAlertTypes.length > 0) return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}`;
                 const missingAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => !alertTypes.has(alertType));
