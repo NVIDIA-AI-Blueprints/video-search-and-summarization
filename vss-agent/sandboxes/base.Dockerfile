@@ -51,6 +51,38 @@ RUN ln -sfn /usr/share/vss-skills /opt/skills \
        done \
     && chown -R sandbox:sandbox /sandbox/.agents /sandbox/.claude
 
+# nvm compatibility shim. Every harness adapter that drives a node agent opens
+# with some form of
+#     . ~/.nvm/nvm.sh && nvm use 22 && node -v && npm -v
+# because the images they were written against installed node through nvm. This
+# base gets node 22 from the distro instead, so that line fails on a file that
+# does not exist and takes the whole `&&` chain — and the trial — with it. The
+# shim makes `nvm use`/`nvm install` succeed when the version asked for is the
+# node already installed, and fail loudly otherwise; it never downloads
+# anything, which matters because the sandbox egress policy would refuse.
+RUN mkdir -p /sandbox/.nvm && cat > /sandbox/.nvm/nvm.sh <<'NVM' \
+    && chown -R sandbox:sandbox /sandbox/.nvm
+# Shim, not nvm. See vss-agent/sandboxes/base.Dockerfile.
+nvm() {
+  case "$1" in
+    use|install)
+      want="${2#v}"; want="${want%%.*}"
+      have="$(node -v 2>/dev/null)"; have="${have#v}"; have="${have%%.*}"
+      if [ -z "$want" ] || [ "$want" = "$have" ] || [ "$want" = "default" ] \
+         || [ "$want" = "node" ] || [ "$want" = "lts" ]; then
+        echo "Now using node $(node -v) (nvm shim)"
+        return 0
+      fi
+      echo "nvm shim: this image ships node $(node -v); it cannot install v$want" >&2
+      return 1 ;;
+    current) node -v ;;
+    which)   command -v node ;;
+    ls|list) node -v ;;
+    *)       return 0 ;;
+  esac
+}
+NVM
+
 USER sandbox
 WORKDIR /task
 
