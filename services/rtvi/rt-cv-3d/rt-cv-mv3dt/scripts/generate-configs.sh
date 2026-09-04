@@ -101,5 +101,31 @@ echo
 echo "DONE. Generated:"
 echo "  $CAMINFO/  ($(ls -1 "$CAMINFO"/*.yml 2>/dev/null | wc -l | tr -d ' ') files)"
 echo "  $GEN/pub_sub_info_config.yml"
+# NUM_CAMS must equal the cameras just generated: stage-configs.sh checks it, and
+# compose passes it to bev-fusion as MAX_EXPECTED_SENSORS, where a stale value is
+# silent.
+CAM_COUNT="$(ls -1 "$CAMINFO"/*.yml 2>/dev/null | wc -l | tr -d ' ')"
+ENV_FILE="$ROOT/docker/.env"
 echo
-echo "Next: set NUM_CAMS=$(ls -1 "$CAMINFO"/*.yml 2>/dev/null | wc -l | tr -d ' ') in docker/.env, then ./scripts/stage-configs.sh"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "NOTE: $ENV_FILE not found; set NUM_CAMS=$CAM_COUNT there before staging."
+elif grep -qE '^[[:space:]]*NUM_CAMS=' "$ENV_FILE"; then
+  PREV="$(sed -nE 's/^[[:space:]]*NUM_CAMS=([^[:space:]#]*).*/\1/p' "$ENV_FILE" | head -1)"
+  if [ "$PREV" = "$CAM_COUNT" ]; then
+    echo "NUM_CAMS=$CAM_COUNT in docker/.env (already correct)"
+  else
+    # Keep any trailing comment on the line: it is the user's, not ours.
+    TRAILER="$(sed -nE 's/^[[:space:]]*NUM_CAMS=[^#]*(#.*)?$/\1/p' "$ENV_FILE" | head -1)"
+    if [ -n "$TRAILER" ]; then
+      sed -i -E "s|^[[:space:]]*NUM_CAMS=.*|NUM_CAMS=$CAM_COUNT  $TRAILER|" "$ENV_FILE"
+    else
+      sed -i -E "s|^[[:space:]]*NUM_CAMS=.*|NUM_CAMS=$CAM_COUNT|" "$ENV_FILE"
+    fi
+    echo "NUM_CAMS: $PREV -> $CAM_COUNT in docker/.env"
+  fi
+else
+  printf 'NUM_CAMS=%s\n' "$CAM_COUNT" >> "$ENV_FILE"
+  echo "NUM_CAMS=$CAM_COUNT appended to docker/.env"
+fi
+echo
+echo "Next: ./scripts/stage-configs.sh"

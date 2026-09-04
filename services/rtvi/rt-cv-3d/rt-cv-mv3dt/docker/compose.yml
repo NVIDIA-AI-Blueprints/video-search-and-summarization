@@ -42,10 +42,15 @@ services:
       DS_HTTP_PORT: "${DS_HTTP_PORT:-9000}"
       MQTT_HOST: ${MQTT_HOST:-localhost}
       MQTT_PORT: ${MQTT_PORT:-1883}
+      # Not used to configure Kafka, which is staged into the main config. Passed
+      # so the container can tell a stale staged endpoint from a current one.
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-localhost:9092}
+      RAW_TOPIC: ${RAW_TOPIC:-mdx-raw}
       DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
       OTEL_SDK_DISABLED: "true"
       DISPLAY: ${DISPLAY:-:0}
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
       NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
     volumes:
       - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage

@@ -46,7 +46,8 @@ includes a 4-camera warehouse **sample dataset** you can run end-to-end.
 - [3. Launch](#3-launch)
   - [3.1 Option A — bundled brokers](#31-option-a--bundled-brokers)
   - [3.2 Option B — your own brokers](#32-option-b--your-own-brokers)
-  - [3.3 Verify startup](#33-verify-startup)
+  - [3.3 On screen, display, and GPU selection](#33-on-screen-display-and-gpu-selection)
+  - [3.4 Verify startup](#34-verify-startup)
 - [4. Add streams dynamically (RTSP)](#4-add-streams-dynamically-rtsp)
 - [5. Check logs and receive metadata from Kafka](#5-check-logs-and-receive-metadata-from-kafka)
 - [6. Visualization](#6-visualization)
@@ -206,10 +207,14 @@ COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
 
 ### 3.2 Option B — your own brokers
 
-If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env)
-and launch without `COMPOSE_PROFILES`:
+> **The two brokers propagate differently.** `MQTT_HOST`/`MQTT_PORT` are read by the container at every start, so editing `docker/.env` is enough for MQTT. The Kafka endpoint is written into `generated/configs/ds-main-config-mv3dt.txt` by `stage-configs.sh` and the configs are mounted read-only, so changing `KAFKA_BOOTSTRAP` without restaging leaves the old endpoint in place. Perception then retries a broker that is not there and aborts. The container checks the two against each other at startup and refuses with this remedy rather than failing that way, but restaging is what fixes it.
+
+If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env),
+**restage**, then launch without `COMPOSE_PROFILES`:
 
 ```bash
+./scripts/stage-configs.sh     # required: the Kafka endpoint is written into the staged config
+
 cd docker
 docker compose up -d
 
@@ -217,7 +222,21 @@ docker compose up -d
 #   docker compose --profile "*" down
 ```
 
-### 3.3 Verify startup
+### 3.3 On screen, display, and GPU selection
+
+`GPU_DEVICE` in [docker/.env](docker/.env) picks the GPU the pipeline computes on. With `OSD=1` the container also has to reach the GPU that drives the X display, which is often a different one on a multi-GPU host.
+
+`stage-configs.sh` resolves this: it adds the display GPU to `GPU_DEVICE` when it is missing, and writes `gpu-id` into the staged config as the compute GPU's ordinal within that set. The two are not the same number, because the container runtime orders the visible devices by PCI address rather than by the order you list them.
+
+```
+GPU_DEVICE=7   OSD=1   ->   GPU_DEVICE=3,7   gpu-id=1     # compute on 7, display via 3
+```
+
+When the display GPU cannot be determined, staging says so and changes nothing. The on-screen display may then fail with `Failed to set pipeline to PAUSED`; add the GPU driving the display to `GPU_DEVICE` and restage.
+
+On a laptop or any host whose display is rendered by Mesa rather than by an NVIDIA GPU, this is a different problem with a different fix: uncomment the `devices` block in [docker/compose.yml](docker/compose.yml). The preflight names whichever of the two it sees.
+
+### 3.4 Verify startup
 
 Either option — follow the perception logs until the pipeline reports ready:
 
@@ -279,6 +298,8 @@ testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 > not: VST unifies their SEI). A source that does not go through VST must supply
 > `NVDS_CUSTOMMETA` SEI itself.
 >
+> **Restage after any `docker/.env` change.** Several values are resolved at staging and written into `generated/`: the camera count, the broker endpoints, and the GPU selection. Editing `docker/.env` and bringing the stack up without re-running `./scripts/stage-configs.sh` leaves the staged configuration describing the previous settings. The container checks the ones it can and refuses rather than starting wrong.
+
 > `scripts/add-streams.sh` checks this before registering anything and refuses
 > with the remedy. To fix it, set `"enable_proxy_server_sei_metadata": true` in
 > both the VST and NVStreamer `vst_config.json` your deployment uses, redeploy,
@@ -290,6 +311,8 @@ testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 > docker exec streamprocessing-ms-1 sh -lc \
 >   'grep -n enable_proxy_server_sei_metadata /home/vst/vst_release/configs/vst_config.json'
 > ```
+>
+> The check finds the proxy by probing ports 30000-30005 and 31000-31005: a VIOS deployment runs several VST services and only the proxy answers `/api/v1/proxy/configuration`, so a 404 does not mean VST is absent. Set `VST_HTTP_PORT` to pin the port. If nothing answers, the run stops rather than registering streams that could never activate; a source that carries the SEI without going through VST needs `--no-sei-check`.
 
 Register your RTSP streams via the perception REST API — one
 `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
@@ -410,14 +433,14 @@ ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 
 > **NVENC-less GPUs (e.g. A100, H100, H200, GB200, GB300).** The video output from the perception container is encoded with the GPU's NVENC hardware
 > encoder by default (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). When `SAVE_VIDEO=1`,
-> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder
-> (`enc-type=1`) instead. First prepare the image once:
+> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder (`enc-type=1`) instead.
+> The stock image does not carry that encoder, so staging also prepares it: it runs DeepStream's `user_additional_install.sh` in a throwaway container, commits the result as `<tag>-swenc`, and points `PERCEPTION_TAG` at it. That takes a few minutes on first use and needs network access to the Ubuntu archives; afterwards it is a no-op. Staging refuses rather than writing a config that would fail at runtime for lack of an encoder.
+> The prepared image is local to that host, so a later `PERCEPTION_TAG` bump needs it again — staging notices and redoes it.
+> To prepare it on its own, or just to check:
 > ```bash
-> docker exec -it vss-rtvi-cv-mv3dt \
->   bash -c 'cd /opt/nvidia/deepstream/deepstream/ && bash user_additional_install.sh'   # install the software encoder
-> docker commit vss-rtvi-cv-mv3dt <your-image>:<tag>    # then set this image in docker/.env
+> ./scripts/prepare-sw-encoder.sh           # prepare and update docker/.env
+> ./scripts/prepare-sw-encoder.sh --check   # report only; exit 1 if the encoder is missing
 > ```
-> Then stage and launch normally.
 
 ### 6.3 BEV visualizer — live window
 
