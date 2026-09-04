@@ -63,8 +63,17 @@ Resolve the deployment through its one public/host origin:
 if [ -z "${VSS_ORIGIN:-}" ]; then
   VSS_ORIGIN=$("${VSS[@]}" configure show 2>/dev/null |
     jq -er '.base_url | select(type == "string" and length > 0)') || {
-      echo "Provide the Compose or Ingress origin" >&2
-      exit 1
+            # No recorded config. Inside an OpenShell sandbox the host VSS deployment
+            # is always reachable at host.openshell.internal on the HAProxy port.
+            # Probe it before falling back so this has no effect outside that env.
+            if curl -sf --max-time 2 --max-redirs 0 \
+          "http://host.openshell.internal:${VSS_UI_PORT:-7777}/vst/api/v1/sensor/version" \
+          | jq -e '.type == "vst"' >/dev/null 2>&1; then
+        VSS_ORIGIN="http://host.openshell.internal:${VSS_UI_PORT:-7777}"
+      else
+        echo "Provide the Compose or Ingress origin via VSS_ORIGIN" >&2
+        exit 1
+      fi
     }
 fi
 VSS_ORIGIN="${VSS_ORIGIN%/}"
