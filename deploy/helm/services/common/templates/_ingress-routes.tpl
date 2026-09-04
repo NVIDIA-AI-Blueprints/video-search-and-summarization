@@ -41,9 +41,10 @@
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
 
-  Ordering is the rendered order: /api/chat before /api, and the UI catch-all
-  last. The HAProxy controller matches longest-prefix regardless, but keeping
-  the file readable in match order is worth more than the two lines it costs.
+  Ordering is the rendered order: the UI-owned /api/chat and /api/agent routes
+  before the agent-owned /api, and the UI catch-all last. The HAProxy controller
+  matches longest-prefix regardless, but keeping the file readable in match
+  order is worth more than the two lines it costs.
 */}}
 {{- define "vss.ingress.routeTable" -}}
 - key: ui

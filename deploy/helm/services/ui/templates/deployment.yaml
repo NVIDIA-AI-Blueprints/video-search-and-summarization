@@ -179,7 +179,7 @@ spec:
             - name: AGENT_BACKEND_MODEL
               value: {{ (default "agent" $gw.backendModel) | quote }}
             - name: AGENT_BACKEND_SESSION_FIELD
-              value: {{ (default "user" $gw.backendSessionField) | quote }}
+              value: {{ $gw.backendSessionField | quote }}
             - name: AGENT_BACKEND_SESSION_HEADER
               value: {{ (default "" $gw.backendSessionHeader) | quote }}
             - name: AGENT_BACKEND_HEADERS_JSON
