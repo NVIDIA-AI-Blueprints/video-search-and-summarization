@@ -73,7 +73,7 @@
         "Before search, the agent listed sources through the configured origin's VST route and resolved the explicitly requested `warehouse_sample` to its exact registered name and nonempty sensor ID",
         "The agent issued a host-side `uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run embed` command from the validated checkout with the resolved sensor ID as `--video-source`, `--source-type video_file`, `--top-k 3`, and the neon-pink monster-truck query; it relied on the recorded deployment rather than endpoint flags or forbidden execution paths",
         "The agent used the actual CLI JSON and reported the exact candidate count plus returned timestamps, scores, and URLs instead of assuming an absent object must yield zero nearest-neighbor candidates",
-        "Each returned candidate preserved the CLI critic result (`confirmed`, `rejected`, or `unverified`) and similarity was not claimed as proof of presence; zero candidates were not claimed as proof of absence, and delegated verification was offered only when every returned candidate was unverified",
+        "Each returned candidate preserved the CLI critic result (`confirmed`, `rejected`, or `unverified`) and similarity was not claimed as proof of presence; zero candidates were not claimed as proof of absence, and delegated verification was offered only when every returned candidate was `null` or `unverified",
         "The agent did not deploy, redeploy, or ingest a source during this step"
       ]
     },
