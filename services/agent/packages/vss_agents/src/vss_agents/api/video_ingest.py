@@ -190,7 +190,15 @@ class VideoIngestResponse(BaseModel):
     message: str = Field(..., description="Status message indicating completion")
     sensor_id: str = Field(..., description="VST sensor id for the uploaded video (matches the {sensor_id} path param)")
     filename: str = Field(..., description="The filename returned by VST after upload")
-    chunks_processed: int = Field(default=0, description="Number of chunks processed")
+    chunks_processed: int | None = Field(
+        default=0,
+        description=(
+            "Number of chunks embedded by this request. ``null`` means the asset was already"
+            " registered by another party — generation is running there and is still in"
+            " progress, so no count is available and the video is not yet searchable."
+            " ``0`` means no embedding work was requested at all."
+        ),
+    )
 
 
 class VideoUploadUrlInput(BaseModel):
@@ -466,17 +474,23 @@ async def _run_rtvi_embedding(
     rtvi_embed_chunk_duration: int,
     start_timestamp: str,
     timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
-) -> int:
+) -> int | None:
     """POST ``/v1/generate_video_embeddings``. Returns ``total_chunks_processed``.
 
     The call is synchronous on the RTVI-Embed side — it blocks until the
-    generation completes (up to the 600s client timeout). Any non-200 raises
-    ``HTTPException(502)`` so the caller can surface the failure, except the
-    two responses that mean the asset id is already registered — see
-    :func:`_already_registered_code`. Those return 0 chunks: generation is
-    someone else's, so we cannot count it, but the upload did succeed and
-    reporting a failure would make every caller either retry work that already
-    happened or report an upload that actually worked as broken.
+    generation completes (up to the 600s client timeout), so an ``int`` return
+    means the embeddings exist and the video is searchable.
+
+    Any non-200 raises ``HTTPException(502)`` so the caller can surface the
+    failure, except the two responses that mean the asset id is already
+    registered — see :func:`_already_registered_code`. Those return ``None``,
+    which is *not* the same as zero: the upload succeeded and generation is
+    running, but it belongs to the other registrant, so there is no count to
+    report and — crucially — no completion to report either. The owning path is
+    asynchronous: rt-embed's ``stream/add`` starts generation and answers
+    ``status: "processing"`` without waiting for it, so nothing in that flow
+    blocks until the embeddings land. ``None`` is what carries that "started
+    elsewhere, not finished" state to the caller; see the response model.
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
@@ -510,12 +524,14 @@ async def _run_rtvi_embedding(
                 logger.warning(
                     "RTVI-Embed already holds asset %s (%d %s) — another registrant, normally"
                     " VIOS streamprocessing's stream/add webhook, owns it and drives generation."
-                    " Treating the upload as successful; the chunk count is not ours to report.",
+                    " The upload succeeded, but that generation is asynchronous and still in"
+                    " flight: the embeddings are not queryable yet and this request cannot tell"
+                    " when they will be. Callers that search straight after uploading must poll.",
                     sensor_id,
                     response.status_code,
                     already_registered,
                 )
-                return 0
+                return None
             error_msg = f"Embedding generation failed with status {response.status_code}: {response.text}"
             logger.error(error_msg)
             raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
@@ -646,7 +662,7 @@ async def _run_post_upload_processing(
     else:
         logger.info("RTVI-CV not configured, skipping")
 
-    chunks_processed = 0
+    chunks_processed: int | None = 0
     if parsed_embed is not None:
         rtvi_tasks.append(
             (
@@ -680,13 +696,26 @@ async def _run_post_upload_processing(
                 logger.error("%s task failed: %s", label, result)
                 raise result
             if label == "rtvi-embed":
-                chunks_processed = result or 0
+                # ``None`` is meaningful here (generation deferred to whoever
+                # already owns the asset) so it must survive to the response —
+                # ``or 0`` would collapse it into "no work requested".
+                chunks_processed = result
 
-    message = (
-        f"Video {filename} successfully uploaded to VST and embeddings generated"
-        if parsed_embed is not None
-        else f"Video {filename} successfully uploaded to VST"
-    )
+    # Three distinct outcomes, and the message says which. The deferred one is
+    # the only case where the upload succeeded but the video is *not* yet
+    # searchable, so it must not read like the completed one — a caller that
+    # uploads and immediately searches was correct against the old synchronous
+    # behaviour and now races, and this is what tells it so.
+    if parsed_embed is None:
+        message = f"Video {filename} successfully uploaded to VST"
+    elif chunks_processed is None:
+        message = (
+            f"Video {filename} successfully uploaded to VST; embedding generation is owned by"
+            " another registrant and is still in progress. The video is not searchable yet —"
+            " poll for its embeddings before querying."
+        )
+    else:
+        message = f"Video {filename} successfully uploaded to VST and embeddings generated"
     return VideoIngestResponse(
         message=message,
         sensor_id=sensor_id,
