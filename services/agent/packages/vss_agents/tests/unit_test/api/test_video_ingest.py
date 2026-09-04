@@ -599,9 +599,18 @@ class TestRtEmbedAssetAlreadyRegistered:
         )
 
         assert result.sensor_id == "sensor-abc"
-        # Zero, not a guess: the generation belongs to the other registrant, so
-        # there is no chunk count of ours to report.
-        assert result.chunks_processed == 0
+        # ``None``, not ``0``: the deferral has to be distinguishable from "no
+        # embedding work was requested", which is what 0 means. This is the
+        # assertion that keeps the response honest — reporting 0 here would
+        # read as "ran, embedded nothing", and reporting a positive count would
+        # be inventing one for work another service is still doing.
+        assert result.chunks_processed is None
+        # And the message must not claim completion. A caller that uploads and
+        # immediately searches was correct against the old synchronous
+        # behaviour and now races; this text is the only thing that tells it so.
+        assert "not searchable yet" in result.message
+        assert "poll" in result.message.lower()
+        assert "embeddings generated" not in result.message
         # The call was really made and the rest of the pipeline still ran.
         assert "POST /v1/generate_video_embeddings" in seen
         assert "POST /api/v1/stream/add" in seen
@@ -661,6 +670,48 @@ class TestRtEmbedAssetAlreadyRegistered:
 
         assert result.chunks_processed == 9
         assert "embeddings generated" in result.message
+        # A number means the synchronous call ran to completion, so this is the
+        # one case where the video really is searchable when we answer.
+        assert "not searchable yet" not in result.message
+
+    @pytest.mark.asyncio
+    async def test_the_three_outcomes_are_distinguishable(self):
+        """``chunks_processed`` has to separate "done", "deferred" and "none".
+
+        Before this, deferred and "no embedding configured" were both ``0``, so
+        a client could not tell "the corpus is ready and empty of new chunks"
+        from "generation is running somewhere else and the corpus is not ready".
+        That ambiguity is the whole reason a caller would search too early, so
+        the three states are pinned together here rather than apart — the bug
+        is a collision between them, and only a shared test can catch it.
+        """
+        done, _ = await self._upload(httpx.Response(200, json={"usage": {"total_chunks_processed": 9}}))
+        deferred, _ = await self._upload(
+            httpx.Response(400, json={"code": "AssetAlreadyExists", "message": "already exists"})
+        )
+
+        factory, _seen = self._stub(embed_response=httpx.Response(200, json={}))
+        with (
+            patch(
+                "vss_agents.api.video_ingest.get_timeline",
+                new=AsyncMock(return_value=("2025-01-01T00:00:00.000Z", "2025-01-01T00:00:10.000Z")),
+            ),
+            patch("vss_agents.api.video_ingest.httpx.AsyncClient", new=factory),
+        ):
+            not_configured = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="",
+                rtvi_cv_base_url="http://vss-rtvi-cv:9000",
+            )
+
+        assert done.chunks_processed == 9
+        assert deferred.chunks_processed is None
+        assert not_configured.chunks_processed == 0
+        # Three outcomes, three distinct values — no two collapse together.
+        assert len({repr(r.chunks_processed) for r in (done, deferred, not_configured)}) == 3
 
 
 class TestVideoUploadUrlRoute:
