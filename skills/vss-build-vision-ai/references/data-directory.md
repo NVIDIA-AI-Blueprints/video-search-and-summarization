@@ -45,15 +45,6 @@ case "$DATA" in
   *) echo "VSS_DATA_DIR must be one absolute path: $DATA" >&2; exit 1 ;;
 esac
 
-# Build generation must not create runtime state under the authoritative
-# deploy/docker source tree. Check this before the first mkdir.
-case "$DATA/" in
-  "$REPO/deploy/docker/"*)
-    echo "VSS_DATA_DIR must not be under $REPO/deploy/docker: $DATA" >&2
-    exit 1
-    ;;
-esac
-
 if [ -L "$DATA" ] && [ ! -e "$DATA" ]; then
   echo "VSS_DATA_DIR is a dangling symlink: $DATA" >&2
   exit 1

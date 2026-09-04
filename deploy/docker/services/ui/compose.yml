@@ -23,8 +23,8 @@ services:
       - ${VSS_UI_HOST_PORT:-3000}:3000
     restart: always
     extra_hosts:
-      # Linux equivalent of Docker Desktop's host alias. The embedded Next.js
-      # adapter reaches the harness through a private Docker-bridge forward.
+      # Linux equivalent of Docker Desktop's host alias. Use it when the
+      # configured harness endpoint is running on the Docker host.
       - "host.docker.internal:host-gateway"
     depends_on:
       vss-agent:
@@ -37,6 +37,7 @@ services:
       NEXT_PUBLIC_APP_SUBTITLE: '${NEXT_PUBLIC_APP_SUBTITLE:-VISION}'
       # Server-only backend-neutral agent transport embedded in this Next.js
       # process. Backend credentials must never use NEXT_PUBLIC_*.
+      AGENT_ADAPTER_ENABLED: ${VSS_AGENT_ADAPTER_ENABLED:-false}
       AGENT_BACKEND_PROTOCOL: ${VSS_AGENT_BACKEND_PROTOCOL:-responses}
       AGENT_BACKEND_URL: ${VSS_AGENT_BACKEND_URL:-}
       AGENT_BACKEND_PATH: ${VSS_AGENT_BACKEND_PATH:-}
@@ -45,10 +46,6 @@ services:
       AGENT_BACKEND_SESSION_FIELD: ${VSS_AGENT_BACKEND_SESSION_FIELD-user}
       AGENT_BACKEND_SESSION_HEADER: ${VSS_AGENT_BACKEND_SESSION_HEADER:-}
       AGENT_BACKEND_HEADERS_JSON: "${VSS_AGENT_BACKEND_HEADERS_JSON:-{}}"
-      AGENT_REQUIRE_VSS_CAPABILITIES: ${VSS_AGENT_REQUIRE_CAPABILITIES:-false}
-      AGENT_VSS_CAPABILITIES_B64: ${VSS_AGENT_CAPABILITIES_B64:-}
-      AGENT_VSS_CAPABILITIES_SHA256: ${VSS_AGENT_CAPABILITIES_SHA256:-}
-      AGENT_EXPECTED_VSS_RUNTIME_REF: ${VSS_AGENT_EXPECTED_RUNTIME_REF:-}
       AGENT_BACKEND_TIMEOUT_SECONDS: ${VSS_AGENT_BACKEND_TIMEOUT_SECONDS:-900}
       AGENT_RUN_RETENTION_SECONDS: ${VSS_AGENT_RUN_RETENTION_SECONDS:-3600}
       AGENT_MAX_EVENT_CHARS_PER_RUN: ${VSS_AGENT_MAX_EVENT_CHARS_PER_RUN:-20000000}

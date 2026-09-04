@@ -168,6 +168,8 @@ spec:
             */}}
             {{- $adapter := .Values.agentAdapter | default dict }}
             {{- $adapterEnabled := (default false $adapter.enabled) }}
+            - name: AGENT_ADAPTER_ENABLED
+              value: {{ $adapterEnabled | quote }}
             - name: AGENT_BACKEND_PROTOCOL
               value: {{ (default "responses" $adapter.backendProtocol) | quote }}
             - name: AGENT_BACKEND_URL
@@ -184,14 +186,6 @@ spec:
               value: {{ (default "" $adapter.backendSessionHeader) | quote }}
             - name: AGENT_BACKEND_HEADERS_JSON
               value: {{ (default "{}" $adapter.backendHeadersJson) | quote }}
-            - name: AGENT_REQUIRE_VSS_CAPABILITIES
-              value: {{ (default false $adapter.requireVssCapabilities) | quote }}
-            - name: AGENT_VSS_CAPABILITIES_B64
-              value: {{ (default "" $adapter.vssCapabilitiesB64) | quote }}
-            - name: AGENT_VSS_CAPABILITIES_SHA256
-              value: {{ (default "" $adapter.vssCapabilitiesSha256) | quote }}
-            - name: AGENT_EXPECTED_VSS_RUNTIME_REF
-              value: {{ (default "" $adapter.expectedVssRuntimeRef) | quote }}
             - name: AGENT_BACKEND_TIMEOUT_SECONDS
               value: {{ (default 900 $adapter.backendTimeoutSeconds) | quote }}
             - name: AGENT_RUN_RETENTION_SECONDS

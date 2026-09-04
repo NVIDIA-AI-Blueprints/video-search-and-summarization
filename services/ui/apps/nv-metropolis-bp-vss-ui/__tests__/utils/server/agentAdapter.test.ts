@@ -166,4 +166,16 @@ describe("embedded agent adapter", () => {
       })
     ).toThrow("unsupported with openclaw-ws");
   });
+
+  it("uses the explicit adapter switch for profile deployments", () => {
+    expect(
+      loadAgentAdapterConfig({
+        AGENT_ADAPTER_ENABLED: "false",
+        AGENT_BACKEND_URL: "http://backend",
+      })
+    ).toBeNull();
+    expect(() =>
+      loadAgentAdapterConfig({ AGENT_ADAPTER_ENABLED: "true" })
+    ).toThrow("AGENT_BACKEND_URL is required when AGENT_ADAPTER_ENABLED=true");
+  });
 });

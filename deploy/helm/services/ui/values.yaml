@@ -86,10 +86,6 @@ agentAdapter:
   backendSessionField: "user"
   backendSessionHeader: ""
   backendHeadersJson: "{}"
-  requireVssCapabilities: false
-  vssCapabilitiesB64: ""
-  vssCapabilitiesSha256: ""
-  expectedVssRuntimeRef: ""
   backendTimeoutSeconds: 900
   runRetentionSeconds: 3600
   maxEventCharsPerRun: 20000000

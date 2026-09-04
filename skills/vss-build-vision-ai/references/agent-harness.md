@@ -2,27 +2,25 @@
 
 - [Model](#model)
 - [`nemoclaw` is never a service key](#nemoclaw-is-never-a-service-key)
-- [Replacing the in-stack agent](#replacing-the-in-stack-agent)
+- [What removing the agent implies](#what-removing-the-agent-implies)
 - [Ordering](#ordering)
 - [Prerequisites](#prerequisites)
 - [Default provider](#default-provider)
-- [Provisioning](#provisioning)
+- [Bring-up](#bring-up)
 - [Verification](#verification)
 - [Teardown](#teardown)
 - [Sources](#sources)
 
 ## Model
 
-A **harness** is the agent runtime that drives a build. Two exist, they are
-**mutually exclusive**, and **at most one agent runtime** is deployed.
-`vss-agent` is removed unless the request names it, so a build carries the
-NemoClaw sandbox, the in-stack agent, or no harness at all — never two agent
-runtimes. A single external runtime may still have two presentation surfaces:
-its own Agent UI and VSS UI through the UI's embedded server adapter.
+A **harness** is what a person or another agent talks to in order to drive a
+build. Two exist, they are **mutually exclusive**, and **at most one** is
+deployed. `vss-agent` is removed unless the request names it, so a build carries
+the NemoClaw sandbox, the in-stack agent, or no harness at all — never two.
 
 | Harness | Where it runs | Reached by | Selected by |
 |---|---|---|---|
-| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its Agent UI and VSS UI through the embedded `vss-ui` adapter, with the VSS skills installed into the sandbox | this file |
+| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it | this file |
 | `vss-agent` | inside the Compose project | the agent REST API (`/generate`), Web UI | the Agent owner ([`services/agent.md`](services/agent.md)), like any other capability |
 
 `vss-agent` is in-stack: it is a container, it is reached through the build's own
@@ -40,13 +38,12 @@ from the host. Never turn that into a menu of harnesses; the only question is
 whether NemoClaw is deployed.
 
 **`vss-agent` is removed on either answer.** The in-stack agent is deployed only
-when the request explicitly names `vss-agent`, the legacy in-stack agent, or one
-of its REST routes such as `/generate`; asking for the Web UI alone does not
-select it. Such a request skips Q3 the way any named harness does. Honour it; do
-not steer it to NemoClaw. Everything below about removing `vss-agent` therefore
-applies to a `no` as much as to a `yes`; only the
-[Prerequisites](#prerequisites), [ingress](#ingress-is-still-required), and
-provisioning sections are NemoClaw's alone.
+when the request names it — the chat agent, the Web UI, the agent REST API — and
+such a request skips Q3 the way any named harness does. Honour it; do not steer
+it to NemoClaw. Everything below about the removal therefore applies to a `no`
+as much as to a `yes`; only the [Prerequisites](#prerequisites),
+[ingress](#ingress-is-still-required), and bring-up sections are NemoClaw's
+alone.
 
 A build that reaches no interactive surface still has **no harness at all** — the
 correct outcome for one that only ingests, indexes, or serves an API. Defaulting
@@ -60,74 +57,59 @@ to NemoClaw never means adding a harness to a headless build.
 on the invented key. Treat it exactly as `<name>` is treated in the artifact
 contract: a label outside the Compose model.
 
-Selecting NemoClaw never adds a `nemoclaw` key or any replacement service. When
-VSS UI is retained, configure its embedded server adapter so that the UI can
-reach the host-side runtime. Provision the host runtime before resolving that
-Compose graph, because the protected UI configuration contains its live
-endpoint and credential.
+Selecting NemoClaw therefore never *adds* a key. All it adds is a host-side step
+after deployment (below).
 
-## Replacing the in-stack agent
+## What removing the agent implies
 
 Applies to **both** Q3 answers — a `yes` and a `no` alike — and not to a build
 whose request named the in-stack agent.
 
-**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`.** Keep `vss-ui`,
-`phoenix`, and the `llm_*` peer at this decision point; pruning them is a
-capability decision, not a harness one. Neither answer adds a replacement
-service.
+**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, and change no
+other key.** `vss-ui`, `phoenix`, and the `llm_*` peer all stay. Pruning them is
+a capability decision, not a harness one: leave them and report `phoenix` as
+idle, since it collects the agent's traces and has no other client.
 
-`vss-ui`'s dependency on `vss-agent` ships as `required: false` so the filtered
-project resolves, and
-`scripts/normalize_resolved_yml.py` drops dangling entries. Never re-add a hard
-`depends_on` in a build override — Compose rejects a project whose enabled
-service hard-depends on a filtered one, and Step 8 fails with no `resolved.yml`.
+`vss-ui`'s dependency on the agent ships as `required: false` so the filtered
+project still resolves, and `scripts/normalize_resolved_yml.py` drops the
+dangling entry. Never re-add a hard `depends_on` in a build override — Compose
+rejects a project whose enabled service hard-depends on a filtered one, and
+Step 8 fails with no `resolved.yml`.
 
 `vss-ui` is worth keeping with no agent: its Alerts, Dashboard, and Video
 Management tabs address Alert Bridge, Kibana, and VST directly. An explicit
 "headless" request drops it as well — honour that, and report the loss of those
 three tabs.
 
-For a no-harness build that retains `vss-ui`, put all three of these values in
-the build's `override.env` before resolving Compose:
+### What the removal costs, and what it does not
 
-```dotenv
-NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=false
-NEXT_PUBLIC_ENABLE_CHAT_TAB=false
-NEXT_PUBLIC_ENABLE_SEARCH_TAB=false
-```
+Report every one of these that the build has, whenever the agent is removed:
 
-The Search tab is disabled because this revision still reaches an agent-owned
-search API; a visible tab would fail rather than provide a direct service-owner
-path. Alerts remains useful without an agent, and its *Generate Report* action
-is already omitted when no sidebar submit callback exists.
+| Surface | Effect |
+|---|---|
+| Web UI chat sidebar, Chat tab, Search tab | stop answering — they address `/chat/stream`, `/websocket`, and `/api/v1/search`. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
+| Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
+| Web UI summarization on `lvs` | gone: the UI ships no LVS client and reaches summarization only through the agent's chat. On a build with no harness, the capability is `vss summarize` from the host and the UI is a dashboard |
+| Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
+| Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
+| `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
 
-### Surface behavior
+Nothing else in the operate set needs it. No `vss` command group declares the
+agent a requirement: `configure` probes each route independently and simply omits
+`/api`, while `summarize`, `search` (query), `vlm`, `vios`, and `memory` address
+LVS, Elasticsearch, RT-Embed, RT-VLM, and VIOS directly. `vss-ui` holds the only
+`depends_on` in the whole graph, and it is optional; no other service in any
+profile calls the agent, so alerting, analytics, ingest, and summarization are
+unaffected.
 
-Report the applicable behavior explicitly:
+### Provisioning moves to the headless path
 
-| Surface | NemoClaw (`yes`) | No harness (`no`) |
-|---|---|---|
-| VSS UI chat sidebar and Chat tab | functional through same-origin `/api/agent` → embedded Next.js adapter → the sandbox | unavailable because no agent runtime exists |
-| VSS UI Search and Alerts *Generate Report* | functional through the same chat path; Search and incident skills publish versioned artifacts that update the owning tab | Search is hidden; Alerts hides *Generate Report*, while direct incident list/rule CRUD remain |
-| NemoClaw Agent UI | functional against the same sandbox and VSS skills | absent |
-| Dashboard and Video Management | unchanged; they address Kibana and VST directly | unchanged |
-| Legacy ingress `/api`, `/chat`, `/websocket` routes | unavailable because they specifically target `vss-agent`; `/api/agent` is the replacement UI route | unavailable |
-| Summarization from the UI | available by asking the external harness to run `vss-summarize-video` | unavailable from the UI; use `vss summarize` on the host |
-| `vss-generate-video-report-rag` | unavailable because it drives the old agent API; use `vss-generate-video-report` through the harness | unavailable; use `vss-generate-video-report` from the host |
-
-No `vss` CLI command group requires `vss-agent`: `configure` probes each route
-independently, while `summarize`, `search`, `vlm`, `vios`, and `memory` address
-their service owners directly. The external harness executes those same skills
-and commands; the embedded UI adapter only transports and normalizes its run
-events.
-
-### Source lifecycle without `vss-agent`
-
-Use the direct service-owner recipe in `vss-manage-video-io-storage`
-[`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md)
-to fan a source into RT-CV and RT-Embed. On a yes, the external harness can run
-that skill from either chat surface. On a no, run it from the host. Alert rules
-stay with `vss-manage-alerts`, which addresses Alert Bridge directly.
+With no agent route, source provisioning is the direct-REST recipe:
+`vss-manage-video-io-storage`
+[`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md).
+Its own gate — stop when an agent route answers — passes on any build with the
+agent removed, and it is the only path that fans a source into RT-CV and
+RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
 
 ### Ingress is still required
 
@@ -140,21 +122,30 @@ NemoClaw with "no ingress" is a **capability contradiction** — take it to the
 clarification gate; do not resolve it by dropping either side.
 
 Shipping the ingress is necessary but not sufficient. HAProxy 404s any `Host`
-header outside its `known_host` allowlist. Keep the shipped
-`HOST_INTERNAL_ALIAS=host.openshell.internal` value on the HAProxy service so
-the sandbox's Compose origin is admitted; see
-[`services/ingress.md`](services/ingress.md). Do not repoint `EXTERNAL_IP` to
-the sandbox alias: Alert Bridge uses that value to rewrite clip URLs, and doing
-so makes evidence links unusable outside the sandbox. A custom HAProxy file
-must preserve the `HOST_INTERNAL_ALIAS` allowlist and main-host routing rules.
+header outside its `known_host` allowlist, which admits only `VSS_PUBLIC_HOST`,
+`EXTERNAL_IP`, `HOST_IP`, and localhost ([`services/ingress.md`](services/ingress.md)).
+The sandbox reaches the host as `host.openshell.internal`, so every Compose
+NemoClaw build 404s on its own origin until that name holds one of those slots.
+Set `EXTERNAL_IP=host.openshell.internal` in `_builds/<name>/override.env` before
+resolving, and comment the line. `EXTERNAL_IP` is the slot to spend: `HOST_IP`
+must stay bridge-reachable, and the URLs users follow resolve from
+`VSS_PUBLIC_HOST`. Do not ask the user — it is a mechanical consequence of
+choosing NemoClaw.
+
+Not on `alerts`: `alert-bridge` rewrites clip URLs from `INTERNAL_IP` to
+`EXTERNAL_IP`, so repointing it makes alert evidence unopenable. There the
+curated `haproxy.cfg` is **required** — admit `host.openshell.internal` per
+[`services/ingress.md`](services/ingress.md) and leave `EXTERNAL_IP` alone.
+Do not settle for the origin 404 on the grounds that alerts operate reaches
+Alert Bridge and VA-MCP on their host ports: it costs the sandbox the ingress
+origin every other skill resolves against.
 
 ### Either answer makes it a delta build
 
-Removing `vss-agent` is a capability delta, so a named profile that reaches Q3
-is a **delta build** on a `no` as much as a `yes`; neither answer adds another
-service. Create `_builds/<name>/` and follow Delta mode from Step 2.
-Only a request that explicitly names the in-stack agent, and so never reaches
-Q3, can stay a stock deploy.
+Removing `vss-agent` is a capability delta, so a named profile that reaches Q3 is
+a **delta build** on a `no` as much as a `yes` — create `_builds/<name>/` and
+follow Delta mode from Step 2. Only a request that names the in-stack agent, and
+so never reaches Q3, can stay a stock deploy.
 
 ### Cost to report, not to optimize away
 
@@ -165,51 +156,43 @@ Two things the user should hear up front rather than discover:
   build against [`sizing.md`](sizing.md) plus the harness's own model provider —
   and note that a NemoClaw-managed local model claims every visible GPU unless
   pinned (see [Prerequisites](#prerequisites)).
-- **One agent runtime, potentially two chat surfaces.** On a `yes`, both the
-  sandbox Agent UI and VSS UI address the same NemoClaw runtime; report **both
-  as markdown links** and name NemoClaw as the driver. On a `no`, report the
-  build UI alone, state that its conversational controls have no backend, and
-  name the `vss` CLI as the driver. The build's
+- **At most one chat surface, plus a dashboard.** The build's Web UI remains
+  either way, with its chat and Search tabs dead and the rest live. On a `yes`
+  the sandbox chat UI is the only conversational surface: report **both as
+  markdown links** — the build's browse origin next to the Agent UI — and name
+  NemoClaw as the driver. On a `no` report the browse origin alone, and name the
+  `vss` CLI as the driver. The build's
   origin is `VSS_PUBLIC_HOST`; on Brev that is the FQDN the context file
   publishes for the ingress port, resolved rather than constructed
-  ([`brev.md`](brev.md)). Never use `EXTERNAL_IP` as the sandbox origin; it is
-  part of public/evidence URL rewriting, while the sandbox uses
-  `HOST_INTERNAL_ALIAS`.
+  ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw build holds
+  `host.openshell.internal` and resolves only inside the sandbox.
 
 ## Ordering
 
-For an external-harness Compose build, the planned origin is known from the
-selected host and HAProxy port before containers start. The protected UI env
-cannot be created afterward: it contains the live harness endpoint, credential,
-and commit-bound capability receipt consumed by `docker compose config`. Use
-this order:
+The harness needs the build's origin, and that origin does not exist until the
+deployment answers. Run the steps in this order and no other:
 
 | # | Step | Why here |
 |---|---|---|
-| 1 | Write `override.env` and `compose.yml`; determine the planned `http://host.openshell.internal:<HAPROXY_HOST_PORT>` origin | the sandbox needs a stable target even though it is not live yet |
-| 2 | Create the dedicated sandbox with `deploy_nemoclaw.ipynb`, or select the existing BYO sandbox | the harness API and operator credential must exist first |
-| 3 | Run `attach_vss_agent.py` with the planned origin and protected output paths | binds the exact source commit, installs the full capability plane, probes the harness API, starts its private bridge forward, and writes `agent-capabilities.json` plus `agent-ui.env` |
-| 4 | Generate and validate `resolved.yml`, with `agent-ui.env` last | bakes the verified endpoint and credential into the standalone model without exposing it at `up` time |
-| 5 | Deploy and pass the Compose readiness gate | proves the VSS services and embedded UI adapter are live |
-| 6 | Run the sandbox-to-VSS and VSS-UI-to-sandbox end-to-end checks | distinguishes transport health from actual skill and artifact behavior |
+| 1 | Deploy `resolved.yml` | nothing to point a harness at yet |
+| 2 | Readiness gate ([`readiness.md`](readiness.md)) | a harness pointed at a half-warm stack reports failures that are not its own |
+| 3 | Resolve the origin | `http://$HOST_IP:$HAPROXY_HOST_PORT` from the deployed build |
+| 4 | Bring up the harness | consumes that origin |
 
-For harness-only attachment to a running deployment, its origin is already
-known and Step 1 reduces to resolving that origin. Connecting VSS UI still
-requires restarting or rebuilding `vss-ui` with the embedded adapter
-configuration; attachment alone cannot change a running container's
-environment.
+Skipping the readiness gate is the common failure: onboarding succeeds, the
+first call from the sandbox fails, and the cause looks like the harness.
 
 ## Prerequisites
 
 Beyond everything in [`prerequisites.md`](prerequisites.md) and
 [`credentials.md`](credentials.md), the harness step needs the following.
 
-**Check them at Q3, not during provisioning.** NemoClaw is the default, so a build can
+**Check them at Q3, not at bring-up.** NemoClaw is the default, so a build can
 reach these requirements without anyone having asked for them. Any one missing is
 a **blocker at harness selection**: name it, ask whether to supply it, proceed
 with no harness, or name the in-stack agent instead, and deploy nothing until
-that is answered. Discovering it after artifacts are resolved would leave a UI
-graph bound to a harness that was never made ready.
+that is answered. Discovering it after the readiness gate means a deployed build
+with no way to drive it.
 
 - **Python 3.11+ to run the notebook**, plus `docker`, `python3`, and `curl` on
   `PATH`, and outbound reach to the installer. **Do not require the NemoClaw CLI
@@ -246,12 +229,12 @@ that fires for every build rejects the supported paths that need no key:
 | (b) NemoClaw-managed local model | `NEMOCLAW_PROVIDER` (`install-vllm`, `ollama`, `nim-local`, …) | any API key; `HF_TOKEN` only for a gated `install-vllm` model |
 | (c) build.nvidia.com hosted model | `NVIDIA_API_KEY` | `COMPATIBLE_API_KEY`, `NEMOCLAW_ENDPOINT_URL` |
 
-The notebook's shipped policy covers the standard Compose HAProxy origin on
-port `7777`. The required `attach_vss_agent.py` pass adds the exact planned
-origin, including a non-default `HAPROXY_HOST_PORT`, through its generated
-`vss-agent-origin` policy. Do not hand-edit the shared policy per build. A
-post-deployment `CONNECT tunnel failed, response 403` means the attachment did
-not install the exact origin that `resolved.yml` published.
+Egress from the sandbox to the build is already allowed: the shipped policy's
+`vss-backend` entries cover the HAProxy origin (`7777`) along with each
+backend's own host port. **A build that moves `HAPROXY_HOST_PORT` off `7777`
+has no matching policy entry**, so every call from the sandbox returns
+`CONNECT tunnel failed, response 403`. Report that as a blocker naming the port;
+the policy is a checked-in asset, not something to rewrite per build.
 
 ## Default provider
 
@@ -262,7 +245,7 @@ to the notebook's own (c) build.nvidia.com path:
 | Variable | Default | Note |
 |---|---|---|
 | `NEMOCLAW_PROVIDER` | `custom` | option (a); the only provider that consumes `NEMOCLAW_ENDPOINT_URL` |
-| `NEMOCLAW_MODEL` | `claude-opus-4-8` | selected default; override for a different Opus revision, or for a router **route id** when the endpoint is a model router |
+| `NEMOCLAW_MODEL` | `claude-opus-4-8` | matches the notebook's own (a) example; override for a different Opus revision, or for a router **route id** when the endpoint is a model router |
 | `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` | any OpenAI-compatible base URL; point it at an internal gateway or router instead when one is in use |
 | `COMPATIBLE_API_KEY` | **no default** | a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output |
 
@@ -289,15 +272,14 @@ These four variables are exactly the parameter contract
 sufficient — the injection re-reads them after the section 1.2 cells have run,
 which is what lets the export win over whichever provider cell executed last.
 
-## Provisioning
+## Bring-up
 
 Do not reimplement any of this. `deploy_nemoclaw.ipynb` is the single source of
 host-side harness logic — Docker pinning, sandbox onboarding, policy, skill
 install, workspace docs, webhooks, UI link — and
 `deploy/docker/scripts/run_setup_notebook.py` executes it non-interactively.
 
-For a new dedicated sandbox, set the environment and run the notebook before
-Compose resolution:
+Set the environment, then run the notebook:
 
 | Variable | Value for a build | Why |
 |---|---|---|
@@ -313,41 +295,25 @@ Compose resolution:
 set -o pipefail   # report the notebook's status, not `tee`'s
 
 REPO="$(git rev-parse --show-toplevel)"
-BUILD_DIR="$REPO/_builds/<build-name>"
 
 export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
-export AGENT_RUNTIME="${AGENT_RUNTIME:-openclaw}"
-mkdir -p "$BUILD_DIR"
 
 # Default harness LLM: notebook option (a), remote Claude Opus.
 export NEMOCLAW_PROVIDER=custom
-export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-claude-opus-4-8}"
-export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvidia.com/v1}"
+export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-claude-opus-4-6}"
+export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://api.anthropic.com/v1/}"
 # From the environment or the secret store; never a literal here.
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
 
-if ! uv run --isolated --no-project --python 3.12 \
-    --with nbformat --with nbclient --with ipykernel -- \
-    python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
-      --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
-      --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
-    2>&1 | tee "$BUILD_DIR/nemoclaw-setup.log"; then
-  echo "NemoClaw provisioning failed; see $BUILD_DIR/nemoclaw-setup.log" >&2
-  exit 1
-fi
-
-# Bind the dedicated sandbox to this build's exact planned Compose origin and
-# generate the protected resolution overlay. Use the same command directly,
-# without the notebook above, for an existing BYO sandbox.
-python3 "$REPO/deploy/docker/scripts/attach_vss_agent.py" \
-  --runtime "${AGENT_RUNTIME:-openclaw}" \
-  --sandbox "$NEMOCLAW_SANDBOX_NAME" \
-  --vss-origin "http://host.openshell.internal:<planned-haproxy-port>" \
-  --receipt-output "$BUILD_DIR/agent-capabilities.json" \
-  --ui-env-output "$BUILD_DIR/agent-ui.env"
+uv run --isolated --no-project --python 3.12 \
+  --with nbformat --with nbclient --with ipykernel -- \
+  python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
+    --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
+    --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
+  2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
 ```
 
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
@@ -395,13 +361,11 @@ The sandbox is left onboarded but with **no VSS egress at all**, since the add i
 atomic — the failure looks like a harness problem and is really this variable.
 Set it only for a Kubernetes deployment, to that cluster's Ingress origin.
 
-From the notebook pair, run **only** `deploy_nemoclaw.ipynb`, followed by the
-checked-in attachment script above. Its companion,
+Run **only** `deploy_nemoclaw.ipynb`. Its companion,
 `deploy_vss_orchestrator.ipynb`, exists so the sandbox can deploy and manage VSS
-itself; this skill owns that lifecycle. Add it as a second `--notebook` only
-when the user explicitly wants the agent to own deployment too. That companion
-already generates its own external-harness UI graph, so do not also resolve and
-deploy the build artifacts through the normal Steps.
+itself — work this skill has already done by the time the harness comes up.
+Add it as a second `--notebook` only when the user explicitly wants the agent to
+own the deployment lifecycle too.
 
 Because the notebook installs every `SKILL.md` under `skills/`, the sandbox receives
 this skill as well, and can compose further builds from chat. It operates the
@@ -410,9 +374,9 @@ produced.
 
 ## Verification
 
-The notebook runs with errors fatal, and the attachment then verifies the live
-harness API and writes the commit-bound receipt and protected UI overlay. After
-Compose readiness gate, confirm what those pre-deployment checks cannot cover:
+The notebook runs with errors fatal and asserts each step itself, so a clean
+exit already means onboarding, policy, skills, and workspace docs all landed.
+Confirm the two things that exit code cannot cover:
 
 1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in
    the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
@@ -433,15 +397,10 @@ Compose readiness gate, confirm what those pre-deployment checks cannot cover:
    On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
    probe and still `503`s behind the secure link. On loopback, re-run the
    notebook and take the new link — do not publish the localhost URL instead.
-2. **The sandbox can reach the build.** From the sandbox, make one call against
-   the origin recorded in its capability receipt and runtime environment. A
-   `403 CONNECT tunnel failed` is the egress
+2. **The sandbox can reach the build.** From the sandbox, one call against the
+   origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters
    because the two have opposite fixes.
-3. **VSS UI reaches the same sandbox.** Send one harmless turn through the VSS
-   UI, confirm an intentional tool call appears under Intermediate Steps, then
-   run a non-destructive Search or Alerts skill and confirm its structured
-   artifact updates the owning UI surface.
 
 Section 3.8 is an optional deeper pass over the live sandbox, active policy
 metadata, webhooks, and the installed workspace docs. Run it when onboarding

@@ -8,13 +8,6 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment video-analytics-api rest-api"
 ---
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Purpose
 
 Deploy the video-analytics-api REST service standalone with the user's chosen config and data-log bind. The service exposes port 8081 and `/livez` only after Elasticsearch, the `insertion-timestamp-pipeline`, and, when `STREAM_TYPE=kafka`, the configured Kafka topic requirements are ready.

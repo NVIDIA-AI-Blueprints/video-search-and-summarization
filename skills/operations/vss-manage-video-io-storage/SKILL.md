@@ -7,13 +7,6 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Purpose
 
 Manage VIOS and NvStreamer API operations for VSS video input/output and
@@ -71,13 +64,6 @@ Follow the shared public-Ingress contract in
 (`VSS_PUBLIC_URL`, `VSS_VIOS_URL`, `VST_API_BASE`, `VSS_STREAMER_URL`).
 
 ```bash
-VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-  VSS_RECEIPT_ORIGIN=$(jq -er \
-    '(.vss_origin // "") | select(type == "string")' \
-    "$VSS_CAPABILITY_RECEIPT") || exit 1
-  [ -z "$VSS_RECEIPT_ORIGIN" ] || VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
-fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
   VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"

@@ -9,13 +9,6 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Purpose
 
 Operate archive search from the caller's host. Compose and Kubernetes use the
@@ -35,9 +28,6 @@ an agent `/api` route**; on a build without one, they belong to
   does. That recipe owns the direct calls this rule otherwise forbids.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
-- When the capability receipt enables VSS UI artifacts, publishing the exact
-  validated search result is part of a successful search. Do not finish with
-  prose alone.
 - The CLI attempts critic verification by default. Do not separately inspect
   screenshots or call another verifier during the initial search turn.
 - Offer delegated verification only when every displayed result is
@@ -50,20 +40,38 @@ an agent `/api` route**; on a build without one, they belong to
 - A running VSS `search` profile and its host-reachable Compose or Ingress
   origin.
 - A checkout containing `services/agent`, host `uv`, `curl`, and `jq`.
-- The bundled `scripts/run_search.sh` runner for both source listing and the
-  validated search. Use the exact base directory announced by the skill
-  loader; do not assume it is an environment variable and do not copy the
-  runner's Bash body into the exec command. An OpenClaw workspace attached by
-  VSS exposes it at `./skills/vss-search-archive/scripts/run_search.sh`.
+- `vss vios list` for source listing and inspection (same CLI, same recorded origin).
+
+Resolve and validate the checkout once:
+
+```bash
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
+  exit 1
+}
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+cd "${VSS_REPO_ROOT}" && "${VSS[@]}" search run --help >/dev/null || exit 1
+```
 
 `--extra cli` is mandatory because the base distribution contains the core
-libraries, while `nvidia-vss-cli` declares the `vss` executable. The runner
-owns that exact project-local invocation and pre-warms it before use.
+libraries, while `nvidia-vss-cli` declares the `vss` executable.
 
-The runner resolves the deployment through its one public/host origin, in
-order, from `VSS_ORIGIN`, the capability receipt, the recorded CLI config, or
-`HOST_IP`. It fails when none exists and runs `vss configure` before listing or
-searching. Do not duplicate that setup in separate tool calls.
+Resolve the deployment through its one public/host origin:
+
+```bash
+if [ -z "${VSS_ORIGIN:-}" ]; then
+  VSS_ORIGIN=$("${VSS[@]}" configure show 2>/dev/null |
+    jq -er '.base_url | select(type == "string" and length > 0)') || {
+      echo "Provide the Compose or Ingress origin" >&2
+      exit 1
+    }
+fi
+VSS_ORIGIN="${VSS_ORIGIN%/}"
+VST_URL="${VSS_ORIGIN}"
+VSS_VIOS_URL="${VSS_ORIGIN}/vst"
+"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
+```
 
 In a persisted multi-step workflow, reuse the origin recorded by the prepared
 deployment as above. Do not repeat public-origin selection, edit routing, or
@@ -89,15 +97,8 @@ independent of the index inventory.
    `vss-deploy-profile -p search`; do not target another profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
-   one runner call before searching:
-
-   ```bash
-   bash ./skills/vss-search-archive/scripts/run_search.sh --list-sources
-   ```
-
-   If the loader announced another base directory, substitute that exact path;
-   do not search for or guess a bundled harness path. The runner reads the same
-   resolved origin as search and takes no endpoint. Accept only an exact
+   `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin
+   `vss configure` recorded, so it takes no endpoint. Accept only an exact
    source, stream ID, or one unambiguous normalized substring match.
 
    - No match: report the missing source, list available names, and ask the
@@ -136,29 +137,37 @@ independent of the index inventory.
    "worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
    for genuinely attribute-free intent.
 
-4. Read [CLI usage](references/cli_usage.md) for every supported flag, then
-   invoke the bundled runner once. Set `--source-scoped true` whenever the user
-   named a source; the runner refuses to broaden that request when no
-   `--video-source` follows it. Use `false` only for an explicitly unrestricted
-   request. Pass the selected search mode and its exact CLI flags next. A `--`
-   separator is accepted but not required:
+4. Construct the invocation as a Bash array and validate only its exact
+   stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
 
 ```bash
-bash ./skills/vss-search-archive/scripts/run_search.sh \
-  --source-scoped true embed \
-  --source-type video_file \
-  --video-source "<resolved-sensor-id>" \
-  --query "<complete user query>" \
-  --top-k 3 \
-  --raw
+: "${SEARCH_PATH:?set embed|attribute|fusion|object}"
+: "${SOURCE_TYPE:?set video_file or rtsp}"
+TOP_K="${TOP_K:-3}"
+VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object
+: "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
+if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
+  echo "Resolved source scope is empty; refusing an unrestricted search" >&2
+  exit 1
+fi
+SEARCH_COMMAND=(
+  "${VSS[@]}" search run "${SEARCH_PATH}"
+  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}" --raw
+)
+for source in "${VIDEO_SOURCES[@]}"; do
+  SEARCH_COMMAND+=(--video-source "${source}")
+done
+# Append --query, repeatable --attribute, --object-id, and time bounds as needed.
+if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+  echo "Search command failed" >&2
+  exit 1
+fi
+printf '%s' "${SEARCH_JSON}" |
+  jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
+    echo "Search did not return a SearchOutput object with a data array" >&2
+    exit 1
+  }
 ```
-
-Repeat `--video-source` for each resolved value. `embed` and `fusion` take the
-sensor ID; `attribute` and `object` take the source name. Append repeatable
-`--attribute`, `--object-id`, and time bounds only as requested. Invoke the
-runner with `bash`, not by copying its body into the exec command. It resolves
-the pinned VSS checkout and origin, validates the exact two-document CLI
-result, and emits the versioned UI envelope from that same result.
 
 Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
 `search run`; `vss configure` owns those values. Do not replace a failed CLI
@@ -187,7 +196,7 @@ The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
 availability. Treat boolean `criteria_met` values as critic evidence only.
 
-7. Format nonempty results without user-visible raw JSON:
+7. Format nonempty results without raw JSON:
 
 ```text
 ## Video Search Results
@@ -206,21 +215,6 @@ entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
 omit it even when other hits are unverified. Never deploy a VLM or call
 `vss-ask-video` automatically during this results turn.
 
-When the search command prints the machine-readable envelope, publish its
-exact JSON object without reconstructing, summarizing, fencing, or modifying
-the payload:
-
-- If `vss_ui_publish_artifact` is an available tool, call it exactly once with
-  that JSON object. After its success result, finish the human-facing answer
-  without copying the XML envelope into prose.
-- Otherwise, copy the command's single envelope line verbatim into the final
-  response. The gateway strips it from prose when the upstream exposes only
-  final text.
-
-The gateway emits `artifact.created`, and the Search tab consumes the payload
-to render result cards. Never publish an artifact when the search command or
-JSON validation failed.
-
 8. If the user explicitly confirms, read
 [search-result verification](references/result_verification.md) completely and
 delegate the displayed hits only after confirming again that every one is
@@ -229,13 +223,11 @@ original visual intent. Keep at most three delegations in flight. Never hand
 off a partially verified result set.
 
 9. If `.data` is empty, report zero candidates faithfully — a fact about
-   retrieval, not about the video — and emit the same `vss.search.results`
-   artifact with its empty `data` array when UI artifacts are enabled. Do not
-   claim the object is absent, describe what the footage contains, or argue it
-   is not something you would expect there: a threshold or embedding gap yields
-   the same empty result as a genuine absence. Offer a specific query or
-   similarity-threshold refinement while preserving the source. Never broaden
-   the search silently.
+retrieval, not about the video. Do not claim the object is absent, describe
+what the footage contains, or argue it is not something you would expect
+there: a threshold or embedding gap yields the same empty result as a genuine
+absence. Offer a specific query or similarity-threshold refinement while
+preserving the source. Never broaden the search silently.
 
 ## Natural-language Agent responses
 

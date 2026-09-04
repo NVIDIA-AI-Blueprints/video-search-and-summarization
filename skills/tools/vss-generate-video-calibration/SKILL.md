@@ -7,13 +7,6 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Purpose
 
 Run AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.

@@ -13,13 +13,6 @@ import {
 } from "./websocket";
 import { createHmac, randomUUID } from "node:crypto";
 
-const VSS_WORKSPACE_SKILL_INSTRUCTIONS = `VSS capability contract:
-VSS skills are installed in the current OpenClaw workspace, not in OpenClaw's
-bundled installation. For a VSS request, read the matching skill from its exact
-workspace path listed by OpenClaw (normally ./skills/<skill-name>/SKILL.md).
-Never guess a path below OpenClaw's node_modules directory. Follow the selected
-skill's bundled runner or recipe exactly.`;
-
 const PROTOCOL_VERSION = 4;
 const REQUESTED_SCOPES = ["operator.read", "operator.write"];
 const CLIENT_CAPABILITIES = ["tool-events", "session-scoped-events"];
@@ -320,7 +313,6 @@ export class OpenClawConnector implements Connector {
 
   private message(request: CreateRunRequest): string {
     if (
-      !this.config.vssCapabilities &&
       request.instructions === undefined &&
       request.input.length === 1 &&
       request.input[0].role === "user"
@@ -328,9 +320,6 @@ export class OpenClawConnector implements Connector {
       return request.input[0].content;
     }
     const parts: string[] = [];
-    if (this.config.vssCapabilities) {
-      parts.push(VSS_WORKSPACE_SKILL_INSTRUCTIONS);
-    }
     if (request.instructions) {
       parts.push(`VSS UI instructions:\n${request.instructions}`);
     }

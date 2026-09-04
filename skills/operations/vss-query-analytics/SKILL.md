@@ -8,13 +8,6 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Purpose
 
 Answer read-only analytics questions (incidents, metrics, sensor data) by routing through the VA-MCP server.
@@ -71,13 +64,6 @@ through VA-MCP.
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
 fi
-VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-  VSS_RECEIPT_ORIGIN=$(jq -er \
-    '(.vss_origin // "") | select(type == "string")' \
-    "$VSS_CAPABILITY_RECEIPT") || exit 1
-  [ -z "$VSS_RECEIPT_ORIGIN" ] || VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
-fi
 
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
@@ -110,13 +96,6 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
    ```bash
    if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
      VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-   fi
-   VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-   if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-     VSS_RECEIPT_ORIGIN=$(jq -er \
-       '(.vss_origin // "") | select(type == "string")' \
-       "$VSS_CAPABILITY_RECEIPT") || exit 1
-     [ -z "$VSS_RECEIPT_ORIGIN" ] || VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
    fi
    if [ -n "${VSS_PUBLIC_URL:-}" ]; then
      VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
@@ -152,13 +131,6 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 # Re-derive in this shell — fenced blocks do not share prior state.
 if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
   VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
-VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-  VSS_RECEIPT_ORIGIN=$(jq -er \
-    '(.vss_origin // "") | select(type == "string")' \
-    "$VSS_CAPABILITY_RECEIPT") || exit 1
-  [ -z "$VSS_RECEIPT_ORIGIN" ] || VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
 fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
@@ -267,13 +239,6 @@ JSON-RPC 2.0 over Server-Sent Events.
    ```bash
    if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
      VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-   fi
-   VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-   if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-     VSS_RECEIPT_ORIGIN=$(jq -er \
-       '(.vss_origin // "") | select(type == "string")' \
-       "$VSS_CAPABILITY_RECEIPT") || exit 1
-     [ -z "$VSS_RECEIPT_ORIGIN" ] || VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
    fi
    if [ -n "${VSS_PUBLIC_URL:-}" ]; then
      VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"

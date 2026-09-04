@@ -29,12 +29,10 @@ harness comparison in the [Quickstart](/vss/getting-started/quickstart).
 
 Regardless of which harness you choose, the model is the same:
 
-1. **Install the Skills.** Recursively discover every Skill folder under the `skills/` directory of the
+1. **Install the Skills.** Each Skill folder from the `skills/` directory of the
    [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/skills)
-   and register it in the harness's standard skills directory (typically by symlink, so
-   a version-controlled update keeps every Skill current). Do not use only
-   `skills/*/SKILL.md`: deployment, operation, tool, and benchmarking Skills are
-   nested under category directories. See [Agent Skills](/vss/vision-agent/agent-skills) for
+   is registered into the harness's standard skills directory (typically by symlink, so
+   a `git pull` keeps every Skill current). See [Agent Skills](/vss/vision-agent/agent-skills) for
    the full install flow.
 2. **Load the Skills.** On startup the harness reads each `SKILL.md` frontmatter and
    adds the Skill to its tool list. New Skills are picked up without a restart.
@@ -80,48 +78,14 @@ preconfigured rather than installed by hand.
 ## NemoClaw
 
 [NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) is an open-source reference stack for running always-on AI agents more safely inside NVIDIA OpenShell sandboxes.
-There are two integration modes:
-
-- To create a new dedicated VSS assistant, `deploy_nemoclaw.ipynb` applies the
-  VSS policy, recursively installs the repository's VSS Skills and optional VSS
-  workspace identity, and starts the harness API. For a build-owned Compose
-  lifecycle, run `attach_vss_agent.py` next to bind the planned VSS origin and
-  produce the protected UI adapter overlay. Run the companion
-  `deploy_vss_orchestrator.ipynb` instead only when the assistant should own VSS
-  deployment and the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
-- To bring an existing OpenClaw or Hermes agent, run
-  `deploy/docker/scripts/attach_vss_agent.py`. The additive installer grants the
-  VSS skills, project CLI, deployment route, network policy, and UI-artifact
-  contract while preserving that agent's persona, memory, model, provider,
-  workspace identity, and chat history. When VSS UI chat is part of a Compose
-  build, have it also write the protected `agent-ui.env` overlay and pass
-  that overlay last while resolving the standalone deployment model.
-
-The NemoClaw Harbor evaluation environment executes the same two checked-in
-notebooks before a trial, so notebook and Harbor validation receive the same
-recursive VSS skill catalog and commit-pinned CLI. Harbor's isolated
-task-specific Skills directory is evaluation input and is not a substitute for
-provisioning a production sandbox.
-
-VSS UI's existing Next.js server presents one run/event contract for both
-harnesses, but their wire connectors differ: OpenClaw uses its native
-protocol-v4 WebSocket so tool events remain visible, while Hermes uses its
-Responses API. No additional service is deployed. From VSS UI chat
-they can manage cameras and streams, query
-incidents, run searches, summarize videos, and pull logs. Search and incident
-skills also emit versioned VSS UI artifacts, allowing the Search and Alerts
-surfaces to render structured results without a harness-specific UI adapter.
-For setup, configuration, and troubleshooting, see
+Instead of installing Skills by hand, the bundled `deploy_nemoclaw.ipynb` and
+`deploy_vss_orchestrator.ipynb` notebooks apply the VSS policy, install the repository's
+VSS Skills and workspace docs into the sandbox, register the VSS Orchestrator MCP, and
+start the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) on the
+host. From the chat UI you can deploy profiles, manage cameras and streams, query
+incidents, run searches, summarize videos, and pull logs - with confirmation prompts
+before destructive actions. For setup, configuration, and troubleshooting, see
 [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw).
-
-<Note>
-OpenClaw is the primary production-validation path for this integration.
-Hermes uses the compatible Responses connector, but the current
-[NemoClaw platform-support matrix](https://docs.nvidia.com/nemoclaw/latest/user-guide/hermes/reference/platform-support)
-labels NemoClaw early-preview alpha and does not yet assert Hermes production
-parity with OpenClaw. Validate Hermes against your workload and operational
-requirements in staging before deployment.
-</Note>
 
 <Note>
 The NemoClaw notebooks are released as an Early Access feature.

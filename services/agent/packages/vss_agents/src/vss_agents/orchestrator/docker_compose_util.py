@@ -16,14 +16,9 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
-import hashlib
-import hmac
-import ipaddress
 import os
 import re
 import subprocess
@@ -101,9 +96,6 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "VLM_NAME_SLUG",
 )
 _COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
-_TRUE_VALUES: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
-_FALSE_VALUES: Final[frozenset[str]] = frozenset({"0", "false", "no", "off", ""})
-MAX_AGENT_CAPABILITY_RECEIPT_BYTES: Final[int] = 256_000
 
 
 class ValidationError(ValueError):
@@ -517,89 +509,6 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
     return ",".join(compose_profiles)
 
 
-def apply_agent_adapter_env(merged: dict[str, str]) -> None:
-    """Configure the Next.js UI's embedded harness adapter when requested.
-
-    The harness forward binds only to Docker's private bridge address. The UI
-    reaches it through ``host-gateway`` while credentials remain in its
-    server-side environment.
-    """
-
-    raw_enabled = merged.get("VSS_AGENT_ADAPTER_ENABLED", "").strip().lower()
-    if raw_enabled in _FALSE_VALUES:
-        return
-    if raw_enabled not in _TRUE_VALUES:
-        raise ValidationError("VSS_AGENT_ADAPTER_ENABLED must be true or false.")
-
-    if not merged.get("VSS_AGENT_BACKEND_URL", "").strip():
-        raise ValidationError("VSS_AGENT_BACKEND_URL is required when VSS_AGENT_ADAPTER_ENABLED=true.")
-
-    encoded_receipt = merged.get("VSS_AGENT_CAPABILITIES_B64", "").strip()
-    receipt_digest = merged.get("VSS_AGENT_CAPABILITIES_SHA256", "").strip().lower()
-    if not encoded_receipt:
-        raise ValidationError(
-            "VSS_AGENT_CAPABILITIES_B64 is required when "
-            "VSS_AGENT_ADAPTER_ENABLED=true; run attach_vss_agent.py before resolution."
-        )
-    if not re.fullmatch(r"[0-9a-f]{64}", receipt_digest):
-        raise ValidationError("VSS_AGENT_CAPABILITIES_SHA256 must be a lowercase SHA-256 digest.")
-    try:
-        raw_receipt = base64.b64decode(encoded_receipt, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise ValidationError("VSS_AGENT_CAPABILITIES_B64 must be strict base64.") from exc
-    if not raw_receipt or len(raw_receipt) > MAX_AGENT_CAPABILITY_RECEIPT_BYTES:
-        raise ValidationError(
-            f"Decoded VSS agent capability receipt must be 1..{MAX_AGENT_CAPABILITY_RECEIPT_BYTES} bytes."
-        )
-    if not hmac.compare_digest(hashlib.sha256(raw_receipt).hexdigest(), receipt_digest):
-        raise ValidationError("VSS agent capability receipt digest does not match.")
-    expected_runtime_ref = merged.get("VSS_AGENT_EXPECTED_RUNTIME_REF", "").strip().lower()
-    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", expected_runtime_ref):
-        raise ValidationError("VSS_AGENT_EXPECTED_RUNTIME_REF must be a full Git commit ID.")
-
-    bind_host = merged.get("VSS_AGENT_BACKEND_BIND_HOST", "").strip()
-    if not bind_host:
-        raise ValidationError(
-            "VSS_AGENT_BACKEND_BIND_HOST is required when VSS_AGENT_ADAPTER_ENABLED=true; "
-            "set it to the private address from `docker network inspect bridge`."
-        )
-    try:
-        bind_address = ipaddress.ip_address(bind_host)
-    except ValueError as exc:
-        raise ValidationError("VSS_AGENT_BACKEND_BIND_HOST must be a private IPv4 address.") from exc
-    if (
-        bind_address.version != 4
-        or not bind_address.is_private
-        or bind_address.is_loopback
-        or bind_address.is_unspecified
-    ):
-        raise ValidationError("VSS_AGENT_BACKEND_BIND_HOST must be a private, non-loopback IPv4 address.")
-
-    merged["VSS_AGENT_ADAPTER_ENABLED"] = "true"
-    merged["VSS_AGENT_BACKEND_BIND_HOST"] = bind_host
-    merged["VSS_AGENT_REQUIRE_CAPABILITIES"] = "true"
-    # The embedded adapter is an HTTP/SSE transport. Lock every UI chat surface
-    # to the same-origin API so a persisted WebSocket preference cannot bypass it.
-    merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] = "true"
-    merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] = "false"
-    merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] = "false"
-    defaults = {
-        "VSS_AGENT_BACKEND_PROTOCOL": "responses",
-        "VSS_AGENT_BACKEND_MODEL": "agent",
-        "VSS_AGENT_BACKEND_SESSION_FIELD": "user",
-        "NEXT_PUBLIC_ENABLE_CHAT_TAB": "true",
-    }
-    for key, value in defaults.items():
-        if not merged.get(key, "").strip():
-            merged[key] = value
-
-    profiles = [item.strip() for item in merged.get("COMPOSE_PROFILES", "").split(",") if item.strip()]
-    for required_profile in ("vss-ui",):
-        if required_profile not in profiles:
-            profiles.append(required_profile)
-    merged["COMPOSE_PROFILES"] = ",".join(profiles)
-
-
 def infer_runtime_mode(
     *,
     device_id: str,
@@ -849,7 +758,6 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
     merged["COMPOSE_PROFILES"] = resolve_compose_profiles(merged, config.profile)
-    apply_agent_adapter_env(merged)
     # Resolve nested ${VAR} references (e.g. SDR_CONTROLLER_CONFIG_PATH, VST_CONFIG_PATH,
     # REACT_APP_API_ENDPOINT_BASE_URL) so the generated .env holds self-contained values;
     # docker compose does not interpolate env-file values against each other.
@@ -897,7 +805,7 @@ def _compose_subprocess_env_for_config(
     return compose_env
 
 
-def resolve_compose(config: DryRunRecipe, *, agent_adapter_enabled: bool = False) -> str:
+def resolve_compose(config: DryRunRecipe) -> str:
     env_file_args = _compose_env_file_args(config, config.output_env_file)
     compose_env = _compose_subprocess_env_for_config(config)
     try:
@@ -912,10 +820,7 @@ def resolve_compose(config: DryRunRecipe, *, agent_adapter_enabled: bool = False
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
     if result.returncode != 0:
         raise RuntimeError(f"docker compose config failed.\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}")
-    return sanitize_resolved_compose(
-        result.stdout,
-        agent_adapter_ui_source_root=(config.deployments_dir.parent.parent if agent_adapter_enabled else None),
-    )
+    return sanitize_resolved_compose(result.stdout)
 
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
@@ -941,12 +846,8 @@ def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path
         )
 
 
-def sanitize_resolved_compose(
-    compose_text: str,
-    *,
-    agent_adapter_ui_source_root: Path | None = None,
-) -> str:
-    """Normalize a resolved graph and add source builds required by adapter mode."""
+def sanitize_resolved_compose(compose_text: str) -> str:
+    """Remove dangling depends_on references from resolved compose output."""
 
     parsed = yaml.safe_load(compose_text)
     if not isinstance(parsed, dict):
@@ -955,18 +856,6 @@ def sanitize_resolved_compose(
     services = parsed.get("services")
     if not isinstance(services, dict):
         return compose_text
-
-    # Embedded-adapter UI routes are part of this source checkout. Until a
-    # compatible released UI image is pinned, build the selected UI service
-    # from the same checkout.
-    if agent_adapter_ui_source_root is not None:
-        ui_service = services.get("vss-ui")
-        if isinstance(ui_service, dict) and "build" not in ui_service:
-            ui_service["build"] = {
-                "context": str(agent_adapter_ui_source_root),
-                "dockerfile": "services/ui/Dockerfile",
-                "args": {"BUILD_TYPE": "prod"},
-            }
 
     defined_services = set(services.keys())
     for service_def in services.values():
@@ -992,35 +881,17 @@ def sanitize_resolved_compose(
     return yaml.safe_dump(parsed, sort_keys=False)
 
 
-def write_private_text(path: Path, content: str) -> None:
-    """Write a credential-bearing deployment artifact with owner-only access."""
-
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            descriptor = -1
-            stream.write(content)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-
-
 def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Path, Path]:
     resolved_env = build_resolved_env(config)
     env_file = config.output_env_file
     compose_file = config.output_compose_file
     env_file.parent.mkdir(parents=True, exist_ok=True)
-    write_private_text(  # NOSONAR S2083: --output-env-file is an intentional CLI destination
-        env_file, render_generated_env(config.source_env_file, resolved_env)
+    env_file.write_text(  # NOSONAR S2083: --output-env-file is an intentional CLI destination
+        render_generated_env(config.source_env_file, resolved_env)
     )
     compose_file.parent.mkdir(parents=True, exist_ok=True)
-    write_private_text(  # NOSONAR S2083: --output-compose-file is an intentional CLI destination
-        compose_file,
-        resolve_compose(
-            config,
-            agent_adapter_enabled=resolved_env.get("VSS_AGENT_ADAPTER_ENABLED") == "true",
-        ),
+    compose_file.write_text(  # NOSONAR S2083: --output-compose-file is an intentional CLI destination
+        resolve_compose(config)
     )
     return resolved_env, env_file, compose_file
 

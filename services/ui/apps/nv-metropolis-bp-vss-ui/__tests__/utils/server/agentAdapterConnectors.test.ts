@@ -227,7 +227,12 @@ describe("embedded adapter connectors", () => {
       /^vss-ui:/
     );
     expect(JSON.parse(options.body as string)).toEqual(
-      expect.objectContaining({ model: "agent", stream: true, store: true })
+      expect.objectContaining({
+        model: "agent",
+        stream: true,
+        store: true,
+        tools: [expect.objectContaining({ name: "vss_ui_publish_artifact" })],
+      })
     );
   });
 
@@ -263,5 +268,9 @@ describe("embedded adapter connectors", () => {
       "operator.read",
       "operator.write",
     ]);
+    const send = socket.sent.find((frame) => frame.method === "chat.send");
+    expect((send?.params as Record<string, unknown>).message).toBe(
+      "Find a clip"
+    );
   });
 });

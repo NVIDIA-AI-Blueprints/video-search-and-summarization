@@ -46,20 +46,6 @@ SOP is not a Foundation; compose it as a **delta** off the closest Foundation �
 `alerts` in `2d_vlm` mode (it already carries `vss-va-mcp`, Elasticsearch, Kafka,
 Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
 
-**Use the exact effective set in the example below.** In particular, the VIOS
-SDRC helpers `init-dirs`, `render-config`, `wdm-env-from-config`,
-`wait-for-redis`, and `sdr-controller` are required peers, not optional
-Foundation carryover. Omitting them leaves the rendered VIOS configuration
-incomplete even when Compose validation succeeds.
-
-When the same request also asks to deploy and validate SOP end to end, keep the
-turn focused on this checked-in recipe. `ds-sop:1.0.0` is local-only: confirm it
-exists, refresh registry-backed images with the tolerant pull command in
-`sop/deploy-ds-sop.md`, and then run `docker compose -f resolved.yml up -d`.
-Do not spend the deployment budget retrying a bare pull of `ds-sop`, and do not
-stop after pull when the request explicitly includes bring-up and runtime
-validation.
-
 - **add** `ds-sop` — a genuinely new service → emit `patches/ds-sop.yml` from the
   DS-SOP Compose block in `sop/integrate-ds-sop.md § Example Compose Snippet`; and
   `sop-kibana-init` (SOP data-view + dashboard one-shot).

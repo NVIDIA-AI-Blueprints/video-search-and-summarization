@@ -108,16 +108,6 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
 | Search | GPU 0: RT-CV + RT-VLM FP8 at `0.40`. GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). |
 
-**Two-GPU Search + Alerts convergence is deterministic.** Search already owns
-GPU 0 for RT-CV and GPU 1 for RT-Embed, so adding alert verification leaves no
-dedicated device for the singleton RT-VLM. Keep the Search Foundation's atomic
-FP8 set: `RT_CV_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=0`,
-`RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4`,
-`RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`,
-and `VLM_NAME=nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix`.
-Do not switch this composition to the Alerts BF16/dedicated set; alert
-verification changes consumer wiring, not the already-fitting RT-VLM placement.
-
 RT-VLM placement and utilization starting values:
 
 | Placement | Example profile and hardware | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` |

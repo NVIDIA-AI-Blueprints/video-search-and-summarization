@@ -1,11 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  CapabilityError,
-  type CapabilityReceipt,
-  decodeCapabilityReceipt,
-} from "./capabilities";
 import { strictJsonParse, isJsonObject } from "./json";
 
 export type BackendProtocol = "openclaw-ws" | "responses" | "legacy-chat";
@@ -25,7 +20,6 @@ export interface AgentAdapterConfig {
   maxEventsPerRun: number;
   maxEventCharsPerRun: number;
   maxThreadStateChars: number;
-  vssCapabilities?: CapabilityReceipt;
 }
 
 const SUPPORTED_PROTOCOLS = new Set<BackendProtocol>([
@@ -170,62 +164,27 @@ const extraHeaders = (
   return headers;
 };
 
-const capabilityReceipt = (
-  environment: NodeJS.ProcessEnv
-): CapabilityReceipt | undefined => {
-  const required = boolEnv(
-    environment,
-    "AGENT_REQUIRE_VSS_CAPABILITIES",
-    false
-  );
-  const encoded = environment.AGENT_VSS_CAPABILITIES_B64?.trim() ?? "";
-  const digest = environment.AGENT_VSS_CAPABILITIES_SHA256?.trim() ?? "";
-  const expectedCommit =
-    environment.AGENT_EXPECTED_VSS_RUNTIME_REF?.trim() ?? "";
-  if (!encoded) {
-    if (digest) {
-      throw new ConfigError(
-        "AGENT_VSS_CAPABILITIES_B64 is required when its digest is set"
-      );
-    }
-    if (required) {
-      throw new ConfigError(
-        "AGENT_VSS_CAPABILITIES_B64 is required when AGENT_REQUIRE_VSS_CAPABILITIES=true"
-      );
-    }
-    return undefined;
-  }
-  if (!digest) {
-    throw new ConfigError(
-      "AGENT_VSS_CAPABILITIES_SHA256 is required with a capability receipt"
-    );
-  }
-  if (required && !expectedCommit) {
-    throw new ConfigError(
-      "AGENT_EXPECTED_VSS_RUNTIME_REF is required when AGENT_REQUIRE_VSS_CAPABILITIES=true"
-    );
-  }
-  try {
-    return decodeCapabilityReceipt(
-      encoded,
-      digest,
-      expectedCommit || undefined
-    );
-  } catch (error) {
-    if (error instanceof CapabilityError) throw new ConfigError(error.message);
-    throw error;
-  }
-};
-
 export const agentAdapterConfigured = (
   environment: NodeJS.ProcessEnv = process.env
-): boolean => !!environment.AGENT_BACKEND_URL?.trim();
+): boolean => {
+  const rawEnabled = environment.AGENT_ADAPTER_ENABLED;
+  if (rawEnabled === undefined) return !!environment.AGENT_BACKEND_URL?.trim();
+  return !["0", "false", "no", "off", ""].includes(
+    rawEnabled.trim().toLowerCase()
+  );
+};
 
 export const loadAgentAdapterConfig = (
   environment: NodeJS.ProcessEnv = process.env
 ): AgentAdapterConfig | null => {
   const rawUrl = environment.AGENT_BACKEND_URL?.trim();
-  if (!rawUrl) return null;
+  const enabled = boolEnv(environment, "AGENT_ADAPTER_ENABLED", !!rawUrl);
+  if (!enabled) return null;
+  if (!rawUrl) {
+    throw new ConfigError(
+      "AGENT_BACKEND_URL is required when AGENT_ADAPTER_ENABLED=true"
+    );
+  }
   const rawProtocol = (environment.AGENT_BACKEND_PROTOCOL ?? "responses")
     .trim()
     .toLowerCase();
@@ -329,6 +288,5 @@ export const loadAgentAdapterConfig = (
       1_000_000,
       100_000_000
     ),
-    vssCapabilities: capabilityReceipt(environment),
   };
 };

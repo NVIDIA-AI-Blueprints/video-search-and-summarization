@@ -8,13 +8,6 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint performance benchmarking lvs"
 ---
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Instructions
 
 Follow the routing table and step-by-step workflow below. Execute each step in order on a first run. For repeat runs, go directly to the **Repeat Runs** section. Detailed reference material lives in `references/` and benchmark scripts live in `scripts/`.

@@ -31,9 +31,8 @@ const SUPPORTED_ARTIFACT_KINDS = new Set([
   "vss.alert.incidents",
 ]);
 const ARTIFACT_TRANSPORT_INSTRUCTIONS = `VSS UI artifact transport contract:
-- If this turn successfully produces a validated VSS search result or alert-incident result and the vss_ui_publish_artifact tool is available, you must call that tool exactly once with the exact version, kind, and payload required by the loaded VSS skill. Human-readable prose or a table is not a substitute.
+- If this turn successfully produces a validated VSS search result or alert-incident result, call the vss_ui_publish_artifact tool exactly once with the matching version, kind, and payload. Human-readable prose or a table is not a substitute.
 - Do not call the publisher for ordinary chat, failed operations, unvalidated data, alert-rule inventory, or alert-rule mutation.
-- When the publisher is unavailable, follow the loaded VSS skill's vss-ui-artifact envelope fallback.
 - After a successful publisher result, finish the human-facing response without repeating its machine-readable payload.`;
 const PUBLISH_ARTIFACT_DEFINITION: JsonObject = {
   type: "function",
@@ -113,12 +112,7 @@ export class ResponsesConnector implements Connector {
     return { selected, transcript: selected };
   }
 
-  private get artifactPublisherEnabled(): boolean {
-    return !!this.config.vssCapabilities;
-  }
-
   private instructions(requested?: string): string | undefined {
-    if (!this.artifactPublisherEnabled) return requested;
     return requested
       ? `${requested}\n\n${ARTIFACT_TRANSPORT_INSTRUCTIONS}`
       : ARTIFACT_TRANSPORT_INSTRUCTIONS;
@@ -135,9 +129,7 @@ export class ResponsesConnector implements Connector {
       stream: true,
       store: true,
     };
-    if (this.artifactPublisherEnabled) {
-      payload.tools = [PUBLISH_ARTIFACT_DEFINITION];
-    }
+    payload.tools = [PUBLISH_ARTIFACT_DEFINITION];
     if (selected.previousResponseId) {
       payload.previous_response_id = selected.previousResponseId;
     }
@@ -163,9 +155,7 @@ export class ResponsesConnector implements Connector {
       stream: true,
       store: true,
     };
-    if (this.artifactPublisherEnabled) {
-      payload.tools = [PUBLISH_ARTIFACT_DEFINITION];
-    }
+    payload.tools = [PUBLISH_ARTIFACT_DEFINITION];
     const instructions = this.instructions(request.instructions);
     if (instructions) payload.instructions = instructions;
     if (this.config.backendSessionField) {

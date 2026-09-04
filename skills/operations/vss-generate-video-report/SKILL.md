@@ -9,13 +9,6 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 # Report
 
 Generate a video analysis report by routing to one of three backends — **never via** `POST /generate` on the VSS agent.
@@ -92,13 +85,6 @@ Helm), resolve public endpoints once. Follow
 [`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md):
 
 ```bash
-VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-  VSS_RECEIPT_ORIGIN=$(jq -er \
-    '(.vss_origin // "") | select(type == "string")' \
-    "$VSS_CAPABILITY_RECEIPT") || exit 1
-  [ -z "$VSS_RECEIPT_ORIGIN" ] || VSS_PUBLIC_URL="$VSS_RECEIPT_ORIGIN"
-fi
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
@@ -320,12 +306,6 @@ Hand off to `/vss-manage-video-io-storage` to:
    # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
    # Omit the window to take the whole recorded segment; the response echoes what it resolved.
    # CLI bootstrap and exit codes: AGENTS.md at the repo root
-   VSS_CAPABILITY_RECEIPT="${VSS_CAPABILITY_RECEIPT:-${HOME}/.vss/agent-capabilities.json}"
-   if [ -z "${VSS_REPO_ROOT:-}" ] && [ -f "$VSS_CAPABILITY_RECEIPT" ]; then
-     VSS_REPO_ROOT=$(jq -er \
-       '.runtime.repo_root | select(type == "string" and length > 0)' \
-       "$VSS_CAPABILITY_RECEIPT") || exit 1
-   fi
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
    VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
    VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"

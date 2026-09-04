@@ -9,13 +9,6 @@ metadata:
   tags: "nvidia blueprint operational deployment behavior-analytics"
 ---
 
-## Shell contract
-
-Run every fenced `bash` recipe with Bash. If a command-string exec tool may
-default to POSIX `sh`, invoke the recipe through `bash -c` or as a Bash script.
-Do not use a login shell that resets the provisioned `PATH`, and never submit
-Bash syntax directly to that default shell.
-
 ## Purpose
 
 Deploy the behavior-analytics service standalone with the user's chosen entrypoint, config, and calibration.

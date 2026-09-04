@@ -6,7 +6,6 @@ import {
   ArtifactStreamParser,
   stripArtifactsFromValue,
 } from "./artifacts";
-import { capabilitySummary } from "./capabilities";
 import type { AgentAdapterConfig } from "./config";
 import { type Connector, ConnectorError } from "./connectors/base";
 import { LegacyChatConnector } from "./connectors/legacyChat";
@@ -87,9 +86,6 @@ export class AgentAdapterService {
         max_event_chars_per_run: this.config.maxEventCharsPerRun,
         run_retention_seconds: this.config.runRetentionMs / 1_000,
       },
-      vss: this.config.vssCapabilities
-        ? capabilitySummary(this.config.vssCapabilities)
-        : { attached: false, ready: false },
     };
   }
 

@@ -225,12 +225,9 @@ Compose model used directly for validation, deployment, readiness, and teardown:
 or `down`, and deploy with `pull --ignore-buildable && up -d --build`
 (see [`deployment.md`](deployment.md)).
 
-All three primary files are required in stock and delta mode. An existing
-external harness also requires `agent-capabilities.json` and the protected
-`agent-ui.env` final resolution layer produced by its host-side bootstrap.
-`_builds/` is gitignored because `override.env`, `agent-ui.env`, and
-`resolved.yml` can contain credentials. Keep them local, set every
-credential-bearing file to mode `0600`, and never commit them.
+All three primary files are required in stock and delta mode. `_builds/` is
+gitignored because `override.env` and `resolved.yml` can contain credentials.
+Keep them local and never commit them.
 
 ## Resolve
 
@@ -260,16 +257,6 @@ env_args=(
   --env-file "$FOUNDATION_DIR/overrides.env"
   --env-file "$BUILD_DIR/override.env"
 )
-
-# Existing OpenClaw/Hermes builds receive this protected final layer from the
-# host-side capability bootstrap. Use it for config resolution only.
-if [[ -f "$BUILD_DIR/agent-ui.env" ]]; then
-  [[ "$(stat -c '%a' "$BUILD_DIR/agent-ui.env")" == "600" ]] || {
-    echo "agent-ui.env must have mode 0600" >&2
-    exit 1
-  }
-  env_args+=(--env-file "$BUILD_DIR/agent-ui.env")
-fi
 
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
@@ -345,11 +332,6 @@ Then verify:
 - Removed services do not resolve.
 - Every retained service is transitively required by at least one requested
   capability; no orphaned Foundation carryover survives the delta.
-- Diff `override.env` against the values inherited from `containers.env`, the
-  Foundation `.env`, and Foundation `overrides.env`. Remove values that are
-  identical to the inherited result—even credentials, public port/protocol
-  defaults, and derived template paths. Only a requested customization and its
-  dependent-value closure belong in the delta.
 - A shared singleton owner resolves to exactly one variant, and every consumer
   config that keys on that owner's output (class-label taxonomy and casing,
   topic names) matches the resolved variant; no consumer filters on a taxonomy
@@ -383,10 +365,6 @@ Then verify:
   a source profile's default.
 - The resolved services and knobs satisfy every observable check from the user
   request or eval specification.
-- When `vss-ui` resolves without either `vss-agent` or a configured embedded
-  external-agent adapter, its chat sidebar, Chat tab, and current agent-owned
-  Search tab all resolve disabled; `validate_resolved_yml.py` rejects a dead
-  visible surface.
 
 ## Sources
 

@@ -76,12 +76,6 @@ does not mean the NAT-serve process is listening — it can be up while `:8000`
 never bound (config error, unreachable model endpoint), and Step 1 would still
 pass.
 
-**External-agent UI gate — only when the embedded adapter is enabled.** Follow
-the authenticated capability and harmless chat probes in
-[`services/external-agent-ui.md`](services/external-agent-ui.md). The raw
-harness remaining healthy is not sufficient: readiness requires the harness,
-embedded adapter, and same-origin UI path to work together.
-
 ## Step 3 — triage slow containers
 
 If any probe times out, dump `docker compose ps` and

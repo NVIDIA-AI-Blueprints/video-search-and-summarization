@@ -167,9 +167,7 @@ def _register_compose_spec(
     env_text: str | None = None,
 ) -> None:
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    env_path.write_text(
-        env_text or "VSS_DATA_DIR=/tmp/vss-data\nNGC_CLI_API_KEY=test\n"  # pragma: allowlist secret
-    )
+    env_path.write_text(env_text or "VSS_DATA_DIR=/tmp/vss-data\nNGC_CLI_API_KEY=test\n")
     compose_path.write_text("services: {}\n")
     tools_mod._COMPOSE_SPECS.set(
         docker_compose_id,
@@ -284,29 +282,11 @@ async def test_docker_read_returns_artifact_contents(tmp_path: Path):
             compose_path=compose_path,
             profile="base",
         )
-        compose_path.write_text(
-            "services:\n"
-            "  vss-ui:\n"
-            "    environment:\n"
-            "      VSS_AGENT_BACKEND_TOKEN: backend-secret\n"  # pragma: allowlist secret
-            "      VSS_AGENT_CAPABILITIES_B64: receipt-payload\n"
-            '      AGENT_BACKEND_HEADERS_JSON: \'{"X-API-Key":"header-secret"}\'\n'  # pragma: allowlist secret
-            "      AGENT_BACKEND_URL: http://127.0.0.1:18789\n"
-        )
 
         result = await _call(group, "docker_read", ComposeArtifactsInput(docker_compose_id=compose_id))
     assert result["status"] == ComposeStatus.SUCCESS.value
     assert "VSS_DATA_DIR" in result["env_content"]
     assert "services:" in result["compose_yaml_content"]
-    assert "NGC_CLI_API_KEY=<redacted>" in result["env_content"]
-    assert "NGC_CLI_API_KEY=test" not in result["env_content"]
-    assert "VSS_AGENT_BACKEND_TOKEN: <redacted>" in result["compose_yaml_content"]
-    assert "backend-secret" not in result["compose_yaml_content"]
-    assert "VSS_AGENT_CAPABILITIES_B64: <redacted>" in result["compose_yaml_content"]
-    assert "receipt-payload" not in result["compose_yaml_content"]
-    assert "AGENT_BACKEND_HEADERS_JSON: <redacted>" in result["compose_yaml_content"]
-    assert "header-secret" not in result["compose_yaml_content"]
-    assert "AGENT_BACKEND_URL: http://127.0.0.1:18789" in result["compose_yaml_content"]
 
 
 @pytest.mark.asyncio
@@ -688,57 +668,6 @@ async def test_docker_generate_applies_device_ids_from_runtime(tmp_path: Path, m
     env_overrides = mock_recipe.call_args.kwargs["env_overrides"]
     assert env_overrides["LLM_DEVICE_ID"] == "2"
     assert env_overrides["VLM_DEVICE_ID"] == "3"
-
-
-@pytest.mark.asyncio
-async def test_docker_generate_applies_external_agent_settings_from_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    settings = {
-        "VSS_AGENT_ADAPTER_ENABLED": "true",
-        "VSS_AGENT_REQUIRE_CAPABILITIES": "true",
-        "VSS_AGENT_CAPABILITIES_B64": "eyJzY2hlbWFfdmVyc2lvbiI6MX0=",  # pragma: allowlist secret
-        "VSS_AGENT_CAPABILITIES_SHA256": "a9d5f6d002d956b8af5787a05e0ca000d45c03977ffa54ee8fbed719fed5fd23",  # pragma: allowlist secret
-        "VSS_AGENT_EXPECTED_RUNTIME_REF": "a" * 40,
-        "VSS_AGENT_BACKEND_PROTOCOL": "responses",
-        "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
-        "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:18789",
-        "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret
-        "VSS_AGENT_BACKEND_MODEL": "openclaw/default",
-        "VSS_AGENT_BACKEND_SESSION_HEADER": "x-openclaw-session-key",
-    }
-    for key, value in settings.items():
-        monkeypatch.setenv(key, value)
-    config = _make_orchestrator_config(tmp_path)
-    builder = MagicMock()
-    async with vss_orchestrator(config, builder) as group:
-        mdx_data_dir = Path(config.mdx_data_dir)
-        env_path = Path(config.output_dir) / "generated.base-agent-ui.dry-run.env"
-        compose_path = Path(config.output_dir) / "compose.resolved.base-agent-ui.dry-run.yml"
-        fake_recipe = MagicMock()
-
-        with (
-            patch("vss_agents.orchestrator.tools.create_dry_run_recipe", return_value=fake_recipe) as mock_recipe,
-            patch(
-                "vss_agents.orchestrator.tools.generate_dry_run_artifacts",
-                return_value=({"VSS_DATA_DIR": str(mdx_data_dir)}, env_path, compose_path),
-            ),
-        ):
-            result = await _call(
-                group,
-                "docker_generate",
-                GenerateInput(
-                    profile="base", env_overrides=["VSS_AGENT_BACKEND_MODEL=explicit-model"]
-                ),  # pragma: allowlist secret
-            )
-
-    assert result["status"] == ComposeStatus.SUCCESS.value
-    env_overrides = mock_recipe.call_args.kwargs["env_overrides"]
-    for key, value in settings.items():
-        if key == "VSS_AGENT_BACKEND_MODEL":
-            assert env_overrides[key] == "explicit-model"
-        else:
-            assert env_overrides[key] == value
 
 
 @pytest.mark.asyncio

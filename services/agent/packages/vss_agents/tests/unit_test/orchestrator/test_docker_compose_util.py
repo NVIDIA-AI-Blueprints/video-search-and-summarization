@@ -14,8 +14,6 @@
 # limitations under the License.
 """Tests for agent/orchestrator/docker_compose_util.py."""
 
-import base64
-import hashlib
 import json
 from pathlib import Path
 from typing import ClassVar
@@ -24,18 +22,6 @@ import pytest
 import yaml
 
 from vss_agents.orchestrator import docker_compose_util as dcu
-
-_CAPABILITY_RECEIPT_BYTES = b'{"schema_version":1}'
-_CAPABILITY_RECEIPT_B64 = base64.b64encode(_CAPABILITY_RECEIPT_BYTES).decode("ascii")
-_CAPABILITY_RECEIPT_SHA256 = hashlib.sha256(_CAPABILITY_RECEIPT_BYTES).hexdigest()
-
-
-def _capability_receipt_env() -> dict[str, str]:
-    return {
-        "VSS_AGENT_CAPABILITIES_B64": _CAPABILITY_RECEIPT_B64,
-        "VSS_AGENT_CAPABILITIES_SHA256": _CAPABILITY_RECEIPT_SHA256,
-        "VSS_AGENT_EXPECTED_RUNTIME_REF": "a" * 40,
-    }
 
 
 def _env_text(*lines: str) -> str:
@@ -376,68 +362,6 @@ class TestResolveComposeProfiles:
         )
 
 
-class TestApplyEmbeddedAgentAdapterEnv:
-    def test_disabled_is_a_noop(self):
-        merged = {"COMPOSE_PROFILES": "vss-agent"}
-
-        dcu.apply_agent_adapter_env(merged)
-
-        assert merged == {"COMPOSE_PROFILES": "vss-agent"}
-
-    def test_enabled_adds_safe_defaults_without_a_new_service(self):
-        merged = {
-            "COMPOSE_PROFILES": "vss-agent,vss-ui",
-            "VSS_AGENT_ADAPTER_ENABLED": "yes",
-            "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
-            "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:18789",
-            **_capability_receipt_env(),
-        }
-
-        dcu.apply_agent_adapter_env(merged)
-
-        assert merged["COMPOSE_PROFILES"] == "vss-agent,vss-ui"
-        assert merged["VSS_AGENT_ADAPTER_ENABLED"] == "true"
-        assert merged["VSS_AGENT_REQUIRE_CAPABILITIES"] == "true"
-        assert merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] == "true"
-        assert merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] == "false"
-        assert merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] == "false"
-        assert merged["VSS_AGENT_BACKEND_PROTOCOL"] == "responses"
-        assert merged["VSS_AGENT_BACKEND_MODEL"] == "agent"
-        assert merged["NEXT_PUBLIC_ENABLE_CHAT_TAB"] == "true"
-
-    @pytest.mark.parametrize(
-        ("overrides", "message"),
-        [
-            ({"VSS_AGENT_BACKEND_URL": ""}, "VSS_AGENT_BACKEND_URL is required"),
-            (
-                {"VSS_AGENT_CAPABILITIES_B64": ""},
-                "VSS_AGENT_CAPABILITIES_B64 is required",
-            ),
-            (
-                {"VSS_AGENT_EXPECTED_RUNTIME_REF": "develop"},
-                "EXPECTED_RUNTIME_REF must be a full Git commit ID",
-            ),
-            ({"VSS_AGENT_BACKEND_BIND_HOST": "127.0.0.1"}, "private, non-loopback IPv4"),
-        ],
-    )
-    def test_enabled_rejects_incomplete_or_unsafe_settings(self, overrides: dict[str, str], message: str):
-        merged = {
-            "COMPOSE_PROFILES": "vss-ui",
-            "VSS_AGENT_ADAPTER_ENABLED": "true",
-            "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
-            "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:18789",
-            **_capability_receipt_env(),
-            **overrides,
-        }
-
-        with pytest.raises(dcu.ValidationError, match=message):
-            dcu.apply_agent_adapter_env(merged)
-
-    def test_invalid_enabled_value_is_rejected(self):
-        with pytest.raises(dcu.ValidationError, match="must be true or false"):
-            dcu.apply_agent_adapter_env({"COMPOSE_PROFILES": "vss-ui", "VSS_AGENT_ADAPTER_ENABLED": "sometimes"})
-
-
 class TestExpandEnvValueReferences:
     def test_expands_nested_path_reference(self):
         env = {
@@ -497,55 +421,6 @@ class TestLoadProfileEnv:
 
 
 class TestSanitizeResolvedCompose:
-    def test_embedded_mode_does_not_change_ui_without_enabled_source_root(self):
-        compose_text = """
- services:
-   vss-ui:
-     image: ui
- """
-
-        sanitized = yaml.safe_load(dcu.sanitize_resolved_compose(compose_text))
-
-        assert "build" not in sanitized["services"]["vss-ui"]
-
-    def test_embedded_mode_builds_compatible_ui_from_source(self, tmp_path: Path):
-        compose_text = """
- services:
-   vss-ui:
-     image: ui
- """
-
-        sanitized = yaml.safe_load(
-            dcu.sanitize_resolved_compose(
-                compose_text,
-                agent_adapter_ui_source_root=tmp_path,
-            )
-        )
-
-        assert sanitized["services"]["vss-ui"]["build"] == {
-            "context": str(tmp_path),
-            "dockerfile": "services/ui/Dockerfile",
-            "args": {"BUILD_TYPE": "prod"},
-        }
-
-    def test_embedded_mode_preserves_explicit_ui_build(self, tmp_path: Path):
-        compose_text = """
- services:
-   vss-ui:
-     image: ui
-     build:
-       context: /custom
- """
-
-        sanitized = yaml.safe_load(
-            dcu.sanitize_resolved_compose(
-                compose_text,
-                agent_adapter_ui_source_root=tmp_path,
-            )
-        )
-
-        assert sanitized["services"]["vss-ui"]["build"] == {"context": "/custom"}
-
     def test_sanitize_resolved_compose_removes_dangling_depends_on(self):
         compose_text = """
  services:
@@ -581,28 +456,6 @@ class TestSanitizeResolvedCompose:
 
 
 class TestBuildResolvedEnv:
-    def test_build_resolved_env_selects_embedded_external_agent_adapter(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
-        recipe = _make_recipe(
-            tmp_path,
-            _env_text(*_base_env("thor"), "COMPOSE_PROFILES=vss-agent"),
-            env_overrides={
-                "VSS_AGENT_ADAPTER_ENABLED": "true",
-                "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
-                "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:8642",
-                "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret
-                "VSS_AGENT_BACKEND_MODEL": "hermes-agent",
-                **_capability_receipt_env(),
-            },
-        )
-        _patch_network(monkeypatch)
-
-        resolved = dcu.build_resolved_env(recipe)
-
-        assert resolved["COMPOSE_PROFILES"] == "vss-agent,vss-ui"
-        assert resolved["VSS_AGENT_BACKEND_MODEL"] == "hermes-agent"
-
     def test_build_resolved_env_merges_defaults_and_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(
             tmp_path,
@@ -2007,31 +1860,6 @@ class TestComposeEnvFileLayering:
 
 
 class TestGenerateDryRunArtifacts:
-    def test_embedded_mode_requests_compatible_ui_source_build(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        recipe = _make_recipe(tmp_path, "MODE=2d")
-        resolve_calls: list[bool] = []
-
-        monkeypatch.setattr(
-            dcu,
-            "build_resolved_env",
-            lambda _config: {"VSS_AGENT_ADAPTER_ENABLED": "true"},
-        )
-        monkeypatch.setattr(
-            dcu,
-            "render_generated_env",
-            lambda _source, _resolved: "VSS_AGENT_ADAPTER_ENABLED=true\n",
-        )
-
-        def fake_resolve(_config, *, agent_adapter_enabled=False):
-            resolve_calls.append(agent_adapter_enabled)
-            return "services: {}\n"
-
-        monkeypatch.setattr(dcu, "resolve_compose", fake_resolve)
-
-        dcu.generate_dry_run_artifacts(recipe)
-
-        assert resolve_calls == [True]
-
     def test_generate_dry_run_artifacts_persists_profile_mode_in_generated_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -2062,11 +1890,7 @@ class TestGenerateDryRunArtifacts:
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
         monkeypatch.setattr(dcu, "brev_environment_id", lambda: "")
         monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id, **_kwargs: None)
-        monkeypatch.setattr(
-            dcu,
-            "resolve_compose",
-            lambda _config, **_kwargs: "services: {}\n",
-        )
+        monkeypatch.setattr(dcu, "resolve_compose", lambda _config: "services: {}\n")
 
         resolved_env, env_path, compose_path = dcu.generate_dry_run_artifacts(recipe)
 
@@ -2077,8 +1901,6 @@ class TestGenerateDryRunArtifacts:
         assert "MODE=2d_vlm" in env_path.read_text()
         assert "COMPOSE_PROFILES=nvstreamer-alerts,rtvi-vlm,llm_local_llm-a-slug" in env_path.read_text()
         assert compose_path.read_text() == "services: {}\n"
-        assert env_path.stat().st_mode & 0o777 == 0o600
-        assert compose_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_create_dry_run_recipe_expands_tilde_deployments_dir(monkeypatch, tmp_path: Path):

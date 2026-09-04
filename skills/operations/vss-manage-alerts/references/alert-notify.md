@@ -65,10 +65,6 @@ The webhook server is a single relay on `:9090`; Alert Bridge POSTs incidents to
 
 ## Setup
 
-This section applies only after a **start** or **test** request. For a status
-check, probe port `9090`, report the observed state, offer to start the relay,
-and stop; do not mention or request any credential in that response.
-
 **Code directory:** `{baseDir}` resolves to `<alerts-skill-root>/scripts/alert-notify/`. All commands below use `{baseDir}` as the working directory.
 
 ```
