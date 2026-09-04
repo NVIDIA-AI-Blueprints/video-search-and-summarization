@@ -106,10 +106,12 @@ class TestCodeExecutorOutput:
     def test_successful_output(self):
         output = CodeExecutorOutput(message="Hello, World!")
         assert output.message == "Hello, World!"
+        assert output.success is True
 
     def test_error_output(self):
-        output = CodeExecutorOutput(message="Error: NameError: name 'undefined' is not defined")
+        output = CodeExecutorOutput(message="Error: NameError: name 'undefined' is not defined", success=False)
         assert "Error" in output.message
+        assert output.success is False
 
     def test_multiline_output(self):
         output = CodeExecutorOutput(message="Line 1\nLine 2\nLine 3")
@@ -121,3 +123,4 @@ class TestCodeExecutorOutput:
         data = output.model_dump()
         assert "message" in data
         assert data["message"] == "Test output"
+        assert data["success"] is True

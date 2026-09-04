@@ -94,6 +94,7 @@ EMPTY_MESSAGES_ERROR = 'No input received in state: "current_message"'
 EMPTY_SCRATCHPAD_ERROR = 'No tool input received in state: "agent_scratchpad"'
 _TOOL_RESULTS_DELIMITER = "\n\n---\n### Latest Tool Results\n"
 _TOOL_FAILURE_PREFIX = "Tool call failed:"
+_TOOL_FAILURE_STATUSES = {"error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
 
@@ -154,6 +155,22 @@ def _get_content_text(msg: BaseMessage) -> str:
         elif isinstance(item, str):
             texts.append(item)
     return " ".join(texts)
+
+
+def _tool_response_failed(response: Any) -> bool:
+    """Return whether a tool response explicitly reports failure."""
+    if isinstance(response, dict):
+        success = response.get("success")
+        status = response.get("status")
+    else:
+        success = getattr(response, "success", None)
+        status = getattr(response, "status", None)
+
+    if success is False:
+        return True
+
+    status_value = getattr(status, "value", status)
+    return isinstance(status_value, str) and status_value.lower() in _TOOL_FAILURE_STATUSES
 
 
 def strip_frontend_tags(content: str) -> str:
@@ -469,7 +486,9 @@ class TopAgent(AsyncMixin):
                 call_info = pending_calls.pop(msg.tool_call_id, None)
                 tool_name = (call_info["name"] if call_info else None) or getattr(msg, "name", None) or "tool"
                 result_text = _get_content_text(msg)
-                has_tool_failure = has_tool_failure or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
+                has_tool_failure = (
+                    has_tool_failure or msg.status == "error" or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
+                )
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
                 # Truncated for the LLM prompt
@@ -1220,6 +1239,7 @@ class TopAgent(AsyncMixin):
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
                         content=tool_content,
+                        status="error" if _tool_response_failed(tool_response) else "success",
                     )
 
                 except Exception as ex:
@@ -1229,6 +1249,7 @@ class TopAgent(AsyncMixin):
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
                         content=error_response,
+                        status="error",
                     )
 
             # Execute all tool calls
