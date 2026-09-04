@@ -65,7 +65,10 @@ services:
     ports:
     - ${VSS_AGENT_HOST_PORT:-8000}:${VSS_AGENT_PORT:-8000}
     environment:
-      LLM_MODE: ${LLM_MODE} # remote / local / local_shared
+      # Defaulted like the endpoint variables below, so an unset or empty value
+      # from the deploying shell cannot reach the container as a blank. Every
+      # committed profile except warehouse (local) sets local_shared.
+      LLM_MODE: ${LLM_MODE:-local_shared} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       LLM_MODEL_TYPE: ${LLM_MODEL_TYPE} # nim / openai
       VLM_MODEL_TYPE: ${VLM_MODEL_TYPE} # nim / openai
@@ -104,7 +107,16 @@ services:
 
       # LLM Endpoints
       LLM_NAME: ${LLM_NAME}
-      LLM_BASE_URL: ${LLM_BASE_URL}
+      # The one endpoint in this block that carried no default. Compose ranks the
+      # process env above --env-file and an exported-but-empty variable still
+      # wins, and `${VAR:-default}` treats empty as unset, so this covers both an
+      # empty value from the deploying shell and a profile that never sets one.
+      # It matters here more than elsewhere: the agent config writes
+      # `base_url: ${LLM_BASE_URL}/v1` with no fallback of its own, so a blank
+      # becomes the literal `/v1` and every completion is posted to a bare
+      # `/v1/chat/completions`. An explicit value still wins, which is how
+      # LLM_MODE=remote reaches a hosted endpoint.
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://vss-llm-nim:8000}
       VLM_NAME: ${VLM_NAME}
       VLM_BASE_URL: ${VLM_BASE_URL}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
