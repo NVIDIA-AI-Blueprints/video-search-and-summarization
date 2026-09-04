@@ -66,10 +66,10 @@ if [ -z "${VSS_ORIGIN:-}" ]; then
             # No recorded config. Inside an OpenShell sandbox the host VSS deployment
             # is always reachable at host.openshell.internal on the HAProxy port.
             # Probe it before falling back so this has no effect outside that env.
-            if curl -sf --max-time 2 \
-          "http://host.openshell.internal:7777/vst/api/v1/sensor/version" \
-          >/dev/null 2>&1; then
-        VSS_ORIGIN="http://host.openshell.internal:7777"
+            if curl -sf --max-time 2 --max-redirs 0 \
+          "http://host.openshell.internal:${VSS_UI_PORT:-7777}/vst/api/v1/sensor/version" \
+          | jq -e '.type == "vst"' >/dev/null 2>&1; then
+        VSS_ORIGIN="http://host.openshell.internal:${VSS_UI_PORT:-7777}"
       else
         echo "Provide the Compose or Ingress origin via VSS_ORIGIN" >&2
         exit 1
