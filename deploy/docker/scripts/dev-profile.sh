@@ -98,6 +98,70 @@ function get_nvidia_smi_gpu_count() {
   echo "${_count}"
 }
 
+# ===== Brev secure links =====
+#
+# Brev publishes a fixed set of secure links when an environment is created; it
+# does not open arbitrary ports on demand. Which public port reaches which host
+# port under which FQDN is recorded in the environment context file, and on the
+# instance that file is the only authoritative source for it.
+#
+# Nothing about a link is derivable from BREV_ENV_ID. A real instance serves
+# `jupyter-<id>.gobrev.dev` on 443 forwarding to host port 8888: the label is a
+# name chosen at provisioning rather than a port, the domain is none of the ones
+# a template would offer, and the host port is not the gateway's default. No
+# `<port>-<id>.<domain>` template produces any of the three.
+#
+# Guessing is worse than declining to guess. VSS_PUBLIC_HOST feeds the gateway's
+# Host allowlist, so a wrong value does not degrade -- it rejects every request
+# with `x-vss-gateway-deny: unknown-host`, long after this script has exited and
+# reported success.
+brev_environment_context_default_path="/etc/brev/environment-context.json"
+
+# Path to the Brev environment context, or non-zero when there is none to read.
+function get_brev_environment_context_path() {
+  local _path="${BREV_ENVIRONMENT_CONTEXT_PATH:-${brev_environment_context_default_path}}"
+  [[ -n "${_path}" && -r "${_path}" ]] || return 1
+  printf '%s\n' "${_path}"
+}
+
+# Emit one "<public_port> <destination_port> <fqdn>" line per published secure
+# link that can carry HTTP, https links first.
+#
+# The SSH link is excluded: destination port 22 is a raw TCP forward, not an HTTP
+# origin. A context file describing a different environment than BREV_ENV_ID is
+# rejected outright rather than half-trusted -- a stale or copied file is exactly
+# the case where a plausible-looking wrong hostname would be minted.
+# Return codes: 1 no readable context, 2 no jq, 3 the context did not parse.
+function get_brev_secure_links() {
+  local _env_id="${1:-}"
+  local _path _links _rc=0
+  _path="$(get_brev_environment_context_path)" || return 1
+  command -v jq >/dev/null 2>&1 || return 2
+  _links="$(jq -r --arg env_id "${_env_id}" '
+    if ($env_id != "" and (.environment_id // "") != "" and .environment_id != $env_id)
+    then empty
+    else
+      (.ports // [])
+      | map(select(type == "object"))
+      | map(select(
+          (.fqdn // "" | type == "string") and (.fqdn // "") != ""
+          and (.public_port | type) == "number"
+          and (.destination_port | type) == "number"
+          and .destination_port != 22
+        ))
+      | sort_by(
+          (if .public_port == 443 then 0 elif .public_port == 80 then 1 else 2 end),
+          .public_port,
+          .destination_port
+        )
+      | .[]
+      | "\(.public_port) \(.destination_port) \(.fqdn)"
+    end
+  ' "${_path}" 2>/dev/null)" || _rc=3
+  [[ "${_rc}" -eq 0 ]] || return "${_rc}"
+  printf '%s\n' "${_links}"
+}
+
 # Returns the indices of GPUs whose product name matches the requested hardware
 # profile, one per line. This is used when a service-specific device ID cannot
 # identify the deployment GPU (for example, when both LLM and VLM are remote).
@@ -1614,33 +1678,92 @@ function state_up() {
   fi
 
   # ===== Brev secure links =====
-  # Brev secure links use <prefix>-<env>.<domain>. During the phased tunnel
-  # migration, Brev-managed NetBird details identify Skybridge; a generic
-  # healthy NetBird client is insufficient. An explicit domain always wins.
+  # Read the link out of the environment context file; never compose one. See the
+  # get_brev_secure_links() helpers above for why a <prefix>-<env>.<domain>
+  # template cannot produce a real Brev link.
+  #
+  # Precedence: an explicit VSS_PUBLIC_HOST wins, then the context file, then a
+  # BREV_LINK_DOMAIN template for pre-context instances. With none of the three
+  # this is a hard error -- see the loud-failure note in the helper comment.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
-    local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
-    local _link_domain _netbird_status=""
-    if [[ -n "${BREV_LINK_DOMAIN:-}" ]]; then
-      _link_domain="${BREV_LINK_DOMAIN}"
-    elif _netbird_status="$(netbird status -d 2>&1)" &&
-         [[ "${_netbird_status,,}" == *"skybridge"* ||
-            "${_netbird_status,,}" == *"brev.nvidia.com"* ||
-            "${_netbird_status,,}" == *"brev.dev"* ]]; then
-      _link_domain="apps.run.brev.nvidia.com"
-    else
-      _link_domain="brevlab.com"
-    fi
-    local _secure_link_host="${_link_prefix}-${BREV_ENV_ID}.${_link_domain}"
-    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to ${_secure_link_host}..."
     set_env_var "BREV_ENV_ID" "${BREV_ENV_ID}"
-    set_env_var "BREV_LINK_PREFIX" "${_link_prefix}"
-    set_env_var "BREV_LINK_DOMAIN" "${_link_domain}"
     set_env_var "HAPROXY_PORT" "${_proxy_port}"
     set_env_var "VSS_PUBLIC_HTTP_PROTOCOL" "https"
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
-    set_env_var "VSS_PUBLIC_HOST" "${_secure_link_host}"
-    set_env_var "VSS_PUBLIC_PORT" "443"
+
+    if [[ -n "${VSS_PUBLIC_HOST:-}" ]]; then
+      echo "[INFO] Brev environment ${BREV_ENV_ID}: using the VSS_PUBLIC_HOST override (${VSS_PUBLIC_HOST})."
+      echo "[INFO] Publish the gateway on the host port that link forwards to (HAPROXY_HOST_PORT)."
+      set_env_var "VSS_PUBLIC_HOST" "${VSS_PUBLIC_HOST}"
+      set_env_var "VSS_PUBLIC_PORT" "${VSS_PUBLIC_PORT:-443}"
+    else
+      local _links _links_rc=0
+      _links="$(get_brev_secure_links "${BREV_ENV_ID}")" || _links_rc=$?
+
+      if [[ "${_links_rc}" -eq 0 ]] && [[ -n "${_links// }" ]]; then
+        # The context file is authoritative for all three values, so take them
+        # verbatim: the FQDN, the port a browser reaches it on, and the host port
+        # it forwards to. Binding anything other than that host port is the
+        # difference between a working link and a connection refused.
+        local _link_public_port _link_host_port _link_fqdn
+        read -r _link_public_port _link_host_port _link_fqdn <<< "$(printf '%s\n' "${_links}" | head -n1)"
+
+        echo "[INFO] Brev environment ${BREV_ENV_ID}: secure link https://${_link_fqdn} (public ${_link_public_port} -> host ${_link_host_port})."
+        set_env_var "VSS_PUBLIC_HOST" "${_link_fqdn}"
+        set_env_var "VSS_PUBLIC_PORT" "${_link_public_port}"
+        # Brev forwards only to the host port the link was created with, so the
+        # gateway has to be published there rather than on its own default.
+        set_env_var "HAPROXY_HOST_PORT" "${_link_host_port}"
+        # Informational only, and only when the FQDN actually splits that way --
+        # a link named without the environment id has no prefix/domain to report.
+        if [[ "${_link_fqdn}" == *"-${BREV_ENV_ID}."* ]]; then
+          set_env_var "BREV_LINK_PREFIX" "${_link_fqdn%%-${BREV_ENV_ID}.*}"
+          set_env_var "BREV_LINK_DOMAIN" "${_link_fqdn#*-${BREV_ENV_ID}.}"
+        fi
+
+        local _other_links
+        _other_links="$(printf '%s\n' "${_links}" | tail -n +2)"
+        if [[ -n "${_other_links// }" ]]; then
+          echo "[INFO] Other published Brev links (override VSS_PUBLIC_HOST/VSS_PUBLIC_PORT/HAPROXY_HOST_PORT to use one):"
+          printf '%s\n' "${_other_links}" | while read -r _p _d _f; do
+            echo "[INFO]   https://${_f} (public ${_p} -> host ${_d})"
+          done
+        fi
+      elif [[ -n "${BREV_LINK_DOMAIN:-}" ]]; then
+        # Instances provisioned before the context file existed have no on-box
+        # link inventory at all. An explicitly supplied domain is the operator
+        # telling us what this script cannot find out.
+        local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
+        local _secure_link_host="${_link_prefix}-${BREV_ENV_ID}.${BREV_LINK_DOMAIN}"
+        echo "[INFO] Brev environment ${BREV_ENV_ID}: no usable environment context; using the BREV_LINK_DOMAIN override (${_secure_link_host})."
+        set_env_var "BREV_LINK_PREFIX" "${_link_prefix}"
+        set_env_var "BREV_LINK_DOMAIN" "${BREV_LINK_DOMAIN}"
+        set_env_var "VSS_PUBLIC_HOST" "${_secure_link_host}"
+        set_env_var "VSS_PUBLIC_PORT" "${VSS_PUBLIC_PORT:-443}"
+      else
+        echo "[ERROR] Brev environment ${BREV_ENV_ID} detected, but its secure link could not be determined."
+        if [[ "${_links_rc}" -eq 2 ]]; then
+          echo "[ERROR] Reason: jq is not installed, so ${BREV_ENVIRONMENT_CONTEXT_PATH:-${brev_environment_context_default_path}} could not be read."
+        elif [[ "${_links_rc}" -eq 3 ]]; then
+          echo "[ERROR] Reason: ${BREV_ENVIRONMENT_CONTEXT_PATH:-${brev_environment_context_default_path}} is not valid JSON."
+        elif ! get_brev_environment_context_path >/dev/null; then
+          echo "[ERROR] Reason: no readable environment context at ${BREV_ENVIRONMENT_CONTEXT_PATH:-${brev_environment_context_default_path}}."
+          echo "[ERROR] Set BREV_ENVIRONMENT_CONTEXT_PATH if this instance keeps it elsewhere."
+        else
+          echo "[ERROR] Reason: ${BREV_ENVIRONMENT_CONTEXT_PATH:-${brev_environment_context_default_path}} publishes no HTTP link for this environment."
+          echo "[ERROR] Brev does not open ports on demand: create a secure link for this instance first."
+        fi
+        echo "[ERROR] A Brev hostname cannot be derived from BREV_ENV_ID -- the link label, domain and host port are all chosen at provisioning."
+        echo "[ERROR] Guessing one would put an unreachable host on the gateway's allowlist, and every request would then fail with"
+        echo "[ERROR] 'x-vss-gateway-deny: unknown-host' rather than anything pointing back here."
+        echo "[ERROR] Supply the link explicitly instead, using the values from 'brev ls' or the Brev console:"
+        echo "[ERROR]   VSS_PUBLIC_HOST=<link-fqdn>          # the link's full hostname, copied verbatim"
+        echo "[ERROR]   VSS_PUBLIC_PORT=<link-public-port>   # the port it is served on, usually 443"
+        echo "[ERROR]   HAPROXY_HOST_PORT=<host-port-the-link-forwards-to>"
+        exit 1
+      fi
+    fi
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"

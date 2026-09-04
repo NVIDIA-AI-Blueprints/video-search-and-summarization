@@ -113,11 +113,19 @@ Which of the two paths below applies depends on how you deploy.
 ### If you deploy with `dev-profile.sh` (or a launchable notebook)
 
 **Nothing to set.** `deploy/docker/scripts/dev-profile.sh` configures the whole
-two-origin split itself when `BREV_ENV_ID` is in its environment: it resolves
-the secure-link domain, then writes `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT=443`,
-`VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`,
-`BREV_LINK_PREFIX` and `BREV_LINK_DOMAIN` into the profile's `generated.env`.
-The launchable notebooks call it, so they inherit this.
+two-origin split itself when `BREV_ENV_ID` is in its environment. It reads the
+same context file the helpers above use, takes the published link verbatim, and
+writes `VSS_PUBLIC_HOST` (the link's FQDN), `VSS_PUBLIC_PORT` (its public port),
+`VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss` and
+`HAPROXY_HOST_PORT` into the profile's `generated.env`. The launchable notebooks
+call it, so they inherit this.
+
+`HAPROXY_HOST_PORT` is the part that is easy to miss. **Brev forwards a link
+only to the host port it was created with**, and it does not open ports on
+demand, so the gateway has to be published on *that* port rather than on its own
+default. An instance whose only HTTP link is `443 -> 8888` gets
+`HAPROXY_HOST_PORT=8888`; the container keeps listening on `HAPROXY_PORT`
+(`7777`), so in-deployment callers on `http://vss.local:7777` are unaffected.
 
 One thing is on you: **`dev-profile.sh` reads `BREV_ENV_ID` from its own
 environment, not from `/etc/environment`.** A login shell on a Brev instance
@@ -134,15 +142,29 @@ Then deploy normally and check what it recorded:
 grep -E '^(VSS_PUBLIC_|BREV_LINK_)' deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
 ```
 
-Two knobs steer what it records, and an explicit value always wins:
-`BREV_LINK_PREFIX` (the HAProxy ingress port, `7777` by default) and
-`BREV_LINK_DOMAIN`. The domain is **not always `brevlab.com`** — during the
-tunnel migration Brev serves secure links from either
-`apps.run.brev.nvidia.com` (Skybridge) or `brevlab.com`, and `dev-profile.sh`
-asks `netbird status -d` which applies, falling back to `brevlab.com`. Never
-hard-code a domain into a deploy recipe. If what it recorded disagrees with
-`brev_origin 7777`, the context file is authoritative — set `BREV_LINK_DOMAIN`
-and `BREV_LINK_PREFIX` to match the link Brev actually published.
+**Nothing about a link can be derived from `BREV_ENV_ID`,** so `dev-profile.sh`
+does not try. The label, the domain and the host port are all chosen when the
+environment is created: a real instance serves
+`jupyter-<id>.gobrev.dev` on 443 forwarding to host port 8888 — the label is a
+name rather than a port, and the domain is one no template would have offered.
+
+That is also why it **fails loudly** instead of falling back to a template when
+the context file is missing, unreadable, or publishes no HTTP link. A wrong
+`VSS_PUBLIC_HOST` does not degrade the deployment: it lands on the gateway's Host
+**allowlist**, so every off-host request is refused with
+`x-vss-gateway-deny: unknown-host`, long after the deploy reported success. The
+error names the three overrides to set by hand:
+
+| Override | What to set it to |
+|---|---|
+| `VSS_PUBLIC_HOST` | the link's FQDN, copied verbatim |
+| `VSS_PUBLIC_PORT` | the port it is served on, usually `443` |
+| `HAPROXY_HOST_PORT` | the host port that link forwards to |
+
+`VSS_PUBLIC_HOST` set in the environment always wins outright. `BREV_LINK_PREFIX`
+and `BREV_LINK_DOMAIN` still work, but only as a fallback for instances too old
+to have a context file — where a context file exists it is authoritative, and a
+template cannot beat it. Never hard-code a domain into a deploy recipe.
 
 ### If you resolve Compose through this skill's build pipeline
 

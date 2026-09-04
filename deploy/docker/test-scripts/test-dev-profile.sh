@@ -442,6 +442,29 @@ run_negative_test "llm unknown id is rejected" 1 up -p base -i 127.0.0.1 --llm t
 run_negative_test "llm without sizing for the hardware is rejected" 1 up -p base -i 127.0.0.1 -H H100 --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
+# --- Brev environment context fixture ---
+# The Brev environment context is the source of truth for a secure link, and
+# dev-profile.sh refuses to invent one when it cannot read it. Every test that
+# sets BREV_ENV_ID therefore needs a context to point at, or it fails on the
+# missing link rather than on whatever it meant to exercise. Pointing at a
+# fixture also keeps a run on a real Brev box from reading that box's links.
+_brev_ctx_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_brev_ctx_dir}")
+_brev_ctx_absent="${_brev_ctx_dir}/absent.json"
+_brev_ctx="${_brev_ctx_dir}/environment-context.json"
+# The shape a real instance publishes: an HTTP link on 443 forwarding to a host
+# port that is not the gateway default, plus the SSH forward, which is not an
+# HTTP origin and must be ignored.
+cat > "${_brev_ctx}" <<'BREVCTX'
+{
+  "environment_id": "test-env",
+  "ports": [
+    {"public_port": 23189, "destination_port": 22, "fqdn": "global.example.com"},
+    {"public_port": 443, "destination_port": 8888, "fqdn": "jupyter-test-env.gobrev.dev"}
+  ]
+}
+BREVCTX
+
 _mock_nvidia_smi_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_nvidia_smi_dir}")
 cat > "${_mock_nvidia_smi_dir}/nvidia-smi" <<'EOF'
@@ -973,8 +996,8 @@ fi
 EOF
 chmod +x "${_mock_brev_one_gpu_dir}/nvidia-smi"
 # One GPU cannot host RT-CV + RT-VLM and RT-Embed + LLM, so local RT-VLM is rejected.
-PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
-PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "RTVI_VLM_MODEL_PATH" "none" "RT_VLM_DEVICE_ID" "0"
 
@@ -990,11 +1013,11 @@ fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
 # Two GPUs are enough for a local RT-VLM now that it shares GPU 0 with RT-CV.
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://127.0.0.1:9998" "VLM_PORT" "30082" \
@@ -1013,7 +1036,7 @@ EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
 # Placement comes from the profile env, not the host GPU count, so a 3-GPU host still
 # co-locates RT-VLM with RT-CV on GPU 0 and leaves GPU 2 unused.
-PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
+PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
@@ -2478,8 +2501,33 @@ else
 fi
 
 # --- Brev: HAProxy + VSS_PUBLIC_HOST in generated.env (agent_ui uses HAPROXY_* / VSS_PUBLIC_HOST only; no BREV_* compose vars) ---
-# Brev resolves secure-link vars at generation time. Pin BREV_LINK_DOMAIN so this test is deterministic on hosts with NetBird/Skybridge configured.
-BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
+# The context fixture is defined once near the nvidia-smi mocks, because the
+# search Brev tests above need it too.
+#
+# The link is taken verbatim: its FQDN, its public port, and -- the part a
+# template cannot supply -- the host port the gateway must be published on.
+# HAPROXY_PORT stays the container listener, so in-deployment callers do not move.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env Brev link read from the environment context" "base" \
+ -i 127.0.0.1 -d -- \
+  "HAPROXY_PORT" "7777" \
+  "HAPROXY_HOST_PORT" "8888" \
+  "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
+  "VSS_PUBLIC_WS_PROTOCOL" "wss" \
+  "VSS_PUBLIC_HOST" "jupyter-test-env.gobrev.dev" \
+  "VSS_PUBLIC_PORT" "443" \
+  "BREV_LINK_PREFIX" "jupyter" \
+  "BREV_LINK_DOMAIN" "gobrev.dev"
+
+# An explicit VSS_PUBLIC_HOST outranks the context file, and does not drag the
+# context file's host port along with it.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VSS_PUBLIC_HOST=chosen.example.com run_dry_run_up_and_check_generated_env "generated.env Brev VSS_PUBLIC_HOST override wins over the context" "base" \
+ -i 127.0.0.1 -d -- \
+  "VSS_PUBLIC_HOST" "chosen.example.com" \
+  "VSS_PUBLIC_PORT" "443"
+
+# No context file: BREV_LINK_DOMAIN is the documented fallback for instances too
+# old to publish one, and is the only case where a hostname is composed.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx_absent}" BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
  -i 127.0.0.1 -d -- \
   "HAPROXY_PORT" "7777" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
@@ -2488,13 +2536,23 @@ BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_gener
   "VSS_PUBLIC_PORT" "443"
 
 # Brev with custom PROXY_PORT in env: generated.env records the resolved proxy port and secure-link host.
-BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx_absent}" BREV_LINK_DOMAIN=brevlab.com PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
  -i 127.0.0.1 -d -- \
   "HAPROXY_PORT" "8080" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
   "VSS_PUBLIC_HOST" "8080-test-env.brevlab.com" \
   "VSS_PUBLIC_PORT" "443"
+
+# Nothing to read and nothing supplied: fail here, naming the overrides, rather
+# than writing a hostname the gateway's Host allowlist will silently refuse.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx_absent}" run_negative_test "Brev with no context and no override fails loudly" 1 \
+  up -p base -i 127.0.0.1 -d
+
+# A context file describing a different environment is not half-trusted: a stale
+# or copied file is exactly where a plausible wrong hostname would come from.
+BREV_ENV_ID=other-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_negative_test "Brev rejects a context for a different environment" 1 \
+  up -p base -i 127.0.0.1 -d
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \
