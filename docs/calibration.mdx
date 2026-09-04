@@ -7,5 +7,10 @@ Camera calibration is an essential step to enable using cameras as sensors for a
 It involves determining the projection matrix (combined intrinsic and extrinsic parameters) of the camera,
 which is necessary for both advanced 3D object detection as well as the spatial understanding of the detected objects.
 The camera calibration result is presented in a JSON file following a pre-defined schema which is used in multiple modules within the system.
-Below, we describe the pre-defined schema of the calibration file, the provided tools for their supported use cases
-and the fundamentals / steps to be used as reference when calibrating any of your own cameras manually for multi-camera tracking use cases.
+The following pages cover the schema, tools, and steps for calibrating cameras for multi-camera tracking.
+
+- [Auto Calibration](/vss/system-components/calibration/auto-calibration) - Automatic calibration workflow, custom datasets, and troubleshooting.
+- [SDG Calibration](/vss/system-components/calibration/sdg-calibration) - Calibration produced from synthetic data generation.
+- [Legacy Camera Calibration](/vss/system-components/calibration/legacy-camera-calibration) - Earlier manual calibration tools.
+- [Camera Positioning Guide](/vss/system-components/calibration/camera-positioning-guide) - Where to place cameras for analytics.
+- [Calibration Schema](/vss/system-components/calibration/calibration-schema) - JSON schema consumed by VSS modules.
