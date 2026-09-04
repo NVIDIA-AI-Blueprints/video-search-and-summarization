@@ -144,6 +144,13 @@ double parseFrameRate(const std::string& value, double fallback)
  * was published as nine second segments, and a player that must hold a whole
  * segment before it can show any of it froze for ten seconds at a time with ten
  * seconds already buffered. */
+/* A session that re-encodes does not inherit the source's keyframe interval:
+ * the encoder is told its own, so the segments it can actually produce are that
+ * long and no longer.  Sizing them from the camera instead advertises segments
+ * the media does not contain - a 250 picture source re-encoded at one second
+ * was published as nine second segments, and a player that must hold a whole
+ * segment before it can show any of it froze for ten seconds at a time with ten
+ * seconds already buffered. */
 /* How long a segment should be, given the keyframe interval the media is
  * arriving on and the length DASH has been configured to aim for.
  *
@@ -164,38 +171,19 @@ double parseFrameRate(const std::string& value, double fallback)
  * interval ends the segment on each keyframe, so the timeline stays uniform. */
 constexpr unsigned kDashUnknownKeyframeSeconds = 1;
 
-unsigned segmentSecondsForKeyframeInterval(double keyframeSeconds, unsigned target)
+/* How long a segment is where the session re-encodes and the encoder is
+ * therefore ours to program. */
+unsigned encoderSegmentSeconds(unsigned configured)
 {
-    const unsigned wanted = target > 0 ? target : 1;
-    if (keyframeSeconds <= 0.0 || keyframeSeconds > 60.0)
-    {
-        return wanted;
-    }
-    if (keyframeSeconds >= static_cast<double>(wanted))
-    {
-        return static_cast<unsigned>(std::ceil(keyframeSeconds));
-    }
-    const double intervals = std::ceil(static_cast<double>(wanted) / keyframeSeconds);
-    return static_cast<unsigned>(std::lround(intervals * keyframeSeconds));
-}
-
-/* A session that re-encodes does not inherit the source's keyframe interval:
- * the encoder is told its own. That interval is the WebRTC one, because both
- * sinks share the encoder, so it is what the grid has to be built from - but it
- * is a WebRTC tuning value and has no business deciding how DASH delivers.
- * Round it up to the configured DASH length instead, which is a property of
- * delivery rather than of encoding. */
-unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured)
-{
-    const int interval = GET_CONFIG().webrtc_out_set_idr_interval > 0
-                             ? GET_CONFIG().webrtc_out_set_idr_interval
-                             : GET_CONFIG().webrtc_out_set_iframe_interval;
-    const double rate = parseFrameRate(frameRate, 0.0);
-    if (interval <= 0 || rate <= 0.0)
-    {
-        return configured;
-    }
-    return segmentSecondsForKeyframeInterval(static_cast<double>(interval) / rate, configured);
+    /* The configured length, directly. This used to be derived from the WebRTC
+     * keyframe interval, which is the one the encoder happened to be given, but
+     * that interval counts frames and so means a different length at every
+     * frame rate: a video wall composed at eight frames a second read thirty
+     * frames as 3.75 s and published four second segments however short the
+     * configured length was. The encoder is now told to emit a keyframe at the
+     * published segment length instead - it reads publishedSegmentSeconds() and
+     * converts to frames itself - so what DASH asks for is what it gets. */
+    return std::max(1u, configured);
 }
 
 /* One place to see what a DASH request asked for and what the pipeline was
@@ -221,7 +209,7 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
 {
     if (reEncodes)
     {
-        return encoderSegmentSeconds(frameRate, configured);
+        return encoderSegmentSeconds(configured);
     }
     const unsigned pictures = parsePositive(govLength, 0);
     const double rate = parseFrameRate(frameRate, 0.0);
@@ -922,14 +910,23 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
         if (encodeSession)
         {
             packagerConfig.synthesizeTimestamps = true;
-            /* Counting frames is only honest while every frame arrives. With an
-             * overlay on, the frames it drew nothing on are suppressed, so half
-             * of them reach the packager and a timeline built by counting packs
-             * a second of recording into half a second - the recording plays at
-             * double speed, which is what the WebRTC path never does because it
-             * carries each frame's own timestamp. Use the same timestamps here
-             * and keep the counted timeline as the fallback for a source that
-             * cannot supply them. */
+        }
+        /* Counting frames is only honest while every frame arrives. With an
+         * overlay on, the frames it drew nothing on are suppressed, so half of
+         * them reach the packager and a timeline built by counting packs a
+         * second of recording into half a second - the recording plays at
+         * double speed, which is what the WebRTC path never does because it
+         * carries each frame's own timestamp. Use the same timestamps here and
+         * keep the counted timeline as the fallback.
+         *
+         * Only where the frames actually carry one. An overlay and a transcode
+         * both preserve the recording's timestamps through the chain; a session
+         * that merely re-encodes does not, and asking for them there published
+         * the first frames against timestamps that never advanced and killed
+         * the muxer before the fallback could take over - the viewer got a 404
+         * where the manifest should have been. */
+        if (dashOverlayRequested(overlay) || transcodeRequired)
+        {
             packagerConfig.preferSourceTimestamps = true;
         }
     }

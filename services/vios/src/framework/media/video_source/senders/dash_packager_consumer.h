@@ -88,6 +88,10 @@ public:
     DashPackagerConsumer& operator=(const DashPackagerConsumer&) = delete;
 
     [[nodiscard]] bool wantsDecodedPictures() const override { return m_config.encodeRawInput; }
+    [[nodiscard]] unsigned publishedSegmentSeconds() const override
+    {
+        return m_config.targetDurationSeconds;
+    }
 
     void onFrame(FrameParams& params) override;
     void onFrame(std::shared_ptr<RawFrameParams> frameData) override;
