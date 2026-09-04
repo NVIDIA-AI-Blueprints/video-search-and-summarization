@@ -636,8 +636,15 @@ except Exception as exc:
 
 # An explicit VST_HTTP_PORT is used alone; otherwise probe both ranges. The
 # caller stores whatever answered, so later hosts skip the search.
-vst_candidate_ports() {
+# Ports to try for one host. An explicit VST_HTTP_PORT pins every host; a port
+# we discovered is remembered per host, because a batch can span VST deployments
+# that serve the proxy API on different ports.
+declare -A VST_PORT_BY_HOST=()
+
+vst_candidate_ports() {  # $1=host
   if [[ -n "$VST_HTTP_PORT" ]]; then printf '%s\n' "$VST_HTTP_PORT"; return; fi
+  local cached="${VST_PORT_BY_HOST[${1:-}]:-}"
+  if [[ -n "$cached" ]]; then printf '%s\n' "$cached"; return; fi
   seq 30000 30005
   seq 31000 31005
 }
@@ -668,22 +675,23 @@ check_sei_frame_ids() {  # $1=an rtsp:// url the streams will come from
   [[ "$VST_HTTP_PORT" == 0 ]] && return 0    # long-standing "skip" spelling
   sei_required || return 0
 
-  local host payload enabled port
+  local host payload enabled port found_port
   host="${1#rtsp://}"; host="${host%%/*}"; host="${host%%:*}"
   [[ -n "$host" ]] || return 0
 
-  payload=""
-  for port in $(vst_candidate_ports); do
+  payload=""; found_port=""
+  for port in $(vst_candidate_ports "$host"); do
     payload="$(curl -fsS --max-time 2 --connect-timeout 1 \
                "http://${host}:${port}/api/v1/proxy/configuration" 2>/dev/null)" || continue
     [[ "$payload" == *enableProxyServerFrameIdSupport* ]] || { payload=""; continue; }
-    VST_HTTP_PORT="$port"      # remember, so later hosts skip the search
+    found_port="$port"
+    VST_PORT_BY_HOST["$host"]="$port"   # remember for this host only
     break
   done
 
   if [[ -z "$payload" ]]; then
     echo "ERROR: could not verify the SEI frame-ID prerequisite: no VST proxy API" >&2
-    echo "       answered at ${host} (tried ports $(vst_candidate_ports | tr '\n' ' ' | sed 's/ $//'))." >&2
+    echo "       answered at ${host} (tried ports $(vst_candidate_ports "$host" | tr '\n' ' ' | sed 's/ $//'))." >&2
     echo "       This deployment is staged for live streams (extract-sei-sim-time=1)," >&2
     echo "       so every source must carry NVDS_CUSTOMMETA SEI. Without it the streams" >&2
     echo "       register, ds-ready reports YES, and no source ever activates." >&2
@@ -705,7 +713,7 @@ if isinstance(v, bool):
 
   [[ "$enabled" == "false" ]] || return 0
 
-  echo "ERROR: the VST proxy at ${host}:${VST_HTTP_PORT} is not emitting SEI frame IDs" >&2
+  echo "ERROR: the VST proxy at ${host}:${found_port} is not emitting SEI frame IDs" >&2
   echo "       (enableProxyServerFrameIdSupport=false)." >&2
   echo "       MV3DT stamps frames from the host clock or from NVDS_CUSTOMMETA SEI," >&2
   echo "       depending on the input mode. This deployment is staged for live streams" >&2
