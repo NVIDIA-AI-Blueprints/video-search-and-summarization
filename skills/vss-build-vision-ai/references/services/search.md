@@ -10,6 +10,10 @@
 
 - Requires RT-CV, RT-Embed, Elasticsearch, Kafka, Logstash, and the Search
   profile's VIOS/NvStreamer path.
+- Any build promising a live/streaming input path must retain
+  `nvstreamer-2d-fusion`; VIOS stores and proxies registered media but does not
+  create the requested live RTSP source. Prune NvStreamer only when the request
+  is explicitly upload/on-demand-only.
 - Agent search requires `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, and
   `ELASTIC_SEARCH_INDEX`.
 - Result critique and visual follow-up Q&A are served by RT-VLM **through the
@@ -30,6 +34,11 @@
   query/browse/REST surface, and prune it otherwise even though the Foundation
   ships it. It is a shared singleton: include `vss-video-analytics-api` when
   required, and never introduce a second API key or container.
+- A Search-derived ingestion/indexing build with no query/API surface prunes
+  `vss-video-analytics-api`, the agent/UI tier, RT-VLM critique, and ingress.
+  A request for `vss search run` or a unified browse/operate origin retains the
+  analytics API and the single curated ingress, but still does not imply an
+  agent/UI tier.
 - When this container also serves another capability on one shared instance (a
   combined build), it is the shared **Behavior-Analytics** instance — converge its
   mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md); its

@@ -386,7 +386,7 @@ One relay, **two backends**: the `alert-notify` webhook server fans incidents ou
 
 **Credentials gate before any start — both backends have one.** Slack needs `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`; the Dashboard needs `OPENCLAW_GATEWAY_URL` + `OPENCLAW_GATEWAY_AUTH_TOKEN`. Being the *default* backend does not make the Dashboard zero-config — its init raises when either is unset. Both also need `VST_ENDPOINT`, and the server **exits at startup** on a failed Slack auth or missing `VST_ENDPOINT`.
 
-**The gate is on `start` and `test` only.** `status` and `stop` never need credentials: to answer "is the webhook running?" probe `:9090` and say what you found — "not running, would you like me to start it?" — and ask for nothing. Requesting a token to report that a process is down is itself a failure of this check.
+**The gate is on `start` and `test` only.** `status` and `stop` never need credentials: to answer "is the webhook running?" probe `:9090` and say what you found — exactly "not running, would you like me to start it?" is sufficient. Stop there. Do not ask for, mention needing, or enumerate Slack credentials until the user actually asks to start or test the relay. Requesting a token merely to report that a process is down is itself a failure of this check.
 
 **When starting or testing, and the real credentials are absent: ask the operator and STOP.** Do not start the server. That much ALWAYS applies, including under autonomous / non-interactive / CI execution — "run autonomously" authorizes deploy and setup ONLY. None of the following counts as having credentials, and each has been tried:
 

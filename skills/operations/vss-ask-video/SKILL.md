@@ -22,6 +22,12 @@ running VSS deployment, use the project-local `vss` CLI. Do not call an
 OpenAI-compatible `/chat/completions` endpoint directly or fall back to raw REST
 when a CLI command fails.
 
+> **Past-analysis invariant:** wording such as “use any past VSS analysis that
+> may exist” is the bounded-introspection route. Run `vss memory introspect`
+> first with the user's question verbatim and every grounded scope selector.
+> Filesystem searches, `curl`, `grep`, and reading generated state are not
+> substitutes for this command, even when the memory backend may be empty.
+
 This skill does not call `POST /generate` on the VSS agent. It requires a
 **deployed VSS with `vss configure` already run**.
 
@@ -72,7 +78,9 @@ Apply these routes in order:
 3. **General video question where past memory may exist -> `vss memory
    introspect`.** Use this for a substantive question about prior video analysis
    when hot context does not answer it and the user did not request one exact
-   stored record or fresh visual verification.
+   stored record or fresh visual verification. Execute the command before any
+   repository or backend exploration; a possible `no_memory` result is still
+   not permission to skip the required introspection attempt.
 4. **Exact sensor/time or explicit fresh visual verification -> `vss vlm
    run`.** Bypass introspection when the user supplies a grounded VIOS sensor
    plus exact ISO-8601 UTC start/end times, or explicitly asks to watch, inspect,

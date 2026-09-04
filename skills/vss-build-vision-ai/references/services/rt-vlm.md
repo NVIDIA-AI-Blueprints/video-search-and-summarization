@@ -14,6 +14,14 @@
 - Kafka is required only when `RTVI_VLM_KAFKA_ENABLED=true`.
 - Redis is required only when `ENABLE_REDIS_ERROR_MESSAGES=true`.
 - Do not add `vlm_${VLM_MODE}_${VLM_NAME_SLUG}` for an integrated RT-VLM path.
+- RT-VLM itself serves direct VLM Q&A at `/v1/chat/completions` on its published
+  port (normally `8018`). A request for direct Q&A or dense captions does not
+  imply `vss-agent`, `vss-ui`, HAProxy, Phoenix, or an LLM NIM; retain those only
+  when another requested surface owns them.
+- For Kafka-backed dense captions, set `RTVI_VLM_KAFKA_ENABLED=true` and
+  `RTVI_VLM_MESSAGE_BUS_TOPIC=mdx-vlm-captions`. The Compose default is already
+  `mdx-vlm-captions` and the standard Kafka topic initializer already creates
+  it, so do not override `KAFKA_TOPICS` or copy the bootstrap-server default.
 
 ## Available integrated model variants
 
@@ -103,7 +111,7 @@ variant profile.
 | `RTVI_VLM_ENDPOINT`, `RTVI_VLM_API_KEY`, `VLM_BASE_URL` | Configure an OpenAI-compatible backend. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, `RTVI_VLM_MAX_MODEL_LEN`, `RTVI_VLLM_MAX_NUM_SEQS`, `RTVI_VLLM_MAX_NUM_BATCHED_TOKENS` | Bound vLLM memory and concurrency. |
 | `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK`, `RTVI_VLM_BATCH_SIZE` | Tune frame sampling and batching. |
-| `RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_KAFKA_TOPIC`, `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | Configure event publication. |
+| `RTVI_VLM_KAFKA_ENABLED`, `RTVI_VLM_MESSAGE_BUS_TOPIC`, `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | Configure event publication. The caption topic knob is `RTVI_VLM_MESSAGE_BUS_TOPIC`, not the obsolete `RTVI_VLM_KAFKA_TOPIC` spelling. |
 | `VLM_MODEL_SUPPORTS_AUDIO`, `VLM_TRUST_REMOTE_CODE`, `HF_TOKEN` | Enable supported audio or gated/custom HF models. |
 | `INSTALL_PROPRIETARY_CODECS`, `FORCE_SW_AV1_DECODER` | Select runtime codec behavior. |
 

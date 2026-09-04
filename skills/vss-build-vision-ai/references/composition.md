@@ -345,6 +345,11 @@ Then verify:
 - Removed services do not resolve.
 - Every retained service is transitively required by at least one requested
   capability; no orphaned Foundation carryover survives the delta.
+- Diff `override.env` against the values inherited from `containers.env`, the
+  Foundation `.env`, and Foundation `overrides.env`. Remove values that are
+  identical to the inherited result—even credentials, public port/protocol
+  defaults, and derived template paths. Only a requested customization and its
+  dependent-value closure belong in the delta.
 - A shared singleton owner resolves to exactly one variant, and every consumer
   config that keys on that owner's output (class-label taxonomy and casing,
   topic names) matches the resolved variant; no consumer filters on a taxonomy
