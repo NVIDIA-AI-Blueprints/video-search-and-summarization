@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChatHeader } from './ChatHeader';
 import { ChatInput } from './ChatInput';
 import { ChatMessageView } from './ChatMessage';
+import { createRandomId } from './id';
 import { useChatStream } from './useChatStream';
 import { useConversations } from './useConversations';
 import type {
@@ -37,7 +38,7 @@ const DEFAULT_FEATURES: Required<ChatFeatureFlags> = {
 function useFallbackConversationId(supplied?: string): string {
   const ref = useRef(supplied);
   if (!ref.current) {
-    ref.current = `vss-${Math.random().toString(36).slice(2, 10)}`;
+    ref.current = `vss-${createRandomId()}`;
   }
   return ref.current;
 }

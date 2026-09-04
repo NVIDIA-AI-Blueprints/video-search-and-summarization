@@ -17,6 +17,7 @@
  */
 import { openDB, type IDBPDatabase } from 'idb';
 
+import { createRandomId } from './id';
 import type { Conversation } from './types';
 
 export interface ChatExportAuxiliaryStorage {
@@ -54,7 +55,7 @@ function getTabSessionId(): string {
   try {
     let id = window.sessionStorage.getItem(TAB_SESSION_STORAGE_KEY);
     if (!id) {
-      id = `tab_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      id = `tab_${Date.now().toString(36)}_${createRandomId()}`;
       window.sessionStorage.setItem(TAB_SESSION_STORAGE_KEY, id);
     }
     return id;

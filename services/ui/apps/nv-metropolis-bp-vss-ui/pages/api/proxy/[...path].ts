@@ -104,7 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const path = `/${segments.join('/')}`;
 
   // Resolve before checking so `..` cannot walk out of an allowed prefix.
-  const normalised = new URL(path, 'http://placeholder').pathname;
+  const normalised = new URL(path, 'https://placeholder.invalid').pathname;
   if (!ALLOWED_PREFIXES.some((prefix) => normalised.startsWith(prefix))) {
     res.status(403).json({ error: 'path not permitted by proxy allowlist' });
     return;

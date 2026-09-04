@@ -8,6 +8,7 @@
  * chat bar imports into this one. Folders and prompts are accepted and
  * round-tripped but not rendered — VSS never surfaced either.
  */
+import { createRandomId } from './id';
 import type { ChatMessage, Conversation } from './types';
 
 export const NEW_CONVERSATION_NAME = 'New Conversation';
@@ -27,7 +28,7 @@ export interface ChatExportAuxiliary {
 
 let seq = 0;
 export const newId = (): string =>
-  `c${Date.now().toString(36)}-${(seq++).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  `c${Date.now().toString(36)}-${(seq++).toString(36)}-${createRandomId()}`;
 
 export function createConversation(name = NEW_CONVERSATION_NAME): Conversation {
   return { id: newId(), name, messages: [] };

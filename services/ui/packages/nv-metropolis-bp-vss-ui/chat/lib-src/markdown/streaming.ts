@@ -26,12 +26,12 @@ export function replaceMalformedMarkdownImages(str = ''): string {
 
 /** `<img src="…` with no closing `>` yet. */
 export function replaceMalformedHtmlImages(str = ''): string {
-  return str.replace(/<img\s+[^>]*$/, LOADING_IMG);
+  return str.replace(/<img\s[^>]*$/, LOADING_IMG);
 }
 
 /** `<video …` with no closing `>` yet. */
 export function replaceMalformedHtmlVideos(str = ''): string {
-  return str.replace(/<video\s+[^>]*$/, LOADING_VIDEO);
+  return str.replace(/<video\s[^>]*$/, LOADING_VIDEO);
 }
 
 /**

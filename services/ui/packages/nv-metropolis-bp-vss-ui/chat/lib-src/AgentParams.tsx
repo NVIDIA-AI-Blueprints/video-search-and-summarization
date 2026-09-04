@@ -15,10 +15,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { createRandomId } from './id';
 import type { CustomAgentParamsValues, ParamField, ParamFieldConfig } from './types';
 
 const STORAGE_KEY = 'vss-chat-custom-agent-params';
-const generateId = () => Math.random().toString(36).substring(2, 11);
 
 export const fieldsToParams = (fields: ParamField[]): CustomAgentParamsValues =>
   (fields || []).reduce((acc, field) => {
@@ -33,7 +33,7 @@ export const parseParamsJson = (jsonString?: string): ParamField[] => {
     if (!Array.isArray(parsed?.params)) return [];
     return parsed.params.map((item) => ({
       ...item,
-      id: generateId(),
+      id: createRandomId(),
       value: item['default-value'],
     }));
   } catch (error) {
