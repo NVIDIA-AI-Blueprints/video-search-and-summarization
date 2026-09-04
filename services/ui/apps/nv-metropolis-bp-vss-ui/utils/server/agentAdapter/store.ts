@@ -72,7 +72,7 @@ export class RunRecord {
   append(type: string, data: JsonObject = {}): RunEvent {
     const encoded = JSON.stringify(data);
     if (encoded.length > this.maxEventChars) {
-      throw new Error("one gateway event exceeds the per-run character limit");
+      throw new Error("one adapter event exceeds the per-run character limit");
     }
     const event = createRunEvent(
       this.nextSequence,
@@ -197,7 +197,7 @@ export class RunStore {
         .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)[0];
       if (!terminal) {
         throw new StoreCapacityError(
-          "gateway has reached its active run limit"
+          "adapter has reached its active run limit"
         );
       }
       this.remove(terminal.runId);

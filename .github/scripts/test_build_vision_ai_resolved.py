@@ -242,7 +242,6 @@ class ValidateResolvedYmlTest(unittest.TestCase):
                                 "NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR": "true",
                                 "NEXT_PUBLIC_ENABLE_CHAT_TAB": "true",
                                 "NEXT_PUBLIC_ENABLE_SEARCH_TAB": "true",
-                                "NEXT_PUBLIC_AGENT_GATEWAY_ENABLED": "true",
                                 "AGENT_BACKEND_URL": "http://host.docker.internal:18789",
                             }
                         },

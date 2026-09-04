@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { EmbeddedGatewayConfig } from "../config";
+import type { AgentAdapterConfig } from "../config";
 import {
   type ConnectorEvent,
   type CreateRunRequest,
@@ -24,7 +24,7 @@ export class LegacyChatConnector implements Connector {
   readonly capabilities = connectorCapabilities(this.protocol);
   private readonly endpoint: string;
 
-  constructor(private readonly config: EmbeddedGatewayConfig) {
+  constructor(private readonly config: AgentAdapterConfig) {
     this.endpoint = `${config.backendUrl}${config.backendPath}`;
   }
 

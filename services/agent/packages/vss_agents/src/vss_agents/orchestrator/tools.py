@@ -352,17 +352,11 @@ class OrchestratorRuntimeSettings(BaseSettings):
     # Optional VSS UI -> external harness adapter. These are explicit fields so
     # only allowlisted deployment settings cross from the notebook process into
     # generated Compose artifacts.
-    vss_agent_gateway_enabled: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_ENABLED")
-    vss_agent_gateway_require_capabilities: str = Field(
-        default="", validation_alias="VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"
-    )
-    vss_agent_gateway_capabilities_b64: str = Field(default="", validation_alias="VSS_AGENT_GATEWAY_CAPABILITIES_B64")
-    vss_agent_gateway_capabilities_sha256: str = Field(
-        default="", validation_alias="VSS_AGENT_GATEWAY_CAPABILITIES_SHA256"
-    )
-    vss_agent_gateway_expected_runtime_ref: str = Field(
-        default="", validation_alias="VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"
-    )
+    vss_agent_adapter_enabled: str = Field(default="", validation_alias="VSS_AGENT_ADAPTER_ENABLED")
+    vss_agent_require_capabilities: str = Field(default="", validation_alias="VSS_AGENT_REQUIRE_CAPABILITIES")
+    vss_agent_capabilities_b64: str = Field(default="", validation_alias="VSS_AGENT_CAPABILITIES_B64")
+    vss_agent_capabilities_sha256: str = Field(default="", validation_alias="VSS_AGENT_CAPABILITIES_SHA256")
+    vss_agent_expected_runtime_ref: str = Field(default="", validation_alias="VSS_AGENT_EXPECTED_RUNTIME_REF")
     vss_agent_backend_protocol: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_PROTOCOL")
     vss_agent_backend_bind_host: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_BIND_HOST")
     vss_agent_backend_url: str = Field(default="", validation_alias="VSS_AGENT_BACKEND_URL")
@@ -390,11 +384,11 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "rtvi_vllm_gpu_memory_utilization",
         "llm_device_id",
         "vlm_device_id",
-        "vss_agent_gateway_enabled",
-        "vss_agent_gateway_require_capabilities",
-        "vss_agent_gateway_capabilities_b64",
-        "vss_agent_gateway_capabilities_sha256",
-        "vss_agent_gateway_expected_runtime_ref",
+        "vss_agent_adapter_enabled",
+        "vss_agent_require_capabilities",
+        "vss_agent_capabilities_b64",
+        "vss_agent_capabilities_sha256",
+        "vss_agent_expected_runtime_ref",
         "vss_agent_backend_protocol",
         "vss_agent_backend_bind_host",
         "vss_agent_backend_url",
@@ -1243,7 +1237,13 @@ async def vss_orchestrator(
                 for field_name, field_info in OrchestratorRuntimeSettings.model_fields.items():
                     env_name = field_info.validation_alias
                     if not isinstance(env_name, str) or not env_name.startswith(
-                        ("VSS_AGENT_GATEWAY_", "VSS_AGENT_BACKEND_")
+                        (
+                            "VSS_AGENT_ADAPTER_",
+                            "VSS_AGENT_BACKEND_",
+                            "VSS_AGENT_REQUIRE_",
+                            "VSS_AGENT_CAPABILITIES_",
+                            "VSS_AGENT_EXPECTED_",
+                        )
                     ):
                         continue
                     value = getattr(runtime_settings, field_name)

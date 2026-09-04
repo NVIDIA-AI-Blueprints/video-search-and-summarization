@@ -9,4 +9,4 @@ export const config = {
   },
 };
 
-export { embeddedAgentGatewayHandler as default } from "../../../utils/server/agentGatewayRuntime";
+export { agentAdapterHandler as default } from "../../../utils/server/agentAdapter";

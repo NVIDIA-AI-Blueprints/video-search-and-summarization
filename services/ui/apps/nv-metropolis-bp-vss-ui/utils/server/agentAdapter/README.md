@@ -1,4 +1,4 @@
-# Embedded agent gateway
+# Embedded agent adapter
 
 The VSS UI's Next.js process contains the trusted adapter between browser chat
 and an external agent harness. It is not a separate service or image.
@@ -25,6 +25,8 @@ Set `AGENT_BACKEND_URL` to enable the adapter. The principal settings are:
   Responses session routing.
 - `AGENT_REQUIRE_VSS_CAPABILITIES` plus the `AGENT_VSS_CAPABILITIES_*`
   receipt fields: fail-closed validation for a VSS-attached harness.
+- `AGENT_RUN_RETENTION_SECONDS` and `AGENT_MAX_*`: optional in-process replay
+  retention and memory bounds.
 
 Never place a backend credential in a `NEXT_PUBLIC_*` variable. In Docker, the
 harness forward binds to Docker's private bridge address and the UI connects to

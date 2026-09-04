@@ -10,7 +10,7 @@ import { strictJsonParse, isJsonObject } from "./json";
 
 export type BackendProtocol = "openclaw-ws" | "responses" | "legacy-chat";
 
-export interface EmbeddedGatewayConfig {
+export interface AgentAdapterConfig {
   backendProtocol: BackendProtocol;
   backendUrl: string;
   backendPath: string;
@@ -217,13 +217,13 @@ const capabilityReceipt = (
   }
 };
 
-export const embeddedGatewayConfigured = (
+export const agentAdapterConfigured = (
   environment: NodeJS.ProcessEnv = process.env
 ): boolean => !!environment.AGENT_BACKEND_URL?.trim();
 
-export const loadEmbeddedGatewayConfig = (
+export const loadAgentAdapterConfig = (
   environment: NodeJS.ProcessEnv = process.env
-): EmbeddedGatewayConfig | null => {
+): AgentAdapterConfig | null => {
   const rawUrl = environment.AGENT_BACKEND_URL?.trim();
   if (!rawUrl) return null;
   const rawProtocol = (environment.AGENT_BACKEND_PROTOCOL ?? "responses")
@@ -305,31 +305,26 @@ export const loadEmbeddedGatewayConfig = (
         false
       ) * 1_000,
     runRetentionMs:
-      numberEnv(
-        environment,
-        "AGENT_GATEWAY_RUN_RETENTION_SECONDS",
-        3_600,
-        60,
-        86_400
-      ) * 1_000,
-    maxRuns: numberEnv(environment, "AGENT_GATEWAY_MAX_RUNS", 1_000, 1, 10_000),
+      numberEnv(environment, "AGENT_RUN_RETENTION_SECONDS", 3_600, 60, 86_400) *
+      1_000,
+    maxRuns: numberEnv(environment, "AGENT_MAX_RUNS", 1_000, 1, 10_000),
     maxEventsPerRun: numberEnv(
       environment,
-      "AGENT_GATEWAY_MAX_EVENTS_PER_RUN",
+      "AGENT_MAX_EVENTS_PER_RUN",
       10_000,
       100,
       100_000
     ),
     maxEventCharsPerRun: numberEnv(
       environment,
-      "AGENT_GATEWAY_MAX_EVENT_CHARS_PER_RUN",
+      "AGENT_MAX_EVENT_CHARS_PER_RUN",
       20_000_000,
       1_000_000,
       100_000_000
     ),
     maxThreadStateChars: numberEnv(
       environment,
-      "AGENT_GATEWAY_MAX_THREAD_STATE_CHARS",
+      "AGENT_MAX_THREAD_STATE_CHARS",
       20_000_000,
       1_000_000,
       100_000_000

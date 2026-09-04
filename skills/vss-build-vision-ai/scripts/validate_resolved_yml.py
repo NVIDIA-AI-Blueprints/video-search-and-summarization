@@ -143,14 +143,8 @@ def no_agent_ui_errors(document: dict[str, Any]) -> list[str]:
     if not isinstance(ui, dict):
         return []
     environment = dict(iter_env(ui))
-    adapter_enabled = (
-        str(environment.get("NEXT_PUBLIC_AGENT_GATEWAY_ENABLED", "")).strip().lower()
-        == "true"
-    )
     backend_url = environment.get("AGENT_BACKEND_URL")
-    if "vss-agent" in services or (
-        adapter_enabled and isinstance(backend_url, str) and backend_url.strip()
-    ):
+    if "vss-agent" in services or (isinstance(backend_url, str) and backend_url.strip()):
         return []
 
     errors: list[str] = []

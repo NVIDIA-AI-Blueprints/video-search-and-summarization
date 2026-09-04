@@ -1032,12 +1032,12 @@ def write_ui_adapter_env(
 ) -> None:
     encoded_receipt, receipt_digest = encode_receipt(receipt)
     values = {
-        "VSS_AGENT_GATEWAY_ENABLED": "true",
+        "VSS_AGENT_ADAPTER_ENABLED": "true",
         "VSS_AGENT_BACKEND_BIND_HOST": bind_host,
-        "VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true",
-        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": encoded_receipt,
-        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": receipt_digest,
-        "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": runtime_ref,
+        "VSS_AGENT_REQUIRE_CAPABILITIES": "true",
+        "VSS_AGENT_CAPABILITIES_B64": encoded_receipt,
+        "VSS_AGENT_CAPABILITIES_SHA256": receipt_digest,
+        "VSS_AGENT_EXPECTED_RUNTIME_REF": runtime_ref,
         "VSS_AGENT_BACKEND_PROTOCOL": profile.backend_protocol,
         "VSS_AGENT_BACKEND_URL": backend_origin,
         "VSS_AGENT_BACKEND_PATH": profile.backend_path,

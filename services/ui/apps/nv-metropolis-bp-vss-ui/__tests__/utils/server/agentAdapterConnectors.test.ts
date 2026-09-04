@@ -3,15 +3,15 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { EmbeddedGatewayConfig } from "../../../utils/server/agentGatewayRuntime/config";
-import { OpenClawConnector } from "../../../utils/server/agentGatewayRuntime/connectors/openClaw";
-import { ResponsesConnector } from "../../../utils/server/agentGatewayRuntime/connectors/responses";
-import type { WebSocketLike } from "../../../utils/server/agentGatewayRuntime/connectors/websocket";
-import { parseCreateRunRequest } from "../../../utils/server/agentGatewayRuntime/contract";
+import type { AgentAdapterConfig } from "../../../utils/server/agentAdapter/config";
+import { OpenClawConnector } from "../../../utils/server/agentAdapter/connectors/openClaw";
+import { ResponsesConnector } from "../../../utils/server/agentAdapter/connectors/responses";
+import type { WebSocketLike } from "../../../utils/server/agentAdapter/connectors/websocket";
+import { parseCreateRunRequest } from "../../../utils/server/agentAdapter/contract";
 
 const config = (
-  overrides: Partial<EmbeddedGatewayConfig> = {}
-): EmbeddedGatewayConfig => ({
+  overrides: Partial<AgentAdapterConfig> = {}
+): AgentAdapterConfig => ({
   backendProtocol: "responses",
   backendUrl: "http://agent.local",
   backendPath: "/v1/responses",
@@ -159,7 +159,7 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
   }
 }
 
-describe("embedded gateway connectors", () => {
+describe("embedded adapter connectors", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {

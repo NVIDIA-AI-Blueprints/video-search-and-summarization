@@ -613,17 +613,17 @@ class AttachFlowTests(unittest.TestCase):
             )
         }
         encoded, digest = attach.encode_receipt(result.receipt)
-        self.assertEqual(values["VSS_AGENT_GATEWAY_CAPABILITIES_B64"], encoded)
-        self.assertEqual(values["VSS_AGENT_GATEWAY_CAPABILITIES_SHA256"], digest)
-        self.assertEqual(values["VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF"], "a" * 40)
+        self.assertEqual(values["VSS_AGENT_CAPABILITIES_B64"], encoded)
+        self.assertEqual(values["VSS_AGENT_CAPABILITIES_SHA256"], digest)
+        self.assertEqual(values["VSS_AGENT_EXPECTED_RUNTIME_REF"], "a" * 40)
         self.assertEqual(values["VSS_AGENT_BACKEND_TOKEN"], "backend-token")
         self.assertEqual(values["VSS_AGENT_BACKEND_PROTOCOL"], "openclaw-ws")
         self.assertEqual(
             values["VSS_AGENT_BACKEND_URL"], "ws://host.docker.internal:18789"
         )
         self.assertEqual(values["VSS_AGENT_BACKEND_BIND_HOST"], "172.17.0.1")
-        self.assertNotIn("VSS_AGENT_GATEWAY_TOKEN", values)
-        self.assertNotIn("VSS_AGENT_GATEWAY_URL", values)
+        self.assertNotIn("VSS_AGENT_ADAPTER_TOKEN", values)
+        self.assertNotIn("VSS_AGENT_ADAPTER_URL", values)
         self.assertEqual(values["VSS_AGENT_BACKEND_PATH"], "/")
         self.assertEqual(values["VSS_AGENT_BACKEND_SESSION_FIELD"], "")
         self.assertEqual(values["VSS_AGENT_BACKEND_SESSION_HEADER"], "")

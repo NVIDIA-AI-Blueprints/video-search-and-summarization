@@ -7,7 +7,7 @@ import {
   parseArtifact,
   stripArtifactEnvelopes,
 } from "../artifacts";
-import type { EmbeddedGatewayConfig } from "../config";
+import type { AgentAdapterConfig } from "../config";
 import {
   type ConnectorEvent,
   type CreateRunRequest,
@@ -80,7 +80,7 @@ export class ResponsesConnector implements Connector {
   private readonly threadState = new Map<string, ThreadState>();
   private threadStateChars = 0;
 
-  constructor(private readonly config: EmbeddedGatewayConfig) {
+  constructor(private readonly config: AgentAdapterConfig) {
     this.endpoint = `${config.backendUrl}${config.backendPath}`;
   }
 

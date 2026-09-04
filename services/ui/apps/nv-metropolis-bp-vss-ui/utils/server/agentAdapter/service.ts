@@ -7,7 +7,7 @@ import {
   stripArtifactsFromValue,
 } from "./artifacts";
 import { capabilitySummary } from "./capabilities";
-import type { EmbeddedGatewayConfig } from "./config";
+import type { AgentAdapterConfig } from "./config";
 import { type Connector, ConnectorError } from "./connectors/base";
 import { LegacyChatConnector } from "./connectors/legacyChat";
 import { OpenClawConnector } from "./connectors/openClaw";
@@ -19,7 +19,7 @@ import {
 } from "./contract";
 import { RunRecord, RunStore } from "./store";
 
-const buildConnector = (config: EmbeddedGatewayConfig): Connector => {
+const buildConnector = (config: AgentAdapterConfig): Connector => {
   if (config.backendProtocol === "openclaw-ws") {
     return new OpenClawConnector(config);
   }
@@ -29,11 +29,11 @@ const buildConnector = (config: EmbeddedGatewayConfig): Connector => {
   return new ResponsesConnector(config);
 };
 
-export class EmbeddedGatewayService {
+export class AgentAdapterService {
   readonly store: RunStore;
   private readonly connector: Connector;
 
-  constructor(readonly config: EmbeddedGatewayConfig) {
+  constructor(readonly config: AgentAdapterConfig) {
     this.connector = buildConnector(config);
     this.store = new RunStore(
       config.runRetentionMs,
@@ -181,8 +181,8 @@ export class EmbeddedGatewayService {
         console.error("Unexpected embedded agent adapter failure");
         this.store.finish(record, "run.failed", {
           error: {
-            code: "gateway_internal_error",
-            message: "the gateway could not complete this run",
+            code: "adapter_internal_error",
+            message: "the adapter could not complete this run",
             retryable: false,
           },
         });

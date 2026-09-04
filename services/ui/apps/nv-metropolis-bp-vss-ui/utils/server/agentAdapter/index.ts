@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConfigError, loadEmbeddedGatewayConfig } from "./config";
+import { ConfigError, loadAgentAdapterConfig } from "./config";
 import {
   ContractError,
   createRunEvent,
@@ -10,7 +10,7 @@ import {
   type RunEvent,
 } from "./contract";
 import { strictJsonParse } from "./json";
-import { EmbeddedGatewayService } from "./service";
+import { AgentAdapterService } from "./service";
 import {
   EventsExpiredError,
   IdempotencyConflictError,
@@ -24,12 +24,12 @@ import { createHash } from "node:crypto";
 
 interface CachedService {
   fingerprint: string;
-  service: EmbeddedGatewayService;
+  service: AgentAdapterService;
 }
 
 declare global {
   // eslint-disable-next-line no-var
-  var __vssEmbeddedAgentGateway: CachedService | undefined;
+  var __vssEmbeddedAgentAdapter: CachedService | undefined;
 }
 
 const CONFIG_ENV_KEYS = [
@@ -46,11 +46,11 @@ const CONFIG_ENV_KEYS = [
   "AGENT_VSS_CAPABILITIES_B64",
   "AGENT_VSS_CAPABILITIES_SHA256",
   "AGENT_EXPECTED_VSS_RUNTIME_REF",
-  "AGENT_GATEWAY_RUN_RETENTION_SECONDS",
-  "AGENT_GATEWAY_MAX_RUNS",
-  "AGENT_GATEWAY_MAX_EVENTS_PER_RUN",
-  "AGENT_GATEWAY_MAX_EVENT_CHARS_PER_RUN",
-  "AGENT_GATEWAY_MAX_THREAD_STATE_CHARS",
+  "AGENT_RUN_RETENTION_SECONDS",
+  "AGENT_MAX_RUNS",
+  "AGENT_MAX_EVENTS_PER_RUN",
+  "AGENT_MAX_EVENT_CHARS_PER_RUN",
+  "AGENT_MAX_THREAD_STATE_CHARS",
 ];
 
 const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
@@ -62,26 +62,26 @@ const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
     )
     .digest("hex");
 
-export const getEmbeddedGatewayService = (
+export const getAgentAdapterService = (
   environment: NodeJS.ProcessEnv = process.env
-): EmbeddedGatewayService | null => {
-  const config = loadEmbeddedGatewayConfig(environment);
+): AgentAdapterService | null => {
+  const config = loadAgentAdapterConfig(environment);
   if (!config) return null;
   const fingerprint = configFingerprint(environment);
-  if (globalThis.__vssEmbeddedAgentGateway?.fingerprint !== fingerprint) {
-    globalThis.__vssEmbeddedAgentGateway = {
+  if (globalThis.__vssEmbeddedAgentAdapter?.fingerprint !== fingerprint) {
+    globalThis.__vssEmbeddedAgentAdapter = {
       fingerprint,
-      service: new EmbeddedGatewayService(config),
+      service: new AgentAdapterService(config),
     };
   }
-  return globalThis.__vssEmbeddedAgentGateway.service;
+  return globalThis.__vssEmbeddedAgentAdapter.service;
 };
 
-export const resetEmbeddedGatewayForTests = (): void => {
-  globalThis.__vssEmbeddedAgentGateway = undefined;
+export const resetAgentAdapterForTests = (): void => {
+  globalThis.__vssEmbeddedAgentAdapter = undefined;
 };
 
-export { embeddedGatewayConfigured } from "./config";
+export { agentAdapterConfigured } from "./config";
 export { ConfigError };
 
 export async function* observeRunEvents(
@@ -150,7 +150,7 @@ const requestBody = (body: unknown): unknown => {
 const createRun = (
   req: NextApiRequest,
   res: NextApiResponse,
-  service: EmbeddedGatewayService
+  service: AgentAdapterService
 ): void => {
   try {
     const request = parseCreateRunRequest(requestBody(req.body));
@@ -250,27 +250,27 @@ const streamEvents = async (
   }
 };
 
-export const embeddedAgentGatewayHandler = async (
+export const agentAdapterHandler = async (
   req: NextApiRequest,
   res: NextApiResponse
 ): Promise<void> => {
-  let service: EmbeddedGatewayService | null;
+  let service: AgentAdapterService | null;
   try {
-    service = getEmbeddedGatewayService();
+    service = getAgentAdapterService();
   } catch (error) {
     const message =
       error instanceof ConfigError
         ? error.message
-        : "embedded agent gateway configuration is invalid";
-    errorResponse(res, 503, "gateway_not_configured", message);
+        : "embedded agent adapter configuration is invalid";
+    errorResponse(res, 503, "adapter_not_configured", message);
     return;
   }
   if (!service) {
     errorResponse(
       res,
       503,
-      "gateway_not_configured",
-      "embedded agent gateway is not configured"
+      "adapter_not_configured",
+      "embedded agent adapter is not configured"
     );
     return;
   }
@@ -291,7 +291,7 @@ export const embeddedAgentGatewayHandler = async (
     return;
   }
   if (segments[0] !== "runs" || segments.length < 2) {
-    errorResponse(res, 404, "not_found", "agent gateway route not found");
+    errorResponse(res, 404, "not_found", "agent API route not found");
     return;
   }
   const runId = segments[1];
@@ -370,5 +370,5 @@ export const embeddedAgentGatewayHandler = async (
     );
     return;
   }
-  errorResponse(res, 404, "not_found", "agent gateway route not found");
+  errorResponse(res, 404, "not_found", "agent API route not found");
 };

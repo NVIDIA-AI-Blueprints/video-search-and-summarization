@@ -163,48 +163,46 @@ spec:
               Backend-agnostic external-agent adapter env (compose parity with
               deploy/docker/services/ui/compose.yml AGENT_*). Server-side only;
               AGENT_BACKEND_TOKEN and other secrets never carry NEXT_PUBLIC_.
-              Gateway keys are always emitted so a Deployment restart is enough
+              Adapter keys are always emitted so a Deployment restart is enough
               to toggle behaviour without a template change.
             */}}
-            {{- $gw := .Values.gateway | default dict }}
-            {{- $gwEnabled := (default false $gw.enabled) }}
+            {{- $adapter := .Values.agentAdapter | default dict }}
+            {{- $adapterEnabled := (default false $adapter.enabled) }}
             - name: AGENT_BACKEND_PROTOCOL
-              value: {{ (default "responses" $gw.backendProtocol) | quote }}
+              value: {{ (default "responses" $adapter.backendProtocol) | quote }}
             - name: AGENT_BACKEND_URL
-              value: {{ (default "" $gw.backendUrl) | quote }}
+              value: {{ (default "" $adapter.backendUrl) | quote }}
             - name: AGENT_BACKEND_PATH
-              value: {{ (default "" $gw.backendPath) | quote }}
+              value: {{ (default "" $adapter.backendPath) | quote }}
             - name: AGENT_BACKEND_TOKEN
-              value: {{ (default "" $gw.backendToken) | quote }}
+              value: {{ (default "" $adapter.backendToken) | quote }}
             - name: AGENT_BACKEND_MODEL
-              value: {{ (default "agent" $gw.backendModel) | quote }}
+              value: {{ (default "agent" $adapter.backendModel) | quote }}
             - name: AGENT_BACKEND_SESSION_FIELD
-              value: {{ $gw.backendSessionField | quote }}
+              value: {{ $adapter.backendSessionField | quote }}
             - name: AGENT_BACKEND_SESSION_HEADER
-              value: {{ (default "" $gw.backendSessionHeader) | quote }}
+              value: {{ (default "" $adapter.backendSessionHeader) | quote }}
             - name: AGENT_BACKEND_HEADERS_JSON
-              value: {{ (default "{}" $gw.backendHeadersJson) | quote }}
+              value: {{ (default "{}" $adapter.backendHeadersJson) | quote }}
             - name: AGENT_REQUIRE_VSS_CAPABILITIES
-              value: {{ (default false $gw.requireVssCapabilities) | quote }}
+              value: {{ (default false $adapter.requireVssCapabilities) | quote }}
             - name: AGENT_VSS_CAPABILITIES_B64
-              value: {{ (default "" $gw.vssCapabilitiesB64) | quote }}
+              value: {{ (default "" $adapter.vssCapabilitiesB64) | quote }}
             - name: AGENT_VSS_CAPABILITIES_SHA256
-              value: {{ (default "" $gw.vssCapabilitiesSha256) | quote }}
+              value: {{ (default "" $adapter.vssCapabilitiesSha256) | quote }}
             - name: AGENT_EXPECTED_VSS_RUNTIME_REF
-              value: {{ (default "" $gw.expectedVssRuntimeRef) | quote }}
+              value: {{ (default "" $adapter.expectedVssRuntimeRef) | quote }}
             - name: AGENT_BACKEND_TIMEOUT_SECONDS
-              value: {{ (default 900 $gw.backendTimeoutSeconds) | quote }}
-            - name: AGENT_GATEWAY_RUN_RETENTION_SECONDS
-              value: {{ (default 3600 $gw.runRetentionSeconds) | quote }}
-            - name: AGENT_GATEWAY_MAX_EVENT_CHARS_PER_RUN
-              value: {{ (default 20000000 $gw.maxEventCharsPerRun) | quote }}
-            - name: AGENT_GATEWAY_MAX_THREAD_STATE_CHARS
-              value: {{ (default 20000000 $gw.maxThreadStateChars) | quote }}
-            - name: NEXT_PUBLIC_AGENT_GATEWAY_ENABLED
-              value: {{ $gwEnabled | quote }}
-            {{- $forceHttp := $gw.forceHttpChatTransport }}
+              value: {{ (default 900 $adapter.backendTimeoutSeconds) | quote }}
+            - name: AGENT_RUN_RETENTION_SECONDS
+              value: {{ (default 3600 $adapter.runRetentionSeconds) | quote }}
+            - name: AGENT_MAX_EVENT_CHARS_PER_RUN
+              value: {{ (default 20000000 $adapter.maxEventCharsPerRun) | quote }}
+            - name: AGENT_MAX_THREAD_STATE_CHARS
+              value: {{ (default 20000000 $adapter.maxThreadStateChars) | quote }}
+            {{- $forceHttp := $adapter.forceHttpChatTransport }}
             {{- if or (kindIs "invalid" $forceHttp) (eq ($forceHttp | toString | trim) "") }}
-            {{- $forceHttp = $gwEnabled }}
+            {{- $forceHttp = $adapterEnabled }}
             {{- end }}
             - name: NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT
               value: {{ $forceHttp | quote }}

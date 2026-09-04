@@ -517,7 +517,7 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
     return ",".join(compose_profiles)
 
 
-def apply_agent_gateway_env(merged: dict[str, str]) -> None:
+def apply_agent_adapter_env(merged: dict[str, str]) -> None:
     """Configure the Next.js UI's embedded harness adapter when requested.
 
     The harness forward binds only to Docker's private bridge address. The UI
@@ -525,42 +525,42 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     server-side environment.
     """
 
-    raw_enabled = merged.get("VSS_AGENT_GATEWAY_ENABLED", "").strip().lower()
+    raw_enabled = merged.get("VSS_AGENT_ADAPTER_ENABLED", "").strip().lower()
     if raw_enabled in _FALSE_VALUES:
         return
     if raw_enabled not in _TRUE_VALUES:
-        raise ValidationError("VSS_AGENT_GATEWAY_ENABLED must be true or false.")
+        raise ValidationError("VSS_AGENT_ADAPTER_ENABLED must be true or false.")
 
     if not merged.get("VSS_AGENT_BACKEND_URL", "").strip():
-        raise ValidationError("VSS_AGENT_BACKEND_URL is required when VSS_AGENT_GATEWAY_ENABLED=true.")
+        raise ValidationError("VSS_AGENT_BACKEND_URL is required when VSS_AGENT_ADAPTER_ENABLED=true.")
 
-    encoded_receipt = merged.get("VSS_AGENT_GATEWAY_CAPABILITIES_B64", "").strip()
-    receipt_digest = merged.get("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256", "").strip().lower()
+    encoded_receipt = merged.get("VSS_AGENT_CAPABILITIES_B64", "").strip()
+    receipt_digest = merged.get("VSS_AGENT_CAPABILITIES_SHA256", "").strip().lower()
     if not encoded_receipt:
         raise ValidationError(
-            "VSS_AGENT_GATEWAY_CAPABILITIES_B64 is required when "
-            "VSS_AGENT_GATEWAY_ENABLED=true; run attach_vss_agent.py before resolution."
+            "VSS_AGENT_CAPABILITIES_B64 is required when "
+            "VSS_AGENT_ADAPTER_ENABLED=true; run attach_vss_agent.py before resolution."
         )
     if not re.fullmatch(r"[0-9a-f]{64}", receipt_digest):
-        raise ValidationError("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256 must be a lowercase SHA-256 digest.")
+        raise ValidationError("VSS_AGENT_CAPABILITIES_SHA256 must be a lowercase SHA-256 digest.")
     try:
         raw_receipt = base64.b64decode(encoded_receipt, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ValidationError("VSS_AGENT_GATEWAY_CAPABILITIES_B64 must be strict base64.") from exc
+        raise ValidationError("VSS_AGENT_CAPABILITIES_B64 must be strict base64.") from exc
     if not raw_receipt or len(raw_receipt) > MAX_AGENT_CAPABILITY_RECEIPT_BYTES:
         raise ValidationError(
             f"Decoded VSS agent capability receipt must be 1..{MAX_AGENT_CAPABILITY_RECEIPT_BYTES} bytes."
         )
     if not hmac.compare_digest(hashlib.sha256(raw_receipt).hexdigest(), receipt_digest):
         raise ValidationError("VSS agent capability receipt digest does not match.")
-    expected_runtime_ref = merged.get("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF", "").strip().lower()
+    expected_runtime_ref = merged.get("VSS_AGENT_EXPECTED_RUNTIME_REF", "").strip().lower()
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", expected_runtime_ref):
-        raise ValidationError("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF must be a full Git commit ID.")
+        raise ValidationError("VSS_AGENT_EXPECTED_RUNTIME_REF must be a full Git commit ID.")
 
     bind_host = merged.get("VSS_AGENT_BACKEND_BIND_HOST", "").strip()
     if not bind_host:
         raise ValidationError(
-            "VSS_AGENT_BACKEND_BIND_HOST is required when VSS_AGENT_GATEWAY_ENABLED=true; "
+            "VSS_AGENT_BACKEND_BIND_HOST is required when VSS_AGENT_ADAPTER_ENABLED=true; "
             "set it to the private address from `docker network inspect bridge`."
         )
     try:
@@ -575,9 +575,9 @@ def apply_agent_gateway_env(merged: dict[str, str]) -> None:
     ):
         raise ValidationError("VSS_AGENT_BACKEND_BIND_HOST must be a private, non-loopback IPv4 address.")
 
-    merged["VSS_AGENT_GATEWAY_ENABLED"] = "true"
+    merged["VSS_AGENT_ADAPTER_ENABLED"] = "true"
     merged["VSS_AGENT_BACKEND_BIND_HOST"] = bind_host
-    merged["VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"] = "true"
+    merged["VSS_AGENT_REQUIRE_CAPABILITIES"] = "true"
     # The embedded adapter is an HTTP/SSE transport. Lock every UI chat surface
     # to the same-origin API so a persisted WebSocket preference cannot bypass it.
     merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] = "true"
@@ -849,7 +849,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
     merged["COMPOSE_PROFILES"] = resolve_compose_profiles(merged, config.profile)
-    apply_agent_gateway_env(merged)
+    apply_agent_adapter_env(merged)
     # Resolve nested ${VAR} references (e.g. SDR_CONTROLLER_CONFIG_PATH, VST_CONFIG_PATH,
     # REACT_APP_API_ENDPOINT_BASE_URL) so the generated .env holds self-contained values;
     # docker compose does not interpolate env-file values against each other.
@@ -897,7 +897,7 @@ def _compose_subprocess_env_for_config(
     return compose_env
 
 
-def resolve_compose(config: DryRunRecipe, *, agent_gateway_enabled: bool = False) -> str:
+def resolve_compose(config: DryRunRecipe, *, agent_adapter_enabled: bool = False) -> str:
     env_file_args = _compose_env_file_args(config, config.output_env_file)
     compose_env = _compose_subprocess_env_for_config(config)
     try:
@@ -914,7 +914,7 @@ def resolve_compose(config: DryRunRecipe, *, agent_gateway_enabled: bool = False
         raise RuntimeError(f"docker compose config failed.\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}")
     return sanitize_resolved_compose(
         result.stdout,
-        agent_gateway_ui_source_root=(config.deployments_dir.parent.parent if agent_gateway_enabled else None),
+        agent_adapter_ui_source_root=(config.deployments_dir.parent.parent if agent_adapter_enabled else None),
     )
 
 
@@ -944,9 +944,9 @@ def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path
 def sanitize_resolved_compose(
     compose_text: str,
     *,
-    agent_gateway_ui_source_root: Path | None = None,
+    agent_adapter_ui_source_root: Path | None = None,
 ) -> str:
-    """Normalize a resolved graph and add source builds required by gateway mode."""
+    """Normalize a resolved graph and add source builds required by adapter mode."""
 
     parsed = yaml.safe_load(compose_text)
     if not isinstance(parsed, dict):
@@ -959,11 +959,11 @@ def sanitize_resolved_compose(
     # Embedded-adapter UI routes are part of this source checkout. Until a
     # compatible released UI image is pinned, build the selected UI service
     # from the same checkout.
-    if agent_gateway_ui_source_root is not None:
+    if agent_adapter_ui_source_root is not None:
         ui_service = services.get("vss-ui")
         if isinstance(ui_service, dict) and "build" not in ui_service:
             ui_service["build"] = {
-                "context": str(agent_gateway_ui_source_root),
+                "context": str(agent_adapter_ui_source_root),
                 "dockerfile": "services/ui/Dockerfile",
                 "args": {"BUILD_TYPE": "prod"},
             }
@@ -1019,7 +1019,7 @@ def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Pa
         compose_file,
         resolve_compose(
             config,
-            agent_gateway_enabled=resolved_env.get("VSS_AGENT_GATEWAY_ENABLED") == "true",
+            agent_adapter_enabled=resolved_env.get("VSS_AGENT_ADAPTER_ENABLED") == "true",
         ),
     )
     return resolved_env, env_file, compose_file

@@ -25,16 +25,16 @@ import yaml
 
 from vss_agents.orchestrator import docker_compose_util as dcu
 
-_GATEWAY_RECEIPT_BYTES = b'{"schema_version":1}'
-_GATEWAY_RECEIPT_B64 = base64.b64encode(_GATEWAY_RECEIPT_BYTES).decode("ascii")
-_GATEWAY_RECEIPT_SHA256 = hashlib.sha256(_GATEWAY_RECEIPT_BYTES).hexdigest()
+_CAPABILITY_RECEIPT_BYTES = b'{"schema_version":1}'
+_CAPABILITY_RECEIPT_B64 = base64.b64encode(_CAPABILITY_RECEIPT_BYTES).decode("ascii")
+_CAPABILITY_RECEIPT_SHA256 = hashlib.sha256(_CAPABILITY_RECEIPT_BYTES).hexdigest()
 
 
-def _gateway_receipt_env() -> dict[str, str]:
+def _capability_receipt_env() -> dict[str, str]:
     return {
-        "VSS_AGENT_GATEWAY_CAPABILITIES_B64": _GATEWAY_RECEIPT_B64,
-        "VSS_AGENT_GATEWAY_CAPABILITIES_SHA256": _GATEWAY_RECEIPT_SHA256,
-        "VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "a" * 40,
+        "VSS_AGENT_CAPABILITIES_B64": _CAPABILITY_RECEIPT_B64,
+        "VSS_AGENT_CAPABILITIES_SHA256": _CAPABILITY_RECEIPT_SHA256,
+        "VSS_AGENT_EXPECTED_RUNTIME_REF": "a" * 40,
     }
 
 
@@ -376,28 +376,28 @@ class TestResolveComposeProfiles:
         )
 
 
-class TestApplyEmbeddedAgentGatewayEnv:
+class TestApplyEmbeddedAgentAdapterEnv:
     def test_disabled_is_a_noop(self):
         merged = {"COMPOSE_PROFILES": "vss-agent"}
 
-        dcu.apply_agent_gateway_env(merged)
+        dcu.apply_agent_adapter_env(merged)
 
         assert merged == {"COMPOSE_PROFILES": "vss-agent"}
 
     def test_enabled_adds_safe_defaults_without_a_new_service(self):
         merged = {
             "COMPOSE_PROFILES": "vss-agent,vss-ui",
-            "VSS_AGENT_GATEWAY_ENABLED": "yes",
+            "VSS_AGENT_ADAPTER_ENABLED": "yes",
             "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
             "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:18789",
-            **_gateway_receipt_env(),
+            **_capability_receipt_env(),
         }
 
-        dcu.apply_agent_gateway_env(merged)
+        dcu.apply_agent_adapter_env(merged)
 
         assert merged["COMPOSE_PROFILES"] == "vss-agent,vss-ui"
-        assert merged["VSS_AGENT_GATEWAY_ENABLED"] == "true"
-        assert merged["VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES"] == "true"
+        assert merged["VSS_AGENT_ADAPTER_ENABLED"] == "true"
+        assert merged["VSS_AGENT_REQUIRE_CAPABILITIES"] == "true"
         assert merged["NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT"] == "true"
         assert merged["NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON"] == "false"
         assert merged["NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON"] == "false"
@@ -410,11 +410,11 @@ class TestApplyEmbeddedAgentGatewayEnv:
         [
             ({"VSS_AGENT_BACKEND_URL": ""}, "VSS_AGENT_BACKEND_URL is required"),
             (
-                {"VSS_AGENT_GATEWAY_CAPABILITIES_B64": ""},
-                "VSS_AGENT_GATEWAY_CAPABILITIES_B64 is required",
+                {"VSS_AGENT_CAPABILITIES_B64": ""},
+                "VSS_AGENT_CAPABILITIES_B64 is required",
             ),
             (
-                {"VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF": "develop"},
+                {"VSS_AGENT_EXPECTED_RUNTIME_REF": "develop"},
                 "EXPECTED_RUNTIME_REF must be a full Git commit ID",
             ),
             ({"VSS_AGENT_BACKEND_BIND_HOST": "127.0.0.1"}, "private, non-loopback IPv4"),
@@ -423,19 +423,19 @@ class TestApplyEmbeddedAgentGatewayEnv:
     def test_enabled_rejects_incomplete_or_unsafe_settings(self, overrides: dict[str, str], message: str):
         merged = {
             "COMPOSE_PROFILES": "vss-ui",
-            "VSS_AGENT_GATEWAY_ENABLED": "true",
+            "VSS_AGENT_ADAPTER_ENABLED": "true",
             "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
             "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:18789",
-            **_gateway_receipt_env(),
+            **_capability_receipt_env(),
             **overrides,
         }
 
         with pytest.raises(dcu.ValidationError, match=message):
-            dcu.apply_agent_gateway_env(merged)
+            dcu.apply_agent_adapter_env(merged)
 
     def test_invalid_enabled_value_is_rejected(self):
         with pytest.raises(dcu.ValidationError, match="must be true or false"):
-            dcu.apply_agent_gateway_env({"COMPOSE_PROFILES": "vss-ui", "VSS_AGENT_GATEWAY_ENABLED": "sometimes"})
+            dcu.apply_agent_adapter_env({"COMPOSE_PROFILES": "vss-ui", "VSS_AGENT_ADAPTER_ENABLED": "sometimes"})
 
 
 class TestExpandEnvValueReferences:
@@ -518,7 +518,7 @@ class TestSanitizeResolvedCompose:
         sanitized = yaml.safe_load(
             dcu.sanitize_resolved_compose(
                 compose_text,
-                agent_gateway_ui_source_root=tmp_path,
+                agent_adapter_ui_source_root=tmp_path,
             )
         )
 
@@ -540,7 +540,7 @@ class TestSanitizeResolvedCompose:
         sanitized = yaml.safe_load(
             dcu.sanitize_resolved_compose(
                 compose_text,
-                agent_gateway_ui_source_root=tmp_path,
+                agent_adapter_ui_source_root=tmp_path,
             )
         )
 
@@ -588,12 +588,12 @@ class TestBuildResolvedEnv:
             tmp_path,
             _env_text(*_base_env("thor"), "COMPOSE_PROFILES=vss-agent"),
             env_overrides={
-                "VSS_AGENT_GATEWAY_ENABLED": "true",
+                "VSS_AGENT_ADAPTER_ENABLED": "true",
                 "VSS_AGENT_BACKEND_BIND_HOST": "172.17.0.1",
                 "VSS_AGENT_BACKEND_URL": "http://host.docker.internal:8642",
                 "VSS_AGENT_BACKEND_TOKEN": "backend-secret",  # pragma: allowlist secret
                 "VSS_AGENT_BACKEND_MODEL": "hermes-agent",
-                **_gateway_receipt_env(),
+                **_capability_receipt_env(),
             },
         )
         _patch_network(monkeypatch)
@@ -2014,16 +2014,16 @@ class TestGenerateDryRunArtifacts:
         monkeypatch.setattr(
             dcu,
             "build_resolved_env",
-            lambda _config: {"VSS_AGENT_GATEWAY_ENABLED": "true"},
+            lambda _config: {"VSS_AGENT_ADAPTER_ENABLED": "true"},
         )
         monkeypatch.setattr(
             dcu,
             "render_generated_env",
-            lambda _source, _resolved: "VSS_AGENT_GATEWAY_ENABLED=true\n",
+            lambda _source, _resolved: "VSS_AGENT_ADAPTER_ENABLED=true\n",
         )
 
-        def fake_resolve(_config, *, agent_gateway_enabled=False):
-            resolve_calls.append(agent_gateway_enabled)
+        def fake_resolve(_config, *, agent_adapter_enabled=False):
+            resolve_calls.append(agent_adapter_enabled)
             return "services: {}\n"
 
         monkeypatch.setattr(dcu, "resolve_compose", fake_resolve)

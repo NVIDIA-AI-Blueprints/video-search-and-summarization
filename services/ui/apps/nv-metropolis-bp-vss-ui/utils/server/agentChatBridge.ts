@@ -2,28 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  embeddedGatewayConfigured,
-  getEmbeddedGatewayService,
+  agentAdapterConfigured,
+  getAgentAdapterService,
   observeRunEvents,
-} from "./agentGatewayRuntime";
+} from "./agentAdapter";
 import {
   ContractError,
   createRunEvent,
   parseCreateRunRequest,
   runEventPayload,
-} from "./agentGatewayRuntime/contract";
-import type { EmbeddedGatewayService } from "./agentGatewayRuntime/service";
+} from "./agentAdapter/contract";
+import type { AgentAdapterService } from "./agentAdapter/service";
 import {
   EventsExpiredError,
   IdempotencyConflictError,
   StoreCapacityError,
   ThreadBusyError,
-} from "./agentGatewayRuntime/store";
+} from "./agentAdapter/store";
 import type { NextApiRequest, NextApiResponse } from "next";
 
 const MAX_SSE_BUFFER_LENGTH = 5_000_000;
 const MAX_ARTIFACT_LENGTH = 1_000_000;
-const GATEWAY_PROTOCOL_MAJOR = "1";
+const AGENT_PROTOCOL_MAJOR = "1";
 const ARTIFACT_OPEN = "<vss-ui-artifact>";
 const ARTIFACT_CLOSE = "</vss-ui-artifact>";
 const INCIDENTS_OPEN = "<incidents>";
@@ -36,7 +36,7 @@ const escapeTagOpen = (value: string): string =>
 
 type JsonObject = Record<string, unknown>;
 
-export interface GatewayEvent {
+export interface AgentEvent {
   protocol_version: string;
   id: string;
   type: string;
@@ -50,7 +50,7 @@ interface ChatMessage {
   content: string;
 }
 
-class GatewayProtocolError extends Error {}
+class AgentProtocolError extends Error {}
 
 export interface LegacyEventState {
   toolArguments: Map<string, string>;
@@ -76,7 +76,7 @@ const serializedPayload = (value: unknown): string => {
 };
 
 const intermediateChunk = (
-  event: GatewayEvent,
+  event: AgentEvent,
   options: { id: string; name: string; status: string; payload: unknown }
 ): string => {
   const intermediate = {
@@ -117,8 +117,8 @@ const vssUiArtifactChunk = (data: JsonObject): string | null => {
   }
 };
 
-/** Remove only gateway-generated presentation markup from assistant history. */
-export const sanitizeGatewayHistoryContent = (content: string): string => {
+/** Remove only adapter-generated presentation markup from assistant history. */
+export const sanitizeAgentHistoryContent = (content: string): string => {
   let output = "";
   let cursor = 0;
   while (cursor < content.length) {
@@ -172,7 +172,7 @@ export const sanitizeGatewayHistoryContent = (content: string): string => {
 
   // Run status, reasoning, and tool rows are serialized into the legacy text
   // stream for presentation only. Strip only wrappers whose JSON has the exact
-  // gateway-generated discriminator; malformed or illustrative prose survives.
+  // Adapter-generated discriminator; malformed or illustrative prose survives.
   let cleaned = "";
   cursor = 0;
   while (cursor < output.length) {
@@ -330,7 +330,7 @@ const alertIncidentsChunk = (data: JsonObject): string | null => {
   return `<incidents>${json}</incidents>`;
 };
 
-export const gatewayRunStatusChunk = (
+export const agentRunStatusChunk = (
   runId: string,
   status: "in_progress" | "complete",
   payload: string,
@@ -359,16 +359,16 @@ const legacyToolStatus = (eventType: string): string => {
 /**
  * Temporary presentation adapter for the existing chat renderer. The browser-facing
  * `/api/agent/*` route remains fully structured; this is removed when the renderer
- * consumes GatewayEvent directly.
+ * consumes AgentEvent directly.
  */
-export const gatewayEventToLegacyChunks = (
-  event: GatewayEvent,
+export const agentEventToLegacyChunks = (
+  event: AgentEvent,
   state: LegacyEventState
 ): string[] => {
   const data = event.data || {};
   if (event.type === "run.started") {
     return [
-      gatewayRunStatusChunk(
+      agentRunStatusChunk(
         event.run_id,
         "in_progress",
         "Waiting for the agent backend...",
@@ -378,7 +378,7 @@ export const gatewayEventToLegacyChunks = (
   }
   if (event.type === "run.completed") {
     return [
-      gatewayRunStatusChunk(
+      agentRunStatusChunk(
         event.run_id,
         "complete",
         "Agent run completed.",
@@ -459,14 +459,14 @@ export const gatewayEventToLegacyChunks = (
   return [];
 };
 
-export class GatewaySseDecoder {
+export class AgentSseDecoder {
   private buffer = "";
 
-  push(chunk: string): GatewayEvent[] {
+  push(chunk: string): AgentEvent[] {
     this.buffer = (this.buffer + chunk).replaceAll("\r\n", "\n");
     if (this.buffer.length > MAX_SSE_BUFFER_LENGTH) {
-      throw new GatewayProtocolError(
-        "Agent gateway emitted an oversized SSE frame"
+      throw new AgentProtocolError(
+        "Agent adapter emitted an oversized SSE frame"
       );
     }
     const frames = this.buffer.split("\n\n");
@@ -474,13 +474,13 @@ export class GatewaySseDecoder {
     return frames.flatMap((frame) => this.parseFrame(frame));
   }
 
-  finish(): GatewayEvent[] {
+  finish(): AgentEvent[] {
     const finalFrame = this.buffer;
     this.buffer = "";
     return finalFrame ? this.parseFrame(finalFrame) : [];
   }
 
-  private parseFrame(frame: string): GatewayEvent[] {
+  private parseFrame(frame: string): AgentEvent[] {
     const data = frame
       .split("\n")
       .filter((line) => line.startsWith("data:"))
@@ -491,23 +491,23 @@ export class GatewaySseDecoder {
     try {
       parsed = JSON.parse(data);
     } catch {
-      throw new GatewayProtocolError("Agent gateway emitted invalid SSE JSON");
+      throw new AgentProtocolError("Agent adapter emitted invalid SSE JSON");
     }
-    if (!isGatewayEvent(parsed)) {
-      throw new GatewayProtocolError(
-        "Agent gateway emitted an invalid protocol event"
+    if (!isAgentEvent(parsed)) {
+      throw new AgentProtocolError(
+        "Agent adapter emitted an invalid protocol event"
       );
     }
     return [parsed];
   }
 }
 
-export const isGatewayEvent = (value: unknown): value is GatewayEvent => {
+export const isAgentEvent = (value: unknown): value is AgentEvent => {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<GatewayEvent>;
+  const candidate = value as Partial<AgentEvent>;
   return (
     typeof candidate.protocol_version === "string" &&
-    candidate.protocol_version.split(".")[0] === GATEWAY_PROTOCOL_MAJOR &&
+    candidate.protocol_version.split(".")[0] === AGENT_PROTOCOL_MAJOR &&
     typeof candidate.id === "string" &&
     typeof candidate.type === "string" &&
     typeof candidate.run_id === "string" &&
@@ -518,8 +518,7 @@ export const isGatewayEvent = (value: unknown): value is GatewayEvent => {
   );
 };
 
-export const isAgentGatewayConfigured = (): boolean =>
-  embeddedGatewayConfigured();
+export const isAgentAdapterConfigured = (): boolean => agentAdapterConfigured();
 
 const cleanMessages = (value: unknown): ChatMessage[] => {
   if (!Array.isArray(value)) return [];
@@ -538,15 +537,13 @@ const cleanMessages = (value: unknown): ChatMessage[] => {
       {
         role: role as ChatMessage["role"],
         content:
-          role === "assistant"
-            ? sanitizeGatewayHistoryContent(content)
-            : content,
+          role === "assistant" ? sanitizeAgentHistoryContent(content) : content,
       },
     ];
   });
 };
 
-export const agentGatewayChatHandler = async (
+export const agentChatBridgeHandler = async (
   req: NextApiRequest,
   res: NextApiResponse
 ): Promise<void> => {
@@ -557,22 +554,22 @@ export const agentGatewayChatHandler = async (
     });
     return;
   }
-  let service: EmbeddedGatewayService | null;
+  let service: AgentAdapterService | null;
   try {
-    service = getEmbeddedGatewayService();
+    service = getAgentAdapterService();
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Agent gateway is misconfigured";
+      error instanceof Error ? error.message : "Agent adapter is misconfigured";
     res.status(503).json({
-      error: { code: "gateway_not_configured", message },
+      error: { code: "adapter_not_configured", message },
     });
     return;
   }
   if (!service) {
     res.status(503).json({
       error: {
-        code: "gateway_not_configured",
-        message: "Embedded agent gateway is not configured",
+        code: "adapter_not_configured",
+        message: "Embedded agent adapter is not configured",
       },
     });
     return;
@@ -625,7 +622,7 @@ export const agentGatewayChatHandler = async (
       thread_id: threadId,
       input: [lastUserMessage],
       // A one-message body means the existing UI disabled client-side history.
-      // Omit recovery history so the gateway can continue its saved response chain.
+      // Omit recovery history so the adapter can continue its saved response chain.
       history: messages.length > 1 ? messages : [],
       surface: "vss-ui",
     });
@@ -648,7 +645,7 @@ export const agentGatewayChatHandler = async (
     )) {
       if (!runEvent) {
         res.write(
-          gatewayRunStatusChunk(
+          agentRunStatusChunk(
             runId,
             "in_progress",
             "Waiting for the agent backend..."
@@ -657,8 +654,8 @@ export const agentGatewayChatHandler = async (
         continue;
       }
       lastEventSequence = runEvent.sequence;
-      const event = runEventPayload(runEvent) as unknown as GatewayEvent;
-      for (const chunk of gatewayEventToLegacyChunks(event, legacyState)) {
+      const event = runEventPayload(runEvent) as unknown as AgentEvent;
+      for (const chunk of agentEventToLegacyChunks(event, legacyState)) {
         res.write(chunk);
       }
       terminal = ["run.completed", "run.failed", "run.cancelled"].includes(
@@ -667,7 +664,7 @@ export const agentGatewayChatHandler = async (
     }
     if (!terminal)
       throw new Error(
-        "Agent gateway event stream ended before a terminal event"
+        "Agent adapter event stream ended before a terminal event"
       );
     res.end();
   } catch (error) {
@@ -687,8 +684,8 @@ export const agentGatewayChatHandler = async (
               retryable: false,
             },
           })
-        ) as unknown as GatewayEvent;
-        for (const chunk of gatewayEventToLegacyChunks(failure, legacyState)) {
+        ) as unknown as AgentEvent;
+        for (const chunk of agentEventToLegacyChunks(failure, legacyState)) {
           res.write(chunk);
         }
         res.end();
@@ -698,9 +695,9 @@ export const agentGatewayChatHandler = async (
       return;
     }
     const message =
-      error instanceof Error ? error.message : "Agent gateway request failed";
+      error instanceof Error ? error.message : "Agent adapter request failed";
     if (res.headersSent) {
-      res.write(`\n\n**Agent gateway error:** ${message}`);
+      res.write(`\n\n**Agent adapter error:** ${message}`);
       res.end();
     } else if (error instanceof ContractError) {
       res.status(400).json({ error: { code: "invalid_request", message } });
@@ -721,7 +718,7 @@ export const agentGatewayChatHandler = async (
         error: { code: "run_capacity_reached", message },
       });
     } else {
-      res.status(502).json({ error: { code: "gateway_unavailable", message } });
+      res.status(502).json({ error: { code: "adapter_unavailable", message } });
     }
     if (runId && !terminal) void service.cancelRun(runId);
   } finally {

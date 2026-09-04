@@ -66,7 +66,7 @@ alertsCvVerificationEnabled: true
 # Backend-agnostic external-agent adapter embedded in this Next.js server.
 # Compose parity: deploy/docker/services/ui/compose.yml sets AGENT_* env from
 # VSS_AGENT_* host-side vars; here they are chart values with the same
-# defaults. Leave `backendUrl` empty to keep the gateway disabled (default);
+# defaults. Leave `backendUrl` empty to keep the adapter disabled (default);
 # profiles that expose an external agent set backendUrl to a cluster-private
 # URL and toggle enabled=true. Credentials MUST NOT use NEXT_PUBLIC_* — the
 # token is only rendered into AGENT_BACKEND_TOKEN which stays server-side.
@@ -74,7 +74,7 @@ alertsCvVerificationEnabled: true
 # analog: K8s pods reach services via in-cluster DNS or hostAliases, not the
 # Docker-bridge host-gateway trick. Set backendUrl to the cluster-reachable
 # harness URL directly.
-gateway:
+agentAdapter:
   enabled: false
   backendProtocol: responses
   backendUrl: ""
@@ -94,8 +94,8 @@ gateway:
   runRetentionSeconds: 3600
   maxEventCharsPerRun: 20000000
   maxThreadStateChars: 20000000
-  # Force browser off legacy WebSocket transport when the gateway is on; mirrors
-  # compose default (falls back to gateway.enabled).
+  # Force browser off legacy WebSocket transport when the adapter is on; mirrors
+  # compose default (falls back to agentAdapter.enabled).
   forceHttpChatTransport: ""
 # When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
 # When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).

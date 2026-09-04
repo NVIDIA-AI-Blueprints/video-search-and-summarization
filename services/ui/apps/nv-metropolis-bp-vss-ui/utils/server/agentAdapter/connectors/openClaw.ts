@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { EmbeddedGatewayConfig } from "../config";
+import type { AgentAdapterConfig } from "../config";
 import type { ConnectorEvent, CreateRunRequest, JsonObject } from "../contract";
 import { isJsonObject } from "../json";
 import { type Connector, ConnectorError, connectorCapabilities } from "./base";
@@ -71,7 +71,7 @@ export class OpenClawConnector implements Connector {
   private readonly activeRuns = new Map<string, ActiveRun>();
 
   constructor(
-    private readonly config: EmbeddedGatewayConfig,
+    private readonly config: AgentAdapterConfig,
     private readonly webSocketFactory?: WebSocketFactory
   ) {
     this.endpoint = `${config.backendUrl}${config.backendPath}`;

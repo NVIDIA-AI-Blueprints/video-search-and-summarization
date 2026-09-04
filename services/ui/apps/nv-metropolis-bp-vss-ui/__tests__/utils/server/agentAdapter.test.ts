@@ -6,19 +6,19 @@ import {
   ARTIFACT_OPEN,
   ArtifactStreamParser,
   stripArtifactsFromValue,
-} from "../../../utils/server/agentGatewayRuntime/artifacts";
-import { loadEmbeddedGatewayConfig } from "../../../utils/server/agentGatewayRuntime/config";
+} from "../../../utils/server/agentAdapter/artifacts";
+import { loadAgentAdapterConfig } from "../../../utils/server/agentAdapter/config";
 import {
   fullTranscript,
   parseCreateRunRequest,
-} from "../../../utils/server/agentGatewayRuntime/contract";
-import { strictJsonParse } from "../../../utils/server/agentGatewayRuntime/json";
+} from "../../../utils/server/agentAdapter/contract";
+import { strictJsonParse } from "../../../utils/server/agentAdapter/json";
 import {
   EventsExpiredError,
   IdempotencyConflictError,
   RunStore,
   ThreadBusyError,
-} from "../../../utils/server/agentGatewayRuntime/store";
+} from "../../../utils/server/agentAdapter/store";
 
 const request = () =>
   parseCreateRunRequest({
@@ -27,7 +27,7 @@ const request = () =>
     history: [{ role: "assistant", content: "previous" }],
   });
 
-describe("embedded agent gateway runtime", () => {
+describe("embedded agent adapter", () => {
   it("strictly parses JSON and rejects duplicate keys", () => {
     expect(strictJsonParse('{"a":1,"nested":{"b":2}}')).toEqual({
       a: 1,
@@ -147,19 +147,19 @@ describe("embedded agent gateway runtime", () => {
 
   it("rejects reserved and unsafe upstream headers", () => {
     expect(() =>
-      loadEmbeddedGatewayConfig({
+      loadAgentAdapterConfig({
         AGENT_BACKEND_URL: "http://backend",
         AGENT_BACKEND_HEADERS_JSON: '{"Authorization":"secret"}',
       })
     ).toThrow("cannot override Authorization");
     expect(() =>
-      loadEmbeddedGatewayConfig({
+      loadAgentAdapterConfig({
         AGENT_BACKEND_URL: "http://backend",
         AGENT_BACKEND_HEADERS_JSON: '{"X-Test":"bad\\nvalue"}',
       })
     ).toThrow("invalid HTTP header value");
     expect(() =>
-      loadEmbeddedGatewayConfig({
+      loadAgentAdapterConfig({
         AGENT_BACKEND_PROTOCOL: "openclaw-ws",
         AGENT_BACKEND_URL: "ws://backend",
         AGENT_BACKEND_HEADERS_JSON: '{"X-Route":"one"}',

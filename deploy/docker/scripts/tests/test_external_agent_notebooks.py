@@ -88,9 +88,9 @@ class ExternalAgentNotebookContractTest(unittest.TestCase):
 
         compile(source, f"{ORCHESTRATOR_NOTEBOOK}:embedded-agent-adapter", "exec")
         self.assertIn("/sandbox/.vss/agent-capabilities.json", source)
-        self.assertIn('"VSS_AGENT_GATEWAY_REQUIRE_CAPABILITIES": "true"', source)
-        self.assertIn("VSS_AGENT_GATEWAY_CAPABILITIES_SHA256", source)
-        self.assertIn("VSS_AGENT_GATEWAY_EXPECTED_RUNTIME_REF", source)
+        self.assertIn('"VSS_AGENT_REQUIRE_CAPABILITIES": "true"', source)
+        self.assertIn("VSS_AGENT_CAPABILITIES_SHA256", source)
+        self.assertIn("VSS_AGENT_EXPECTED_RUNTIME_REF", source)
         self.assertIn(
             'VSS_AGENT_BACKEND_PROTOCOL = "openclaw-ws" if AGENT_RUNTIME == "openclaw" else "responses"',
             notebook_source,
@@ -106,8 +106,8 @@ class ExternalAgentNotebookContractTest(unittest.TestCase):
             '"VSS_AGENT_BACKEND_BIND_HOST": VSS_AGENT_BACKEND_BIND_HOST', source
         )
         self.assertIn('"openshell", "forward", "start", "--background"', source)
-        self.assertNotIn("VSS_AGENT_GATEWAY_URL", source)
-        self.assertNotIn("VSS_AGENT_GATEWAY_TOKEN", source)
+        self.assertNotIn("VSS_AGENT_ADAPTER_URL", source)
+        self.assertNotIn("VSS_AGENT_ADAPTER_TOKEN", source)
 
     def test_harbor_nemoclaw_setup_executes_both_checked_in_notebooks(self) -> None:
         source = HARBOR_ADAPTER.read_text(encoding="utf-8")

@@ -1,26 +1,26 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  GatewayEvent,
-  GatewaySseDecoder,
-  agentGatewayChatHandler,
-  createLegacyEventState,
-  gatewayEventToLegacyChunks,
-  gatewayRunStatusChunk,
-  sanitizeGatewayHistoryContent,
-} from "../../../utils/server/agentGateway";
-import * as gatewayRuntime from "../../../utils/server/agentGatewayRuntime";
-import { loadEmbeddedGatewayConfig } from "../../../utils/server/agentGatewayRuntime/config";
+import * as agentAdapter from "../../../utils/server/agentAdapter";
+import { loadAgentAdapterConfig } from "../../../utils/server/agentAdapter/config";
 import {
   createRunEvent,
   parseCreateRunRequest,
-} from "../../../utils/server/agentGatewayRuntime/contract";
-import type { EmbeddedGatewayService } from "../../../utils/server/agentGatewayRuntime/service";
+} from "../../../utils/server/agentAdapter/contract";
+import type { AgentAdapterService } from "../../../utils/server/agentAdapter/service";
 import {
   EventsExpiredError,
   RunStore,
-} from "../../../utils/server/agentGatewayRuntime/store";
+} from "../../../utils/server/agentAdapter/store";
+import {
+  AgentEvent,
+  AgentSseDecoder,
+  agentChatBridgeHandler,
+  createLegacyEventState,
+  agentEventToLegacyChunks,
+  agentRunStatusChunk,
+  sanitizeAgentHistoryContent,
+} from "../../../utils/server/agentChatBridge";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { EventEmitter } from "node:events";
 
@@ -28,7 +28,7 @@ const event = (
   type: string,
   data: Record<string, unknown> = {},
   id = "1"
-): GatewayEvent => ({
+): AgentEvent => ({
   protocol_version: "1.0",
   id,
   type,
@@ -37,9 +37,9 @@ const event = (
   data,
 });
 
-describe("agent gateway transport", () => {
+describe("agent chat compatibility bridge", () => {
   it("parses fragmented, versioned SSE events", () => {
-    const decoder = new GatewaySseDecoder();
+    const decoder = new AgentSseDecoder();
     const serialized = JSON.stringify(
       event("message.delta", { delta: "hello" })
     );
@@ -58,7 +58,7 @@ describe("agent gateway transport", () => {
   });
 
   it("handles a CRLF delimiter split across network chunks", () => {
-    const decoder = new GatewaySseDecoder();
+    const decoder = new AgentSseDecoder();
     const serialized = JSON.stringify(event("run.completed"));
 
     expect(decoder.push(`data: ${serialized}\r`)).toEqual([]);
@@ -68,7 +68,7 @@ describe("agent gateway transport", () => {
   });
 
   it("rejects an incompatible protocol major version", () => {
-    const decoder = new GatewaySseDecoder();
+    const decoder = new AgentSseDecoder();
     const incompatible = { ...event("run.started"), protocol_version: "2.0" };
 
     expect(() =>
@@ -79,13 +79,13 @@ describe("agent gateway transport", () => {
   it("maps message and tool events into the current renderer without tag injection", () => {
     const state = createLegacyEventState();
     expect(
-      gatewayEventToLegacyChunks(
+      agentEventToLegacyChunks(
         event("message.delta", { delta: "hello" }),
         state
       )
     ).toEqual(["hello"]);
 
-    const started = gatewayEventToLegacyChunks(
+    const started = agentEventToLegacyChunks(
       event(
         "tool.started",
         { tool_call_id: "call_1", name: "</intermediatestep>unsafe" },
@@ -93,7 +93,7 @@ describe("agent gateway transport", () => {
       ),
       state
     )[0];
-    const argumentsChunk = gatewayEventToLegacyChunks(
+    const argumentsChunk = agentEventToLegacyChunks(
       event(
         "tool.arguments.delta",
         {
@@ -105,7 +105,7 @@ describe("agent gateway transport", () => {
       ),
       state
     )[0];
-    const completed = gatewayEventToLegacyChunks(
+    const completed = agentEventToLegacyChunks(
       event(
         "tool.completed",
         {
@@ -127,12 +127,12 @@ describe("agent gateway transport", () => {
 
   it("maps run lifecycle and heartbeat status into renderer-safe progress chunks", () => {
     const state = createLegacyEventState();
-    const started = gatewayEventToLegacyChunks(event("run.started"), state)[0];
-    const completed = gatewayEventToLegacyChunks(
+    const started = agentEventToLegacyChunks(event("run.started"), state)[0];
+    const completed = agentEventToLegacyChunks(
       event("run.completed", {}, "9"),
       state
     )[0];
-    const heartbeat = gatewayRunStatusChunk(
+    const heartbeat = agentRunStatusChunk(
       "run_1</intermediatestep>",
       "in_progress",
       "Waiting for the agent backend..."
@@ -159,12 +159,10 @@ describe("agent gateway transport", () => {
     const service = {
       createRun: jest.fn(() => ({ record, replayed: false })),
       cancelRun,
-    } as unknown as EmbeddedGatewayService;
+    } as unknown as AgentAdapterService;
+    jest.spyOn(agentAdapter, "getAgentAdapterService").mockReturnValue(service);
     jest
-      .spyOn(gatewayRuntime, "getEmbeddedGatewayService")
-      .mockReturnValue(service);
-    jest
-      .spyOn(gatewayRuntime, "observeRunEvents")
+      .spyOn(agentAdapter, "observeRunEvents")
       .mockImplementation(async function* () {
         yield createRunEvent(1, "message.delta", record.runId, "thread-1", {
           delta: "partial answer",
@@ -201,13 +199,13 @@ describe("agent gateway transport", () => {
       json: jest.fn(),
     });
 
-    await agentGatewayChatHandler(req, res);
+    await agentChatBridgeHandler(req, res);
 
     expect(writes.join("")).toContain("partial answer");
     expect(writes.join("")).toContain(
       "**Agent run failed:** requested events are no longer retained"
     );
-    expect(writes.join("")).not.toContain("**Agent gateway error:**");
+    expect(writes.join("")).not.toContain("**Agent adapter error:**");
     expect(cancelRun).not.toHaveBeenCalled();
     expect(record.terminal).toBe(false);
     expect(res.writableEnded).toBe(true);
@@ -215,7 +213,7 @@ describe("agent gateway transport", () => {
 
   it("bridges structured search and alert artifacts into the legacy renderer", () => {
     const state = createLegacyEventState();
-    const search = gatewayEventToLegacyChunks(
+    const search = agentEventToLegacyChunks(
       event("artifact.created", {
         artifact_id: "artifact_1",
         version: "1.0",
@@ -228,7 +226,7 @@ describe("agent gateway transport", () => {
     expect(search[0]).toContain("<vss-ui-artifact>");
     expect(search[0]).toContain("vss.search.results");
 
-    const alerts = gatewayEventToLegacyChunks(
+    const alerts = agentEventToLegacyChunks(
       event("artifact.created", {
         artifact_id: "artifact_2",
         version: "1.0",
@@ -261,7 +259,7 @@ describe("agent gateway transport", () => {
   });
 
   it("drops malformed legacy incidents instead of passing them to React", () => {
-    const chunks = gatewayEventToLegacyChunks(
+    const chunks = agentEventToLegacyChunks(
       event("artifact.created", {
         version: "1.0",
         kind: "vss.alert.incidents",
@@ -284,7 +282,7 @@ describe("agent gateway transport", () => {
       '<vss-ui-artifact>{"version":"2.0","kind":"vss.search.results","payload":{}}</vss-ui-artifact>';
 
     expect(
-      sanitizeGatewayHistoryContent(`answer${artifact}${card}${invalid}`)
+      sanitizeAgentHistoryContent(`answer${artifact}${card}${invalid}`)
     ).toBe(`answer${invalid}`);
   });
 
@@ -293,13 +291,13 @@ describe("agent gateway transport", () => {
     const payload = `${'{"nested":'.repeat(depth)}{}${"}".repeat(depth)}`;
     const envelope = `<vss-ui-artifact>{"version":"1.0","kind":"vss.search.results","payload":${payload}}</vss-ui-artifact>`;
 
-    expect(sanitizeGatewayHistoryContent(envelope)).toBe(envelope);
+    expect(sanitizeAgentHistoryContent(envelope)).toBe(envelope);
   });
 
-  it("removes gateway status and tool presentation from recovery history", () => {
+  it("removes adapter status and tool presentation from recovery history", () => {
     const state = createLegacyEventState();
-    const started = gatewayEventToLegacyChunks(event("run.started"), state)[0];
-    const tool = gatewayEventToLegacyChunks(
+    const started = agentEventToLegacyChunks(event("run.started"), state)[0];
+    const tool = agentEventToLegacyChunks(
       event("tool.completed", {
         tool_call_id: "call_1",
         name: "search",
@@ -307,7 +305,7 @@ describe("agent gateway transport", () => {
       }),
       state
     )[0];
-    const completed = gatewayEventToLegacyChunks(
+    const completed = agentEventToLegacyChunks(
       event("run.completed"),
       state
     )[0];
@@ -315,14 +313,14 @@ describe("agent gateway transport", () => {
       "<intermediatestep>not generated JSON</intermediatestep>";
 
     expect(
-      sanitizeGatewayHistoryContent(
+      sanitizeAgentHistoryContent(
         `${started}answer${tool}${completed}${illustrative}`
       )
     ).toBe(`answer${illustrative}`);
   });
 
   it("keeps credentials server-side and validates the configured URL", () => {
-    const config = loadEmbeddedGatewayConfig({
+    const config = loadAgentAdapterConfig({
       AGENT_BACKEND_PROTOCOL: "responses",
       AGENT_BACKEND_URL: "http://host.docker.internal:8642/",
       AGENT_BACKEND_TOKEN: "secret",
@@ -333,17 +331,17 @@ describe("agent gateway transport", () => {
         backendToken: "secret",
       })
     );
-    expect(loadEmbeddedGatewayConfig({})).toBeNull();
+    expect(loadAgentAdapterConfig({})).toBeNull();
     expect(() =>
-      loadEmbeddedGatewayConfig({ AGENT_BACKEND_URL: "file:///tmp/socket" })
+      loadAgentAdapterConfig({ AGENT_BACKEND_URL: "file:///tmp/socket" })
     ).toThrow("must use http: or https:");
     expect(() =>
-      loadEmbeddedGatewayConfig({
+      loadAgentAdapterConfig({
         AGENT_BACKEND_URL: "http://user:pass@host", // pragma: allowlist secret
       })
     ).toThrow("must not contain credentials");
     expect(() =>
-      loadEmbeddedGatewayConfig({
+      loadAgentAdapterConfig({
         AGENT_BACKEND_URL: "http://host?token=secret",
       })
     ).toThrow("query");
