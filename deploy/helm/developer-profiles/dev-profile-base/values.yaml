@@ -345,8 +345,6 @@ vss-agent-ui:
       value: "false"
     - name: NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB
       value: "true"
-    - name: NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED
-      value: "false"
     - name: NEXT_PUBLIC_MAP_URL
       value: ""
     - name: NEXT_PUBLIC_MDX_WEB_API_URL
@@ -373,8 +371,6 @@ vss-agent-ui:
       value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_INTERMEDIATE_STEPS
       value: "true"
-    - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
-      value: "false"
     - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
       value: "true"
     - name: NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT

@@ -2,8 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { env } from 'next-runtime-env';
-import type { ChatSidebarControlHandlers } from '@nemo-agent-toolkit/ui';
-import { RuntimeConfigProvider } from '@nemo-agent-toolkit/ui';
+import type { ChatSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/chat';
 import type { 
   AlertsSidebarControlHandlers,
   SearchSidebarControlHandlers,
@@ -92,30 +91,115 @@ interface TabConfig {
 
 // Dynamic component imports based on configuration
 // These are loaded at runtime only if the corresponding tab is enabled
-const dynamicComponents = {
-  NemoAgentToolkitApp: dynamic(() => 
-    import('@nemo-agent-toolkit/ui').then(mod => mod.NemoAgentToolkitApp).catch((error) => {
-      console.error('[DynamicImport] Failed to load NemoAgentToolkitApp:', error);
-      return () => (
-        <div className="flex-1 p-6 overflow-auto">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">Chat</h2>
-          <p className="text-gray-600 dark:text-gray-400">
-            NemoAgentToolkit component library not available. Please install @nemo-agent-toolkit/ui package.
-          </p>
-        </div>
-      );
-    }),
-    { 
-      ssr: true,
-      loading: () => (
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="flex items-center justify-center h-full">
-            <p className="text-gray-600 dark:text-gray-400">Loading Chat...</p>
-          </div>
-        </div>
-      )
+// The chat surface. Speaks the BYO agent contract directly; the NeMo Agent
+// Toolkit UI it replaced has been removed from the repo.
+const VssChatPanel = dynamic(
+  () => import('@nv-metropolis-bp-vss-ui/chat').then((mod) => mod.ChatPanel),
+  { ssr: false },
+);
+
+/** Point an absolute VSS media URL at this app's same-origin proxy. */
+const proxyMediaUrl = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !/^https?:\/\//.test(value)) return value;
+  try {
+    const { pathname, search } = new URL(value);
+    return `/api/proxy${pathname}${search}`;
+  } catch {
+    return value;
+  }
+};
+
+/** Rewrite every *_url field on each legacy search hit. */
+const withProxiedMedia = (hits: Array<Record<string, unknown>>) =>
+  hits.map((hit) => {
+    const next: Record<string, unknown> = { ...hit };
+    for (const key of Object.keys(next)) {
+      if (key.endsWith('_url')) next[key] = proxyMediaUrl(next[key]);
     }
+    return next;
+  });
+
+const readEnv = (key: string) => env(key) || process.env[key] || '';
+
+/**
+ * Chat endpoint + title for a surface.
+ *
+ * The browser uses #1980's same-origin run/event API. Its adapter, backend
+ * address, and credential remain in the existing Next.js server process.
+ */
+type ChatSurface = 'main' | 'sidebar';
+
+/**
+ * Read a chat setting for one surface.
+ *
+ * The two surfaces are configured independently: the sidebar overrides a main
+ * variable by re-declaring it under `NEXT_PUBLIC_SIDEBAR_CHAT_`, falling back
+ * to the main value when it does not. This deployment relies on it — the
+ * sidebar chat has its own agent-parameter fields (search source type, critic
+ * toggle) that the chat tab does not, and reading only the main variables
+ * silently drops them.
+ *
+ * Same resolution order as `utils/tabChatEnv.ts`, which the toolkit path uses.
+ */
+const surfaceEnv = (surface: ChatSurface, mainKey: string): string => {
+  const suffix = mainKey.replace(/^NEXT_PUBLIC_/, '');
+  if (surface === 'sidebar') {
+    const scoped = readEnv(`NEXT_PUBLIC_SIDEBAR_CHAT_${suffix}`);
+    if (scoped) return scoped;
+  }
+  return readEnv(mainKey);
+};
+
+const surfaceFlag = (surface: ChatSurface, mainKey: string, fallback: boolean) => {
+  const value = surfaceEnv(surface, mainKey);
+  return value === '' ? fallback : value === 'true';
+};
+
+const vssChatConfig = (surface: ChatSurface) => {
+  const adapterEnabled = surfaceFlag(surface, 'NEXT_PUBLIC_AGENT_ADAPTER_ENABLED', false);
+  return {
+    url: adapterEnabled ? '/api/agent' : `/api/vss-chat?surface=${surface}`,
+    transport: adapterEnabled ? ('agent-api' as const) : ('chat-sse' as const),
+    surface: `vss-ui-${surface}`,
+    mediaProxyUrl: '/api/proxy',
+    title: surfaceEnv(surface, 'NEXT_PUBLIC_WORKFLOW') || 'Chat',
+    // Upload is a chunked, multi-minute transfer to VST, not an agent run.
+    uploadUrlBase: surfaceEnv(surface, 'NEXT_PUBLIC_VST_API_URL'),
+  };
+};
+
+/**
+ * Feature switches for the replacement chat, read from the same
+ * NEXT_PUBLIC_CHAT_* variables the toolkit chat bar used.
+ *
+ * Reading the toolkit's own variables is the point: a deployment that already
+ * turned message copy off keeps it off after the swap, with nothing to migrate.
+ */
+const vssChatFeatures = (surface: ChatSurface) => ({
+  chatHistory: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON', true),
+  intermediateSteps: surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS', true),
+  messageCopy: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED', false),
+  messageEdit: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED', false),
+  messageSpeaker: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED', false),
+  inputMic: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED', false),
+  uploadFile: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE', true),
+  uploadFileMetadata: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED', false),
+  themeToggle: surfaceFlag(surface, 'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON', false),
+});
+
+const vssChatUploadConfig = (surface: ChatSurface) => ({
+  customAgentParamsJson: surfaceEnv(surface, 'NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON'),
+  uploadConfigTemplateJson: surfaceEnv(
+    surface,
+    'NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON',
   ),
+  uploadHiddenMessageTemplate: surfaceEnv(
+    surface,
+    'NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE',
+  ),
+});
+
+const dynamicComponents = {
   AlertsComponent: dynamic(() => 
     import('@nv-metropolis-bp-vss-ui/all').then(mod => mod.AlertsComponent).catch((error) => {
       console.error('[DynamicImport] Failed to load AlertsComponent:', error);
@@ -233,8 +317,6 @@ const dynamicComponents = {
   ),
 };
 
-const SidebarNemoAgentToolkitApp = dynamicComponents.NemoAgentToolkitApp;
-
 export default function Home({ alertsData, searchData, dashboardData, mapData, videoManagementData, serverRenderTime }: HomeProps) {
   // Get deployment configuration from environment variables - memoize to prevent recreation
   const deploymentConfig = useMemo(() => {
@@ -257,7 +339,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       icon: <IconMessageCircle size={16} />, 
       alt: 'Chat with Agent',
       enabled: deploymentConfig.enableChatTab,
-      component: 'NemoAgentToolkitApp'
+      component: 'ChatComponent'
     },
     { 
       id: 'search', 
@@ -340,18 +422,24 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
   const sidebarApi = useAppChatSidebar();
 
-  const sidebarRuntimeConfig = useMemo(
-    () => ({
-      workflow: getTabChatWorkflow(SIDEBAR_CHAT_ENV_TAB_KEY, 'App Chat'),
-      storageKeyPrefix: CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX,
-    }),
-    [],
-  );
-
-  const sidebarChatInitialStateOverride = useMemo(
-    () => getTabChatInitialStateOverride(SIDEBAR_CHAT_ENV_TAB_KEY),
-    [],
-  );
+  // Read once. These come from env, which cannot change at runtime, and a fresh
+  // object each render would give ChatPanel a new `features` identity — which
+  // is the prop its per-message memo compares on, so every message in the
+  // thread would re-render on every Home render.
+  const vssMainChatFeatures = useMemo(() => vssChatFeatures('main'), []);
+  const vssSidebarChatFeatures = useMemo(() => vssChatFeatures('sidebar'), []);
+  const vssMainChatExtraConfig = useMemo(() => vssChatUploadConfig('main'), []);
+  const vssSidebarChatExtraConfig = useMemo(() => vssChatUploadConfig('sidebar'), []);
+  const vssMainChatEndpoint = useMemo(() => {
+    const { url, transport, surface, mediaProxyUrl, uploadUrlBase } = vssChatConfig('main');
+    return { url, transport, surface, mediaProxyUrl, uploadUrlBase };
+  }, []);
+  const vssMainChatTitle = useMemo(() => vssChatConfig('main').title, []);
+  const vssSidebarChatEndpoint = useMemo(() => {
+    const { url, transport, surface, mediaProxyUrl, uploadUrlBase } = vssChatConfig('sidebar');
+    return { url, transport, surface, mediaProxyUrl, uploadUrlBase };
+  }, []);
+  const vssSidebarChatTitle = useMemo(() => vssChatConfig('sidebar').title, []);
 
   const {
     chatSidebarHighlight,
@@ -504,41 +592,70 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
   const renderAppSidebarChat = React.useCallback(
     () => (
-      <RuntimeConfigProvider value={sidebarRuntimeConfig}>
-        <SidebarNemoAgentToolkitApp
-          theme={theme}
+      // The bridge callbacks are what feed answers to the search/alerts tabs
+      // and clear stale results on submit, so they are preserved verbatim.
+        <VssChatPanel
+          endpoint={vssSidebarChatEndpoint}
+          title={vssSidebarChatTitle}
+          theme={theme === 'dark' ? 'dark' : 'light'}
           onThemeChange={handleThemeChange}
           isActive={activeTab !== 'chat'}
-          initialStateOverride={sidebarChatInitialStateOverride}
+          features={vssSidebarChatFeatures}
+          {...vssSidebarChatExtraConfig}
+          // Separates this panel's conversations from the chat tab's, the same
+          // job the toolkit's storageKeyPrefix did.
           storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
-          renderControlsInLeftSidebar={false}
-          renderApplicationHead={false}
           onAnswerComplete={handleSidebarAnswerComplete}
-          onAnswerCompleteWithContent={handleSidebarAnswerCompleteWithContent}
           onSubmitMessageReady={handleSidebarSubmitMessageReady}
           onMessageSubmitted={handleSidebarMessageSubmitted}
-          onAddQueryContextReady={(addItem) => {
+          onAddQueryContextReady={(addItem: (item: QueryDataContext) => void) => {
             appSidebarAddQueryContextRef.current = addItem;
           }}
           onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
+          // Structured artifact events are appended to this callback payload
+          // by the chat transport, without leaking transport markup into the
+          // visible assistant message.
+          onAnswer={(answer: string, conversationId: string) => {
+            handleSidebarAnswerCompleteWithContent(answer);
+            if (vssSidebarChatEndpoint.transport === 'agent-api') return;
+
+            // Legacy chat-SSE adapters expose search results through a
+            // conversation-scoped follow-up read rather than artifact events.
+            void (async () => {
+              try {
+                const response = await fetch(
+                  `/api/vss-chat?surface=sidebar&conversation=${encodeURIComponent(conversationId)}`,
+                );
+                if (!response.ok) return;
+                const last = await response.json();
+                if (!last?.data?.length) return;
+                handleSidebarAnswerCompleteWithContent(
+                  JSON.stringify({ data: withProxiedMedia(last.data) }),
+                );
+              } catch {
+                // Non-fatal: the chat answer has already been delivered.
+              }
+            })();
+          }}
+          onSubmit={() => handleSidebarMessageSubmitted()}
         />
-      </RuntimeConfigProvider>
     ),
     [
       theme,
       handleThemeChange,
       activeTab,
-      sidebarChatInitialStateOverride,
-      sidebarRuntimeConfig,
       handleSidebarAnswerComplete,
       handleSidebarAnswerCompleteWithContent,
       handleSidebarSubmitMessageReady,
       handleSidebarMessageSubmitted,
       handleSidebarChatVideoUploadComplete,
+      vssSidebarChatFeatures,
+      vssSidebarChatExtraConfig,
+      vssSidebarChatEndpoint,
+      vssSidebarChatTitle,
     ],
   );
 
-  // Update chat handlers when called - memoized handlers in Chatbar.tsx prevent excessive calls
   const chatControlsReadyCallback = React.useCallback((handlers: ChatSidebarControlHandlers) => {
     chatHandlersSetRef.current = true;
     setChatControlHandlers(handlers);
@@ -590,6 +707,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   // Clear mode controls when switching tabs
   React.useEffect(() => {
     if (activeTab !== 'chat') {
+      // The panel stays mounted when the tab is hidden, so it never stops
+      // reporting its controls; without this they leak into the next tab's
+      // MODE CONTROLS section.
       setChatControlHandlers(null);
       chatHandlersSetRef.current = false;
     }
@@ -618,6 +738,33 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   // Render a single tab component with visibility control
   const renderTabComponent = (tabConfig: TabConfig) => {
     const isActive = activeTab === tabConfig.id;
+
+    // Chat is checked before the registry lookup: the panel is its own
+    // top-level dynamic import, not an entry in `dynamicComponents`.
+    if (tabConfig.component === 'ChatComponent') {
+      return (
+        <div
+          key={tabConfig.id}
+          className="absolute inset-0 flex flex-col overflow-hidden"
+          style={{ display: isActive ? 'flex' : 'none' }}
+        >
+          <VssChatPanel
+            endpoint={vssMainChatEndpoint}
+            title={vssMainChatTitle}
+            theme={theme === 'dark' ? 'dark' : 'light'}
+            onThemeChange={handleThemeChange}
+            isActive={isActive}
+            features={vssMainChatFeatures}
+            {...vssMainChatExtraConfig}
+            onAnswer={handleMainChatAnswerCompleteWithContent}
+            // The chat tab renders its conversation list in the app's left
+            // sidebar, which is what renderControlsInLeftSidebar did before.
+            onControlsReady={isActive ? chatControlsReadyCallback : undefined}
+          />
+        </div>
+      );
+    }
+
     const componentName = tabConfig.component as keyof typeof dynamicComponents;
     const DynamicComponent = dynamicComponents[componentName];
 
@@ -631,29 +778,6 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">Unknown Component</h2>
             <p className="text-gray-600 dark:text-gray-400">Component "{tabConfig.component}" not found.</p>
-          </div>
-        </div>
-      );
-    }
-
-    // Main Chat tab: use default env (no RuntimeConfigProvider = getWorkflowName() reads NEXT_PUBLIC_WORKFLOW)
-    if (componentName === 'NemoAgentToolkitApp') {
-      return (
-        <div 
-          key={tabConfig.id}
-          className="absolute inset-0 flex flex-col overflow-hidden"
-          style={{ display: isActive ? 'flex' : 'none' }}
-        >
-          <div className="h-full w-full [&>main]:!h-full [&>main]:!w-full">
-            <DynamicComponent 
-              theme={theme}
-              onThemeChange={handleThemeChange}
-              isActive={isActive}
-              renderControlsInLeftSidebar={true}
-              renderApplicationHead={false}
-              onAnswerCompleteWithContent={handleMainChatAnswerCompleteWithContent}
-              onControlsReady={(isActive ? chatControlsReadyCallback : undefined) as any}
-            />
           </div>
         </div>
       );
@@ -743,8 +867,8 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       deploymentConfig.chatSidebarEnabled && activeTab !== 'chat';
 
     // Keep one layout root while changing tabs. Switching between the bare
-    // stack and this wrapper remounts every tab, which discards an agent
-    // search result delivered while the full-page Chat tab is active.
+    // stack and this wrapper remounts every tab, which discards a structured
+    // search artifact delivered while the full-page Chat tab is active.
     return (
       <TabWithChatSidebarLayout
         tabId="side-bar"

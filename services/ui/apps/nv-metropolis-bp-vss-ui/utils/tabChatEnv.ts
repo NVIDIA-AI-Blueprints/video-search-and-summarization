@@ -65,7 +65,6 @@ export type TabChatInitialStateOverride = {
   chatUploadFileMetadataEnabled?: boolean;
   chatUploadFileHiddenMessageTemplate?: string;
   themeChangeButtonEnabled?: boolean;
-  interactionModalCancelEnabled?: boolean;
   chatInputMicEnabled?: boolean;
   chatMessageEditEnabled?: boolean;
   chatMessageSpeakerEnabled?: boolean;
@@ -155,11 +154,6 @@ export function getTabChatInitialStateOverride(
       tabKey,
       'SHOW_THEME_TOGGLE_BUTTON',
       'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON',
-    ),
-    interactionModalCancelEnabled: getBoolDefaultTrue(
-      tabKey,
-      'INTERACTION_MODAL_CANCEL_ENABLED',
-      'NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED',
     ),
     chatInputMicEnabled: getBoolDefaultTrue(
       tabKey,

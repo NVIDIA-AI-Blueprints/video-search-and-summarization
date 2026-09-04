@@ -2,7 +2,7 @@
  * common
  *
  * Shared components and utilities for the UI monorepo.
- * Use this package across all apps (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui, etc.)
+ * Use this package across all apps (nv-metropolis-bp-vss-ui, vss-chat, etc.)
  */
 
 // Components

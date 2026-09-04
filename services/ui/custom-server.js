@@ -5,7 +5,7 @@
 const { configureRuntimeEnv } = require('next-runtime-env/build/configure');
 
 // Get the app name from environment variable
-const RUN_APP_NAME = process.env.RUN_APP_NAME || 'nemo-agent-toolkit-ui'
+const RUN_APP_NAME = process.env.RUN_APP_NAME || 'nv-metropolis-bp-vss-ui'
 
 // Dynamically construct the path to the server.js based on RUN_APP_NAME
 const serverPath = `/repo/apps/${RUN_APP_NAME}/apps/${RUN_APP_NAME}/server.js`;

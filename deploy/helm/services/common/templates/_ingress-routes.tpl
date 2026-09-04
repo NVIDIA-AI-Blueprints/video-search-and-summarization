@@ -42,10 +42,10 @@
              /x    -> prefix replaced with /x
     anchored prepend ^ to the HAProxy rewrite source when true
 
-  Ordering is the rendered order: the UI-owned /api/chat and /api/agent routes
-  before the agent-owned /api, and the UI catch-all last. The HAProxy controller
-  matches longest-prefix regardless, but keeping the file readable in match
-  order is worth more than the two lines it costs.
+  Ordering is the rendered order: the UI's /api/* routes before the agent's
+  /api catch-all, and the UI / catch-all last. The HAProxy controller matches
+  longest-prefix regardless, but keeping the file readable in match order is
+  worth more than the few lines it costs.
 */}}
 {{- define "vss.ingress.routeTable" -}}
 - key: ui
@@ -58,6 +58,14 @@
 # than being forwarded to the agent backend.
 - key: ui
   path: /api/agent
+  pathType: Prefix
+  rewrite: none
+- key: ui
+  path: /api/vss-chat
+  pathType: Prefix
+  rewrite: none
+- key: ui
+  path: /api/proxy
   pathType: Prefix
   rewrite: none
 - key: agent

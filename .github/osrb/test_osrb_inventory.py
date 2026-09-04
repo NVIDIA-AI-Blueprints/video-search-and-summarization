@@ -491,6 +491,38 @@ class RowRenderingTest(unittest.TestCase):
 
 
 class DedupeTest(unittest.TestCase):
+    def test_local_node_workspace_is_not_a_third_party_row(self) -> None:
+        inventory = osrb_inventory.Inventory()
+        inventory.add(
+            package="@example/internal-ui", version="*", module="services/ui",
+            language="node", evidence="declared-manifest",
+            source_file="services/ui/apps/web/package.json",
+            source_kind=osrb_scan.KIND_MANIFEST,
+        )
+
+        dropped = inventory.drop_local_node_workspace_rows(
+            {"services/ui": {"@example/internal-ui"}}
+        )
+
+        self.assertEqual(dropped, 1)
+        self.assertEqual(inventory.entries(), [])
+
+    def test_workspace_name_in_another_module_does_not_suppress_a_row(self) -> None:
+        inventory = osrb_inventory.Inventory()
+        inventory.add(
+            package="common", version="*", module="services/consumer",
+            language="node", evidence="declared-manifest",
+            source_file="services/consumer/package.json",
+            source_kind=osrb_scan.KIND_MANIFEST,
+        )
+
+        dropped = inventory.drop_local_node_workspace_rows(
+            {"services/ui": {"common"}}
+        )
+
+        self.assertEqual(dropped, 0)
+        self.assertEqual(len(inventory.entries()), 1)
+
     def test_a_manifest_row_yields_to_the_same_module_s_lockfile(self) -> None:
         inventory = osrb_inventory.Inventory()
         inventory.add(

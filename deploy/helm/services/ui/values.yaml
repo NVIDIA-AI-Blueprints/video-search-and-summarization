@@ -51,9 +51,17 @@ extraEnv: []
 envOverrides: []
 agentApiUrlBase: ""
 vstApiUrl: ""
+# Server-only destination used by /api/proxy. Empty selects the in-cluster
+# vss-vios-ingress Service even when browser URLs use global.externalHost.
+proxyBaseUrl: ""
 # Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/chat/stream
 chatCompletionUrl: ""
 websocketChatUrl: ""
+# Server-only destinations used by /api/vss-chat and the /api/chat alias.
+# Empty values select chatCompletionUrl when explicitly set, otherwise the
+# in-cluster vss-agent Service.
+chatBackendUrl: ""
+sidebarChatBackendUrl: ""
 # LVS: explicit Kibana base URL for the Dashboard tab (overrides auto-derived kibana.<externalHost>).
 dashboardKibanaBaseUrl: ""
 # Alerts tab: base URL for alerts API (vss-alert-bridge), including the API version prefix.
@@ -189,8 +197,6 @@ env:
     value: "false"
   - name: NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON
     value: "false"
-  - name: NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED
-    value: "false"
   - name: NEXT_PUBLIC_DARK_THEME_DEFAULT
     value: "true"
   - name: NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON
@@ -214,8 +220,6 @@ env:
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
     value: "Let's show the videos just uploaded {filenames}?"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_SHOW_THEME_TOGGLE_BUTTON
-    value: "false"
-  - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
     value: "false"
   - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
     value: "true"

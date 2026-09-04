@@ -141,11 +141,23 @@ spec:
               value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) "http://vss-agent:8000/api/v1" $pfx) | quote }}
             - name: NEXT_PUBLIC_VST_API_URL
               value: {{ .Values.vstApiUrl | default (ternary (printf "%s/vst/api" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-vios-ingress:30888/vst/api" .Release.Name) "http://vss-vios-ingress:30888/vst/api" $pfx) | quote }}
+            {{- $vstInternal := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}
+            # Server-only target for /api/proxy. Keep media reads in-cluster
+            # instead of hairpinning through the public ingress and its auth.
+            - name: VSS_PROXY_BASE_URL
+              value: {{ .Values.proxyBaseUrl | default $vstInternal | quote }}
             {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/chat/stream" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx) }}
             - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}
             - name: NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}
+            {{- $chatInternal := ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx }}
+            # The replacement UI posts to its same-origin API route; that
+            # server-side handler must use the in-cluster agent address.
+            - name: VSS_CHAT_BACKEND_MAIN
+              value: {{ .Values.chatBackendUrl | default .Values.chatCompletionUrl | default $chatInternal | quote }}
+            - name: VSS_CHAT_BACKEND_SIDEBAR
+              value: {{ .Values.sidebarChatBackendUrl | default .Values.chatBackendUrl | default .Values.chatCompletionUrl | default $chatInternal | quote }}
             {{- $wsUrl := .Values.websocketChatUrl | default (ternary (printf "%s/websocket" $globalWs) "" (ne $globalWs "")) }}
             {{- if $wsUrl }}
             - name: NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL
@@ -196,6 +208,8 @@ spec:
               value: {{ (default 20000000 $adapter.maxThreadStateChars) | quote }}
             - name: AGENT_MAX_RETAINED_CHARS
               value: {{ (default 64000000 $adapter.maxRetainedChars) | quote }}
+            - name: NEXT_PUBLIC_AGENT_ADAPTER_ENABLED
+              value: {{ $adapterEnabled | quote }}
             {{- $forceHttp := $adapter.forceHttpChatTransport }}
             {{- if or (kindIs "invalid" $forceHttp) (eq ($forceHttp | toString | trim) "") }}
             {{- $forceHttp = $adapterEnabled }}

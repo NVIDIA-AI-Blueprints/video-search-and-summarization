@@ -14,12 +14,20 @@
  *    });
  *
  * Upload completion is wired only on the floating sidebar chat instance in Home
- * (onChatVideoUploadComplete on SidebarNemoAgentToolkitApp), not the full-page Chat tab.
+ * (onChatVideoUploadComplete on the sidebar ChatPanel), not the full-page Chat tab.
  * The parent implements that single callback and fans out (e.g. VSS tab registry emit).
  */
-import type { RegisterChatVideoUploadComplete } from '@nemo-agent-toolkit/ui';
+import type { ChatVideoUploadCompletePayload } from '@nv-metropolis-bp-vss-ui/chat';
 
-export type { RegisterChatVideoUploadComplete };
+/**
+ * Subscribe to upload-batch completions; returns an unsubscribe when it has one.
+ *
+ * Defined here rather than imported: this is the app's own fan-out contract
+ * between Home and its tabs, and it outlived the toolkit that first declared it.
+ */
+export type RegisterChatVideoUploadComplete = (
+  listener: (payload: ChatVideoUploadCompletePayload) => void,
+) => void | (() => void);
 
 export type MainTabChatVideoUploadBridgeProps = {
   registerChatVideoUploadComplete?: RegisterChatVideoUploadComplete;

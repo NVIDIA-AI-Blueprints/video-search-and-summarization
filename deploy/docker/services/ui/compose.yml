@@ -33,6 +33,13 @@ services:
         required: false
     environment:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
+      # Where the UI's server-side media proxy reaches the ingress. Not the
+      # public origin: that would send internal fetches out and back through
+      # whatever fronts the deployment, which haproxy then challenges for
+      # credentials the server does not have. Same compose network, fixed
+      # service name, so only the port can vary.
+      HAPROXY_PORT: ${HAPROXY_PORT:-7777}
+      VSS_PROXY_BASE_URL: http://vss-haproxy-ingress:${HAPROXY_PORT:-7777}
       NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'
       NEXT_PUBLIC_APP_SUBTITLE: '${NEXT_PUBLIC_APP_SUBTITLE:-VISION}'
       # Server-only backend-neutral agent transport embedded in this Next.js
@@ -51,6 +58,8 @@ services:
       AGENT_MAX_EVENT_CHARS_PER_RUN: ${VSS_AGENT_MAX_EVENT_CHARS_PER_RUN:-20000000}
       AGENT_MAX_THREAD_STATE_CHARS: ${VSS_AGENT_MAX_THREAD_STATE_CHARS:-20000000}
       AGENT_MAX_RETAINED_CHARS: ${VSS_AGENT_MAX_RETAINED_CHARS:-64000000}
+      # Public capability bit only; backend URLs and credentials remain server-side.
+      NEXT_PUBLIC_AGENT_ADAPTER_ENABLED: ${VSS_AGENT_ADAPTER_ENABLED:-false}
       # Prevent a saved browser preference from bypassing the adapter via the legacy WebSocket.
       NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT: ${NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT:-${VSS_AGENT_ADAPTER_ENABLED:-false}}
       # === App wide chat sidebar ===
@@ -67,7 +76,6 @@ services:
       NEXT_PUBLIC_SIDEBAR_CHAT_AGENT_API_URL_BASE: ${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}/api/v1
       NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE: ${NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE:-true}
       NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED: ${NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED:-false}
-      NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED: ${NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED:-false}
       NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_EDIT_ENABLED: ${NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_EDIT_ENABLED:-false}
       NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_SPEAKER_ENABLED: ${NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_SPEAKER_ENABLED:-false}
       NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_COPY_ENABLED: ${NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_COPY_ENABLED:-false}
@@ -83,6 +91,12 @@ services:
       NEXT_PUBLIC_WORKFLOW: '${NEXT_PUBLIC_WORKFLOW:-Vision Agent}'
       NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL: ${VSS_PUBLIC_WS_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}/websocket
       NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL: http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/chat/stream
+      # Server-side override for the chat tab's backend. Set to reach a BYO
+      # agent adapter instead of vss-agent; unlike the NEXT_PUBLIC_ values it
+      # never reaches the browser, so the adapter stays on the compose network
+      # rather than needing a host-reachable address (see pages/api/vss-chat.ts).
+      VSS_CHAT_BACKEND_MAIN: ${VSS_CHAT_BACKEND_MAIN:-}
+      VSS_CHAT_BACKEND_SIDEBAR: ${VSS_CHAT_BACKEND_SIDEBAR:-}
       NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON: ${NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON:-false}
       NEXT_PUBLIC_RIGHT_MENU_OPEN: ${NEXT_PUBLIC_RIGHT_MENU_OPEN:-false}
       NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS: ${NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS:-true}
@@ -95,7 +109,6 @@ services:
       NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED: ${NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED:-false}
       NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED: ${NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED:-false}
       NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED: ${NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED:-false}
-      NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED: ${NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED:-false}
       NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE: ${NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE:-true}
       NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON: ${NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON:-{}}
       NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE: '${NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE:-Let''s show the videos just uploaded {filenames}?}'

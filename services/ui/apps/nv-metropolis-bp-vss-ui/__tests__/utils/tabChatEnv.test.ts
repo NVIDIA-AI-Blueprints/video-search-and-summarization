@@ -106,7 +106,6 @@ describe('getTabChatInitialStateOverride', () => {
   it('boolean-default-true fields return true when env is not set', () => {
     const result = getTabChatInitialStateOverride('SEARCH_TAB');
     expect(result.themeChangeButtonEnabled).toBe(true);
-    expect(result.interactionModalCancelEnabled).toBe(true);
     expect(result.chatInputMicEnabled).toBe(true);
     expect(result.chatMessageEditEnabled).toBe(true);
     expect(result.chatMessageSpeakerEnabled).toBe(true);

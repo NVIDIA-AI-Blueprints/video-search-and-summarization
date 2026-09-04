@@ -318,6 +318,31 @@ class Inventory:
                 dropped += 1
         return dropped
 
+    def drop_local_node_workspace_rows(
+        self, names_by_module: dict[str, set[str]]
+    ) -> int:
+        """Drop first-party npm workspaces declared with ordinary ranges.
+
+        npm commonly spells an in-repo workspace dependency as ``"*"`` in
+        package.json and records its first-party nature only as ``link: true``
+        in package-lock.json. Keep the declaration long enough for the usage
+        pass to recognize imports, then remove it from the third-party state
+        inventory.
+        """
+        dropped = 0
+        for key, entry in list(self._entries.items()):
+            if (
+                entry.language != "node"
+                or entry.source_kinds != {osrb_scan.KIND_MANIFEST}
+            ):
+                continue
+            local_names = names_by_module.get(entry.module, set())
+            if entry.package.lower() not in local_names:
+                continue
+            del self._entries[key]
+            dropped += 1
+        return dropped
+
 
 # ---------------------------------------------------------------------------
 # Declaration side — reuse osrb_scan's parsers, one path at a time
@@ -895,12 +920,14 @@ def build(
     inventory = Inventory()
 
     manifest_failures = collect_declared(ref, paths, inventory)
+    node_workspace_names = osrb_scan.node_workspace_names_by_module(ref, paths)
     # The use-side pass compares per module against what that module declares,
     # so it has to run after the declaration pass and read its result.
     declared = inventory.names_by_module()
     collect_vendored(ref, paths, inventory)
     unparsed, unclassified = collect_sources(ref, paths, inventory)
     collect_usage(ref, paths, declared, inventory)
+    workspace_deduped = inventory.drop_local_node_workspace_rows(node_workspace_names)
     deduped = inventory.drop_manifest_rows_covered_by_a_lockfile()
 
     attribution = attribution_licenses(ref, paths)
@@ -921,6 +948,7 @@ def build(
         "rows": len(rows),
         "unparsed_source_files": unparsed,
         "unparsed_manifests": len(manifest_failures),
+        "manifest_rows_suppressed_as_node_workspaces": workspace_deduped,
         "unclassified_evidence": unclassified,
         "manifest_rows_superseded_by_a_lockfile": deduped,
         "license_from_parser": provenance.get("parser", 0),

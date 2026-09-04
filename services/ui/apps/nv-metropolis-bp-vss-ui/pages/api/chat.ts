@@ -1,11 +1,13 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: MIT AND Apache-2.0
+
+import type { NextApiRequest, NextApiResponse } from "next";
 
 import {
   agentChatBridgeHandler,
   isAgentAdapterConfigured,
 } from "../../utils/server/agentChatBridge";
-import { chatApiHandler } from "@nemo-agent-toolkit/ui/server";
-import type { NextApiRequest, NextApiResponse } from "next";
+import vssChatHandler from "./vss-chat";
 
 export const config = {
   api: {
@@ -15,13 +17,19 @@ export const config = {
   },
 };
 
+/**
+ * Compatibility endpoint retained for existing deployments and clients.
+ *
+ * External-agent deployments bridge the embedded #1980 adapter into the
+ * legacy text stream. Other deployments use the toolkit-free chat-SSE proxy.
+ */
 export default async function chatHandler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ): Promise<void> {
   if (isAgentAdapterConfigured()) {
     await agentChatBridgeHandler(req, res);
     return;
   }
-  await chatApiHandler(req, res);
+  await vssChatHandler(req, res);
 }

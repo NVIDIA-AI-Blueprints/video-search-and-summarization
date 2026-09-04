@@ -2,7 +2,8 @@
 import { env } from 'next-runtime-env';
 
 /**
- * SessionStorage prefix for the single embedded chat instance (NemoAgentToolkitApp storage keys).
+ * Storage prefix for the single embedded chat instance, separating the docked
+ * sidebar's conversations from the chat tab's.
  */
 export const CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX = 'side-bar';
 
