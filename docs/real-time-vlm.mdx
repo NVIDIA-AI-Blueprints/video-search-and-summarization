@@ -1431,9 +1431,9 @@ standalone Helm override.
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `false` |
 | `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
-| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.2` when EVS++ session mode is enabled |
-| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `20000` |
-| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `100` |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ session mode is enabled |
+| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `1` |
+| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
 | `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `1` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
@@ -1680,7 +1680,7 @@ VLM_VIDEO_PRUNING_RATE=0.5
 # EVS++ session mode
 VIA_EVS_SESSION=true
 VLM_VIDEO_PRUNING_RATE=0.5
-VLLM_EVS_SIMILARITY_THRESHOLD=0.2
+VLLM_EVS_SIMILARITY_THRESHOLD=0.4
 ```
 
 Fixed-rate EVS is available on vLLM-compatible local models that use the

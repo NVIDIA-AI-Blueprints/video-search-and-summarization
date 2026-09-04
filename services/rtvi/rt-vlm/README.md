@@ -813,6 +813,26 @@ VLM_VIDEO_PRUNING_RATE=0.5
 
 Set to `0` or remove to disable (default). Valid range: greater than 0.0 and less than 1.0.
 
+#### EVS++ session mode
+
+EVS++ adds content-dependent similarity pruning, per-stream video sessions,
+token-budgeted clip packing, and absolute timestamp metadata. Both session mode
+and the pruning rate must be set; session mode alone creates sessions without
+activating pruning in the vLLM engine.
+
+```bash
+VLM_MODEL_TO_USE=vllm-compatible
+MODEL_PATH=<Qwen3-VL-based model>
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5
+VLLM_EVS_SIMILARITY_THRESHOLD=0.4
+VIA_EVS_TOKEN_BUDGET=1
+```
+
+EVS++ is supported only for local, `vllm-compatible` Qwen3-VL-based models.
+It is not supported for remote `openai-compat` endpoints or Omni models.
+Restart the service after changing EVS settings.
+
 **Performance impact (Nemotron Nano 12B VL, 30s chunk, 30 frames):**
 
 | Metric | EVS=0 (disabled) | EVS=0.5 | Reduction |
@@ -960,7 +980,12 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization | `true` |
 | `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
 | `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
-| `VLM_VIDEO_PRUNING_RATE` | Efficient Video Sampling pruning rate | Compose: Empty; Helm: `0.0` |
+| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning | Compose: Empty; Helm: `0.0` |
+| `VIA_EVS_SESSION` | Enable the optional EVS++ session path when set to `true` or `1` | Empty (disabled) |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ is enabled |
+| `VLLM_NUM_PREPROCESS_WORKERS` | vLLM multimodal preprocessing worker count | `16` |
+| `VIA_EVS_TOKEN_BUDGET` | Visual-token budget accumulated by an EVS++ session | `1` |
+| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
 | `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `1` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
