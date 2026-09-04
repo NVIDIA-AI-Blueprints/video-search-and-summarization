@@ -52,15 +52,21 @@ metadata:
       ^/video-analytics-api$ /
 {{- end }}
 {{- if $behaviorEnabled }}
-      {{- /* Deliberately left stripping, and deliberately not reconciled: the
+      {{- /* Deliberately left stripping, and deliberately not reconciled. The
              canonical route table and the Docker edge both forward
-             /behavior-analytics WHOLE, so one of the two sides is wrong. Which
-             one needs a warehouse deployment to answer -- it depends on whether
-             this chart's behavior-analytics serves from root or under its own
-             prefix. The root rule below only makes the mount self-consistent
-             with the strip already here. Do not delete the strip to match the
-             table without checking that first: if the service does serve from
-             root, that turns a working path into a 404. */}}
+             /behavior-analytics WHOLE, so the two chart families disagree --
+             but the disagreement is currently unobservable, because the mount
+             serves nothing on either of them.
+             `vss-behavior-analytics:develop-latest`, which warehouse and the
+             developer profiles both render, ships no web framework and no app
+             source that builds an HTTP server; the running container has no
+             listening TCP socket, and the live Docker edge answers
+             /behavior-analytics with 503 (`nbsrv(...) eq 0`).
+             So there is nothing to measure and no path to break either way.
+             Whether this mount should exist at all is a product question about
+             the service, not a routing fix; settling strip-vs-forward needs an
+             image that answers HTTP first. The root rule below only makes the
+             mount self-consistent with the strip already here. */}}
       ^/behavior-analytics/(.*) /\1
       ^/behavior-analytics$ /
 {{- end }}
