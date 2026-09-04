@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi import HTTPException
+import httpx
 from pydantic import ValidationError
 import pytest
 
@@ -41,6 +42,7 @@ from vss_agents.api.video_ingest import create_video_upload_complete_router
 from vss_agents.api.video_ingest import create_video_upload_router
 from vss_agents.api.video_ingest import register_video_upload
 from vss_agents.api.video_ingest import register_video_upload_complete
+from vss_agents.utils.gateway import GATEWAY_UNAVAILABLE_HEADER
 
 
 class TestVideoIngestResponse:
@@ -567,6 +569,142 @@ class TestRunPostUploadProcessing:
                     rtvi_embed_base_url="http://rtvi-embed:8017",
                 )
         assert exc_info.value.status_code == 500
+
+
+class TestOptionalServiceBehindTheGateway:
+    """An absent optional service must be skipped; a failing one must not be.
+
+    The regression this pins: ``RTVI_CV_ENDPOINT`` moved from
+    ``http://vss-rtvi-cv:9000`` to ``${VSS_GATEWAY_ORIGIN}/rtvi-cv``. rt-cv is
+    optional infrastructure, and absence used to arrive as
+    ``httpx.ConnectError`` because nothing was listening. Through the gateway
+    the connection always succeeds and an absent backend answers **503**, so
+    the tolerance in ``_register_with_rtvi_cv`` never fired and every upload on
+    a profile without rt-cv failed with 502.
+
+    Both arms are exercised through a real ``httpx`` client over
+    ``httpx.MockTransport``, so real ``httpx.Response`` objects and real
+    (case-insensitive) header parsing are in the path rather than a mock whose
+    ``in`` operator we chose the answer for. That distinction matters here: the
+    fix is a header lookup, and a ``MagicMock`` would answer it either way.
+
+    Deliberately NOT tolerated below: a bare 503. That is rt-cv itself
+    answering — deployed and overloaded, restarting, or failing — and skipping
+    it would report a successful upload that silently dropped the
+    registration.
+    """
+
+    GATEWAY = "http://vss.local:7777"
+    MEDIA_URL = "http://vss.local:7777/vst/storage/temp_files/clip.mp4"
+
+    def _gateway_stub(self, *, cv_response: httpx.Response):
+        """A stub gateway: VST and rt-embed succeed, rt-cv answers as given."""
+        # Bound before the patch below replaces the module attribute, or the
+        # factory would call itself.
+        real_client = httpx.AsyncClient
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            seen.append(f"{request.method} {path}")
+            if path.endswith("/url"):
+                return httpx.Response(200, json={"videoUrl": self.MEDIA_URL})
+            if path == "/rtvi-cv/api/v1/stream/add":
+                return cv_response
+            if path == "/rtvi-embed/v1/generate_video_embeddings":
+                return httpx.Response(200, json={"usage": {"total_chunks_processed": 9}})
+            raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+        def factory(*_args, **kwargs):
+            return real_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
+
+        return factory, seen
+
+    async def _upload(self, cv_response: httpx.Response) -> tuple[VideoIngestResponse, list[str]]:
+        factory, seen = self._gateway_stub(cv_response=cv_response)
+        with (
+            patch(
+                "vss_agents.api.video_ingest.get_timeline",
+                new=AsyncMock(return_value=("2025-01-01T00:00:00.000Z", "2025-01-01T00:00:10.000Z")),
+            ),
+            patch("vss_agents.api.video_ingest.httpx.AsyncClient", new=factory),
+        ):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url=self.GATEWAY,
+                rtvi_embed_base_url=f"{self.GATEWAY}/rtvi-embed",
+                rtvi_cv_base_url=f"{self.GATEWAY}/rtvi-cv",
+            )
+        return result, seen
+
+    @pytest.mark.asyncio
+    async def test_marked_503_means_absent_and_the_upload_proceeds(self):
+        """The gateway's own 503: rt-cv is not deployed, so skip it."""
+        result, seen = await self._upload(
+            httpx.Response(
+                503,
+                headers={GATEWAY_UNAVAILABLE_HEADER: "rtvi-cv"},
+                text="VSS gateway: no server is up for rtvi-cv",
+            )
+        )
+
+        # Skipped, not fatal — and the rest of the pipeline still ran.
+        assert result.chunks_processed == 9
+        assert "POST /rtvi-cv/api/v1/stream/add" in seen
+        assert "POST /rtvi-embed/v1/generate_video_embeddings" in seen
+
+    @pytest.mark.asyncio
+    async def test_unmarked_503_means_deployed_and_unwell_and_stays_fatal(self):
+        """rt-cv's own 503. Tolerating this is the fix's failure mode, so don't."""
+        with pytest.raises(HTTPException) as exc_info:
+            await self._upload(httpx.Response(503, text="upstream connect error"))
+
+        assert exc_info.value.status_code == 502
+        assert "503" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [500, 502, 504])
+    async def test_the_marker_is_only_honoured_on_503(self, status: int):
+        """Only the gateway's synthesised status counts. Anything else is real."""
+        with pytest.raises(HTTPException) as exc_info:
+            await self._upload(httpx.Response(status, headers={GATEWAY_UNAVAILABLE_HEADER: "rtvi-cv"}))
+
+        assert exc_info.value.status_code == 502
+
+    @pytest.mark.asyncio
+    async def test_direct_docker_dns_absence_is_still_tolerated(self):
+        """The pre-gateway signal has to keep working for direct addressing."""
+        real_client = httpx.AsyncClient
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/url"):
+                return httpx.Response(200, json={"videoUrl": self.MEDIA_URL})
+            if "stream/add" in request.url.path:
+                raise httpx.ConnectError("connection refused", request=request)
+            return httpx.Response(200, json={"usage": {"total_chunks_processed": 4}})
+
+        def factory(*_args, **kwargs):
+            return real_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
+
+        with (
+            patch(
+                "vss_agents.api.video_ingest.get_timeline",
+                new=AsyncMock(return_value=("2025-01-01T00:00:00.000Z", "2025-01-01T00:00:10.000Z")),
+            ),
+            patch("vss_agents.api.video_ingest.httpx.AsyncClient", new=factory),
+        ):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="http://rtvi-embed:8017",
+                rtvi_cv_base_url="http://vss-rtvi-cv:9000",
+            )
+
+        assert result.chunks_processed == 4
 
 
 class TestVideoUploadUrlRoute:

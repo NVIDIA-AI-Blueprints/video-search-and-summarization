@@ -57,6 +57,8 @@ from pydantic import Field
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.utils.gateway import gateway_absent_service
+from vss_agents.utils.gateway import gateway_reports_service_absent
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
@@ -335,12 +337,27 @@ async def _register_with_rtvi_cv(
     start_timestamp: str,
     timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
 ) -> None:
-    """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates network errors).
+    """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates an absent service).
 
-    Connect/timeout failures degrade to a warning and silent skip — same as the
-    original inline path — because RTVI-CV is treated as optional infra. Other
-    HTTP errors (non-2xx) raise ``HTTPException(502)`` so the caller surfaces a
-    hard failure.
+    RTVI-CV is optional infrastructure: profiles that do not deploy it must
+    still be able to complete an upload. Three ways it can be absent, all of
+    which degrade to a warning and a skip:
+
+    * ``ConnectError`` — nothing is listening. This is what absence looks like
+      when RTVI-CV is addressed directly on Docker DNS.
+    * ``TimeoutException`` — it never answered.
+    * A 503 carrying ``x-vss-gateway-unavailable`` — the VSS gateway routed the
+      request nowhere because the backend has no usable server. This is what
+      absence looks like once ``RTVI_CV_ENDPOINT`` is one origin plus a path,
+      where the TCP connection always succeeds (to the gateway) and can no
+      longer report it.
+
+    Every other non-2xx raises ``HTTPException(502)`` — including a 503 with no
+    marker, which is RTVI-CV itself answering. That case is deliberately fatal:
+    a deployed-but-overloaded, restarting or failing service must not be
+    skipped as though it were absent, because the upload would then report
+    success having silently dropped the registration. See
+    ``vss_agents.utils.gateway``.
     """
     # `x-stream-id` is the routing key for SDR-fronted RTVI deployments: the
     # in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR coordinator)
@@ -373,6 +390,13 @@ async def _register_with_rtvi_cv(
                     json=rtvi_cv_payload,
                     headers={"x-stream-id": sensor_id},
                 )
+            if gateway_reports_service_absent(response):
+                logger.warning(
+                    "RTVI-CV not deployed behind %s (gateway reports %s absent), skipping",
+                    rtvi_cv_add_url,
+                    gateway_absent_service(response),
+                )
+                return
             if response.status_code not in (200, 201):
                 error_msg = f"RTVI-CV returned {response.status_code}: {response.text}"
                 logger.error(error_msg)

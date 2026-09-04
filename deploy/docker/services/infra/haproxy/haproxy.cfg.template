@@ -500,6 +500,82 @@ frontend fe_http
 
     use_backend bk_vss_ui if h_main
 
+    # --- "This service is not part of this deployment" vs "it is, and it is unwell" ---
+    #
+    # Every route below fronts a service some profile does not deploy. HAProxy
+    # answers a route whose backend has no usable server with 503, and that is
+    # the same status the service itself returns when it is deployed but
+    # overloaded, restarting or broken. The two are not the same fact and a
+    # caller must not act on them the same way.
+    #
+    # Addressed directly on Docker DNS the transport drew that line for free: a
+    # service that is not deployed refuses the connection, and only a service
+    # that IS deployed can answer 503 at all. Consolidating every backend onto
+    # one origin destroyed the distinction -- both cases became "HTTP 503 from
+    # vss.local:7777" -- and it is restored here rather than in each caller,
+    # because the gateway is the only party that knows which of the two it is.
+    #
+    # `nbsrv(<backend>) eq 0` is that knowledge: no server in the backend is
+    # usable, so the request was never sent anywhere and no service formed this
+    # response. The reply is therefore synthesised HERE, carrying
+    # `x-vss-gateway-unavailable`, and the header's presence -- not the 503 --
+    # is what a caller may treat as "absent from this deployment". A 503 that
+    # arrives WITHOUT the header came from a live backend and still means
+    # present-and-failing, which stays an error for everyone.
+    #
+    # Two consequences, stated rather than left to be discovered:
+    #
+    #   - A service that is deployed but wholly down (crash-looped, or still
+    #     starting behind `init-addr none`) also has nbsrv 0, so it is reported
+    #     absent. That is not new: addressed directly it refused the connection
+    #     and read as absent too. This restores the old signal exactly, it does
+    #     not widen it.
+    #   - A service that is deployed and answering 503 itself -- the queue-full,
+    #     warming-up, dependency-down case -- keeps nbsrv >= 1, so nothing is
+    #     marked and the caller sees the hard failure it should.
+    #
+    # One line per mount, and only for the mounts whose path ACL is a dedicated
+    # prefix. The UI, agent and VST/VIOS routes are deliberately absent: their
+    # ACLs overlap (`/api` is a prefix of `/api/chat`, `/vst/api/v1/storage` of
+    # `/vst`, and the UI's catch-all has no path ACL at all), so a marker keyed
+    # on one of them would misfire on its neighbour -- and nothing treats the
+    # deployment's own front door or its media plane as optional anyway.
+    #
+    # A transaction variable feeding one `return`, rather than fourteen copies
+    # of the same rule, for the same reason as the deprecation block below: the
+    # decision is per-route and the response is not. The prefixes are mutually
+    # exclusive, so at most one of these can match and their order is
+    # immaterial. Rule placement is likewise immaterial -- HAProxy evaluates
+    # every http-request rule before any use_backend, which is why this block
+    # can sit below the routes it describes.
+    http-request set-var(txn.gw_absent) str(video-analytics-api) if h_main p_video_analytics { nbsrv(bk_video_analytics_api_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(alert-bridge) if h_main p_alert_bridge { nbsrv(bk_alert_bridge_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(alerts) if h_main p_alerts { nbsrv(bk_alerts_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(kibana) if h_main p_kibana { nbsrv(bk_kibana) eq 0 }
+    http-request set-var(txn.gw_absent) str(elasticsearch) if h_main p_elasticsearch { nbsrv(bk_elasticsearch_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(rtvi-embed) if h_main p_rtvi_embed { nbsrv(bk_rtvi_embed_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(rtvi-cv) if h_main p_rtvi_cv { nbsrv(bk_rtvi_cv_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(rtvi-vlm) if h_main p_rtvi_vlm { nbsrv(bk_rtvi_vlm_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(lvs) if h_main p_lvs { nbsrv(bk_lvs_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(video-summarization) if h_main p_video_summarization { nbsrv(bk_video_summarization_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(phoenix) if h_main p_phoenix { nbsrv(bk_phoenix_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(behavior-analytics) if h_main p_behavior { nbsrv(bk_behavior_analytics) eq 0 }
+    http-request set-var(txn.gw_absent) str(perception-sdr) if h_main p_perception_sdr { nbsrv(bk_perception_sdr) eq 0 }
+    http-request set-var(txn.gw_absent) str(va-mcp) if h_main p_va_mcp { nbsrv(bk_va_mcp_strip) eq 0 }
+
+    # The header value names the route so one log line explains itself; the
+    # CONTRACT is the header's presence, so a caller never has to keep a list of
+    # service names in step with this file.
+    acl gw_absent var(txn.gw_absent) -m found
+    http-request return status 503 hdr x-vss-gateway-unavailable "%[var(txn.gw_absent)]" content-type text/plain lf-string "VSS gateway: no server is up for %[var(txn.gw_absent)], so it is not part of this deployment. This response was synthesised by the gateway; the service never saw the request. See deploy/docker/README.md." if h_main gw_absent
+
+    # The marker means "the gateway made this up", so a backend must never be
+    # able to claim it. `http-response` rules run only on responses that came
+    # from a server -- an internally generated one is reachable only through
+    # `http-after-response` -- so this strips a forged or stale copy without
+    # touching the reply synthesised above.
+    http-response del-header x-vss-gateway-unavailable
+
     # --- Deprecation signal on the aliased-away prefixes (RFC 9745 / RFC 8594) ---
     #
     # Response headers only. Status, body, routing and timeouts are untouched, so

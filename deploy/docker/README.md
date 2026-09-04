@@ -582,6 +582,49 @@ but a large share of legacy traffic during the window will be self-generated,
 and that has to be subtracted before the totals are read as evidence about
 third-party callers.
 
+### A 503 from the gateway is not the same as a 503 from a service
+
+No profile deploys everything. Before the gateway, a caller learned that for
+free: it addressed `http://vss-rtvi-cv:9000`, and a service the profile did not
+deploy had nothing listening, so the connection was **refused**. Only a service
+that was actually running could answer `503` at all. Absent and unwell were
+different events at the transport layer, and code that treats a service as
+optional relied on it.
+
+Through one origin the connection always succeeds — to HAProxy — so both
+arrive as `503 http://vss.local:7777/…`. The gateway therefore says which it
+is, because it is the only party that still knows:
+
+| What happened | Status | `x-vss-gateway-unavailable` | What a caller should do |
+|---|---|---|---|
+| No server is up for the route's backend — the service is not in this profile, or has not started | `503` | **present**, naming the route | Treat the service as absent. Skip it if it is optional to you. |
+| The service answered `503` itself — overloaded, warming up, a dependency down | `503` | **absent** | Real failure. Do not skip it. |
+| The `Host` is not one of the deployment's origins | `404` | — (`x-vss-gateway-deny: unknown-host`) | Add the hostname to `VSS_PUBLIC_HOST`. |
+
+The marked reply is synthesised by the gateway: the request is never forwarded,
+so the service cannot have produced it. Backend-origin responses have the
+header stripped, so a live service cannot claim to be absent. **Presence of the
+header is the contract** — the value names the route for logs, and a caller that
+switched on it would need editing every time a mount is added.
+
+Marked routes: `/video-analytics-api`, `/alert-bridge`, `/alerts`, `/kibana`,
+`/elasticsearch`, `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm`, `/lvs`,
+`/video-summarization`, `/phoenix`, `/behavior-analytics`, `/perception-sdr`,
+`/va-mcp`. The UI, agent and VST/VIOS routes are not marked: nothing treats the
+deployment's own front door or its media plane as optional, and their path
+prefixes overlap (`/api` inside `/api/chat`, `/vst/api/v1/storage` inside
+`/vst`), so a marker keyed on one would misfire on its neighbour.
+
+A service that is deployed but wholly down — crash-looping, or still starting —
+has no usable server either, so it is reported **absent**. That is not new: it
+refused the connection and read as absent under direct addressing too. This
+restores the old signal, it does not widen it.
+
+Reading it, in the agent: `vss_agents/utils/gateway.py`
+(`gateway_reports_service_absent`). `.github/scripts/check_gateway_optional_backends.py`
+fails CI if a route loses its marker, if a marker names the wrong backend, or if
+the header name drifts between the template and the agent.
+
 ### Elasticsearch through the gateway
 
 `/elasticsearch` is a **narrow** mount, not a general-purpose ES proxy. The
