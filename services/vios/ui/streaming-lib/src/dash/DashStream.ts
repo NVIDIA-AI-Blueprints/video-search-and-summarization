@@ -405,6 +405,25 @@ export class DashStream {
             utcSynchronization: {
                 enabled: true,
                 useManifestDateHeaderTimeSource: true,
+                /* Where to ask the time when the manifest does not say. Left
+                 * alone the library asks a public time service on the internet,
+                 * which is the wrong dependency for a service usually deployed
+                 * without a route to one - it would be a start-up stall at any
+                 * site behind a firewall. Ask this deployment's own server
+                 * instead: it answers a HEAD with a Date header, it is
+                 * reachable by definition, and it is the clock the manifest was
+                 * written against.
+                 *
+                 * This does not address the three second pause measured between
+                 * a manifest being parsed and its period starting on one host.
+                 * That tracks the host's clock being five minutes ahead of the
+                 * viewer's, not the timing source: with the two clocks in
+                 * agreement the same client and manifest start in 0.04 s. The
+                 * cure for that is NTP on the server, not a player setting. */
+                defaultTimingSource: {
+                    scheme: 'urn:mpeg:dash:utc:http-head:2014',
+                    value: manifestUrl,
+                },
             },
             // The manifest is served 202/Accepted until the packager has
             // prerolled, so the first fetches have to be retried patiently.
@@ -529,10 +548,17 @@ export class DashStream {
         });
 
         const ev = dashjs.MediaPlayer.events as unknown as Record<string, string>;
+        /* The start-up ones earn their place: a viewer on a distant link waits
+         * about three seconds between the manifest arriving and the first
+         * segment being asked for, with no request on the wire in between, and
+         * without these there is nothing to say which stage of the library's
+         * initialisation that time belongs to. */
         (['PLAYBACK_STALLED', 'PLAYBACK_WAITING', 'BUFFER_EMPTY', 'BUFFER_LOADED',
           'PLAYBACK_SEEKING', 'FRAGMENT_LOADING_ABANDONED', 'PLAYBACK_RATE_CHANGED',
           'PLAYBACK_ERROR', 'ERROR', 'BUFFER_LEVEL_STATE_CHANGED',
-          'FRAGMENT_LOADING_COMPLETED', 'QUALITY_CHANGE_RENDERED'] as const)
+          'FRAGMENT_LOADING_COMPLETED', 'QUALITY_CHANGE_RENDERED',
+          'MANIFEST_LOADED', 'STREAM_INITIALIZED', 'PERIOD_SWITCH_STARTED',
+          'CAN_PLAY', 'PLAYBACK_METADATA_LOADED', 'FRAGMENT_LOADING_STARTED'] as const)
             .forEach(name => {
                 const id = ev[name];
                 if (id) {
