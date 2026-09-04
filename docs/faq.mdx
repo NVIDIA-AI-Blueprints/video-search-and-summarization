@@ -235,9 +235,11 @@ Supported values are `video/mp4` and `video/x-matroska`.
 
 #### Can I run local LLM and VLM on NVIDIA A100 80 GB GPUs?
 
-Yes. The default models (`nvidia/nvidia-nemotron-nano-9b-v2` for LLM and `nvidia/cosmos3-nano-reasoner`
-for VLM) have been verified to work on dedicated A100 (80 GB) GPUs each with no environment overrides. There
-are no tested overrides to make these defaults work on a shared GPU.
+A100 (80 GB) maps to the `OTHER` hardware profile, and the default models
+(`nvidia/nemotron-3.5-lightning-30b-a3b` for LLM and `nvidia/cosmos3-nano-reasoner` for VLM) ship an `OTHER`
+configuration intended for a dedicated GPU each. The LLM default is a 30B-A3B model and has not been
+validated on A100; check the engine profiles the NIM advertises for your GPU before relying on it.
+There are no tested overrides to make these defaults work on a shared GPU.
 
 ### NVIDIA H200
 

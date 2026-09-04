@@ -29,7 +29,7 @@ The following diagram illustrates a conceptual architecture of the base vision a
 
 ## What's being deployed
 
-- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron Nano 9B v2 (`nvidia/nvidia-nemotron-nano-9b-v2`), which handles query routing, reasoning, and report generation.
+- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
 - **VSS Agent UI:** Web UI with chat, video upload, and different views
 - **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
@@ -106,9 +106,44 @@ latest release tag, `v3.2.1`, does not contain `deploy/docker/containers.env` or
 the per-profile `overrides.env` templates used by these commands.
 </Note>
 
-## Deploy
+## Deploy the base profile
 
-### Step 1: Deploy the Agent
+Use a coding agent with the [Build Vision Agent skill](/vss/vision-agent/agent-skills) to deploy
+the validated `base` developer profile. This is the default quickstart path.
+
+```text title="Example prompt"
+Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
+```
+
+The agent will:
+
+1. Load `vss-build-vision-ai` and route the request to the stock `base`
+   workflow.
+2. Confirm prerequisites, credentials, GPU hardware, model placement, and
+   host/ingress settings.
+3. Show the generated deployment plan, including services, model placement,
+   endpoints, and readiness checks.
+4. Ask for confirmation before starting containers.
+5. Deploy the base profile and return the browser-reachable VSS UI URL.
+
+When deployment completes, open the returned URL, typically
+`http://<HOST_IP>:7777/`, to use the base vision agent.
+
+<Note>
+On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
+supported, but a remote LLM is recommended for better response time. Add
+"with a remote LLM" to the prompt, for example:
+*"Use the vss-build-vision-ai skill to deploy the VSS base profile on this
+DGX-SPARK machine with a remote LLM."* See
+[Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
+</Note>
+
+## Manual deployment options
+
+Use this section when you want to run the deployment script yourself or customize
+the base profile from the command line.
+
+### Docker Compose deployment
 
 <Note>
 - Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
@@ -649,14 +684,12 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    With dedicated GPUs, restarting the container is sufficient. See
    [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
 
-#### Deploy with Agent Skills
+For the recommended agent-guided deployment path, see
+[Deploy the base profile](/vss/getting-started/quickstart#deploy-the-base-profile).
 
-As an alternative to running the deployment command manually, you can use VSS
-Agent Skills from a coding agent such as Claude Code, Codex, or NemoClaw.
-For the complete prompt flow (deploy, upload, ask, report, teardown), see
-[Agent Skills walkthrough](/vss/getting-started/quickstart#agent-skills-walkthrough) below.
+## Use the deployed base profile
 
-### Step 2: Upload a video
+### Upload a video
 
 In the chat interface, drag and drop the video `warehouse_safety_0001.mp4` into the chat window.
 
@@ -674,7 +707,7 @@ Once the video is uploaded, the agent will respond with the playback clip.
   <img src="/assets/images/agent-workflows/base_upload_video_3.png" alt="Video uploaded" />
 </Frame>
 
-### Step 3: Ask the Agent questions
+### Ask the Agent questions
 
 You can now ask the agent questions about the video. Here is an example:
 
@@ -708,7 +741,7 @@ Other examples of general supported queries include:
   <img src="/assets/images/agent-workflows/base_query_sensor_list.png" alt="Query: List all available sensors" />
 </Frame>
 
-### Step 4: Generate a report
+### Generate a report
 
 You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
 
@@ -773,7 +806,7 @@ The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated re
 mount a host directory as a Docker volume. For details, refer to [Report Generation](/vss/vision-agent/vss-agents/report-generation).
 </Note>
 
-### Step 5: Teardown the Agent
+### Teardown the Agent
 
 To teardown the agent, run the following command:
 
@@ -796,12 +829,10 @@ Once deployed, the following services are available:
 
 ## Agent Skills walkthrough
 
-The steps above drive the base vision agent through the UI and the
-native Docker Compose workflow. This section re-walks the same journey — deploy,
-upload, ask, report, tear down — using a coding agent (Claude Code, Codex, or
-NemoClaw) and the VSS [Agent Skills](/vss/vision-agent/agent-skills) instead. For each skill
-it documents the **example prompt** you give the agent and **what the agent
-does** in response.
+The default quickstart deploys the base profile with a coding agent and the
+Build Vision Agent skill. This section expands that same agent-driven journey —
+deploy, upload, ask, report, tear down — and documents the **example prompt** you
+give the agent and **what the agent does** in response.
 
 This walkthrough is written for developers and users who want to operate VSS
 from natural language.
@@ -816,19 +847,19 @@ The base profile journey exercises four skills:
 
 | Quickstart step | Skill | What it does |
 | --- | --- | --- |
-| Deploy the agent (Step 1) | `vss-deploy-profile` | Configures and brings up the base Docker Compose stack. |
-| Upload a video (Step 2) | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
-| Ask questions (Step 3) | `vss-ask-video` | Asks the VLM a text question directly through `chat/completions`, on a VIOS clip or a video you supply. |
-| Generate a report (Step 4) | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
-| Tear down (Step 5) | `vss-deploy-profile` | Stops and removes the stack. |
+| Deploy the base profile | `vss-build-vision-ai` | Selects the stock `base` workflow, confirms deployment context, and brings up the base stack. |
+| Upload a video | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
+| Ask questions | `vss-ask-video` | Asks the VLM a text question directly through `chat/completions`, on a VIOS clip or a video you supply. |
+| Generate a report | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
+| Tear down | `vss-build-vision-ai` | Tears down the deployed build and cleans up profile-specific runtime state when needed. |
 
-### Deploy the base profile
+### Deploy with Build Vision Agent
 
 **Example prompts**
 
 ```text title="Example prompts"
-Deploy the VSS base profile on this machine.
-Deploy VSS base with a remote LLM at https://integrate.api.nvidia.com.
+Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
+Use the vss-build-vision-ai skill to deploy VSS base with a remote LLM at https://integrate.api.nvidia.com.
 ```
 
 <Note>
@@ -836,7 +867,7 @@ On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
 supported, but a remote LLM is recommended for better response time — add
 "with a remote LLM" to the prompt (for example, *"Deploy the VSS base profile
 on this DGX-SPARK machine with a remote LLM."*). See
-[Configure LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
+[Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
 </Note>
 
 The deploy skill chooses the `<platform>` and `<mode>` to match your host,
@@ -844,21 +875,21 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 
 **What the agent does:**
 
-1. Loads the `vss-deploy-profile` skill for the `base` profile.
+1. Loads the `vss-build-vision-ai` skill and selects the stock `base`
+   workflow.
 2. Collects the required deployment context (repo path, GPU hardware,
    local/remote LLM-VLM mode, credentials, and host/ingress settings) and asks
    for anything missing.
 3. Runs pre-flight checks and credential validation before deployment.
-4. Creates a working `generated.env` from the checked-in `.env` defaults.
-5. Generates and validates a dry-run compose plan (`resolved.yml`), then
-   shows a review summary (services, model placement, and key endpoints).
-6. Waits for your confirmation before starting containers.
-7. Deploys with `up -d` and waits for readiness gates (container state and
+4. Generates and validates the base deployment plan, then shows a review
+   summary (services, model placement, and key endpoints).
+5. Waits for your confirmation before starting containers.
+6. Deploys with `up -d` and waits for readiness gates (container state and
    core health checks).
-8. Returns a browser-reachable ingress URL (for example
+7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
-The base defaults are the `nvidia/nvidia-nemotron-nano-9b-v2` LLM NIM (port
+The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM (port
 `30081`) and the `nvidia/cosmos3-nano-reasoner` VLM NIM (port `30082`). To use
 a different model or a remote endpoint, name it in the prompt and the agent
 sets `LLM_MODE` / `VLM_MODE` accordingly.
@@ -938,8 +969,8 @@ Tear down the VSS deployment.
 
 **What the agent does:**
 
-1. Loads the `vss-deploy-profile` skill and runs its teardown flow
-   (`docker compose -f resolved.yml down`).
+1. Loads the `vss-build-vision-ai` skill and runs the teardown flow for the
+   deployed build.
 2. When switching profiles, it also clears stale data volumes before any
    redeploy.
 

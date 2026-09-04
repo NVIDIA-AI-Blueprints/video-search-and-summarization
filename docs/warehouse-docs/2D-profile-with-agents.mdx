@@ -64,7 +64,7 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
 8. **LLM and VLM NIMs**:
 
    - **VLM NIM** (e.g., NVIDIA Cosmos3 Nano Reasoner): The vision-language model backend that powers alert verification, real-time alerts, and video understanding for the agent. Receives video frames plus prompts and returns structured predictions.
-   - **LLM NIM** (e.g., NVIDIA Nemotron Nano 9B v2): The language model that powers the agent's reasoning, query routing, and report generation.
+   - **LLM NIM** (e.g., NVIDIA Nemotron 3.5 Lightning 30B A3B): The language model that powers the agent's reasoning, query routing, and report generation.
 
 9. **Storage**
 
@@ -97,7 +97,7 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
 - **Microservices**: Components like NvStreamer, VIOS, DeepStream, Behavior Analytics, RTVI VLM, and the Alerting Service are modular, independently deployable microservices.
 - **RTSP**: Facilitates real-time video streaming between cameras, NvStreamer, VIOS, and RTVI VLM.
 - **Vision-Language Models (VLMs)**: NVIDIA Cosmos3 Nano Reasoner enables multi-step visual reasoning for alert verification, real-time anomaly detection, and video understanding.
-- **Large Language Models (LLMs)**: NVIDIA Nemotron Nano 9B v2 powers agent reasoning, query interpretation, and report generation.
+- **Large Language Models (LLMs)**: NVIDIA Nemotron 3.5 Lightning 30B A3B powers agent reasoning, query interpretation, and report generation.
 - **MCP (Model Context Protocol)**: A standardized tool interface that exposes microservice capabilities (analytics queries, alert management, video storage) to the LLM-powered agent.
 - **Protobuf**: Ensures efficient, compact data exchange across the CV pipeline.
 - **Kafka**: Manages data distribution and control messaging across all microservices.
