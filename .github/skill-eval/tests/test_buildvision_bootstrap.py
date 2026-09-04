@@ -52,7 +52,8 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             self.assertIn("host-side\nNemoClaw", instruction)
             self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
             verifier = (task / "tests" / "test.sh").read_text()
-            self.assertIn('openshell sandbox exec --name "$sandbox" -g "$gateway"', verifier)
+            self.assertIn('openshell sandbox exec --name "$sandbox" -- sh -lc', verifier)
+            self.assertNotIn('NEMOCLAW_GATEWAY_PORT', verifier)
             self.assertIn('"$reward_dir/reward.txt"', verifier)
 
     def test_rejects_a_non_object_spec(self):

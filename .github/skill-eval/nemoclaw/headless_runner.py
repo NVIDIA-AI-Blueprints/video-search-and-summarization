@@ -33,13 +33,6 @@ def _load_env_file(path: Path) -> None:
         os.environ.setdefault(key, parsed[0] if parsed else "")
 
 
-def _gateway_name() -> str:
-    raw = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8990").strip()
-    if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
-        raise ValueError("invalid NEMOCLAW_GATEWAY_PORT")
-    return "nemoclaw" if int(raw) == 8080 else f"nemoclaw-{int(raw)}"
-
-
 def _dashboard_port() -> int:
     raw = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
     if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
@@ -60,8 +53,6 @@ def _sandbox_exec(
             "exec",
             "--name",
             sandbox,
-            "-g",
-            _gateway_name(),
             "--",
             "sh",
             "-lc",
