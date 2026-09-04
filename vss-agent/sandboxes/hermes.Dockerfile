@@ -9,7 +9,12 @@ FROM ${BASE_IMAGE}
 # The installer drops hermes into $HOME/.local/bin, and HOME is /sandbox here —
 # so this installs as `sandbox` and needs no root. --skip-setup keeps the
 # interactive provider/API-key wizard out of the build.
-RUN curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh \
+# Pinned to a commit, not `main`. Piping a moving branch into bash means the same
+# repository revision can build different code from one day to the next, and an
+# upstream compromise would land straight in a trusted sandbox image. Bump this
+# deliberately; that bump is the review.
+ARG HERMES_INSTALL_REF=95d42656021a22f20201c618a67da07a618d16f3
+RUN curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_INSTALL_REF}/scripts/install.sh" \
       | bash -s -- --skip-setup \
     && PATH="$HOME/.local/bin:$PATH" command -v hermes
 ENV PATH=/sandbox/.local/bin:$PATH

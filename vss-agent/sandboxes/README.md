@@ -11,19 +11,33 @@ kept outside this repo.
 
 | File | Image | What it adds |
 |---|---|---|
-| `base.Dockerfile` | `ghcr.io/<owner>/vss/vss-harness-base` | Ubuntu 24.04 substrate: python, node/nvm, git, the Harbor contract dirs (`/task /output /logs /solution /tests`), declared OCI `USER` for OpenShell |
-| `openclaw.Dockerfile` | `…/vss-harness-openclaw` | OpenClaw agent runtime |
-| `openclaw-vss-cli.Dockerfile` | `…/vss-harness-openclaw-vss-cli` | OpenClaw + pinned `vss` CLI |
-| `hermes.Dockerfile` | `…/vss-harness-hermes` | Hermes runtime |
-| `codex.Dockerfile` | `…/vss-harness-codex` | Codex CLI (dev-team PIC runtime) |
-| `pi.Dockerfile` | `…/vss-harness-pi` | PI coding agent (dev-team PICs, NVIDIA inference) |
+| `base.Dockerfile` | `vss-harness-base` | Derives from the OpenShell community sandbox base (pinned by digest); adds the Harbor trial dirs and the VSS skills. `/task /output /logs` are agent-writable; `/solution` and `/tests` are not |
+| `openclaw.Dockerfile` | `vss-harness-openclaw` | OpenClaw agent runtime |
+| `openclaw-vss-cli.Dockerfile` | `vss-harness-openclaw-vss-cli` | OpenClaw + pinned `vss` CLI |
+| `hermes.Dockerfile` | `vss-harness-hermes` | Hermes runtime |
+| `codex.Dockerfile` | `vss-harness-codex` | Codex CLI (dev-team PIC runtime) |
+| `pi.Dockerfile` | `vss-harness-pi` | PI coding agent (dev-team PICs, NVIDIA inference) |
 
 ## Publishing
 
-`.github/workflows/sandbox-images.yml` builds the base, pushes it to GHCR, then
-builds each variant `FROM` the freshly published base. Pull requests build
-everything but push nothing (fork PRs have no package write token). Tags:
-`latest` on the default branch, plus `sha-<commit>` and branch/PR tags.
+This repository does not publish these images and does not name a registry. It
+owns the *definitions*; where a build lands is the operator's decision, and
+baking one registry into the source of truth would make every other deployment a
+fork.
+
+The VSS eval harness pulls these Dockerfiles, lets an operator edit them, and
+builds into whatever registry that cluster uses. Build one by hand the same way:
+
+```
+docker build -f vss-agent/sandboxes/base.Dockerfile -t <registry>/vss-harness-base:<tag> .
+docker build -f vss-agent/sandboxes/codex.Dockerfile \
+  --build-arg BASE_IMAGE=<registry>/vss-harness-base:<tag> \
+  -t <registry>/vss-harness-codex:<tag> .
+```
+
+The build context is the repository root: the base copies `skills/` into the
+image so a trial can drive a live VSS without fetching anything at run time.
+
 
 ## Consuming
 
@@ -32,7 +46,7 @@ base), so a downstream build can pin an exact base by digest:
 
 ```bash
 docker build -f pi.Dockerfile \
-  --build-arg BASE_IMAGE=ghcr.io/<owner>/vss/vss-harness-base:sha-<commit> .
+  --build-arg BASE_IMAGE=<registry>/vss-harness-base:<tag> .
 ```
 
 Two variants also need to be told where their runtime comes from, because the
@@ -43,13 +57,13 @@ packages are not on the public registries:
 | `openclaw.Dockerfile` | `OPENCLAW_NPM_SPEC`, `OPENCLAW_NPM_REGISTRY` | `@openclaw/openclaw` is not on `registry.npmjs.org` (404) |
 | `openclaw-vss-cli.Dockerfile` | the two above plus `VSS_CLI_SPEC`, `VSS_PIP_INDEX_URL` | `nvidia-vss` is not on public PyPI (404) |
 
-`.github/workflows/sandbox-images.yml` does not pass them, so those two matrix
+No build here passes them, so those two
 legs only succeed on a runner whose default npm/pip registries carry the
 packages.
 
 The harness's Provision panel lists these files, lets an operator edit one for a
 variant experiment, builds a content-addressed image from the edited text, and
-pulls the published base from GHCR onto the cluster. Real changes belong in a PR
+builds the base for the cluster. Real changes belong in a PR
 here, not in the running environment.
 
 ## One image, one harness
