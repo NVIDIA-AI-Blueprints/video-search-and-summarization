@@ -357,6 +357,51 @@ class TestRequestOptionsContext:
         assert "Request options context" in captured["system"]
 
     @pytest.mark.asyncio
+    async def test_failed_tool_call_cannot_be_marked_complete(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="1. [x] Fabricated successful result."))
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="What happened in warehouse_safety_001?"),
+            plan="1. [ ] Call `video_understanding` to analyze the video.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding",
+                            "args": {
+                                "sensor_id": "warehouse_safety_001",
+                                "start_timestamp": "None",
+                                "end_timestamp": "None",
+                            },
+                            "id": "call_1",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding",
+                    tool_call_id="call_1",
+                    content="Tool call failed: invalid timestamp",
+                ),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_not_awaited()
+        assert result.plan.startswith("1. [ ] Call `video_understanding`")
+        assert "1. [x]" not in result.plan
+        assert "Tool call failed: invalid timestamp" in result.plan
+        assert result.agent_scratchpad == []
+        assert any("Updated Plan" in chunk.content for chunk in chunks)
+
+    @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
