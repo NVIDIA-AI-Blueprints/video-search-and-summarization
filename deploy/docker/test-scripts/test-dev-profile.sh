@@ -373,6 +373,9 @@ elif [[ ${exit_code} -ne 0 ]]; then
 elif ! grep -q "Usage:" "${out_file}"; then
   echo "FAIL: --help (stdout missing 'Usage:')"
   ((TESTS_FAILED++)) || true
+elif [[ "$(grep -cF -- "                                     - GB300" "${out_file}")" -ne 1 ]]; then
+  echo "FAIL: --help (expected GB300 exactly once in hardware profiles)"
+  ((TESTS_FAILED++)) || true
 else
   echo "PASS: --help"
   ((TESTS_PASSED++)) || true

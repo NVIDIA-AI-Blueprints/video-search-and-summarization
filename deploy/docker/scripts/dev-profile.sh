@@ -593,7 +593,6 @@ function usage() {
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
-  echo "                                     - GB300"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
