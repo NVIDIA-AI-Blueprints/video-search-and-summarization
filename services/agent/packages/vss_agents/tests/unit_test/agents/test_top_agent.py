@@ -436,6 +436,59 @@ class TestRequestOptionsContext:
         assert "Error: process exited with status 1" in result.plan
 
     @pytest.mark.asyncio
+    async def test_mixed_results_update_only_from_successes(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content=(
+                    "1. [x] Inspect camera one. Result: A worker climbed a green ladder.\n2. [ ] Inspect camera two."
+                )
+            )
+        )
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="What happened on both cameras?"),
+            plan="1. [ ] Inspect camera one.\n2. [ ] Inspect camera two.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {"name": "video_understanding", "args": {"sensor_id": "camera_one"}, "id": "call_1"},
+                        {"name": "video_understanding", "args": {"sensor_id": "camera_two"}, "id": "call_2"},
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding",
+                    tool_call_id="call_1",
+                    content="A worker climbed a green ladder.",
+                ),
+                ToolMessage(
+                    name="video_understanding",
+                    tool_call_id="call_2",
+                    content="Tool call failed: invalid timestamp",
+                    status="error",
+                ),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_awaited_once()
+        prompt = str(agent.llm.ainvoke.await_args.args[0][1].content)
+        assert "camera_one" in prompt
+        assert "A worker climbed a green ladder." in prompt
+        assert "camera_two" not in prompt
+        assert "invalid timestamp" not in prompt
+        assert "1. [x] Inspect camera one." in result.plan
+        assert "2. [ ] Inspect camera two." in result.plan
+        assert "A worker climbed a green ladder." in result.plan
+        assert "Tool call failed: invalid timestamp" in result.plan
+
+    @pytest.mark.asyncio
     async def test_tool_node_marks_structured_failure_as_error(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 

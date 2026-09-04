@@ -475,25 +475,29 @@ class TopAgent(AsyncMixin):
         scratchpad_lines: list[str] = []
         tool_results_lines: list[str] = []
         has_tool_failure = False
+        has_tool_success = False
         pending_calls: dict[str, dict[str, Any]] = {}  # tool_call_id -> {name, args}
         for msg in state.agent_scratchpad:
             if isinstance(msg, AIMessage) and msg.tool_calls:
                 for tc in msg.tool_calls:
                     tc_id = tc["id"] or ""
                     pending_calls[tc_id] = {"name": tc["name"], "args": tc["args"]}
-                    scratchpad_lines.append(f"Called tool `{tc['name']}` with args: {tc['args']}")
             elif isinstance(msg, ToolMessage):
                 call_info = pending_calls.pop(msg.tool_call_id, None)
                 tool_name = (call_info["name"] if call_info else None) or getattr(msg, "name", None) or "tool"
                 result_text = _get_content_text(msg)
-                has_tool_failure = (
-                    has_tool_failure or msg.status == "error" or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
-                )
+                tool_failed = msg.status == "error" or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
+                has_tool_failure = has_tool_failure or tool_failed
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
-                # Truncated for the LLM prompt
-                truncated = result_text[:500] + "…" if len(result_text) > 500 else result_text
-                scratchpad_lines.append(f"Result from `{tool_name}`: {truncated}")
+                if not tool_failed:
+                    has_tool_success = True
+                    if call_info:
+                        scratchpad_lines.append(f"Called tool `{tool_name}` with args: {call_info['args']}")
+                    # Failed results are deliberately excluded from the plan-tracking
+                    # prompt so they cannot be mistaken for successful evidence.
+                    truncated = result_text[:500] + "…" if len(result_text) > 500 else result_text
+                    scratchpad_lines.append(f"Result from `{tool_name}`: {truncated}")
             else:
                 text = _get_content_text(msg)
                 if text.strip():
@@ -538,11 +542,11 @@ class TopAgent(AsyncMixin):
         llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
         llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
 
-        if has_tool_failure:
+        if has_tool_failure and not has_tool_success:
             # A plan-updating LLM can mistake an exception message for evidence
-            # that the requested work completed. Keep the existing plan pending
-            # deterministically and expose the exact failure to the next agent
-            # turn so it can correct the arguments or report the failure.
+            # that the requested work completed. When every tool failed, keep
+            # the existing plan pending deterministically and expose the exact
+            # failures to the next agent turn for correction or reporting.
             updated_plan = clean_plan
             logger.warning("Tool failure detected; preserving the current plan without marking steps complete")
         else:
