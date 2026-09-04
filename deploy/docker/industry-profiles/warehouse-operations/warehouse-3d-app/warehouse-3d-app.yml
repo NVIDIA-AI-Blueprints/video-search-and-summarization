@@ -58,6 +58,7 @@ services:
     profiles: !override ["bp-configurator-3d"]
     environment:
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
+      DATASET_TYPE: ${DATASET_TYPE:-real}
       DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs
       NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs
       RECOMPUTE_BEV_CENTERS_ENABLED: true
@@ -135,7 +136,7 @@ services:
      - $VSS_DATA_DIR/models/:/opt/storage/
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json:/opt/config/models-download.json:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
-     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/:/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/:ro
+     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels-$DATASET_TYPE.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels-$DATASET_TYPE.txt:ro
      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
 
       # Config mountings
