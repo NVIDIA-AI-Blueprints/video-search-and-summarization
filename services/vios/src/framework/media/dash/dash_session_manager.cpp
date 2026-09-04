@@ -21,6 +21,7 @@
 
 #include "logger.h"
 #include "stream_monitor.h"
+#include "nvhwdetection.h"
 #include "CommonVideoSource.h"
 #include "utils.h"
 
@@ -156,6 +157,24 @@ unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured
     return static_cast<unsigned>(std::max(1.0, std::ceil(seconds)));
 }
 
+/* One place to see what a DASH request asked for and what the pipeline was
+ * actually handed.  The two drift: a field the request carries has to be
+ * translated into an option the pipeline reads, and when that translation is
+ * missing the session still starts and still reports itself running, so the
+ * only visible symptom is a picture with something absent from it.  Printing
+ * the whole map rather than a chosen few means the next missing option shows
+ * up here without anyone having to add a line for it first. */
+void logDashRequest(const char* what, const std::string& streamId,
+                    const std::map<std::string, std::string, std::less<>>& opts)
+{
+    std::ostringstream line;
+    for (const auto& entry : opts)
+    {
+        line << " " << entry.first << "=" << entry.second;
+    }
+    LOG(info) << "DASH " << what << " streamId=" << streamId << " opts:" << line.str() << endl;
+}
+
 unsigned segmentDurationFor(const std::string& govLength, const std::string& frameRate,
                             unsigned configured, bool reEncodes)
 {
@@ -186,6 +205,18 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
 }
 
 } // namespace
+
+/* Where the platform has no hardware encoder - an x86 part without NVENC, H100
+ * among them - the overlay, composite and transcode pipelines all end at the
+ * transform, which hands its consumer a decoded picture. The WebRTC sink wants
+ * exactly that and encodes for itself; the DASH packager cannot publish a
+ * picture, so it has to encode one. A session that republishes an already
+ * encoded stream is untouched: nothing decodes it, so there is nothing to
+ * encode again. */
+static bool dashNeedsSoftwareEncode(bool pipelineDecodesFrames)
+{
+    return pipelineDecodesFrames && !NvHwDetection::getInstance()->m_useNvV4l2Enc;
+}
 
 DashSessionManager& DashSessionManager::instance()
 {
@@ -408,9 +439,15 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
                 result.error = "Composite requires an RTSP source: " + wallStreamId;
                 return result;
             }
-            // The tile label is carried on the URL fragment, which is how the
-            // compositor learns which name belongs to which picture.
-            compositeUrls += memberUrl + "#" + wallStreamId + ",";
+            /* The tile label is carried on the URL fragment, which is how the
+             * compositor learns which name belongs to which picture - and it
+             * becomes that tile's overlay sensorID, which the metadata store
+             * matches against the sensorId on each detection. Those are names,
+             * so putting the stream's id here matched nothing and every tile on
+             * a wall drew an empty overlay: the sensor name and the debug
+             * timestamp still appeared, because neither needs metadata, and the
+             * boxes never did. */
+            compositeUrls += memberUrl + "#" + member->name + ",";
         }
         LOG(info) << "Composite live DASH session over " << wallStreamIds.size()
                   << " streams" << endl;
@@ -437,6 +474,22 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         // What the camera actually runs at, rather than the thirty frames a
         // second the packager would otherwise assume.
         packagerConfig.sourceFrameRate = parseFrameRate(stream->settings.encoderValues.frameRate, 30.0);
+        /* An overlay draws on every other frame where the platform asks it to,
+         * so such a session delivers half the frames the camera reports and the
+         * ones it does deliver sit two source frames apart.  This rate paces the
+         * published timeline: an arrival further ahead than two frame durations
+         * is read as a gap and closed, and at the camera's rate that threshold
+         * lands exactly on the spacing skipping produces.  Ordinary jitter then
+         * reads as a gap on frame after frame, each one shortening the timeline,
+         * until the live edge sits far enough behind real time that the player
+         * runs out of media - measured at 0.73x with a stall every three
+         * seconds.  Halving it describes what actually arrives and puts the
+         * threshold a whole frame beyond the real spacing.  A composite sets its
+         * own rate below and is not affected. */
+        if (overlayRequested && GET_CONFIG().enable_overlay_skip_frame)
+        {
+            packagerConfig.sourceFrameRate /= 2.0;
+        }
         /* A re-encoded source hands over frames stamped zero, so the timeline
          * has to be built from the frame index. Saying so up front matters:
          * discovering it on the second frame means the first was already
@@ -449,6 +502,11 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         if (transcodeRequired)
         {
             packagerConfig.synthesizeTimestamps = true;
+        }
+
+        if (dashNeedsSoftwareEncode(overlayRequested || compositeRequested || transcodeRequired))
+        {
+            packagerConfig.encodeRawInput = true;
         }
 
         if (compositeRequested)
@@ -501,6 +559,17 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         std::map<std::string, std::string, std::less<>> opts;
         opts["streamId"] = streamId;
         opts["sensorId"] = stream->sensorId;
+        /* The overlay filters detections by sensor NAME, not by id: it reads
+         * this option into the name it hands the metadata store, and the store
+         * drops every message whose sensorId does not equal that name.  Left
+         * unset the name is empty, nothing ever matches, and the overlay draws
+         * an empty frame while reporting itself enabled. */
+        opts["sensorID"] = stream->name;
+        /* Bbox coordinates arrive in source resolution and are scaled with
+         * these.  Without them the scale falls back to 1080p, which is right
+         * only by luck and puts the boxes in the wrong place otherwise. */
+        opts["source_width"] = stream->settings.encoderValues.resolution.width;
+        opts["source_height"] = stream->settings.encoderValues.resolution.height;
         opts["peerid"] = session->streamToken;
         /* This names what arrives, not what leaves: it is what the decoder is
          * built to parse.  Naming the output codec here would hand an H.265
@@ -528,6 +597,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         // caller may ask for a lower rate than the cameras run at.  Absent that,
         // the wall is composed at the rate this stream already reports.
         setCompositeOptsBasedOnJson(opts, composite, frameRate);
+        logDashRequest("live", streamId, opts);
         if (compositeRequested)
         {
             // The request schema and the pipeline speak different names for the
@@ -742,9 +812,22 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
          * are pushed, and not one segment is ever cut.  Build the timeline from
          * the frame index instead, which is what the live path does for the
          * same reason. */
+        if (dashNeedsSoftwareEncode(dashOverlayRequested(overlay) || transcodeRequired))
+        {
+            packagerConfig.encodeRawInput = true;
+        }
         if (transcodeRequired)
         {
             packagerConfig.synthesizeTimestamps = true;
+            /* Counting frames is only honest while every frame arrives. With an
+             * overlay on, the frames it drew nothing on are suppressed, so half
+             * of them reach the packager and a timeline built by counting packs
+             * a second of recording into half a second - the recording plays at
+             * double speed, which is what the WebRTC path never does because it
+             * carries each frame's own timestamp. Use the same timestamps here
+             * and keep the counted timeline as the fallback for a source that
+             * cannot supply them. */
+            packagerConfig.preferSourceTimestamps = true;
         }
     }
 
@@ -769,6 +852,11 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     std::map<std::string, std::string, std::less<>> opts;
     opts["streamId"] = streamId;
     opts["sensorId"] = stream->sensorId;
+    /* See the live path: the overlay matches metadata on the sensor name that
+     * this option carries, so an unset one silently discards every detection. */
+    opts["sensorID"] = stream->name;
+    opts["source_width"] = stream->settings.encoderValues.resolution.width;
+    opts["source_height"] = stream->settings.encoderValues.resolution.height;
     opts["peerid"] = session->streamToken;
     opts["startTime"] = startTime;
     if (!endTime.empty())
@@ -790,6 +878,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     // Overlay flags are read from the same schema the WebRTC APIs use, so a
     // caller describes an overlay once and every protocol understands it.
     setOverlayOptsBasedOnJson(opts, overlay);
+    logDashRequest("replay", streamId, opts);
 
     // The packager must be handed to the constructor: CommonVideoSource builds
     // its pipeline there, and the terminal consumer is chosen while it does.
@@ -1229,10 +1318,27 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
              * to 0.4 before recovering, which is a stutter for the first few
              * seconds and smooth after. Publishing a window wider than the
              * delay gives it somewhere to start that is already behind. */
+            /* The cushion is wanted in seconds, so asking for a multiple of the
+             * segment length reintroduces the very thing kDashPrerollSegments
+             * documents itself as preventing: a source whose keyframes are 256
+             * frames apart writes 8.3 second segments, 2.5 of those is 21
+             * seconds, and the first frame is held for 36 - past the point the
+             * client stops waiting, so a stream that is publishing perfectly
+             * well never appears. One segment that long is already a wider
+             * catalogue than the player's live delay, which is all the multiple
+             * was ever buying. */
             const double required = published.longestSeconds > 0.0
                 ? std::max(static_cast<double>(kDashPrerollSeconds),
-                           published.longestSeconds * 2.5)
+                           published.longestSeconds)
                 : static_cast<double>(kDashPrerollSeconds);
+            /* Two segments is the right floor while they are short, because the
+             * seconds rule needs several of them anyway. A single segment that
+             * already carries the whole cushion does not need a second one to
+             * sit behind. */
+            const unsigned neededFragments =
+                (published.longestSeconds > 0.0 && published.longestSeconds >= required)
+                    ? 1u
+                    : kDashPrerollSegments;
             /* A recording can be shorter than the preroll asks for - a twelve
              * second clip seeked six seconds in has six seconds left, and
              * waiting for eight of them waits forever, which the viewer sees as
@@ -1245,7 +1351,7 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
             const bool sourceFinished = published.fragments >= 1
                                         && published.secondsSinceNewestWrite >= kSourceIdleSeconds;
             session->prerollComplete =
-                (enoughMedia && published.fragments >= kDashPrerollSegments) || sourceFinished;
+                (enoughMedia && published.fragments >= neededFragments) || sourceFinished;
             if (sourceFinished && !enoughMedia)
             {
                 LOG(info) << "DASH publishing a short recording for " << session->streamToken
