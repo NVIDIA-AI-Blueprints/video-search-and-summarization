@@ -27,6 +27,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from vss_agents.utils.llm_endpoint import validate_chat_llm_endpoints
+
 
 class StreamingIngestConfig(BaseModel):
     """Configuration for the streaming video ingest and RTSP stream endpoints.
@@ -139,4 +141,8 @@ class VSSFastApiFrontEndConfig(FastApiFrontEndConfig, name="vss_fastapi"):  # ty
 async def register_vss_fastapi_front_end(
     _config: VSSFastApiFrontEndConfig, full_config: Config
 ) -> AsyncGenerator[FastApiFrontEndPlugin]:
+    # First point at which the interpolated config is known, and still before the
+    # server binds: an LLM endpoint that no request can reach must stop the agent
+    # here rather than surface later as a stream error naming only the path.
+    validate_chat_llm_endpoints(full_config)
     yield FastApiFrontEndPlugin(full_config=full_config)
