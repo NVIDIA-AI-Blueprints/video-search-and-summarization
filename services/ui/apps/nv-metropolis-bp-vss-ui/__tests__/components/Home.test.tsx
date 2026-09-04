@@ -58,11 +58,15 @@ jest.mock("next-runtime-env", () => ({
   env: (key: string) => process.env[key],
 }));
 
-jest.mock("@nemo-agent-toolkit/ui", () => ({
-  RuntimeConfigProvider: ({ children }: { children: React.ReactNode }) =>
-    children,
-  ChatSidebarContent: () => null,
-}));
+jest.mock(
+  "@nemo-agent-toolkit/ui",
+  () => ({
+    RuntimeConfigProvider: ({ children }: { children: React.ReactNode }) =>
+      children,
+    ChatSidebarContent: () => null,
+  }),
+  { virtual: true }
+);
 
 jest.mock("../../hooks/useTheme", () => ({
   useTheme: () => ({
