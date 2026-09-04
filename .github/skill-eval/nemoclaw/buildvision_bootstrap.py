@@ -59,13 +59,10 @@ def _health_check_script() -> str:
 set -eu
 sandbox="${NEMOCLAW_SANDBOX_NAME:-skill-eval}"
 port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
-gateway_port="${NEMOCLAW_GATEWAY_PORT:-8990}"
-gateway="nemoclaw-$gateway_port"
-if [ "$gateway_port" = 8080 ]; then gateway="nemoclaw"; fi
 reward_dir="/logs/verifier"
 mkdir -p "$reward_dir"
 set +e
-output="$(timeout 30 openshell sandbox exec --name "$sandbox" -g "$gateway" -- sh -lc \
+output="$(timeout 30 openshell sandbox exec --name "$sandbox" -- sh -lc \
   "code=\\$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health) && { [ \\"\\$code\\" = 200 ] || [ \\"\\$code\\" = 401 ]; }" 2>&1)"
 status=$?
 set -e
