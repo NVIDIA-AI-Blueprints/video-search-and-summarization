@@ -20,6 +20,7 @@ export interface AgentAdapterConfig {
   maxEventsPerRun: number;
   maxEventCharsPerRun: number;
   maxThreadStateChars: number;
+  maxRetainedChars: number;
 }
 
 const SUPPORTED_PROTOCOLS = new Set<BackendProtocol>([
@@ -245,6 +246,42 @@ export const loadAgentAdapterConfig = (
       "AGENT_BACKEND_HEADERS_JSON is unsupported with openclaw-ws"
     );
   }
+  const maxEventsPerRun = numberEnv(
+    environment,
+    "AGENT_MAX_EVENTS_PER_RUN",
+    10_000,
+    100,
+    100_000
+  );
+  const maxEventCharsPerRun = numberEnv(
+    environment,
+    "AGENT_MAX_EVENT_CHARS_PER_RUN",
+    20_000_000,
+    1_000_000,
+    100_000_000
+  );
+  const maxThreadStateChars = numberEnv(
+    environment,
+    "AGENT_MAX_THREAD_STATE_CHARS",
+    20_000_000,
+    1_000_000,
+    100_000_000
+  );
+  const maxRetainedChars = numberEnv(
+    environment,
+    "AGENT_MAX_RETAINED_CHARS",
+    64_000_000,
+    3_000_000,
+    1_000_000_000
+  );
+  // The total budget is partitioned between Responses thread state and runs.
+  // A run must be able to reserve its full event allowance; its serialized
+  // request is checked against the remaining capacity when it is created.
+  if (maxRetainedChars <= maxThreadStateChars + maxEventCharsPerRun) {
+    throw new ConfigError(
+      "AGENT_MAX_RETAINED_CHARS must exceed AGENT_MAX_THREAD_STATE_CHARS plus AGENT_MAX_EVENT_CHARS_PER_RUN"
+    );
+  }
   return {
     backendProtocol,
     backendUrl,
@@ -267,26 +304,9 @@ export const loadAgentAdapterConfig = (
       numberEnv(environment, "AGENT_RUN_RETENTION_SECONDS", 3_600, 60, 86_400) *
       1_000,
     maxRuns: numberEnv(environment, "AGENT_MAX_RUNS", 1_000, 1, 10_000),
-    maxEventsPerRun: numberEnv(
-      environment,
-      "AGENT_MAX_EVENTS_PER_RUN",
-      10_000,
-      100,
-      100_000
-    ),
-    maxEventCharsPerRun: numberEnv(
-      environment,
-      "AGENT_MAX_EVENT_CHARS_PER_RUN",
-      20_000_000,
-      1_000_000,
-      100_000_000
-    ),
-    maxThreadStateChars: numberEnv(
-      environment,
-      "AGENT_MAX_THREAD_STATE_CHARS",
-      20_000_000,
-      1_000_000,
-      100_000_000
-    ),
+    maxEventsPerRun,
+    maxEventCharsPerRun,
+    maxThreadStateChars,
+    maxRetainedChars,
   };
 };

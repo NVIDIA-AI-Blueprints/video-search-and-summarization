@@ -34,11 +34,14 @@ export class AgentAdapterService {
 
   constructor(readonly config: AgentAdapterConfig) {
     this.connector = buildConnector(config);
+    // Reserve the thread-state ceiling up front so the independently managed
+    // connector cache and run store cannot exceed the process-wide limit.
     this.store = new RunStore(
       config.runRetentionMs,
       config.maxRuns,
       config.maxEventsPerRun,
-      config.maxEventCharsPerRun
+      config.maxEventCharsPerRun,
+      config.maxRetainedChars - config.maxThreadStateChars
     );
   }
 
@@ -84,6 +87,7 @@ export class AgentAdapterService {
       limits: {
         max_events_per_run: this.config.maxEventsPerRun,
         max_event_chars_per_run: this.config.maxEventCharsPerRun,
+        max_retained_chars: this.config.maxRetainedChars,
         run_retention_seconds: this.config.runRetentionMs / 1_000,
       },
     };

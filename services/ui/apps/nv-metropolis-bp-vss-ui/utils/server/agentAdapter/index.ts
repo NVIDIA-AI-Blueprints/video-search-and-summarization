@@ -48,6 +48,7 @@ const CONFIG_ENV_KEYS = [
   "AGENT_MAX_EVENTS_PER_RUN",
   "AGENT_MAX_EVENT_CHARS_PER_RUN",
   "AGENT_MAX_THREAD_STATE_CHARS",
+  "AGENT_MAX_RETAINED_CHARS",
 ];
 
 const configFingerprint = (environment: NodeJS.ProcessEnv): string =>

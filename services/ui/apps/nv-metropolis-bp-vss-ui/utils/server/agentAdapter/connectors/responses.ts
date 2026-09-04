@@ -60,7 +60,7 @@ interface ThreadState {
   previousResponseId: string;
   transcript: Message[];
   transcriptDigest: string;
-  transcriptChars: number;
+  retainedChars: number;
 }
 
 interface SelectedInput {
@@ -292,23 +292,26 @@ export class ResponsesConnector implements Connector {
       ...transcript,
       { role: "assistant", content: stripArtifactEnvelopes(outputText) },
     ];
+    const completedTranscriptDigest = transcriptDigest(completedTranscript);
     const state: ThreadState = {
       previousResponseId: responseId,
       transcript: completedTranscript,
-      transcriptDigest: transcriptDigest(completedTranscript),
-      transcriptChars: completedTranscript.reduce(
-        (total, message) => total + message.content.length,
-        0
-      ),
+      transcriptDigest: completedTranscriptDigest,
+      retainedChars: JSON.stringify({
+        thread_id: request.threadId,
+        previous_response_id: responseId,
+        transcript: completedTranscript,
+        transcript_digest: completedTranscriptDigest,
+      }).length,
     };
     const previous = this.threadState.get(request.threadId);
     if (previous) {
       this.threadState.delete(request.threadId);
-      this.threadStateChars -= previous.transcriptChars;
+      this.threadStateChars -= previous.retainedChars;
     }
-    if (state.transcriptChars > this.config.maxThreadStateChars) return;
+    if (state.retainedChars > this.config.maxThreadStateChars) return;
     this.threadState.set(request.threadId, state);
-    this.threadStateChars += state.transcriptChars;
+    this.threadStateChars += state.retainedChars;
     while (
       this.threadState.size > this.config.maxRuns ||
       this.threadStateChars > this.config.maxThreadStateChars
@@ -316,7 +319,7 @@ export class ResponsesConnector implements Connector {
       const oldest = this.threadState.entries().next().value;
       if (!oldest) break;
       this.threadState.delete(oldest[0]);
-      this.threadStateChars -= oldest[1].transcriptChars;
+      this.threadStateChars -= oldest[1].retainedChars;
     }
   }
 

@@ -16,13 +16,15 @@ import { strictJsonParse } from "../../../utils/server/agentAdapter/json";
 import {
   EventsExpiredError,
   IdempotencyConflictError,
+  RunNotFoundError,
   RunStore,
+  StoreCapacityError,
   ThreadBusyError,
 } from "../../../utils/server/agentAdapter/store";
 
-const request = () =>
+const request = (threadId = "thread-1") =>
   parseCreateRunRequest({
-    thread_id: "thread-1",
+    thread_id: threadId,
     input: [{ role: "user", content: "hello" }],
     history: [{ role: "assistant", content: "previous" }],
   });
@@ -122,7 +124,7 @@ describe("embedded agent adapter", () => {
   });
 
   it("enforces idempotency, one active run per thread, and bounded replay", () => {
-    const store = new RunStore(60_000, 2, 2, 1_000_000);
+    const store = new RunStore(60_000, 2, 2, 1_000_000, 4_000_000);
     const first = store.create(request(), "same-key");
     expect(store.create(request(), "same-key")).toEqual({
       record: first.record,
@@ -143,6 +145,25 @@ describe("embedded agent adapter", () => {
     first.record.append("message.delta", { delta: "two" });
     first.record.append("message.delta", { delta: "three" });
     expect(() => first.record.eventsAfter(0)).toThrow(EventsExpiredError);
+  });
+
+  it("evicts the oldest terminal run to enforce the retained character budget", () => {
+    const store = new RunStore(60_000, 10, 100, 500, 900);
+    const first = store.create(request("thread-1")).record;
+    store.finish(first, "run.completed");
+
+    const second = store.create(request("thread-2")).record;
+
+    expect(() => store.get(first.runId)).toThrow(RunNotFoundError);
+    expect(store.get(second.runId)).toBe(second);
+  });
+
+  it("rejects a new run when active reservations fill the character budget", () => {
+    const store = new RunStore(60_000, 10, 100, 500, 900);
+    const active = store.create(request("thread-1")).record;
+
+    expect(() => store.create(request("thread-2"))).toThrow(StoreCapacityError);
+    expect(store.get(active.runId)).toBe(active);
   });
 
   it("rejects reserved and unsafe upstream headers", () => {
@@ -177,5 +198,20 @@ describe("embedded agent adapter", () => {
     expect(() =>
       loadAgentAdapterConfig({ AGENT_ADAPTER_ENABLED: "true" })
     ).toThrow("AGENT_BACKEND_URL is required when AGENT_ADAPTER_ENABLED=true");
+  });
+
+  it("requires the global retention budget to cover event and thread limits", () => {
+    const config = loadAgentAdapterConfig({
+      AGENT_BACKEND_URL: "http://backend",
+    });
+    expect(config?.maxRetainedChars).toBe(64_000_000);
+    expect(() =>
+      loadAgentAdapterConfig({
+        AGENT_BACKEND_URL: "http://backend",
+        AGENT_MAX_RETAINED_CHARS: "40000000",
+      })
+    ).toThrow(
+      "AGENT_MAX_RETAINED_CHARS must exceed AGENT_MAX_THREAD_STATE_CHARS plus AGENT_MAX_EVENT_CHARS_PER_RUN"
+    );
   });
 });

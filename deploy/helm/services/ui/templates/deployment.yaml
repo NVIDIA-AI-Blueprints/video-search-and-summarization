@@ -194,6 +194,8 @@ spec:
               value: {{ (default 20000000 $adapter.maxEventCharsPerRun) | quote }}
             - name: AGENT_MAX_THREAD_STATE_CHARS
               value: {{ (default 20000000 $adapter.maxThreadStateChars) | quote }}
+            - name: AGENT_MAX_RETAINED_CHARS
+              value: {{ (default 64000000 $adapter.maxRetainedChars) | quote }}
             {{- $forceHttp := $adapter.forceHttpChatTransport }}
             {{- if or (kindIs "invalid" $forceHttp) (eq ($forceHttp | toString | trim) "") }}
             {{- $forceHttp = $adapterEnabled }}

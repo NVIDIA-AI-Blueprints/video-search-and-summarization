@@ -53,8 +53,13 @@ export class RunRecord {
     readonly runId: string,
     readonly request: CreateRunRequest,
     readonly requestHash: string,
+    private readonly requestRetainedChars: number,
     private readonly maxEvents: number,
-    private readonly maxEventChars: number
+    private readonly maxEventChars: number,
+    private readonly onRetainedCharsChanged: (
+      record: RunRecord,
+      delta: number
+    ) => void
   ) {}
 
   get terminal(): boolean {
@@ -69,7 +74,18 @@ export class RunRecord {
     return this.nextSequence - 1;
   }
 
+  get retainedChars(): number {
+    // Reserve the complete event allowance while a run is active. Appends can
+    // then stream safely without making process-wide retention unbounded.
+    return (
+      this.requestRetainedChars +
+      (this.terminal ? this.retainedEventChars : this.maxEventChars)
+    );
+  }
+
   append(type: string, data: JsonObject = {}): RunEvent {
+    if (this.terminal) throw new Error("cannot append to a terminal run");
+    const previousRetainedChars = this.retainedChars;
     const encoded = JSON.stringify(data);
     if (encoded.length > this.maxEventChars) {
       throw new Error("one adapter event exceeds the per-run character limit");
@@ -81,10 +97,14 @@ export class RunRecord {
       this.request.threadId,
       data
     );
+    const eventChars = JSON.stringify(event).length;
+    if (eventChars > this.maxEventChars) {
+      throw new Error("one adapter event exceeds the per-run character limit");
+    }
     this.nextSequence += 1;
     this.events.push(event);
-    this.eventCharSizes.push(encoded.length);
-    this.retainedEventChars += encoded.length;
+    this.eventCharSizes.push(eventChars);
+    this.retainedEventChars += eventChars;
     while (
       this.events.length > this.maxEvents ||
       this.retainedEventChars > this.maxEventChars
@@ -97,6 +117,10 @@ export class RunRecord {
     else if (type === "run.failed") this.status = "failed";
     else if (type === "run.cancelled") this.status = "cancelled";
     this.updatedAt = Date.now();
+    this.onRetainedCharsChanged(
+      this,
+      this.retainedChars - previousRetainedChars
+    );
     for (const listener of this.listeners) listener();
     return event;
   }
@@ -146,18 +170,42 @@ export class RunStore {
   private readonly runs = new Map<string, RunRecord>();
   private readonly activeThreads = new Map<string, string>();
   private readonly idempotency = new Map<string, IdempotencyRecord>();
+  private retainedChars = 0;
 
   constructor(
     private readonly retentionMs: number,
     private readonly maxRuns: number,
     private readonly maxEventsPerRun: number,
-    private readonly maxEventCharsPerRun: number
+    private readonly maxEventCharsPerRun: number,
+    private readonly maxRetainedChars: number
   ) {}
 
   private remove(runId: string): void {
+    const run = this.runs.get(runId);
+    if (!run) return;
     this.runs.delete(runId);
+    this.retainedChars -= run.retainedChars;
+    if (this.activeThreads.get(run.request.threadId) === runId) {
+      this.activeThreads.delete(run.request.threadId);
+    }
     for (const [key, record] of this.idempotency) {
       if (record.runId === runId) this.idempotency.delete(key);
+    }
+  }
+
+  private oldestTerminal(): RunRecord | undefined {
+    return [...this.runs.values()]
+      .filter((record) => record.terminal)
+      .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)[0];
+  }
+
+  private updateRetainedChars(record: RunRecord, delta: number): void {
+    if (this.runs.get(record.runId) !== record) return;
+    this.retainedChars += delta;
+    if (this.retainedChars > this.maxRetainedChars) {
+      throw new StoreCapacityError(
+        "adapter exceeded its retained character limit"
+      );
     }
   }
 
@@ -191,26 +239,38 @@ export class RunStore {
     }
     const activeRunId = this.activeThreads.get(request.threadId);
     if (activeRunId) throw new ThreadBusyError(activeRunId);
-    if (this.runs.size >= this.maxRuns) {
-      const terminal = [...this.runs.values()]
-        .filter((record) => record.terminal)
-        .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)[0];
-      if (!terminal) {
-        throw new StoreCapacityError(
-          "adapter has reached its active run limit"
-        );
-      }
-      this.remove(terminal.runId);
-    }
     const runId = `run_${randomBytes(18).toString("base64url")}`;
+    const requestRetainedChars = JSON.stringify({
+      idempotency_key: key ?? null,
+      run_id: runId,
+      request,
+      request_hash: digest,
+    }).length;
     const record = new RunRecord(
       runId,
       request,
       digest,
+      requestRetainedChars,
       this.maxEventsPerRun,
-      this.maxEventCharsPerRun
+      this.maxEventCharsPerRun,
+      (changedRecord, delta) => this.updateRetainedChars(changedRecord, delta)
     );
+    while (
+      this.runs.size >= this.maxRuns ||
+      this.retainedChars + record.retainedChars > this.maxRetainedChars
+    ) {
+      const terminal = this.oldestTerminal();
+      if (!terminal) {
+        throw new StoreCapacityError(
+          this.runs.size >= this.maxRuns
+            ? "adapter has reached its active run limit"
+            : "adapter has reached its retained character limit"
+        );
+      }
+      this.remove(terminal.runId);
+    }
     this.runs.set(runId, record);
+    this.retainedChars += record.retainedChars;
     this.activeThreads.set(request.threadId, runId);
     if (key) this.idempotency.set(key, { digest, runId });
     return { record, replayed: false };

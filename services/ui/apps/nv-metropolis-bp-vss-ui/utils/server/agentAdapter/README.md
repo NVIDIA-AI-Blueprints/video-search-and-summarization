@@ -26,7 +26,9 @@ The principal settings are:
 - `AGENT_BACKEND_SESSION_FIELD` and `AGENT_BACKEND_SESSION_HEADER`: optional
   Responses session routing.
 - `AGENT_RUN_RETENTION_SECONDS` and `AGENT_MAX_*`: optional in-process replay
-  retention and memory bounds.
+  retention and memory bounds. `AGENT_MAX_RETAINED_CHARS` bounds all retained
+  run requests, events, and Responses thread state; it defaults to 64 million
+  serialized characters.
 
 The adapter connects to an already-configured harness. It does not install
 Skills, provision a CLI, or modify the harness's identity, memory, or history.

@@ -90,6 +90,7 @@ agentAdapter:
   runRetentionSeconds: 3600
   maxEventCharsPerRun: 20000000
   maxThreadStateChars: 20000000
+  maxRetainedChars: 64000000
   # Force browser off legacy WebSocket transport when the adapter is on; mirrors
   # compose default (falls back to agentAdapter.enabled).
   forceHttpChatTransport: ""

@@ -152,7 +152,7 @@ describe("agent chat compatibility bridge", () => {
       thread_id: "thread-1",
       input: [{ role: "user", content: "hello" }],
     });
-    const record = new RunStore(60_000, 1, 10, 1_000_000).create(
+    const record = new RunStore(60_000, 1, 10, 1_000_000, 4_000_000).create(
       request
     ).record;
     const cancelRun = jest.fn();
@@ -216,7 +216,7 @@ describe("agent chat compatibility bridge", () => {
       thread_id: "thread-params",
       input: [{ role: "user", content: "inspect this video" }],
     });
-    const record = new RunStore(60_000, 10, 10, 1_000_000).create(
+    const record = new RunStore(60_000, 10, 10, 1_000_000, 4_000_000).create(
       baseRequest
     ).record;
     const createRun = jest.fn(() => ({ record, replayed: false }));

@@ -26,6 +26,7 @@ const config = (
   maxEventsPerRun: 1_000,
   maxEventCharsPerRun: 1_000_000,
   maxThreadStateChars: 1_000_000,
+  maxRetainedChars: 4_000_000,
   ...overrides,
 });
 
