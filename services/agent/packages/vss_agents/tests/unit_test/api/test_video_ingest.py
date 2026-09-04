@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi import HTTPException
+import httpx
 from pydantic import ValidationError
 import pytest
 
@@ -510,6 +511,156 @@ class TestRunPostUploadProcessing:
                     rtvi_embed_base_url="http://rtvi-embed:8017",
                 )
         assert exc_info.value.status_code == 500
+
+
+class TestRtEmbedAssetAlreadyRegistered:
+    """An asset id rt-embed already owns is a successful upload, not a 502.
+
+    The defect this pins: where VIOS streamprocessing fans ``camera_streaming``
+    out to rt-embed's ``/v1/stream/add``, that webhook registers the asset
+    *and* starts generation. The agent's ``generate_video_embeddings`` for the
+    same id then loses the race and rt-embed rejects it — ``400
+    AssetAlreadyExists`` once the asset is published, ``409 DuplicateAssetId``
+    while it is still reserved mid-download. ``_run_rtvi_embedding`` raised on
+    any non-200, so ``PUT /api/v1/videos-for-search/<file>`` returned 502 while
+    the embeddings were generated and indexed correctly. Every automated caller
+    then either retried work that had already happened or reported a false
+    failure.
+
+    Deliberately still fatal below: any other 4xx. ``400 BadParameters`` and
+    ``409 DuplicateCameraId`` share a status code with the tolerated pair but
+    mean rt-embed rejected the request on its merits, so tolerating the status
+    alone would re-create the class of bug the gateway branch had just fixed by
+    distinguishing a marked 503 from an unmarked one. The error *code* is what
+    decides, and it has to arrive in a body we can actually parse.
+
+    Driven through a real ``httpx`` client over ``httpx.MockTransport`` so real
+    ``Response`` objects and real ``response.json()`` parsing are in the path.
+    That matters here: the fix reads a JSON body, and a ``MagicMock`` would
+    return whatever we told it to regardless of what rt-embed really sends.
+    """
+
+    MEDIA_URL = "http://vst:30888/vst/storage/temp_files/clip.mp4"
+
+    def _stub(self, *, embed_response: httpx.Response):
+        """VST and rt-cv succeed; rt-embed answers as given."""
+        # Bound before the patch replaces the module attribute, or the factory
+        # would recurse into itself.
+        real_client = httpx.AsyncClient
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            seen.append(f"{request.method} {path}")
+            if path.endswith("/url"):
+                return httpx.Response(200, json={"videoUrl": self.MEDIA_URL})
+            if path == "/api/v1/stream/add":
+                return httpx.Response(200, json={"ok": True})
+            if path == "/v1/generate_video_embeddings":
+                return embed_response
+            raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+        def factory(*_args, **kwargs):
+            return real_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
+
+        return factory, seen
+
+    async def _upload(self, embed_response: httpx.Response) -> tuple[VideoIngestResponse, list[str]]:
+        factory, seen = self._stub(embed_response=embed_response)
+        with (
+            patch(
+                "vss_agents.api.video_ingest.get_timeline",
+                new=AsyncMock(return_value=("2025-01-01T00:00:00.000Z", "2025-01-01T00:00:10.000Z")),
+            ),
+            patch("vss_agents.api.video_ingest.httpx.AsyncClient", new=factory),
+        ):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="http://rtvi-embed:8000",
+                rtvi_cv_base_url="http://vss-rtvi-cv:9000",
+            )
+        return result, seen
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [
+            (400, "AssetAlreadyExists"),
+            (409, "DuplicateAssetId"),
+        ],
+    )
+    async def test_already_registered_asset_completes_the_upload(self, status: int, code: str):
+        """streamprocessing got there first — the work is done, so report success."""
+        result, seen = await self._upload(
+            httpx.Response(status, json={"code": code, "message": "Asset with id sensor-abc already exists."})
+        )
+
+        assert result.sensor_id == "sensor-abc"
+        # Zero, not a guess: the generation belongs to the other registrant, so
+        # there is no chunk count of ours to report.
+        assert result.chunks_processed == 0
+        # The call was really made and the rest of the pipeline still ran.
+        assert "POST /v1/generate_video_embeddings" in seen
+        assert "POST /api/v1/stream/add" in seen
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [
+            # Real rejections that share a status code with the tolerated pair.
+            (400, "BadParameters"),
+            (400, "InvalidParameters"),
+            (409, "DuplicateCameraId"),
+            (409, "ResourceInUse"),
+            # Right code, wrong status — rt-embed pairs these exactly, so a
+            # mismatch is not a response it produces.
+            (400, "DuplicateAssetId"),
+            (409, "AssetAlreadyExists"),
+        ],
+    )
+    async def test_other_errors_at_the_same_statuses_stay_fatal(self, status: int, code: str):
+        """Tolerating the status rather than the code is the fix's failure mode."""
+        with pytest.raises(HTTPException) as exc_info:
+            await self._upload(httpx.Response(status, json={"code": code, "message": "nope"}))
+
+        assert exc_info.value.status_code == 502
+        assert str(status) in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Asset with id sensor-abc already exists.",  # right words, not JSON
+            '["AssetAlreadyExists"]',  # JSON, but not the error object
+            "",
+        ],
+    )
+    async def test_unparseable_bodies_stay_fatal(self, body: str):
+        """A 400 we cannot attribute to the duplicate case is still a failure."""
+        with pytest.raises(HTTPException) as exc_info:
+            await self._upload(httpx.Response(400, text=body))
+
+        assert exc_info.value.status_code == 502
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [500, 502, 503])
+    async def test_server_side_failures_stay_fatal(self, status: int):
+        """rt-embed being unwell is not an already-registered asset."""
+        with pytest.raises(HTTPException) as exc_info:
+            await self._upload(httpx.Response(status, json={"code": "AssetAlreadyExists", "message": "x"}))
+
+        assert exc_info.value.status_code == 502
+
+    @pytest.mark.asyncio
+    async def test_healthy_generation_still_reports_its_chunk_count(self):
+        """The path that already worked has to keep working."""
+        result, _ = await self._upload(httpx.Response(200, json={"usage": {"total_chunks_processed": 9}}))
+
+        assert result.chunks_processed == 9
+        assert "embeddings generated" in result.message
 
 
 class TestVideoUploadUrlRoute:
