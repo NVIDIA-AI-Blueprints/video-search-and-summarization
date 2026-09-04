@@ -111,7 +111,7 @@ What the agent does:
 
 #### Step 3: Summarize a Video and Generate Reports
 
-Ask your agent to summarize an uploaded video or generate a structured report for it. The `vss-summarize-video` skill handles direct summary requests through the Video Summarization microservice (with a VLM fallback). For report requests, the `vss-generate-video-report` skill uses the LVS summarization path when the `lvs` profile is ready and renders the result into a report template.
+Ask your agent to summarize an uploaded video or generate a structured report for it. The `vss-summarize-video` skill handles direct summary requests through the Video Summarization microservice (with a VLM fallback). For report requests, the `vss-generate-video-report` skill uses the Video Summarization MS path when the `lvs` profile is ready and renders the result into a report template.
 
 ##### Summarize an Uploaded Video
 
@@ -124,7 +124,7 @@ Summarize warehouse_sample using the default scenario and events.
 
 What the agent does:
 
-1. Loads the `vss-summarize-video` skill and probes the Video Summarization service readiness, routing to the LVS microservice when it is ready and to the VLM fallback otherwise.
+1. Loads the `vss-summarize-video` skill and probes the Video Summarization service readiness, routing to the Video Summarization MS when it is ready and to the VLM fallback otherwise.
 2. Resolves the clip URL, stream ID, and timeline through the `vss-manage-video-io-storage` skill.
 3. Collects the monitoring scenario, events, and optional objects of interest, or uses defaults when told to run autonomously.
 4. Calls the Video Summarization service with the clip URL, scenario, events, and chunking parameters.
@@ -760,7 +760,7 @@ Once deployed, the following services are available:
 
 ## Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)
 
-The LVS profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
+The Video Summarization profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
 To swap in **Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8** for audio-aware
 summarization, edit `deploy/docker/developer-profiles/dev-profile-lvs/.env`
 and set the following variables (replace `<your_hf_token>` with your Hugging
