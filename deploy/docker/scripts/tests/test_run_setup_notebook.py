@@ -170,7 +170,14 @@ class NemoRelayNotebookContractTests(unittest.TestCase):
 
     def test_install_targets_the_active_pinned_plugin_generation(self) -> None:
         settings = self.sources["relay-settings"]
+        preflight = self.sources["relay-preflight"]
         configure = self.sources["relay-configure"]
+        self.assertNotIn('"openshell"', preflight)
+        self.assertIn(
+            '["nemoclaw", NEMOCLAW_SANDBOX_NAME, "status", "--json"]',
+            preflight,
+        )
+        self.assertIn("result = sandbox_exec(probe", preflight)
         self.assertIn('RELAY_RELEASE = "0.7.3"', settings)
         self.assertIn("npm:nemo-relay-openclaw@{RELAY_RELEASE}", settings)
         self.assertIn('"policy", "add", "npm", "--yes"', configure)
