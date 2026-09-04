@@ -1,0 +1,53 @@
+[
+  {
+    "id": "base-compose-generate",
+    "question": "Generate the docker compose yaml for a VSS base profile deployment.",
+    "expected_skill": "vss-deploy-profile-base-lvs",
+    "ground_truth": "Loads vss-deploy-profile-base-lvs, routes to the base profile (references/base.md), and produces resolved compose via the dry-run flow: cp dev-profile-base/overrides.env to generated.env (never mutating the checked-in .env or overrides.env), apply env_overrides, then `docker compose --env-file .env --env-file generated.env config > resolved.yml`, normalize_resolved_yml.py, then `up -d` with the same env-file pair. Uses the base defaults LLM nvidia/nvidia-nemotron-nano-9b-v2 (NIM, port 30081) + VLM nvidia/cosmos3-nano-reasoner (NIM, port 30082), setting LLM_MODE/VLM_MODE explicitly rather than inferring placement from stray env vars.",
+    "expected_behavior": [
+      "Loads the vss-deploy-profile-base-lvs skill and routes to the base profile (references/base.md), not a standalone vss-deploy-* microservice skill.",
+      "Generates compose via the dry-run flow: copies dev-profile-base/overrides.env to generated.env (does NOT mutate the checked-in .env or overrides.env), applies env_overrides, then `docker compose --env-file .env --env-file generated.env config > resolved.yml` and runs scripts/normalize_resolved_yml.py before `up -d` with the same env-file pair.",
+      "Uses the base defaults — LLM nvidia/nvidia-nemotron-nano-9b-v2 (NIM, port 30081) and VLM nvidia/cosmos3-nano-reasoner (NIM, port 30082) — or an explicitly chosen alternate, and sets LLM_MODE/VLM_MODE rather than inferring remote placement from stray endpoint env vars.",
+      "Writes browser-reachable EXTERNAL_IP, HAPROXY_HOST_PORT/HAPROXY_PORT, and VSS_PUBLIC_* values into generated.env (not the source .env or overrides.env).",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "lvs-compose-generate",
+    "question": "Generate the docker compose yaml for a VSS lvs (long-video summarization) profile.",
+    "expected_skill": "vss-deploy-profile-base-lvs",
+    "ground_truth": "Loads vss-deploy-profile-base-lvs, routes to the lvs profile (references/lvs-profile.md), and uses the same generated.env dry-run flow. The LLM stack is identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081). The VLM is served by RT-VLM (vss-rtvi-vlm, port 8018, default integrated checkpoint ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final), not a standalone Cosmos NIM. VLM_NAME must be the RT-VLM /v1/models basename nim_nvidia_cosmos3-nano-reasoner_bf16-final — NOT the friendly name nvidia/cosmos3-nano-reasoner, which makes vss-lvs return 400 BadParameters.",
+    "expected_behavior": [
+      "Loads the vss-deploy-profile-base-lvs skill and routes to the lvs profile (references/lvs-profile.md).",
+      "Follows the generated.env dry-run flow using `.env` plus `generated.env` (config > resolved.yml -> normalize_resolved_yml.py -> up -d).",
+      "Serves the VLM via RT-VLM (vss-rtvi-vlm, port 8018, default checkpoint ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final), with the LLM stack identical to base (nvidia/nvidia-nemotron-nano-9b-v2, port 30081).",
+      "Sets VLM_NAME to the RT-VLM /v1/models basename nim_nvidia_cosmos3-nano-reasoner_bf16-final — NOT the friendly name nvidia/cosmos3-nano-reasoner (which makes vss-lvs return 400 BadParameters).",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "base-spark-compose-generate",
+    "question": "Generate the docker compose yaml for a VSS base profile on SPARK.",
+    "expected_skill": "vss-deploy-profile-base-lvs",
+    "ground_truth": "Recognizes DGX Spark as edge hardware and routes through references/edge.md. The DGX-Spark NIM (nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant) is not wired into the compose graph, so it runs as a standalone local NIM on port 30081 with the agent pointed at it via LLM_MODE=remote (LLM_NAME_SLUG=none, LLM_BASE_URL=http://localhost:30081); the VLM still deploys locally. Uses the -dgx-spark image, NOT the standard nvidia-nemotron-nano-9b-v2:1 (arm64 manifest problem), authenticates the NIM with NGC_CLI_API_KEY, and runs the edge cache-cleaner pre-flight. HF_TOKEN is the AGX/IGX Thor Edge-4B path, not DGX Spark.",
+    "expected_behavior": [
+      "Recognizes DGX Spark as edge hardware and routes through references/edge.md (not the generic base flow alone).",
+      "Selects the DGX-Spark NIM image nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark:1.0.0-variant — NOT the standard nvidia-nemotron-nano-9b-v2:1 image (which has an arm64 manifest problem on Spark).",
+      "Runs that LLM as a standalone local NIM on port 30081 and points the agent at it with LLM_MODE=remote and LLM_BASE_URL=http://localhost:30081 (it is not yet in the compose graph), while the VLM still deploys locally.",
+      "Authenticates the Spark NIM with NGC_CLI_API_KEY and does NOT require HF_TOKEN (HF_TOKEN is the AGX/IGX Thor Edge-4B fallback path, not DGX Spark).",
+      "Runs the edge cache-cleaner pre-flight check and does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "deploy-profile-negative-standalone-microservice",
+    "question": "Stand up just the RT-VLM microservice on this host, outside of any compose profile.",
+    "expected_skill": null,
+    "ground_truth": "This is a standalone microservice deployment, explicitly out of scope for vss-deploy-profile-base-lvs (which only deploys the compose-based VSS profiles base and lvs). The agent routes to the matching vss-deploy-* standalone-microservice skill instead.",
+    "expected_behavior": [
+      "Does not load vss-deploy-profile-base-lvs for a standalone microservice request.",
+      "Does not run the profile-routing table or the generated.env dry-run flow.",
+      "Identifies that the request needs the matching vss-deploy-* standalone-microservice skill instead.",
+      "Does not fabricate a profile name to force-fit the request into profile routing."
+    ]
+  }
+]

@@ -83,6 +83,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | I want to… | Use this skill |
 |---|---|
 | Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](vss-deploy-profile/SKILL.md) |
+| Stand up only the **base** or **lvs** profile | [`vss-deploy-profile-base-lvs`](vss-deploy-profile-base-lvs/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](vss-summarize-video/SKILL.md) |
 | Ask a one-off visual question about a clip | [`vss-ask-video`](vss-ask-video/SKILL.md) |
@@ -105,7 +106,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
-- `vss-deploy-profile` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
+- `vss-deploy-profile` (any workflow stack) vs. `vss-deploy-profile-base-lvs` (base and lvs only) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
 
 ---
 
@@ -115,6 +116,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-deploy-profile-base-lvs](vss-deploy-profile-base-lvs/SKILL.md) | Same compose deploy workflow as `vss-deploy-profile`, limited to **base** and **lvs**. Use this when you do not want search, alerts, or warehouse routing. |
 | [vss-generate-video-calibration](vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
 ### Layer 1 — Real-time video intelligence
