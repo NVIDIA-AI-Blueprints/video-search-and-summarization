@@ -50,6 +50,20 @@ services/infra/compose.yml, not in warehouse-mv3dt-app.yml:
                                     → vss-behavior-analytics-mv3dt
   NOTE: bev-fusion does NOT speak MQTT. It reads mdx-raw from the broker.
 
+MV3DT ReID stack — sits UPSTREAM of perception, so a stall here stalls everything below:
+  vss-reid-etcd-mv3dt + vss-reid-minio-mv3dt → vss-reid-milvus-mv3dt (healthy)
+  vss-reid-embed-init-mv3dt (one-shot, must exit 0)
+  vss-broker-health-check (one-shot, must exit 0)
+        └── all three above → vss-reid-embed-mv3dt (must go HEALTHY on /health/ready)
+              └── vss-rtvi-cv-mv3dt   (service_healthy dependency)
+  vss-reid-embed-mv3dt ALSO reads mdx-raw and writes mdx-compressed-embeddings, so it is both
+  an upstream dependency of perception and a downstream consumer of it. A perception outage
+  therefore shows up here as "no embeddings", NOT as a ReID fault.
+  The healthcheck start_period is 300s, which is a CEILING, not a fixed wait: the container goes
+  healthy on the first successful probe. On a host that has already run once (models staged,
+  engines built) readiness takes seconds. Minutes of `health: starting` are expected only on the
+  very first deploy — triage only on `unhealthy` or a restart loop.
+
 Warehouse Auto-Calibration (MODE=auto-calibration, BP_PROFILE=bp_wh_auto_calib) — minimal
 footprint, one COMPOSE_PROFILES_WH_AUTO_CALIB list (no per-mode 2d/3d/mv3dt variants):
   vss-vios-nvstreamer-amc → vss-configurator-base
@@ -121,6 +135,12 @@ The **`-mv3dt` suffix is not universal** — it comes from each service's own `c
 | `vss-configurator-mv3dt` | Stream and hardware config |
 | `vss-behavior-analytics-mv3dt` | 3D spatial analytics |
 | `vss-vios-postgres` / `sensor-ms-mv3dt` (container `vss-vios-sensor`) / `-streamprocessing` / `-ingress` + `sdr-controller` (from `services/infra/sdrc/`) | VST stack (legacy `-sdr` / `-mcp` / `-envoy` removed; SDR + Envoy roles now consolidated in `sdr-controller`) |
+| `vss-reid-embed-init-mv3dt` | One-shot ReID model staging into `$VSS_DATA_DIR/models/reid` — healthy state is **`Exited (0)`** |
+| `vss-reid-embed-mv3dt` | ReID re-association service on `8088`. Reads `mdx-raw`, writes `mdx-compressed-embeddings`. Perception has a `service_healthy` dependency on it |
+| `vss-reid-milvus-mv3dt` | Milvus standalone — the embedding gallery. **No volumes**, so state is lost on removal |
+| `vss-reid-etcd-mv3dt` / `vss-reid-minio-mv3dt` | Milvus's etcd + object-store backends. Also volume-less; not published to the host |
+
+> The ReID containers are in all four `COMPOSE_PROFILES_WH_*_MV3DT` lists (Kafka, Redis, and both `_MINIMAL`) but not in `COMPOSE_PROFILES_PLAYBACK_{KAFKA,REDIS}_MV3DT`, which deploy no perception. All five carry the `vss-` prefix, so `docker ps | grep vss-` catches them — but their Compose *service* names are unprefixed (`reid-embed-mv3dt`, `reid-milvus-mv3dt`, …), which is what `COMPOSE_PROFILES` and `depends_on` use.
 
 ### Warehouse Auto-Calibration (`BP_PROFILE=bp_wh_auto_calib`)
 
@@ -169,6 +189,8 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 | `vss-configurator` / `-mv3dt` | **60 s** | 10 s | 30 | Streams not configured — perception gets no input, since nvstreamer waits on this being healthy |
 | `elasticsearch` | **60 s** | 10 s | 60 | BEV index unavailable (3D); no overlays (2D extended); agent storage broken |
 | `vss-rtvi-cv-bev-fusion` (MV3DT) | 10 s | 2 s | 30 | Probes for `/tmp/fusion_ready`. Unhealthy means fusion never came up — no `mdx-bev`, so the Phase 5 sync check has nothing to read |
+| `vss-reid-embed-mv3dt` (MV3DT) | **300 s** | 10 s | 5 | Polls `/health/ready`. Perception waits on this being healthy, so `health: starting` blocks the whole pipeline. The long start period is headroom for the first CLIP-ReID + SigLIP2 load, not a delay — it goes healthy on the first successful probe, so a warm host is ready in seconds |
+| `vss-reid-milvus-mv3dt` (MV3DT) | **90 s** | 5 s | 5 | Probes Milvus `/healthz` on `9091`. `vss-reid-embed-mv3dt` waits on it, so this failing stalls perception two levels down. `vss-reid-etcd-mv3dt` / `vss-reid-minio-mv3dt` sit below it with 5 s start periods |
 
 > `vss-configurator` failing in the **first 60 seconds** is expected — do not flag this as an error.
 
@@ -187,7 +209,10 @@ Only the standalone `vss-auto-calibration,vss-auto-calibration-ui` service list 
 | `RTSP connection failed` / `Cannot open resource` | `vss-vios-nvstreamer` | RTSP source (camera / video file) unreachable |
 | `Health check failed` (after 60 s) | `vss-configurator` | Stream config bad — check `NUM_STREAMS`, `MODE` and `HARDWARE_PROFILE` in the active `generated.env` (not the checked-in `.env`, which holds none of them) |
 | `Error adding sensor <name>. Received status code 400 from VMS` repeating on **one** name | `vss-configurator` | Partial stream registration — see [Partial stream registration](#partial-stream-registration-400-from-vms) below. The stack stays fully healthy while running fewer streams than `NUM_STREAMS` |
-| `authentication required` / `401` | any | `NGC_CLI_API_KEY` invalid or expired |
+| `has no field 'metadata'` / `has no field '<key>'` (present: `['value']`) | `vss-reid-embed-mv3dt` (Redis only) | `REDIS_CONSUMER_PAYLOAD_KEY` disagrees with `payloadkey` in `deepstream/configs/ds-redis-config.txt`. Both must be `value` |
+| SigLIP2 ONNX path missing / ReID engine build failure | `vss-reid-embed-mv3dt` / `vss-rtvi-cv-mv3dt` | `$VSS_DATA_DIR/models/reid` empty or wrong ownership — check `vss-reid-embed-init-mv3dt` exited `0`, and that files are `1001:1001` |
+| `gdown` / Google Drive failure, or GitHub clone failure | `vss-reid-embed-init-mv3dt` | CLIP-ReID assets need outbound internet beyond NGC. Stage the files manually and rerun; existing files are skipped |
+| `authentication required` / `401` | any | `NGC_CLI_API_KEY` invalid or expired — for MV3DT the key also needs `nvidia/tao/siglip_v2` |
 | `no space left on device` | any | Disk full — free space before redeploy |
 | `OOMKilled` (exit code 137) | any | Container OOM — check RAM (`free -h`) and GPU memory |
 
@@ -246,6 +271,23 @@ returns HTTP 404 `index_not_found_exception`.
 | `mdx-bev*` | `vss-rtvi-cv` (3D Sparse4D) / `vss-rtvi-cv-bev-fusion` (MV3DT) | BEV frame data, camera timestamps in `info`, detected objects | 3D / MV3DT BEV sync check, object history |
 | `mdx-raw*` | perception (2D and MV3DT only — 3D publishes straight to `mdx-bev`) | Raw detection events per frame | Debugging detection pipeline |
 | `mdx-events*` | `vss-behavior-analytics` | ROI / tripwire / proximity events | Event history and UI |
+| `mdx-compressed-embeddings*` | `vss-reid-embed-mv3dt` (MV3DT only) | `nv.Frame` documents carrying the retained per-object embeddings, including the SigLIP2 secondary vector | Confirming the ReID pipeline is producing, embedding-based lookups |
+
+`mdx-compressed-embeddings*` maps `objects.embedding.vector` as a `dense_vector` with **no fixed
+`dims`** (template `mdx_compressed_embeddings_template`, priority 516). The width is set by the
+secondary embedding model — SigLIP2 by default — so it is a fixed number for any given deployment;
+`dims` is omitted only because `SECONDARY_EMBEDDING_MODEL` is configurable, and Elasticsearch
+infers the width from the first document indexed. Read the settled value back with:
+
+```bash
+curl -s "http://localhost:9200/mdx-compressed-embeddings-*/_mapping" \
+  | python3 -m json.tool | grep -A3 '"vector"'
+```
+
+Note that "compressed" refers to how many samples are published, not to the vector width — the
+service keeps only the samples that best represent each object. So the index is sparse by design,
+with far fewer documents than `mdx-raw*`, while each vector is full width. A mapping-conflict error
+on that field means something other than `reid-embed` wrote to the index first.
 
 `logstash` is what actually writes the documents into Elasticsearch; the column above names the
 service whose data lands there. Behavior analytics **consumes** `mdx-bev` — it does not produce it.
@@ -271,7 +313,8 @@ Producer/consumer depends on `MODE` — the 2D pairing does not hold for 3D or M
 | Topic | Producer | Consumer | Contains |
 |---|---|---|---|
 | `mdx-raw` (2D) | `vss-rtvi-cv` | `vss-behavior-analytics` | Raw bounding boxes + tracking IDs per frame |
-| `mdx-raw` (MV3DT) | `vss-rtvi-cv-mv3dt` | `vss-rtvi-cv-bev-fusion` | Per-camera detections awaiting fusion |
+| `mdx-raw` (MV3DT) | `vss-rtvi-cv-mv3dt` | `vss-rtvi-cv-bev-fusion`, `vss-reid-embed-mv3dt` | Per-camera detections awaiting fusion; ReID also consumes it for embeddings |
+| `mdx-compressed-embeddings` (MV3DT) | `vss-reid-embed-mv3dt` | `logstash` only | Compressed per-object embeddings + SigLIP2 secondary vectors |
 | `mdx-bev` (3D) | `vss-rtvi-cv` (Sparse4D — **not** `mdx-raw`) | `vss-behavior-analytics` | BEV frames |
 | `mdx-bev` (MV3DT) | `vss-rtvi-cv-bev-fusion` | `vss-behavior-analytics-mv3dt` | Fused BEV frames |
 | `mdx-events` | `vss-behavior-analytics` | downstream / UI | ROI, tripwire, proximity events |
@@ -305,6 +348,8 @@ docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3   # use mdx-bev for 3D
 | Role | Env variable | Default device | Notes |
 |---|---|---|---|
 | RT-CV perception (RT-DETR for 2D, Sparse4D for 3D, per-camera MV3DT for mv3dt) | `RT_CV_DEVICE_ID` | `0` | Always local. `vss-rtvi-cv-bev-fusion` is **not** placed by this var — it is CPU-only |
+| ReID model staging (MV3DT) | `RT_CV_DEVICE_ID` | `0` | `vss-reid-embed-init-mv3dt` needs a GPU only for the CLIP-ReID ONNX export, which calls `.cuda()` |
+| ReID service (MV3DT) | — | **all GPUs** | `vss-reid-embed-mv3dt` reserves `count: all` and is pinned to no device id. On a multi-GPU host, constrain it with `CUDA_VISIBLE_DEVICES` if it collides with the LLM or VLM |
 | RTVI VLM | `RT_VLM_DEVICE_ID` | `1` | Always local; `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local` |
 
@@ -332,6 +377,7 @@ Video Analytics API: http://<host_ip>:7777/video-analytics-api   (direct: :8081)
 NvStreamer:          http://<host_ip>:31000            (no HAProxy route)
 Grafana:             http://<host_ip>:35000            (no HAProxy route; not deployed for MV3DT)
 Auto-calibration UI: http://<host_ip>:5000             (no HAProxy route; bp_wh_auto_calib)
+ReID service:        http://<host_ip>:8088/health/ready (no HAProxy route; MV3DT only)
 ```
 
 **Brev (secure-link domain):**
@@ -447,7 +493,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 |---|---|
 | 2D / 3D Kafka/Redis variants | broker (`kafka` and/or `redis`), `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
-| MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller` |
+| MV3DT Kafka/Redis variants | broker, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-turnserver`, the `vss-vios-*` VST stack + `sdr-controller`, and the ReID stack: `vss-reid-embed-mv3dt`, `vss-reid-milvus-mv3dt`, `vss-reid-etcd-mv3dt`, `vss-reid-minio-mv3dt` |
 | `BP_PROFILE=bp_wh_auto_calib` | `vss-vios-nvstreamer-amc`, `vss-configurator-base`, `vss-auto-calibration`, `vss-auto-calibration-ui`, `vss-haproxy-ingress`, `redis`, `vss-turnserver`, VST stack (subset) — no broker, no broker health-check gate, no perception, no analytics |
 | `BP_PROFILE=bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, monitoring (`grafana`, `prometheus`, `dcgm-exporter`, plus `<project>-node-exporter-1` / `<project>-cadvisor-1`), LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api`; monitoring too, but **2D/3D only** |
@@ -464,6 +510,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | `vss-kafka-topics` | Creates the `mdx-*` topics |
 | `vss-configurator-2d-init` / `-3d-init` / `-mv3dt-init` | Per-mode **broker readiness gate**, despite the name — polls Kafka/Redis with `MAX_RETRIES=60`, `RETRY_INTERVAL=2` s, then exits. Under `BP_PROFILE=bp_wh_auto_calib` the check no-ops and it exits `0` immediately. `vss-configurator` waits on it via `service_completed_successfully`. It renders no config |
 | `vss-elasticsearch-init`, `vss-kibana-init` | Index templates / dashboard import |
+| `vss-reid-embed-init-mv3dt` (MV3DT) | Stages the ReID models into `$VSS_DATA_DIR/models/reid`, then exits. `vss-reid-embed-mv3dt` waits on `service_completed_successfully`, so a **non-zero** exit here stalls the whole MV3DT pipeline |
 | `vss-import-calibration-output` | Imports `calibration.json` |
 
 Record as suspects only: containers that are **Down** or **Restarting**, long-running containers from the table above that are **missing**, and any container with a **non-zero** exit code. Do not open an investigation because a job from this second table shows `Exited`.
@@ -606,6 +653,42 @@ Common issues:
 - `GST pipeline error` → stream input issue; check `vss-vios-nvstreamer` first.
 - `CUDA out of memory` → GPU saturation; reduce `NUM_STREAMS`.
 - MV3DT: MQTT connection errors in `vss-rtvi-cv-mv3dt` → check `mosquitto` container first.
+- MV3DT: perception not started at all → it waits on `vss-reid-embed-mv3dt` being healthy (3.3a).
+
+### 3.3a ReID stack (MV3DT only)
+
+Perception cannot start until `vss-reid-embed-mv3dt` is healthy, so check this **before** concluding
+perception is broken. Work bottom-up: init container, then Milvus, then the service.
+
+```bash
+# Must be Exited (0). Non-zero means models were never staged.
+docker ps -a --filter name=vss-reid-embed-init-mv3dt --format '{{.Names}}\t{{.Status}}'
+docker logs --tail 60 vss-reid-embed-init-mv3dt 2>&1 | grep -E "ERROR|error|fail|Skipping|Downloaded" | tail -20
+
+# Models actually on disk, owned 1001:1001
+ls -l "$VSS_DATA_DIR/models/reid" "$VSS_DATA_DIR/models/reid/siglip_v2_vdeployable_v1.0" 2>&1
+
+docker ps --filter name=vss-reid- --format '{{.Names}}\t{{.Status}}'
+docker logs --tail 60 vss-reid-milvus-mv3dt 2>&1 | grep -E "ERROR|error|fail|panic" | tail -20
+docker logs --tail 100 vss-reid-embed-mv3dt 2>&1 | grep -E "ERROR|error|fail|ready|broker|milvus" | tail -30
+
+# Readiness from the host (the port is published)
+curl -fsS "http://localhost:${REID_SERVICE_HOST_PORT:-8088}/health/ready" && echo OK
+```
+
+Common issues:
+- `health: starting` for up to 300 s on the **first** deploy → expected, that is the initial model
+  load. On a host that has run before this should be seconds; minutes of `starting` on a warm host
+  means the service is genuinely stuck, so read its log rather than waiting it out.
+- Service up but the tracker never re-associates → port/address contract. `bp-configurator`
+  rewrites `ReIDService.servicePort` from `REID_SERVICE_PORT` on every deploy, so hand-edits to
+  `ds-mv3dt-tracker-config.yml` are silently reverted. `serviceAddress` must be the alias
+  `reid-embed`. Confirm the effective values in the config dump `ds-start-mv3dt.sh` prints.
+- Redis mode, consumer reports a missing field → see the payload-key row in
+  [Key Log Patterns](#key-log-patterns-and-root-causes).
+- No `mdx-compressed-embeddings` documents but the service is healthy → it consumes `mdx-raw`,
+  so verify perception is actually publishing there first.
+- Milvus unhealthy → check `vss-reid-etcd-mv3dt` and `vss-reid-minio-mv3dt`; Milvus depends on both.
 
 ### 3.4 Config Adaptor + SDR controller
 
@@ -785,6 +868,9 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | BEV OUT OF SYNC (3D / MV3DT) | One or more camera feeds lagging | Restart `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`; check camera RTSP sources |
 | `mosquitto` down / MQTT connection refused (MV3DT) | Cross-camera messaging broken — BEV Fusion cannot receive per-camera detections | Fix mosquitto container; redeploy |
 | `vss-rtvi-cv-bev-fusion` OOM or no output (MV3DT) | BEV Fusion cannot fuse per-camera detections | This container uses **no GPU** — check host RAM (`free -h`) and broker connectivity. Verify `mdx-raw` is being produced by `vss-rtvi-cv-mv3dt`, and that `MAX_EXPECTED_SENSORS` (= `NUM_STREAMS`) and `SENSOR_TIMEOUT_MS` match the deployed camera count. If `mdx-raw` is empty, the fault is upstream on `vss-rtvi-cv-mv3dt` (row above) |
+| `vss-rtvi-cv-mv3dt` never created, `vss-reid-embed-mv3dt` in `health: starting` (MV3DT) | Perception gates on ReID readiness. Not a fault on a first deploy, where the initial model load can use much of the 300 s start period | Wait it out on a first deploy. On a warm host readiness is seconds, so treat prolonged `starting` as a real fault and read the log (Phase 3.3a) |
+| `vss-reid-embed-init-mv3dt` exited non-zero (MV3DT) | ReID models never staged, so `vss-reid-embed-mv3dt` never starts and perception stays gated | Read its log: NGC access to `nvidia/tao/siglip_v2`, or the GitHub/Google Drive CLIP-ReID fetch. Stage `$VSS_DATA_DIR/models/reid` manually (`1001:1001`) and redeploy — existing files are skipped |
+| `vss-reid-embed-mv3dt` healthy but no re-association, or no `mdx-compressed-embeddings` (MV3DT) | Port/address contract, payload-key mismatch on Redis, or `mdx-raw` empty upstream | Phase 3.3a. Never hand-edit `ds-mv3dt-tracker-config.yml` — `bp-configurator` rewrites `servicePort` from `REID_SERVICE_PORT` each deploy |
 | GPU 100 % sustained, low FPS | GPU oversaturated | Reduce `NUM_STREAMS`; redeploy |
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify the effective `.env` + `generated.env` values; redeploy |
@@ -849,6 +935,8 @@ docker volume prune -f
 docker system prune -f
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/generated.env
 ```
+
+> **MV3DT:** the ReID embedding gallery is gone as soon as the containers are removed — `vss-reid-etcd-mv3dt`, `vss-reid-minio-mv3dt` and `vss-reid-milvus-mv3dt` declare no volumes at all, so `-v` is irrelevant to them. That is expected; the gallery rebuilds from live traffic. `$VSS_DATA_DIR/models/reid` is untouched by all of the above, which is what keeps the next bring-up from re-exporting the CLIP-ReID ONNX. Delete it only for a deliberate clean re-download.
 
 3. Bring up:
 

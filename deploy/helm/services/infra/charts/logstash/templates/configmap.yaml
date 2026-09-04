@@ -260,6 +260,25 @@ data:
         }
         bootstrap_servers => "{{ include "logstash.kafkaBootstrap" . }}"
       }
+      # reid-embed republishes what it consumes from mdx-raw, so the payload is
+      # nv.Frame with the per-object embedding vectors compressed.
+      kafka {
+        type => "mdx-compressed-embeddings"
+        consumer_threads => 4
+        topics => ["mdx-compressed-embeddings"]
+        decorate_events => true
+        auto_offset_reset => "latest"
+        group_id => "logstash"
+        key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
+        value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
+        codec => protobuf {
+          class_name => "nv.Frame"
+          class_file => "/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb"
+          protobuf_root_directory => "/opt/logstash-data-libs/logstash/pb_definitions/"
+          protobuf_version => 3
+        }
+        bootstrap_servers => "{{ include "logstash.kafkaBootstrap" . }}"
+      }
     }
     filter {
       json { source => "message" }
