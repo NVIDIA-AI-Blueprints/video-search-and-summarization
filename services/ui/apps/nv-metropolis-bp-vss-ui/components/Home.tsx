@@ -742,16 +742,15 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     const showFloatingChatSidebar =
       deploymentConfig.chatSidebarEnabled && activeTab !== 'chat';
 
-    if (!showFloatingChatSidebar) {
-      return tabStack;
-    }
-
+    // Keep one layout root while changing tabs. Switching between the bare
+    // stack and this wrapper remounts every tab, which discards an agent
+    // search result delivered while the full-page Chat tab is active.
     return (
       <TabWithChatSidebarLayout
         tabId="side-bar"
         tabLabel="App"
         mainContent={tabStack}
-        sidebarEnabled
+        sidebarEnabled={showFloatingChatSidebar}
         sidebarApi={sidebarApi}
         highlightIcon={chatSidebarHighlight}
         queryExecuting={chatSidebarQueryExecuting}
