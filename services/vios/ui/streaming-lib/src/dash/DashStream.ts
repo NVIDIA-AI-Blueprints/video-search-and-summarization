@@ -255,6 +255,13 @@ export class DashStream {
         const segmentSeconds = DashStream.segmentSeconds(manifest);
         this.segmentSeconds = segmentSeconds;
         const baseDelay = config.liveDelaySeconds ?? (isReplay ? 8 : (isComposite ? 10 : 5));
+        /* Two and a half segments. Two was tried, to match what the service
+         * publishes before releasing the manifest, on the theory that asking to
+         * sit further back than exists made the player wait. It did not: the
+         * 3.25 s the player spends between parsing the manifest and fetching
+         * its first segment on a high latency link was unchanged, and live
+         * playback on that link picked up a stall it had not had. The half
+         * segment is jitter headroom worth keeping. */
         const liveDelay = segmentSeconds > 0
             ? Math.max(baseDelay, Math.ceil(segmentSeconds * 2.5))
             : baseDelay;

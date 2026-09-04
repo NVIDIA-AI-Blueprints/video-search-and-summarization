@@ -259,11 +259,21 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
     {
         return kDashUnknownKeyframeSeconds;
     }
-    /* Round down, never up. A target at or below the interval ends the segment
-     * on every keyframe and the timeline is uniform; a target above it makes
-     * the muxer skip to the keyframe after, and which one that is varies. The
-     * configured length is deliberately not consulted here - it is what DASH
-     * would like, and a pass-through session cannot deliver it. */
+    /* A target at or below the interval ends the segment on every keyframe and
+     * the timeline is uniform, so where the camera is already publishing
+     * segments as long as delivery wants, round down and take them.
+     *
+     * Where it is not, the only lever left is to ask for longer anyway. The
+     * muxer then skips to a later keyframe and the timeline comes back mixed -
+     * measured as alternating four and three second segments against a four
+     * second target. That is not what a uniform grid would give, but it is what
+     * makes a camera on a one second interval watchable from far away, where
+     * each segment has to be worth more than the round trips it costs to fetch,
+     * and it was measured playing without a stall on exactly such a link. */
+    if (static_cast<double>(configured) > seconds)
+    {
+        return configured;
+    }
     return static_cast<unsigned>(std::max(1.0, std::floor(seconds)));
 }
 
@@ -569,7 +579,16 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * but it writes every hitch in the decode-draw-encode chain into the
          * media timeline as a real gap - visible as a stutter with an overlay
          * on. */
-        if (transcodeRequired)
+        /* A composite stamps by arrival below and an overlay carries the
+         * source's own timestamps through the draw, so those two already have
+         * a timeline that works. Every other re-encoding session does not: the
+         * encoder hands over frames the packager cannot place, which it reports
+         * as source timestamps that are not advancing, and the session then
+         * writes an initialisation segment and nothing else - the manifest
+         * never becomes ready and the viewer waits on a black player forever.
+         * Measured on hardware the moment ordinary live sessions began to
+         * encode rather than republish. */
+        if (transcodeRequired || (encodeSession && !overlayRequested && !compositeRequested))
         {
             packagerConfig.synthesizeTimestamps = true;
         }
@@ -1413,18 +1432,22 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
              * well never appears. One segment that long is already a wider
              * catalogue than the player's live delay, which is all the multiple
              * was ever buying. */
+            /* Two segments, and never fewer, however long they are.
+             *
+             * Letting a single long segment satisfy the whole preroll looked
+             * reasonable - it already carries more media than the player's live
+             * delay - but it publishes a manifest with nothing behind the
+             * segment being played. Measured on four second segments: the
+             * manifest listed one, the player fetched it, and then sat for ten
+             * seconds with nothing to ask for until the next manifest update
+             * appeared, which the viewer saw as a five second freeze followed
+             * by a two second one. The player needs something to fetch while it
+             * plays the first segment, and that is a second segment. */
             const double required = published.longestSeconds > 0.0
                 ? std::max(static_cast<double>(kDashPrerollSeconds),
-                           published.longestSeconds)
+                           published.longestSeconds * kDashPrerollSegments)
                 : static_cast<double>(kDashPrerollSeconds);
-            /* Two segments is the right floor while they are short, because the
-             * seconds rule needs several of them anyway. A single segment that
-             * already carries the whole cushion does not need a second one to
-             * sit behind. */
-            const unsigned neededFragments =
-                (published.longestSeconds > 0.0 && published.longestSeconds >= required)
-                    ? 1u
-                    : kDashPrerollSegments;
+            const unsigned neededFragments = kDashPrerollSegments;
             /* A recording can be shorter than the preroll asks for - a twelve
              * second clip seeked six seconds in has six seconds left, and
              * waiting for eight of them waits forever, which the viewer sees as
