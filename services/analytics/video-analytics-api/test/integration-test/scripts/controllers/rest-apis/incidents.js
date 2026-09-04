@@ -58,7 +58,6 @@ function getTests(c) {
                 const presentAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => alertTypes.has(alertType));
                 const missingAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => !alertTypes.has(alertType));
                 const unexpectedAlertTypes = [...alertTypes].filter((alertType) => alertType && !expectedVlmAlertTypes.has(alertType));
-                console.log(`[VLM alert types] present: ${presentAlertTypes.join(', ') || 'none'}; not present: ${missingAlertTypes.join(', ') || 'none'}`);
                 if (!alertTypes.has('Near Miss Violation')) {
                     return `Near Miss Violation is required; not present: ${missingAlertTypes.join(', ') || 'none'}`;
                 }
@@ -68,7 +67,11 @@ function getTests(c) {
                 if (unexpectedAlertTypes.length > 0) {
                     return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}; not present: ${missingAlertTypes.join(', ') || 'none'}`;
                 }
-                return null;
+                return {
+                    details: missingAlertTypes.length === 0
+                        ? `all ${presentAlertTypes.join(', ')} types found`
+                        : `${presentAlertTypes.join(', ')} types found; ${missingAlertTypes.join(', ')} not found`
+                };
             },
         });
     }

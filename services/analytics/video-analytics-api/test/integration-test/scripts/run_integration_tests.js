@@ -548,11 +548,20 @@ async function main() {
                     continue;
                 }
                 if (validate && statusCode >= 200 && statusCode < 300) {
-                    const validationError = validate(body);
-                    if (validationError) {
-                        console.log(`✗ ${name} -> ${statusCode} but validation failed: ${validationError}`);
+                    const validationResult = validate(body);
+                    const customError = validationResult && typeof validationResult === 'object' && !Array.isArray(validationResult)
+                        ? (validationResult.error || null)
+                        : validationResult;
+                    const customDetails = validationResult && typeof validationResult === 'object' && !Array.isArray(validationResult)
+                        ? (validationResult.details || null)
+                        : null;
+                    if (customError) {
+                        console.log(`✗ ${name} -> ${statusCode} but validation failed: ${customError}`);
                         failed++;
                         continue;
+                    }
+                    if (customDetails) {
+                        console.log(customDetails);
                     }
                 }
                 const pathForSchema = pathname.split('?')[0];
