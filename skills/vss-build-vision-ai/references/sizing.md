@@ -280,9 +280,9 @@ x86 discrete-GPU assumptions.
 
 Search runs on **DGX Spark and AGX Thor only**, never IGX Thor. On both boards
 the single GPU is taken by the perception pipeline, so the LLM **and** the VLM
-must be remote: set `LLM_ENDPOINT_URL` and `VLM_ENDPOINT_URL`, and do not place
-`rtvi-vlm` or an LLM NIM locally. Device ID overrides do not apply; every local
-service lands on the board's GPU.
+must be remote: set `LLM_MODE=remote` and `VLM_MODE=remote` with `LLM_BASE_URL`
+and `VLM_BASE_URL`, and do not place `rtvi-vlm` or an LLM NIM locally. Device ID
+overrides do not apply; every local service lands on the board's GPU.
 
 ## Validate and tune
 

@@ -496,7 +496,7 @@ RTVI_VLM_MODEL_PATH=none
 </Tabs>
 </Tab>
 <Tab title="DGX-SPARK">
-Search on DGX Spark runs both models remotely. The board's single GPU already carries the perception pipeline, so it can host neither a local LLM nor a local VLM, and RTVI-VLM is not deployed. Deployment fails unless both `LLM_ENDPOINT_URL` and `VLM_ENDPOINT_URL` are set. Device ID overrides are not accepted on this platform; the profile places every local service on the board's GPU itself. DGX Spark is an SBSA host, so RTVI services need the `-sbsa` image tags.
+Search on DGX Spark runs both models remotely. The board's single GPU already carries the perception pipeline, so it can host neither a local LLM nor a local VLM, and RTVI-VLM is not deployed. Both models must point at remote endpoints, set through `LLM_BASE_URL` and `VLM_BASE_URL` below. Device ID overrides are not accepted on this platform; the profile places every local service on the board's GPU itself. DGX Spark is an SBSA host, so RTVI services need the `-sbsa` image tags.
 
 See [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for remote VLM endpoint options, [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for LLM options, and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
@@ -525,7 +525,7 @@ VLM_AGENT_MEDIA_MODE=remote
 </Tabs>
 </Tab>
 <Tab title="AGX-THOR">
-Search on AGX Thor runs both models remotely. The board's single GPU already carries the perception pipeline, so it can host neither a local LLM nor a local VLM, and RTVI-VLM is not deployed. Deployment fails unless both `LLM_ENDPOINT_URL` and `VLM_ENDPOINT_URL` are set. Device ID overrides are not accepted on this platform. The Nemotron Nano 9B v2 FP8 checkpoint that the base and alerts profiles run locally on Thor is not an option here, because search leaves no GPU headroom for it.
+Search on AGX Thor runs both models remotely. The board's single GPU already carries the perception pipeline, so it can host neither a local LLM nor a local VLM, and RTVI-VLM is not deployed. Both models must point at remote endpoints, set through `LLM_BASE_URL` and `VLM_BASE_URL` below. Device ID overrides are not accepted on this platform. The Nemotron Nano 9B v2 FP8 checkpoint that the base and alerts profiles run locally on Thor is not an option here, because search leaves no GPU headroom for it.
 
 See [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for remote VLM endpoint options, [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for LLM options, and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
 
