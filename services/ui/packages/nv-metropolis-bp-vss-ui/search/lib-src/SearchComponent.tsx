@@ -18,7 +18,10 @@ import { SearchComponentProps, SearchData, SearchParams } from './types';
 
 // Hooks
 import { useSearchByImage } from './hooks/useSearchByImage';
-import { extractSearchResultsFromAgentResponse } from './utils/agentResponseParser';
+import {
+  extractSearchResultsFromAgentResponse,
+  normalizeSearchResultMediaUrls,
+} from './utils/agentResponseParser';
 import {
   applySearchResultFilters,
   buildSearchFilterChatContext,
@@ -228,8 +231,12 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   const contentDisabled = !chatSidebarCollapsed || chatSidebarBusy;
 
   const displayedSearchResults = React.useMemo(
-    () => applySearchResultFilters(agentSearchResults ?? [], filterParams, streams),
-    [agentSearchResults, filterParams, streams],
+    () =>
+      normalizeSearchResultMediaUrls(
+        applySearchResultFilters(agentSearchResults ?? [], filterParams, streams),
+        vstApiUrl,
+      ),
+    [agentSearchResults, filterParams, streams, vstApiUrl],
   );
 
   const controlsComponent = React.useMemo(
@@ -399,4 +406,3 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
 // Re-export types for convenience
 export type { SearchData, SearchComponentProps } from './types';
-

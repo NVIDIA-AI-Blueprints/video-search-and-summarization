@@ -159,6 +159,49 @@ spec:
               value: {{ .Values.alertsRealtimeEnabled | quote }}
             - name: NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION
               value: {{ .Values.alertsCvVerificationEnabled | quote }}
+            {{- /*
+              Backend-agnostic external-agent adapter env (compose parity with
+              deploy/docker/services/ui/compose.yml AGENT_*). Server-side only;
+              AGENT_BACKEND_TOKEN and other secrets never carry NEXT_PUBLIC_.
+              Adapter keys are always emitted so a Deployment restart is enough
+              to toggle behaviour without a template change.
+            */}}
+            {{- $adapter := .Values.agentAdapter | default dict }}
+            {{- $adapterEnabled := (default false $adapter.enabled) }}
+            - name: AGENT_ADAPTER_ENABLED
+              value: {{ $adapterEnabled | quote }}
+            - name: AGENT_BACKEND_PROTOCOL
+              value: {{ (default "responses" $adapter.backendProtocol) | quote }}
+            - name: AGENT_BACKEND_URL
+              value: {{ (default "" $adapter.backendUrl) | quote }}
+            - name: AGENT_BACKEND_PATH
+              value: {{ (default "" $adapter.backendPath) | quote }}
+            - name: AGENT_BACKEND_TOKEN
+              value: {{ (default "" $adapter.backendToken) | quote }}
+            - name: AGENT_BACKEND_MODEL
+              value: {{ (default "agent" $adapter.backendModel) | quote }}
+            - name: AGENT_BACKEND_SESSION_FIELD
+              value: {{ $adapter.backendSessionField | quote }}
+            - name: AGENT_BACKEND_SESSION_HEADER
+              value: {{ (default "" $adapter.backendSessionHeader) | quote }}
+            - name: AGENT_BACKEND_HEADERS_JSON
+              value: {{ (default "{}" $adapter.backendHeadersJson) | quote }}
+            - name: AGENT_BACKEND_TIMEOUT_SECONDS
+              value: {{ (default 900 $adapter.backendTimeoutSeconds) | quote }}
+            - name: AGENT_RUN_RETENTION_SECONDS
+              value: {{ (default 3600 $adapter.runRetentionSeconds) | quote }}
+            - name: AGENT_MAX_EVENT_CHARS_PER_RUN
+              value: {{ (default 20000000 $adapter.maxEventCharsPerRun) | quote }}
+            - name: AGENT_MAX_THREAD_STATE_CHARS
+              value: {{ (default 20000000 $adapter.maxThreadStateChars) | quote }}
+            - name: AGENT_MAX_RETAINED_CHARS
+              value: {{ (default 64000000 $adapter.maxRetainedChars) | quote }}
+            {{- $forceHttp := $adapter.forceHttpChatTransport }}
+            {{- if or (kindIs "invalid" $forceHttp) (eq ($forceHttp | toString | trim) "") }}
+            {{- $forceHttp = $adapterEnabled }}
+            {{- end }}
+            - name: NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT
+              value: {{ $forceHttp | quote }}
             {{- range .Values.extraEnv }}
             - name: {{ .name }}
               value: {{ .value | quote }}

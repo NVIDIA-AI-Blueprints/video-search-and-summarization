@@ -63,6 +63,37 @@ alertsApiUrl: ""
 # their deployed alert pipeline; both remain enabled by default for compatibility.
 alertsRealtimeEnabled: true
 alertsCvVerificationEnabled: true
+# Backend-agnostic external-agent adapter embedded in this Next.js server.
+# Compose parity: deploy/docker/services/ui/compose.yml sets AGENT_* env from
+# VSS_AGENT_* host-side vars; here they are chart values with the same
+# defaults. Leave `backendUrl` empty to keep the adapter disabled (default);
+# profiles that expose an external agent set backendUrl to a cluster-private
+# URL and toggle enabled=true. Credentials MUST NOT use NEXT_PUBLIC_* — the
+# token is only rendered into AGENT_BACKEND_TOKEN which stays server-side.
+# `extra_hosts: host.docker.internal:host-gateway` from compose has no helm
+# analog: K8s pods reach services via in-cluster DNS or hostAliases, not the
+# Docker-bridge host-gateway trick. Set backendUrl to the cluster-reachable
+# harness URL directly.
+agentAdapter:
+  enabled: false
+  backendProtocol: responses
+  backendUrl: ""
+  backendPath: ""
+  backendToken: ""
+  backendModel: agent
+  # "" means the field is omitted from the outbound payload; the docker default
+  # keeps the `user` field, matching compose ${VSS_AGENT_BACKEND_SESSION_FIELD-user}.
+  backendSessionField: "user"
+  backendSessionHeader: ""
+  backendHeadersJson: "{}"
+  backendTimeoutSeconds: 900
+  runRetentionSeconds: 3600
+  maxEventCharsPerRun: 20000000
+  maxThreadStateChars: 20000000
+  maxRetainedChars: 64000000
+  # Force browser off legacy WebSocket transport when the adapter is on; mirrors
+  # compose default (falls back to agentAdapter.enabled).
+  forceHttpChatTransport: ""
 # When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
 # When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).
 fillAlertBridgeUrlFromGlobal: true

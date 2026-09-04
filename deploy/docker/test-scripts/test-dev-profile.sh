@@ -1572,6 +1572,31 @@ else
   echo "FAIL: smartcities profile should have overrides.env"
   ((_split_failed++)) || true
 fi
+# Every launchable profile exposes the same backend-neutral harness settings.
+# Values remain disabled/empty in source control; generated.env or the ignored
+# user-overrides.env carries the deployment's endpoint and token.
+_agent_adapter_override_keys=(
+  VSS_AGENT_ADAPTER_ENABLED VSS_AGENT_BACKEND_PROTOCOL
+  VSS_AGENT_BACKEND_URL VSS_AGENT_BACKEND_PATH VSS_AGENT_BACKEND_TOKEN
+  VSS_AGENT_BACKEND_MODEL VSS_AGENT_BACKEND_SESSION_FIELD
+  VSS_AGENT_BACKEND_SESSION_HEADER VSS_AGENT_BACKEND_HEADERS_JSON
+  VSS_AGENT_BACKEND_TIMEOUT_SECONDS
+)
+for _adapter_env in \
+  "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env \
+  "${REPO_ROOT}"/deploy/docker/industry-profiles/*/overrides.env; do
+  [[ -f "${_adapter_env}" ]] || continue
+  for _key in "${_agent_adapter_override_keys[@]}"; do
+    if ! grep -Eq "^${_key}=" "${_adapter_env}"; then
+      echo "FAIL: ${_adapter_env} should define external-agent setting ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
+  if ! grep -Fqx 'VSS_AGENT_BACKEND_TOKEN=${VSS_AGENT_BACKEND_TOKEN:-}' "${_adapter_env}"; then
+    echo "FAIL: ${_adapter_env} should keep the harness token out of source control"
+    ((_split_failed++)) || true
+  fi
+done
 _shared_service_env_specs=(
   "deploy/docker/services/agent/agent.env:VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
   "deploy/docker/services/alert/alert.env:ALERT_BRIDGE_PORT ALERT_BRIDGE_URL"

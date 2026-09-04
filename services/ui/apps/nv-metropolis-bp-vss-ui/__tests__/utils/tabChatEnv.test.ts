@@ -57,6 +57,7 @@ describe('getTabChatInitialStateOverride', () => {
     expect(result.lightMode).toBe('light');
     expect(result.showChatbar).toBe(true);
     expect(result.chatHistory).toBe(false);
+    expect(result.forceHttpTransport).toBe(false);
     expect(result.webSocketMode).toBe(false);
     expect(result.enableIntermediateSteps).toBe(false);
     expect(result.chatUploadFileEnabled).toBe(false);
@@ -126,5 +127,15 @@ describe('getTabChatInitialStateOverride', () => {
     const result = getTabChatInitialStateOverride('ALERTS_TAB');
     expect(result.lightMode).toBe('dark');
     expect(result.webSocketMode).toBe(true);
+  });
+
+  it('forces embedded chat onto HTTP even when WebSocket is enabled', () => {
+    setMockEnv('NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT', 'true');
+    setMockEnv('NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON', 'true');
+
+    const result = getTabChatInitialStateOverride('SIDEBAR');
+
+    expect(result.forceHttpTransport).toBe(true);
+    expect(result.webSocketMode).toBe(false);
   });
 });

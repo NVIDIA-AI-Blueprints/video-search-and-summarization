@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
+import { VideoModal, extractVssUiArtifacts, useVideoModal } from '@nemo-agent-toolkit/ui';
 
 import {
   AlertsComponentProps,
@@ -94,6 +94,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   renderControlsInLeftSidebar = false,
   onControlsReady,
   submitChatMessage,
+  registerChatAnswerHandler,
+  registerSidebarChatEventSubscriber,
 }) => {
   const isDark = theme === 'dark';
   const enableRealtimeAlerts = alertsData?.enableRealtimeAlerts ?? true;
@@ -278,6 +280,32 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     maxResults,
     activeFilters,
   });
+
+  const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
+  deliverAgentAnswerRef.current = (answer: string) => {
+    const hasAlertArtifact = extractVssUiArtifacts(answer).some(
+      (artifact) => artifact.kind === 'vss.alert.incidents',
+    );
+    if (!hasAlertArtifact) return false;
+    refetch({ includeSensorList: true });
+    return true;
+  };
+  const forwardAgentAnswer = React.useCallback(
+    (answer: string) => deliverAgentAnswerRef.current(answer),
+    [],
+  );
+
+  React.useEffect(() => {
+    if (!registerChatAnswerHandler) return;
+    return registerChatAnswerHandler(forwardAgentAnswer);
+  }, [registerChatAnswerHandler, forwardAgentAnswer]);
+
+  React.useEffect(() => {
+    if (!registerSidebarChatEventSubscriber) return;
+    return registerSidebarChatEventSubscriber((event) => {
+      if (event.type === 'answerComplete') refetch();
+    });
+  }, [registerSidebarChatEventSubscriber, refetch]);
 
   // Refetch data (including sensor list) when tab transitions from inactive → active.
   // Only react to `isActive` changes; `refetch` is deliberately excluded to avoid

@@ -22,6 +22,10 @@ services:
     ports:
       - ${VSS_UI_HOST_PORT:-3000}:3000
     restart: always
+    extra_hosts:
+      # Linux equivalent of Docker Desktop's host alias. Use it when the
+      # configured harness endpoint is running on the Docker host.
+      - "host.docker.internal:host-gateway"
     depends_on:
       vss-agent:
         condition: service_healthy
@@ -31,6 +35,24 @@ services:
       RUN_APP_NAME: nv-metropolis-bp-vss-ui
       NEXT_PUBLIC_APP_TITLE: '${NEXT_PUBLIC_APP_TITLE:-VSS BLUEPRINT}'
       NEXT_PUBLIC_APP_SUBTITLE: '${NEXT_PUBLIC_APP_SUBTITLE:-VISION}'
+      # Server-only backend-neutral agent transport embedded in this Next.js
+      # process. Backend credentials must never use NEXT_PUBLIC_*.
+      AGENT_ADAPTER_ENABLED: ${VSS_AGENT_ADAPTER_ENABLED:-false}
+      AGENT_BACKEND_PROTOCOL: ${VSS_AGENT_BACKEND_PROTOCOL:-responses}
+      AGENT_BACKEND_URL: ${VSS_AGENT_BACKEND_URL:-}
+      AGENT_BACKEND_PATH: ${VSS_AGENT_BACKEND_PATH:-}
+      AGENT_BACKEND_TOKEN: ${VSS_AGENT_BACKEND_TOKEN:-}
+      AGENT_BACKEND_MODEL: ${VSS_AGENT_BACKEND_MODEL:-agent}
+      AGENT_BACKEND_SESSION_FIELD: ${VSS_AGENT_BACKEND_SESSION_FIELD-user}
+      AGENT_BACKEND_SESSION_HEADER: ${VSS_AGENT_BACKEND_SESSION_HEADER:-}
+      AGENT_BACKEND_HEADERS_JSON: "${VSS_AGENT_BACKEND_HEADERS_JSON:-{}}"
+      AGENT_BACKEND_TIMEOUT_SECONDS: ${VSS_AGENT_BACKEND_TIMEOUT_SECONDS:-900}
+      AGENT_RUN_RETENTION_SECONDS: ${VSS_AGENT_RUN_RETENTION_SECONDS:-3600}
+      AGENT_MAX_EVENT_CHARS_PER_RUN: ${VSS_AGENT_MAX_EVENT_CHARS_PER_RUN:-20000000}
+      AGENT_MAX_THREAD_STATE_CHARS: ${VSS_AGENT_MAX_THREAD_STATE_CHARS:-20000000}
+      AGENT_MAX_RETAINED_CHARS: ${VSS_AGENT_MAX_RETAINED_CHARS:-64000000}
+      # Prevent a saved browser preference from bypassing the adapter via the legacy WebSocket.
+      NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT: ${NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT:-${VSS_AGENT_ADAPTER_ENABLED:-false}}
       # === App wide chat sidebar ===
       NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR: ${NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR:-true}
       NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT: ${NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT:-false}

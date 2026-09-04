@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
-import { extractSearchResultsFromAgentResponse } from '../../lib-src/utils/agentResponseParser';
+import {
+  extractSearchResultsFromAgentResponse,
+  normalizeSearchResultMediaUrls,
+} from '../../lib-src/utils/agentResponseParser';
 
 describe('extractSearchResultsFromAgentResponse', () => {
   const validData = {
@@ -73,6 +76,33 @@ describe('extractSearchResultsFromAgentResponse', () => {
       const result = extractSearchResultsFromAgentResponse(text);
       expect(result).toHaveLength(1);
       expect(result![0].video_name).toBe('clip1.mp4');
+    });
+  });
+
+  describe('VSS UI artifacts', () => {
+    it('prefers the versioned search artifact over unrelated JSON prose', () => {
+      const artifact = {
+        version: '1.0',
+        kind: 'vss.search.results',
+        payload: validData,
+      };
+      const text = `Diagnostic {"status":"ok"}\n<vss-ui-artifact>${JSON.stringify(artifact)}</vss-ui-artifact>`;
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('clip1.mp4');
+    });
+
+    it('ignores artifacts for another VSS surface', () => {
+      const artifact = {
+        version: '1.0',
+        kind: 'vss.alert.incidents',
+        payload: { incidents: [] },
+      };
+      expect(
+        extractSearchResultsFromAgentResponse(
+          `<vss-ui-artifact>${JSON.stringify(artifact)}</vss-ui-artifact>`,
+        ),
+      ).toBeNull();
     });
   });
 
@@ -225,5 +255,38 @@ describe('extractSearchResultsFromAgentResponse', () => {
         criteria_met: { 'face visible': false },
       });
     });
+  });
+});
+
+describe('normalizeSearchResultMediaUrls', () => {
+  const result = {
+    video_name: 'clip1.mp4',
+    similarity: 0.95,
+    screenshot_url:
+      'http://127.0.0.1:7777/vst/api/v1/replay/stream/sensor-1/picture?startTime=2025-01-01T00%3A00%3A10Z',
+    description: 'Person walking',
+    start_time: '2025-01-01T00:00:10Z',
+    end_time: '2025-01-01T00:00:20Z',
+    sensor_id: 'sensor-1',
+    object_ids: [],
+  };
+
+  it('rebases a harness-local thumbnail onto the browser-facing VST origin', () => {
+    expect(
+      normalizeSearchResultMediaUrls(
+        [result],
+        'https://vss.example:443/vst/api',
+      )[0].screenshot_url,
+    ).toBe(
+      'https://vss.example/vst/api/v1/replay/stream/sensor-1/picture?startTime=2025-01-01T00%3A00%3A10Z',
+    );
+  });
+
+  it('leaves non-VST media URLs and results without a public VST origin unchanged', () => {
+    const nonVstResult = { ...result, screenshot_url: 'https://images.example/thumb.jpg' };
+    expect(normalizeSearchResultMediaUrls([nonVstResult], 'https://vss.example/vst/api')[0]).toBe(
+      nonVstResult,
+    );
+    expect(normalizeSearchResultMediaUrls([result], undefined)[0]).toBe(result);
   });
 });

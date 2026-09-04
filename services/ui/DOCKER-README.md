@@ -1,16 +1,56 @@
 <!-- SPDX-License-Identifier: MIT -->
+
 # Docker Readme
+
 Uses standalone production build of the app.
 
 Uses custom-server.js to start the server.
 
+## Connect a profile to an existing agent harness
+
+Every Docker profile's checked-in `overrides.env` exposes the same
+`VSS_AGENT_*` settings. The adapter is disabled until both
+`VSS_AGENT_ADAPTER_ENABLED=true` and `VSS_AGENT_BACKEND_URL` are set. It only
+connects the UI to an existing harness; it does not provision or modify that
+harness.
+
+For `dev-profile.sh`, provide deployment values through the environment so the
+generated, ignored `generated.env` receives them:
+
+```bash
+export VSS_AGENT_ADAPTER_ENABLED=true
+export VSS_AGENT_BACKEND_PROTOCOL=responses
+export VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642
+export VSS_AGENT_BACKEND_PATH=/v1/responses
+export VSS_AGENT_BACKEND_MODEL=agent
+export VSS_AGENT_BACKEND_TOKEN='<harness-token>'
+
+./deploy/docker/scripts/dev-profile.sh up --profile base --hardware-profile H100
+```
+
+For direct Compose, copy the selected profile's `overrides.env` to the ignored
+`user-overrides.env` and set the same values there. OpenClaw uses
+`VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
+`/`. Never commit a real harness token. The Compose service maps these
+host-side settings to the server-only `AGENT_*` variables shown below.
+
 .env sample to use for docker run when running the Metropolis BP VSS UI app:
+
 ```
 PORT=3001
 
 RUN_APP_NAME=nv-metropolis-bp-vss-ui
 NEXT_PUBLIC_APP_TITLE=VSS BLUEPRINT
 NEXT_PUBLIC_APP_SUBTITLE=Warehouse
+
+# Optional backend-neutral run/event adapter embedded in the Next.js server.
+# The backend token is server-only: never expose it through NEXT_PUBLIC_*.
+# When omitted, the UI keeps using the legacy HTTP/WebSocket settings below.
+AGENT_ADAPTER_ENABLED=true
+AGENT_BACKEND_PROTOCOL=openclaw-ws
+AGENT_BACKEND_URL=ws://host.docker.internal:18789
+AGENT_BACKEND_PATH=/
+AGENT_BACKEND_TOKEN=replace-with-the-harness-token
 
 NEXT_PUBLIC_ENABLE_CHAT_TAB=true
 NEXT_PUBLIC_WORKFLOW=Warehouse Management Agent
@@ -145,6 +185,7 @@ NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE=true
 ```
 
 .env sample to use for docker run when running the NeMo Agent Toolkit UI app:
+
 ```
 PORT=3000
 RUN_APP_NAME=nemo-agent-toolkit-ui
@@ -243,17 +284,20 @@ docker run --env-file <path-to-env-file> -p 3000:3000 <image-name>
 ## Debug inside the container
 
 Create a debug container image:
+
 ```
 docker build -t <image-name> --build-arg BUILD_TYPE=dev -f Dockerfile .
 ```
 
 Since the resulting docker is a distroless docker image, if needed to run any commands to debug the container,
 you can use the following command:
+
 ```
 docker run --entrypoint=sh --rm -it --env-file <path-to-env-file> -p 3000:3000 <image-name>
 ```
 
 To start the app inside the debug container:
+
 ```
 node custom-server.js
 ```

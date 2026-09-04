@@ -3,6 +3,8 @@
  * Extracts Search API–shaped JSON from agent response text and transforms to SearchData[].
  * The agent may return markdown or plain text with an embedded JSON block (e.g. ```json ... ``` or raw { "data": [...] }).
  */
+import { extractVssUiArtifacts } from '@nemo-agent-toolkit/ui';
+import { replaceVideoUrlBase } from 'common';
 import type { SearchData } from '../types';
 
 /** Same shape as the Search API response: { data: Array<...> } */
@@ -66,6 +68,28 @@ function transformToSearchData(data: unknown[]): SearchData[] {
 }
 
 /**
+ * Rebase VST thumbnail URLs onto the browser-facing VST origin. External
+ * harnesses run the VSS CLI from their own network namespace, so an otherwise
+ * valid artifact can contain a host-local or container-local VST hostname.
+ * Playback already applies the same rebasing to the clip URL returned by VST.
+ */
+export function normalizeSearchResultMediaUrls(
+  results: SearchData[],
+  vstApiUrl?: string,
+): SearchData[] {
+  if (!vstApiUrl?.includes('/vst/')) return results;
+
+  return results.map((result) => {
+    if (!result.screenshot_url.includes('/vst/')) return result;
+
+    const screenshotUrl = replaceVideoUrlBase(result.screenshot_url, vstApiUrl);
+    return screenshotUrl === result.screenshot_url
+      ? result
+      : { ...result, screenshot_url: screenshotUrl };
+  });
+}
+
+/**
  * Tries to extract a JSON object from text that has the Search API shape { data: [...] }.
  * Tries: (1) ```json ... ``` block, (2) first top-level { ... } in the text.
  * Returns the transformed SearchData[] or null if no valid JSON found.
@@ -73,6 +97,11 @@ function transformToSearchData(data: unknown[]): SearchData[] {
 export function extractSearchResultsFromAgentResponse(responseText: string): SearchData[] | null {
   if (!responseText || typeof responseText !== 'string') return null;
   const trimmed = responseText.trim();
+  const artifact = extractVssUiArtifacts(trimmed).find(
+    (candidate) =>
+      candidate.kind === 'vss.search.results' && Array.isArray(candidate.payload.data),
+  );
+  if (artifact) return transformToSearchData(artifact.payload.data as unknown[]);
 
   let parsed = extractJsonFromCodeBlock(trimmed);
   if (!parsed || !Array.isArray(parsed.data)) {
