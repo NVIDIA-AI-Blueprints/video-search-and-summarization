@@ -24,11 +24,16 @@ RUN uv venv /opt/vss \
 
 # The package is `openclaw` on the public npm registry (the scoped name
 # @openclaw/openclaw does not exist — that was the reason earlier builds here
-# thought it was private). Pinned to the `extended-stable` dist-tag rather than
-# `latest`, so an eval run's harness version does not move under it; override with
-#   --build-arg OPENCLAW_NPM_SPEC='openclaw@2026.9.1'
+# thought it was private). Pinned to an exact version, not a
+# dist-tag, so an eval run's harness does not move under it. 2026.9.1 and not
+# extended-stable (2026.6.34): harbor 0.20.0's adapter opens with
+#   openclaw setup --baseline --workspace .
+# which extended-stable rejects — `OpenClaw does not recognize option
+# "--baseline"` — killing the trial before the agent is asked anything.
+# Override with
+#   --build-arg OPENCLAW_NPM_SPEC='openclaw@<version>'
 #   --build-arg OPENCLAW_NPM_REGISTRY=https://npm.internal.example.com/
-ARG OPENCLAW_NPM_SPEC=openclaw@2026.6.34
+ARG OPENCLAW_NPM_SPEC=openclaw@2026.9.1
 ARG OPENCLAW_NPM_REGISTRY=
 RUN if [ -n "$OPENCLAW_NPM_REGISTRY" ]; then npm config set registry "$OPENCLAW_NPM_REGISTRY"; fi \
     && npm install -g "$OPENCLAW_NPM_SPEC" \
