@@ -465,8 +465,9 @@ directly from the running stack — `docker inspect vss-agent` exposes
 `VSS_AGENT_EXTERNAL_URL`, the fully-assembled `proto://host:port` the agent
 actually serves (orchestrator equivalent: `docker_read`). Don't synthesize a
 `<HOST_IP>:<port>` URL — that surfaces an unreachable internal IP on Brev,
-where this origin is the `https://7777-<id>.brevlab.com` secure link (see
-[`brev.md`](brev.md)). Call that value `PUBLIC` below; everything is routed
+where this origin is a Brev secure link whose hostname has to be read from the
+environment context rather than assembled (see [`brev.md`](brev.md)). Call that
+value `PUBLIC` below; everything is routed
 through the HAProxy ingress at that origin.
 
 | Service | URL to report (through ingress) |

@@ -40,24 +40,42 @@ is HAProxy's own listener and is what containers call each other on. Do not set
 the gateway origin from the public one: `https://vss.local:443` is a listener
 that does not exist.
 
-## Secure-link URL format
+## Resolving a secure link
 
-```
-https://<prefix>-<BREV_ENV_ID>.<brev-domain>
+**A secure link cannot be constructed.** Its label, its domain and the host port
+it forwards to are three independent facts chosen when the environment is
+created, and none of them follows from `BREV_ENV_ID`. A real instance serves
+`jupyter-<id>.gobrev.dev` on 443 forwarding to host port 8888: the label is a
+name rather than a port, and the domain is one no template would have offered.
+
+Read the link out of the environment context file, which is the only
+authoritative record of what Brev published for this instance. These helpers are
+used throughout this reference; define them once per shell:
+
+```bash
+BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+# FQDN published for a destination port; empty when the port is not exposed.
+brev_fqdn() { jq -er --argjson p "$1" '[.ports[]? | select(.destination_port == $p) | .fqdn][0] // empty' "$BREV_CTX" 2>/dev/null; }
+# Public port for that link (443 in current Brev; read it, don't assume it).
+brev_public_port() { jq -er --argjson p "$1" '[.ports[]? | select(.destination_port == $p) | .public_port][0] // empty' "$BREV_CTX" 2>/dev/null; }
+# Browse origin for that port. Use this for any URL you hand the user or curl:
+# an origin built from the FQDN alone is wrong wherever public_port is not 443.
+brev_origin() {
+  local host port
+  host="$(brev_fqdn "$1")" && port="$(brev_public_port "$1")" || return 1
+  if [ "$port" = 443 ]; then echo "https://${host}"; else echo "https://${host}:${port}"; fi
+}
+
+# Every HTTP link on the instance, so you can see which host ports are reachable.
+jq -r '.ports[]? | select(.destination_port != 22) | "\(.public_port) -> \(.destination_port)  \(.fqdn)"' "$BREV_CTX"
 ```
 
-- `<BREV_ENV_ID>` is the instance's ID from `/etc/environment`.
-- `<prefix>` is the HAProxy ingress port VSS exposes on the instance, `7777` by
-  default — Brev's secure-link domain just prefixes it. Override with
-  `BREV_LINK_PREFIX`. (Older Brev launchables added a trailing `0` giving
-  `77770-...`; that's gone in current Brev, but if you inherit an older instance
-  and find a `77770-...` link still works, see [Troubleshooting](#troubleshooting).)
-- `<brev-domain>` is **not always `brevlab.com`.** During the tunnel migration
-  Brev serves secure links from either `apps.run.brev.nvidia.com` (Skybridge) or
-  `brevlab.com`. `dev-profile.sh` picks between them by asking
-  `netbird status -d` whether this instance is Skybridge-managed, and falls back
-  to `brevlab.com`. Set `BREV_LINK_DOMAIN` to force one; an explicit value always
-  wins. Do not hard-code a domain into a deploy recipe.
+`brev_fqdn 7777` asks for the link to the HAProxy ingress' default host port. An
+empty result means **no link is published for it**, and Brev does not open ports
+on demand — so either expose one, or publish the gateway on a host port that
+already has a link (`HAPROXY_HOST_PORT`). Do not fall back to constructing a
+hostname: `VSS_PUBLIC_HOST` feeds the gateway's Host **allowlist**, so a guessed
+value is refused with `x-vss-gateway-deny: unknown-host` rather than degrading.
 
 ## Per-profile secure link requirements
 
@@ -95,13 +113,28 @@ Which of the two paths below applies depends on how you deploy.
 ### If you deploy with `dev-profile.sh`
 
 **Nothing to set.** `deploy/docker/scripts/dev-profile.sh` configures the whole
-two-origin split itself when `BREV_ENV_ID` is in its environment: it resolves
-the secure-link domain, then writes `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT=443`,
-`VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss`,
-`BREV_LINK_PREFIX` and `BREV_LINK_DOMAIN` into the profile's `generated.env` —
-the same file Step 1c/1d writes. The launchable notebooks call it, so they
-inherit this. **Do not also apply the manual recipe below**; it would only
-overwrite the values with a possibly worse guess at the domain.
+two-origin split itself when `BREV_ENV_ID` is in its environment. It reads the
+same context file the helpers above use, takes the published link verbatim, and
+writes `VSS_PUBLIC_HOST` (the link's FQDN), `VSS_PUBLIC_PORT` (its public port),
+`VSS_PUBLIC_HTTP_PROTOCOL=https`, `VSS_PUBLIC_WS_PROTOCOL=wss` and
+`HAPROXY_HOST_PORT` into the profile's `generated.env` — the same file Step 1c/1d
+writes. The launchable notebooks call it, so they inherit this. **Do not also
+apply the manual recipe below**; it would only overwrite values read from the
+source of truth with a hand-built guess.
+
+`HAPROXY_HOST_PORT` is the part that is easy to miss. Brev forwards a link only
+to the host port it was created with, so the gateway has to be published on
+*that* port rather than on its own default. An instance whose only HTTP link is
+`443 -> 8888` gets `HAPROXY_HOST_PORT=8888`; the container keeps listening on
+`HAPROXY_PORT` (`7777`), so in-deployment callers on `http://vss.local:7777` are
+unaffected.
+
+When the context file is missing, unreadable, or publishes no HTTP link,
+`dev-profile.sh` **fails loudly** rather than falling back to a template, and
+names the three overrides to set by hand — `VSS_PUBLIC_HOST`, `VSS_PUBLIC_PORT`
+and `HAPROXY_HOST_PORT`. `VSS_PUBLIC_HOST` set in the environment always wins
+outright. `BREV_LINK_PREFIX` and `BREV_LINK_DOMAIN` still work, but only as a
+fallback for instances too old to have a context file.
 
 One thing is on you: **`dev-profile.sh` reads `BREV_ENV_ID` from its own
 environment, not from `/etc/environment`.** A login shell on a Brev instance has
@@ -127,29 +160,29 @@ on 443**, but the profile `.env` ships `VSS_PUBLIC_HTTP_PROTOCOL=http`,
 `VSS_PUBLIC_WS_PROTOCOL=ws` and `VSS_PUBLIC_PORT=${HAPROXY_HOST_PORT}` (7777).
 Leaving those at the defaults makes the agent emit `http://…:7777` UI/API/WS
 URLs from an `https://` page, which the browser blocks as mixed content. Set the
-host, protocol and port together, and resolve the domain rather than assuming
-`brevlab.com`:
+host, protocol and port together, and **read** the link rather than building one:
 
 ```bash
-brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-# Same rule dev-profile.sh applies: explicit wins, else Skybridge, else brevlab.
-if [ -n "${BREV_LINK_DOMAIN:-}" ]; then
-  domain="${BREV_LINK_DOMAIN}"
-elif netbird status -d 2>&1 | grep -qiE 'skybridge|brev\.nvidia\.com|brev\.dev'; then
-  domain="apps.run.brev.nvidia.com"
-else
-  domain="brevlab.com"
-fi
-host="${BREV_LINK_PREFIX:-7777}-${brev_env_id}.${domain}"
+# Pick the host port whose link you intend to serve on. 7777 is the gateway's
+# default, but only a link Brev actually published will route -- list them with
+# the jq one-liner above and choose from that.
+host_port=7777
+host="$(brev_fqdn "${host_port}")" || { echo "no Brev link forwards to ${host_port}"; exit 1; }
+public_port="$(brev_public_port "${host_port}")"
+
 GEN=deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
 sed -i \
   -e "s|^EXTERNAL_IP=.*|EXTERNAL_IP=${host}|" \
   -e "s|^VSS_PUBLIC_HOST=.*|VSS_PUBLIC_HOST=${host}|" \
   -e "s|^VSS_PUBLIC_HTTP_PROTOCOL=.*|VSS_PUBLIC_HTTP_PROTOCOL=https|" \
   -e "s|^VSS_PUBLIC_WS_PROTOCOL=.*|VSS_PUBLIC_WS_PROTOCOL=wss|" \
-  -e "s|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=443|" \
+  -e "s|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=${public_port}|" \
+  -e "s|^HAPROXY_HOST_PORT=.*|HAPROXY_HOST_PORT=${host_port}|" \
   "$GEN"
 ```
+
+`brev_fqdn` failing is the answer, not an obstacle to work around: a hostname
+you assembled yourself will be rejected by the gateway's Host allowlist.
 
 Leave `VSS_GATEWAY_*` alone. It is pinned to HAProxy's own listener on purpose.
 
