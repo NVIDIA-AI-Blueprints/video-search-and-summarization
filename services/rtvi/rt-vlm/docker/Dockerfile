@@ -356,11 +356,12 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_qwen3_omni_audio_patch.py
 
-# EVS++ is shipped as prebuilt architecture-specific extensions below. Do not
-# copy its Python overlay into this public build; install the compiled modules
-# directly and retain the independent tensor-IPC patch.
+# EVS++ is shipped as eleven IP-protected, architecture-specific extensions.
+# Install their non-sensitive OpenAI protocol compatibility types first; the
+# protected serving module imports VideoClipAddRequest from that module.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
-    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
+    && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
 # Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
@@ -387,6 +388,10 @@ RUN set -eu; \
         rm -f "$vllm_root/${relative%%.cpython-312-*}.py"; \
     done; \
     rm -rf /tmp/evs-libs
+
+# Fail the image build if the protected EVS modules and their public protocol
+# compatibility types are not a coherent set.
+RUN python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions'
 
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
 # libraries under /opt/tritonserver (e.g. hashed shared objects inside the DALI wheel).
