@@ -17,7 +17,18 @@
 
 import dashjs from 'dashjs';
 
-const MANIFEST_READY_TIMEOUT_MS = 30_000;
+/* How long to wait for the first manifest before giving up.
+ *
+ * The manifest is published once enough media exists for a player to start
+ * behind the live edge, which is counted in segments, so the wait scales with
+ * the encoder's keyframe interval and with how fast the machine encodes. A
+ * pass-through stream is ready in a few seconds. An overlay session re-encodes
+ * every frame and was measured at seventeen where the encoder emits a keyframe
+ * every second, and at thirty-six where it emits one every eight. Thirty
+ * seconds sat between those two, so the session that took longest to prepare
+ * was the one reported as a failure to start. This covers the slower of them
+ * and still gives up while someone is plausibly still watching. */
+const MANIFEST_READY_TIMEOUT_MS = 45_000;
 const MANIFEST_RETRY_DELAY_MS = 1_000;
 
 export interface DashStreamConfig {

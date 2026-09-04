@@ -994,9 +994,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // saving overlay settings silently dropped the stream back to WebRTC.
     // Stamping it here means a new caller cannot forget.
     const startStream = (config: StreamConfig) => {
+        /* A wall is composed from every camera on it, and only the first build
+         * of the config said so.  Saving overlay settings rebuilds it from the
+         * single sensor the player was handed, which for a wall is nothing at
+         * all, so the composition was lost and the request fell back to WebRTC
+         * while the protocol selector still read DASH.  Restore it here, which
+         * every start passes through, so a restart describes the same wall the
+         * first start did. */
+        if (streamType === StreamType.VideoWall && sensors && !config.options.composite) {
+            config.options.composite = {
+                doComposite: true,
+                streamIds: sensors.map(s => s.streamId ?? s.sensorId).filter(Boolean) as string[],
+                showSensorName: {
+                    enable: true,
+                    position: [10, 10],
+                },
+            };
+        }
         if (deliveryProtocol === 'dash'
-            && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
+            && (streamType === StreamType.Live || streamType === StreamType.Replay
+                || streamType === StreamType.VideoWall)) {
             config.options.streamType = 'dash';
+            // The wall is filed under one of the cameras it composes; a rebuilt
+            // config has no single sensor to take that from.
+            if (streamType === StreamType.VideoWall && !config.streamId) {
+                const wall = config.options.composite as
+                    { streamIds?: string[] } | undefined;
+                config.streamId = wall?.streamIds?.[0];
+            }
             // A DASH replay session is packaged for a window, so it needs an end
             // as well as a start; the WebRTC path never had to supply one.
             if (streamType === StreamType.Replay && !config.endTime) {
