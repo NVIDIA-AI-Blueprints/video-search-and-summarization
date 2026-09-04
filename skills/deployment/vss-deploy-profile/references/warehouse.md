@@ -241,7 +241,7 @@ Ask the user which source they want and whether they already have the assets on 
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, playback, calibration) | `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026` | `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data/` — **this inner directory is `VSS_DATA_DIR`** |
+| App data (videos, playback, calibration) | `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026` | `vss-warehouse-app-data_vv3.3.0-09042026/vss-warehouse-app-data/` — **this inner directory is `VSS_DATA_DIR`** |
 
 `VSS_DATA_DIR` must be the directory that holds `videos/`, `playback/`, `models/` and `data_log/`, not its parent.
 
@@ -964,11 +964,11 @@ export NGC_CLI_API_KEY='<your-ngc-api-key>'
 
 export NGC_CLI_ORG=nvstaging
 
-APP_DATA_RESOURCE="nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-08052026"
+APP_DATA_RESOURCE="nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026"
 ngc registry resource download-version "$APP_DATA_RESOURCE"
 
 # NGC prefixes _v to the version, which already starts with v -> doubled _vv.
-cd vss-warehouse-app-data_vv3.3.0-08052026
+cd vss-warehouse-app-data_vv3.3.0-09042026
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # The inner directory is VSS_DATA_DIR. Do not use the literal string
@@ -980,9 +980,9 @@ mkdir -p "$VSS_DATA_DIR"/models \
 chmod -R 0777 "$VSS_DATA_DIR"/models "$VSS_DATA_DIR"/data_log
 ```
 
-`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-08052026/vss-warehouse-app-data` — the **inner** directory. The bundle supplies the sample `videos/` and `playback/` assets.
+`VSS_DATA_DIR` is then `vss-warehouse-app-data_vv3.3.0-09042026/vss-warehouse-app-data` — the **inner** directory. The bundle supplies the sample `videos/` and `playback/` assets.
 
-`v3.3.0-08052026` extracts to exactly `agent_eval/`, `auto-calib/`, `data_log/`, `playback/`, `videos/` and a license PDF — it ships **no `models/`**. (Older bundles carried a legacy `models/` subtree that is no longer used.) The `mkdir` + `chmod` above is therefore **mandatory, not a no-op** on this version: ds-start phase 0 downloads the RT-CV weights into `models/` and builds the TensorRT engine there (~171 MB for 2D — `rtdetr_warehouse_v1.0.2.fp16.onnx` plus the generated `.engine`), writing as the container's UID, which is why the directory must exist and be `0777` first. `auto-calib/vggt/` is **not** bundle content: it is a user-created directory for the optional VGGT model.
+`v3.3.0-09042026` extracts to exactly `agent_eval/`, `auto-calib/`, `data_log/`, `playback/`, `videos/` and a license PDF — it ships **no `models/`**. (Older bundles carried a legacy `models/` subtree that is no longer used.) The `mkdir` + `chmod` above is therefore **mandatory, not a no-op** on this version: ds-start phase 0 downloads the RT-CV weights into `models/` and builds the TensorRT engine there (~171 MB for 2D — `rtdetr_warehouse_v1.0.2.fp16.onnx` plus the generated `.engine`), writing as the container's UID, which is why the directory must exist and be `0777` first. `auto-calib/vggt/` is **not** bundle content: it is a user-created directory for the optional VGGT model.
 
 ---
 
