@@ -1383,6 +1383,7 @@ def test_mm_processor_cache_size_rejects_negative_values(monkeypatch):
         vllm_compatible_model._get_mm_processor_cache_gb()
 
 
+@pytest.mark.test_in_ci
 def test_mm_processor_cache_disable_uses_zero_gb_when_legacy_flag_missing(monkeypatch, caplog):
     """vLLM 0.17.1 has no disable_mm_preprocessor_cache; size 0 is the only lever.
 
@@ -1406,6 +1407,7 @@ def test_mm_processor_cache_disable_uses_zero_gb_when_legacy_flag_missing(monkey
     assert "does not support disable_mm_preprocessor_cache" in caplog.text
 
 
+@pytest.mark.test_in_ci
 def test_mm_processor_cache_disable_zeros_gb_even_when_legacy_flag_exists(monkeypatch):
     for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
         monkeypatch.delenv(source, raising=False)
@@ -1424,6 +1426,7 @@ def test_mm_processor_cache_disable_zeros_gb_even_when_legacy_flag_exists(monkey
     }
 
 
+@pytest.mark.test_in_ci
 def test_mm_processor_cache_opt_in_uses_configured_size(monkeypatch):
     for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
         monkeypatch.delenv(source, raising=False)
@@ -1440,6 +1443,7 @@ def test_mm_processor_cache_opt_in_uses_configured_size(monkeypatch):
     assert engine_args == {"mm_processor_cache_gb": 0.5}
 
 
+@pytest.mark.test_in_ci
 def test_mm_processor_cache_opt_in_keeps_size_when_legacy_flag_exists(monkeypatch):
     for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
         monkeypatch.delenv(source, raising=False)
@@ -1459,6 +1463,7 @@ def test_mm_processor_cache_opt_in_keeps_size_when_legacy_flag_exists(monkeypatc
     }
 
 
+@pytest.mark.test_in_ci
 def test_mm_processor_cache_type_is_applied_even_when_the_cache_is_disabled(monkeypatch):
     for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
         monkeypatch.delenv(source, raising=False)
