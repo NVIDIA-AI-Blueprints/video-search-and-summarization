@@ -3,18 +3,24 @@ title: "Edge Deployment"
 description: ""
 position: 2
 ---
-This guide covers deploying the base vision agent with **NVIDIA Nemotron 3 Nano 4B** or **NVIDIA Nemotron Nano 9B v2** as the
-LLM on edge platforms (DGX Spark, IGX Thor, AGX Thor).
+This guide covers deploying the base vision agent on edge platforms (DGX Spark, IGX Thor, AGX Thor).
 
-For small models like **NVIDIA Nemotron 3 Nano 4B**, a dedicated configuration file (`config_edge.yml`) is provided.
-It inherits all settings from the standard `config.yml` and overrides only the planning prompt with a simplified
-version optimized for smaller models.
+The LLM is the blueprint default, **`nvidia/nemotron-3.5-lightning-30b-a3b`** — the same model as
+on every other platform. Each edge profile ships its own sizing file
+(`deploy/docker/services/nim/nemotron-3.5-lightning-30b-a3b/hw-<HARDWARE_PROFILE>*.env`), which pins
+the INT4 engine profile and caps the NIM at 30% of the device's unified memory so it coexists with
+the VLM. The LLM deploys as a normal Compose service; no standalone container is needed and no
+Hugging Face token is involved.
 
 <Note>
-The edge configuration does not encourage clarifying questions from the agent prompt. Hence, in ambiguous situations,
-the agent with `config_edge.yml` may tend to not request more context from the user.
-If this behavior is not desired, use a larger model like **NVIDIA Nemotron Nano 9B v2** which will ask clarifying questions
-when the user's request does not contain enough context.
+Two alternatives when the default does not fit:
+
+- **`nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8`** (11.7 GB) — a smaller in-tree build for GPUs that
+  cannot host the default. Select it by setting `LLM_NAME` and `LLM_NAME_SLUG` in the overlay, as
+  shown in the commented lines below.
+- **A remote endpoint** — best latency on edge. Set `LLM_MODE=remote`, `LLM_NAME_SLUG=none`,
+  `LLM_BASE_URL` to an OpenAI-compatible endpoint (for example `https://integrate.api.nvidia.com`),
+  `LLM_NAME` to a model the endpoint serves, and `LLM_MODEL_TYPE` (`nim` or `openai`).
 </Note>
 
 ## Prerequisites
@@ -25,8 +31,7 @@ Also ensure to reboot the system and free up the GPU completely before deploying
 You will also need:
 
 - **NGC CLI API Key** — for pulling container images
-- **HF Token** — for pulling model weights from Hugging Face
-- **NVIDIA Nemotron 3 Nano 4B** running locally or on a reachable endpoint (e.g. via vLLM on port 30081)
+- **HF Token** — optional; not needed by the default edge deployment
 
 For more details on VSS configurations and how to get API tokens, refer to:
 
@@ -88,126 +93,50 @@ docker compose -f compose.yml \
 
 ## DGX Spark
 
-1. Start the Nemotron 3 Nano 4B model. For example, using vLLM:
-
-   ```bash
-   export HF_TOKEN=$HF_TOKEN
-   
-   docker run --gpus all -d --name nemotron-edge -p 30081:8000 \
-       -e HF_TOKEN=$HF_TOKEN \
-       nvcr.io/nvidia/vllm:26.02-py3 \
-       python3 -m vllm.entrypoints.openai.api_server \
-       --model nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
-       --trust-remote-code \
-       --gpu-memory-utilization 0.25 \
-       --enable-auto-tool-choice \
-       --tool-call-parser qwen3_coder \
-       --port 8000
-   ```
-
-2. Deploy the agent workflow:
-
-   ```ini
-   # developer-profiles/dev-profile-base/user-overrides.env
-   HARDWARE_PROFILE=DGX-SPARK
-   VSS_RT_VLM_TAG=develop-latest-sbsa
-   VLM_DEVICE_ID=0
-   RT_VLM_DEVICE_ID=0
-   RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
-   LLM_MODE=remote
-   LLM_NAME_SLUG=none
-   LLM_BASE_URL=http://<HOST_IP>:30081
-   LLM_NAME=nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8
-   LLM_MODEL_TYPE=openai
-   VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
-   VLM_ENV_FILE=services/nim/cosmos3-reasoner/hw-DGX-SPARK-shared.env
-   ```
-
-   The configured `VLM_ENV_FILE` limits the VLM KV-cache (`NIM_KVCACHE_PERCENT=0.4`) so both
-   models fit in GPU memory.
-
-<Note>
-If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B** model.
-This larger model should also be able to handle more complex user queries and situations.
-In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
+Add the platform values to `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`,
+then run the `docker compose config --quiet` / `up -d` commands above:
 
 ```ini
-# Free up GPU for a full blueprint deployment first:
-# docker stop nemotron-edge && docker rm nemotron-edge
+# developer-profiles/dev-profile-base/user-overrides.env
 HARDWARE_PROFILE=DGX-SPARK
 VSS_RT_VLM_TAG=develop-latest-sbsa
 LLM_DEVICE_ID=0
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
 LLM_MODE=local
-LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
-LLM_NAME_SLUG=nemotron-nano
+# The default LLM (nvidia/nemotron-3.5-lightning-30b-a3b) applies; to use the
+# smaller FP8 build instead, uncomment both lines:
+# LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+# LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2-fp8
 ```
 
-This uses the standard `config.yml` (no `config_edge.yml` override needed) since
-the 9B model handles complex and ambiguous queries better.
-</Note>
+`HARDWARE_PROFILE=DGX-SPARK` selects the Spark sizing files for both models: the LLM's
+`hw-DGX-SPARK*.env` (30% of unified memory, 64K context) and the VLM's Spark-shared limits, so the
+two fit together in the 128 GB pool. The `-sbsa` image tag is required on Spark — the default tag
+pulls the Tegra build, which crash-loops on missing GB10 libraries.
 
 ## AGX Thor / IGX Thor
 
-On AGX Thor and IGX Thor, the Nemotron 3 Nano 4B LLM runs locally alongside `rtvi-vlm` (the VLM
-used by the blueprint on Thor). Both models share the same GPU, so their memory budgets
-must be tuned to coexist.
-
-1. Start the Nemotron 3 Nano 4B model on the device:
-
-   ```bash
-   export HF_TOKEN=$HF_TOKEN
-   
-   docker run --gpus all -d --name nemotron-edge -p 30081:8000 \
-       --runtime=nvidia \
-       -e NVIDIA_VISIBLE_DEVICES=0 \
-       -e HF_TOKEN=$HF_TOKEN \
-       ghcr.io/nvidia-ai-iot/vllm:latest-jetson-thor \
-       python3 -m vllm.entrypoints.openai.api_server \
-       --model nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 \
-       --trust-remote-code \
-       --gpu-memory-utilization 0.25 \
-       --enable-auto-tool-choice \
-       --tool-call-parser qwen3_coder \
-       --port 8000
-   ```
-
-2. Deploy the agent workflow:
-
-   ```ini
-   # developer-profiles/dev-profile-base/user-overrides.env
-   HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
-   VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
-   RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
-   RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
-   LLM_MODE=remote
-   LLM_NAME_SLUG=none
-   LLM_BASE_URL=http://<HOST_IP>:30081
-   LLM_NAME=nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8
-   LLM_MODEL_TYPE=openai
-   VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
-   # Uses the default GPU memory utilization of 0.35 for rtvi-vlm.
-   ```
-
-<Note>
-If you prefer the agent to handle ambiguous or incomplete user queries better with clarifying questions, use the **Nemotron Nano 9B** model.
-This larger model should also be able to handle more complex user queries and situations.
-In this case, you can skip running the vLLM container entirely, as the blueprint will deploy both the LLM and VLM as NIM containers.
+On Thor the LLM shares the GPU with `rtvi-vlm` (the VLM used by the blueprint on Thor), so both
+memory budgets are set by the checked-in sizing files. Add the platform values to
+`user-overrides.env`, then run the same `docker compose` commands:
 
 ```ini
-# Free up GPU for a full blueprint deployment first:
-# docker stop nemotron-edge && docker rm nemotron-edge
+# developer-profiles/dev-profile-base/user-overrides.env
 HARDWARE_PROFILE=AGX-THOR # Set IGX-THOR on IGX hardware.
 LLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
-# To choose a local model, set LLM_NAME and LLM_NAME_SLUG in this file.
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
+LLM_MODE=local
+# The default LLM (nvidia/nemotron-3.5-lightning-30b-a3b) applies; to use the
+# smaller FP8 build instead, uncomment both lines:
+# LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+# LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2-fp8
 ```
 
-This uses the standard `config.yml` (no `config_edge.yml` override needed) since
-the 9B model handles complex and ambiguous queries better.
-</Note>
+The LLM's `hw-AGX-THOR*.env` / `hw-IGX-THOR*.env` cap it at 30% of unified memory alongside
+RT-VLM's 35%, keeping the co-resident total under the 80% edge ceiling.
 
 <Note>
 For IGX Thor, set `HARDWARE_PROFILE=IGX-THOR` in the profile settings above.

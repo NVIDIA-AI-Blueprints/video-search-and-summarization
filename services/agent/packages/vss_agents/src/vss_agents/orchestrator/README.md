@@ -133,7 +133,7 @@ uv run nat mcp client tool call \
       "host_ip": "10.0.0.10",
       "external_ip": "10.0.0.10",
       "llm_mode": "local",
-      "llm_name": "nvidia/nvidia-nemotron-nano-9b-v2",
+      "llm_name": "nvidia/nemotron-3.5-lightning-30b-a3b",
       "vlm_mode": "local",
       "vlm_name": "nvidia/cosmos-reason2-8b",
       "compose_profiles": "search_local,...",

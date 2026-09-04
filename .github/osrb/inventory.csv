@@ -2574,9 +2574,9 @@ nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-c
 nvcr.io/nvidia/distroless/python,3.13-v4.0.6,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.8,UNKNOWN,services/alert,container,container,services/alert/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.8,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/python,3.13-v4.0.9,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.1,UNKNOWN,services/configurators/vss-configurator,container,container,services/configurators/vss-configurator/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.2,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.13-v4.1.2,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/k8s/dcgm-exporter,4.2.0-4.1.0-ubuntu22.04,UNKNOWN,services/rtvi/rt-embed,container,compose,services/rtvi/rt-embed/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/k8s/dcgm-exporter,4.2.0-4.1.0-ubuntu22.04,UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/pytorch,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
