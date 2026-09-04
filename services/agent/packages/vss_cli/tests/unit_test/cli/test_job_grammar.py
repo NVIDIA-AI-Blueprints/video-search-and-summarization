@@ -209,15 +209,18 @@ def test_read_verbs_do_not_expose_static_memory_index() -> None:
 
 def test_memory_builder_uses_configured_authoritative_index(monkeypatch: pytest.MonkeyPatch) -> None:
     from vss_cli import memory as memory_mod
-    import vss_core.memory as core_memory
+    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
 
     built: list[tuple[str, str]] = []
 
-    def build_memory_service(*, es_endpoint: str, memory_index: str) -> object:
-        built.append((es_endpoint, memory_index))
-        return object()
+    class Store:
+        def __init__(self, *, endpoint: str, index: str) -> None:
+            built.append((endpoint, index))
 
-    monkeypatch.setattr(core_memory, "build_memory_service", build_memory_service)
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(elasticsearch_mod, "ElasticsearchMemoryStore", Store)
     deployment = config_mod.Deployment(
         base_url="http://h:7777",
         services={"elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch")},
@@ -295,7 +298,11 @@ def test_right_version_wrong_shape_is_refused(tmp_path, monkeypatch: pytest.Monk
     (none)" -- which reads like a broken backend, not an unreadable file.
     """
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
-    foreign = {"version": 1, "current": "default", "deployments": {"default": {"base_url": "http://x"}}}
+    foreign = {
+        "version": config_mod.CONFIG_VERSION,
+        "current": "default",
+        "deployments": {"default": {"base_url": "http://x"}},
+    }
     (tmp_path / "config.json").write_text(json.dumps(foreign), encoding="utf-8")
 
     with pytest.raises(config_mod.ConfigError) as excinfo:
@@ -309,7 +316,8 @@ def test_right_version_wrong_shape_is_refused(tmp_path, monkeypatch: pytest.Monk
 def test_config_without_services_is_refused(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
     (tmp_path / "config.json").write_text(
-        json.dumps({"version": 1, "base_url": "http://h:7777", "services": {}}), encoding="utf-8"
+        json.dumps({"version": config_mod.CONFIG_VERSION, "base_url": "http://h:7777", "services": {}}),
+        encoding="utf-8",
     )
     with pytest.raises(config_mod.ConfigError) as excinfo:
         config_mod.load()
