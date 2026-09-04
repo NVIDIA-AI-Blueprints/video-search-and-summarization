@@ -281,10 +281,7 @@ function get_removed_llm_message() {
 function get_vlm_slug() {
   local _name="${1}"
   case "${_name}" in
-    nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
-    nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
     nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
-    Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
 }
@@ -467,7 +464,7 @@ function usage() {
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
   echo "  --llm                           LLM model (e.g. nvidia/nemotron-3.5-lightning-30b-a3b)"
-  echo "  --vlm                           VLM model (e.g. nvidia/cosmos-reason2-8b)"
+  echo "  --vlm                           VLM model (e.g. nvidia/cosmos3-reasoner)"
   echo "  --llm-device-id                 GPU device ID for LLM"
   echo "  --vlm-device-id                 GPU device ID for VLM"
   echo "  --use-remote-llm                Use remote LLM (LLM_ENDPOINT_URL)"

@@ -28,15 +28,6 @@ Nemotron 3.5 Lightning 30B-A3B (LLM):
   GPU count:  {{ .Values.nemotron35.resources.limits | dig "nvidia.com/gpu" "1" }}
 {{- end }}
 
-{{- if .Values.cosmos.enabled }}
-
-Cosmos Reason2 8B (VLM):
-  NIMCache:   {{ include "nims.cosmos.fullname" . }}
-  NIMService: {{ include "nims.cosmos.fullname" . }}
-  Endpoint:   http://{{ include "nims.cosmos.fullname" . }}:8000/v1
-  GPU count:  {{ .Values.cosmos.resources.limits | dig "nvidia.com/gpu" "2" }}
-{{- end }}
-
 GPU-specific tuning:
   H100:         helm upgrade nims ./nims -f override-values-H100.yaml
   L40S:         helm upgrade nims ./nims -f override-values-L40S.yaml

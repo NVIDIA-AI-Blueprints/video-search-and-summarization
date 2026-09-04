@@ -112,28 +112,10 @@ services:
       nvstreamer-alerts:
         condition: service_started
         required: false
-      cosmos-reason1-7b:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b:
-        condition: service_healthy
-        required: false
-      cosmos-reason2-8b-shared-gpu:
-        condition: service_healthy
-        required: false
       cosmos3-reasoner:
         condition: service_healthy
         required: false
       cosmos3-reasoner-shared-gpu:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
         required: false
       rtvi-vlm:

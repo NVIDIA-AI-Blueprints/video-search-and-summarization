@@ -631,7 +631,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
 run_negative_test "invalid mode for alerts" 1 up -p alerts -m invalid
 run_negative_test "mode only accepted for alerts profile" 1 up -p base -m verification
 run_negative_test "down with extra option not allowed" 1 down --profile base
-run_dry_run_test "search allows --vlm" up -p search -i 127.0.0.1 --vlm nvidia/cosmos-reason1-7b -d
+run_dry_run_test "search allows --vlm" up -p search -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d
 run_dry_run_test "search allows --vlm-device-id" up -p search -i 127.0.0.1 --vlm-device-id 2 -d
 run_negative_test "invalid option --llm-mode" 1 up -p base --llm-mode remote
 run_negative_test "invalid option --shared-llm-vlm-device-id" 1 up -p base --shared-llm-vlm-device-id 0
@@ -654,8 +654,8 @@ run_dry_run_up_and_check_generated_env "generated.env base IGX-THOR VLM and RTVI
 run_dry_run_up_and_check_generated_env "generated.env base AGX-THOR VLM and RTVI vars (same as IGX-THOR)" "base" \
  -i 127.0.0.1 -H AGX-THOR -d -- \
   "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "VLM_MODEL_TYPE" "rtvi" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-run_negative_test "base on IGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm nvidia/cosmos-reason2-8b -d
-run_negative_test "base on AGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H AGX-THOR --vlm nvidia/cosmos-reason2-8b -d
+run_negative_test "base on IGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm nvidia/cosmos3-reasoner -d
+run_negative_test "base on AGX-THOR rejects --vlm" 1 up -p base -i 127.0.0.1 -H AGX-THOR --vlm nvidia/cosmos3-reasoner -d
 run_negative_test "base on IGX-THOR rejects --vlm-env-file" 1 up -p base -i 127.0.0.1 -H IGX-THOR --vlm-env-file /some/vlm.env -d
 run_negative_test "base on AGX-THOR rejects --vlm-env-file" 1 up -p base -i 127.0.0.1 -H AGX-THOR --vlm-env-file /some/vlm.env -d
 # LLM remote (set by --use-remote-llm): forbidden options and LLM_ENDPOINT_URL required when flag passed
@@ -751,8 +751,8 @@ run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
 run_negative_test "alerts on IGX-THOR rejects --use-remote-vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --use-remote-vlm --vlm y -d
 run_negative_test "alerts on AGX-THOR rejects --use-remote-vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR --use-remote-vlm --vlm y -d
-run_negative_test "alerts on IGX-THOR rejects --vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --vlm nvidia/cosmos-reason2-8b -d
-run_negative_test "alerts on AGX-THOR rejects --vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR --vlm nvidia/cosmos-reason2-8b -d
+run_negative_test "alerts on IGX-THOR rejects --vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --vlm nvidia/cosmos3-reasoner -d
+run_negative_test "alerts on AGX-THOR rejects --vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR --vlm nvidia/cosmos3-reasoner -d
 run_negative_test "alerts on IGX-THOR rejects --vlm-device-id" 1 up -p alerts -i 127.0.0.1 -m real-time -H IGX-THOR --vlm-device-id 0 -d
 run_negative_test "alerts on AGX-THOR rejects --vlm-device-id" 1 up -p alerts -i 127.0.0.1 -m real-time -H AGX-THOR --vlm-device-id 0 -d
 run_negative_test "alerts on IGX-THOR rejects --vlm-model-type" 1 up -p alerts -i 127.0.0.1 -m real-time -H IGX-THOR --vlm-model-type nim -d
@@ -1958,7 +1958,7 @@ run_dry_run_up_and_check_generated_env "generated.env LLM_MODE VLM_MODE local_sh
 
 # When one model is remote, the other's device ID is not used for local vs local_shared (so the local side stays "local" unless its device ID is in FIXED_SHARED_DEVICE_IDS)
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 run_dry_run_up_and_check_generated_env "generated.env VLM_MODE local when LLM remote (vlm_device_id not compared to llm)" "base" \
-  -i 127.0.0.1 --use-remote-llm --llm my-llm --vlm nvidia/cosmos-reason1-7b --vlm-device-id 1 -d -- \
+  -i 127.0.0.1 --use-remote-llm --llm my-llm --vlm nvidia/cosmos3-reasoner --vlm-device-id 1 -d -- \
   "LLM_MODE" "remote" "VLM_MODE" "local"
 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_MODE local when VLM remote (llm_device_id not compared to vlm)" "base" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-vlm --llm nvidia/nemotron-3.5-lightning-30b-a3b --llm-device-id 1 -d -- \
@@ -2099,18 +2099,6 @@ run_dry_run_up_and_check_generated_env "generated.env other LLM model nvidia/NVI
  -i 127.0.0.1 -H DGX-SPARK --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d -- \
   "LLM_NAME_SLUG" "nvidia-nemotron-nano-9b-v2-fp8" "LLM_NAME" "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
 
-run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason1 maps to RT-VLM path+basename" "base" \
- -i 127.0.0.1 --vlm nvidia/cosmos-reason1-7b -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason1-7b_1_1-fp8-dynamic" \
-  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic" \
-  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason1" "VLM_MODEL_TYPE" "rtvi"
-
-run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos-reason2 maps to RT-VLM path+basename" "base" \
- -i 127.0.0.1 --vlm nvidia/cosmos-reason2-8b -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-0303" \
-  "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-0303" \
-  "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2" "VLM_MODEL_TYPE" "rtvi"
-
 run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasoner maps to RT-VLM path+basename" "base" \
  -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" \
@@ -2123,24 +2111,12 @@ run_dry_run_up_and_check_generated_env "generated.env base --vlm cosmos3-reasone
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
 
-run_dry_run_up_and_check_generated_env "generated.env base --vlm Qwen maps to RT-VLM git path+basename" "base" \
- -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
-  "RTVI_VLM_MODEL_PATH" "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" \
-  "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
-
 # Search routes --vlm through RT-VLM (integrated checkpoint), same as base/lvs; see the base --vlm tests above.
 run_dry_run_up_and_check_generated_env "generated.env search --vlm cosmos3-reasoner-fp8 maps to RT-VLM FP8 path+basename" "search" \
  -i 127.0.0.1 --vlm nvidia/cosmos3-reasoner-fp8 -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix" \
   "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "VLM_MODEL_TYPE" "rtvi"
-
-run_dry_run_up_and_check_generated_env "generated.env search --vlm Qwen maps to RT-VLM git path+basename" "search" \
- -i 127.0.0.1 --vlm Qwen/Qwen3-VL-8B-Instruct -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "Qwen3-VL-8B-Instruct" \
-  "RTVI_VLM_MODEL_PATH" "git:https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct" \
-  "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" "VLM_MODEL_TYPE" "rtvi"
 
 # Docker Compose commands use these .env defaults directly, so agent config paths must be container paths.
 for _env in \
