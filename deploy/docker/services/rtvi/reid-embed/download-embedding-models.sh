@@ -50,6 +50,10 @@ MODELS=(
   "nvidia/tao/siglip_v2:deployable_v1.0"
 )
 
+# Filename ReID loads from SECONDARY_EMBEDDING_ONNX_MODEL_PATH. Cache hits and
+# download success are keyed on this file, not on any other leftover .onnx.
+SIGLIP_ONNX_NAME="siglip2_v1.0.onnx"
+
 # Matches NGC_ORG_DEFAULT in rtvi-cv/download-models.sh.
 NGC_ORG_DEFAULT="${NGC_ORG_DEFAULT:-nvidia}"
 
@@ -153,17 +157,11 @@ file_nonempty() {
   [ -f "$1" ] && [ -s "$1" ]
 }
 
-# NGC version dirs are a cache hit only when they contain a nonempty ONNX.
-# dir_nonempty would treat an interrupted download (any leftover file) as
-# complete, skip every later run, and leave ReID unhealthy because it loads
-# siglip2_v1.0.onnx from this tree.
+# Skip / accept a version dir only when the ReID-configured ONNX is present
+# and nonempty. A wildcard *.onnx would treat a stale or partial sibling as
+# complete and skip recovery forever.
 ngc_onnx_present() {
-  local dir="$1" f
-  [ -d "$dir" ] || return 1
-  for f in "$dir"/*.onnx; do
-    file_nonempty "$f" && return 0
-  done
-  return 1
+  file_nonempty "$1/$SIGLIP_ONNX_NAME"
 }
 
 version_dir() {
@@ -336,7 +334,7 @@ download_tao_models() {
       continue
     fi
     if [ -d "$dir" ]; then
-      echo "── Incomplete ${dir##*/}/ (no nonempty .onnx); re-downloading $spec"
+      echo "── Incomplete ${dir##*/}/ (missing ${SIGLIP_ONNX_NAME}); re-downloading $spec"
     fi
     ensure_ngc_cli
     echo "── Downloading $spec ..."
@@ -354,7 +352,7 @@ download_tao_models() {
       rm -rf "$dir"
       echo "ERROR: download failed for $spec (org ${NGC_ORG_DEFAULT})." >&2
       echo "       Gated models need NGC_CLI_API_KEY set in the environment." >&2
-      echo "       The version dir must contain a nonempty .onnx after download." >&2
+      echo "       The version dir must contain a nonempty ${SIGLIP_ONNX_NAME} after download." >&2
       exit 1
     fi
   done
