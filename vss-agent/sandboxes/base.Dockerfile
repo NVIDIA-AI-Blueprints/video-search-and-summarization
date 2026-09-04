@@ -27,8 +27,18 @@ USER root
 # Harbor trial contract: the agent works in /task, writes its answer to /output,
 # logs to /logs; /solution and /tests belong to the oracle and verifier planes.
 # World-writable because the trial may run as a different uid than we build with.
-RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts /solution /tests \
-    && chmod -R 777 /task /output /logs /solution /tests
+# The agent writes to /task, /output and /logs, and those are world-writable
+# because a trial may run as a different uid than this image is built with.
+RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts \
+    && chmod -R 777 /task /output /logs
+
+# /solution and /tests belong to the ORACLE and VERIFIER planes and are
+# deliberately NOT agent-writable or agent-readable. At 0777 an evaluated agent
+# could read the expected answer and the verifier's own inputs, which does not
+# fail loudly — it silently produces scores that mean nothing. Harbor uploads the
+# real tests during the verifier phase, after the agent has finished, so nothing
+# needs them to be open while the agent is running.
+RUN mkdir -p /solution /tests && chmod 0755 /solution /tests
 
 # The VSS skills (skills/ at the repo root) are what let an agent drive a live
 # VSS deployment — vss-summarize-video, vss-ask-video, vss-deploy-profile and the
