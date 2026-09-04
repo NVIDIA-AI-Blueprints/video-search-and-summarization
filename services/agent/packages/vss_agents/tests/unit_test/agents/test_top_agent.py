@@ -488,15 +488,22 @@ class TestRequestOptionsContext:
         assert "A worker climbed a green ladder." in result.plan
         assert "Tool call failed: invalid timestamp" in result.plan
 
+    @pytest.mark.parametrize(
+        "tool_response",
+        [
+            SimpleNamespace(message="Error: process exited with status 1", success=False),
+            SimpleNamespace(message="Video analysis was cancelled", status="aborted"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_tool_node_marks_structured_failure_as_error(self, monkeypatch):
+    async def test_tool_node_marks_structured_failure_as_error(self, monkeypatch, tool_response):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         class FailedTool:
             args_schema = None
 
             async def astream(self, input, config=None):
-                yield SimpleNamespace(message="Error: process exited with status 1", success=False)
+                yield tool_response
 
         agent = TopAgent.__new__(TopAgent)
         agent.tools_dict = {"python_executor": FailedTool()}

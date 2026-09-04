@@ -94,7 +94,7 @@ EMPTY_MESSAGES_ERROR = 'No input received in state: "current_message"'
 EMPTY_SCRATCHPAD_ERROR = 'No tool input received in state: "agent_scratchpad"'
 _TOOL_RESULTS_DELIMITER = "\n\n---\n### Latest Tool Results\n"
 _TOOL_FAILURE_PREFIX = "Tool call failed:"
-_TOOL_FAILURE_STATUSES = {"error", "failed", "failure"}
+_TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
 
