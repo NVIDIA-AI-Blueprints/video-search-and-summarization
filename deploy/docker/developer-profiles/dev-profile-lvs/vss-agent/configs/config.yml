@@ -371,7 +371,7 @@ workflow:
   plan_prompt: |
     Review the available tools, the conversation history, and the user's question, then produce a concise numbered execution plan. Start each step with a tool name and a brief description of the step.
     Put relevant context (for example, sensor IDs or time ranges) from the conversation history directly in the plan steps so the execution agent does not need to re-read the history.
-    If the current request explicitly asks to start captioning or configure a stream, plan exactly one call to `lvs_config_media`; ignore any unfinished summary plan from the previous turn.
+    If the current request explicitly asks to start captioning or configure a stream, ignore any unfinished summary plan and plan exactly one call to `lvs_config_media`, unless the same stream was already configured successfully. For an explicit reconfiguration request, call it with `reconfigure=true`.
     For summaries of named media, plan `vst_video_list` first, then exactly one summary tool based only on its result: `rtsp` → `lvs_stream_understanding`; `video` → `lvs_video_understanding`. Never choose the summary tool from duration.
     Treat "until now" and "till now" as `end_time=0` for `lvs_stream_understanding`; never replace them with the stream duration returned by `vst_video_list`.
     A non-empty name supplied in the request is the sensor_id. For example, in "Generate a report for warehouse_sample", the sensor_id is "warehouse_sample"; this request is complete and MUST NOT trigger a clarifying question.
@@ -388,11 +388,11 @@ workflow:
     ## STEP 1 — Resolve media_type BEFORE routing (always, for any request that names a <name>):
       - If you already know `<name>`'s type from this conversation (you uploaded it as a video, or added it as an RTSP stream), use that.
       - Otherwise your FIRST tool call MUST be `vst_video_list`. Look up `<name>` in the result. Each entry has `media_type='rtsp'` (live stream) or `media_type='video'` (uploaded file).
-      - `vst_video_list` is AUTHORITATIVE for uploaded videos: every uploaded video appears there. It is NOT authoritative for live streams — a live RTSP stream may be absent from the list.
+      - `vst_video_list` is AUTHORITATIVE for available media: both uploaded videos and live RTSP streams appear there.
       - POSITIVE ROUTING RULE (no dead-ends):
         * If `<name>` is listed with `media_type='video'` → it is an uploaded video.
         * If `<name>` is listed with `media_type='rtsp'` → it is a live stream.
-        * If `<name>` is NOT listed → it is NOT an uploaded video, so it MUST be a live RTSP stream. Call `lvs_stream_understanding(stream_name='<name>', ...)`. If that returns `not_configured`, surface the message to the user and stop.
+        * If `<name>` is NOT listed → tell the user it is unavailable and ask them to check the name or add the media. Do not call a summary or captioning tool for it.
       - Route on the `media_type` field or on absence from the list — NEVER on the words "stream"/"video" in the user's message, and NEVER on the name itself.
       - This applies to "summarize", "describe", "give a summary of", "generate a report for", and any content question about a named `<name>`.
 
@@ -437,8 +437,8 @@ workflow:
       - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Worked example (bare prompt, no "stream" cue) — mimic this reasoning:
         User: "Summarize warehouse_sample from 45 seconds until now"
-        1. Call `vst_video_list` → result lists only videos (e.g. clip_007, dev_base_001); `warehouse_sample` is NOT listed.
-        2. Not listed ⇒ it is NOT an uploaded video ⇒ it is a live RTSP stream.
+        1. Call `vst_video_list` → `warehouse_sample` is listed with `media_type='rtsp'`.
+        2. Route by that media type ⇒ it is a live RTSP stream.
         3. Call `lvs_stream_understanding(stream_name='warehouse_sample', start_time=45, end_time=0, response_type='summary')`.
         4. If it returns `not_configured`, surface that message to the user and stop. Do NOT call `lvs_config_media`.
         (If `<name>` HAD been listed with media_type='video', step 3 would instead call `lvs_video_understanding(sensor_id='<name>', ...)`.)
@@ -449,7 +449,7 @@ workflow:
       - Do NOT call this tool just because a previous tool's response said the stream is "not configured" — surface that response to the user and wait for an explicit start request.
       - Do NOT call speculatively or as a pre-check.
       - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
-      - Do NOT call this tool if it has already been called for the same `<name>` earlier in the conversation. Only call again if the user explicitly says "reconfigure" or provides different scenario/events/objects.
+      - Do NOT call this tool if it successfully configured the same `<name>` earlier in the conversation. Only call again with `reconfigure=true` if the user explicitly says "reconfigure" or provides different scenario/events/objects.
       **video_understanding** - For any question about videos or quick queries for a video clip.
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
       - Do NOT use when user asks to "generate a report" or "summarize" — use report_agent for reports; for summaries, route by `media_type` as defined above.
@@ -460,12 +460,12 @@ workflow:
     ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, you MUST identify its media_type before routing.
       - If you previously added/uploaded `<name>` in this conversation and know its type, use that.
       - Otherwise call `vst_video_list` and look up `<name>` in the result. Each entry has `media_type='rtsp'` (live RTSP) or `media_type='video'` (uploaded) — use this to pick the right tool per the routing rules above. Do NOT guess from the name.
-      - If `<name>` is not in `vst_video_list`, follow STEP 1's live-stream fallback: call `lvs_stream_understanding` and surface `not_configured` verbatim if returned.
+      - If `<name>` is not in `vst_video_list`, tell the user it is unavailable and ask them to check the name or add the media. Do not offer to start captioning it.
     ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
 
 
   tool_call_prompt: |
-    - CURRENT REQUEST TAKES PRIORITY: if it explicitly asks to start captioning or configure a stream, call `lvs_config_media` once and wait for its HITL response. Do not call another tool and do not continue an earlier summary plan.
+    - CURRENT REQUEST TAKES PRIORITY: if it explicitly asks to start captioning or configure a stream, call `lvs_config_media` once and wait for its HITL response. Do not continue an earlier summary plan. If that stream was already configured successfully, do not call it again unless the user explicitly requests reconfiguration; then pass `reconfigure=true`.
     - HARD ROUTING RULE FOR SUMMARIES: read the target's `media_type` from the latest `vst_video_list` result. If it is `rtsp`, the only permitted summary tool is `lvs_stream_understanding`; never call `lvs_video_understanding`. If it is `video`, the only permitted summary tool is `lvs_video_understanding`. Ignore duration when making this choice, even if the execution plan chose differently.
     - For `rtsp`, pass `stream_name`, `response_type='summary'`, and the requested numeric time range. "Until now" or "till now" always means `end_time=0`.
     - ALWAYS include ALL required parameters when calling tools

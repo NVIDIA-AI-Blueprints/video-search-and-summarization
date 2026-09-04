@@ -40,6 +40,7 @@ from vss_agents.tools.lvs_config_media import _coerce_lvs_response
 from vss_agents.tools.lvs_media_state import configured_media
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import get_stream_info_by_name
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
 
@@ -178,9 +179,30 @@ async def lvs_stream_understanding(config: LVSStreamUnderstandingConfig, _: Buil
         """
         configured = configured_media("stream", lvs_input.stream_name)
         if configured is None:
+            try:
+                stream_id, stream_url = await get_stream_info_by_name(
+                    lvs_input.stream_name,
+                    config.vst_internal_url,
+                )
+            except Exception as error:
+                logger.error("Failed to verify VST stream %r: %s", lvs_input.stream_name, error)
+                return LVSStreamUnderstandingOutput(
+                    status=LVSMediaStatus.FAILED,
+                    stream_name=lvs_input.stream_name,
+                    configured=False,
+                    message=f"Failed to verify stream '{lvs_input.stream_name}' in VST: {error}",
+                )
+            if not stream_id or not stream_url:
+                return LVSStreamUnderstandingOutput(
+                    status=LVSMediaStatus.FAILED,
+                    stream_name=lvs_input.stream_name,
+                    configured=False,
+                    message=f"Stream '{lvs_input.stream_name}' was not found in VST live streams.",
+                )
             return LVSStreamUnderstandingOutput(
                 status=LVSMediaStatus.NOT_CONFIGURED,
                 stream_name=lvs_input.stream_name,
+                stream_id=stream_id,
                 configured=False,
                 message=(
                     f"There are no captions stored for stream '{lvs_input.stream_name}'. "
