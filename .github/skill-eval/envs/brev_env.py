@@ -765,6 +765,39 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _probe_vios_ready(self, label: str) -> None:
+        """Record what the VIOS container cost to start, into the trial artifact.
+
+        Prebake (#1798) moves a 224-package apt install out of container start.
+        Enabling it was one variable; seeing whether it did anything was not,
+        because the deploy runs here and none of its output reaches the job log
+        or the artifact. This writes the container's own verdict and timing to
+        /logs/artifacts/vios-ready.log, which harbor already collects.
+
+        NEVER raises: a probe fault must not perturb the trial it observes.
+        """
+        try:
+            try:
+                from envs import vios_probe  # normal harbor import path
+            except ImportError:
+                import vios_probe  # PYTHONPATH=.github/skill-eval fallback
+            result = await _run_brev_exec(
+                self._instance_name, vios_probe.build_probe_command(label),
+                timeout=90,
+            )
+            lines = vios_probe.parse_probe_lines(result.stdout or "")
+            if not lines:
+                logger.warning(
+                    "[vios-probe] %s: no VIOSPROBE output (rc=%s) stderr=%s",
+                    label, result.return_code, (result.stderr or "")[-200:],
+                )
+                return
+            for d in lines:
+                logger.info("[vios-probe] %s",
+                            " ".join(f"{k}={v}" for k, v in d.items()))
+        except Exception as exc:  # noqa: BLE001 — diagnostic must never fail the trial
+            logger.warning("[vios-probe] %s: probe failed: %s", label, exc)
+
     async def _probe_bind_mount(self, label: str) -> None:
         """Non-fatal guardrail: record the liveness of every discovered VIOS
         bind mount on the box. Proves/guards against the step-2 data-dir
@@ -954,6 +987,13 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             ) from exc
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
+        # Write the VIOS readiness probe immediately before /logs/artifacts is
+        # collected. Hooking stop() would be too late: harbor pulls artifacts
+        # first, so the file would never reach the tarball. This is the one
+        # point where the directory is known to be about to be read.
+        if str(source_dir).rstrip("/").endswith("/logs/artifacts"):
+            await self._probe_vios_ready("at-collect")
+
         # Retry the pull: a transient stall — or a prior attempt whose ssh
         # child was killed (now reaped via _run_brev_exec's process-group
         # kill, so it can't wedge the box) — usually clears on a fresh

@@ -66,6 +66,9 @@ env:
   # Match the PR workflow: every coordinator-side Python process, including
   # Harbor's uvx environment, runs on one declared minor version.
   SKILL_EVAL_PYTHON_VERSION: "3.12"
+  # Prebaked VIOS runtime-media packages (#1798). Same repository variable
+  # the PR workflow reads; unset is not forwarded, so the default stands.
+  VSS_VIOS_PREBAKE_PACKAGES: ${{ vars.VSS_VIOS_PREBAKE_PACKAGES }}
 
 jobs:
   # ---------------------------------------------------------------------
