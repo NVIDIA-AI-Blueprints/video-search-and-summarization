@@ -51,6 +51,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          # Keep the repository token out of the public Switchyard clone.
+          persist-credentials: false
 
       - name: Gate on the cumulative PR diff
         id: gate
