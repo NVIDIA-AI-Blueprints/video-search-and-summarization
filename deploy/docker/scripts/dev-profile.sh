@@ -589,7 +589,6 @@ function usage() {
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
   echo "                                     - H100"
-  echo "                                     - GB300"
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
