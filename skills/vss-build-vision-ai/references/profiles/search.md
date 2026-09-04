@@ -3,8 +3,8 @@
 ## Capabilities and routing cues
 
 - Video ingest, RT-CV detection/tracking, RT-Embed video/text embeddings,
-  Elasticsearch retrieval, and agent-served RT-VLM critique / visual follow-up
-  Q&A.
+  Elasticsearch retrieval, and RT-VLM critique / visual follow-up Q&A, served to
+  the agent and the retrieval CLI alike.
 - Choose for natural-language video search or combined ingestion + detection +
   embedding requests.
 - See `services/rt-cv.md` for detector model-family → Foundation mapping.
@@ -45,7 +45,7 @@ compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the vision encoder NGC artifact downloaded by ds-start phase 0; the checked-in RT-CV config uses the fixed RT-DETR warehouse artifact. |
 | `RT_EMBED_DEVICE_ID`, `RTVI_EMBED_PORT`, `MODEL_PATH`, `HF_TOKEN` | Place and configure RT-Embed. |
 | `MESSAGE_BUS`, `MESSAGE_BUS_TOPIC`, `ERROR_BUS` | RT-Embed's output and error buses, set to `kafka`/`mdx-embed`/`kafka` by this Foundation so the `mdx-embed` -> `mdx-embed-filtered` path indexes. Inherit them; see `../services/rt-embed.md` for builds on other Foundations. |
-| `VLM_NAME`, `VLM_BASE_URL`, `VLM_MODEL_TYPE`, `RTVI_VLM_*` | Wire the agent to RT-VLM for result critique and visual follow-up Q&A. Include these only when the build ships `rtvi-vlm` and the `vss-agent` tier that invokes it; critique is a per-request option (`use_critic`, default on), not a build-time flag — do not introduce an `ENABLE_CRITIC` delta. |
+| `VLM_NAME`, `VLM_BASE_URL`, `VLM_MODEL_TYPE`, `RTVI_VLM_*` | Wire RT-VLM for result critique and visual follow-up Q&A. Include these whenever the build ships `rtvi-vlm`, with or without a `vss-agent` tier: the retrieval CLI invokes it too. Critique is a per-request option (`use_critic`, default on), not a build-time flag. |
 | `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, `ELASTIC_SEARCH_INDEX` | Wire the agent to embedding and retrieval services. |
 | `ELASTICSEARCH_ENABLE_EMBEDDINGS`, `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM`, `ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM` | Configure indexed vectors. |
 | `LLM_DEVICE_ID`, `RT_VLM_DEVICE_ID`, `RESERVED_DEVICE_IDS`, `FIXED_SHARED_DEVICE_IDS` | Preserve the intended multi-GPU layout. |
@@ -61,8 +61,9 @@ curl -sf "http://${HOST_IP}:9200/_cluster/health"
 curl -sf "http://${HOST_IP}:3000/"
 ```
 
-When the build ships `rtvi-vlm` and the `vss-agent` tier, also probe RT-VLM's
-`/v1/models` endpoint. Skip this check for headless builds that omit `rtvi-vlm`.
+Whenever the build ships `rtvi-vlm`, also probe RT-VLM's `/v1/models` endpoint.
+This applies to headless builds too: the retrieval CLI probes the same endpoint
+before verifying results. Skip the check only when the build omits `rtvi-vlm`.
 
 ## Sources
 
