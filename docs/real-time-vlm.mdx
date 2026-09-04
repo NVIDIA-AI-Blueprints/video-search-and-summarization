@@ -11,8 +11,8 @@ real-time video understanding capabilities using Vision Language Models
 (VLM). It enables users to generate captions, process live video streams,
 and manage live streams through a comprehensive set of REST endpoints.
 
-For the 3.3.0 release, use the multi-architecture RTVI-VLM 26.08.1 image:
-`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1`.
+For the 3.3.0 release, use the multi-architecture RTVI-VLM 26.08.2 image:
+`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`.
 
 <Note>
 RTVI-VLM does not support cosmos-reason1 in VSS 3.3.
@@ -262,7 +262,7 @@ git checkout tags/v3.3.0
 ```
 
 Then follow the Docker Compose or Helm Chart section below. The RTVI-VLM
-container used by this release is tagged `3.3.0-26.08.1`.
+container used by this release is tagged `3.3.0-26.08.2`.
 
 ### Docker Compose Deployment
 
@@ -272,26 +272,15 @@ container used by this release is tagged `3.3.0-26.08.1`.
    cd services/rtvi/rt-vlm/docker
    ```
 
-2. Create a `.env` file with your configuration:
+2. Create a `.env` file from the tracked sample, then replace the NGC API key:
 
    ```bash
-   cat > .env << EOF
-   BACKEND_PORT=8000
-   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1
-   VLM_MODEL_TO_USE=cosmos-reason3
-   MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-   MESSAGE_BUS=kafka
-   MESSAGE_BUS_TOPIC=mdx-vlm-captions
-   KAFKA_PORT=9092
-   KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-   KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
-   ERROR_BUS=kafka
-   ERROR_MESSAGE_TOPIC=mdx-vlm-errors
-   NGC_API_KEY=nvapi-XXXXXX
-   VLM_BATCH_SIZE=128
-   NVIDIA_VISIBLE_DEVICES=0
-   EOF
+   cp .env.example .env
    ```
+
+   The sample defaults to the moving GitHub Container Registry development
+   image. For this pinned release, replace its `RTVI_IMAGE` value with
+   `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`.
 
 3. Start the service:
 
@@ -373,14 +362,14 @@ Compose deployment.
 
    ```bash
    cd video-search-and-summarization/services/rtvi/rt-vlm
-   docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom .
+   docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom .
    ```
 
 2. Test the image with Docker Compose by setting `RTVI_IMAGE` in
    `docker/.env`:
 
    ```bash
-   RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom
+   RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom
    ```
 
    Then restart the service:
@@ -401,19 +390,19 @@ export IS_SBSA=true
 docker buildx build --platform linux/arm64 \
   --build-arg IS_SBSA \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom-sbsa \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom-sbsa \
   --load .
 ```
 
 For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set
 `IS_SBSA`. The default base image
-(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1`) is multi-arch, so a
+(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) is multi-arch, so a
 `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom-thor \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom-thor \
   --load .
 ```
 
@@ -1101,7 +1090,7 @@ Generated-message output is controlled by the following environment variables:
 
 ### Generated-Message Bus Startup Selection
 
-In 26.08.1, `MESSAGE_BUS` is the startup source of truth for generated-message
+In 26.08.2, `MESSAGE_BUS` is the startup source of truth for generated-message
 output. `KAFKA_ENABLED` is removed from the active RTVI-VLM startup path, and
 `KAFKA_TOPIC` is replaced by `MESSAGE_BUS_TOPIC`.
 
@@ -1355,7 +1344,7 @@ standalone Helm override.
 
 | Variable | Description | Standalone default |
 | --- | --- | --- |
-| `RTVI_IMAGE` | Docker Compose image to run | `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1` |
+| `RTVI_IMAGE` | Docker Compose image to run | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest` |
 | `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
 | `NGC_API_KEY` | NGC API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
@@ -1482,13 +1471,13 @@ The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
   `true`.
 * `image.repository`, `image.tag`, and `image.pullPolicy`: Image
   settings. For 3.3.0 RTVI-VLM, use
-  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.1`, and
+  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.2`, and
   `IfNotPresent`. The image tag supports the supported x86 and ARM64
   platforms.
 * `replicas`: Number of replicas. Default: `1`.
 * `useSharedNim`: Use a shared OpenAI-compatible NIM instead of loading a
   model in this pod. Default: `false`.
-* `modelPath`: Model path when `useSharedNim=false`. The 26.08.1
+* `modelPath`: Model path when `useSharedNim=false`. The 26.08.2
   standalone default is
   `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`.
 * `sharedNimService`, `sharedNimPort`, `vlmBaseUrl`, `vlmName`,
