@@ -35,14 +35,20 @@ RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts /solution 
 # rest. Baking them in is what makes an image self-contained: an eval run must not
 # depend on the harness having network access to a skills repo at trial time.
 # Build context is the repo root (see .github/workflows/sandbox-images.yml).
-RUN mkdir -p /opt/skills && chmod 777 /opt/skills
-COPY --chown=sandbox:sandbox skills/ /opt/skills/
-# The community base discovers agent skills under these two paths; symlink rather
-# than copy so all three views stay one set of files.
-RUN for d in /sandbox/.agents/skills /sandbox/.claude/skills; do \
-      mkdir -p "$d"; \
-      for s in /opt/skills/*/; do ln -sfn "$s" "$d/$(basename "$s")"; done; \
-    done \
+# They live under /usr/share, NOT /opt: the sandbox policy's filesystem_policy
+# grants read on /usr, /lib, /app and /etc but says nothing about /opt, so
+# Landlock denies a read there and the skills would be invisible to the agent
+# ("Permission denied" on /opt/skills, even though the mode is 0777).
+COPY skills/ /usr/share/vss-skills/
+RUN chmod -R a+rX /usr/share/vss-skills
+# One set of files, three names: the two paths the base's agents discover skills
+# under, plus /opt/skills for anything that has it hard-coded. /sandbox is HOME
+# for every user the policy may run as, so these resolve either way.
+RUN ln -sfn /usr/share/vss-skills /opt/skills \
+    && for d in /sandbox/.agents/skills /sandbox/.claude/skills; do \
+         mkdir -p "$d"; \
+         for s in /usr/share/vss-skills/*/; do ln -sfn "$s" "$d/$(basename "$s")"; done; \
+       done \
     && chown -R sandbox:sandbox /sandbox/.agents /sandbox/.claude
 
 USER sandbox
