@@ -306,6 +306,11 @@ VmsConfigManager::VmsConfigManager()
          * used verbatim, which is the only way to ask for something the
          * heuristic would not choose. */
         m_vmsConfig.dash_bitrate_kbps = dash.get("bitrate_kbps", 0).asInt();
+        /* On by default: republishing the source's access units hands the
+         * segment grid to the camera, and a camera on a one second grid cannot
+         * be served economically to a distant viewer. Turn it off to trade that
+         * grid back for the decode and encode it costs. */
+        m_vmsConfig.dash_always_encode = dash.get("always_encode", true).asBool();
         m_vmsConfig.webservice_access_control_list = network.get("webservice_access_control_list", "").asString();
         m_vmsConfig.rtsp_preferred_network_iface = network.get("rtsp_preferred_network_iface", "").asString();
         m_vmsConfig.rtsp_server_port = network.get("rtsp_server_port", -1).asInt();

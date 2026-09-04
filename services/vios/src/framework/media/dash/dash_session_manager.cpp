@@ -452,6 +452,13 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
      * only that the source asks for it rather than the viewer. */
     const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
     const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
+    /* Whether this session ends at an encoder we own, which is what decides
+     * the segment grid: an overlay, a composite and a transcode all do, and
+     * with always_encode set so does an ordinary live stream. Republishing the
+     * camera's access units is the only case that does not, and it leaves the
+     * grid to whatever keyframe interval the camera happens to use. */
+    const bool encodeSession = GET_CONFIG().dash_always_encode || overlayRequested
+                               || compositeRequested || transcodeRequired;
     const std::string mediaUrl = stream->live_proxy_url.empty() ? stream->live_url : stream->live_proxy_url;
     if (mediaUrl.rfind("rtsp://", 0) != 0 && mediaUrl.rfind("rtsps://", 0) != 0)
     {
@@ -529,7 +536,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * keyframe interval rather than the camera's. */
         packagerConfig.targetDurationSeconds = segmentDurationFor(
             stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
-            m_targetDuration, overlayRequested || compositeRequested || transcodeRequired);
+            m_targetDuration, encodeSession);
         packagerConfig.playlistLength = m_playlistLength;
         packagerConfig.enableAac = enableAac;
         packagerConfig.audioSampleRate = parsePositive(stream->settings.audioEncoderValues.sample_rate, 48000);
@@ -567,7 +574,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
             packagerConfig.synthesizeTimestamps = true;
         }
 
-        if (dashNeedsSoftwareEncode(overlayRequested || compositeRequested || transcodeRequired))
+        if (dashNeedsSoftwareEncode(encodeSession))
         {
             packagerConfig.encodeRawInput = true;
         }
@@ -611,7 +618,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         return result;
     }
 
-    if (overlayRequested || compositeRequested || transcodeRequired)
+    if (encodeSession)
     {
         LOG(info) << "Creating private live DASH session streamId=" << streamId
                   << (overlayRequested ? " with overlay" : "")
@@ -641,7 +648,13 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         opts["codec"] = stream->settings.encoderValues.encoding;
         opts["framerate"] = stream->settings.encoderValues.frameRate;
         opts["dash"] = "dash";
-        if (transcodeRequired)
+        /* This is what keeps the pipeline builders off their pass-through
+         * wiring, where the decoder parses the camera's bitstream and hands it
+         * straight to the packager. That wiring skips the encoder, and the
+         * encoder is the whole point of a session that owns its segment grid:
+         * without this the pipeline decodes, publishes nothing the packager can
+         * use, and the manifest never appears. */
+        if (encodeSession)
         {
             opts["dash_transcode"] = "true";
         }
@@ -820,6 +833,11 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
      * that here the recording's codec asks for it rather than the viewer. */
     const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
     const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
+    /* As for live: the session ends at an encoder we own unless it is
+     * republishing the recording's own access units, and only then does the
+     * recording's keyframe interval decide the segment grid. */
+    const bool encodeSession =
+        GET_CONFIG().dash_always_encode || dashOverlayRequested(overlay) || transcodeRequired;
     if (stream->replay_url.empty())
     {
         result.error = "Stream has no recording to replay";
@@ -860,7 +878,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
          * decides. */
         packagerConfig.targetDurationSeconds = segmentDurationFor(
             stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
-            m_targetDuration, dashOverlayRequested(overlay) || transcodeRequired);
+            m_targetDuration, encodeSession);
         packagerConfig.playlistLength = m_playlistLength;
         // Recordings are selected by whole file, so the first one usually starts
         // before the requested window; the packager drops what precedes it.
@@ -875,11 +893,14 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
          * are pushed, and not one segment is ever cut.  Build the timeline from
          * the frame index instead, which is what the live path does for the
          * same reason. */
-        if (dashNeedsSoftwareEncode(dashOverlayRequested(overlay) || transcodeRequired))
+        if (dashNeedsSoftwareEncode(encodeSession))
         {
             packagerConfig.encodeRawInput = true;
         }
-        if (transcodeRequired)
+        /* Any session that decodes needs this, not only one whose codec forced
+         * the decode: the timing problem below belongs to the decode and encode
+         * chain, so a session that always encodes has it too. */
+        if (encodeSession)
         {
             packagerConfig.synthesizeTimestamps = true;
             /* Counting frames is only honest while every frame arrives. With an
@@ -928,13 +949,15 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     }
     opts["codec"] = stream->settings.encoderValues.encoding;
     opts["framerate"] = stream->settings.encoderValues.frameRate;
-    // Terminates the pipeline in this session's packager.  With neither an
-    // overlay nor a transcode the decoder republishes the recording's own
-    // bitstream and nothing is decoded or encoded; an overlay has to burn boxes
-    // into pixels and an H.265 recording has to become H.264, so either of
-    // those still runs the full decode, overlay and encode chain.
+    // Terminates the pipeline in this session's packager.  A session that
+    // republishes the recording's own bitstream decodes and encodes nothing;
+    // one that draws an overlay, converts an H.265 recording, or simply owns
+    // its segment grid runs the full decode, overlay and encode chain.
     opts["dash"] = "dash";
-    if (transcodeRequired)
+    /* This is also what turns republishing off: the decoder passes the
+     * recording through only when neither an overlay nor a transcode is asked
+     * for, so a session that has to end at an encoder says so here. */
+    if (encodeSession)
     {
         opts["dash_transcode"] = "true";
     }
