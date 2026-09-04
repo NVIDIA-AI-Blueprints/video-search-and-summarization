@@ -141,10 +141,10 @@ independent of the index inventory.
    stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
 
 ```bash
-: "${SEARCH_PATH:?set embed|attribute|fusion|object}"
+: "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
 : "${SOURCE_TYPE:?set video_file or rtsp}"
 TOP_K="${TOP_K:-3}"
-VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object
+VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
 : "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
 if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
   echo "Resolved source scope is empty; refusing an unrestricted search" >&2
