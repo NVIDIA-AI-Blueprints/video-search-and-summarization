@@ -1789,6 +1789,30 @@ class TestComposeEnvFileLayering:
 
         assert compose_env["VSS_CONTAINER_TAG"] == "develop-latest"
 
+    # Compose ranks the process env above --env-file, so an exported-but-empty
+    # endpoint blanks the profile's value and every value derived from it. That is
+    # how the agent's LLM base_url became a bare `/v1`.
+    @pytest.mark.parametrize("key", ["LLM_BASE_URL", "VLM_BASE_URL"])
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_empty_endpoint_from_shell_is_dropped(self, key: str, value: str, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv(key, value)
+
+        assert key not in dcu._compose_subprocess_env()
+
+    @pytest.mark.parametrize("key", ["LLM_BASE_URL", "VLM_BASE_URL"])
+    def test_configured_endpoint_from_shell_is_honoured(self, key: str, monkeypatch: pytest.MonkeyPatch):
+        # A non-empty value is how a remote endpoint is passed in; dropping it
+        # would silently redirect the deployment at a local NIM.
+        monkeypatch.setenv(key, "https://integrate.api.nvidia.com")
+
+        assert dcu._compose_subprocess_env()[key] == "https://integrate.api.nvidia.com"
+
+    @pytest.mark.parametrize("key", ["LLM_MODE", "VLM_MODE"])
+    def test_mode_blocklist_still_drops_non_empty_values(self, key: str, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv(key, "remote")
+
+        assert key not in dcu._compose_subprocess_env()
+
     def test_resolve_compose_uses_dev_profile_env_file_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(tmp_path, "MODE=2d")
         commands: list[list[str]] = []
