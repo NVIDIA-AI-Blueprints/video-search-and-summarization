@@ -64,15 +64,13 @@ class BenchmarkSpec(StrictModel):
     agent: AgentSpec
     skills: tuple[str, ...]
     resources: ResourcesSpec
-    setup: tuple[SetupStep, ...]
+    setup: Annotated[tuple[SetupStep, ...], Field(min_length=1)]
     dataset: DatasetSpec
     summarization: SummarizationSpec
     scoring: ScoringSpec
 
     @model_validator(mode="after")
     def require_setup_contract(self) -> BenchmarkSpec:
-        if len(self.setup) != 3:
-            raise ValueError("dataset benchmarks require exactly three setup steps")
         if len(set(self.skills)) != len(self.skills):
             raise ValueError("skills must be unique")
         required = {"benchmark-unified-memory", "vss-ask-video"}
