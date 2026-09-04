@@ -407,11 +407,11 @@ Load `references/on-demand-verification.md` for the full contract, media constra
 
 Always-on alerting starts pre-configured rules automatically when VIOS posts a camera lifecycle webhook (`notification_config_2d_vlm.json` → `camera_streaming` starts one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
 
-1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or a `503 {"reason":"ALWAYS_ON_DISABLED"}` from the endpoint. Zero-side-effect probe options in `references/always-on.md`.
+1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or the endpoint's reply to a benign `camera_remove` probe — `503 {"reason":"ALWAYS_ON_DISABLED"}` = off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) = on. Zero-side-effect probe options in `references/always-on.md`.
 2. **Query incidents** — always-on rules are ordinary realtime rules once started; their incidents surface through **Workflow C** (`GET $AB/api/v1/realtime/incidents`). The rules live in an **in-memory sidecar** (not the ES-backed rules index), so they may not appear in Workflow D's rules list — that is expected, not a bug.
 3. **Troubleshoot "no always-on alerts"** — walk the ladder in `references/always-on.md`: feature gate → rules YAML resolves/validates at boot → VIOS webhooks actually reaching Alert Bridge → stream registered on `rtvi-vlm` → incidents query.
 
-Load `references/always-on.md` for the event contract, reason-code table, YAML resolution chain, and the troubleshooting ladder. VLM real-time mode only; refuse on CV with the canonical text. Config authoring (editing `always_on_rules`) is **out of scope** in this pass — say so when asked.
+Load `references/always-on.md` for the event contract, reason-code table, the `ALWAYS_ON_RULES_CONFIG` rules-YAML contract, and the troubleshooting ladder. VLM real-time mode only; refuse on CV with the canonical text. Config authoring (editing `always_on_rules`) is **out of scope** in this pass — say so when asked.
 
 ---
 
@@ -601,11 +601,30 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 - **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** Slack ops → Workflow E (`alert-notify`); never route Slack to `vss-alert-bridge`'s `/api/v1/realtime`.
 - **Workflow scope by mode:** A, B, and F are CV-only (B/F explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D, E, and G are VLM real-time only (refuse on CV with the canonical text).
 - **On-demand verification is `POST /api/v1/verification/ondemand`** — not `/verification/verify`, not a realtime rule, not `/generate`. 202 = accepted (async), never a verdict.
-- **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate (default off) or a `503 ALWAYS_ON_DISABLED` from `POST /api/v1/realtime/always-on`; its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
-- **To describe how to enable always-on**, name all three required steps: set
-  `alert_agent.always_on: true`, provide a non-empty rules YAML through
-  `ALWAYS_ON_RULES_CONFIG` (or `realtime-config.yaml`), then restart
-  `alert-bridge`. Do not make those changes in this operate-only workflow.
+- **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate or the reply to a benign `camera_remove` probe on `POST /api/v1/realtime/always-on`: `503 ALWAYS_ON_DISABLED` means off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) means on. Its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
+- **The gate follows the deploy mode — don't assume it is off.** `dev-profile.sh`
+  sets `ALERT_AGENT_ALWAYS_ON=true` for `-m real-time` (`MODE=2d_vlm`) and
+  `false` for `-m verification` (`MODE=2d_cv`), so always-on is normally
+  **already active** on the deploy where Workflow G applies. Report the state
+  you probed, never a remembered default, and don't blame a disabled gate for
+  missing always-on alerts on a real-time deploy — walk the rest of the chain
+  (rules YAML, VIOS `camera_streaming` webhooks, `rtvi-vlm` stream
+  registration) per `references/always-on.md`.
+- **To describe how always-on is turned on or off**, say what applies to the
+  deployment in front of you. On Docker it is a **deploy-mode choice** —
+  redeploy with `/vss-deploy-profile -p alerts -m real-time` (or
+  `-m verification` to turn it off); never hand-edit config and restart. On
+  **Kubernetes the chart exposes no switch for it**: `services/alert/configs/config.yml`
+  pins `always_on: false` as a literal, carrying an explicit "Helm keeps this
+  disabled … do not align them" note, and nothing in `values.yaml` or the pod
+  env maps to `alert_agent.always_on` — the chart wires only
+  `ALWAYS_ON_RULES_CONFIG` and already ships a non-empty rules YAML, so the
+  rules are never the missing piece and a config change already restarts the
+  pod via the `checksum/config` annotation. On Kubernetes, report that
+  always-on is off and not enablable through the chart's supported surface;
+  do **not** hand the operator a set-the-gate-and-restart recipe the chart
+  will not honor. Either way, make no config changes in this operate-only
+  workflow.
 - **Don't use `vss-rtvi-vlm` as a mode signal** — it runs in both modes. Use `vss-behavior-analytics` (CV-only) or the `MODE` env var.
 - **A mode switch tears down the current deployment** — running VLM streams and un-persisted CV alert state are lost.
 - **Alert ops call Alert Bridge (`:9080`) directly** — the skill does not use the VSS Agent `/generate`, and never calls `rtvi-vlm` directly. The VLM trigger is a `"yes"`/`"true"` token match (case-insensitive); prompts must force a Yes/No answer.
