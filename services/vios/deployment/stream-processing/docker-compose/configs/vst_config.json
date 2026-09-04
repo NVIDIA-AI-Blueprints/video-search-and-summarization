@@ -21,7 +21,8 @@
 			"segment_duration_sec": 1,
 			"playlist_length": 8,
 			"idle_timeout_sec": 45,
-			"output_root": "dash"
+			"output_root": "dash",
+			"bitrate_kbps": 0
 		},
 		"webservice_access_control_list":"",
 		"rtsp_server_port": 30554,

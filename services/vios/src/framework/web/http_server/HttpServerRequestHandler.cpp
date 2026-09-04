@@ -77,6 +77,9 @@ static bool log_api_info(const std::string& api_name)
         (api_name == "/api/v1/replay/stream/status") ||
         (api_name == "/api/v1/live/stream/stats") ||
         (api_name == "/api/v1/sensor/debug/system/stats") ||
+        /* The container health check polls this every few seconds, so logging
+         * it buries everything else in the file it would be read from. */
+        (api_name == "/api/v1/live/version") ||
         (api_name == "/api/v1/replay/stream/stats"))
     {
         return false;
@@ -90,6 +93,7 @@ static bool log_api_info(const std::string& api_name)
         (api_name == "/vst/api/v1/replay/stream/status") ||
         (api_name == "/vst/api/v1/live/stream/stats") ||
         (api_name == "/vst/api/v1/sensor/debug/system/stats") ||
+        (api_name == "/vst/api/v1/live/version") ||
         (api_name == "/vst/api/v1/replay/stream/stats"))
     {
         return false;

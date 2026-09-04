@@ -21,7 +21,8 @@
 			"segment_duration_sec": 1,
 			"playlist_length": 8,
 			"idle_timeout_sec": 45,
-			"output_root": "dash"
+			"output_root": "dash",
+			"bitrate_kbps": 0
 		},
 		"webservice_access_control_list":"",
 		"rtsp_server_port": 30554,
@@ -138,7 +139,7 @@
 		"webrtc_out_enable_insert_sps_pps" : true,
 		"webrtc_out_default_resolution": "1920x1080",
 		"webrtc_out_set_iframe_interval" : 30,
-		"webrtc_out_set_idr_interval" : 256,
+		"webrtc_out_set_idr_interval" : 30,
 		"webrtc_out_min_drc_interval" : 5,
 		"webrtc_out_encode_fallback_option" : "software",
 		"device_name" : "VST",

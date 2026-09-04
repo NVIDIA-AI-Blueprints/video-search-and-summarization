@@ -302,6 +302,10 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.dash_playlist_length = dash.get("playlist_length", 8).asInt();
         m_vmsConfig.dash_idle_timeout_sec = dash.get("idle_timeout_sec", 45).asInt();
         m_vmsConfig.dash_output_root = dash.get("output_root", "dash").asString();
+        /* Left at zero the bitrate follows the picture height; a value here is
+         * used verbatim, which is the only way to ask for something the
+         * heuristic would not choose. */
+        m_vmsConfig.dash_bitrate_kbps = dash.get("bitrate_kbps", 0).asInt();
         m_vmsConfig.webservice_access_control_list = network.get("webservice_access_control_list", "").asString();
         m_vmsConfig.rtsp_preferred_network_iface = network.get("rtsp_preferred_network_iface", "").asString();
         m_vmsConfig.rtsp_server_port = network.get("rtsp_server_port", -1).asInt();
