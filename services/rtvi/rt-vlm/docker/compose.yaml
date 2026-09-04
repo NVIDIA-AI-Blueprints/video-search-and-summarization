@@ -137,8 +137,11 @@ services:
       VLM_MAX_GENERATION_TOKENS: "${RTVI_VLM_MAX_GENERATION_TOKENS:-16384}"
       # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
       VLLM_MOE_BACKEND: "${RTVI_VLLM_MOE_BACKEND:-}"
-      # vLLM multimodal preprocessor cache size in GiB.
-      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-1}"
+      # vLLM multimodal preprocessor cache size in GiB, off by default: vLLM
+      # unlinks the shm cache only from __del__, so a SIGKILL leaks a 1 GiB
+      # object into the host tmpfs because this service runs ipc: host.
+      # Opting in also needs VLLM_DISABLE_MM_PREPROCESSOR_CACHE=false.
+      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-0}"
       # Bounded queue size for the async Kafka sender.
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"

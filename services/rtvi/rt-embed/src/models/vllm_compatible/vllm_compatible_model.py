@@ -231,6 +231,36 @@ def _get_mm_processor_cache_gb() -> float:
     return _parse_float_env("VLLM_MM_INPUT_CACHE_GIB", 1.0)
 
 
+def _apply_mm_processor_cache_engine_args(
+    engine_args_kwargs: dict[str, object],
+    supported_params: set[str],
+) -> None:
+    """Build the multimodal processor cache engine args for the installed vLLM.
+
+    vLLM 0.17.1 removed ``disable_mm_preprocessor_cache``, so on that build the
+    only way to keep the engine from creating the cache is the size:
+    ``mm_processor_cache_gb=0``. Leaving it enabled is not equivalent, because
+    the ``shm`` backend unlinks its POSIX object from ``__del__``, which a
+    SIGKILL skips.
+    """
+    disable_mm_cache = _parse_bool_env(
+        "VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
+        default=True,
+    )
+    if "disable_mm_preprocessor_cache" in supported_params:
+        engine_args_kwargs["disable_mm_preprocessor_cache"] = disable_mm_cache
+    elif disable_mm_cache:
+        logger.warning(
+            "VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true honored via "
+            "mm_processor_cache_gb=0; installed vLLM does not support "
+            "disable_mm_preprocessor_cache"
+        )
+    if "mm_processor_cache_gb" in supported_params:
+        engine_args_kwargs["mm_processor_cache_gb"] = (
+            0.0 if disable_mm_cache else _get_mm_processor_cache_gb()
+        )
+
+
 CPU_COPY_OTHER_THREAD = True
 
 # Fallback edges for a request that supplies only one half of `size`, per the
@@ -875,14 +905,10 @@ class VllmCompatible(BaseVlmModel):
                     enable_prefix_caching = prefix_caching_env.lower() == "true"
                     engine_args_kwargs["enable_prefix_caching"] = enable_prefix_caching
 
-                disable_mm_cache = _parse_bool_env(
-                    "VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
-                    default=True,
+                _apply_mm_processor_cache_engine_args(
+                    engine_args_kwargs,
+                    _engine_supported_params,
                 )
-                if "disable_mm_preprocessor_cache" in _engine_supported_params:
-                    engine_args_kwargs["disable_mm_preprocessor_cache"] = disable_mm_cache
-                if "mm_processor_cache_gb" in _engine_supported_params:
-                    engine_args_kwargs["mm_processor_cache_gb"] = _get_mm_processor_cache_gb()
 
                 mm_tensor_ipc = (_get_rtvi_vllm_env("VLLM_MM_TENSOR_IPC", "") or "").strip()
                 if mm_tensor_ipc:

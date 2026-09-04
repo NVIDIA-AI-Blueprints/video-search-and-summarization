@@ -866,11 +866,12 @@ docker logs rtvi-vlm 2>&1 | grep "VLM result:" | tail -1
 
 ### Disabling Multimodal Preprocessor Cache
 
-By default, the multimodal preprocessor cache is disabled (`VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true`) to avoid a system memory leak. To re-enable caching (trades higher memory for lower latency):
+By default, the multimodal preprocessor cache is disabled (`VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true`) to avoid a system memory leak. Re-enabling it takes both variables: the disable flag wins over the size, and the size defaults to `0`. To re-enable caching (trades higher memory for lower latency):
 
 ```bash
 # In .env
 VLLM_DISABLE_MM_PREPROCESSOR_CACHE=false
+RTVI_VLLM_MM_PROCESSOR_CACHE_GB=1
 ```
 
 When disabled (default), each request reprocesses video frames from scratch. This uses less memory but increases latency.
@@ -962,7 +963,7 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
 | `VLM_VIDEO_PRUNING_RATE` | Efficient Video Sampling pruning rate | Compose: Empty; Helm: `0.0` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
-| `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `1` |
+| `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
 | `VLLM_MULTIMODAL_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
 | `VLLM_MM_ENCODER_ATTN_BACKEND` | vLLM multimodal encoder attention backend | Empty |
