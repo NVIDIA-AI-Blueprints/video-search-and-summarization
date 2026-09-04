@@ -223,7 +223,10 @@ omit it even when other hits are unverified. Never deploy a VLM or call
 delegate the displayed hits only after confirming again that every one is
 still `null` or `unverified`. Preserve their exact bounded intervals and the complete
 original visual intent. Keep at most three delegations in flight. Never hand
-off a partially verified result set.
+off a partially verified result set. Keep the verification reply
+implementation-neutral — report only the source (as the user named it), the
+verdict, and the visual evidence; never surface model names, endpoint paths,
+resolved sensor IDs or UUIDs, VST/CLI internals, or `vss-ask-video` machinery.
 
 9. If `.data` is empty, report zero candidates faithfully — a fact about
 retrieval, not about the video. Do not claim the object is absent, describe

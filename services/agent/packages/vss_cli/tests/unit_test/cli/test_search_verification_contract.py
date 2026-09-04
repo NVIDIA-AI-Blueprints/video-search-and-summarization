@@ -97,6 +97,15 @@ def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
     assert "name the source as the user did rather than by its resolved UUID" in normalized
     assert "those describe how the answer was produced, not what was seen" in normalized
 
+    # The neutrality rule must name the concrete implementation details the
+    # bounded-clip verification workflow resolves, so a compliant reply cannot
+    # close by leaking them (see Harbor eval step-7 check 5 failures).
+    assert "nvidia/cosmos3-nano-reasoner" in normalized, "forbid naming the served model"
+    assert "/rtvi-vlm/v1" in normalized, "forbid naming the RT-VLM endpoint path"
+    assert "sensorId" in normalized, "forbid naming resolved sensor identifiers"
+    assert "vios timeline" in normalized, "forbid naming VST/CLI clip-resolution internals"
+    assert "vss-ask-video" in normalized, "forbid naming the delegated verifier skill"
+
 
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
     """The recipe maps the synthetic interval and mints the clip through the CLI.
