@@ -1,0 +1,25 @@
+version = "1.3"
+
+[metadata]
+family = "qa_single_turn"
+dataset = "vss-devx-base"
+snapshot = "base-eval-v26.04.3"
+media_dss_keys = ["warehouse/cam03/shift-a.mp4"]
+difficulty = "easy"
+
+[environment]
+# placeholder — run_visual_leg.py stamps the chosen GHCR digest at run time (G3)
+docker_image = "__IMAGE__"
+cpus = 2
+memory_mb = 4096
+network_mode = "bridge"
+# allowed_hosts mirrors the OpenShell egress table: VSS origin + model provider
+
+[environment.env]
+VSS_BASE_URL = "__INJECTED_AT_RUN_TIME__"
+
+[agent]
+timeout_sec = 900
+
+[verifier]
+timeout_sec = 300

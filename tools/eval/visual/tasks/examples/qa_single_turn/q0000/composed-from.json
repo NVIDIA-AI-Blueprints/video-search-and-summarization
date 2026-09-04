@@ -1,0 +1,8 @@
+{
+  "dataset": "vss-devx-base",
+  "snapshot": "base-eval-v26.04.3",
+  "eval_file": "dataset_single_turn.json",
+  "item_index": 0,
+  "composer_version": "0.1.0",
+  "note": "hand-written example of the composer's target shape; real trees are generated"
+}

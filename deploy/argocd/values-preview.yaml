@@ -1,0 +1,199 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# =============================================================================
+# Per-PR preview overlay for deploy/helm/developer-profiles/dev-profile-base
+# =============================================================================
+# Used ONLY by deploy/argocd/vss-base-profile-preview.yaml (ApplicationSet,
+# GitHub pull-request generator). It is layered on top of the chart's own
+# values.yaml - it is NOT a replacement for values-base.yaml, and it is never
+# used for the long-lived `vss` install.
+#
+# Goal: the smallest thing that still proves "this PR's chart renders and its
+# app pods roll out": UI + agent + Phoenix. Everything that needs a GPU, the NIM
+# Operator, or a multi-GB nvcr.io pull is switched off with the chart's real
+# toggles. A preview does NOT prove inference works (no NIM, no API key in git).
+#
+# Every key below exists in deploy/helm/developer-profiles/dev-profile-base/values.yaml
+# (or the subchart values it merges into); nothing here is invented.
+
+profile: base
+
+# The preview namespace gets its NGC secrets copied in (see deploy/argocd/README.md),
+# so the chart must not try to render them from an empty ngc.apiKey.
+ngc:
+  createSecrets: false
+
+global:
+  # Preview PVCs use the cluster default StorageClass.
+  storageClass: ""
+  externalScheme: "http"
+  # The ApplicationSet overrides global.externalHost per PR
+  # (vss-mr<number>.<previewDomain>) via helm parameters.
+  externalHost: ""
+  externalPort: ""
+  imagePullSecrets:
+    - name: ngc-secret
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_API_KEY
+  # No local NIMs in a preview: point the agent at NVIDIA-hosted endpoints so
+  # LLM_MODE/VLM_MODE resolve to "remote" instead of dialling a Service that
+  # does not exist. Calls 401 until someone injects a key (README: "Giving a
+  # preview a working LLM"), which is fine - previews assert rollout, not answers.
+  llmBaseUrl: "https://integrate.api.nvidia.com/v1"
+  vlmBaseUrl: "https://integrate.api.nvidia.com/v1"
+  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos3-nano-reasoner"
+
+# --- No GPUs, no NIM Operator ------------------------------------------------
+# nims.enabled false already skips the whole umbrella (parent Chart.yaml has
+# `condition: nims.enabled`); the per-model flags are set too so an accidental
+# `--helm-set nims.enabled=true` on a preview still schedules nothing.
+nims:
+  enabled: false
+  nemotron:
+    enabled: false
+  cosmos:
+    enabled: false
+  cosmos3:
+    enabled: false
+
+# --- Infra: Phoenix only -----------------------------------------------------
+# The agent's PHOENIX_ENDPOINT points at http://phoenix:6006 in every profile, so
+# Phoenix stays on (it is a single CPU container); everything else is off.
+infra:
+  enabled: true
+  phoenix:
+    enabled: true
+    replicas: 1
+    persistence:
+      size: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  redis:
+    enabled: false
+  sdrc:
+    enabled: false
+  elasticsearch:
+    enabled: false
+  kibana:
+    enabled: false
+  kafka:
+    enabled: false
+  logstash:
+    enabled: false
+  vss-broker-health-check:
+    enabled: false
+
+# --- VST / VIOS off ----------------------------------------------------------
+# vios.enabled false drops postgres + sensor + streamprocessing + vios-ingress
+# and the shared vst-data/vst-video/streamer-videos PVCs. That removes the only
+# GPU request outside the NIMs (vios.vss-vios-streamprocessing ships
+# resources.limits."nvidia.com/gpu": 1) plus ~40GB of preview storage.
+# Consequence, on purpose: the /vst path of the vss-ingress Ingress has no
+# backend and the UI's Video Management tab cannot upload.
+#
+# For a PR that actually touches VST, re-enable a CPU-only VST by adding this to
+# the Application (argocd app set ... --helm-set) or by uncommenting here - the
+# streamprocessing subchart documents `resources: {}` as software mode:
+#
+# vios:
+#   enabled: true
+#   vstStorage:
+#     createSharedPvcs: true
+#     vstData: { size: 2Gi }
+#     vstVideo: { size: 5Gi }
+#     streamerVideos: { size: 5Gi }
+#   vss-vios-postgres:
+#     enabled: true
+#     storage:
+#       data:
+#         size: 2Gi
+#   vss-vios-sensor:
+#     enabled: true
+#   vss-vios-streamprocessing:
+#     enabled: true
+#     resources: {}          # {} = no nvidia.com/gpu request (software decode)
+#   vss-vios-ingress:
+#     enabled: true
+#   vss-vios-nvstreamer:
+#     enabled: false
+vios:
+  enabled: false
+
+# --- The two things a preview is actually for --------------------------------
+agent:
+  enabled: true
+  vss-agent:
+    enabled: true
+    replicas: 1
+    mountConfigEdge: true
+    # emptyDir mount; the eval PVC stays off.
+    mountEvalOutput: true
+    agentEval:
+      enabled: false
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
+vss-agent-ui:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # extraEnv (not envOverrides): Helm REPLACES lists, and the profile's
+  # vss-agent-ui.envOverrides in values.yaml carries 55 NEXT_PUBLIC_* defaults a
+  # preview must keep. The UI deployment template emits extraEnv last and skips
+  # any earlier definition of the same name, so these override by name without
+  # clobbering the other 55 and without producing a duplicate env entry (which
+  # server-side apply - enabled on these Applications - rejects outright).
+  # INDEX CONTRACT: [0] and [1] are taken here; the ApplicationSet writes
+  # vss-agent-ui.extraEnv[2].* for the per-PR subtitle. Keep them in sync.
+  extraEnv:
+    - name: NEXT_PUBLIC_APP_TITLE
+      value: "VSS BLUEPRINT (preview)"
+    # No VST in a preview -> hide the tab whose uploads would 502.
+    - name: NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB
+      value: "false"
+
+# The preview cluster's ingress controller is assumed to be already installed;
+# never let a preview namespace try to own a host-port DaemonSet.
+haproxyingress:
+  enabled: false
+
+# The ApplicationSet turns this on and fills host / ingressClassName per PR.
+vssIngress:
+  enabled: false
+  ingressClassName: nginx
+  host: ""
+  vssUiPort: 3000
+  vssAgentPort: 8000
+  vstIngressPort: 30888
+  phoenixPort: 6006

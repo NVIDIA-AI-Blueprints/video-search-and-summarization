@@ -33,7 +33,10 @@ defaults:
 
 env:
   REGISTRY: ghcr.io
-  BASE_NAME: ${{ github.repository_owner }}/vss/vss-harness-base
+  # NB: the image path is derived per job from ${GITHUB_REPOSITORY_OWNER,,}.
+  # GHCR rejects references with an uppercase path, and this repo's owner
+  # (NVIDIA-AI-Blueprints) has capitals, so the owner must be lowercased
+  # everywhere it is used as a plain docker reference.
 
 jobs:
   base:
@@ -56,10 +59,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: names
+        run: |
+          echo "base=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/vss/vss-harness-base" >> "$GITHUB_OUTPUT"
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.BASE_NAME }}
+          images: ${{ steps.names.outputs.base }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
@@ -77,9 +84,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Must match the `type=sha,format=long` tag produced by metadata-action.
       - id: ref
         run: |
-          echo "image=${REGISTRY}/${BASE_NAME}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ steps.names.outputs.base }}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
   variants:
     name: Build & push ${{ matrix.variant }}
@@ -103,10 +111,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: names
+        run: |
+          echo "image=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/vss/vss-harness-${VARIANT}" >> "$GITHUB_OUTPUT"
+        env:
+          VARIANT: ${{ matrix.variant }}
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/vss/vss-harness-${{ matrix.variant }}
+          images: ${{ steps.names.outputs.image }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long

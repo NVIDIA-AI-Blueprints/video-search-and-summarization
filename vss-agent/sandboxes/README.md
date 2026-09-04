@@ -35,6 +35,18 @@ docker build -f pi.Dockerfile \
   --build-arg BASE_IMAGE=ghcr.io/<owner>/vss/vss-harness-base:sha-<commit> .
 ```
 
+Two variants also need to be told where their runtime comes from, because the
+packages are not on the public registries:
+
+| Dockerfile | Build args | Why |
+|---|---|---|
+| `openclaw.Dockerfile` | `OPENCLAW_NPM_SPEC`, `OPENCLAW_NPM_REGISTRY` | `@openclaw/openclaw` is not on `registry.npmjs.org` (404) |
+| `openclaw-vss-cli.Dockerfile` | the two above plus `VSS_CLI_SPEC`, `VSS_PIP_INDEX_URL` | `nvidia-vss` is not on public PyPI (404) |
+
+`.github/workflows/sandbox-images.yml` does not pass them, so those two matrix
+legs only succeed on a runner whose default npm/pip registries carry the
+packages.
+
 The harness's Provision panel lists these files, lets an operator edit one for a
 variant experiment, builds a content-addressed image from the edited text, and
 pulls the published base from GHCR onto the cluster. Real changes belong in a PR
@@ -58,3 +70,11 @@ eval loop is baked into these images.
 Sandboxes must keep: the contract dirs above, a declared `USER` (OpenShell
 requirement), agent state relocatable via env (no `$HOME` assumptions baked into
 paths), and no reliance on an entrypoint — the harness supplies the command.
+
+Because the harness supplies the command and runs it **non-interactively**, every
+agent binary has to be on `PATH` without a shell hook: nvm's `~/.bashrc` snippet
+is never sourced by `docker exec`/OpenShell, and Ubuntu's `.bashrc` returns early
+for non-interactive shells. `base.Dockerfile` therefore pins
+`$NVM_DIR/default/bin` (a stable symlink to the aliased node version) and
+`~/.local/bin` into `ENV PATH`. A variant that installs its runtime somewhere
+else must extend `PATH` itself.
