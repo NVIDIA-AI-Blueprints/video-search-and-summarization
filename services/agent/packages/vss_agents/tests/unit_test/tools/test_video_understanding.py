@@ -19,6 +19,7 @@ import base64
 import pytest
 
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
+from vss_agents.tools.video_understanding import VideoUnderstandingOffsetInput
 from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _effective_system_prompt
 from vss_agents.tools.video_understanding import _is_cosmos_model
@@ -26,6 +27,35 @@ from vss_agents.tools.video_understanding import _is_omni_audio_model
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
 from vss_agents.tools.video_understanding import _should_use_video_base64
 from vss_agents.tools.video_understanding import _should_use_video_file_base64
+
+
+class TestVideoUnderstandingOffsetInput:
+    @pytest.mark.parametrize("sentinel", ["None", "none", " null ", ""])
+    def test_optional_timestamp_string_sentinels_are_normalized(self, sentinel: str):
+        model = VideoUnderstandingOffsetInput.model_validate(
+            {
+                "sensor_id": "warehouse_safety_001",
+                "start_timestamp": sentinel,
+                "end_timestamp": sentinel,
+                "user_prompt": "What happened in the video?",
+            }
+        )
+
+        assert model.start_timestamp is None
+        assert model.end_timestamp is None
+
+    def test_numeric_timestamp_strings_remain_supported(self):
+        model = VideoUnderstandingOffsetInput.model_validate(
+            {
+                "sensor_id": "warehouse_safety_001",
+                "start_timestamp": "0",
+                "end_timestamp": "12.5",
+                "user_prompt": "What happened in the video?",
+            }
+        )
+
+        assert model.start_timestamp == 0.0
+        assert model.end_timestamp == 12.5
 
 
 class TestParseThinkingFromContent:

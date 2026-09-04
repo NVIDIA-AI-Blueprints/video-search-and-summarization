@@ -361,6 +361,17 @@ class VideoUnderstandingOffsetInput(BaseModel):
         start = info.get("start_timestamp")
         end = info.get("end_timestamp")
 
+        # Tool-calling models sometimes serialize an omitted optional value as
+        # the strings "None" or "null". Treat those JSON-like sentinels (and an
+        # empty string) as an omitted offset so whole-video requests do not fail
+        # while trying to evaluate float("None").
+        if isinstance(start, str) and start.strip().lower() in {"", "none", "null"}:
+            start = None
+            info["start_timestamp"] = None
+        if isinstance(end, str) and end.strip().lower() in {"", "none", "null"}:
+            end = None
+            info["end_timestamp"] = None
+
         if start is not None:
             start = float(start)
             if start < 0:
