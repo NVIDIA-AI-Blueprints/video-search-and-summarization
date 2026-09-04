@@ -60,6 +60,13 @@ CONTROLLER_CHART_VERSION = "1.49.0"
 
 STUB_IMAGE = "traefik/whoami:latest"
 
+# whoami never redirects, so it cannot show what an alias does to a Location
+# header. VST's ingress does redirect -- `location = /vst { return 301 /vst/; }`
+# with `absolute_redirect off` -- and that is the one backend behaviour the
+# alias has to survive. This stub reproduces exactly that and nothing else.
+REDIRECT_STUB_IMAGE = "nginx:1.27-alpine"
+REDIRECT_STUB = "vss-vios-ingress-vst-redirect"
+
 # `name:port` per backend the charts under test name by default.
 STUBS = [
     "vss-agent-ui:3000",
@@ -162,11 +169,12 @@ class Cluster:
         # Preloading saves fifteen pulls, but the pods stay on IfNotPresent so a
         # cache miss falls back to the registry instead of failing the whole run
         # with ErrImageNeverPull.
-        run(["docker", "pull", STUB_IMAGE])
-        run(["kind", "load", "docker-image", STUB_IMAGE, "--name", CLUSTER])
+        for image in (STUB_IMAGE, REDIRECT_STUB_IMAGE):
+            run(["docker", "pull", image])
+            run(["kind", "load", "docker-image", image, "--name", CLUSTER])
         applied = subprocess.run(
             ["kubectl", "apply", "-n", NAMESPACE, "-f", "-"],
-            input=self.stub_manifests(),
+            input=self.stub_manifests() + self.redirect_stub_manifests(),
             capture_output=True,
             text=True,
         )
@@ -176,7 +184,7 @@ class Cluster:
         # the roster is checked by name first. A stub missing from the namespace
         # reads downstream as a routing failure, which is the one conclusion it
         # does not support.
-        want = {spec.rpartition(":")[0] for spec in STUBS}
+        want = {spec.rpartition(":")[0] for spec in STUBS} | {REDIRECT_STUB}
         have = set(run([
             "kubectl", "-n", NAMESPACE, "get", "deployments",
             "-o", "jsonpath={.items[*].metadata.name}",
@@ -245,6 +253,78 @@ class Cluster:
             )
         return "\n".join(parts) + "\n"
 
+    @staticmethod
+    def redirect_stub_manifests() -> str:
+        """A stand-in for VST's ingress that redirects the way VST really does.
+
+        No Service of its own: the alias assertion repoints the existing
+        `vss-vios-ingress` Service at these pods, so the rendered Ingress -- and
+        therefore the controller's backend, route map and rule IDs -- is the
+        same object under test as everywhere else in this file. Swapping the
+        image on the whoami Deployment instead would restart it and lose the
+        path echo the other tests read.
+
+        `absolute_redirect off` and `location = /vst` are copied verbatim from
+        deploy/helm/services/vios/charts/vios-ingress/configs/nginx-vst.conf.template:
+        the trailing-slash redirect on the bare prefix is what makes the UI's
+        relative asset paths resolve, and it is the only redirect that config
+        emits. Nothing else is reproduced -- notably there is no
+        `location = /vst/storage`, because the real config has none either, so
+        /storage and /vios/storage have no Location to rename.
+        """
+        conf = textwrap.dedent(
+            """
+            server {
+                listen 80;
+                absolute_redirect off;
+                default_type text/plain;
+                location = /vst { return 301 /vst/; }
+                location / { return 200 "Hostname: $hostname\\n$request\\n"; }
+            }
+            """
+        ).strip()
+        # The config goes in as a JSON-quoted scalar, which YAML accepts as-is.
+        # A block scalar would have to be re-indented to sit under `data:`, and
+        # getting that wrong does not fail the apply -- it swallows the document
+        # separator below, so the Deployment is silently never created and the
+        # assertion reports "the stub never answered" instead of a broken
+        # manifest. That happened; hence no block scalar here.
+        return textwrap.dedent(
+            f"""
+            ---
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: {REDIRECT_STUB}
+            data:
+              default.conf: {json.dumps(conf)}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: {REDIRECT_STUB}
+            spec:
+              replicas: 1
+              selector:
+                matchLabels: {{ app: {REDIRECT_STUB} }}
+              template:
+                metadata:
+                  labels: {{ app: {REDIRECT_STUB} }}
+                spec:
+                  containers:
+                    - name: nginx
+                      image: {REDIRECT_STUB_IMAGE}
+                      imagePullPolicy: IfNotPresent
+                      ports: [{{ containerPort: 80 }}]
+                      volumeMounts:
+                        - name: conf
+                          mountPath: /etc/nginx/conf.d
+                  volumes:
+                    - name: conf
+                      configMap: {{ name: {REDIRECT_STUB} }}
+            """
+        ).strip() + "\n"
+
     def down(self) -> None:
         if os.environ.get("VSS_INGRESS_TEST_KEEP"):
             return
@@ -260,6 +340,108 @@ def render(chart: Path, sets: list[str]) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"helm template {chart.name} failed:\n{result.stderr}")
     return result.stdout
+
+
+# Chart values every assertion renders with. Shared so the routing and the
+# alias-redirect assertions cannot drift into testing two different renders.
+#
+# Gated on global.vssIngress.enabled for warehouse and vssIngress.enabled for
+# the developer profiles. The two are NOT interchangeable, and neither a missing
+# flag nor the wrong one is an error: the template renders comments only, helm
+# exits 0, and every assertion below would pass against no Ingress at all --
+# which is why each render is checked for `kind: Ingress` before it is probed.
+WAREHOUSE_SETS = [
+    "global.vssIngress.enabled=true",
+    "analytics.enabled=true",
+    "analytics.vss-behavior-analytics.enabled=true",
+    "vios.vss-vios-nvstreamer.enabled=true",
+]
+
+CANONICAL_SETS = [
+    "vssIngress.enabled=true",
+    "vssIngress.ingressClassName=haproxy",
+    "vssIngress.hosts.main=vss.local",
+    "infra.elasticsearch.enabled=true",
+    "analytics.vss-video-analytics-api.enabled=true",
+    "analytics.vss-behavior-analytics.enabled=true",
+    "rtvi.vss-rtvi-embed.enabled=true",
+    "agent.vss-va-mcp.enabled=true",
+]
+
+CANONICAL_HOST = "vss.local"
+
+# Where every profile renders the VST Service. Same relative path under the
+# warehouse umbrella and the developer profiles, because both take it from
+# services/vios -- which is what lets one annotation there fix both families.
+VST_SERVICE_TEMPLATE = "charts/vios/charts/vss-vios-ingress/templates/service.yaml"
+
+
+def vst_service_annotations(chart: Path, sets: list[str]) -> dict[str, str]:
+    """The annotations a chart puts on its vss-vios-ingress Service.
+
+    This controller wants per-backend behaviour on the Service, not the Ingress
+    (deploy/helm/services/common/README.md), and the alias's Location rewrite
+    lives there. The stub Services in this namespace are hand-built, so nothing
+    would carry that annotation to the controller and the redirect assertion
+    would quietly test an unannotated backend. Read out of the chart rather
+    than restated here, so changing the annotation changes what is asserted.
+    """
+    argv = ["helm", "template", "vss", str(chart), "--namespace", NAMESPACE,
+            "--show-only", VST_SERVICE_TEMPLATE]
+    for item in sets:
+        argv += ["--set", item]
+    rendered = run(argv)
+    if rendered.returncode != 0:
+        raise RuntimeError(
+            f"helm template {chart.name} ({VST_SERVICE_TEMPLATE}) failed:\n{rendered.stderr}"
+        )
+    # kubectl rather than a YAML module: the runner is not guaranteed to have
+    # one, and this file already depends on kubectl for everything else.
+    parsed = run(
+        ["kubectl", "create", "-f", "-", "--dry-run=client", "-o", "json"],
+        input=rendered.stdout,
+    )
+    if parsed.returncode != 0:
+        raise RuntimeError(f"could not parse {chart.name}'s VST Service:\n{parsed.stderr}")
+    annotations = json.loads(parsed.stdout).get("metadata", {}).get("annotations") or {}
+    if not annotations:
+        raise RuntimeError(
+            f"{chart.name} renders no annotations on the vss-vios-ingress Service. "
+            "The alias's Location rewrite lives there, so there would be nothing "
+            "to assert and this test would pass on a chart that lost the fix."
+        )
+    return annotations
+
+
+def annotate_vst_service(annotations: dict[str, str | None]) -> None:
+    """Put a chart's Service annotations on the stub Service, or drop them.
+
+    A null value removes the key, which is how this is undone: an annotation
+    left behind is the same failure mode as an Ingress left behind, and it
+    would make the next chart look like it still carried the rewrite.
+    """
+    patched = run([
+        "kubectl", "-n", NAMESPACE, "patch", "service", "vss-vios-ingress",
+        "--type", "merge",
+        "-p", json.dumps({"metadata": {"annotations": annotations}}),
+    ])
+    if patched.returncode != 0:
+        raise RuntimeError(f"could not annotate vss-vios-ingress:\n{patched.stderr}")
+
+
+def select_vst_backend(app_label: str) -> None:
+    """Repoint the `vss-vios-ingress` stub Service at one of the two stubs.
+
+    The Service name and port are what the rendered Ingress names, so they must
+    not change; only which pods sit behind them does.
+    """
+    patched = run([
+        "kubectl", "-n", NAMESPACE, "patch", "service", "vss-vios-ingress",
+        "--type", "merge",
+        "-p", json.dumps({"spec": {"selector": {"app": app_label}}}),
+    ])
+    if patched.returncode != 0:
+        raise RuntimeError(f"could not repoint vss-vios-ingress:\n{patched.stderr}")
 
 
 def apply_ingress(manifest: str) -> None:
@@ -283,8 +465,21 @@ def apply_ingress(manifest: str) -> None:
 
 
 def probe(path: str, host: str = "") -> dict[str, str | None]:
-    """One request; reports which stub answered and what path it received."""
-    argv = ["curl", "-s", "-o", "-", "-w", "\n__STATUS__%{http_code}", "--max-time", "15"]
+    """One request; reports which stub answered, the path it received, and the
+    Location it sent back.
+
+    `-i` rather than `--head`: the response headers carry the Location an alias
+    has to rename, and the body carries the path the backend was handed, and a
+    redirect assertion needs to see both halves of the same exchange. Neither
+    stub emits a body line that could be mistaken for a header, and the status
+    line starts `HTTP/` so it never reads as the echoed request line.
+
+    `Location` is reported verbatim rather than through curl's
+    `%{redirect_url}`, which resolves a relative header to an absolute URL --
+    the distinction the rewrite is anchored on (see the Service annotation on
+    vss-vios-ingress) would be exactly what got lost.
+    """
+    argv = ["curl", "-s", "-i", "-o", "-", "-w", "\n__STATUS__%{http_code}", "--max-time", "15"]
     if host:
         argv += ["-H", f"Host: {host}"]
     argv.append(f"{EDGE}{path}")
@@ -293,14 +488,17 @@ def probe(path: str, host: str = "") -> dict[str, str | None]:
     status = ""
     backend = None
     received = None
+    location = None
     for line in body.splitlines():
         if line.startswith("__STATUS__"):
             status = line[len("__STATUS__"):]
         elif line.startswith("Hostname:"):
             backend = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("location:"):
+            location = line.split(":", 1)[1].strip()
         elif line.startswith("GET ") and " HTTP/" in line:
             received = line.split()[1]
-    return {"status": status, "backend": backend, "received": received}
+    return {"status": status, "backend": backend, "received": received, "location": location}
 
 
 # `requested -> (backend deployment, path the backend must be handed)`.
@@ -329,10 +527,19 @@ CANONICAL_EXPECTATIONS = {
     "/storage/clip.mp4": ("vss-vios-ingress", "/vst/storage/clip.mp4"),
     "/vios/storage": ("vss-vios-ingress", "/vst/storage"),
     "/vios/storage/clip.mp4": ("vss-vios-ingress", "/vst/storage/clip.mp4"),
-    # The anchored rewrite must leave the canonical prefix alone. An unanchored
-    # `/storage/(.*)` collapses any path *containing* the prefix onto
-    # /vst/storage/<tail>, so this row is what makes the `^` load-bearing.
     "/vst/storage/clip.mp4": ("vss-vios-ingress", "/vst/storage/clip.mp4"),
+    # What makes the `^` on the storage rewrite load-bearing here.
+    #
+    # `replace-path` substitutes the WHOLE path when its regex matches
+    # anywhere, so an unanchored `/storage/(.*)` turns any path containing the
+    # prefix into /vst/storage/<tail> and discards everything ahead of it. The
+    # row above cannot show that -- /vst/storage/clip.mp4 rewrites onto itself,
+    # so anchored and unanchored agree. This one can: it selects the UI
+    # catch-all, and the controller's ACL guard does not stop it, because the
+    # rule IDs it matches on are built once per *Ingress* and stamped onto
+    # every route of that Ingress (pkg/ingress/ingress.go). Drop the `^` and
+    # the UI is handed /vst/storage/clip.mp4 instead.
+    "/a/storage/clip.mp4": ("vss-agent-ui", "/a/storage/clip.mp4"),
     "/elasticsearch": ("elasticsearch", "/"),
     "/elasticsearch/_cat/indices": ("elasticsearch", "/_cat/indices"),
     "/rtvi-embed/v1/embeddings": ("vss-rtvi-embed", "/v1/embeddings"),
@@ -344,6 +551,26 @@ CANONICAL_EXPECTATIONS = {
     # Longest-prefix wins: /api/chat is the UI, /api is the agent.
     "/api/chat": ("vss-agent-ui", "/api/chat"),
     "/openapi.json": ("vss-agent", "/openapi.json"),
+}
+
+# `requested -> (status, Location the caller must be handed)`, against a VST
+# stub that redirects the way VST does. An alias whose first response bounces
+# the caller onto the prefix it replaces is not an alias, so the /vios row is
+# what makes /vios something a caller can migrate *to*.
+#
+# The other three rows pin the rewrite's blast radius rather than any change:
+# every one of these mounts resolves to the same backend and the same Ingress,
+# so the annotation is only correct if it leaves them exactly as they were.
+VST_REDIRECT_EXPECTATIONS = {
+    "/vios": ("301", "/vios/"),
+    # The canonical prefix keeps its own redirect. A caller who asked for /vst
+    # must not be moved onto the alias.
+    "/vst": ("301", "/vst/"),
+    # No redirect to rename, on either edge, which is why /storage needs no
+    # rule of its own: nginx-vst.conf.template redirects the bare /vst prefix
+    # and nothing else, so /vst/storage is served rather than redirected.
+    "/storage": ("200", None),
+    "/vios/storage": ("200", None),
 }
 
 
@@ -396,6 +623,56 @@ class LiveIngressTest(unittest.TestCase):
                 "promise:\n" + "\n".join(failures)
             )
 
+    def assert_alias_redirects(self, chart: Path, sets: list[str], host: str = "") -> None:
+        """Point the VST Service at the redirecting stub and check each Location.
+
+        The chart supplies both halves: the Ingress that mounts /vios and the
+        Service annotation that renames the Location on the way back. Only the
+        Service's selector moves, so the controller's backend and rule IDs are
+        the same ones the path assertions ran against.
+        """
+        manifest = render(chart, sets)
+        self.assertIn("kind: Ingress", manifest, "no Ingress rendered")
+        annotations = vst_service_annotations(chart, sets)
+
+        apply_ingress(manifest)
+        annotate_vst_service(annotations)
+        select_vst_backend(REDIRECT_STUB)
+        try:
+            # Waiting here is for the endpoint swap landing in the controller,
+            # which is the only transient state: until it does, the whoami pod
+            # is still answering and every row reads as "no redirect at all".
+            # Once a 301 appears the Location is final, so the assertions below
+            # run once rather than being retried into the deadline.
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                if probe("/vst", host=host)["status"] == "301":
+                    break
+                time.sleep(3)
+            else:
+                self.fail(
+                    "the redirecting VST stub never answered, so no conclusion "
+                    "about the alias's Location header is possible"
+                )
+
+            failures = []
+            for path, (status, expected) in sorted(VST_REDIRECT_EXPECTATIONS.items()):
+                got = probe(path, host=host)
+                if got["status"] != status or got["location"] != expected:
+                    failures.append(
+                        f"  GET {path}\n"
+                        f"    expected HTTP {status}, Location: {expected!r}\n"
+                        f"    got      HTTP {got['status']}, Location: {got['location']!r}"
+                    )
+            if failures:
+                self.fail(
+                    "the alias did not keep callers on the path they asked "
+                    "for:\n" + "\n".join(failures)
+                )
+        finally:
+            select_vst_backend("vss-vios-ingress")
+            annotate_vst_service(dict.fromkeys(annotations))
+
     def test_warehouse_charts_route_every_mount_and_bare_root(self) -> None:
         """Each warehouse chart strips or replaces the prefix on every mount.
 
@@ -406,40 +683,31 @@ class LiveIngressTest(unittest.TestCase):
         for name in ("warehouse-2d-app", "warehouse-3d-app", "warehouse-mv3dt-app"):
             chart = HELM_ROOT / "industry-profiles/warehouse-operations" / name
             with self.subTest(chart=name):
-                manifest = render(
-                    chart,
-                    [
-                        # Gated on global.vssIngress.enabled, NOT vssIngress.enabled.
-                        # With the wrong key the template renders comments only and
-                        # every assertion below would pass against no Ingress, so
-                        # the guard test after this one asserts the flag itself.
-                        "global.vssIngress.enabled=true",
-                        "analytics.enabled=true",
-                        "analytics.vss-behavior-analytics.enabled=true",
-                        "vios.vss-vios-nvstreamer.enabled=true",
-                    ],
-                )
+                manifest = render(chart, WAREHOUSE_SETS)
                 self.assertIn("kind: Ingress", manifest, "no Ingress rendered")
                 self.assert_routes(manifest, WAREHOUSE_EXPECTATIONS)
 
     def test_canonical_route_table_routes_every_mount(self) -> None:
         """The shared table in services/common, as a developer profile renders it."""
         chart = HELM_ROOT / "developer-profiles/dev-profile-search"
-        manifest = render(
-            chart,
-            [
-                "vssIngress.enabled=true",
-                "vssIngress.ingressClassName=haproxy",
-                "vssIngress.hosts.main=vss.local",
-                "infra.elasticsearch.enabled=true",
-                "analytics.vss-video-analytics-api.enabled=true",
-                "analytics.vss-behavior-analytics.enabled=true",
-                "rtvi.vss-rtvi-embed.enabled=true",
-                "agent.vss-va-mcp.enabled=true",
-            ],
-        )
+        manifest = render(chart, CANONICAL_SETS)
         self.assertIn("kind: Ingress", manifest, "no Ingress rendered")
-        self.assert_routes(manifest, CANONICAL_EXPECTATIONS, host="vss.local")
+        self.assert_routes(manifest, CANONICAL_EXPECTATIONS, host=CANONICAL_HOST)
+
+    def test_warehouse_alias_keeps_callers_on_vios(self) -> None:
+        """A /vios redirect must land back on /vios, not on /vst."""
+        self.assert_alias_redirects(
+            HELM_ROOT / "industry-profiles/warehouse-operations/warehouse-2d-app",
+            WAREHOUSE_SETS,
+        )
+
+    def test_canonical_alias_keeps_callers_on_vios(self) -> None:
+        """The same, on the shared route table a developer profile renders."""
+        self.assert_alias_redirects(
+            HELM_ROOT / "developer-profiles/dev-profile-search",
+            CANONICAL_SETS,
+            host=CANONICAL_HOST,
+        )
 
     def test_every_rewriting_mount_is_covered_by_an_expectation(self) -> None:
         """A probe table that misses a mount passes forever.
@@ -449,15 +717,7 @@ class LiveIngressTest(unittest.TestCase):
         fails and says which one is untested.
         """
         chart = HELM_ROOT / "industry-profiles/warehouse-operations/warehouse-2d-app"
-        manifest = render(
-            chart,
-            [
-                "global.vssIngress.enabled=true",
-                "analytics.enabled=true",
-                "analytics.vss-behavior-analytics.enabled=true",
-                "vios.vss-vios-nvstreamer.enabled=true",
-            ],
-        )
+        manifest = render(chart, WAREHOUSE_SETS)
         mounts = {
             line.strip().split()[0][1:].removesuffix("/(.*)")
             for line in manifest.splitlines()
