@@ -32,7 +32,8 @@ The following diagram illustrates the search workflow architecture:
 - **VSS Agent UI:** Web UI with chat, video upload, and different views
 - **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
-- **Cosmos3 Nano Reasoner VLM (NIM):** VLM inference service used by the critic agent to verify search results (enabled by default)
+- **RTVI-VLM:** Real Time Video Intelligence VLM Microservice serving Cosmos3 Nano Reasoner. It backs the critic agent that verifies search results and the video understanding tool. There is no separate VLM NIM container in this profile
+- **Video Analytics API:** REST query and browse surface over the Elasticsearch indices, used by the Search tab
 - **Phoenix:** Observability and telemetry service for agent workflow monitoring
 - **ELK:** Elasticsearch, Logstash and Kibana stack to index and search embeddings of video clips
 - **Kafka:** A real-time message bus to publish embeddings, to be consumed and indexed by ELK for search
@@ -92,40 +93,30 @@ For instructions on downloading the deployment package, see [Download the Deploy
 
 </Note>
 
-**Critic Agent (enabled by default):**
-
-To disable the Critic Agent, set `ENABLE_CRITIC=false` before deploying. When disabled, VLM is not required at all (neither local deployment, nor remote VLM configuration):
-
-```bash
-export ENABLE_CRITIC=false
-```
-
 <Note>
 **Critic Agent**
 
-The [critic agent](/vss/vision-agent/agent-workflows/search#critic-agent-overview) is enabled by default. It uses a VLM (Cosmos3 Nano Reasoner) to verify search results and runs during search in agent/chat mode.
+The [critic agent](/vss/vision-agent/agent-workflows/search#critic-agent-overview) uses a VLM (Cosmos3 Nano Reasoner) to verify search results and runs during search in agent/chat mode.
 
-End users can turn the critic agent **on or off on a per-query basis** using the **Enable Critic** toggle in the Vision Agent chat settings (see [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview)). This toggle maps to the request-level `use_critic` flag and is on by default.
+The critic is chosen per request, not at deploy time. End users turn the critic **on or off on a per-query basis** using the **Enable Critic** toggle in the Vision Agent chat settings (see [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview)). The toggle maps to the request-level `use_critic` flag and is on by default.
 
-Ensure that the VLM endpoint URL has been configured for the deployment; see [VLM configuration in deployment commands](/vss/vision-agent/agent-workflows/search) for details.
-
-To re-enable, unset the variable or set it to `true`:
-
-```bash
-export ENABLE_CRITIC=true
-```
+RTVI-VLM serves both the critic and the video understanding tool, so the search profile always deploys it. Because the critic is a per-request choice, the VLM is deployed whether or not any given query uses it.
 
 </Note>
 
 **GPU requirements:**
 
-The search profile uses 2 base GPUs: GPU 0 is shared by RTVI-CV and VIOS Stream Processing, and GPU 1 runs RTVI-Embed. A local VLM is deployed by default (critic agent enabled). The LLM shares a base GPU; the VLM gets a dedicated GPU. The total GPU count depends on how LLM and VLM are deployed:
+The search profile deploys on 2 GPUs, and both are shared. GPU 0 runs RTVI-CV alongside RTVI-VLM, which serves the critic from a Cosmos3 Nano Reasoner FP8 checkpoint at a memory fraction of `0.4` so that RTVI-CV fits beside it. GPU 1 runs RTVI-Embed alongside the LLM. Both `LLM_MODE` and `VLM_MODE` default to `local_shared`, and the profile marks GPU 0 and GPU 1 as shared rather than reserving either for a single service.
 
-- **Default:** 3 GPUs -- 2 base (LLM shared) + 1 dedicated VLM.
-- **Dedicated LLM + VLM:** 4 GPUs -- 2 base + 1 dedicated LLM + 1 dedicated VLM.
-- **Remote LLM:** 3 GPUs -- 2 base + 1 dedicated VLM (LLM offloaded).
-- **Remote VLM:** 2 GPUs -- 2 base with LLM shared (VLM offloaded).
-- **Remote LLM + VLM:** 2 GPUs -- base services only.
+Offloading a model to a remote endpoint frees capacity on a shared GPU without changing the count, because RTVI-CV and RTVI-Embed stay on their pinned devices. Dedicating a model to its own GPU raises the count:
+
+- **Default:** 2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM.
+- **Dedicated LLM + VLM:** 4 GPUs. GPU 0 and GPU 1 keep RTVI-CV and RTVI-Embed; the LLM and the VLM each take a GPU of their own.
+- **Remote LLM:** 2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
+- **Remote VLM:** 2 GPUs. GPU 0 runs RTVI-CV alone; the VLM is offloaded.
+- **Remote LLM + VLM:** 2 GPUs, running the retrieval services only.
+
+Single-GPU hosts are the exception. On GB300, DGX Spark and AGX Thor the profile collapses every local service onto the one GPU. The two edge boards go further and require both models to be remote, since their GPU is already carrying the perception pipeline.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
 
@@ -189,18 +180,22 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
 
 
+<Note>
+`HARDWARE_PROFILE` accepts `IGX-THOR`, but search is not supported there. The profile's edge handling covers DGX Spark and AGX Thor only. Use one of the layouts below.
+</Note>
+
 <Tabs>
 <Tab title="H100">
 <Tabs>
 <Tab title="Default">
-3 GPUs. LLM shares a base GPU; VLM gets a dedicated GPU.
+2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM. The profile ships this layout, so no device or mode overrides are needed.
 
 ```ini
 HARDWARE_PROFILE=H100
 ```
 </Tab>
 <Tab title="Dedicated GPU">
-4 GPUs. Both LLM and VLM get dedicated GPUs. To use the default layout (3 GPUs, LLM shared), omit both device ID flags.
+4 GPUs. Both LLM and VLM get dedicated GPUs. The memory fraction rises to `0.7` because RTVI-VLM no longer shares GPU 0. To use the default 2-GPU layout, omit these overrides.
 
 ```ini
 HARDWARE_PROFILE=H100
@@ -209,10 +204,11 @@ VLM_DEVICE_ID=3 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is 
 RT_VLM_DEVICE_ID=3 # Must match VLM_DEVICE_ID
 LLM_MODE=local
 VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ```
 </Tab>
 <Tab title="Remote LLM">
-3 GPUs. VLM gets a dedicated GPU; LLM is offloaded.
+2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
 
 ```ini
 HARDWARE_PROFILE=H100
@@ -224,7 +220,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 ```
 </Tab>
 <Tab title="Remote VLM">
-2 GPUs. LLM time-shares with base service GPUs.
+2 GPUs. GPU 0 runs RTVI-CV alone; the critic VLM is offloaded and RTVI-VLM proxies to it.
 
 ```ini
 HARDWARE_PROFILE=H100
@@ -240,7 +236,7 @@ RTVI_VLM_MODEL_PATH=none
 ```
 </Tab>
 <Tab title="Remote LLM + VLM">
-2 GPUs.
+2 GPUs, running the retrieval services only.
 
 ```ini
 HARDWARE_PROFILE=H100
@@ -265,7 +261,7 @@ RTVI_VLM_MODEL_PATH=none
 <Tab title="GB300">
 <Tabs>
 <Tab title="Default">
-Use the GB300 GPU for all local services. On a DGX Station, confirm its ID with `nvidia-smi` because it may be GPU 0 or 1.
+One GPU carries every local service. On a DGX Station, confirm its ID with `nvidia-smi` because it may be GPU 0 or 1. GB300 is an SBSA host, so RTVI services need the `-sbsa` image tags. The memory fraction is lower than on 80 GB to 96 GB cards: vLLM claims its whole fraction whether it needs it or not, so `0.4` of a roughly 250 GiB GPU would starve the LLM sharing it.
 
 ```ini
 HARDWARE_PROFILE=GB300
@@ -277,6 +273,8 @@ RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_EMBED_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.3
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -291,6 +289,8 @@ RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_EMBED_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.3
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -353,14 +353,14 @@ RTVI_VLM_MODEL_PATH=none
 <Tab title="RTXPRO6000BW">
 <Tabs>
 <Tab title="Default">
-3 GPUs. LLM shares a base GPU; VLM gets a dedicated GPU.
+2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM. The profile ships this layout, so no device or mode overrides are needed.
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 ```
 </Tab>
 <Tab title="Dedicated GPU">
-4 GPUs. Both LLM and VLM get dedicated GPUs. To use the default layout (3 GPUs, LLM shared), omit both device ID flags.
+4 GPUs. Both LLM and VLM get dedicated GPUs. The memory fraction rises to `0.7` because RTVI-VLM no longer shares GPU 0. To use the default 2-GPU layout, omit these overrides.
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
@@ -369,10 +369,11 @@ VLM_DEVICE_ID=3 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is 
 RT_VLM_DEVICE_ID=3 # Must match VLM_DEVICE_ID
 LLM_MODE=local
 VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ```
 </Tab>
 <Tab title="Remote LLM">
-3 GPUs. VLM gets a dedicated GPU; LLM is offloaded.
+2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
@@ -384,7 +385,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 ```
 </Tab>
 <Tab title="Remote VLM">
-2 GPUs. LLM time-shares with base service GPUs.
+2 GPUs. GPU 0 runs RTVI-CV alone; the critic VLM is offloaded and RTVI-VLM proxies to it.
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
@@ -425,7 +426,7 @@ RTVI_VLM_MODEL_PATH=none
 <Tab title="L40S">
 <Tabs>
 <Tab title="Dedicated GPU">
-4 GPUs. L40S requires dedicated GPUs for LLM and VLM (GPU sharing is not supported).
+4 GPUs. L40S requires dedicated GPUs for LLM and VLM; GPU sharing is not supported, because 48 GB cannot hold the LLM beside RTVI-Embed or the VLM beside RTVI-CV. There is no default 2-GPU layout on this card.
 
 ```ini
 HARDWARE_PROFILE=L40S
@@ -434,6 +435,7 @@ VLM_DEVICE_ID=3 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is 
 RT_VLM_DEVICE_ID=3 # Must match VLM_DEVICE_ID
 LLM_MODE=local
 VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -449,6 +451,7 @@ LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
 VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
 </Tab>
 <Tab title="Remote VLM">
@@ -492,12 +495,68 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 </Tabs>
 </Tab>
+<Tab title="DGX-SPARK">
+Search on DGX Spark runs both models remotely. The board's single GPU already carries the perception pipeline, so it can host neither a local LLM nor a local VLM, and RTVI-VLM is not deployed. Deployment fails unless both `LLM_ENDPOINT_URL` and `VLM_ENDPOINT_URL` are set. Device ID overrides are not accepted on this platform; the profile places every local service on the board's GPU itself. DGX Spark is an SBSA host, so RTVI services need the `-sbsa` image tags.
+
+See [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for remote VLM endpoint options, [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for LLM options, and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+
+<Tabs>
+<Tab title="Remote LLM + VLM">
+One GPU, carrying RTVI-CV and RTVI-Embed only. `VLM_AGENT_MEDIA_MODE=remote` switches the agent to inline base64 media framing, which the direct endpoint requires.
+
+```ini
+HARDWARE_PROFILE=DGX-SPARK
+VSS_RT_CV_TAG=develop-latest-sbsa
+VSS_RT_EMBED_TAG=develop-latest-sbsa
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=nim
+VLM_PORT=30082
+VLM_AGENT_MEDIA_MODE=remote
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="AGX-THOR">
+Search on AGX Thor runs both models remotely. The board's single GPU already carries the perception pipeline, so it can host neither a local LLM nor a local VLM, and RTVI-VLM is not deployed. Deployment fails unless both `LLM_ENDPOINT_URL` and `VLM_ENDPOINT_URL` are set. Device ID overrides are not accepted on this platform. The Nemotron Nano 9B v2 FP8 checkpoint that the base and alerts profiles run locally on Thor is not an option here, because search leaves no GPU headroom for it.
+
+See [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for remote VLM endpoint options, [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for LLM options, and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+
+<Tabs>
+<Tab title="Remote LLM + VLM">
+One GPU, carrying RTVI-CV and RTVI-Embed only.
+
+```ini
+HARDWARE_PROFILE=AGX-THOR
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=nim
+VLM_PORT=30082
+VLM_AGENT_MEDIA_MODE=remote
+```
+</Tab>
+</Tabs>
+</Tab>
 <Tab title="OTHER">
 See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
 
 <Tabs>
 <Tab title="Default">
-3 GPUs. LLM shares a base GPU; VLM gets a dedicated GPU.
+2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM.
 
 ```ini
 HARDWARE_PROFILE=OTHER
@@ -505,7 +564,7 @@ LLM_ENV_FILE=/path/to/llm.env
 ```
 </Tab>
 <Tab title="Dedicated GPU">
-4 GPUs. Both LLM and VLM get dedicated GPUs. To use the default layout (3 GPUs, LLM shared), omit both device ID flags.
+4 GPUs. Both LLM and VLM get dedicated GPUs. On unrecognized hardware the memory fraction is `0.7` whether or not RTVI-VLM shares a GPU. To use the default 2-GPU layout, omit these overrides.
 
 ```ini
 HARDWARE_PROFILE=OTHER
@@ -514,11 +573,12 @@ VLM_DEVICE_ID=3 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is 
 RT_VLM_DEVICE_ID=3 # Must match VLM_DEVICE_ID
 LLM_MODE=local
 VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_ENV_FILE=/path/to/llm.env
 ```
 </Tab>
 <Tab title="Remote LLM">
-3 GPUs. VLM gets a dedicated GPU; LLM is offloaded.
+2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
 
 ```ini
 HARDWARE_PROFILE=OTHER
@@ -530,7 +590,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 ```
 </Tab>
 <Tab title="Remote VLM">
-2 GPUs. LLM time-shares with base service GPUs.
+2 GPUs. GPU 0 runs RTVI-CV alone; the critic VLM is offloaded and RTVI-VLM proxies to it.
 
 ```ini
 HARDWARE_PROFILE=OTHER
@@ -584,9 +644,9 @@ You can now access the agent UI at `http://<HOST_IP>:7777/`.
 **This deployment uses the following defaults:**
 
 
-- LLM model: nvidia/nemotron-3.5-lightning-30b-a3b
-- VLM model: nvidia/cosmos3-nano-reasoner (critic agent), version `bf16-final` (`ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`)
-- Critic agent: enabled
+- LLM model: nvidia/nemotron-3.5-lightning-30b-a3b, served locally and sharing GPU 1 with RTVI-Embed
+- VLM model: nvidia/cosmos3-nano-reasoner, FP8 (`ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`), served by RTVI-VLM on GPU 0 at a memory fraction of `0.4`
+- Critic agent: chosen per request through the `use_critic` flag, on by default. There is no deploy-time flag
 
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
@@ -977,11 +1037,9 @@ When configured, the critic agent reviews search results and annotates evaluated
 
 **Enabling/Disabling the Critic Agent**
 
-The critic agent is **enabled by default** in a fresh deployment. You can control whether it runs at two levels:
+The critic agent runs **by default** on every query, and whether it runs is decided per request rather than at deploy time. In the Vision Agent chat, open the chat settings popover next to the chat input and use the **Enable Critic** toggle to turn the critic agent on or off for each query. The toggle is **on by default**; turn it off when you want raw search results without VLM verification, for example for faster responses or when you are exploring broad results. This toggle corresponds to the `use_critic` flag in the search request payload.
 
-- **Per-query toggle (chat settings)** — In the Vision Agent chat, open the chat settings popover next to the chat input and use the **Enable Critic** toggle to turn the critic agent on or off for each query. The toggle is **on by default**; turn it off when you want raw search results without VLM verification (for example, for faster responses or when you are exploring broad results). This toggle corresponds to the `use_critic` flag in the search request payload and is decided on a query-by-query basis.
-
-- **Server-level configuration** — The default server config ships with `enable_critic: true`, so the critic agent is available out of the box. To disable it across the entire deployment (so the per-query toggle has no effect), set `enable_critic: false` in the search agent `config.yml`. See [To configure the Critic Agent](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent) for the file location.
+Because the choice is per request, there is no deployment-wide switch, and the search profile always deploys RTVI-VLM since it also serves the video understanding tool. What the server config controls is how much the critic evaluates, through `num_videos_to_evaluate` below.
 
 **Partial Verification (num_videos_to_evaluate)**
 
@@ -1139,31 +1197,52 @@ As an alternative to running the workflow manually, you can use [VSS Agent Skill
 
 First install the skills as described in [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) and make it accessible to your coding agent.
 
-### Step 1: Deploy the Search Agent
+This path builds and operates a headless stack. Your coding agent drives it: it composes and deploys the build, provisions sources, and runs retrieval through the `vss` CLI. The build carries no chat interface and no in-stack agent, so the VSS UI and Phoenix endpoints listed above do not apply to it. Kibana and the Video Analytics API are retained as browse surfaces over stored data. The retrieval capabilities are the same ones the UI exposes, and the deployment steps assume the same supported hardware.
+
+### Step 1: Build and deploy a headless search stack
 
 <Note>
 The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile) and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 </Note>
 
-Once the agent is loaded with the VSS skills, you can use it to deploy the VSS search agent:
+Deployment is driven by the [`vss-build-vision-ai`](/vss/vision-agent/agent-skills) skill, which composes a stack from the capabilities you name rather than from a fixed profile. State the capabilities you want and how you intend to reach them. Do not name services or list what to exclude; the skill selects a Foundation and keeps only what your stated capabilities reach.
 
 **Deploy prompt structure**
 
 ```text title="Deploy prompt structure"
-Deploy the VSS search profile.
+Provide ingestion for streaming and on-demand videos with object
+detection/tracking and video embeddings. Make the browse and operate surfaces
+accessible via service-native REST API/CLI and exposed through single
+ingress.
 ```
 
+This prompt builds a retrieval-only stack. Search returns matches with similarity scores and time ranges, but no VLM is deployed, so results are not verified and you cannot ask follow-up questions about a clip. To include those, add a sentence naming them:
+
+```text title="Deploy prompt with result verification"
+Provide ingestion for streaming and on-demand videos with object
+detection/tracking and video embeddings. Verify search results and support
+visual follow-up questions about the retrieved clips. Make the browse and
+operate surfaces accessible via service-native REST API/CLI and exposed
+through single ingress.
+```
+
+That added sentence is what puts RTVI-VLM in the build, and it also routes `/rtvi-vlm` through the ingress so the CLI can reach it. Ask for neither capability and the service is left out, because retrieval itself never calls it.
+
+The skill presents the composed architecture for your confirmation before it generates or deploys anything.
+
 <Note>
-The skill will choose the `<platform>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The skill selects the hardware profile to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements). On the multi-GPU layouts above, either prompt deploys on 2 GPUs, because RTVI-CV and RTVI-Embed keep their pinned devices. In the retrieval-only build each has its GPU to itself, since that build drops both the LLM and the VLM. Asking for verification puts RTVI-VLM back alongside RTVI-CV on GPU 0 at a memory fraction of `0.4`, which is the shared layout the profile ships.
+
+On the single-GPU hosts described under [Step 1: Deploy the Search Agent](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent) above, both retrieval services share the one GPU. Ask for verification on DGX Spark or AGX Thor and the VLM has to be a remote endpoint, because those boards cannot host one locally alongside the perception pipeline.
 </Note>
 
 What the agent does:
 
-1. Reads the skill `vss-deploy-profile` and its search profile reference to determine the deployment recipe, GPU layout, sizing, and service list.
-2. Runs pre-flight checks — auto-detects the repo path, validates GPU/Docker/NVIDIA runtime, and probes `NGC_CLI_API_KEY` against NGC auth.
-3. Prepares the environment — copies the source `.env` to `generated.env`, writes overrides (`HOST_IP`, `EXTERNAL_IP`, `NGC_CLI_API_KEY`, `VSS_DATA_DIR`, `VSS_APPS_DIR`), creates the data directory tree with correct permissions.
-4. Generates and normalizes the resolved compose — runs `docker compose config`, then `normalize_resolved_yml.py` to strip dangling dependencies, and validates the output.
-5. Deploys with `docker compose up -d` and monitors until all services report healthy.
+1. Reads the skill and its search references to determine the Foundation, its authoritative service set, the GPU layout, and sizing.
+2. Composes the headless build as a delta on that Foundation. The VSS Agent, VSS Agent UI, Phoenix, and the LLM are dropped, because retrieval is driven through the CLI rather than a chat surface. RTVI-VLM is dropped as well unless you asked for verification or follow-up questions.
+3. Runs pre-flight checks on the repo path, GPU and Docker runtime, and NGC credentials.
+4. Prepares the environment and the data directory tree, then writes the build artifacts under `_builds/<name>/`, including the resolved Compose file `resolved.yml`.
+5. Deploys the resolved Compose file and waits until every service reports healthy, then reports the build's public origin.
 
 ### Step 2: Video Management
 
@@ -1172,28 +1251,48 @@ For instructions on downloading sample data, see [Download Sample Data From NGC]
 </Note>
 
 The downloaded videos (following the Quickstart guide) are available at `./sample-data/dev-profile-sample-data/`.
-For this example, you will ask the agent to upload the video `warehouse_sample.mp4` by providing the path to the file:
+For this example, you will ask the agent to provision the video `warehouse_sample.mp4` by providing the path to the file:
 
 ```text
-Add the video warehouse_sample.mp4 to search agent
+Provision ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as an
+on-demand VIOS source and fan out to the resolved consumers. Confirm the source
+appears in VIOS's sensor list when done.
 ```
 
 What the agent does:
 
-1. Reads the skill `vss-search-archive` to determine the agent-backend ingestion flow (not bare VIOS).
-2. Gets the upload URL from the agent (`POST /api/v1/videos`) and POSTs the video file to that URL (chunked-upload).
-3. Calls `/api/v1/videos/{sensorId}/complete` which fans out to RTVI-CV + RTVI-Embed, generating searchable embeddings in Elasticsearch.
+1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so ingestion is a direct REST path.
+2. Reads the consumer host ports from the build's `resolved.yml` and registers the source with VIOS.
+3. Fans the source out to RTVI-CV and RTVI-Embed, which generates the searchable embeddings that Logstash indexes into Elasticsearch.
 4. Verifies the sensor is registered and online in VIOS.
 
 It may take up to a few minutes depending on the size of the video(s).
 
-To add an RTSP stream, provide the stream URL and a sensor name:
+To ingest a live stream instead, have NVStreamer serve a file as a synthetic RTSP camera and provision that:
 
-**Add an RTSP stream**
+**Provision a live RTSP source**
 
-```text title="Add an RTSP stream"
-Add the RTSP stream at <RTSP_STREAM_URL> to the search agent with the sensor name warehouse_sample.
+```text title="Provision a live RTSP source"
+Serve ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
+RTSP camera and provision it - register in VIOS and fan out to the resolved
+consumers. Confirm the live stream is visible in VIOS before reporting done.
 ```
+
+<Note>
+Provisioning writes through the deployment's own host ports rather than the public origin, so ingestion does not depend on the CLI being configured.
+</Note>
+
+Before the CLI can search, it has to be pointed at the build's ingress, but this is not a step you need to run. The agent does it on the first query: it resolves the deployment's origin, runs `vss configure` against it, and repeats that after each ingestion, because the recorded index inventory is a snapshot and a freshly deployed stack records none.
+
+Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
+
+```bash
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+"${VSS[@]}" configure --base-url "http://${HOST_IP}:7777"
+"${VSS[@]}" configure show
+```
+
+`--extra cli` is required. `configure` probes each route and records the ones that answer, along with the Elasticsearch index list, and `configure show` prints what it recorded.
 
 ### Step 3: Search with a simple query
 
@@ -1203,18 +1302,27 @@ Use its search capability to find all instances of forklifts in the uploaded vid
 **Simple search prompt**
 
 ```text title="Simple search prompt"
-Find all instances of forklifts in the sample warehouse video.
+Find all instances of forklifts in the uploaded videos.
+Report the query results with source, timestamps, similarity, and the
+clip/screenshot URL.
+Don't fetch screenshot pixels unless I opt in.
 ```
 
 What the agent does:
 
-1. Reads the skill to determine the search API.
-2. Checks if the video is already registered in VIOS (`sensor/list`). If not, ingests it using the agent backend's chunked-upload handshake.
-3. Fires the natural-language query via `POST /generate` on the agent backend, which decomposes it into embed search and optionally attribute search.
-4. The agent's critic (VLM) verifies top results against decomposed criteria and returns confirmed/rejected verdicts.
-5. Presents results as a table with time ranges, similarity scores, critic verdicts, and per-criteria breakdown.
+1. Reads the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill to determine the retrieval path.
+2. Confirms the source is registered in VIOS, and provisions it first if it is not.
+3. Chooses a retrieval route and runs it through `vss search run`, which takes no endpoint because the CLI resolves everything from what `vss configure` recorded. The four routes match the ones the chat interface selects between: `embed` for actions and events, `attribute` for visual descriptors, `fusion` for queries combining both, and `object` for identity lookup by tracked object id.
+4. Verifies the top results with the critic if the build includes RTVI-VLM. The CLI attempts this by default and skips it when the service is absent.
+5. Presents results as a table with time ranges, similarity scores, verification verdicts, and the per-criteria breakdown.
 
-The **Critic** column shows the [critic agent's](/vss/vision-agent/agent-workflows/search#critic-agent-overview) verdict for each result — **confirmed** or **rejected** — while the **Criteria** column lists the individual conditions extracted from the query and whether each was satisfied.
+Each result carries the source name, a description, `start_time` and `end_time`, the sensor id, a screenshot URL, the similarity score, any tracked object ids, and a verification verdict. The verdict is **confirmed**, **rejected**, or **unverified**, and the criteria breakdown lists the individual conditions extracted from the query and whether each was satisfied. See [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview) for how the verdicts are reached.
+
+<Note>
+An empty result set is an answer, not a failure. It means the deployment holds nothing matching the query, and re-running the same search will not change that. A backend problem reports itself as a failure instead.
+
+Every verdict is **unverified** on a build deployed without result verification, and the criteria breakdown is empty. Retrieval is unaffected, and the scores and time ranges remain valid.
+</Note>
 
 ### Step 4: Search with additional filters
 
@@ -1232,6 +1340,8 @@ Follow-up questions related to the search results can also be asked in the same 
 What are the durations of the top 5 results?
 ```
 
+Questions like this one are answered from the results already returned, so they work on any build. Questions about what is visible in a clip are different: they re-examine the video through RTVI-VLM, so they need a build deployed with visual follow-up questions in Step 1. Without it the agent reports the missing service rather than deploying one.
+
 ### Step 6: Delete Videos or Streams
 
 To remove an uploaded video or RTSP stream, issue the appropriate prompt:
@@ -1248,15 +1358,21 @@ Delete the video sample-warehouse-ladder.mp4.
 Delete the RTSP stream warehouse_sample.
 ```
 
-### Step 7: Teardown the agent
+### Step 7: Teardown the deployment
 
-To teardown the search agent, issue the following prompt:
+To teardown the deployment, issue the following prompt:
 
 ```text
-Teardown the VSS search profile.
+Tear down the search deployment.
 ```
 
-This will stop and remove the agent containers.
+The default teardown removes the project's containers, network, and named volumes, including the multi-GB NIM and RTVI model caches. To keep the caches for an immediate redeploy, ask for that explicitly:
+
+```text
+Tear down the search deployment and preserve the model caches.
+```
+
+Bind-mounted data under `VSS_DATA_DIR`, such as Elasticsearch and Kafka data and VIOS recordings, survives either path and would carry into the next deployment. Clearing it is a separate step that needs root, so the agent will surface the command and confirm with you before running it.
 
 ## Changing Embedding Models
 
