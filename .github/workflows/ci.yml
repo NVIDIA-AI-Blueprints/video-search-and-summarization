@@ -1421,6 +1421,7 @@ jobs:
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_release_channel_policy.py
+          python3 .github/scripts/test_rtvi_vlm_env_docs.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
 
       - name: Unit-test the release-set tooling
