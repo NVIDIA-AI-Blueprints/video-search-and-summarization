@@ -216,7 +216,7 @@ services:
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/notification_config.json:/home/vst/vst_release/configs/notification_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
-      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/home/vst/vst_release/configs/labels.txt
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels-${DATASET_TYPE}.txt:/home/vst/vst_release/configs/labels.txt:ro
       - vios_apt_cache:/opt/apt-cache:ro
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video

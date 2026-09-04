@@ -204,6 +204,12 @@ commons:
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
 
+      # Sparse4D model, anchor, and labels are selected by this explicit dataset family.
+      - variable: DATASET_TYPE
+        required: true
+        allowed_values: ["real", "synthetic"]
+        error_message: "DATASET_TYPE must be either real or synthetic"
+
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
         allowed_values: ["bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
@@ -399,15 +405,15 @@ commons:
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
       # Synthetic datasets use Sparse4D v2.3; real datasets use v3.0.
-      - sparse4d_onnx_file: '"/opt/storage/sparse4d/sparse4d_warehouse_v2.3.onnx" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "/opt/storage/sparse4d/sparse4d_warehouse_v3.0.onnx"'
-      - sparse4d_engine_file: '"/opt/storage/sparse4d/sparse4d_warehouse_v2.3_b${final_stream_count}.engine" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "/opt/storage/sparse4d/sparse4d_warehouse_v3.0_b${final_stream_count}.engine"'
-      - sparse4d_labels_file: '"/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels-synthetic.txt" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels-real.txt"'
-      - sparse4d_anchor_file: '"/opt/storage/sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "/opt/storage/sparse4d/_ov_kmeans900_v3.0_r50.npy"'
-      - sparse4d_anchor_source: '"_ov_kmeans900_v2.3_r50.npy" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "_ov_kmeans900_v3.0_r50.npy"'
-      - sparse4d_anchor_destination: '"sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "sparse4d/_ov_kmeans900_v3.0_r50.npy"'
-      - sparse4d_model: '"nvstaging/tao/sparse4d_rn50:deployable_v2.3" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "nvstaging/tao/sparse4d_rn50:deployable_v3.0"'
-      - sparse4d_model_source: '"sparse4d_warehouse_v2.3_r50.onnx" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "sparse4d_warehouse_v3.0_r50.onnx"'
-      - sparse4d_model_destination: '"sparse4d/sparse4d_warehouse_v2.3.onnx" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-4cams-20mx20m-synthetic" else "sparse4d/sparse4d_warehouse_v3.0.onnx"'
+      - sparse4d_onnx_file: '"/opt/storage/sparse4d/sparse4d_warehouse_v2.3.onnx" if "${DATASET_TYPE}" == "synthetic" else "/opt/storage/sparse4d/sparse4d_warehouse_v3.0.onnx"'
+      - sparse4d_engine_file: '"/opt/storage/sparse4d/sparse4d_warehouse_v2.3_b${final_stream_count}.engine" if "${DATASET_TYPE}" == "synthetic" else "/opt/storage/sparse4d/sparse4d_warehouse_v3.0_b${final_stream_count}.engine"'
+      - sparse4d_labels_file: '"/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels-${DATASET_TYPE}.txt"'
+      - sparse4d_anchor_file: '"/opt/storage/sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${DATASET_TYPE}" == "synthetic" else "/opt/storage/sparse4d/_ov_kmeans900_v3.0_r50.npy"'
+      - sparse4d_anchor_source: '"_ov_kmeans900_v2.3_r50.npy" if "${DATASET_TYPE}" == "synthetic" else "_ov_kmeans900_v3.0_r50.npy"'
+      - sparse4d_anchor_destination: '"sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${DATASET_TYPE}" == "synthetic" else "sparse4d/_ov_kmeans900_v3.0_r50.npy"'
+      - sparse4d_model: '"nvstaging/tao/sparse4d_rn50:deployable_v2.3" if "${DATASET_TYPE}" == "synthetic" else "nvstaging/tao/sparse4d_rn50:deployable_v3.0"'
+      - sparse4d_model_source: '"sparse4d_warehouse_v2.3_r50.onnx" if "${DATASET_TYPE}" == "synthetic" else "sparse4d_warehouse_v3.0_r50.onnx"'
+      - sparse4d_model_destination: '"sparse4d/sparse4d_warehouse_v2.3.onnx" if "${DATASET_TYPE}" == "synthetic" else "sparse4d/sparse4d_warehouse_v3.0.onnx"'
 
       - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-bev"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
