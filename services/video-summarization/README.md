@@ -29,7 +29,7 @@ Video Summarization is composed of the following services:
 |---------|------|
 | **lvs** | REST API server — orchestrates captioning, summarization, and streaming workflows |
 | **rt-vlm** | Real-Time VLM inference — downloads video, chunks frames, runs VLM, streams captions via SSE or Kafka |
-| **LLM NIM** (e.g. gpt-oss-20b) | Summarization LLM — aggregates captions into structured summaries via Context-Aware RAG |
+| **LLM NIM** (e.g. nemotron-3.5-lightning-30b-a3b) | Summarization LLM — aggregates captions into structured summaries via Context-Aware RAG |
 | **Elasticsearch** | Document store for captions and summaries |
 | **Kafka + Logstash** | (Optional, profile-gated) Streaming pipeline — RT-VLM publishes raw events to Kafka, Logstash writes to Elasticsearch |
 
@@ -90,28 +90,28 @@ endpoint must already be reachable before you run `docker compose up` for this
 project. If the endpoint is not ready (or `LVS_LLM_HOST` / `LVS_LLM_PORT` are unset),
 the `lvs` service will refuse to start.
 
-The recommended path is to deploy `gpt-oss-20b` locally using the repo-level NIM
-compose at `deploy/docker/services/nim/compose.yml` (which defines the
-`llm_local_gpt-oss-20b` profile). From the repo root:
+The recommended path is to deploy `nemotron-3.5-lightning-30b-a3b` locally using the
+repo-level NIM compose at `deploy/docker/services/nim/compose.yml` (which defines the
+`llm_local_nemotron-3.5-lightning-30b-a3b` profile). From the repo root:
 
 ```sh
 cd deploy/docker
 export VSS_APPS_DIR=$(pwd)            # absolute path to deploy/docker
-export HARDWARE_PROFILE=H100          # H100 | A100 | L40S | ...
+export HARDWARE_PROFILE=H100          # H100 | GB300 | L40S | RTXPRO4500BW | RTXPRO6000BW | OTHER
 export NGC_CLI_API_KEY=<nvapi-...>    # NGC credential used to pull the NIM image
 export LLM_PORT=9233                  # host port to expose the NIM on (any free port)
 export LLM_DEVICE_ID=1                # GPU index the NIM should use
 
 docker compose -f services/nim/compose.yml \
-  --profile llm_local_gpt-oss-20b \
-  up -d gpt-oss-20b
+  --profile llm_local_nemotron-3.5-lightning-30b-a3b \
+  up -d nemotron-3.5-lightning-30b-a3b
 ```
 
 Wait until the NIM reports ready before bringing up Video Summarization:
 
 ```sh
 until curl -sf http://localhost:${LLM_PORT}/v1/health/ready; do
-  echo "Waiting for gpt-oss-20b..."; sleep 5
+  echo "Waiting for nemotron-3.5-lightning-30b-a3b..."; sleep 5
 done
 echo "LLM ready on port ${LLM_PORT}."
 ```
@@ -119,8 +119,9 @@ echo "LLM ready on port ${LLM_PORT}."
 Then point Video Summarization at the LLM by setting `LVS_LLM_HOST`, `LVS_LLM_PORT`,
 and `LVS_LLM_MODEL_NAME` (see [Set environment variables](#set-environment-variables)).
 The NIM runs in a separate Docker Compose project, so reference it by the docker host
-IP (or another routable hostname), not by the `gpt-oss-20b` container name — the LVS
-stack's `app-network` cannot resolve container names across projects.
+IP (or another routable hostname), not by the `nemotron-3.5-lightning-30b-a3b`
+container name — the LVS stack's `app-network` cannot resolve container names
+across projects.
 
 Any OpenAI-compatible LLM endpoint (a remote NIM, NVIDIA-hosted endpoint, a vLLM
 server, etc.) can be substituted by pointing `LVS_LLM_HOST` / `LVS_LLM_PORT` /
@@ -163,9 +164,9 @@ export BACKEND_PORT=38111          # LVS REST API port
 # "Deploy the summarization LLM (prerequisite)" above. Use the docker
 # host IP (or a routable hostname) — the NIM runs in a separate compose
 # project, so its container name will not resolve from within this stack.
-export LVS_LLM_HOST=<>             # Hostname of the summarization LLM (e.g. gpt-oss-20b)
+export LVS_LLM_HOST=<>             # Hostname of the summarization LLM (e.g. the docker host IP)
 export LVS_LLM_PORT=<>             # Port of the summarization LLM (e.g. 9233)
-export LVS_LLM_MODEL_NAME=<>      # LLM model name (e.g. openai/gpt-oss-20b)
+export LVS_LLM_MODEL_NAME=<>      # LLM model name (e.g. nvidia/nemotron-3.5-lightning-30b-a3b)
 
 # Database Backend
 export LVS_DATABASE_BACKEND=elasticsearch_db      # Elasticsearch backend
@@ -258,7 +259,7 @@ BACKEND_PORT=38111
 
 LVS_LLM_HOST=<host-ip>
 LVS_LLM_PORT=9233
-LVS_LLM_MODEL_NAME=openai/gpt-oss-20b
+LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 
 # Database backend
 LVS_DATABASE_BACKEND=elasticsearch_db
