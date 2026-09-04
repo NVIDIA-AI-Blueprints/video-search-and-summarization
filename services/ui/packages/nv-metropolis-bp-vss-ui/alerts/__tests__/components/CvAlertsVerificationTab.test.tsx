@@ -105,10 +105,7 @@ describe('CV Alerts Verification rules tab', () => {
       'data-foundation',
       'Button',
     );
-    expect(screen.getByTestId('verification-filter')).toHaveAttribute(
-      'data-foundation',
-      'TextInput',
-    );
+    expect(screen.getByTestId('verification-filter').tagName).toBe('INPUT');
   });
 
   it('switches tabs and creates, edits, then deletes a verification rule', async () => {
@@ -124,6 +121,9 @@ describe('CV Alerts Verification rules tab', () => {
       expect(screen.getByText(/No rules found/i)).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByTestId('add-verification-rule-inline'));
+    expect(screen.getByTestId('verification-alert-type').tagName).toBe('INPUT');
+    expect(screen.getByTestId('verification-output-category').tagName).toBe('INPUT');
+    expect(screen.getByTestId('verification-user-prompt').tagName).toBe('INPUT');
     fireEvent.change(screen.getByLabelText('Alert type'), {
       target: { value: 'FOV Count Violation' },
     });
@@ -203,6 +203,7 @@ describe('CV Alerts Verification rules tab', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
     expect(screen.getByTestId('verification-optional-row')).toBeInTheDocument();
+    expect(screen.getByTestId('verification-enrichment-prompt').tagName).toBe('INPUT');
     expect(screen.getByTestId('verification-optional-toggle')).toHaveAttribute(
       'aria-expanded',
       'true',
