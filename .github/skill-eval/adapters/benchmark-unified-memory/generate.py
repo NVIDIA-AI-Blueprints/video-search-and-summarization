@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Generate three Harbor setup tasks plus one four-turn task per VideoMME-v2 group."""
+"""Generate configured setup tasks plus one four-turn task per VideoMME-v2 group."""
 
 from __future__ import annotations
 

@@ -15,9 +15,11 @@ from agents.openclaw_unified_memory import (
     UnifiedMemoryOpenClaw,
     _aggregate_cleanup_command,
     _aggregate_envelope,
+    _gateway_health_command,
     _group_envelope,
     _openclaw_setup_commands,
     _prediction_extractor_command,
+    _staged_skills_cleanup_command,
 )
 from benchmark import structured_output
 
@@ -78,6 +80,23 @@ def test_openclaw_setup_adds_configured_workspace_when_missing() -> None:
     assert setup.endswith(
         'openclaw setup --baseline --workspace "$HOME/.openclaw/workspace"'
     )
+
+
+def test_staged_skill_cleanup_is_derived_from_current_task() -> None:
+    command = _staged_skills_cleanup_command()
+
+    assert "/skills/*" in command
+    assert 'basename "$skill_dir"' in command
+    assert '"$HOME/.openclaw/skills/$skill_name"' in command
+    assert "vss-ask-video" not in command
+
+
+def test_question_group_requires_shared_gateway_health() -> None:
+    command = _gateway_health_command()
+
+    assert "127.0.0.1:18789/v1/models" in command
+    assert "--max-time 10" in command
+    assert "embedd" not in command
 
 
 def _run_prediction_pipeline(

@@ -144,3 +144,21 @@ what the persisted record and OpenClaw note must expose for later recall.
 Do not pass persistence flags, call `vss memory upsert`, or write Markdown manually. The configured defaults make `vss summarize run` persist its parent and child records to Elasticsearch and write its standard parent block under `~/.openclaw/workspace/memory/YYYY-MM-DD-vss.md` after authoritative persistence succeeds.
 
 A completed summarize run is terminal. Do not rerun it because its content looks incomplete. Fail the setup task if a run fails, reports `persisted: false`, or does not report successful Markdown-note creation. Before completing, confirm that the daily VSS note contains the resulting summary job block for every supplied video and that its `Sensor:` context is the exact supplied `dataset_video_id`, not a VIOS UUID.
+
+## Shared introspection Gateway
+
+For the Gateway setup task, run the benchmark helper exactly once:
+
+```bash
+python "$HOME/.openclaw/skills/benchmark-unified-memory/scripts/start_openclaw_gateway.py"
+```
+
+The helper replaces any stale `openclaw-gateway` container, starts the pinned
+OpenClaw image on worker loopback, verifies a real Chat Completions request,
+and configures `vss memory introspect` to use that endpoint and the Gateway's
+default Anthropic model. The Gateway is shared by the later question-group
+tasks on this dedicated worker.
+
+This Gateway is the text judge for official VSS memory introspection. Do not
+configure or use it for embeddings, and do not put provider credentials in its
+JSON configuration or in command-line arguments.

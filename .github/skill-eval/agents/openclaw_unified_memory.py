@@ -26,6 +26,7 @@ RESET_OPENCLAW_RUNTIME_CLI = (
     "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
 )
 RESPONSE_JQ_FILTER = '.payloads[0].text | select(type == "string")'
+GATEWAY_MODELS_URL = "http://127.0.0.1:18789/v1/models"
 
 
 def _group_envelope(instruction: str) -> dict[str, Any] | None:
@@ -105,6 +106,25 @@ def _openclaw_setup_commands(setup_cli: str) -> tuple[str, str]:
     return RESET_OPENCLAW_RUNTIME_CLI, _nvm22(command)
 
 
+def _staged_skills_cleanup_command() -> str:
+    """Remove only skills supplied by the current Harbor task."""
+    return (
+        "for skill_dir in /skills/*; do "
+        '[ -d "$skill_dir" ] || continue; '
+        'skill_name="$(basename "$skill_dir")"; '
+        'rm -rf "$HOME/.openclaw/skills/$skill_name"; '
+        "done"
+    )
+
+
+def _gateway_health_command() -> str:
+    """Fail a question group immediately when its shared judge is absent."""
+    return (
+        "curl --silent --show-error --fail --max-time 10 "
+        f"{shlex.quote(GATEWAY_MODELS_URL)} >/dev/null"
+    )
+
+
 class UnifiedMemoryOpenClaw(OpenClaw):
     """Minimal extension: four prompts share one unique ``--session-key``."""
 
@@ -116,14 +136,7 @@ class UnifiedMemoryOpenClaw(OpenClaw):
         command = super()._build_register_skills_command()
         if not command:
             return None
-        owned = (
-            "benchmark-unified-memory",
-            "vss-deploy-profile",
-            "vss-manage-video-io-storage",
-            "vss-ask-video",
-        )
-        cleanup = " ".join(f"~/.openclaw/skills/{shlex.quote(name)}" for name in owned)
-        return f"rm -rf {cleanup} && {command}"
+        return f"{_staged_skills_cleanup_command()} && {command}"
 
     async def _prepare(
         self, environment: BaseEnvironment, instruction: str
@@ -180,6 +193,12 @@ class UnifiedMemoryOpenClaw(OpenClaw):
         group = _group_envelope(instruction)
         logged_instruction = str(group["turns"][0]["prompt"]) if group else instruction
         env = await self._prepare(environment, logged_instruction)
+        if group:
+            await self.exec_as_agent(
+                environment,
+                command=_gateway_health_command(),
+                env=env,
+            )
         if not self.session_id:
             raise RuntimeError("Harbor did not assign the OpenClaw trial session_id")
         group_id = str(group["group_id"]) if group else "single-turn"

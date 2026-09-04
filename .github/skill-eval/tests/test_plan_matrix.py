@@ -191,10 +191,22 @@ class EvalScope(unittest.TestCase):
     def test_uncovered_categories_attribute_to_nothing(self):
         skills = plan_matrix.discover_skills()
         for path in ("skills/deployment/vss-deploy-profile/evals/base.json",
-                     "skills/tools/vss-generate-video-calibration/SKILL.md",
-                     "skills/benchmarking/benchmark-video-summarization/scripts/x.py"):
+                     "skills/tools/vss-generate-video-calibration/SKILL.md"):
             self.assertIsNone(plan_matrix.skill_for_file(path, skills), path)
             self.assertEqual(plan_matrix.build_matrix([path]), [], path)
+
+    def test_benchmarking_spec_dispatches_its_eval_leg(self):
+        path = (
+            "skills/benchmarking/benchmark-unified-memory/evals/"
+            "physical_ai_video_mme_v2.json"
+        )
+
+        matrix = plan_matrix.build_matrix([path])
+
+        self.assertEqual(len(matrix), 1)
+        self.assertEqual(matrix[0]["skill"], "benchmark-unified-memory")
+        self.assertEqual(matrix[0]["spec_stem"], "physical_ai_video_mme_v2")
+        self.assertEqual(matrix[0]["platform"], "RTXPRO6000BW")
 
     def test_an_undiscovered_skill_under_a_category_still_names_the_leaf(self):
         """The fallback path: a skill dir in the diff but not yet on disk."""

@@ -52,3 +52,26 @@ def test_benchmark_spec_rejects_removed_memory_contract() -> None:
                 "scoring": {"metric": "overall_group_score", "minimum": 0.75},
             }
         )
+
+
+def test_benchmark_spec_accepts_four_setup_steps() -> None:
+    spec = BenchmarkSpec.model_validate(
+        {
+            "agent": {"name": "openclaw"},
+            "skills": ["benchmark-unified-memory", "vss-ask-video"],
+            "resources": {"platforms": {"RTXPRO6000BW": {"gpu_count": 1}}},
+            "setup": [
+                {"name": str(index), "query": "query", "checks": ["check"]}
+                for index in range(4)
+            ],
+            "dataset": {"path": "data.parquet", "format": "video-mme-v2"},
+            "summarization": {
+                "scenario": "monitoring",
+                "events": ["events"],
+                "creation_time": "2025-01-01T00:00:00.000Z",
+            },
+            "scoring": {"metric": "overall_group_score", "minimum": 0.75},
+        }
+    )
+
+    assert len(spec.setup) == 4
