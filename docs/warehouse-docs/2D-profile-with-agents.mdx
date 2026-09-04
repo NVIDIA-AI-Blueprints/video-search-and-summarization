@@ -350,7 +350,7 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Deploy the auto-calibration profile (`bp_wh_auto_calib_2d`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start-guide). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
 
 <Note>
 - Maintain a single `calibration.json` file per deployment.
