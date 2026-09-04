@@ -1522,7 +1522,9 @@ def run_invocations(
         bootstrap_env.update(
             {
                 "NEMOCLAW_SANDBOX_NAME": os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval"),
-                "NEMOCLAW_GATEWAY_PORT": os.environ.get("NEMOCLAW_GATEWAY_PORT", "8991"),
+                # Build Vision AI owns the OpenShell gateway name/port. Do not
+                # impose the former notebook harness's 8991 override: its
+                # deployment flow uses NemoClaw's default gateway contract.
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
                 "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),
                 "NEMOCLAW_ENDPOINT_URL": os.environ.get("NEMOCLAW_ENDPOINT_URL", base_url),
