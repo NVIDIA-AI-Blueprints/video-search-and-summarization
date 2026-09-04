@@ -30,6 +30,20 @@ import dashjs from 'dashjs';
  * and still gives up while someone is plausibly still watching. */
 const MANIFEST_READY_TIMEOUT_MS = 45_000;
 const MANIFEST_RETRY_DELAY_MS = 1_000;
+/* How long to let the cushion keep growing before starting playback on
+ * whatever has arrived.  Re-checked on this interval rather than once, so a
+ * buffer that is still filling is never mistaken for one that has stopped. */
+const AUTOPLAY_FALLBACK_STEP_MS = 2_500;
+/* The longest a viewer waits on a black player before it starts regardless.
+ * Reached only when the buffer genuinely stops growing short of the cushion. */
+const AUTOPLAY_MAX_WAIT_MS = 12_000;
+/* Growth smaller than this is measurement noise, not a buffer that is filling. */
+const AUTOPLAY_GROWTH_EPSILON_SEC = 0.2;
+/* How many consecutive flat checks mean the buffer has really stopped filling.
+ * A paused element does not fill smoothly - Chrome fetches a segment, sits
+ * still for seconds, then fetches several - so a single flat check reads a
+ * pause between bursts as the end of filling and starts playback thin. */
+const AUTOPLAY_FLAT_CHECKS_BEFORE_START = 2;
 
 export interface DashStreamConfig {
     endpoint: string;
@@ -123,6 +137,9 @@ export class DashStream {
      * delay and the watchdog are all really counts of segments. */
     private segmentSeconds = 0;
     private autoplayFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    private autoplayWaitStartedAt: number | null = null;
+    private autoplayLastBuffered = 0;
+    private autoplayFlatChecks = 0;
     // Remembered so the session is released through the same API that created it.
     private replay = false;
     private config: DashStreamConfig | null = null;
@@ -263,9 +280,36 @@ export class DashStream {
         const bufferSeconds = segmentSeconds > 0
             ? Math.max(12, Math.ceil(segmentSeconds * 3))
             : 12;
-        const initialBuffer = segmentSeconds > 0
-            ? Math.max(config.initialBufferSeconds ?? 4, Math.ceil(segmentSeconds))
-            : (config.initialBufferSeconds ?? 4);
+        // The amount that must be buffered before playback starts, as distinct
+        // from the steady-state target above. Players name this separately -
+        // Shaka calls it the rebuffering goal against its buffering goal, dash.js
+        // calls it initialBufferLevel - and the usual value is two segments.
+        //
+        // Two segments, which is the conventional value: one segment is not a
+        // cushion at all, because the element runs dry the moment the next one
+        // is late. The ceiling exists to stop a very long keyframe interval
+        // turning start-up into a half minute wait, and it has to be expressed
+        // in segments rather than as a flat number of seconds. A flat four
+        // second ceiling was measured collapsing to a single segment on a four
+        // second stream: playback started on that one segment, drained it and
+        // stalled at 7.7s while the next was still arriving.
+        const startCushionSeconds = config.initialBufferSeconds
+            ?? (segmentSeconds > 0
+                ? Math.min(Math.max(segmentSeconds * 2, 2), 10)
+                : 2);
+        // What dash.js fills to while the element is still paused, which is a
+        // different question from how much has to exist before playback starts.
+        // Handing the library the same number the gate below waits for is what
+        // made the gate unreliable: dash.js stops fetching the moment it reaches
+        // its target, so the buffer settles exactly at the level being waited
+        // for and whether the gate opens comes down to which side rounds first.
+        // Measured on a cold session, Chrome settled at one segment and fed the
+        // element one segment per second from then on, so playback began on
+        // 0.74s and ran dry four times in the first four seconds; Edge happened
+        // to fetch nine segments before the same instant and showed nothing.
+        // Filling past the gate means it opens on a cushion that is still
+        // growing, whichever way the browser schedules its first fetches.
+        const initialBuffer = Math.min(Math.max(startCushionSeconds * 2, 4), bufferSeconds);
         // Keys follow the dash.js 5.x layout that package.json pins.  dash.js
         // silently rejects unknown keys with a console warning instead of
         // failing, so a key from the pre-5 flat layout would leave the default
@@ -514,7 +558,9 @@ export class DashStream {
             // run at the segment boundary with no jitter cushion.  Wait until
             // the requested initial buffer exists, then use muted play() to
             // retain reliable Chrome autoplay.
-            const autoplayBufferSeconds = config.initialBufferSeconds ?? (isReplay ? 1 : 4);
+            // The same level dash.js was given, so the library's policy and this
+            // fallback agree instead of racing each other.
+            const autoplayBufferSeconds = startCushionSeconds;
             this.autoplayListener = () => {
                 // `progress` and BUFFER_LEVEL_UPDATED fire for every append.
                 // Calling play() on each one creates an unbounded retry loop if
@@ -530,50 +576,78 @@ export class DashStream {
                 const bufferedAhead = buffered.length > 0
                     ? buffered.end(buffered.length - 1) - config.videoElement.currentTime
                     : 0;
-                // Start as soon as the element can play rather than holding out
-                // for a cushion.  A paused player fills lazily - it stopped at
-                // two seconds against a four second target - so waiting for the
-                // cushion means starting later with no more buffer than this,
-                // and then starving immediately.  A player left to start itself
-                // begins on almost nothing and fills as it goes, which is what
-                // runs smoothly; the cushion is something to accumulate during
-                // playback, not a precondition for it.
-                if (config.videoElement.readyState >= 3) {
-                    this.autoplayAttempted = true;
-                    this.clearAutoplayFallback();
-                    this.removeAutoplayListener();
-                    void config.videoElement.play().catch(error => {
-                        // eslint-disable-next-line no-console
-                        console.warn('[dash] muted autoplay was rejected; use the player controls to resume', error);
-                    });
-                    return;
-                }
+                // Starting on the first playable frame is what left the first
+                // seconds without slack: playback began on under a second of
+                // media and any hiccup - a decoder still warming up, a segment
+                // arriving late - had nothing to absorb it and showed as a
+                // freeze. Wait for the cushion below instead, which is what the
+                // timeout underneath keeps bounded.
                 if (bufferedAhead < autoplayBufferSeconds) {
-                    // The cushion is worth waiting for, but not forever.  A
-                    // player that is paused stops filling well short of it -
-                    // measured stopping at two seconds against a four second
-                    // target - so waiting for the full amount before starting
-                    // means each side waits for the other and the picture never
-                    // moves.  Once the element says it has enough to play,
-                    // give the buffer a moment longer to grow and then start
-                    // regardless.
+                    // The cushion is worth waiting for, but not forever: a
+                    // buffer that stops filling short of it would leave the
+                    // player black indefinitely.  Waiting a fixed moment and
+                    // then starting regardless is what broke, though - it fired
+                    // while the buffer was still filling and began playback on a
+                    // single segment, which then ran dry once a second until the
+                    // library switched to its steady-state target.  Distinguish
+                    // the two cases by whether the buffer is still growing:
+                    // re-check while it is, and start early only once it has
+                    // genuinely stalled or the viewer has waited long enough.
                     if (config.videoElement.readyState >= 3 && this.autoplayFallbackTimer === null) {
-                        this.autoplayFallbackTimer = setTimeout(() => {
-                            this.autoplayFallbackTimer = null;
-                            if (this.autoplayAttempted || !config.videoElement.paused) {
-                                return;
-                            }
+                        if (this.autoplayWaitStartedAt === null) {
+                            this.autoplayWaitStartedAt = Date.now();
+                            this.autoplayLastBuffered = bufferedAhead;
+                            this.autoplayFlatChecks = 0;
+                        }
+                        const aheadNow = (): number => {
+                            const ranges = config.videoElement.buffered;
+                            return ranges.length > 0
+                                ? ranges.end(ranges.length - 1) - config.videoElement.currentTime
+                                : 0;
+                        };
+                        const startNow = (ahead: number): void => {
                             this.autoplayAttempted = true;
                             this.removeAutoplayListener();
                             trace('AUTOPLAY_WITHOUT_FULL_BUFFER', {
-                                bufferedAhead: Number(bufferedAhead.toFixed(2)),
+                                bufferedAhead: Number(ahead.toFixed(2)),
                                 wanted: autoplayBufferSeconds,
+                                waitedMs: Date.now() - (this.autoplayWaitStartedAt ?? Date.now()),
                             });
                             void config.videoElement.play().catch(() => {
                                 // eslint-disable-next-line no-console
                                 console.warn('[dash] muted autoplay was rejected; use the player controls to resume');
                             });
-                        }, 2500);
+                        };
+                        const arm = (): void => {
+                            this.autoplayFallbackTimer = setTimeout(() => {
+                                this.autoplayFallbackTimer = null;
+                                if (this.autoplayAttempted || !config.videoElement.paused) {
+                                    return;
+                                }
+                                const ahead = aheadNow();
+                                if (ahead >= autoplayBufferSeconds) {
+                                    this.clearAutoplayFallback();
+                                    this.autoplayAttempted = true;
+                                    this.removeAutoplayListener();
+                                    void config.videoElement.play().catch(error => {
+                                        // eslint-disable-next-line no-console
+                                        console.warn('[dash] muted autoplay was rejected; use the player controls to resume', error);
+                                    });
+                                    return;
+                                }
+                                const waited = Date.now() - (this.autoplayWaitStartedAt ?? Date.now());
+                                const growing = ahead - this.autoplayLastBuffered > AUTOPLAY_GROWTH_EPSILON_SEC;
+                                this.autoplayFlatChecks = growing ? 0 : this.autoplayFlatChecks + 1;
+                                this.autoplayLastBuffered = Math.max(this.autoplayLastBuffered, ahead);
+                                if (this.autoplayFlatChecks < AUTOPLAY_FLAT_CHECKS_BEFORE_START
+                                    && waited < AUTOPLAY_MAX_WAIT_MS) {
+                                    arm();
+                                    return;
+                                }
+                                startNow(ahead);
+                            }, AUTOPLAY_FALLBACK_STEP_MS);
+                        };
+                        arm();
                     }
                     return;
                 }
@@ -815,6 +889,11 @@ export class DashStream {
         this.firstFrameListener = null;
         this.firstFrameReported = false;
         this.autoplayAttempted = false;
+        // The next attachment starts its own wait; carrying the previous one
+        // over would make the first re-check look like a twelve second wait.
+        this.autoplayWaitStartedAt = null;
+        this.autoplayLastBuffered = 0;
+        this.autoplayFlatChecks = 0;
     }
 
     private clearAutoplayFallback(): void {
