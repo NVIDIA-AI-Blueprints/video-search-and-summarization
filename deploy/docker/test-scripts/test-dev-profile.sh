@@ -18,6 +18,14 @@ export NGC_CLI_API_KEY
 # Skip hardware-profile vs nvidia-smi check so tests that pass a specific profile (e.g. DGX-SPARK) pass on CI without that GPU.
 # Unset SKIP_HARDWARE_CHECK in tests that assert the fail-fast mismatch behavior.
 export SKIP_HARDWARE_CHECK=true
+# Pin the GPU count the placement assertions are made against. Nearly every
+# generated.env expectation below encodes a committed multi-GPU layout (alerts
+# and search on two GPUs, warehouse on three), and dev-profile.sh now folds any
+# index the host cannot satisfy onto a device that exists. Without pinning, the
+# expected values would depend on how many GPUs the machine running the tests
+# happens to have -- 4 keeps every committed layout intact everywhere. The
+# single-GPU clamp itself is covered by the VSS_GPU_COUNT=1 cases further down.
+export VSS_GPU_COUNT="${VSS_GPU_COUNT:-4}"
 # Per-test timeout (seconds); dry-run can be slow on first run
 TEST_TIMEOUT="${TEST_TIMEOUT:-15}"
 TESTS_PASSED=0
@@ -715,6 +723,60 @@ run_negative_test "invalid VLM model name" 1 up -p base --vlm invalid-vlm
 # Note: shared-llm-vlm-device-id is now from profile only; reserved check for it would require profile to set SHARED_LLM_VLM_DEVICE_ID=0
 run_negative_test "llm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 0 --vlm-device-id 1
 run_negative_test "vlm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 1 --vlm-device-id 0
+
+# ===== Single-GPU device clamp (VSS_GPU_COUNT=1) =====
+# alerts and search commit a two-GPU layout, so on one GPU Compose is handed a
+# device_ids entry of "1" and no container starts. Every index at or above the
+# GPU count folds onto device 0 instead. The 2-GPU expectations above are the
+# same assertions with nothing clamped, so the pair covers both branches.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts on one GPU folds the 2-GPU layout onto device 0" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_VLM_DEVICE_ID" "0" \
+  "LLM_MODE" "local_shared" \
+  "VLM_MODE" "local_shared"
+# RESERVED_DEVICE_IDS='0' keeps alerts' models off RT-CV's GPU. With one GPU
+# there is no other device to move them to, so the reservation is dropped --
+# leaving it would turn the crash into "Device ID 0 is reserved".
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts on one GPU drops the unsatisfiable reservation" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "RESERVED_DEVICE_IDS" ""
+# search splits RT-CV + RT-VLM on 0 from RT-Embed + LLM on 1, and treats both as
+# shared. On one GPU FIXED_SHARED_DEVICE_IDS='0,1' has to collapse to '0' rather
+# than '0,0' or the shared-device derivation reads a device twice.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env search on one GPU folds RT-Embed and the LLM onto device 0" "search" \
+  -i 127.0.0.1 -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "RT_EMBED_DEVICE_ID" "0" \
+  "RT_CV_DEVICE_ID" "0" \
+  "FIXED_SHARED_DEVICE_IDS" "0" \
+  "LLM_MODE" "local_shared"
+# base already places everything on device 0, so a one-GPU host must clamp
+# nothing at all: no remap, and no warning claiming one happened.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env base on one GPU is unchanged" "base" \
+  -i 127.0.0.1 -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_VLM_DEVICE_ID" "0"
+VSS_GPU_COUNT=1 run_dry_run_test "alerts on one GPU reports the remap" up -p alerts -i 127.0.0.1 -m verification -d
+assert_stdout_contains "alerts on one GPU names the profile's GPU assumption" \
+  "assumes 2 GPU(s); this host has 1"
+VSS_GPU_COUNT=1 run_dry_run_test "search on one GPU reports the remap" up -p search -i 127.0.0.1 -d
+assert_stdout_contains "search on one GPU logs which key moved" \
+  "RT_EMBED_DEVICE_ID: device 1 does not exist here"
+# A count of 0 means nvidia-smi could not be reached. Placement must be left
+# exactly as committed: an unknown count must never silently move a model.
+VSS_GPU_COUNT=0 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts with an unknown GPU count keeps the committed layout" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1"
 
 # L40S forbids a local_shared LLM (no hw-L40S-shared.env). Search RT-VLM may share GPU 0 with RT-CV.
 run_negative_test "L40S rejects local_shared LLM" 1 up -p search -i 127.0.0.1 -H L40S -d
