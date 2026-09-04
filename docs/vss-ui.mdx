@@ -711,7 +711,7 @@ When critic results are present, search results are automatically re-sorted by v
 Within each verdict group, results are ordered by descending similarity score. When the critic agent did not run for the request, results retain their original similarity ordering.
 
 <Note>
-The Critic Agent is enabled by default. To disable it across the entire deployment, set `ENABLE_CRITIC=false` before deploying. See [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview) for more details.
+The Critic Agent runs by default. Turn it off for an individual query with the **Enable Critic** toggle in the chat settings; the choice is made per request rather than at deployment time. See [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview) for more details.
 </Note>
 
 #### Search by Image
