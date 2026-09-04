@@ -61,6 +61,59 @@ def _append_artifact_display_note(side_effects: dict[str, Any]) -> None:
         side_effects["artifact_note"] = _ARTIFACT_DISPLAY_NOTE
 
 
+def _build_report_side_effects(report_result: Any, incident_id: str) -> dict[str, Any]:
+    """Build the download and media side effects for a generated incident report.
+
+    ``TemplateReportGenOutput`` declares ``http_url`` and ``pdf_url`` as required
+    fields, so ``hasattr`` is always true for them: only the values say whether the
+    object store produced anything linkable. Gating the section on the attribute
+    instead emitted a bare ``**Report Downloads:**`` heading with no anchors
+    whenever both URLs came back empty, which is indistinguishable -- to a reader
+    and to any link assertion -- from report generation having silently failed.
+
+    Media is treated differently on purpose: an incident need not have a snapshot
+    or a clip, so an absent media block is normal and is omitted rather than
+    announced. A report with nothing at all to download is not normal, so it says
+    so explicitly and logs a warning.
+    """
+
+    side_effects: dict[str, Any] = {}
+
+    downloads = [
+        f"- [{label}]({url})"
+        for label, url in (
+            ("Markdown Report", getattr(report_result, "http_url", "")),
+            ("PDF Report", getattr(report_result, "pdf_url", "")),
+        )
+        if url
+    ]
+    if downloads:
+        side_effects["report_downloads"] = "\n".join(["**Report Downloads:**", *downloads]) + "\n"
+    else:
+        logger.warning(
+            "Report for incident %s produced no downloadable artifact: the object store returned "
+            "neither a markdown nor a PDF URL",
+            incident_id,
+        )
+        side_effects["report_downloads"] = (
+            "**Report Downloads:** none - the report was generated, but the object store returned "
+            "no markdown or PDF URL, so there is nothing to download.\n"
+        )
+
+    media = [
+        f"- {prefix}[{label}]({url})"
+        for prefix, label, url in (
+            ("!", "Incident Snapshot", getattr(report_result, "image_url", "")),
+            ("", "Incident Video", getattr(report_result, "video_url", "")),
+        )
+        if url
+    ]
+    if media:
+        side_effects["media"] = "\n".join(["**Media:**", *media]) + "\n"
+
+    return side_effects
+
+
 # ========== REPORT AGENT MODELS ==========
 
 
@@ -553,21 +606,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         report_result = await template_report_tool.ainvoke(report_tool_args)
         logger.info("Single incident report generated successfully")
 
-        side_effects = {}
-        if hasattr(report_result, "http_url") or hasattr(report_result, "pdf_url"):
-            downloads = ["**Report Downloads:**"]
-            if hasattr(report_result, "http_url") and report_result.http_url:
-                downloads.append(f"- [Markdown Report]({report_result.http_url})")
-            if hasattr(report_result, "pdf_url") and report_result.pdf_url:
-                downloads.append(f"- [PDF Report]({report_result.pdf_url})")
-            side_effects["report_downloads"] = "\n".join(downloads) + "\n"
-        if hasattr(report_result, "image_url") or hasattr(report_result, "video_url"):
-            media = ["**Media:**"]
-            if hasattr(report_result, "image_url") and report_result.image_url:
-                media.append(f"- ![Incident Snapshot]({report_result.image_url})")
-            if hasattr(report_result, "video_url") and report_result.video_url:
-                media.append(f"- [Incident Video]({report_result.video_url})")
-            side_effects["media"] = "\n".join(media) + "\n"
+        side_effects = _build_report_side_effects(report_result, incident_id)
         _append_artifact_display_note(side_effects)
 
         agent_output = AgentOutput(

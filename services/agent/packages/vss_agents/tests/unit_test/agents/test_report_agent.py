@@ -15,12 +15,15 @@
 """Unit tests for report_agent module."""
 
 from datetime import datetime
+from types import SimpleNamespace
 
 from pydantic import ValidationError
 import pytest
 
 from vss_agents.agents.report_agent import ReportAgentInput
 from vss_agents.agents.report_agent import VideoReportAgentInput
+from vss_agents.agents.report_agent import _build_report_side_effects
+from vss_agents.tools.template_report_gen import TemplateReportGenOutput
 
 
 class TestReportAgentInput:
@@ -84,3 +87,81 @@ class TestVideoReportAgentInput:
         input_data = VideoReportAgentInput(sensor_id="vst-sensor-001")
         assert input_data.sensor_id == "vst-sensor-001"
         assert input_data.user_query == "Generate a detailed report of the video."
+
+
+class TestBuildReportSideEffects:
+    """Test the download/media side effects attached to a generated report."""
+
+    @staticmethod
+    def _result(**overrides):
+        """A TemplateReportGenOutput-shaped result; every URL field is present."""
+        fields = {
+            "http_url": "http://vss:7777/static/agent_report_20260904_221530.md",
+            "pdf_url": "http://vss:7777/static/agent_report_20260904_221530.pdf",
+            "image_url": "",
+            "video_url": None,
+        }
+        fields.update(overrides)
+        return SimpleNamespace(**fields)
+
+    def test_both_urls_present_links_both(self):
+        side_effects = _build_report_side_effects(self._result(), "incident-1")
+        downloads = side_effects["report_downloads"]
+        assert "**Report Downloads:**" in downloads
+        assert "- [Markdown Report](http://vss:7777/static/agent_report_20260904_221530.md)" in downloads
+        assert "- [PDF Report](http://vss:7777/static/agent_report_20260904_221530.pdf)" in downloads
+
+    def test_pdf_empty_links_markdown_only(self):
+        side_effects = _build_report_side_effects(self._result(pdf_url=""), "incident-1")
+        downloads = side_effects["report_downloads"]
+        assert "[Markdown Report]" in downloads
+        assert "[PDF Report]" not in downloads
+        # No empty anchor is emitted for the missing artifact.
+        assert "()" not in downloads
+
+    def test_markdown_empty_links_pdf_only(self):
+        side_effects = _build_report_side_effects(self._result(http_url=""), "incident-1")
+        downloads = side_effects["report_downloads"]
+        assert "[PDF Report]" in downloads
+        assert "[Markdown Report]" not in downloads
+        assert "()" not in downloads
+
+    def test_both_urls_empty_says_so_instead_of_a_bare_heading(self):
+        """The regression: hasattr is always true, so only the values can gate this."""
+        side_effects = _build_report_side_effects(self._result(http_url="", pdf_url=""), "incident-1")
+        downloads = side_effects["report_downloads"]
+        # Never a heading with no anchors under it.
+        assert downloads.strip() != "**Report Downloads:**"
+        assert "[Markdown Report]" not in downloads
+        assert "[PDF Report]" not in downloads
+        assert "nothing to download" in downloads
+
+    def test_hasattr_is_vacuous_on_the_real_output_model(self):
+        """Guards the premise of the fix against a future field-optionality change."""
+        assert "http_url" in TemplateReportGenOutput.model_fields
+        assert "pdf_url" in TemplateReportGenOutput.model_fields
+        empty = TemplateReportGenOutput(
+            http_url="",
+            pdf_url="",
+            object_store_key="k",
+            summary="s",
+            file_size=0,
+            pdf_file_size=0,
+            content="c",
+            image_url="",
+        )
+        assert hasattr(empty, "http_url") and hasattr(empty, "pdf_url")
+        assert "[Markdown Report]" not in _build_report_side_effects(empty, "incident-1")["report_downloads"]
+
+    def test_media_omitted_when_absent(self):
+        side_effects = _build_report_side_effects(self._result(), "incident-1")
+        assert "media" not in side_effects
+
+    def test_media_included_when_present(self):
+        side_effects = _build_report_side_effects(
+            self._result(image_url="http://vss:7777/snap.jpg", video_url="http://vss:7777/clip.mp4"),
+            "incident-1",
+        )
+        media = side_effects["media"]
+        assert "- ![Incident Snapshot](http://vss:7777/snap.jpg)" in media
+        assert "- [Incident Video](http://vss:7777/clip.mp4)" in media
