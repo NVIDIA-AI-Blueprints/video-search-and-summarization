@@ -50,6 +50,14 @@
   path: /api/chat
   pathType: Prefix
   rewrite: none
+# /api/agent is served by the UI's embedded backend-agnostic agent adapter (see
+# deploy/docker/services/ui/compose.yml and haproxy.cfg.template p_api_agent
+# rule). Must precede /api so the longest-prefix match falls to the UI rather
+# than being forwarded to the agent backend.
+- key: ui
+  path: /api/agent
+  pathType: Prefix
+  rewrite: none
 - key: agent
   path: /api
   pathType: Prefix
