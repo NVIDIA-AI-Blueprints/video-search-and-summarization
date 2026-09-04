@@ -61,6 +61,13 @@ services:
       timeout: 3s
       retries: 30
       start_period: 2s
+    # Nginx resolves every proxy_pass host at config-parse time and exits with
+    # [emerg] "host not found in upstream" if one is missing, so every host named
+    # by nginx-${VST_NGINX_MODE}.conf must exist first: vss-vios-sensor and
+    # vss-vios-streamprocessing (vst), sdr-controller (vst-sdrc, mms).
+    # service_started suffices -- nginx needs the DNS alias, not a serving
+    # upstream -- and streamprocessing's healthcheck is widened to ~25min to
+    # outlast slow apt mirrors, which service_healthy would hold this edge down for.
     depends_on:
       sensor-ms:
         condition: service_healthy
@@ -70,6 +77,24 @@ services:
         required: false
       sensor-ms-3d:
         condition: service_healthy
+        required: false
+      sensor-ms-mv3dt:
+        condition: service_healthy
+        required: false
+      streamprocessing-ms:
+        condition: service_started
+        required: false
+      streamprocessing-ms-2d:
+        condition: service_started
+        required: false
+      streamprocessing-ms-3d:
+        condition: service_started
+        required: false
+      streamprocessing-ms-mv3dt:
+        condition: service_started
+        required: false
+      sdr-controller:
+        condition: service_started
         required: false
 
 volumes:
