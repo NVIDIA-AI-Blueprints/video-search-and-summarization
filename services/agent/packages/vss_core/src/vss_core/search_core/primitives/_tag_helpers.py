@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 
 META_PREFIX = "metadata.content_metadata"
 _MAX_TAGS = 32
+#: A single tag is capped at 64 characters (design contract). Longer model
+#: output is rejected at read time rather than indexed as a searchable tag.
+_MAX_TAG_LENGTH = 64
+#: A tag document description is capped at 1024 characters (design contract).
+_MAX_DESCRIPTION_LENGTH = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +163,8 @@ def _parse_tag_payload(raw_text: Any) -> tuple[list[str], str]:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("each tag must be a non-empty string")
         tag = value.strip().lower()
+        if len(tag) > _MAX_TAG_LENGTH:
+            raise ValueError(f"each tag must be at most {_MAX_TAG_LENGTH} characters")
         if tag not in tags:
             tags.append(tag)
     if not tags:
@@ -168,6 +175,8 @@ def _parse_tag_payload(raw_text: Any) -> tuple[list[str], str]:
     description = raw_description.strip()
     if "description" in payload and not description:
         raise ValueError("tag document description must be non-empty when provided")
+    if len(description) > _MAX_DESCRIPTION_LENGTH:
+        raise ValueError(f"tag document description must be at most {_MAX_DESCRIPTION_LENGTH} characters")
     return tags, description
 
 

@@ -53,6 +53,7 @@ from ..agent_chunks import AgentMessageChunkType
 from ..clients.elastic import ElasticClient
 from ..errors import BackendUnreachableError
 from ..errors import ConfigurationError
+from ..errors import InvalidInputError
 from ..errors import NoFinalResultError
 from ..models.attribute_search import AttributeSearchResult
 from ..models.embed_search import EmbedSearchOutput
@@ -525,7 +526,10 @@ async def execute_core_search(
                 f"Skipped {tag_output.malformed_documents} malformed VLM tag "
                 f"document{'s' if tag_output.malformed_documents != 1 else ''}."
             )
-        yield SearchOutput(data=search_results[:top_k], search_messages=search_messages)
+        # The merge-adjacent headroom doubled ``top_k`` above, but tag mode never
+        # runs that merge, so slicing with the doubled value would return up to
+        # 2x the requested limit (e.g. top_k=2 returns 4). Cap with the original.
+        yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
         return
 
     query_params: dict[str, str] = {"query": search_input.query}
@@ -622,6 +626,23 @@ async def execute_core_search(
         if malformed_documents:
             search_messages.append(
                 f"Skipped {malformed_documents} malformed VLM tag document{'s' if malformed_documents != 1 else ''}."
+            )
+
+        # A provider present in ``provider_results`` with a non-positive weight
+        # contributes nothing to ``weighted_rrf_union``; if every *active* provider
+        # is zero-weighted the union is silently empty even when each returned hits.
+        # The runtime's construction-time check (sum of all three weights > 0)
+        # does not catch the per-request case where the only positive-weight leg
+        # (typically attribute) is not active for this request. Surface it as an
+        # input error (exit 2) rather than a misleading "no matches".
+        if config.fusion_method == "weighted_rrf" and not any(
+            {"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute}.get(provider, 0.0) > 0
+            for provider in provider_results
+        ):
+            raise InvalidInputError(
+                "fusion has no positively-weighted active provider for this request "
+                "(w_tag, w_embed, w_attribute are all <= 0 for the active legs); "
+                "set at least one positive weight."
             )
 
         search_results = _fusion.fuse_ranked_union(

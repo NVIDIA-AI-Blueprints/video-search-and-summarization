@@ -65,6 +65,13 @@ class TagSearch:
         inp.validate_semantics()
         name_to_id = await self._name_to_id()
         source_ids = self._resolve_source_ids(inp.video_sources or [], name_to_id)
+        if inp.video_sources and not source_ids:
+            # Every requested source was unknown. Deriving ``default_<raw>`` index
+            # names from raw user input can produce invalid Elasticsearch index
+            # names (uppercase letters, slashes, ...) that ES rejects with a
+            # backend error instead of an empty result. Return a narrowed empty
+            # result without querying.
+            return TagSearchOutput(results=[], malformed_documents=0)
         search_index = self._resolve_search_index(source_ids)
         query = helpers.build_es_query(inp, source_ids=source_ids, default_max_results=self._default_k)
         logger.info(
@@ -156,11 +163,16 @@ class TagSearch:
             elif source in known_ids:
                 source_id = source
             else:
-                # Parity with embed/attribute: an unresolved source is kept
-                # literal rather than rejected. The derived ``default_<id>``
-                # index and the ES identity filter won't match, so the result
-                # is empty — narrowed, never silently broadened.
-                source_id = source
+                # An unresolved source is dropped, not carried forward.
+                # Deriving ``default_<raw>`` from raw user input can produce an
+                # invalid Elasticsearch index name (uppercase letters, slashes,
+                # ...) that ES rejects with a backend error instead of an empty
+                # result. embed/attribute keep unresolved sources literal because
+                # they filter by identity (never an index name); tag derives an
+                # index expression, so it must not. If every requested source is
+                # unknown, ``run`` returns an empty narrowed result without
+                # querying.
+                continue
             if source_id not in resolved:
                 resolved.append(source_id)
         return resolved

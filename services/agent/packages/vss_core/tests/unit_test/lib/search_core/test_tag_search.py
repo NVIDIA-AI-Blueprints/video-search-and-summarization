@@ -142,14 +142,29 @@ async def test_no_video_sources_searches_the_configured_index_family() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unknown_video_source_is_kept_literal_not_rejected() -> None:
-    # Parity with embed/attribute: an unknown source is kept literal (the derived
-    # default_<id> index and identity filter won't match → empty result), not an
-    # input error.
-    out = await TagSearch(es=_Es([]), vst=_Vst()).run(
-        TagSearchInput(query="forklift", video_sources=["missing camera"])
-    )
+async def test_unknown_video_source_yields_empty_without_invalid_index() -> None:
+    # An unknown source must not be turned into an Elasticsearch index name:
+    # deriving ``default_<raw>`` from raw input can yield an invalid index name
+    # (uppercase / invalid chars) that ES rejects with a backend error. Return an
+    # empty, narrowed result and do not query ES at all.
+    es = _Es([])
+    out = await TagSearch(es=es, vst=_Vst()).run(TagSearchInput(query="forklift", video_sources=["FrontDoor"]))
     assert out.results == []
+    assert out.malformed_documents == 0
+    # No ES query was issued: the invalid ``default_FrontDoor`` index was never
+    # derived.
+    assert es.index is None
+
+
+@pytest.mark.asyncio
+async def test_partially_unknown_sources_query_only_resolved() -> None:
+    # A mix of known and unknown sources queries only the resolved source's
+    # exact index; the unknown one is dropped rather than producing an invalid
+    # ``default_<raw>`` index in the comma-separated list.
+    es = _Es([])
+    await TagSearch(es=es, vst=_Vst()).run(TagSearchInput(query="forklift", video_sources=["dock camera", "FrontDoor"]))
+    assert es.index == "default_stream_1"
+    assert "," not in es.index
 
 
 @pytest.mark.asyncio
@@ -162,3 +177,35 @@ async def test_vst_resolution_failure_is_not_best_effort() -> None:
         await TagSearch(es=_Es([]), vst=_BrokenVst()).run(
             TagSearchInput(query="forklift", video_sources=["dock camera"])
         )
+
+
+@pytest.mark.asyncio
+async def test_oversized_tag_is_malformed() -> None:
+    long_tag = "x" * 65
+    out = await TagSearch(es=_Es([_hit(text=f'{{"tags":["{long_tag}"],"description":"ok."}}')]), vst=_Vst()).run(
+        TagSearchInput(query="forklift", video_sources=["dock camera"])
+    )
+    assert out.results == []
+    assert out.malformed_documents == 1
+
+
+@pytest.mark.asyncio
+async def test_oversized_description_is_malformed() -> None:
+    long_description = "y" * 1025
+    out = await TagSearch(es=_Es([_hit(text=f'{{"tags":["ok"],"description":"{long_description}"}}')]), vst=_Vst()).run(
+        TagSearchInput(query="forklift", video_sources=["dock camera"])
+    )
+    assert out.results == []
+    assert out.malformed_documents == 1
+
+
+@pytest.mark.asyncio
+async def test_tag_and_description_at_length_limit_are_accepted() -> None:
+    boundary_tag = "x" * 64
+    boundary_description = "y" * 1024
+    out = await TagSearch(
+        es=_Es([_hit(text=f'{{"tags":["{boundary_tag}"],"description":"{boundary_description}"}}')]), vst=_Vst()
+    ).run(TagSearchInput(query="forklift", video_sources=["dock camera"]))
+    assert len(out.results) == 1
+    assert out.malformed_documents == 0
+    assert out.results[0].tags == [boundary_tag]

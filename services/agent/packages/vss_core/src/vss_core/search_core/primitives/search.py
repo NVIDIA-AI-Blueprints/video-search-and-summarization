@@ -96,6 +96,32 @@ class _AttributeSearchUnavailable:
         return None
 
 
+class _EmbedSearchUnavailable:
+    """Stands in for the embedding leg when no cosmos-embed endpoint is configured.
+
+    Mirrors :class:`_AttributeSearchUnavailable`: ``Search`` composes an embed
+    leg and an attribute leg, but ``tag`` mode never invokes the embed leg.
+    Building the real :class:`EmbedSearch` eagerly made every mode require
+    ``cosmos_embed_endpoint``, so a deployment running only Elasticsearch + VST
+    (tag-only) could not run a tag search even though ``configure check``
+    advertises it. This satisfies the same one-method surface and fails only if a
+    mode actually invokes it (embed / fusion), preserving the precise
+    ConfigurationError for those paths.
+    """
+
+    def __init__(self, detail: str = "cosmos_embed_endpoint is not configured") -> None:
+        self._detail = detail
+
+    async def run(self, inp: Any) -> Any:  # noqa: ARG002 - signature is the _SupportsRun contract
+        raise ConfigurationError(
+            f"embed search is unavailable: {self._detail}. "
+            f"search_mode='tag' or 'attribute' work without an RT-Embed endpoint."
+        )
+
+    async def aclose(self) -> None:
+        return None
+
+
 class _PrimitiveAdapter:
     """Wraps a library primitive so `execute_core_search`'s `.ainvoke(payload)`
     calls work. Caller-supplied `coerce_payload` converts whatever payload the
@@ -172,7 +198,7 @@ def _coerce_attribute_payload(payload: Any) -> AttributeSearchInput:
     raise TypeError(f"cannot coerce {type(payload).__name__} to AttributeSearchInput")
 
 
-def _wrap_embed(primitive: EmbedSearch) -> _PrimitiveAdapter:
+def _wrap_embed(primitive: EmbedSearch | _EmbedSearchUnavailable) -> _PrimitiveAdapter:
     return _PrimitiveAdapter(primitive, _coerce_embed_payload)
 
 
@@ -208,6 +234,19 @@ def _attribute_leg(rt: SearchRuntime) -> AttributeSearch | _AttributeSearchUnava
     return AttributeSearch.from_runtime(rt)
 
 
+def _embed_leg(rt: SearchRuntime) -> EmbedSearch | _EmbedSearchUnavailable:
+    """The embed leg, or a stand-in when the runtime has no cosmos-embed endpoint.
+
+    ``tag`` mode never invokes the embed leg, so a tag-only deployment (ES + VST,
+    no RT-Embed) can still run. embed / fusion modes invoke this leg and get a
+    precise ConfigurationError here instead of failing the whole facade at
+    construction.
+    """
+    if not (rt.cosmos_embed_endpoint or "").strip():
+        return _EmbedSearchUnavailable()
+    return EmbedSearch.from_runtime(rt)
+
+
 class Search:
     """Search orchestrator.
 
@@ -221,7 +260,7 @@ class Search:
     def __init__(
         self,
         *,
-        embed: EmbedSearch,
+        embed: EmbedSearch | _EmbedSearchUnavailable,
         attribute: AttributeSearch | _AttributeSearchUnavailable,
         behavior_es: ElasticIndex,
         behavior_index: str,
@@ -355,7 +394,7 @@ class Search:
         behavior_es_obj = behavior_es if behavior_es is not None else ElasticClient.from_runtime_behavior(rt)
 
         return cls(
-            embed=embed if embed is not None else EmbedSearch.from_runtime(rt),
+            embed=embed if embed is not None else _embed_leg(rt),
             attribute=attribute if attribute is not None else _attribute_leg(rt),
             tag=tag if tag is not None else TagSearch.from_runtime(rt),
             behavior_es=behavior_es_obj,

@@ -106,7 +106,6 @@ path. For the
 integrated path, `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` and
 the `http://rtvi-vlm:8000` endpoint (a consumer's `VLM_BASE_URL`) are invariant
 across BF16 and FP8; a consumer owns that URL but never inherits it from the
-xp_ across BF16 and FP8; a consumer owns that URL but never inherits it from the
 variant profile.
 
 ### Tagging vs. dense captioning (one deployment, two legs)
@@ -126,6 +125,30 @@ not alert verification) and is provisioned for search builds. RT-VLM, Kafka,
 Logstash, and Elasticsearch are unchanged by design. See
 [`docs/designs/vlm-tagging-search.md`](../../../../docs/designs/vlm-tagging-search.md)
 for the contract.
+
+### Lifecycle independence of the tagging leg
+
+The tagging leg is **not** lifecycle-independent of the Alert Bridge by default:
+both legs drive the same RT-VLM stream through `POST /v1/generate_captions`, and
+RT-VLM only isolates a subscriber's teardown when `DELETE
+/v1/generate_captions/{stream_id}` carries that subscriber's `request_id`. That
+`request_id` is **not** caller-selected: RT-VLM generates a UUID for every
+`generate_captions` request and returns it as the top-level `id` in the JSON
+response (VOD) or in each SSE `data:` event (live). The tagging caller must:
+
+1. parse the returned `id` from the admission response (VOD) or the first SSE
+   `data:` event (live) — **do not** synthesize one;
+2. persist it alongside the tag session (e.g. keyed by the VIOS `sensorId`);
+3. tear down with `DELETE /v1/generate_captions/{stream_id}?request_id={returned_id}`
+   (then `DELETE /v1/streams/delete/{stream_id}`), so the Alert Bridge's shared
+   stream is not torn down with it.
+
+Streaming-admission caveat: the server does not emit an immediate ID-only event
+before captions begin, so for the live leg the `id` is captured from the first
+real SSE `data:` event, and the deliberate early-close sequence in
+`provision-vios-source.md` runs after that first event, not before. A caller
+that issues `DELETE` without the returned `request_id` tears down every
+subscriber on the stream, including the Alert Bridge.
 
 ## Configuration knobs
 

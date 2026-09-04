@@ -223,16 +223,31 @@ curl -s -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
 EOF
 #   then release the temporary RT-VLM file asset:
 curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>"
-#   Live (RTSP): register, then fire-and-verify (open, confirm 200, CLOSE) —
+#   Live (RTSP): register, then confirm admission (HTTP 200) and intentionally close
+#   after a short read. A healthy endless SSE stream runs until the caller closes it, so
+#   don't rely on `--max-time` alone: under `set -e` a timeout exits 28, and without status
+#   validation an HTTP 4xx can still exit 0 — success/failure get inverted. Capture the HTTP
+#   status, fail on >=400, and treat the deliberate early close (curl 28 / SIGPIPE 141 after
+#   a 200) as admission confirmed. Both RT-VLM `id` and `sensor_name` carry the canonical
+#   VIOS sensor ID (`<sensorId>`), never the display/source name.
 curl -s -X POST "http://localhost:<rt-vlm-port>/v1/streams/add" \
   -H "Content-Type: application/json" \
-  -d "{\"streams\":[{\"liveStreamUrl\":\"<vios-url>\",\"id\":\"<sensorId>\",\"sensor_name\":\"<source-name>\"}]}"
-curl -N --max-time 30 --connect-timeout 10 -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
+  -d "{\"streams\":[{\"liveStreamUrl\":\"<vios-url>\",\"id\":\"<sensorId>\",\"sensor_name\":\"<sensorId>\"}]}"
+if http_code=$(curl -sS --connect-timeout 10 --max-time 5 \
+  -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
   -H "Content-Type: application/json" -H "Accept: text/event-stream" \
+  -o /dev/null -w '%{http_code}' \
   --data-binary @- <<EOF
 {"id":"<sensorId>","model":"<resolved-vlm-model>","prompt":$(printf '%s' "$TAG_PROMPT" | jq -Rs .),"response_format":{"type":"json_object"},"temperature":0,"chunk_duration":5,"stream":true}
 EOF
-#   stop with:  DELETE /v1/generate_captions/<sensorId>  then  DELETE /v1/streams/delete/<sensorId>
+); then :; else
+  case "$?" in 28|141) : ;; *) echo "rt-vlm tagging admission failed (curl exit $?)" >&2; exit 1 ;; esac
+fi
+case "$http_code" in 2*|3*) : "admission confirmed" ;; *) echo "rt-vlm tagging admission failed (http ${http_code:-unknown})" >&2; exit 1 ;; esac
+#   stop with:  DELETE /v1/generate_captions/<sensorId>?request_id=<returned-id>  then  DELETE /v1/streams/delete/<sensorId>
+#   (the request_id is the `id` RT-VLM returned in the admission/first-SSE response; without it the
+#   DELETE tears down every subscriber on the shared stream, including the Alert Bridge — see
+#   `vss-build-vision-ai` `references/services/rt-vlm.md` § Lifecycle independence of the tagging leg)
 ```
 
 Exact payloads and field lists live in the operating contracts — do not restate

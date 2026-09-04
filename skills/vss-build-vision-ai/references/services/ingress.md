@@ -57,10 +57,14 @@ a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A querya
 headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
 ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
 make it queryable — an ingestion/indexing-only build that requests no read surface
-prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`. For a build
-that resolves the VLM **tagging** capability, front RT-VLM at `/rtvi-vlm` so the
-controlled `generate_captions` tagging leg can be driven from any host that reaches
-the origin, not only the deploy host's loopback. This is a conscious tradeoff: it
+prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`. The canonical
+`haproxy.cfg.template` is the **single authored source** for this route — it already
+carries the `/rtvi-vlm` ACL and the `bk_rtvi_vlm_strip` prefix-rewrite backend, so a
+tagging build copies that route verbatim into any curated config and authors **no new
+backend rule**; tagging needs no new backend rule. For a build that resolves the VLM
+**tagging** capability, front RT-VLM at `/rtvi-vlm` so the controlled
+`generate_captions` tagging leg can be driven from any host that reaches the origin,
+not only the deploy host's loopback. This is a conscious tradeoff: it
 re-exposes RT-VLM's SSE-generation and stream/file-mutation endpoints through
 HAProxy, so the origin's host-allowlist is the only boundary — front RT-VLM only
 when the build needs remote-driven tagging, and never on an unauthenticated origin.

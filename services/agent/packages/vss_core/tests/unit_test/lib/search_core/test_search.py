@@ -823,3 +823,96 @@ class TestStreamContract:
                 embed_search=_FakeEmbed([_embed_output([])]),
                 config=_config(),
             )
+
+
+class TestTagOnlyDeploymentAndFusionWeights:
+    """Regression coverage for the PR-1785 review fixes.
+
+    - A tag-only deployment (ES + VST, no RT-Embed/RT-CV) must still build a
+      Search facade and run tag mode; the embed leg is an unavailable stand-in
+      that only raises if a mode actually invokes it.
+    - tag mode must cap results at the requested top_k even though merge-adjacent
+      headroom doubles the internal fetch size.
+    - weighted_rrf fusion with every *active* provider zero-weighted must raise
+      an input error rather than silently returning an empty result.
+    """
+
+    def test_search_from_runtime_tag_only_runtime_does_not_raise(self):
+        from vss_core.search_core.primitives.search import Search
+        from vss_core.search_core.primitives.search import _AttributeSearchUnavailable
+        from vss_core.search_core.primitives.search import _EmbedSearchUnavailable
+        from vss_core.search_core.runtime import SearchRuntime
+
+        rt = SearchRuntime.from_kwargs(
+            es_endpoint="http://es",
+            vst_internal_url="http://vst",
+            vst_external_url="http://vst",
+        )
+        # No cosmos_embed_endpoint / rtvi_cv_endpoint: a tag-only deployment.
+        search = Search.from_runtime(rt)
+        assert isinstance(search._embed, _EmbedSearchUnavailable)
+        assert isinstance(search._attribute, _AttributeSearchUnavailable)
+
+    @pytest.mark.asyncio
+    async def test_embed_unavailable_raises_only_when_invoked(self):
+        from vss_core.search_core.primitives.search import _EmbedSearchUnavailable
+
+        with pytest.raises(ConfigurationError, match="embed search is unavailable"):
+            await _EmbedSearchUnavailable().run(None)
+
+    @pytest.mark.asyncio
+    async def test_tag_mode_caps_at_requested_top_k_under_merge_headroom(self):
+        # Four raw tag hits; top_k=2 with merge_adjacent=True (default) doubles
+        # the internal fetch to 4, but tag mode never merges, so the final slice
+        # must use the original top_k (2), not the doubled value (4).
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name=f"t{i}",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:00:00Z",
+                        end_time="2025-01-01T00:00:05Z",
+                        lexical_score=float(4 - i),
+                        tags=["red"],
+                    )
+                    for i in range(1, 5)
+                ]
+            )
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", top_k=2, search_mode="tag"),
+            embed_search=_FakeEmbed([_embed_output([])]),
+            tag_search=tag,
+            config=_config(),
+        )
+        assert len(out.data) == 2
+
+    @pytest.mark.asyncio
+    async def test_weighted_rrf_with_all_active_providers_zero_weighted_raises(self):
+        # w_attribute=1 passes the runtime's construction-time sum check, but
+        # attribute is not active for a request without attributes, so both
+        # active legs (embed, tag) are zero-weighted -> raise instead of an empty
+        # silent result.
+        embed = _FakeEmbed([_embed_output([_embed_item(video_name="e1", sensor_id="camE")])])
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name="t1",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:00:00Z",
+                        end_time="2025-01-01T00:00:05Z",
+                        lexical_score=3.0,
+                        tags=["red"],
+                    )
+                ]
+            )
+        )
+        with pytest.raises(InvalidInputError, match="positively-weighted active provider"):
+            await _run(
+                SearchInput(query="red", source_type="video_file", search_mode="fusion"),
+                embed_search=embed,
+                tag_search=tag,
+                config=_config(fusion_method="weighted_rrf", w_tag=0, w_embed=0, w_attribute=1),
+            )
