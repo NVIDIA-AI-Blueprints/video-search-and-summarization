@@ -108,7 +108,13 @@ from api_models.nim_compat import (
     ManifestResponse,
     VersionResponse,
 )
-from common.logger import LOG_PERF_LEVEL, TimeMeasure, logger
+from common.logger import (
+    LOG_PERF_LEVEL,
+    TimeMeasure,
+    logger,
+    sanitize_data_for_logging,
+    sanitize_url_for_logging,
+)
 from common.service_exception import ServiceException
 from common.version import VERSION
 from utils.asset_manager import Asset, AssetManager
@@ -1298,13 +1304,18 @@ class RTVIServer:
                 logger.info(
                     "URL asset created: id=%s, url=%s",
                     video_id_from_url,
-                    url[:100],
+                    sanitize_url_for_logging(url),
                 )
                 video_id_list = [video_id_from_url]
             except ServiceException:
                 raise
             except Exception as e:
-                logger.error("Failed to process URL %s: %s", url[:100], str(e), exc_info=True)
+                logger.error(
+                    "Failed to process URL %s: %s",
+                    sanitize_url_for_logging(url),
+                    str(e),
+                    exc_info=True,
+                )
                 raise ServiceException(
                     f"Failed to download/register URL: {str(e)}",
                     "DownloadFailed",
@@ -2414,7 +2425,7 @@ class RTVIServer:
             logger.info(
                 "Received CV stream/add: camera_id=%s, url=%s",
                 value.camera_id,
-                value.camera_url,
+                sanitize_url_for_logging(value.camera_url),
             )
 
             is_vios_file_sensor = self._is_vios_file_sensor(
@@ -2691,7 +2702,12 @@ class RTVIServer:
             logger.info(
                 "Received generate_captions query: id=%s, query=%s",
                 ", ".join(videoIdList),
-                query.model_dump_json(exclude_none=True),
+                json.dumps(
+                    sanitize_data_for_logging(
+                        query.model_dump(mode="json", exclude_none=True)
+                    ),
+                    separators=(",", ":"),
+                ),
             )
 
             # Validate api_type if specified
@@ -3197,7 +3213,7 @@ class RTVIServer:
                         logger.info(
                             "Created temporary asset from URL: id=%s, url=%s",
                             asset_id_from_url,
-                            media_url[:100],
+                            sanitize_url_for_logging(media_url),
                         )
 
                     temp_asset_ids.append(asset_id_from_url)
