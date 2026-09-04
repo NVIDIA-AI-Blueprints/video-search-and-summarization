@@ -1543,6 +1543,16 @@ def run_invocations(
             bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
         )
         if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
+            # The bootstrap uses a scratch results root so it cannot appear in
+            # the operational report. Preserve its verifier/exception output
+            # with this leg's artifact, but never copy its agent trajectory.
+            if bootstrap_results.is_dir():
+                shutil.copytree(
+                    bootstrap_results,
+                    results_root / "bootstrap",
+                    ignore=shutil.ignore_patterns("agent"),
+                    dirs_exist_ok=True,
+                )
             diagnostic = (
                 "Build Vision AI provisioning failed before operational scenarios. "
                 f"Harbor exit code: {bootstrap_rc}; readiness reward: "
