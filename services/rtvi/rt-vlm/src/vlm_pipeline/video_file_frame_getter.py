@@ -977,6 +977,25 @@ class VideoFileFrameGetter:
     def _cache_decodebin(self, key, decodebin) -> None:
         self._vdecodebin_cache[key] = decodebin
 
+    def _detach_pipeline_for_replacement(self):
+        """Detach a pipeline while retaining any reusable decoder."""
+        old_pipeline = self._pipeline
+        if old_pipeline is None:
+            return None
+
+        if self._vdecodebin:
+            old_pipeline.remove(self._vdecodebin)
+            if not self._is_cached_decodebin(self._vdecodebin):
+                self._vdecodebin.set_state(Gst.State.NULL)
+
+        self._vdecodebin = None
+        # The bus must still be referenced when callbacks are disconnected so
+        # remove_signal_watch() can release its GLib source and file descriptors.
+        self._disconnect_gst_callbacks()
+        self._bus = None
+        self._pipeline = None
+        return old_pipeline
+
     def _disconnect_cached_decodebin_from_pipeline(self) -> None:
         if (
             not self._pipeline
@@ -2820,22 +2839,8 @@ class VideoFileFrameGetter:
             # filesrc/parsebin for the same file under file-burst load.
             is_file_changed = self._last_stream_id != file
 
-            def backup_decodebin():
-                # If codec or resolution has changed, remove the decodebin from the pipeline
-                # and keep reusable decoders backed up under their codec/resolution key.
-                if self._pipeline:
-
-                    if self._vdecodebin:
-                        self._pipeline.remove(self._vdecodebin)
-                        if not self._is_cached_decodebin(self._vdecodebin):
-                            self._vdecodebin.set_state(Gst.State.NULL)
-                self._vdecodebin = None
-
             if (is_codec_changed or is_resolution_changed) and self._pipeline:
-                backup_decodebin()
-                old_pipeline = self._pipeline
-                self._pipeline = None
-                self._vdecodebin = None
+                old_pipeline = self._detach_pipeline_for_replacement()
                 if not (self._frame_width and self._frame_height):
                     # Next pipeline should use same resolution as first
                     # to allow all frames in the chunk have same resolution
