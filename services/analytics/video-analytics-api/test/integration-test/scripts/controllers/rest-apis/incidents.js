@@ -46,7 +46,7 @@ function getTests(c) {
     ];
 
     if (runsBpWh2d) {
-        tests.splice(3, 0, {
+        tests.splice(4, 0, {
             name: 'GET /incidents (VLM verified alert types)',
             path: `/incidents?${qs({ vlmVerified: true, maxResultSize: 10000 })}`,
             method: 'GET',
