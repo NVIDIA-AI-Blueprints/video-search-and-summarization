@@ -93,6 +93,25 @@ nvm() {
 }
 NVM
 
+# The `vss` CLI, so a trial drives the VSS backends directly rather than through
+# vss-agent. Installed from git on purpose: nvidia-vss is published nowhere
+# reachable — public PyPI, pypi.nvidia.com and the NVIDIA artifactory index that
+# serves nvdataset all 404 it, and this repository has no publish workflow — so a
+# `pip install nvidia-vss[cli]` layer can only work on a machine with an index
+# nobody else has. Cloning the source is the honest way to get it.
+#
+# Pinned to a commit, not a branch: an eval must be able to say which CLI it
+# measured. `vss` lives at services/agent/packages/vss_cli and is pulled in by
+# the nvidia-vss meta package's `cli` extra.
+ARG VSS_CLI_REF=a7cd4bc9d5ad513acfe38bc8724e9c37e64cd2cf
+ARG VSS_CLI_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
+USER root
+RUN uv venv /opt/vss \
+    && VIRTUAL_ENV=/opt/vss uv pip install \
+         "nvidia-vss[cli] @ git+${VSS_CLI_REPO}@${VSS_CLI_REF}#subdirectory=services/agent" \
+    && ln -sf /opt/vss/bin/vss /usr/local/bin/vss \
+    && vss --version
+
 USER sandbox
 WORKDIR /task
 
