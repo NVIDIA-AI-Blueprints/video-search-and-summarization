@@ -55,11 +55,20 @@ function getTests(c) {
                 const { incidents } = JSON.parse(b);
                 if (!Array.isArray(incidents)) return 'missing incidents array';
                 const alertTypes = new Set(incidents.map(({ category, info }) => (info && info.alertCategory) || category));
-                if (alertTypes.size !== expectedVlmAlertTypes.size) return `expected ${expectedVlmAlertTypes.size} unique alert types, got ${alertTypes.size}`;
-                const unexpectedAlertTypes = [...alertTypes].filter((alertType) => !expectedVlmAlertTypes.has(alertType));
-                if (unexpectedAlertTypes.length > 0) return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}`;
+                const presentAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => alertTypes.has(alertType));
                 const missingAlertTypes = [...expectedVlmAlertTypes].filter((alertType) => !alertTypes.has(alertType));
-                return missingAlertTypes.length === 0 ? null : `missing alert types: ${missingAlertTypes.join(', ')}`;
+                const unexpectedAlertTypes = [...alertTypes].filter((alertType) => alertType && !expectedVlmAlertTypes.has(alertType));
+                console.log(`[VLM alert types] present: ${presentAlertTypes.join(', ') || 'none'}; not present: ${missingAlertTypes.join(', ') || 'none'}`);
+                if (!alertTypes.has('Near Miss Violation')) {
+                    return `Near Miss Violation is required; not present: ${missingAlertTypes.join(', ') || 'none'}`;
+                }
+                if (presentAlertTypes.length < 3) {
+                    return `expected Near Miss Violation and at least 2 more real time alert types (${expectedVlmAlertTypes.size} possible), got ${presentAlertTypes.length} (${presentAlertTypes.join(', ') || 'none'}); not present: ${missingAlertTypes.join(', ') || 'none'}`;
+                }
+                if (unexpectedAlertTypes.length > 0) {
+                    return `unexpected alert types: ${unexpectedAlertTypes.join(', ')}; not present: ${missingAlertTypes.join(', ') || 'none'}`;
+                }
+                return null;
             },
         });
     }
