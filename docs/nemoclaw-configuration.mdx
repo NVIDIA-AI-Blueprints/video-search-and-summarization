@@ -57,7 +57,7 @@ Advanced values are set in Section 1.3 or derived from the environment.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `NEMOCLAW_INSTALL_REF` | `v0.0.80` | NemoClaw installer pin. Section 3.1 reinstalls if the installed `nemoclaw` version does not match this semver tag. |
-| `NEMOCLAW_INFERENCE_PROXY` | `True` | When `NEMOCLAW_ENDPOINT_URL` resolves to a non-public address, Section 3.1 starts the bundled host proxy and points NemoClaw at it to avoid NemoClaw's SSRF rejection. Set to `False` to disable. |
+| `NEMOCLAW_INFERENCE_PROXY` | `True` | When `NEMOCLAW_ENDPOINT_URL` resolves to a non-public address, Section 3.1 starts the bundled host proxy and points NemoClaw at it to avoid NemoClaw's SSRF rejection. The proxy reaches its upstream as `https://<host>` on port 443, so disable it for an endpoint served over plain HTTP or on another port — such as this deployment's own LLM NIM — and set `COMPATIBLE_API_KEY=EMPTY` yourself. Set to `False` in Section 1.3 or export `NEMOCLAW_INFERENCE_PROXY=0`. |
 | `AGENT_RUNTIME` | `openclaw` | Sandbox agent runtime used at onboard. Supported values are `openclaw` and `hermes`. Override via the `AGENT_RUNTIME` environment variable. |
 | `AGENT_HOOKS_ENABLED` | `True` | Enables agent webhooks and generates a random `AGENT_HOOKS_TOKEN`. |
 | `AGENT_HOOKS_PATH` | `/hooks` | Webhook path under the agent dashboard forward. |
