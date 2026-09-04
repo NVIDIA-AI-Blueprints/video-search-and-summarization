@@ -29,9 +29,11 @@ const config = (
   ...overrides,
 });
 
-const request = parseCreateRunRequest({
+const requestWithInstructions = parseCreateRunRequest({
   thread_id: "thread-1",
   input: [{ role: "user", content: "Find a clip" }],
+  instructions:
+    'VSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}',
 });
 
 const sseResponse = (
@@ -206,7 +208,7 @@ describe("embedded adapter connectors", () => {
     const connector = new ResponsesConnector(config());
     const events = [];
     for await (const event of connector.run(
-      request,
+      requestWithInstructions,
       "run-1",
       new AbortController().signal
     )) {
@@ -232,6 +234,9 @@ describe("embedded adapter connectors", () => {
         stream: true,
         store: true,
         tools: [expect.objectContaining({ name: "vss_ui_publish_artifact" })],
+        instructions: expect.stringContaining(
+          'VSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}'
+        ),
       })
     );
   });
@@ -250,7 +255,7 @@ describe("embedded adapter connectors", () => {
     );
     const events = [];
     for await (const event of connector.run(
-      request,
+      requestWithInstructions,
       "run-1",
       new AbortController().signal
     )) {
@@ -270,7 +275,7 @@ describe("embedded adapter connectors", () => {
     ]);
     const send = socket.sent.find((frame) => frame.method === "chat.send");
     expect((send?.params as Record<string, unknown>).message).toBe(
-      "Find a clip"
+      'VSS UI instructions:\nVSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}\n\nUser:\nFind a clip'
     );
   });
 });

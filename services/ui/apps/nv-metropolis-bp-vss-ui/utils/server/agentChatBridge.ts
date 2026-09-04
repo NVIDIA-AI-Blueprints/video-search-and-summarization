@@ -543,6 +543,48 @@ const cleanMessages = (value: unknown): ChatMessage[] => {
   });
 };
 
+const RESERVED_CHAT_BODY_FIELDS = new Set([
+  "additionalProps",
+  "chatCompletionURL",
+  "messages",
+]);
+const CUSTOM_AGENT_PARAM_KEY = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/u;
+const MAX_CUSTOM_AGENT_PARAMS = 64;
+const MAX_CUSTOM_AGENT_INSTRUCTIONS_LENGTH = 16_384;
+
+const customAgentInstructions = (body: unknown): string | undefined => {
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return undefined;
+
+  const params = Object.entries(body)
+    .filter(
+      ([key, value]) =>
+        !RESERVED_CHAT_BODY_FIELDS.has(key) &&
+        CUSTOM_AGENT_PARAM_KEY.test(key) &&
+        (typeof value === "string" ||
+          typeof value === "boolean" ||
+          (typeof value === "number" && Number.isFinite(value)))
+    )
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (!params.length) return undefined;
+  if (params.length > MAX_CUSTOM_AGENT_PARAMS) {
+    throw new ContractError(
+      `at most ${MAX_CUSTOM_AGENT_PARAMS} custom agent parameters are allowed`
+    );
+  }
+
+  const instructions = `VSS UI request parameters for this turn (JSON):\n${JSON.stringify(
+    Object.fromEntries(params)
+  )}`;
+  if (instructions.length > MAX_CUSTOM_AGENT_INSTRUCTIONS_LENGTH) {
+    throw new ContractError(
+      `custom agent parameters must serialize to at most ${MAX_CUSTOM_AGENT_INSTRUCTIONS_LENGTH} characters`
+    );
+  }
+  return instructions;
+};
+
 export const agentChatBridgeHandler = async (
   req: NextApiRequest,
   res: NextApiResponse
@@ -625,6 +667,11 @@ export const agentChatBridgeHandler = async (
       // Omit recovery history so the adapter can continue its saved response chain.
       history: messages.length > 1 ? messages : [],
       surface: "vss-ui",
+      // Both harness protocols have closed request schemas. Carry the existing
+      // UI's per-turn controls through the adapter's protocol-neutral field:
+      // Responses maps it to `instructions`, while OpenClaw prepends its
+      // documented instruction block to `chat.send.message`.
+      instructions: customAgentInstructions(req.body),
     });
     const created = service.createRun(
       request,

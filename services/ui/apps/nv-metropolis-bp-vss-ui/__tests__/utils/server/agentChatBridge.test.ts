@@ -211,6 +211,72 @@ describe("agent chat compatibility bridge", () => {
     expect(res.writableEnded).toBe(true);
   });
 
+  it("forwards primitive custom agent parameters as protocol-neutral instructions", async () => {
+    const baseRequest = parseCreateRunRequest({
+      thread_id: "thread-params",
+      input: [{ role: "user", content: "inspect this video" }],
+    });
+    const record = new RunStore(60_000, 10, 10, 1_000_000).create(
+      baseRequest
+    ).record;
+    const createRun = jest.fn(() => ({ record, replayed: false }));
+    const service = {
+      createRun,
+      cancelRun: jest.fn(),
+    } as unknown as AgentAdapterService;
+    jest.spyOn(agentAdapter, "getAgentAdapterService").mockReturnValue(service);
+    jest
+      .spyOn(agentAdapter, "observeRunEvents")
+      .mockImplementation(async function* () {
+        yield createRunEvent(1, "run.completed", record.runId, "thread-params");
+      });
+
+    const req = new EventEmitter() as unknown as NextApiRequest & EventEmitter;
+    Object.assign(req, {
+      method: "POST",
+      body: {
+        messages: [{ role: "user", content: "inspect this video" }],
+        chatCompletionURL: "http://legacy.invalid/chat/stream",
+        additionalProps: { enableIntermediateSteps: true },
+        llm_reasoning: false,
+        vlm_reasoning: true,
+        temperature: 0.25,
+        agent_mode: "review",
+        ignored_object: { value: "not a supported custom parameter" },
+      },
+      headers: {
+        "conversation-id": "thread-params",
+        "user-message-id": "message-params",
+      },
+    });
+    const res = new EventEmitter() as unknown as NextApiResponse & EventEmitter;
+    Object.assign(res, {
+      headersSent: false,
+      writableEnded: false,
+      statusCode: 200,
+      setHeader: jest.fn(),
+      status: jest.fn((statusCode: number) => {
+        Object.assign(res, { statusCode });
+        return res;
+      }),
+      flushHeaders: jest.fn(() => Object.assign(res, { headersSent: true })),
+      write: jest.fn(() => true),
+      end: jest.fn(() => Object.assign(res, { writableEnded: true })),
+      json: jest.fn(),
+    });
+
+    await agentChatBridgeHandler(req, res);
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instructions:
+          'VSS UI request parameters for this turn (JSON):\n{"agent_mode":"review","llm_reasoning":false,"temperature":0.25,"vlm_reasoning":true}',
+      }),
+      "message-params"
+    );
+    expect(res.writableEnded).toBe(true);
+  });
+
   it("bridges structured search and alert artifacts into the legacy renderer", () => {
     const state = createLegacyEventState();
     const search = agentEventToLegacyChunks(
