@@ -662,6 +662,9 @@ jobs:
     runs-on: ubuntu-latest
     if: needs.prepare-source.outputs.build-video-analytics-api == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     timeout-minutes: 30
+    env:
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND: "false"
     defaults:
       run:
         working-directory: services/analytics/video-analytics-api
@@ -927,6 +930,8 @@ jobs:
     env:
       COMPOSE_TIMEOUT: "300"
       BUILD_TIMEOUT: "600"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND: "false"
       BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-video-analytics-api }}
       CURRENT_VIDEO_ANALYTICS_API_IMAGE: ${{ needs.prepare-source.outputs.current-video-analytics-api-image }}
     defaults:
