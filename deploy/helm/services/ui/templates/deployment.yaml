@@ -159,6 +159,55 @@ spec:
               value: {{ .Values.alertsRealtimeEnabled | quote }}
             - name: NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION
               value: {{ .Values.alertsCvVerificationEnabled | quote }}
+            {{- /*
+              Backend-agnostic external-agent adapter env (compose parity with
+              deploy/docker/services/ui/compose.yml AGENT_*). Server-side only;
+              AGENT_BACKEND_TOKEN and other secrets never carry NEXT_PUBLIC_.
+              Gateway keys are always emitted so a Deployment restart is enough
+              to toggle behaviour without a template change.
+            */}}
+            {{- $gw := .Values.gateway | default dict }}
+            {{- $gwEnabled := (default false $gw.enabled) }}
+            - name: AGENT_BACKEND_PROTOCOL
+              value: {{ (default "responses" $gw.backendProtocol) | quote }}
+            - name: AGENT_BACKEND_URL
+              value: {{ (default "" $gw.backendUrl) | quote }}
+            - name: AGENT_BACKEND_PATH
+              value: {{ (default "" $gw.backendPath) | quote }}
+            - name: AGENT_BACKEND_TOKEN
+              value: {{ (default "" $gw.backendToken) | quote }}
+            - name: AGENT_BACKEND_MODEL
+              value: {{ (default "agent" $gw.backendModel) | quote }}
+            - name: AGENT_BACKEND_SESSION_FIELD
+              value: {{ (default "user" $gw.backendSessionField) | quote }}
+            - name: AGENT_BACKEND_SESSION_HEADER
+              value: {{ (default "" $gw.backendSessionHeader) | quote }}
+            - name: AGENT_BACKEND_HEADERS_JSON
+              value: {{ (default "{}" $gw.backendHeadersJson) | quote }}
+            - name: AGENT_REQUIRE_VSS_CAPABILITIES
+              value: {{ (default false $gw.requireVssCapabilities) | quote }}
+            - name: AGENT_VSS_CAPABILITIES_B64
+              value: {{ (default "" $gw.vssCapabilitiesB64) | quote }}
+            - name: AGENT_VSS_CAPABILITIES_SHA256
+              value: {{ (default "" $gw.vssCapabilitiesSha256) | quote }}
+            - name: AGENT_EXPECTED_VSS_RUNTIME_REF
+              value: {{ (default "" $gw.expectedVssRuntimeRef) | quote }}
+            - name: AGENT_BACKEND_TIMEOUT_SECONDS
+              value: {{ (default 900 $gw.backendTimeoutSeconds) | quote }}
+            - name: AGENT_GATEWAY_RUN_RETENTION_SECONDS
+              value: {{ (default 3600 $gw.runRetentionSeconds) | quote }}
+            - name: AGENT_GATEWAY_MAX_EVENT_CHARS_PER_RUN
+              value: {{ (default 20000000 $gw.maxEventCharsPerRun) | quote }}
+            - name: AGENT_GATEWAY_MAX_THREAD_STATE_CHARS
+              value: {{ (default 20000000 $gw.maxThreadStateChars) | quote }}
+            - name: NEXT_PUBLIC_AGENT_GATEWAY_ENABLED
+              value: {{ $gwEnabled | quote }}
+            {{- $forceHttp := $gw.forceHttpChatTransport }}
+            {{- if or (kindIs "invalid" $forceHttp) (eq ($forceHttp | toString | trim) "") }}
+            {{- $forceHttp = $gwEnabled }}
+            {{- end }}
+            - name: NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT
+              value: {{ $forceHttp | quote }}
             {{- range .Values.extraEnv }}
             - name: {{ .name }}
               value: {{ .value | quote }}
