@@ -126,24 +126,53 @@ class TestLVSStreamUnderstandingInner:
             lvs_backend_url="http://localhost:38111",
             vst_internal_url="http://localhost:30888",
         )
-        inner_fn = await self._get_inner_fn(config)
-
-        result = await inner_fn(
-            LVSStreamUnderstandingInput(
-                stream_name="CAM_1",
-                start_time=0,
-                end_time=45,
+        with patch(
+            "vss_agents.tools.lvs_stream_understanding.get_stream_info_by_name",
+            new=AsyncMock(return_value=("stream-uuid", "rtsp://example/stream")),
+        ):
+            inner_fn = await self._get_inner_fn(config)
+            result = await inner_fn(
+                LVSStreamUnderstandingInput(
+                    stream_name="CAM_1",
+                    start_time=0,
+                    end_time=45,
+                )
             )
-        )
 
         assert result.status == LVSMediaStatus.NOT_CONFIGURED
         assert result.configured is False
+        assert result.stream_id == "stream-uuid"
         # Message must (a) tell the user there are no captions yet and
         # (b) include the explicit trigger phrase the user must reply with to
         # start caption generation. The agent prompt requires this phrasing
         # so it surfaces verbatim and does NOT auto-call lvs_config_media.
         assert "no captions stored" in result.message.lower()
         assert "start captioning CAM_1" in result.message
+
+    @pytest.mark.asyncio
+    async def test_missing_stream_does_not_offer_caption_setup(self):
+        config = LVSStreamUnderstandingConfig(
+            lvs_backend_url="http://localhost:38111",
+            vst_internal_url="http://localhost:30888",
+        )
+
+        with patch(
+            "vss_agents.tools.lvs_stream_understanding.get_stream_info_by_name",
+            new=AsyncMock(return_value=(None, None)),
+        ):
+            inner_fn = await self._get_inner_fn(config)
+            result = await inner_fn(
+                LVSStreamUnderstandingInput(
+                    stream_name="missing_camera",
+                    start_time=0,
+                    end_time=45,
+                )
+            )
+
+        assert result.status == LVSMediaStatus.FAILED
+        assert result.configured is False
+        assert "not found" in result.message.lower()
+        assert "start captioning" not in result.message.lower()
 
     @pytest.mark.asyncio
     async def test_configured_stream_calls_stream_summarize(self):
@@ -280,15 +309,18 @@ class TestLVSStreamUnderstandingInner:
                 lvs_backend_url="http://localhost:38111",
                 vst_internal_url="http://localhost:30888",
             )
-            inner_fn = await self._get_inner_fn(config)
-
-            result = await inner_fn(
-                LVSStreamUnderstandingInput(
-                    stream_name="CAM_1",
-                    start_time=0,
-                    end_time=45,
+            with patch(
+                "vss_agents.tools.lvs_stream_understanding.get_stream_info_by_name",
+                new=AsyncMock(return_value=("stream-uuid", "rtsp://example/stream")),
+            ):
+                inner_fn = await self._get_inner_fn(config)
+                result = await inner_fn(
+                    LVSStreamUnderstandingInput(
+                        stream_name="CAM_1",
+                        start_time=0,
+                        end_time=45,
+                    )
                 )
-            )
         finally:
             ContextState.get().conversation_id.reset(other_conversation_token)
 

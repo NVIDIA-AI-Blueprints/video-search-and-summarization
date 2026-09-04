@@ -211,6 +211,10 @@ class LVSConfigMediaInput(BaseModel):
         default="stream", description="Media type to configure. Currently stream only."
     )
     stream_name: str = Field(..., description="The VST live stream/camera name to configure for LVS.")
+    reconfigure: bool = Field(
+        default=False,
+        description="Reconfigure an already configured stream. Set only when the user explicitly requests reconfiguration.",
+    )
 
     @field_validator("stream_name")
     @classmethod
@@ -356,6 +360,19 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
             )
 
         configured = configured_media(lvs_input.media_type, media_name)
+        if configured and not lvs_input.reconfigure:
+            return LVSConfigMediaOutput(
+                status=LVSMediaStatus.ACCEPTED,
+                media_type=lvs_input.media_type,
+                media_name=configured.media_name,
+                media_id=configured.media_id,
+                configured=True,
+                message=f"Caption generation is already configured for stream '{configured.media_name}'.",
+                scenario=configured.scenario,
+                events=list(configured.events),
+                objects_of_interest=list(configured.objects_of_interest),
+            )
+
         current_params = None
         if configured:
             current_params = (
