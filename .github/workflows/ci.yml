@@ -1363,6 +1363,8 @@ jobs:
           python3 .github/scripts/test_check_vios_media_origin.py
           python3 .github/scripts/check_gpu_device_clamp.py
           python3 .github/scripts/test_check_gpu_device_clamp.py
+          python3 .github/scripts/check_loopback_host_publishes.py
+          python3 .github/scripts/test_check_loopback_host_publishes.py
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_ingress_rewrites.py

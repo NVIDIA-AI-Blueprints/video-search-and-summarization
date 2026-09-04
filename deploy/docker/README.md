@@ -658,11 +658,16 @@ heard of. Adding a query endpoint is one line; missing a destructive one was
 silent.
 
 > **The gateway is not the only path to Elasticsearch.** `services/infra/compose.yml`
-> also publishes the cluster itself on `${ELASTICSEARCH_HOST_PORT:-9200}` with no
-> bind address, so on a host reachable from a network, port 9200 answers
-> unauthenticated regardless of this ACL. Set `ELASTICSEARCH_HOST_BIND=127.0.0.1`
-> (the default) and reach the cluster through `/elasticsearch`; publish it wider
-> only deliberately.
+> also publishes the cluster itself, on
+> `${ELASTICSEARCH_HOST_BIND:-127.0.0.1}:${ELASTICSEARCH_HOST_PORT:-9200}`. The
+> bind defaults to loopback because a published 9200 answers unauthenticated to
+> anything that can route to the host, regardless of this ACL. Reach the cluster
+> from another machine through `/elasticsearch`; set
+> `ELASTICSEARCH_HOST_BIND=0.0.0.0` only deliberately, and never from a profile —
+> that widens the exposure for every deployment of it. Nothing inside the
+> deployment should depend on that publish: an in-network client uses the service
+> name, which the bind does not affect. `check_loopback_host_publishes.py` holds
+> both halves of that.
 
 So which ES clients ride the gateway is decided by that ACL, not by preference:
 
