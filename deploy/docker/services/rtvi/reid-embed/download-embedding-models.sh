@@ -149,12 +149,21 @@ if [ "$SECONDARY" = 0 ] && [ "$CLIPREID" = 0 ]; then
   exit 1
 fi
 
-dir_nonempty() {
-  [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]
-}
-
 file_nonempty() {
   [ -f "$1" ] && [ -s "$1" ]
+}
+
+# NGC version dirs are a cache hit only when they contain a nonempty ONNX.
+# dir_nonempty would treat an interrupted download (any leftover file) as
+# complete, skip every later run, and leave ReID unhealthy because it loads
+# siglip2_v1.0.onnx from this tree.
+ngc_onnx_present() {
+  local dir="$1" f
+  [ -d "$dir" ] || return 1
+  for f in "$dir"/*.onnx; do
+    file_nonempty "$f" && return 0
+  done
+  return 1
 }
 
 version_dir() {
@@ -320,11 +329,14 @@ download_tao_models() {
   local spec dir
   for spec in "${MODELS[@]}"; do
     dir="$DEST_DIR/$(version_dir "$spec")"
-    if [ "$FORCE" != 1 ] && dir_nonempty "$dir"; then
+    if [ "$FORCE" != 1 ] && ngc_onnx_present "$dir"; then
       echo "── SKIP  $spec  →  ${dir##*/}/ already present"
       apply_artifact_perms "$dir"
       skipped=$((skipped + 1))
       continue
+    fi
+    if [ -d "$dir" ]; then
+      echo "── Incomplete ${dir##*/}/ (no nonempty .onnx); re-downloading $spec"
     fi
     ensure_ngc_cli
     echo "── Downloading $spec ..."
@@ -333,7 +345,8 @@ download_tao_models() {
     # does not need a configured org. These TAO models are world-readable, so an
     # unset NGC_CLI_API_KEY is fine; the CLI picks the key up from the
     # environment on its own when one is supplied for a gated model.
-    if ngc registry model download-version "$spec" --org "$NGC_ORG_DEFAULT" --dest "$DEST_DIR"; then
+    if ngc registry model download-version "$spec" --org "$NGC_ORG_DEFAULT" --dest "$DEST_DIR" \
+        && ngc_onnx_present "$dir"; then
       # The NGC CLI creates its version dir 0700, unreadable to the app user.
       apply_artifact_perms "$dir"
       downloaded=$((downloaded + 1))
@@ -341,6 +354,7 @@ download_tao_models() {
       rm -rf "$dir"
       echo "ERROR: download failed for $spec (org ${NGC_ORG_DEFAULT})." >&2
       echo "       Gated models need NGC_CLI_API_KEY set in the environment." >&2
+      echo "       The version dir must contain a nonempty .onnx after download." >&2
       exit 1
     fi
   done
