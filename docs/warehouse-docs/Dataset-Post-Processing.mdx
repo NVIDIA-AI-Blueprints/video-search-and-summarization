@@ -20,61 +20,64 @@ Post-processing is mainly divided into two steps as follows:
 * Sanity check for calibration focuses on identifying the correctness of calibration, including intrinsic matrix, extrinsic matrix, point pairs array, projection matrix, and homography matrix.
 * Sanity check for b frame focuses on identifying if the b-frames are present in a video.
 
-Navigate to the `sdg/data_sanity_check` path:
+Navigate to the `tools/sdg-postprocessing/data_sanity_check` path:
 
 ```bash
-cd $MDX_SAMPLE_APPS_DIR/deploy-warehouse-compose/modules/sdg/data_sanity_check/
+cd /path/to/video-search-and-summarization/tools/sdg-postprocessing/data_sanity_check/
 ```
 
 ```bash
 # RGB image sanity check
-python dataset_sanity_check_rgb.py --base_dir data/scene --total_frames 9000
+python dataset_sanity_check_rgb.py --base_dir /path/to/dataset --total_frames 9000
 
 # Depth map sanity checks
 # Raw depth maps (.npy) and converted .png files should both be validated
-python dataset_sanity_check_npy.py --base_dir data/scene --total_frames 9000  
-python dataset_sanity_check_png.py --base_dir data/scene --total_frames 9000
+python dataset_sanity_check_npy.py --base_dir /path/to/dataset --total_frames 9000
+python dataset_sanity_check_png.py --base_dir /path/to/dataset --total_frames 9000
 
 # Ground truth sanity check
-python dataset_sanity_check_json.py --base_dir data/scene --total_frames 9000
+python dataset_sanity_check_json.py --base_dir /path/to/dataset --total_frames 9000
 
 # Calibration sanity check
-python dataset_sanity_check_calibration.py --base_dir data/scene --calibration data/scene/calibration.json
+mkdir -p /path/to/calibration-sanity-output
+python dataset_sanity_check_calibration.py --base_dir /path/to/dataset --calibration /path/to/dataset/calibration.json --output_dir /path/to/calibration-sanity-output
 
 # Video b-frame sanity check
-bash dataset_sanity_check_videos.sh data/scene/videos
+bash dataset_sanity_check_videos.sh /path/to/dataset
 ```
 
 **Data Conversion**:
 
 Conversions for depth maps, RGB images, and ground truth are designed to save storage space and reduce redundant ground truth data, while schema conversion is performed for downstream tasks such as E2E model & pipeline evaluation.
 
-Navigate to the `sdg/data_conversion` path:
+Navigate to the `tools/sdg-postprocessing/data_conversion` path:
 
 ```bash
-cd $MDX_SAMPLE_APPS_DIR/deploy-warehouse-compose/modules/sdg/data_conversion/
+cd /path/to/video-search-and-summarization/tools/sdg-postprocessing/data_conversion/
 ```
 
 ```bash
 # Depth map conversion
-python convert_npy_to_png_depthmap.py data/scene
+python convert_npy_to_png_depthmap.py /path/to/dataset
 
 # Video conversion
-bash convert_images_to_videos_no_bframes.sh data/scene/videos
+bash convert_images_to_videos_no_bframes.sh /path/to/dataset
 
 # Ground truth conversion
-python convert_ground_truth.py data/scene --calibration data/scene/calibration.json --output data/scene/ground_truth --max_frames 9000 --xform_info data/scene/xform_info.json
+python convert_ground_truth.py /path/to/dataset --calibration /path/to/dataset/calibration.json --output /path/to/dataset/ground_truth --max_frames 9000 --xform_info /path/to/xform_info.json
 ```
 
 <Note>
-Generate `xform_info.json` (required by ground truth conversion):
+Generate `xform_info.json` only when ground-truth conversion requires parent-Xform rotation overrides:
 
 1. Load the scene in Isaac Sim.
 2. Open the Script Editor.
 
    ![Script Editor location](/assets/images/simulation/Editor_Script.png)
 
-3. In the Script Editor, go to **File** > **Open** and open `tools/sdg-postprocessing/utils/export_xform_semantics.py` from this repository. Set `USER_OUTPUT_PATH` to the directory where `xform_info.json` should be saved.
-4. Click **Run** to export `xform_info.json`.
+3. In the Script Editor, open `tools/sdg-postprocessing/utils/export_xform_semantics.py` via **File** > **Open**, and set `USER_OUTPUT_PATH` to your desired output directory or JSON file path.
+4. Click **Run** to export the JSON file to the configured path.
+
+If the scene does not need parent-Xform rotation overrides, omit the `--xform_info` option from the ground-truth conversion command.
 
 </Note>

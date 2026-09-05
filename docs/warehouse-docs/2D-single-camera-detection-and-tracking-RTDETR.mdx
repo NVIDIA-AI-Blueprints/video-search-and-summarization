@@ -46,7 +46,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 | Parameter | Description | Default Value |
 | --- | --- | --- |
 | `onnx-file` | Path to the ONNX model file | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx` |
-| `model-engine-file` | Path to the TensorRT engine file (stored under the `$VSS_DATA_DIR/models/mtmc/` mount at `/opt/storage/`) | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b4_gpu0_fp16.engine` |
+| `model-engine-file` | Path to the TensorRT engine file (stored under the `$VSS_DATA_DIR/models/mtmc/` mount at `/opt/storage/`). The configurator replaces the batch suffix with the final stream count. | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b<stream-count>_gpu0_fp16.engine` |
 | `labelfile-path` | Path to the object class labels file | `ds-detector-labels.txt` |
 | `gpu-id` | GPU ID to use for inference | `0` |
 | `network-mode` | Precision mode (0=FP32, 1=INT8, 2=FP16) | `2` |
@@ -54,7 +54,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 | `interval` | Inference interval (process every Nth frame) | `0` |
 | `gie-unique-id` | Unique ID for the inference engine | `1` |
 | `network-type` | Type of detection network (0=Detector) | `0` |
-| `cluster-mode` | Clustering algorithm (1=DBSCAN, 2=NMS, 3=DBSCAN+NMS, 4=None) | `4` |
+| `cluster-mode` | Clustering algorithm (1=DBSCAN, 2=NMS, 3=DBSCAN+NMS, 4=None) | `2` |
 
 #### Input/Output Properties
 
@@ -63,7 +63,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 | `net-scale-factor` | Scaling factor for preprocessing (1/255) | `0.00392156862745098` |
 | `model-color-format` | Input color format (0=RGB, 1=BGR) | `0` |
 | `infer-dims` | Input dimensions (C;H;W) | `3;640;640` |
-| `maintain-aspect-ratio` | Maintain aspect ratio during preprocessing | `1` |
+| `maintain-aspect-ratio` | Maintain aspect ratio during preprocessing | `0` |
 | `offsets` | Mean subtraction offsets for preprocessing | `0;0;0` |
 | `output-tensor-meta` | Enable output tensor metadata | `1` |
 | `output-blob-names` | Names of output tensors from the model | `pred_boxes;pred_logits` |
