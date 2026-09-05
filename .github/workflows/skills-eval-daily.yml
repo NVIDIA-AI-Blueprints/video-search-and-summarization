@@ -32,6 +32,7 @@ on:
         options:
           - claude-code
           - codex
+          - openclaw
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -175,7 +176,8 @@ jobs:
           SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
         run: |
           python3 -m venv "$SKILL_EVAL_VENV"
-          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
+          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet \
+            "claude-agent-sdk==0.2.128" "pydantic>=2.11,<3" "pyarrow>=20,<26"
           "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
           echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
@@ -267,7 +269,7 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
-          export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
+          export EVAL_AGENT="${{ matrix.agent || inputs.agent || 'claude-code' }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —

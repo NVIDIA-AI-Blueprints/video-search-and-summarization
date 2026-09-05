@@ -1,0 +1,238 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""OpenClaw driver for grouped benchmark conversations and verifier-only tasks."""
+
+from __future__ import annotations
+
+import json
+import re
+import shlex
+from pathlib import Path
+from typing import Any, ClassVar, override
+
+from harbor.agents.installed.openclaw import OpenClaw, _nvm22
+from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
+
+GROUP_PREFIX = "<!-- unified-memory-group\n"
+AGGREGATE_PREFIX = "<!-- unified-memory-aggregate\n"
+GROUP_SUFFIX = "\n-->"
+STRUCTURED_OUTPUT_SCRIPT = (
+    Path(__file__).resolve().parents[1] / "benchmark" / "structured_output.py"
+)
+REMOTE_STRUCTURED_OUTPUT_SCRIPT = "/logs/agent/structured_output.py"
+OPENCLAW_WORKSPACE = "~/.openclaw/workspace"
+RESET_OPENCLAW_RUNTIME_CLI = (
+    "rm -f ~/.openclaw/openclaw.json && rm -rf ~/.openclaw/state"
+)
+RESPONSE_JQ_FILTER = '.payloads[0].text | select(type == "string")'
+GATEWAY_MODELS_URL = "http://127.0.0.1:18789/v1/models"
+
+
+def _group_envelope(instruction: str) -> dict[str, Any] | None:
+    start = instruction.find(GROUP_PREFIX)
+    if start < 0:
+        return None
+    start += len(GROUP_PREFIX)
+    end = instruction.find(GROUP_SUFFIX, start)
+    if end < 0:
+        raise ValueError("unterminated unified-memory group envelope")
+    envelope = json.loads(instruction[start:end])
+    if envelope.get("kind") != "unified-memory-group":
+        raise ValueError("invalid unified-memory group envelope")
+    turns = envelope.get("turns")
+    if not isinstance(turns, list) or len(turns) != 4:
+        raise ValueError("a benchmark group must contain exactly four turns")
+    return envelope
+
+
+def _aggregate_envelope(instruction: str) -> dict[str, Any] | None:
+    start = instruction.find(AGGREGATE_PREFIX)
+    if start < 0:
+        return None
+    start += len(AGGREGATE_PREFIX)
+    end = instruction.find(GROUP_SUFFIX, start)
+    if end < 0:
+        raise ValueError("unterminated unified-memory aggregate envelope")
+    envelope = json.loads(instruction[start:end])
+    if envelope != {"kind": "unified-memory-aggregate"}:
+        raise ValueError("invalid unified-memory aggregate envelope")
+    return envelope
+
+
+def _aggregate_cleanup_command(instruction: str) -> str:
+    return (
+        "rm -f /logs/agent/openclaw.txt "
+        "/logs/agent/openclaw-turn-*.txt "
+        "/logs/agent/openclaw.session.jsonl "
+        "/logs/agent/openclaw.upload.json "
+        "/logs/agent/structured_output.py; "
+        f"printf '%s\\n' {shlex.quote(instruction)} > /logs/agent/instruction.txt"
+    )
+
+
+def _prediction_extractor_command(
+    case_id: str,
+    structured_output_script: str = REMOTE_STRUCTURED_OUTPUT_SCRIPT,
+) -> str:
+    return (
+        f"jq -ce {shlex.quote(RESPONSE_JQ_FILTER)} "
+        f"| python3 {shlex.quote(structured_output_script)} "
+        "| jq -ce "
+        f"--arg case_id {shlex.quote(case_id)} "
+        f"{shlex.quote('{case_id: $case_id, answer: .}')}"
+    )
+
+
+def _openclaw_setup_commands(setup_cli: str) -> tuple[str, str]:
+    """Return setup commands pinned to the configured warm-worker workspace."""
+    args = shlex.split(setup_cli)
+    normalized: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--workspace":
+            if index + 1 >= len(args):
+                raise ValueError("OpenClaw setup --workspace requires a value")
+            index += 2
+            continue
+        if arg.startswith("--workspace="):
+            index += 1
+            continue
+        normalized.append(arg)
+        index += 1
+
+    command = f'{shlex.join(normalized)} --workspace "$HOME/.openclaw/workspace"'
+    return RESET_OPENCLAW_RUNTIME_CLI, _nvm22(command)
+
+
+def _staged_skills_cleanup_command() -> str:
+    """Remove only skills supplied by the current Harbor task."""
+    return (
+        "for skill_dir in /skills/*; do "
+        '[ -d "$skill_dir" ] || continue; '
+        'skill_name="$(basename "$skill_dir")"; '
+        'rm -rf "$HOME/.openclaw/skills/$skill_name"; '
+        "done"
+    )
+
+
+def _gateway_health_command() -> str:
+    """Fail a question group immediately when its shared judge is absent."""
+    return (
+        "curl --silent --show-error --fail --max-time 10 "
+        f"{shlex.quote(GATEWAY_MODELS_URL)} >/dev/null"
+    )
+
+
+class UnifiedMemoryOpenClaw(OpenClaw):
+    """Minimal extension: four prompts share one unique ``--session-key``."""
+
+    _DEFAULT_CONFIG: ClassVar[dict[str, Any]] = {
+        "agents": {"defaults": {"workspace": OPENCLAW_WORKSPACE}}
+    }
+
+    def _build_register_skills_command(self) -> str | None:
+        command = super()._build_register_skills_command()
+        if not command:
+            return None
+        return f"{_staged_skills_cleanup_command()} && {command}"
+
+    async def _prepare(
+        self, environment: BaseEnvironment, instruction: str
+    ) -> dict[str, str]:
+        if not self.model_name or "/" not in self.model_name:
+            raise ValueError("Model name must be in the format provider/model_name")
+        provider, _ = self.model_name.split("/", 1)
+        self._validate_provider(provider)
+        env = {
+            key: value
+            for key in self._provider_env_keys(provider)
+            if (value := self._get_env(key))
+        }
+        upload_path = self.logs_dir / self._UPLOAD_CONFIG_FILENAME
+        upload_path.write_text(
+            json.dumps(self._build_full_openclaw_config(), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (self.logs_dir / "instruction.txt").write_text(instruction, encoding="utf-8")
+        await environment.upload_file(
+            upload_path,
+            f"{self._CONTAINER_LOGS_AGENT}/{self._UPLOAD_CONFIG_FILENAME}",
+        )
+        await environment.upload_file(
+            STRUCTURED_OUTPUT_SCRIPT,
+            REMOTE_STRUCTURED_OUTPUT_SCRIPT,
+        )
+        for command in _openclaw_setup_commands(self._SETUP_CLI):
+            await self.exec_as_agent(environment, command=command, env=env)
+        await self.exec_as_agent(
+            environment,
+            command=(
+                "mkdir -p ~/.openclaw && cp "
+                f"{shlex.quote(f'{self._CONTAINER_LOGS_AGENT}/{self._UPLOAD_CONFIG_FILENAME}')} "
+                "~/.openclaw/openclaw.json"
+            ),
+            env=env,
+        )
+        if skills_command := self._build_register_skills_command():
+            await self.exec_as_agent(environment, command=skills_command, env=env)
+        return env
+
+    @override
+    async def run(
+        self, instruction: str, environment: BaseEnvironment, context: AgentContext
+    ) -> None:
+        if _aggregate_envelope(instruction) is not None:
+            await self.exec_as_agent(
+                environment,
+                command=_aggregate_cleanup_command(instruction),
+                env={},
+            )
+            return
+        group = _group_envelope(instruction)
+        logged_instruction = str(group["turns"][0]["prompt"]) if group else instruction
+        env = await self._prepare(environment, logged_instruction)
+        if group:
+            await self.exec_as_agent(
+                environment,
+                command=_gateway_health_command(),
+                env=env,
+            )
+        if not self.session_id:
+            raise RuntimeError("Harbor did not assign the OpenClaw trial session_id")
+        group_id = str(group["group_id"]) if group else "single-turn"
+        safe_session = re.sub(
+            r"[^A-Za-z0-9_-]+", "-", f"{self.session_id}-{group_id}"
+        ).strip("-")
+        cli_flags = self.build_cli_flags()
+        turns = (
+            group["turns"] if group else [{"case_id": "setup", "prompt": instruction}]
+        )
+        for index, turn in enumerate(turns, 1):
+            output_name = (
+                "openclaw.txt" if index == len(turns) else f"openclaw-turn-{index}.txt"
+            )
+            command = (
+                "set -o pipefail; "
+                ". ~/.nvm/nvm.sh && nvm use 22 >/dev/null && "
+                f"openclaw agent --local --json {cli_flags + ' ' if cli_flags else ''}"
+                f"--session-key {shlex.quote(safe_session)} "
+                f"--model {shlex.quote(self.model_name)} "
+                f"--message {shlex.quote(str(turn['prompt']))} "
+                f"</dev/null "
+                f"| stdbuf -oL tee /logs/agent/{output_name}"
+            )
+            if group:
+                temporary_path = f'"${{TMPDIR:?}}/prediction-{index}.json.tmp"'
+                prediction_path = f"/logs/artifacts/prediction-{index}.json"
+                command += (
+                    f" | {_prediction_extractor_command(str(turn['case_id']))} "
+                    f"> {temporary_path} "
+                    f"&& mv {temporary_path} {shlex.quote(prediction_path)}"
+                )
+            if index == len(turns):
+                command += (
+                    f" && ({self._shell_copy_openclaw_session_to_logs()} || true)"
+                )
+            await self.exec_as_agent(environment, command=command, env=env)

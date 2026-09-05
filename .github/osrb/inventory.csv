@@ -2702,6 +2702,7 @@ py-cpuinfo,9.0.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,servi
 py-spy,0.4.2,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyaml_env,UNKNOWN,UNKNOWN,services/video-summarization,python,usage,services/video-summarization/src/via_stream_handler.py,runtime,no,no,no,imported-only,Unknown
 pyarrow,23.0.1,Apache-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+pyarrow,UNKNOWN,UNKNOWN,.github,python,usage,.github/skill-eval/benchmark/video_mme_v2.py,runtime,no,no,no,imported-only,Unknown
 pyasn1,0.6.3,BSD-2-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 pyasn1,0.6.3,BSD-2-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 pyasn1,0.6.4,UNKNOWN,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
@@ -2728,6 +2729,7 @@ pydantic,2.13.4,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/p
 pydantic,2.13.4,MIT,tools/sdg-postprocessing,python,manifest,tools/sdg-postprocessing/requirements.txt,runtime,no,no,no,declared-manifest,None
 pydantic,2.14.0a1,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pydantic,2.14.0b1,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+pydantic,UNKNOWN,MIT,.github,python,usage,.github/skill-eval/adapters/benchmark-unified-memory/verify_group.py,runtime,no,no,no,imported-only,None
 pydantic,UNKNOWN,MIT,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 pydantic,UNKNOWN,MIT,services/video-summarization,python,usage,services/video-summarization/src/chunk_info.py,runtime,no,no,no,imported-only,None
 pydantic-core,2.46.4,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None

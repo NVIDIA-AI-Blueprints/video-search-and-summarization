@@ -41,6 +41,8 @@ from pathlib import Path
 TRACE_URLS_NAME = "trace-urls.tsv"
 PHASE_TIMINGS_NAME = "phase-timings.json"
 MACHINE_NAME = "machine.txt"
+BENCHMARK_GROUP_SCORE_NAME = "benchmark-group-score.json"
+BENCHMARK_REPORT_NAME = "benchmark-report.json"
 MISSING = "—"
 
 # Rendered, never returned as a verdict.
@@ -185,6 +187,71 @@ def _clean_reward(value: object) -> float | None:
     return float(value) if math.isfinite(value) else None
 
 
+def _unit_score(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field} must be a number")
+    score = float(value)
+    if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+        raise ValueError(f"{field} must be between 0 and 1")
+    return score
+
+
+def _benchmark_score(trial_dir: Path) -> dict | None:
+    """Read the typed benchmark artifact emitted by this trial, if any."""
+    group_path = trial_dir / "verifier" / BENCHMARK_GROUP_SCORE_NAME
+    report_path = trial_dir / "verifier" / BENCHMARK_REPORT_NAME
+    paths = [path for path in (group_path, report_path) if path.exists()]
+    if not paths:
+        return None
+    if len(paths) != 1:
+        raise ValueError("trial contains both group and aggregate score artifacts")
+
+    path = paths[0]
+    payload = _load_json(path)
+    if not isinstance(payload, dict):
+        raise TypeError(f"{path.name} is not a JSON object")
+
+    if path == group_path:
+        grades = payload.get("grades")
+        if not isinstance(grades, list) or not grades:
+            raise ValueError("benchmark group score has no grades")
+        correctness = [
+            grade.get("correct")
+            for grade in grades
+            if isinstance(grade, dict)
+        ]
+        if len(correctness) != len(grades) or not all(
+            isinstance(value, bool) for value in correctness
+        ):
+            raise ValueError("benchmark group grades have invalid correctness values")
+        return {
+            "kind": "group",
+            "score": _unit_score(payload.get("score"), "group score"),
+            "correct": sum(correctness),
+            "total": len(correctness),
+        }
+
+    score = _unit_score(payload.get("overall_group_score"), "overall score")
+    minimum = _unit_score(payload.get("minimum"), "minimum")
+    passed = payload.get("passed")
+    if not isinstance(passed, bool) or passed != (score >= minimum):
+        raise ValueError("benchmark report has an invalid pass decision")
+    return {
+        "kind": "aggregate",
+        "score": score,
+        "minimum": minimum,
+        "passed": passed,
+    }
+
+
+def _fmt_benchmark_score(value: dict | None) -> str:
+    if not value:
+        return MISSING
+    if value["kind"] == "group":
+        return f"{value['score']:.3f} ({value['correct']}/{value['total']})"
+    return f"{value['score']:.3f} (min {value['minimum']:.3f})"
+
+
 def _trial_metrics(trial_dir: Path) -> dict:
     """Agent turn count for one trial, from the trajectory when it is there.
 
@@ -227,6 +294,23 @@ def spec_steps(spec_path: str | Path | None) -> list[str]:
     data = _load_json(path)
     if not isinstance(data, dict):
         raise SpecError(f"spec is not a JSON object: {path}")
+    if "dataset" in data:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from benchmark.spec import load_benchmark_spec
+            from benchmark.video_mme_v2 import load_video_mme_v2
+
+            benchmark_spec = load_benchmark_spec(path)
+            skill_dir = path.parents[1]
+            dataset = load_video_mme_v2(skill_dir / benchmark_spec.dataset.path)
+        except Exception as exc:  # noqa: BLE001 - convert all loader failures to renderer contract
+            raise SpecError(f"dataset-backed spec is unusable: {path}: {exc}") from exc
+        return (
+            [step.query for step in benchmark_spec.setup]
+            + [f"VideoMME-v2 group {group.group_id}" for group in dataset.groups]
+            + ["Aggregate VideoMME-v2 benchmark score"]
+        )
+
     expects = data.get("expects")
     if not isinstance(expects, list):
         raise SpecError(f"spec has no `expects` list: {path}")
@@ -242,6 +326,7 @@ def collect_leg(results_root: Path) -> dict:
     results_root = Path(results_root)
     trials: list[dict] = []
     unreadable: list[str] = []
+    benchmark_errors: list[str] = []
     for result_path in sorted(results_root.rglob("result.json")):
         trial_dir = result_path.parent
         data = _load_json(result_path)
@@ -285,6 +370,13 @@ def collect_leg(results_root: Path) -> dict:
         metrics["prompt_tok"] = (max(total_in - cached, 0)
                                  if isinstance(total_in, int) else None)
         exc = data.get("exception_info")
+        try:
+            benchmark_score = _benchmark_score(trial_dir)
+        except (TypeError, ValueError) as score_error:
+            benchmark_score = None
+            benchmark_errors.append(
+                f"{trial_dir.relative_to(results_root)}: {score_error}"
+            )
         trials.append({
             "trial_name": trial_name,
             "key": _trial_key(trial_name),
@@ -302,6 +394,7 @@ def collect_leg(results_root: Path) -> dict:
             "exception": bool(exc),
             "exception_type": (exc.get("exception_type") if isinstance(exc, dict) else None),
             "cost_usd": agent_result.get("cost_usd"),
+            "benchmark_score": benchmark_score,
             "path": str(result_path.relative_to(results_root)),
             **metrics,
         })
@@ -362,6 +455,7 @@ def collect_leg(results_root: Path) -> dict:
     return {
         "trials": trials,
         "unreadable": unreadable,
+        "benchmark_errors": benchmark_errors,
         "traces": traces,
         "machine": machine,
         "phases": phases if isinstance(phases, dict) else {},
@@ -485,6 +579,7 @@ def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
     declared = declared or []
     numbered = [t for t in trials if t["step"]]
     multi = bool(numbered) or len(declared) > 1
+    has_benchmark_scores = any(t.get("benchmark_score") for t in trials)
 
     lines = [f"## Harbor Eval — `{spec_path}`", ""]
     meta = [f"Head: `{head_sha[:8]}`", f"platform `{platform}`"]
@@ -509,9 +604,12 @@ def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
         return "| " + " | ".join(cells) + " |"
 
     if multi:
-        lines.append(row(["Platform", "Step", "Query", "Result", "Reward",
-                          "Duration", "Turns", "Prompt tok", "Cached tok", "Trace"]))
-        lines.append("|" + "---|" * 10)
+        headers = ["Platform", "Step", "Query", "Result"]
+        if has_benchmark_scores:
+            headers.append("Benchmark score")
+        headers.extend(["Reward", "Duration", "Turns", "Prompt tok", "Cached tok", "Trace"])
+        lines.append(row(headers))
+        lines.append("|" + "---|" * len(headers))
         # An unnumbered single trial IS logical step 1 when the spec declares
         # steps. Treating it as absent flipped 316 real legs falsely red.
         by_step = {}
@@ -534,26 +632,55 @@ def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
             else:
                 query = MISSING
             if t is None:
-                lines.append(row([platform, f"step-{n}", query,
-                                  _skip_cell(n, by_step)] + [MISSING] * 6))
+                cells = [platform, f"step-{n}", query, _skip_cell(n, by_step)]
+                if has_benchmark_scores:
+                    cells.append(MISSING)
+                lines.append(row(cells + [MISSING] * 6))
                 continue
-            lines.append(row([
-                platform, f"step-{n}", query, _verdict_cell(t),
+            cells = [platform, f"step-{n}", query, _verdict_cell(t)]
+            if has_benchmark_scores:
+                cells.append(_fmt_benchmark_score(t.get("benchmark_score")))
+            lines.append(row(cells + [
                 _fmt_reward(t["reward"]) if t["reward"] is not None else MISSING,
                 _fmt_duration(t["seconds"]), str(t["turns"] or MISSING),
                 _fmt_tokens(t["prompt_tok"]), _fmt_tokens(t["cached_tok"]),
                 _trace_link(t, traces)]))
     else:
-        lines.append(row(["Platform", "Result", "Reward", "Duration", "Turns",
-                          "Prompt tok", "Cached tok", "Trace"]))
-        lines.append("|" + "---|" * 8)
+        headers = ["Platform", "Result"]
+        if has_benchmark_scores:
+            headers.append("Benchmark score")
+        headers.extend(["Reward", "Duration", "Turns", "Prompt tok", "Cached tok", "Trace"])
+        lines.append(row(headers))
+        lines.append("|" + "---|" * len(headers))
         for t in trials:
-            lines.append(row([
-                platform, _verdict_cell(t),
+            cells = [platform, _verdict_cell(t)]
+            if has_benchmark_scores:
+                cells.append(_fmt_benchmark_score(t.get("benchmark_score")))
+            lines.append(row(cells + [
                 _fmt_reward(t["reward"]) if t["reward"] is not None else MISSING,
                 _fmt_duration(t["seconds"]), str(t["turns"] or MISSING),
                 _fmt_tokens(t["prompt_tok"]), _fmt_tokens(t["cached_tok"]),
                 _trace_link(t, traces)]))
+
+    aggregate = next(
+        (
+            t["benchmark_score"]
+            for t in reversed(trials)
+            if (t.get("benchmark_score") or {}).get("kind") == "aggregate"
+        ),
+        None,
+    )
+    if aggregate:
+        status = f"{MARK_PASS} passed" if aggregate["passed"] else f"{MARK_FAIL} failed"
+        summary = " · ".join([
+            f"**Benchmark score:** `{aggregate['score']:.4f}`",
+            f"minimum `{aggregate['minimum']:.4f}`",
+            status,
+        ])
+        lines.extend([
+            "",
+            summary,
+        ])
 
     retried = [t for t in trials if t.get("attempts", 1) > 1]
     if retried:
@@ -571,6 +698,12 @@ def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
         lines.append("")
         lines.append("Unreadable result files (NOT reflected above): "
                      + ", ".join(f"`{p}`" for p in leg["unreadable"]))
+    if leg.get("benchmark_errors"):
+        lines.append("")
+        lines.append("Unreadable benchmark score artifacts: "
+                     + ", ".join(
+                         f"`{item}`" for item in leg["benchmark_errors"]
+                     ))
     lines.append("")
     return "\n".join(lines)
 
