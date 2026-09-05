@@ -39,14 +39,14 @@ metadata:
 | Build, create, extend, customize, combine, add, or remove capabilities | Delta mode using the closest current developer profile as the Foundation. |
 | A named profile qualified as headless | Delta mode off that profile, not a stock deploy. |
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
-| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — `vss-agent`, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
+| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | **Warehouse does not support NemoClaw yet.** The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — `vss-agent`, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
 | Install the harness against an already-deployed build (no composition requested) | `references/agent-harness.md` bring-up alone — resolve the origin from the running build, skip Steps 5–8. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
 | `smartcities` or another industry profile | Stop: `warehouse` is the only supported industry Foundation. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
-**Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, `search`, and `bp_wh` ships `vss-agent`, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent (the warehouse Kafka, Redis, and minimal variants) or where the request names the in-stack agent and so skips Q3.
+**Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, and `search` ships `vss-agent`, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent, where the request names the in-stack agent and so skips Q3, or on a warehouse variant, none of which reach Q3 at all (see Q2w).
 
 ## Entry Mode (Step 0)
 
@@ -105,7 +105,7 @@ variant selection, not composition, so there is no delta path. Read
 asking, and apply its Hard constraints while asking, not after. Apply any build
 requirements its **Profile Service Set** states.
 
-Up to four single-select questions, each inside the four-option cap. Describe
+Up to five single-select questions, each inside the four-option cap. Describe
 each option from warehouse.md's **Profile Service Set** table; do not restate
 its service lists here, or this table drifts from the one that is authoritative:
 
@@ -115,6 +115,7 @@ its service lists here, or this table drifts from the one that is authoritative:
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
 | **Q2w-dataset** — *"Which sample dataset?"* | `nv-warehouse-4cams` · `warehouse-loading-dock-3cams-synthetic` · `warehouse-4cams-20mx20m-synthetic` |
+| **Q2w-datatype** — *"Is this footage real or synthetic?"* | `real` · `synthetic` |
 
 Filter the remaining options rather than validating the answers afterwards.
 Both filters below are warehouse.md's to state; it is the source of truth for
@@ -128,6 +129,13 @@ why, and this list only says when to apply them:
   answers are forced.
 - **Skip Q2w-size entirely for `bp_wh`** — the Profile Service Set table lists
   no minimal variant for it.
+- **Ask Q2w-datatype only when Q2w-mode is `3d` and the dataset is not one of
+  the three shipped.** `DATASET_TYPE` is inert outside `3d`, and for the shipped
+  datasets it is determined, not chosen — `nv-warehouse-4cams` is `real`, both
+  `*-synthetic` are `synthetic` — so derive it and do not ask. Only custom
+  footage carries no inferable provenance. A custom dataset arrives through a
+  prompt-driven request rather than Q2w-dataset, which offers the shipped three
+  only, so this question fires on that path.
 - **Ask Q2w-dataset for every mode, including `auto-calibration`.** Dataset and
   mode are independent — all three ship calibration for `2d`, `3d` and `mv3dt`,
   and auto-calibration needs to know which dataset it is calibrating. Set
@@ -139,14 +147,15 @@ The answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its name in
 at **Step 2** with `FOUNDATION=warehouse`.
 
 Only `COMPOSE_PROFILES_WH_2D` (`bp_wh`) carries `vss-agent`; the Kafka, Redis,
-and minimal variants ship agentless and so **skip [Q3](#harness-selection--q3)
-entirely**. Where Q3 is asked, dropping that one key is the single edit
-permitted to a warehouse variant list — everything else stays verbatim, and
-Step 8 still resolves through `warehouse.md`. The shared lifecycle applies from
-there, with four warehouse divergences: skip **Step 4**
-(`references/composition.md` is the delta flow), **Step 5**'s effective service
-set is already fixed above, **Step 7** additionally writes `configurator.env`,
-and **Step 8** resolves through
+and minimal variants ship agentless. **No warehouse variant reaches
+[Q3](#harness-selection--q3)**: the agentless ones have no agent to remove, and
+selecting `bp_wh` *is* naming the in-stack agent, since that is the only thing
+distinguishing it from `bp_wh_kafka`. So `vss-agent` is kept, the list is
+expanded verbatim with no edits, and every warehouse deploy is a Stock deploy.
+The shared lifecycle applies from there, with four warehouse divergences: skip
+**Step 4** (`references/composition.md` is the delta flow), **Step 5**'s
+effective service set is already fixed above, **Step 7** additionally writes
+`configurator.env`, and **Step 8** resolves through
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) rather
 than the delta flow in `references/composition.md`.
 
@@ -175,9 +184,9 @@ After Q2b, the selected capabilities **are** the required-capability set. Select
 
 ### Harness selection — Q3
 
-Applies to **every** entry mode — quickstart, warehouse, and custom build alike — and only when the request does not already name a harness. A harness is what a person or another agent talks to in order to drive the build; it is orthogonal to the capability set. Read [`references/agent-harness.md`](references/agent-harness.md) before offering this — it owns the contract.
+Applies to **every** entry mode — prompt-driven, quickstart, and custom build alike — but **not** to warehouse, whose variants never reach Q3 (see Q2w), and only when the request does not already name a harness. A harness is what a person or another agent talks to in order to drive the build; it is orthogonal to the capability set. Read [`references/agent-harness.md`](references/agent-harness.md) before offering this — it owns the contract.
 
-**Ask Q3 exactly when the Foundation's service set carries `vss-agent`** — every developer profile does, as does warehouse `bp_wh`. Skip it entirely, with no question and no harness, when the set carries no agent: an ingest-, index-, or API-only build is legitimately headless, and Q3 would invent a requirement. When the user has already said "headless", that *is* the answer — do not re-ask.
+**Ask Q3 exactly when the Foundation's service set carries `vss-agent`** — every developer profile does; warehouse is the exception, since `bp_wh` carries one but selecting it already names the agent (see Q2w). Skip it entirely, with no question and no harness, when the set carries no agent: an ingest-, index-, or API-only build is legitimately headless, and Q3 would invent a requirement. When the user has already said "headless", that *is* the answer — do not re-ask.
 
 **Q3 — Harness (yes/no).** *"Deploy an agent harness with this build?"*
 
