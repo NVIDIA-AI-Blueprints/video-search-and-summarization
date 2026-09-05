@@ -423,6 +423,61 @@ def test_late_file_frame_after_cache_handoff_is_dropped(monkeypatch):
 
 
 @pytest.mark.no_gpu
+def test_pipeline_replacement_removes_bus_watch_and_callbacks(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    events = []
+
+    class FakePad:
+        def remove_probe(self, probe_id):
+            events.append(("probe", probe_id))
+
+    class FakeSignalObject:
+        def disconnect(self, handler_id):
+            events.append(("handler", handler_id))
+
+    class FakeBus:
+        def remove_signal_watch(self):
+            events.append(("bus-watch", None))
+
+    class FakePipeline:
+        def remove(self, element):
+            events.append(("decoder", element))
+
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    old_pipeline = FakePipeline()
+    cached_decoder = object()
+    old_bus = FakeBus()
+    fgetter._pipeline = old_pipeline
+    fgetter._vdecodebin = cached_decoder
+    fgetter._vdecodebin_cache = {("h264", 320, 320): cached_decoder}
+    fgetter._gst_pad_probe_ids = [(FakePad(), 11)]
+    fgetter._gst_signal_handler_ids = [(FakeSignalObject(), 22)]
+    fgetter._vdecodebin_cache_signal_keys = {("h264", 320, 320)}
+    fgetter._bus = old_bus
+    fgetter._bus_signal_watch_added = True
+
+    detached = fgetter._detach_pipeline_for_replacement()
+
+    assert detached is old_pipeline
+    assert events == [
+        ("decoder", cached_decoder),
+        ("probe", 11),
+        ("handler", 22),
+        ("bus-watch", None),
+    ]
+    assert fgetter._pipeline is None
+    assert fgetter._vdecodebin is None
+    assert fgetter._bus is None
+    assert fgetter._gst_pad_probe_ids == []
+    assert fgetter._gst_signal_handler_ids == []
+    assert fgetter._vdecodebin_cache_signal_keys == set()
+    assert not fgetter._bus_signal_watch_added
+
+
+@pytest.mark.no_gpu
 def test_handle_cuda_oom_records_err_msg_and_drops_cached_frames(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
     monkeypatch.delenv("RTVI_ENABLE_CUDA_OOM_RECOVERY", raising=False)
