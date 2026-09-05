@@ -40,6 +40,10 @@ from common.logger import (
             "https://user:password@example.com:8443/path/video.mp4#token=SECRET",
             "https://example.com:8443/path/video.mp4",
         ),
+        (
+            "rtsp://user:CANARY_SECRET@[camera/path",
+            "[malformed URL redacted]",
+        ),
         ("file:///data/video.mp4", "file:///data/video.mp4"),
     ],
 )
@@ -65,6 +69,22 @@ def test_sensitive_url_filter_sanitizes_formatted_log_record():
     assert record.getMessage() == (
         'Received query={"url":"http://example.com/video.mp4 [URL query redacted]'
     )
+    assert "CANARY_SECRET" not in record.getMessage()
+
+
+def test_sensitive_url_filter_redacts_malformed_url():
+    record = logging.LogRecord(
+        name="common.logger",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="Opening %s",
+        args=("rtsp://user:CANARY_SECRET@[camera/path",),
+        exc_info=None,
+    )
+
+    assert _SensitiveURLFilter().filter(record)
+    assert record.getMessage() == "Opening [malformed URL redacted]"
     assert "CANARY_SECRET" not in record.getMessage()
 
 

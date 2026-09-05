@@ -54,9 +54,7 @@ def sanitize_url_for_logging(url: str) -> str:
         netloc = parsed.netloc.rsplit("@", 1)[-1]
         return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
     except (TypeError, ValueError):
-        # Keep malformed values out of logs past the first query/fragment
-        # delimiter even if urllib cannot parse them.
-        return str(url).split("?", 1)[0].split("#", 1)[0]
+        return "[malformed URL redacted]"
 
 
 def sanitize_urls_for_logging(message: str) -> str:
