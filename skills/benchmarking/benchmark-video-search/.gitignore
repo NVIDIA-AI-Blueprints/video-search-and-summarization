@@ -8,3 +8,6 @@ datasets/
 # Python bytecode caches
 __pycache__/
 *.pyc
+
+# pytest cache
+.pytest_cache/
