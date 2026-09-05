@@ -28,6 +28,9 @@ from .search import SearchInput
 from .search import SearchOutput
 from .search import SearchResult
 from .search import SearchVerification
+from .tag_search import TagSearchInput
+from .tag_search import TagSearchOutput
+from .tag_search import TagSearchResultItem
 
 __all__ = [
     "AttributeSearchInput",
@@ -42,4 +45,7 @@ __all__ = [
     "SearchResult",
     "SearchVerification",
     "SourceType",
+    "TagSearchInput",
+    "TagSearchOutput",
+    "TagSearchResultItem",
 ]
