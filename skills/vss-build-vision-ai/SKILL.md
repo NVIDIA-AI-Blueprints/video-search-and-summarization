@@ -46,7 +46,7 @@ metadata:
 | `smartcities` or another industry profile | Stop: `warehouse` is the only supported industry Foundation. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
-**Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, `search`, and `bp_wh` ships `vss-agent`, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent (the warehouse Kafka, Redis, and minimal variants) or where the request names the in-stack agent and so skips Q3.
+**Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, and `search` ships `vss-agent`, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent, where the request names the in-stack agent and so skips Q3, or on a warehouse variant, none of which reach Q3 at all (see Q2w).
 
 ## Entry Mode (Step 0)
 
@@ -147,11 +147,13 @@ The answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its name in
 at **Step 2** with `FOUNDATION=warehouse`.
 
 Only `COMPOSE_PROFILES_WH_2D` (`bp_wh`) carries `vss-agent`; the Kafka, Redis,
-and minimal variants ship agentless and so **skip [Q3](#harness-selection--q3)
-entirely**. Where Q3 is asked, dropping that one key is the single edit
-permitted to a warehouse variant list — everything else stays verbatim, and
-Step 8 still resolves through `warehouse.md`. The shared lifecycle applies from
-there, with four warehouse divergences: skip **Step 4**
+and minimal variants ship agentless. **No warehouse variant reaches
+[Q3](#harness-selection--q3)**: the agentless ones have no agent to remove, and
+selecting `bp_wh` *is* naming the in-stack agent, since that is the only thing
+distinguishing it from `bp_wh_kafka`. So `vss-agent` is kept, the list is
+expanded verbatim with no edits, and every warehouse deploy is a Stock deploy.
+Driving a warehouse build from NemoClaw instead requires naming it. The shared
+lifecycle applies from there, with four warehouse divergences: skip **Step 4**
 (`references/composition.md` is the delta flow), **Step 5**'s effective service
 set is already fixed above, **Step 7** additionally writes `configurator.env`,
 and **Step 8** resolves through
@@ -183,9 +185,9 @@ After Q2b, the selected capabilities **are** the required-capability set. Select
 
 ### Harness selection — Q3
 
-Applies to **every** entry mode — quickstart, warehouse, and custom build alike — and only when the request does not already name a harness. A harness is what a person or another agent talks to in order to drive the build; it is orthogonal to the capability set. Read [`references/agent-harness.md`](references/agent-harness.md) before offering this — it owns the contract.
+Applies to **every** entry mode — prompt-driven, quickstart, and custom build alike — but **not** to warehouse, whose variants never reach Q3 (see Q2w), and only when the request does not already name a harness. A harness is what a person or another agent talks to in order to drive the build; it is orthogonal to the capability set. Read [`references/agent-harness.md`](references/agent-harness.md) before offering this — it owns the contract.
 
-**Ask Q3 exactly when the Foundation's service set carries `vss-agent`** — every developer profile does, as does warehouse `bp_wh`. Skip it entirely, with no question and no harness, when the set carries no agent: an ingest-, index-, or API-only build is legitimately headless, and Q3 would invent a requirement. When the user has already said "headless", that *is* the answer — do not re-ask.
+**Ask Q3 exactly when the Foundation's service set carries `vss-agent`** — every developer profile does; warehouse is the exception, since `bp_wh` carries one but selecting it already names the agent (see Q2w). Skip it entirely, with no question and no harness, when the set carries no agent: an ingest-, index-, or API-only build is legitimately headless, and Q3 would invent a requirement. When the user has already said "headless", that *is* the answer — do not re-ask.
 
 **Q3 — Harness (yes/no).** *"Deploy an agent harness with this build?"*
 
