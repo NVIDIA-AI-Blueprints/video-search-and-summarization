@@ -105,7 +105,7 @@ variant selection, not composition, so there is no delta path. Read
 asking, and apply its Hard constraints while asking, not after. Apply any build
 requirements its **Profile Service Set** states.
 
-Up to four single-select questions, each inside the four-option cap. Describe
+Up to five single-select questions, each inside the four-option cap. Describe
 each option from warehouse.md's **Profile Service Set** table; do not restate
 its service lists here, or this table drifts from the one that is authoritative:
 
@@ -115,6 +115,7 @@ its service lists here, or this table drifts from the one that is authoritative:
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
 | **Q2w-dataset** — *"Which sample dataset?"* | `nv-warehouse-4cams` · `warehouse-loading-dock-3cams-synthetic` · `warehouse-4cams-20mx20m-synthetic` |
+| **Q2w-datatype** — *"Is this footage real or synthetic?"* | `real` · `synthetic` |
 
 Filter the remaining options rather than validating the answers afterwards.
 Both filters below are warehouse.md's to state; it is the source of truth for
@@ -128,6 +129,13 @@ why, and this list only says when to apply them:
   answers are forced.
 - **Skip Q2w-size entirely for `bp_wh`** — the Profile Service Set table lists
   no minimal variant for it.
+- **Ask Q2w-datatype only when Q2w-mode is `3d` and the dataset is not one of
+  the three shipped.** `DATASET_TYPE` is inert outside `3d`, and for the shipped
+  datasets it is determined, not chosen — `nv-warehouse-4cams` is `real`, both
+  `*-synthetic` are `synthetic` — so derive it and do not ask. Only custom
+  footage carries no inferable provenance. A custom dataset arrives through a
+  prompt-driven request rather than Q2w-dataset, which offers the shipped three
+  only, so this question fires on that path.
 - **Ask Q2w-dataset for every mode, including `auto-calibration`.** Dataset and
   mode are independent — all three ship calibration for `2d`, `3d` and `mv3dt`,
   and auto-calibration needs to know which dataset it is calibrating. Set

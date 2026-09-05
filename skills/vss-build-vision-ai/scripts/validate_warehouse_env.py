@@ -35,6 +35,22 @@ DATASETS = {
     "warehouse-4cams-20mx20m-synthetic": 4,
 }
 
+# (dataset -> DATASET_TYPE). MODE=3d only: blueprint_config.yml scopes every
+# DATASET_TYPE block under `3d:`, so the knob is inert for 2d, mv3dt and
+# auto-calibration and must not be judged there. It is not derived from
+# SAMPLE_VIDEO_DATASET in config -- the two are set independently -- so a
+# mismatch is silent: the configurator renders a coherent Sparse4D bundle for
+# the *other* family, and the labels differ only in confidence thresholds
+# (real 0.85/0.75 vs synthetic 0.5/0.3). Custom footage carries no inferable
+# provenance, so it is asked for at intake (SKILL.md Q2w-datatype) and only
+# checked for validity here.
+DATASET_TYPES = {"real", "synthetic"}
+DATASET_FAMILY = {
+    "nv-warehouse-4cams": "real",
+    "warehouse-loading-dock-3cams-synthetic": "synthetic",
+    "warehouse-4cams-20mx20m-synthetic": "synthetic",
+}
+
 MODES = {"2d", "3d", "mv3dt", "auto-calibration"}
 BP_PROFILES = {"bp_wh", "bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"}
 
@@ -355,6 +371,41 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
                     f"NUM_STREAMS={actual} does not match dataset {dataset!r} "
                     f"(expects {streams}); a short count looks like healthy containers "
                     "processing nothing"
+                )
+
+    # 5b. DATASET_TYPE selects the Sparse4D bundle. MODE=3d only.
+    if mode == "3d":
+        dataset_type = env.get("DATASET_TYPE", "")
+        if not dataset_type:
+            # The label mount interpolates this into a HOST path
+            # (labels-$DATASET_TYPE.txt), so empty yields labels-.txt and
+            # Docker creates a directory where a file is expected. The
+            # ${DATASET_TYPE:-synthetic} fallback in warehouse-3d-app.yml
+            # covers the configurator's environment but not that bind source,
+            # so an empty value splits the two.
+            errors.append(
+                "DATASET_TYPE is empty or unset under MODE=3d; it selects the "
+                "Sparse4D model, anchor and labels, and the label bind source "
+                "interpolates it into a host path, so an empty value mounts "
+                "labels-.txt as a directory"
+            )
+        elif dataset_type not in DATASET_TYPES:
+            errors.append(
+                f"DATASET_TYPE={dataset_type!r} is not valid; "
+                f"use one of {sorted(DATASET_TYPES)}"
+            )
+        else:
+            expected_type = DATASET_FAMILY.get(dataset)
+            if expected_type is None:
+                # Custom dataset: provenance is not inferable, so a valid value
+                # is all that can be checked. Q2w-datatype asks the user.
+                pass
+            elif dataset_type != expected_type:
+                errors.append(
+                    f"DATASET_TYPE={dataset_type!r} does not match dataset "
+                    f"{dataset!r} (expects {expected_type!r}); the wrong Sparse4D "
+                    "weights and detection thresholds load with every container "
+                    "healthy and no error anywhere"
                 )
 
     # 6. Broker selection must agree with the variant.
