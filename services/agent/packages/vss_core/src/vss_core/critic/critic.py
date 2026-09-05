@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
+from vss_core._foundation.time_measure import TimeMeasure
 from vss_core.vios.client import map_interval_to_timeline
 
 from .models import CriticAgentInput
@@ -308,13 +309,14 @@ class CriticAgent:
                 else:
                     # offset-time: convert ISO timestamps to seconds-since-stream-start
                     # using VST's timeline endpoint.
-                    stream_id = await self._vst.resolve_stream_id(video.sensor_id)
-                    if stream_id is None:
-                        raise BackendUnreachableError(
-                            "vst",
-                            f"stream_id resolution failed for sensor {video.sensor_id}",
-                        )
-                    clip_start_iso, clip_end_iso = await self._vst.get_timeline(stream_id)
+                    with TimeMeasure("critic: resolve VST timeline"):
+                        stream_id = await self._vst.resolve_stream_id(video.sensor_id)
+                        if stream_id is None:
+                            raise BackendUnreachableError(
+                                "vst",
+                                f"stream_id resolution failed for sensor {video.sensor_id}",
+                            )
+                        clip_start_iso, clip_end_iso = await self._vst.get_timeline(stream_id)
                     clip_start_dt = _parse_iso(clip_start_iso)
                     # File-search hits use a synthetic midnight-anchored date,
                     # while VST records the same file at ingestion wall-clock,
