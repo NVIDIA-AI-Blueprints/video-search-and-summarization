@@ -41,6 +41,8 @@ import threading
 import time
 import urllib.parse
 
+from nemoclaw.buildvision_bootstrap import BOOTSTRAP_TASK, create_bootstrap_task
+
 # Self-contained instrumentation with its own module state. Split out because
 # this file is long enough that a reader looking for the lock or the Harbor
 # command should not have to scroll past it. Read the phase label through
@@ -1477,6 +1479,105 @@ def run_invocations(
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
     record_machine(results_root, instance, leg_slug, run_id)
+    # Deployment skills are not NemoClaw tasks.  For an operational spec the
+    # first Harbor child is a coding-agent task that follows Build Vision AI;
+    # it owns Compose, readiness and sandbox onboarding.  The normal
+    # invocations then run only operational prompts through that sandbox.
+    # Build Vision AI's own specs are themselves coding-agent evaluations.
+    if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
+        print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
+        agent = "claude-code"
+    elif agent == "nemoclaw":
+        spec_raw = os.environ.get("EVAL_SPEC_PATH", "")
+        if not spec_raw:
+            print("FATAL: EVAL_SPEC_PATH is required for NemoClaw provisioning", file=sys.stderr)
+            return 1
+        spec_path = Path(spec_raw)
+        if not spec_path.is_absolute():
+            spec_path = REPO_ROOT / spec_path
+        if not invocations:
+            print("FATAL: no operational Harbor invocation to provision", file=sys.stderr)
+            return 1
+        source_task = invocations[0].harbor_root / invocations[0].include_task_name / "task.toml"
+        bootstrap_root = scratch / f"nemoclaw-bootstrap-{leg_slug}"
+        shutil.rmtree(bootstrap_root, ignore_errors=True)
+        try:
+            create_bootstrap_task(
+                destination=bootstrap_root,
+                source_task_toml=source_task,
+                spec_path=spec_path,
+                skill=os.environ.get("EVAL_SKILL", "operational-skill"),
+                platform=platform,
+                repo_root=REPO_ROOT,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"FATAL: could not create Build Vision AI bootstrap task: {exc}", file=sys.stderr)
+            return 1
+        bootstrap = HarborInvocation(
+            harbor_root=bootstrap_root,
+            include_task_name=BOOTSTRAP_TASK,
+            chain_key="build-vision-bootstrap",
+        )
+        bootstrap_env = env.copy()
+        bootstrap_env.update(
+            {
+                "NEMOCLAW_SANDBOX_NAME": os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval"),
+                # Build Vision AI owns the OpenShell gateway name/port. Do not
+                # impose the former notebook harness's 8991 override: its
+                # deployment flow uses NemoClaw's default gateway contract.
+                "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
+                "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),
+                "NEMOCLAW_ENDPOINT_URL": os.environ.get("NEMOCLAW_ENDPOINT_URL", base_url),
+                "NEMOCLAW_MODEL": os.environ.get("NEMOCLAW_MODEL", model),
+                "COMPATIBLE_API_KEY": os.environ.get("COMPATIBLE_API_KEY", bootstrap_env.get("ANTHROPIC_API_KEY", "")),
+            }
+        )
+        bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
+        shutil.rmtree(bootstrap_results, ignore_errors=True)
+        bootstrap_cmd = build_harbor_command(
+            bootstrap, bootstrap_results, model, base_url, "claude-code"
+        )
+        print("[run-leg] provisioning with Build Vision AI before NemoClaw scenarios", flush=True)
+        bootstrap_started_at = time.time() - 1.0
+        with phase("harbor:build-vision-bootstrap"):
+            bootstrap_rc = run_command(bootstrap_cmd, bootstrap_env, harbor_timeout_sec)
+        bootstrap_reward = latest_reward(
+            bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
+        )
+        if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
+            # The bootstrap uses a scratch results root so it cannot appear in
+            # the operational report. Preserve its verifier/exception output
+            # with this leg's artifact, but never copy its agent trajectory.
+            if bootstrap_results.is_dir():
+                shutil.copytree(
+                    bootstrap_results,
+                    results_root / "bootstrap",
+                    ignore=shutil.ignore_patterns("agent"),
+                    dirs_exist_ok=True,
+                )
+            diagnostic = (
+                "Build Vision AI provisioning failed before operational scenarios. "
+                f"Harbor exit code: {bootstrap_rc}; readiness reward: "
+                f"{bootstrap_reward if bootstrap_reward is not None else 'missing'}.\n"
+            )
+            exceptions = sorted(bootstrap_results.rglob("exception.txt"))
+            if exceptions:
+                diagnostic += "\nBootstrap exception tail:\n" + exceptions[-1].read_text(
+                    encoding="utf-8", errors="replace"
+                )[-4000:]
+            (results_root / "provisioning-failure.txt").write_text(
+                diagnostic,
+                encoding="utf-8",
+            )
+            print(
+                "[run-leg] Build Vision AI provisioning failed "
+                f"(rc={bootstrap_rc}, readiness={bootstrap_reward}); "
+                "operational scenarios were not started",
+                file=sys.stderr,
+            )
+            return bootstrap_rc
+        env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+        env["VSS_EVAL_DEPLOYMENT_READY"] = "1"
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 

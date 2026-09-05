@@ -372,6 +372,13 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # The Build Vision AI provisioning task owns host-side NemoClaw
+            # setup.  Forward its provider and lifecycle inputs exactly as
+            # supplied by CI; the notebook remains their owner.
+            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_GATEWAY_PORT",
+            "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
+            "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
+            "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -452,7 +459,8 @@ class BrevEnvironment(BaseEnvironment):
         is_first_trial = not (
             task_dir_name.startswith("step-") and task_dir_name != "step-1"
         )
-        if is_first_trial:
+        preserve_deployment = os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
+        if is_first_trial and not preserve_deployment:
             await self._reset_docker_runtime()
             # Host bind-mount purge runs AFTER the docker reset so every
             # container that writes into these dirs is already gone —
@@ -462,7 +470,7 @@ class BrevEnvironment(BaseEnvironment):
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
-                "of a multi-step spec must preserve step-1's deployment state "
+                "must preserve an existing deployment state "
                 "and its live bind-mount host dirs (e.g. deploy/docker/data-dir/, "
                 "whose clip_storage/vst_data are bind-mounted into the still-"
                 "running VIOS containers)",
@@ -518,7 +526,7 @@ class BrevEnvironment(BaseEnvironment):
         #     containers) — the regression, caught loudly.
         # Output lands in <trial>/artifacts/logs/artifacts/mount-probe.log.
         await self._probe_bind_mount(f"{task_dir_name}:before-sync")
-        if is_first_trial:
+        if is_first_trial and not preserve_deployment:
             await self._sync_repo_to_pr_head()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
