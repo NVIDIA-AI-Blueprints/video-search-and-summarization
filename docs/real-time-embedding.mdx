@@ -81,7 +81,7 @@ The API is organized into the following categories:
 * **Embeddings**: Generate video, image, live-stream, and text embeddings
 * **Files**: Upload and manage video/image files
 * **Live Stream**: Add, list, and manage RTSP live streams
-* **Stream**: RTVI-CV compatible stream add, remove, and list APIs
+* **Stream**: RTVI-CV and SDR/VIOS-compatible stream add, remove, and list APIs
 * **Models**: List available embedding models
 * **Health Check**: Service health and readiness probes
 * **Metrics**: Prometheus metrics endpoint
@@ -108,6 +108,12 @@ The API is organized into the following categories:
 | `/v1/stream/add` | `POST` | Add a stream using the RTVI-CV compatible format |
 | `/v1/stream/remove` | `POST` | Remove a stream using the RTVI-CV compatible format |
 | `/v1/stream/get-stream-info` | `GET` | List streams using the RTVI-CV compatible format |
+| `/v1/camera/add` | `POST` | Add a stream using the SDR/VIOS-compatible camera event format |
+| `/v1/camera/streaming` | `PUT` | Start streaming using the SDR/VIOS-compatible camera event format |
+| `/v1/camera/remove` | `POST`, `DELETE` | Remove a stream using the SDR/VIOS-compatible camera event format |
+| `/api/v1/camera/add` | `POST` | Add a stream using the SDR/VIOS-compatible camera event format |
+| `/api/v1/camera/streaming` | `PUT` | Start streaming using the SDR/VIOS-compatible camera event format |
+| `/api/v1/camera/remove` | `POST`, `DELETE` | Remove a stream using the SDR/VIOS-compatible camera event format |
 | `/v1/models` | `GET` | List available models |
 | `/v1/generate_video_embeddings` | `POST` | Generate embeddings for a video, image, or live stream |
 | `/v1/generate_video_embeddings/{stream_id}` | `DELETE` | Stop live stream embedding generation |
@@ -157,13 +163,13 @@ echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ### Quick Start
 
 To deploy the RTVI-Embed microservice, clone the
-[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1)
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0)
 repository and change into the Docker directory:
 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.2.1
+git checkout tags/v3.3.0
 cd services/rtvi/rt-embed/docker
 ```
 
@@ -184,19 +190,14 @@ The deployment is defined in the `docker-compose.yml` file.
 
 Create a `.env` file with the following variables and update the values as per your requirements.
 See [Environment Variables Reference](/vss/system-components/vision-microservices/video-embedding-generation#environment-variables-reference) for the complete list.
-Use `RTVI_IMAGE` for `compose.yaml`; use the `RTVI_EMBED_*` lines only with legacy image compose (see sample below).
+Use `RTVI_IMAGE` with the current `compose.yaml`.
 
 ```bash
 BACKEND_PORT=<port>                         # Host port on which the service will be available
-RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1 # Real-Time Embedding Microservice image tag
+RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.3.0 # Real-Time Embedding Microservice image tag
 # On DGX Spark / ARM SBSA, use the SBSA tag, e.g.:
-# RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.2.1-sbsa
+# RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.3.0-sbsa
 
-# Legacy split-image compose:
-# RTVI_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
-# RTVI_EMBED_TAG=3.2.1
-# On DGX Spark / ARM SBSA, use the SBSA tag, e.g.:
-# RTVI_EMBED_TAG=3.2.1-sbsa
 # On Jetson Thor, the default tag is a multiarch image that supports ARM64.
 
 # Storage
@@ -218,25 +219,31 @@ ERROR_MESSAGE_TOPIC=mdx-embed-errors        # Kafka error topic (or Redis channe
 
 ### Sample docker-compose.yml file
 
-For the current deployment stack, use the compose file: [services/rtvi/rt-embed/docker/compose.yaml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/services/rtvi/rt-embed/docker/compose.yaml) (uses `RTVI_IMAGE`).
-
-The sample below is a **legacy** compose (`RTVI_EMBED_IMAGE` / `RTVI_EMBED_TAG`); use the linked `compose.yaml` for deployment.
+For the current deployment stack, use the compose file:
+[services/rtvi/rt-embed/docker/compose.yaml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/services/rtvi/rt-embed/docker/compose.yaml).
+The excerpt below shows the current single-image `rtvi-server` service. The
+checked-in compose file also defines the Kafka and Redis services used by the
+default message and error buses.
 
 ```yaml
-version: '3.8'
 services:
   rtvi-server:
-    image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvidia/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.2.1}
+    image: ${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest}
     shm_size: '16gb'
     runtime: nvidia
     user: "1001:1001"
     ports:
       - "${BACKEND_PORT?}:8000"
+    tmpfs:
+      - /tmp/assets:size=${ASSET_TMPFS_SIZE:-8g},mode=1777
+      - /tmp/rtvi:size=2g,mode=1777
     volumes:
       - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
       - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
+      - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
       - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
+      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}}"
       - rtvi-hf-cache:/tmp/huggingface
       - rtvi-triton-model-repo:/tmp/triton_model_repo
 
@@ -244,12 +251,22 @@ services:
       MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
       MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
       MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
+      REMOTE_EMBED_ENDPOINT: "${REMOTE_EMBED_ENDPOINT:-}"
+      REMOTE_EMBED_ENDPOINT_MODEL_NAME: "${REMOTE_EMBED_ENDPOINT_MODEL_NAME:-nvidia/cosmos-embed1}"
+      REMOTE_EMBED_ENDPOINT_API_KEY: "${REMOTE_EMBED_ENDPOINT_API_KEY:-}"
+      REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC: "${REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC:-300}"
+      REMOTE_EMBED_ENDPOINT_BATCH_SIZE: "${REMOTE_EMBED_ENDPOINT_BATCH_SIZE:-64}"
+      COSMOS_EMBED1_TRT_PRECISION: "${COSMOS_EMBED1_TRT_PRECISION:-fp16}"
+      COSMOS_EMBED1_TRT_EXTRA_ARGS: "${COSMOS_EMBED1_TRT_EXTRA_ARGS:-}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
       HF_TOKEN: "${HF_TOKEN:-}"
       NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
       VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-custom}"
       NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
       NUM_GPUS: "${NUM_GPUS:-}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
       FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
@@ -258,16 +275,22 @@ services:
       RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_RTSP_RECONNECTION_INTERVAL:-5}"
       RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_RTSP_RECONNECTION_WINDOW:-60}"
       RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
-      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
+      RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
+      RTVI_IPC_FRAME_COPY: "${RTVI_IPC_FRAME_COPY:-false}"
+      RTVI_IPC_SOCKET_DIR: "${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
+      RTVI_IPC_SOCKET_TEMPLATE: "${RTVI_IPC_SOCKET_TEMPLATE:-nvds_ipc_{camera_id}.sock}"
       ENABLE_OTEL_MONITORING: "${ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
       OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-}"
       OTEL_TRACES_EXPORTER: "${OTEL_TRACES_EXPORTER:-otlp}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
       OTEL_METRIC_EXPORT_INTERVAL: "${OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
-      KAFKA_ENABLED: "${KAFKA_ENABLED:-false}"
-      KAFKA_TOPIC: "${KAFKA_TOPIC:-mdx-embed}"
-      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-mdx-embed-errors}"
+      MESSAGE_BUS: "${MESSAGE_BUS:-kafka}"
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
+      ERROR_BUS: "${ERROR_BUS:-kafka}"
+      ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT: "${ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT:-false}"
+      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
       KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
       ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
       REDIS_HOST: "${REDIS_HOST:-redis}"
       REDIS_PORT: "${REDIS_PORT:-6379}"
@@ -275,7 +298,16 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
       ASSET_DOWNLOAD_TOTAL_TIMEOUT: "${ASSET_DOWNLOAD_TOTAL_TIMEOUT:-300}"
       ASSET_DOWNLOAD_CONNECT_TIMEOUT: "${ASSET_DOWNLOAD_CONNECT_TIMEOUT:-10}"
+      FILE_URL_ALLOWED_DIRS: "${FILE_URL_ALLOWED_DIRS:-}"
+      MAX_ASSET_STORAGE_SIZE_GB: "${MAX_ASSET_STORAGE_SIZE_GB:-8}"
+      ASSET_MAX_AGE_HOURS: "${ASSET_MAX_AGE_HOURS:-0}"
+      ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS: "${ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS:-}"
+      ASSET_DOWNLOAD_MAX_REDIRECTS: "${ASSET_DOWNLOAD_MAX_REDIRECTS:-0}"
+      ASSET_DOWNLOAD_MAX_FILE_SIZE_GB: "${ASSET_DOWNLOAD_MAX_FILE_SIZE_GB:-8}"
+      ASSET_DOWNLOAD_AUTH_TOKENS: "${ASSET_DOWNLOAD_AUTH_TOKENS:-}"
       ENABLE_REQUEST_PROFILING: "${ENABLE_REQUEST_PROFILING:-false}"
+      VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-}"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
     ulimits:
       memlock:
         soft: -1
@@ -289,6 +321,9 @@ services:
     tty: true
     extra_hosts:
       host.docker.internal: host-gateway
+    depends_on:
+      - kafka
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/ready"]
       interval: 30s
@@ -305,11 +340,10 @@ volumes:
 <Note>
 **Platform-specific images:**
 
-* For **DGX Spark** with the legacy sample below, set `RTVI_EMBED_TAG` in
-  your `.env` file (`compose.yaml` uses `RTVI_IMAGE=...-sbsa` instead):
+* For **DGX Spark** / ARM SBSA, set `RTVI_IMAGE` to the SBSA image tag:
 
   ```bash
-  RTVI_EMBED_TAG=3.2.1-sbsa
+  RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed:3.3.0-sbsa
   ```
 
 * For **Jetson Thor**, the default image is a multiarch image that
@@ -351,7 +385,7 @@ chart is in `deploy/helm/services/rtvi/charts/rtvi-embed` in the
    ```bash
    git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
    cd video-search-and-summarization
-   git checkout tags/v3.2.1
+   git checkout tags/v3.3.0
    cd deploy/helm/services/rtvi/charts/rtvi-embed
    ```
 
@@ -420,6 +454,11 @@ The API is available at `http://localhost:8000/docs`.
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
 | `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. This is the name read by current `develop` source and the GHCR `develop-latest` image; `VIA_EMBED_ENDPOINT` is not wired unless a deployment wrapper maps it. | - | No |
+| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | Model deployment name sent to the CE1 NIM backend and used as the RTVI model id. This is the name read by current builds; `VIA_EMBED_NIM_MODEL_DEPLOYMENT_NAME` is not wired unless a deployment wrapper maps it. | `nvidia/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | - | No |
+| `REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC` | Request timeout for CE1 NIM calls. | `300` | No |
+| `REMOTE_EMBED_ENDPOINT_BATCH_SIZE` | Maximum batch size used by the CE1 NIM client wrapper. | `64` | No |
 | `NGC_API_KEY` | NGC API key for downloading models via the `ngc:` scheme | - | No |
 | `COSMOS_EMBED1_TRT_PRECISION` | trtexec network precision for Cosmos-Embed1 video/text TRT engines (`fp32`, `fp16`, `bf16`, `int8`, `fp8`, `best`). Engine filename includes the precision so engines are rebuilt on change. | `fp16` | No |
 | `COSMOS_EMBED1_TRT_EXTRA_ARGS` | Extra trtexec args (shell-quoted string) appended verbatim to both video and text engine builds, e.g. `--stronglyTyped --builderOptimizationLevel=5`. Note: `--stronglyTyped` is mutually exclusive with `--fp16`/`--bf16`/`--int8`/`--fp8`/`--best`; pair it with `COSMOS_EMBED1_TRT_PRECISION=fp32`. Engine filename includes a short hash of these args so engines are rebuilt on change. | - | No |
@@ -457,6 +496,10 @@ The API is available at `http://localhost:8000/docs`.
 | `RTVI_RTSP_RECONNECTION_INTERVAL` | Time to detect stream interruption and wait for reconnection (seconds) | `5.0` | No |
 | `RTVI_RTSP_RECONNECTION_WINDOW` | Duration to attempt reconnection after interruption before terminating the session (seconds) | `60.0` | No |
 | `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Max attempts for reconnection after interruption before terminating the session (no.) | `10` | No |
+| `RTVI_IPC_FRAME_COPY` | Enable decoded-frame IPC for live RTSP streams from a compatible co-located RTVI-CV producer. | `false` | No |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at `RTVI_IPC_SOCKET_DIR` when set. | - | No |
+| `RTVI_IPC_SOCKET_DIR` | Container directory for decoded-frame IPC Unix sockets. | `/run/rtvi-ipc` | No |
+| `RTVI_IPC_SOCKET_TEMPLATE` | Socket filename template. Must include `{camera_id}`, `{sensor_id}`, or `{stream_id}`. | `nvds_ipc_{camera_id}.sock` | No |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete upper bound (seconds) shared by the pre-delete setup wait and the pipeline drain of in-flight chunks. On timeout each stage logs a warning and proceeds. | `30` | No |
 
 #### OpenTelemetry / Monitoring
@@ -809,20 +852,39 @@ requests.delete(f"{BASE_URL}/streams/delete/{stream_id}")
 print("Stream removed")
 ```
 
-### RTVI-CV Compatible Stream API
+### RTVI-CV and SDR-Compatible Stream API
 
-In addition to the `/v1/streams/*` endpoints, the RTVI Embed service exposes
-an RTVI-CV schema-compatible stream API for cross-service interoperability with
-RTVI-CV pipelines: `POST /v1/stream/add`, `POST /v1/stream/remove`, and
-`GET /v1/stream/get-stream-info`. The request payloads follow the RTVI-CV
-`key`/`value` schema, where `value` carries `camera_id`,
-`camera_url`, and `change`.
+In addition to the `/v1/streams/*` endpoints, the RTVI Embed service exposes a
+single-stream API for interoperability with RTVI-CV and SDR/VIOS pipelines.
+It accepts both the RTVI-CV `key`/`value` envelope and the SDR/VIOS
+`camera_status_change` event envelope.
+
+Supported add routes:
+
+* `POST /v1/stream/add`
+* `POST /v1/camera/add`
+* `PUT /v1/camera/streaming`
+* `POST /api/v1/camera/add`
+* `PUT /api/v1/camera/streaming`
+
+Supported remove routes:
+
+* `POST /v1/stream/remove`
+* `POST /v1/camera/remove`
+* `DELETE /v1/camera/remove`
+* `POST /api/v1/camera/remove`
+* `DELETE /api/v1/camera/remove`
+
+Supported add `change` values are `camera_add`, `add`, and
+`camera_streaming`. Supported remove values are `camera_remove` and `remove`.
+When `metadata.model` is present, embedding starts automatically.
 
 ```python
 import requests
 
 BACKEND_PORT = 8000
 BASE_URL = f"http://localhost:{BACKEND_PORT}/v1"
+model_id = requests.get(f"{BASE_URL}/models").json()["data"][0]["id"]
 
 # Register a stream using the RTVI-CV compatible format
 add_payload = {
@@ -830,10 +892,37 @@ add_payload = {
     "value": {
         "camera_id": "camera-entrance-east-01",
         "camera_url": "rtsp://example.com/stream",
-        "change": "camera_add"
+        "camera_type": "rtsp",
+        "change": "camera_streaming",
+        "metadata": {
+            "model": model_id,
+            "chunk_duration": 10,
+            "chunk_overlap_duration": 2
+        }
     }
 }
 response = requests.post(f"{BASE_URL}/stream/add", json=add_payload)
+response.raise_for_status()
+
+# Register/start the same stream using the SDR/VIOS compatible format
+sdr_payload = {
+    "alert_type": "camera_status_change",
+    "created_at": "2026-09-04T10:00:00Z",
+    "source": "sdr",
+    "event": {
+        "camera_id": "550e8400-e29b-41d4-a716-446655440000",
+        "camera_name": "Entrance east",
+        "camera_type": "rtsp",
+        "camera_url": "rtsp://example.com/stream",
+        "change": "camera_streaming",
+        "metadata": {
+            "model": model_id,
+            "chunk_duration": 10,
+            "chunk_overlap_duration": 2
+        }
+    }
+}
+response = requests.put(f"{BASE_URL}/camera/streaming", json=sdr_payload)
 response.raise_for_status()
 
 # List registered streams (RTVI-CV compatible format)
@@ -849,7 +938,78 @@ remove_payload = {
     }
 }
 requests.post(f"{BASE_URL}/stream/remove", json=remove_payload)
+
+sdr_remove_payload = {
+    "alert_type": "camera_status_change",
+    "created_at": "2026-09-04T10:05:00Z",
+    "source": "sdr",
+    "event": {
+        "camera_id": "550e8400-e29b-41d4-a716-446655440000",
+        "change": "camera_remove"
+    }
+}
+requests.delete(f"{BASE_URL}/camera/remove", json=sdr_remove_payload)
 ```
+
+For SDR/VIOS file sensors, `event.camera_url` can be `file://...`, `http://...`,
+`https://...`, or an absolute path. Absolute paths are normalized to `file://...`.
+If `event.metadata.file_start_time` is provided, RT-Embed uses it as the file
+asset creation time. A `camera_add` event without `camera_url` only registers
+the camera and returns `status: "added"` with an empty `asset_id`; send a later
+`camera_streaming` event with a URL to create the stream asset.
+
+### Single Decode Multiple Inference
+
+Use decoded-frame IPC when RTVI-CV should own the live RTSP connection and
+decode each stream once, then publish decoded frames through `nvunixfd` Unix
+sockets for downstream inference services such as RTVI Embed and RTVI VLM. In
+this mode, RT-Embed does not create a separate RTSP/NVDEC pipeline; it reads
+frames from the compatible RTVI-CV producer socket for the same `camera_id`.
+
+Enable the Embed consumer in `.env`:
+
+```bash
+RTVI_IPC_FRAME_COPY=true
+RTVI_IPC_SOCKET_HOST_DIR=/tmp
+RTVI_IPC_SOCKET_DIR=/run/rtvi-ipc
+RTVI_IPC_SOCKET_TEMPLATE=nvds_ipc_{camera_id}.sock
+```
+
+The producer and consumer must run on the same host and GPU, share the producer
+socket directory, and receive matching stream events with the same `camera_id`.
+Compose mounts `RTVI_IPC_SOCKET_HOST_DIR` at `RTVI_IPC_SOCKET_DIR`; with the
+defaults above, camera `camera-1` resolves to
+`/run/rtvi-ipc/nvds_ipc_camera-1.sock` inside RT-Embed and to
+`/tmp/nvds_ipc_camera-1.sock` on the host.
+
+Typical sequence:
+
+1. Start RTVI-CV with `[source-attr-all] ipc-frame-copy=1` so it creates the
+   `nvds_ipc_<camera_id>.sock` producer socket.
+2. Start RTVI Embed with `RTVI_IPC_FRAME_COPY=true`, the matching
+   `RTVI_IPC_SOCKET_TEMPLATE`, and the same socket directory mounted at
+   `RTVI_IPC_SOCKET_DIR`.
+3. Send the same SDR/VIOS `camera_status_change` event to RTVI-CV and RTVI
+   Embed, using the same `camera_id` and RTSP `camera_url`.
+4. Include `event.metadata.model`, `chunk_duration`, and optional
+   `chunk_overlap_duration` in the Embed request when embedding should start
+   automatically.
+5. Send the matching `camera_remove` event to both services when the stream is
+   removed.
+
+Constraints:
+
+* Applies only to live RTSP video.
+* RTVI-CV and RTVI Embed must use a compatible `gst-nvunixfd` plugin and socket
+  template.
+* The socket directory and socket must be readable by the RT-Embed container
+  user, UID/GID `1001`. Prefer matching ownership or a restricted group-writable
+  directory over world-writable permissions.
+* IPC camera, sensor, and stream IDs must be non-empty and contain only ASCII
+  letters, digits, `.`, `_`, and `-`; standard UUIDs are valid.
+* Audio capture is not supported through the RT-Embed IPC frame-copy path.
+* SEI timestamp propagation requires a source stream with SEI metadata and a
+  SEI-aware `libgstnvunixfd.so` in both producer and consumer images.
 
 ### Text Embeddings Example
 
@@ -957,7 +1117,7 @@ To run a model that is not a Cosmos-Embed1 variant, provide your own model
 implementation and point `MODEL_IMPLEMENTATION_PATH` at it. Use the
 Cosmos-Embed1 reference implementation as a template for your own model. The
 source is available in the
-[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1)
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0)
 repository at
 `services/rtvi/rt-embed/src/models/custom/samples/cosmos-embed1` (the base
 class it subclasses is at
