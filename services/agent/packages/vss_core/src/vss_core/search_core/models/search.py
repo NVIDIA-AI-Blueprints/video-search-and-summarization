@@ -122,12 +122,43 @@ class SearchResult(BaseModel):
     verification: SearchVerification = Field(default_factory=SearchVerification)
 
 
+class SearchTimings(BaseModel):
+    """Per-stage wall-clock for one search, in seconds.
+
+    The stages are the ``TimeMeasure`` blocks already present in the retrieval
+    primitives -- embedding generation, ES query build and execution, hit
+    processing, attribute lookups, fusion rerank. They were previously only
+    logged at a custom PERF level, which the CLI never configured a handler
+    for, so callers had no way to see where a search spent its time.
+
+    ``stages`` keys are the measured block labels, which are namespaced by
+    convention ("embed_search: ES search execution"). Each maps to:
+
+    * ``total_s`` -- inclusive: the block and everything measured inside it.
+    * ``self_s`` -- exclusive: nested measured blocks subtracted. A "where did
+      the time go" table wants this; ``total_s`` alone double counts a parent
+      against its children. Sums to real elapsed work only where blocks did
+      not overlap.
+    * ``calls`` -- entries, since some blocks run per hit rather than per search.
+    * ``concurrent_children`` -- 1.0 when nested blocks overlapped (they ran
+      under ``asyncio.gather``, as fusion's two legs do). Self time is not
+      meaningful for such a block and is reported as 0.0 rather than negative.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    stages: dict[str, dict[str, float]] = Field(default_factory=dict)
+    total_s: float = 0.0
+
+
 class SearchOutput(BaseModel):
     """Output envelope from Search.run()."""
 
     model_config = ConfigDict(extra="forbid")
     data: list[SearchResult] = Field(default_factory=list)
     search_messages: list[str] = Field(default_factory=list)
+    #: Optional so every existing producer and consumer is unaffected: absent
+    #: means nobody collected, not "the search took no time".
+    timings: SearchTimings | None = None
 
     @property
     def results(self) -> list[SearchResult]:
