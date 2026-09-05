@@ -30,10 +30,10 @@ an agent `/api` route**; on a build without one, they belong to
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect
   screenshots or call another verifier during the initial search turn.
-- Offer delegated verification only when every displayed result is
-  `unverified`, and only after displaying them and receiving explicit user
-  confirmation. If any result is `confirmed` or `rejected`, do not hand off
-  any result to another verifier.
+- Offer delegated verification only when every displayed hit has
+  `critic_result` that is `null` or `result: "unverified"`, and only after
+  displaying them and receiving explicit user confirmation. If any result is
+  `confirmed` or `rejected`, do not hand off any result to another verifier.
 
 ## Prerequisites
 
@@ -185,12 +185,14 @@ routing diagnosis. Reject credentials in the URL and never rewrite the URL or
 add a `streamId` routing header. Discard the response body; availability is not
 visual evidence.
 
-6. Read every hit's `verification` object:
+6. Read every hit's `critic_result` object (nullable):
 
+   - `null`: no critic ran for this hit (e.g. no RT-VLM was configured, or the
+     critic call raised).
    - `confirmed`: the critic found all requested visual criteria in that clip.
    - `rejected`: the critic found a visual criterion was not met.
-   - `unverified`: no usable critic verdict was produced. This includes a
-     missing VLM, inaccessible media, and malformed or inconclusive output.
+   - `unverified`: the critic ran but produced no usable verdict — inaccessible
+     media, or malformed/inconclusive output.
 
 The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
@@ -201,26 +203,30 @@ availability. Treat boolean `criteria_met` values as critic evidence only.
 ```text
 ## Video Search Results
 <each hit's exact source, start/end, similarity, complete media URL,
-verification result, and criteria when present>
+critic_result, and criteria when present>
 
-Similarity scores are retrieval evidence; the separate verification result
+Similarity scores are retrieval evidence; the separate critic_result
 records whether the bounded clip satisfied the visual request.
 
 ## Verification Step
 Would you like me to verify the unverified search results?
 ```
 
-Include `## Verification Step` only when the nonempty displayed result set is
-entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
+Include `## Verification Step` only when the nonempty displayed result set
+has no usable critic verdict — every hit is `critic_result: null` or
+`result: "unverified"`. If any displayed result is `confirmed` or `rejected`,
 omit it even when other hits are unverified. Never deploy a VLM or call
 `vss-ask-video` automatically during this results turn.
 
 8. If the user explicitly confirms, read
 [search-result verification](references/result_verification.md) completely and
 delegate the displayed hits only after confirming again that every one is
-still `unverified`. Preserve their exact bounded intervals and the complete
+still `null` or `unverified`. Preserve their exact bounded intervals and the complete
 original visual intent. Keep at most three delegations in flight. Never hand
-off a partially verified result set.
+off a partially verified result set. Keep the verification reply
+implementation-neutral — report only the source (as the user named it), the
+verdict, and the visual evidence; never surface model names, endpoint paths,
+resolved sensor IDs or UUIDs, VST/CLI internals, or `vss-ask-video` machinery.
 
 9. If `.data` is empty, report zero candidates faithfully — a fact about
 retrieval, not about the video. Do not claim the object is absent, describe
@@ -246,6 +252,6 @@ or verification parsing against that response or invent structured hit rows.
   required services are actually routed.
 - Exit 5: ingest the source, wait for readiness, and re-run `vss configure`.
 - Missing/ambiguous source: stop for clarification; never substitute.
-- Missing RT-VLM: retrieval remains valid and results remain `unverified`.
+- Missing RT-VLM: retrieval remains valid; hits are `critic_result: null` or `unverified`.
 - Authentication: use the operator-approved route. Never place secrets in
   prompts, flags, generated files, logs, or skill output.

@@ -29,7 +29,7 @@ def test_search_input_forbids_extra():
         _valid_search_input(unknown_field="x")
 
 
-def test_search_result_defaults_to_unverified() -> None:
+def test_search_result_defaults_to_null_critic_result() -> None:
     result = SearchResult(
         video_name="video.mp4",
         description="candidate",
@@ -40,11 +40,10 @@ def test_search_result_defaults_to_unverified() -> None:
         similarity=0.8,
     )
 
-    assert result.verification.result == "unverified"
-    assert result.model_dump()["verification"] == {
-        "result": "unverified",
-        "criteria_met": None,
-    }
+    assert result.critic_result is None
+    assert result.model_dump()["critic_result"] is None
+    assert result.model_dump()["start_offset"] is None
+    assert result.model_dump()["end_offset"] is None
 
 
 def test_embed_input_forbids_extra():

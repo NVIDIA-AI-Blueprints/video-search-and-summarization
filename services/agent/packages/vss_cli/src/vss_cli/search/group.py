@@ -53,10 +53,13 @@ from vss_cli.group import _exit_for
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     import click
 
     from vss_core.critic import CriticAgent
+    from vss_core.search_core.models.search import SearchOutput
+    from vss_core.search_core.runtime import SearchRuntime
     from vss_core.vlm import OpenAIVLMAnalyzer
 
 #: Job ids stay ``search-<ULID>`` (design §5.2/§7.2).
@@ -326,18 +329,22 @@ async def _rt_vlm_available(service_url: str, model: str) -> bool:
 
 async def _critic_from(
     deployment: config_mod.Deployment,
-) -> tuple[CriticAgent | None, OpenAIVLMAnalyzer | None]:
+) -> tuple[CriticAgent | None, OpenAIVLMAnalyzer | None, bool]:
     """Build the reusable critic stack when this deployment exposes one.
 
-    RT-VLM is optional for archive search. Returning ``(None, None)`` keeps
-    retrieval available and causes the result model's fail-open ``unverified``
-    state to remain untouched.
+    RT-VLM is optional for archive search. Returning ``(None, None, False)``
+    keeps retrieval available and leaves every hit's ``critic_result`` at its
+    model default of ``None`` — no critic ran. When the deployment *is*
+    configured for a critic but its RT-VLM route is down, the probe still runs
+    once and ``(None, None, True)`` is returned so the caller synthesizes a
+    per-hit ``unverified`` verdict, matching the agent's VLM-down behavior
+    without fanning out one completion call per search result.
     """
     rt_vlm = deployment.services.get("rt_vlm")
     if not deployment.has("vst") or rt_vlm is None or not rt_vlm.url or not rt_vlm.models:
-        return None, None
+        return None, None, False
     if not await _rt_vlm_available(rt_vlm.url, rt_vlm.models[0]):
-        return None, None
+        return None, None, True
 
     from vss_core.critic import CriticAgent
     from vss_core.vios import VSTClient
@@ -362,7 +369,59 @@ async def _critic_from(
         # in this proxy request.
         cosmos_nim_runtime_options=False,
     )
-    return CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset"), vlm
+    return CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset"), vlm, False
+
+
+async def _add_offsets(
+    output: SearchOutput,
+    runtime: SearchRuntime,
+) -> SearchOutput:
+    """Populate each hit's ``start_offset``/``end_offset`` (seconds since the
+    stream's own VST timeline start), mirroring ``vss_agents``' ``_add_offsets``
+    so the CLI's serialized search output carries the same stream-relative
+    offsets the agent computes. Memoized per sensor so N hits cost one
+    ``/vst/api/v1/storage/timelines`` round-trip per unique stream.
+
+    Non-fatal: a missing/failed VST timeline lookup leaves the affected
+    hit's offsets at their model default of ``None`` (callers fall back to the
+    ISO ``start_time``/``end_time`` display) and never breaks the search turn.
+    No VST configured (``runtime.vst_internal_url`` unset) means no offsets.
+    """
+    if not output.data:
+        return output
+    vst_internal = runtime.vst_internal_url
+    if not vst_internal:
+        return output
+
+    import click
+
+    from vss_core._foundation.time import iso8601_to_datetime
+    from vss_core.vios import VSTClient
+
+    vst = VSTClient(internal_url=vst_internal, external_url=runtime.vst_external_url or vst_internal)
+    stream_start_cache: dict[str, datetime] = {}
+    try:
+        for result in output.data:
+            if not result.sensor_id or not result.start_time or not result.end_time:
+                continue
+            try:
+                if result.sensor_id not in stream_start_cache:
+                    stream_start_iso, _ = await vst.get_timeline(result.sensor_id)
+                    stream_start_cache[result.sensor_id] = iso8601_to_datetime(stream_start_iso)
+                stream_start = stream_start_cache[result.sensor_id]
+                result.start_offset = max(
+                    0.0,
+                    (iso8601_to_datetime(result.start_time) - stream_start).total_seconds(),
+                )
+                result.end_offset = max(
+                    0.0,
+                    (iso8601_to_datetime(result.end_time) - stream_start).total_seconds(),
+                )
+            except Exception as exc:  # keep results intact on failure; never break the search turn
+                click.echo(f"vss: could not compute offsets for {result.sensor_id}: {exc}", err=True)
+    finally:
+        await vst.aclose()
+    return output
 
 
 class SearchGroup(CommandGroup):
@@ -485,12 +544,17 @@ class SearchGroup(CommandGroup):
             persisted_override: bool | None = None,
         ) -> Result:
             response["record"] = record
+            # Keep stdout JSON structurally identical to the agent's `{data}`
+            # envelope: the library's non-fatal `search_messages` diagnostics
+            # surface on stderr (Result.warnings) rather than in the body.
+            response.pop("search_messages", None)
             persisted = bool(response.get("persisted", False)) if persisted_override is None else persisted_override
             return Result(
                 body=response,
                 exit=code,
                 job_id=job_id,
                 extra={"marker": {"asset_id": asset_id, "status": status, "persisted": persisted}},
+                warnings=warnings,
             )
 
         if memory is not None:
@@ -531,16 +595,38 @@ class SearchGroup(CommandGroup):
             return "stale"
 
         async def _go() -> Any:
-            critic, vlm = await _critic_from(deployment)
+            critic, vlm, synthesize_unverified = await _critic_from(deployment)
             try:
                 async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
-                    return await vss.search(**payload)
+                    output = await vss.search(**payload)
+                    if synthesize_unverified and output.data:
+                        from vss_core.search_core.models.search import CriticResult
+
+                        output = output.model_copy(
+                            update={
+                                "data": [
+                                    result.model_copy(
+                                        update={"critic_result": CriticResult(result="unverified", criteria_met={})}
+                                    )
+                                    for result in output.data
+                                ],
+                                "search_messages": [
+                                    *output.search_messages,
+                                    "Visual verification unavailable; the configured RT-VLM service did not "
+                                    "respond, so every hit is unverified.",
+                                ],
+                            }
+                        )
+                    output = await _add_offsets(output, runtime)
+                    return output
             finally:
                 if vlm is not None:
                     await vlm.aclose()
 
+        warnings: list[str] = []
         try:
             output = asyncio.run(_go())
+            warnings = list(output.search_messages)
         except Exception as error:
             code = _exit_for(error) or Exit.ERROR
             record = close("failed", str(error))

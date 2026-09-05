@@ -108,6 +108,9 @@ class Result:
     #: Populated once jobs are minted; feeds the completion marker (§7.2).
     job_id: str = ""
     extra: dict[str, Any] = dc_field(default_factory=dict)
+    #: Non-fatal pipeline diagnostics (e.g. critic fail-open notes) surfaced on
+    #: stderr so stdout JSON keeps the agent's ``{data}`` envelope shape.
+    warnings: list[str] = dc_field(default_factory=list)
 
 
 class InvalidInput(click.ClickException):
@@ -530,6 +533,9 @@ def emit(result: Result, ctx: Context, *, marker_group: str | None = None) -> No
         pretty = bool(ctx.pretty)
         text = json.dumps(result.body, indent=2 if pretty else None, default=str)
         click.echo(text)
+    if result.warnings:
+        for warning in result.warnings:
+            click.echo(warning, err=True)
     if marker_group is not None and result.job_id:
         marker = _completion_marker(result, marker_group)
         text = json.dumps(marker, separators=(",", ":"), default=str)

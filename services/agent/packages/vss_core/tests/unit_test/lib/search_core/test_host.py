@@ -93,14 +93,13 @@ def test_aclose_closes_primitives_and_is_idempotent() -> None:
     assert vss._search is None
 
 
-def test_search_without_critic_returns_explicit_unverified_results() -> None:
+def test_search_without_critic_leaves_critic_result_null() -> None:
     vss = VSSSearch.from_runtime(_runtime())
     vss._search = _SearchPrimitive(SearchOutput(data=[_result()]))  # type: ignore[assignment]
 
     output = asyncio.run(vss.search(query="forklift"))
 
-    assert output.data[0].verification.result == "unverified"
-    assert output.data[0].verification.criteria_met is None
+    assert output.data[0].critic_result is None
 
 
 def test_search_uses_injected_critic_and_original_query() -> None:
@@ -111,8 +110,8 @@ def test_search_uses_injected_critic_and_original_query() -> None:
     output = asyncio.run(vss.search(query="decomposed query", original_query="find a forklift"))
 
     assert critic.queries == ["find a forklift"]
-    assert output.data[0].verification.result == "confirmed"
-    assert output.data[0].verification.criteria_met == {"subject:forklift": True}
+    assert output.data[0].critic_result.result == "confirmed"
+    assert output.data[0].critic_result.criteria_met == {"subject:forklift": True}
 
 
 def test_search_preserves_fusion_attributes_in_critic_query() -> None:
@@ -138,11 +137,13 @@ def test_search_critic_failure_is_fail_open() -> None:
 
     output = asyncio.run(vss.search(query="forklift"))
 
-    assert output.data[0].verification.result == "unverified"
-    assert output.search_messages == ["Visual verification failed; retrieval results remain unverified."]
+    assert output.data[0].critic_result is None
+    assert output.search_messages == [
+        "Visual verification failed; retrieval results carry no critic verdict (critic_result is null)."
+    ]
 
 
-def test_search_leaves_invalid_or_unidentifiable_hits_unverified() -> None:
+def test_search_leaves_invalid_or_unidentifiable_hits_null() -> None:
     critic = _Critic(CriticAgentResult.CONFIRMED)
     vss = VSSSearch.from_runtime(_runtime(), critic=critic)  # type: ignore[arg-type]
     output = SearchOutput(
@@ -156,7 +157,7 @@ def test_search_leaves_invalid_or_unidentifiable_hits_unverified() -> None:
     result = asyncio.run(vss.search(query="forklift"))
 
     assert critic.queries == []
-    assert [item.verification.result for item in result.data] == ["unverified", "unverified"]
+    assert [item.critic_result for item in result.data] == [None, None]
 
 
 def test_search_stream_verifies_only_terminal_output() -> None:
@@ -171,7 +172,7 @@ def test_search_stream_verifies_only_terminal_output() -> None:
 
     assert isinstance(events[0], StatusEvent)
     assert isinstance(events[1], FinalResultEvent)
-    assert events[1].output.data[0].verification.result == "rejected"
+    assert events[1].output.data[0].critic_result.result == "rejected"
 
 
 def test_search_verifies_every_returned_hit() -> None:
@@ -186,7 +187,7 @@ def test_search_verifies_every_returned_hit() -> None:
 
     output = asyncio.run(vss.search(query="forklift"))
 
-    assert [item.verification.result for item in output.data] == ["confirmed"] * total
+    assert [item.critic_result.result for item in output.data] == ["confirmed"] * total
     assert output.search_messages == []
 
 
@@ -200,7 +201,8 @@ def test_search_distinguishes_a_broken_verifier_from_no_verifier() -> None:
 
     output = asyncio.run(vss.search(query="forklift"))
 
-    assert output.data[0].verification.result == "unverified"
+    assert output.data[0].critic_result is not None
+    assert output.data[0].critic_result.result == "unverified"
     assert any("produced no verdict for any hit" in message for message in output.search_messages)
 
     # No critic at all stays silent, so the two cases are tellable apart.

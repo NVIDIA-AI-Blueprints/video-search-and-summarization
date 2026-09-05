@@ -58,7 +58,7 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert 'VSS_ORIGIN=$("${VSS[@]}" configure show' in main
     assert "Do not repeat public-origin selection" in main
     assert "Would you like me to verify the unverified search results?" in main
-    assert "only when every displayed result is" in normalized_main
+    assert "only when every displayed hit has" in normalized_main
     assert "Never hand off a partially verified result set" in normalized_main
     assert "Verification is fail-open" in cli_usage
     assert "If any hit is `confirmed` or `rejected`, do not delegate any hit" in normalized_verification
@@ -96,6 +96,15 @@ def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
     assert "Keep progress and the final reply implementation-neutral" in normalized
     assert "name the source as the user did rather than by its resolved UUID" in normalized
     assert "those describe how the answer was produced, not what was seen" in normalized
+
+    # The neutrality rule must name the concrete implementation details the
+    # bounded-clip verification workflow resolves, so a compliant reply cannot
+    # close by leaking them (see Harbor eval step-7 check 5 failures).
+    assert "nvidia/cosmos3-nano-reasoner" in normalized, "forbid naming the served model"
+    assert "/rtvi-vlm/v1" in normalized, "forbid naming the RT-VLM endpoint path"
+    assert "sensorId" in normalized, "forbid naming resolved sensor identifiers"
+    assert "vios timeline" in normalized, "forbid naming VST/CLI clip-resolution internals"
+    assert "vss-ask-video" in normalized, "forbid naming the delegated verifier skill"
 
 
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
@@ -226,13 +235,13 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
     assert "vss-ask-video" in spec["skills"]
     assert "--extra cli vss search run" in serialized
-    assert "verification.result" in serialized
+    assert "critic_result" in serialized
     assert "confirmed" in serialized
     assert "rejected" in serialized
     assert "unverified" in serialized
     assert "VERIFY_PIXELS" not in serialized
     assert "visually inspect screenshot pixels" in adapter
-    assert "when every hit in the nonempty displayed result set remains unverified" in adapter
+    assert "when every hit in the nonempty displayed result set has `critic_result` null or `unverified`" in adapter
     assert "or prose layout is not required" in adapter
     assert "always use the exact heading `## Video Search Results`" not in adapter
     assert "timeout_sec = 600.0" in adapter
