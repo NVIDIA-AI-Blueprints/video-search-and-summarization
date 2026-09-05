@@ -54,6 +54,7 @@ _NOTEBOOK_PARAMETERS = (
     "UPSTREAM_API_KEY",
     "ROUTER_TARGET_CAPABLE",
     "ROUTER_TARGET_EFFICIENT",
+    "ROUTE_NEMOCLAW",
     "ROUTER_PORT",
     "ROUTER_NETWORK",
     "ROUTER_CONTAINER",
@@ -64,6 +65,7 @@ _NOTEBOOK_PARAMETERS = (
 _READINESS_MARKERS = (
     "ROUTER_VERIFIED:",
     "VSS_ROUTING_COMPOSE: valid",
+    "NEMOCLAW_ROUTING: True; bind=0.0.0.0",
     "NEMOCLAW_ROUTING_READY:",
     "ROUTER_POLICY_LIFECYCLE:",
     "ROUTER_TEARDOWN: done",
@@ -231,6 +233,7 @@ def prepare_environment(env=None):
     # always torn down so the runner is left clean.
     e.setdefault("ROUTER_PORT", "14000")
     e.setdefault("ROUTER_CONTAINER", "vss-model-router-ci")
+    e["ROUTE_NEMOCLAW"] = "true"
     e["ROUTER_TEARDOWN"] = "true"
     e.setdefault("MODEL_ROUTING_WORK_DIR", "/tmp/skill-eval/model-routing")
     return mock
