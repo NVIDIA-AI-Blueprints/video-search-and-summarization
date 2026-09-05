@@ -34,6 +34,7 @@ ngc_cli_api_key="${NGC_CLI_API_KEY:-}"
 nvidia_api_key="${NVIDIA_API_KEY:-}"
 openai_api_key="${OPENAI_API_KEY:-}"
 dry_run="false"
+use_sbsa_images="false"
 # Build the VIOS runtime-media packages into a local image instead of installing
 # them on every container start. Env var so CI can set it without a flag.
 prebake_vios_packages="${VSS_VIOS_PREBAKE_PACKAGES:-false}"
@@ -645,6 +646,8 @@ function usage() {
   echo "  --vlm-env-file                   Path to VLM env file. Absolute or relative to CWD."
   echo "                                   • Not allowed when --use-remote-vlm is passed"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
+  echo "  --use-sbsa-images                Use SBSA-tagged managed-image variants."
+  echo "                                   • Enabled automatically for -H DGX-SPARK or GB300"
   echo ""
   echo "Options for 'up' and 'down':"
   echo "  -d, --dry-run                    print commands without executing them"
@@ -669,7 +672,7 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,dry-run,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -710,7 +713,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,dry-run,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   # Parse options
@@ -807,6 +810,11 @@ function process_args() {
         shift
         vlm_env_file="${1}"
         options_provided+=("vlm-env-file")
+        shift
+        ;;
+      --use-sbsa-images)
+        use_sbsa_images="true"
+        options_provided+=("use-sbsa-images")
         shift
         ;;
       -d | --dry-run)
@@ -1924,29 +1932,6 @@ function state_up() {
     esac
   fi
 
-  # ARM64 GPU systems use explicit SBSA image tags where profiles provide them.
-  # This includes DGX-SPARK and GB300 (Grace Blackwell), whose generic image
-  # manifests do not include the required DeepStream/Tegra runtime libraries.
-  # For any env var with a commented line whose value contains sbsa, comment the
-  # uncommented line (non-sbsa) and uncomment the sbsa line. Discover keys from
-  # the file. Comment format may be "# VAR=..." or "#VAR=..." (optional space).
-  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" ]]; then
-    local _key
-    while IFS= read -r _key; do
-      [[ -z "${_key}" ]] && continue
-      # Comment the uncommented line for this key when value does not contain sbsa
-      sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
-      # Uncomment the commented line for this key when value contains sbsa
-      sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
-    done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
-  fi
-  # Write the ARM64 RT-VLM image selector into generated.env where it wins
-  # during Compose interpolation.
-  if [[ "${hardware_profile}" == "GB300" ]]; then
-    set_env_var "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
-    echo "[INFO] Selected SBSA RT-VLM image for GB300"
-  fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 
@@ -2007,6 +1992,11 @@ function state_up() {
   if [[ "${dry_run}" != "true" ]]; then
     echo "[INFO] Applying VSS Linux kernel settings..."
     set_vss_linux_kernel_settings
+  fi
+
+  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
+    export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+    echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
   fi
 
   # Resolve and display the managed container channel before deployment.
