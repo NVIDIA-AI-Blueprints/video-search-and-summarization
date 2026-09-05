@@ -230,9 +230,15 @@ curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>"
 #   status, fail on >=400, and treat the deliberate early close (curl 28 / SIGPIPE 141 after
 #   a 200) as admission confirmed. Both RT-VLM `id` and `sensor_name` carry the canonical
 #   VIOS sensor ID (`<sensorId>`), never the display/source name.
-curl -s -X POST "http://localhost:<rt-vlm-port>/v1/streams/add" \
+#   `description` is a required field on AddLiveStream; carry the source name (or a
+#   non-empty tag-session label) and validate the registration response before
+#   starting the tagging leg.
+if reg_code=$(curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST "http://localhost:<rt-vlm-port>/v1/streams/add" \
   -H "Content-Type: application/json" \
-  -d "{\"streams\":[{\"liveStreamUrl\":\"<vios-url>\",\"id\":\"<sensorId>\",\"sensor_name\":\"<sensorId>\"}]}"
+  -d "{\"streams\":[{\"liveStreamUrl\":\"<vios-url>\",\"description\":\"<source-name>\",\"id\":\"<sensorId>\",\"sensor_name\":\"<sensorId>\"}]}"
+); then :; else echo "rt-vlm live stream registration failed (curl exit $?)" >&2; exit 1; fi
+case "$reg_code" in 2*|3*) : ;; *) echo "rt-vlm live stream registration failed (http ${reg_code:-unknown})" >&2; exit 1 ;; esac
 if http_code=$(curl -sS --connect-timeout 10 --max-time 5 \
   -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
   -H "Content-Type: application/json" -H "Accept: text/event-stream" \

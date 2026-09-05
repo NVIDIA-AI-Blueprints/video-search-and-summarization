@@ -63,15 +63,23 @@ class TagSearch:
 
     async def run(self, inp: TagSearchInput) -> TagSearchOutput:
         inp.validate_semantics()
-        name_to_id = await self._name_to_id()
-        source_ids = self._resolve_source_ids(inp.video_sources or [], name_to_id)
-        if inp.video_sources and not source_ids:
-            # Every requested source was unknown. Deriving ``default_<raw>`` index
-            # names from raw user input can produce invalid Elasticsearch index
-            # names (uppercase letters, slashes, ...) that ES rejects with a
-            # backend error instead of an empty result. Return a narrowed empty
-            # result without querying.
-            return TagSearchOutput(results=[], malformed_documents=0)
+        # Name->ID resolution is mandatory only for scoped queries: a source-less
+        # tag search queries the ``default_*`` family directly and must not contact
+        # VST (optional enrichment), so a configured-but-unreachable VST does not
+        # fail an unscoped query before Elasticsearch is reached.
+        if inp.video_sources:
+            name_to_id = await self._name_to_id()
+            source_ids = self._resolve_source_ids(inp.video_sources, name_to_id)
+            if not source_ids:
+                # Every requested source was unknown. Deriving ``default_<raw>``
+                # index names from raw user input can produce invalid Elasticsearch
+                # index names (uppercase letters, slashes, ...) that ES rejects
+                # with a backend error instead of an empty result. Return a narrowed
+                # empty result without querying.
+                return TagSearchOutput(results=[], malformed_documents=0)
+        else:
+            name_to_id = {}
+            source_ids = []
         search_index = self._resolve_search_index(source_ids)
         query = helpers.build_es_query(inp, source_ids=source_ids, default_max_results=self._default_k)
         logger.info(

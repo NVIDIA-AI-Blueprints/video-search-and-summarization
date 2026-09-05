@@ -54,8 +54,7 @@ deploys, the routes each consumer of the origin needs:
 
 The operate set is the read-path subset of what `vss configure` probes to resolve
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
-headless build **must** carry it — post-#1469 `vss search run` takes no endpoints,
-ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
+headless build **must** carry it — post-#1469 `vss search run` takes no endpoints, so a build missing these routes is unqueryable (no ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
 make it queryable — an ingestion/indexing-only build that requests no read surface
 prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`. The canonical
 `haproxy.cfg.template` is the **single authored source** for this route — it already

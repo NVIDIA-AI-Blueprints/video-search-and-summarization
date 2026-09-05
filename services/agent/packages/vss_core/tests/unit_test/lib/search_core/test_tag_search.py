@@ -235,3 +235,24 @@ async def test_sourced_tag_search_without_vst_narrows_to_empty() -> None:
     out = await TagSearch(es=es, vst=None).run(TagSearchInput(query="forklift", video_sources=["dock camera"]))
     assert out.results == []
     assert es.index is None  # never queried
+
+
+@pytest.mark.asyncio
+async def test_sourceless_tag_search_skips_unreachable_vst() -> None:
+    # A configured-but-unreachable VST must not fail a source-less (unscoped)
+    # tag query before Elasticsearch is queried: name resolution is mandatory
+    # only for scoped queries, so the unscoped path never contacts VST.
+    class _UnreachableVst(_Vst):
+        async def get_name_to_stream_id_map(self) -> dict[str, str]:
+            raise VSTError("VST unreachable")
+
+        async def get_timelines_map(self) -> dict[str, tuple[str, str]]:
+            raise VSTError("VST unreachable")
+
+    es = _Es([_hit()])
+    out = await TagSearch(es=es, vst=_UnreachableVst(), tag_index="default_*").run(
+        TagSearchInput(query="red forklift", source_type="video_file")
+    )
+    # Source-less query returned hits without raising and without calling VST.
+    assert len(out.results) == 1
+    assert es.index == "default_*"

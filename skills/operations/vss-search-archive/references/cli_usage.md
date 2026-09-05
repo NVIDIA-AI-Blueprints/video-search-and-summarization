@@ -90,8 +90,7 @@ run fusion --query "person in white jacket running" --attribute "white jacket" \
 `--video-source` is matched **literally** against the index for `embed`,
 `attribute`, and `object` — the CLI does no name↔id resolution or VST
 validation, so an unknown source silently returns nothing (not an error). For
-`tag` and `fusion`, the CLI resolves each source name to its VST sensor ID (passing an already-id through);
-an unresolved source is kept literal and yields an empty, narrowed result (exit 0), not an error.
+only `tag` resolves a source name to its VST sensor ID (passing an already-id through); `fusion` matches the sensor ID literally — hand it the preserved sensor ID so the embedding leg's literal filter matches (the tag leg accepts IDs too). For `tag`, an unresolved source is dropped (not carried forward) and yields an empty, narrowed result (exit 0), not an error.
 Validating a named source against `vss vios list` is the skill's job (SKILL.md
 step 2) either way.
 
