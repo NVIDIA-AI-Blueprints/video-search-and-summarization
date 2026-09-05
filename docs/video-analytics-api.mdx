@@ -21,7 +21,7 @@ The service listens on port `8081` by default (`http://<host>:8081`).
 | `GET` | `/metrics/average-speed-with-flowrate` | Get Average Speed and Flowrate |
 | `GET` | `/metrics/average-speed-with-travel-time` | Get Average Speed and Travel Time |
 | `GET` | `/metrics/tripwire/counts` | Get effective and actual tripwire counts for a sensor. |
-| `GET` | `/metrics/occupancy/tripwire` | It is used to calculate occupancy based on IN/OUT tripwire events and the value of reset occupancy. It is advised to reset a place's occupancy by using '/occupancy/reset' endpoint. This helps in keeping the occupancy calculated to be accurate. |
+| `GET` | `/metrics/occupancy/tripwire` | Calculate occupancy from IN/OUT tripwire events and occupancy reset values. Use the `/metrics/occupancy/reset` endpoint to reset a place's occupancy and keep the calculated occupancy accurate. |
 | `POST` | `/metrics/occupancy/reset` | Reset the occupancy of a place |
 | `GET` | `/metrics/tripwire/histogram` | Get a histogram of tripwire counts. Please check the input descriptions to check its dependencies. |
 | `GET` | `/metrics/occupancy/fov` | Get Fov Occupancy of a sensor. |
