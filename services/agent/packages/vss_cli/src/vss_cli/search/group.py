@@ -29,6 +29,7 @@ defaults until a preferences tier exists.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import time
 from typing import TYPE_CHECKING
@@ -58,6 +59,8 @@ if TYPE_CHECKING:
 
     from vss_core.critic import CriticAgent
     from vss_core.vlm import OpenAIVLMAnalyzer
+
+logger = logging.getLogger(__name__)
 
 #: Job ids stay ``search-<ULID>`` (design §5.2/§7.2).
 _JOB_DOMAIN = "search"
@@ -222,6 +225,17 @@ class SearchTuning(BaseModel):
         ),
         json_schema_extra={"cli_flag": "--no-merge-adjacent"},
     )
+    critic_eval_count: int | None = Field(
+        None,
+        ge=1,
+        description=(
+            "Cap how many retrieved hits the VLM critic verifies. The critic is"
+            " best-effort and fail-open: hits beyond this cap stay `unverified`."
+            " Omit to verify every hit (bounded by --top-k). Bounds latency and"
+            " remote-VLM cost on large result sets."
+        ),
+        json_schema_extra={"cli_flag": "--critic-eval-count"},
+    )
 
 
 class SearchPersistOptions(BaseModel):
@@ -303,12 +317,13 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     return SearchRuntime(**kwargs)
 
 
-async def _rt_vlm_available(service_url: str, model: str) -> bool:
-    """Return whether the configured RT-VLM route currently serves ``model``.
+async def _rt_vlm_probe(service_url: str, model: str) -> str | None:
+    """Return ``None`` when the RT-VLM route serves ``model``, else a reason.
 
     Deployment configuration is a snapshot and may outlive the service. Probe
     once before an all-hit critic run so an outage does not fan out into one
-    retried request per search result.
+    retried request per search result. The reason string names the failure so a
+    disabled critic is diagnosable instead of a silent wall of ``unverified``.
     """
     import httpx
 
@@ -317,27 +332,39 @@ async def _rt_vlm_available(service_url: str, model: str) -> bool:
             response = await client.get(f"{service_url.rstrip('/')}/v1/models")
         response.raise_for_status()
         payload = response.json()
-    except (httpx.HTTPError, ValueError):
-        return False
+    except httpx.TimeoutException:
+        return f"RT-VLM probe timed out after 5s at {service_url}"
+    except httpx.HTTPStatusError as e:
+        return f"RT-VLM probe got HTTP {e.response.status_code} from {service_url}"
+    except (httpx.HTTPError, ValueError) as e:
+        return f"RT-VLM probe failed at {service_url}: {e}"
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-        return False
-    return any(isinstance(item, dict) and item.get("id") == model for item in payload["data"])
+        return f"RT-VLM /v1/models returned an unexpected shape from {service_url}"
+    if not any(isinstance(i, dict) and i.get("id") == model for i in payload["data"]):
+        return f"RT-VLM at {service_url} is not serving model {model!r} (re-run `vss configure`)"
+    return None
 
 
 async def _critic_from(
     deployment: config_mod.Deployment,
-) -> tuple[CriticAgent | None, OpenAIVLMAnalyzer | None]:
+    eval_count: int | None = None,
+) -> tuple[CriticAgent | None, OpenAIVLMAnalyzer | None, str | None]:
     """Build the reusable critic stack when this deployment exposes one.
 
-    RT-VLM is optional for archive search. Returning ``(None, None)`` keeps
-    retrieval available and causes the result model's fail-open ``unverified``
-    state to remain untouched.
+    RT-VLM is optional for archive search. Returning ``(None, None, reason)``
+    keeps retrieval available and leaves the result model's fail-open
+    ``unverified`` state untouched; ``reason`` names why verification is off so
+    the caller can surface it instead of leaving a silent wall of ``unverified``.
     """
     rt_vlm = deployment.services.get("rt_vlm")
-    if not deployment.has("vst") or rt_vlm is None or not rt_vlm.url or not rt_vlm.models:
-        return None, None
-    if not await _rt_vlm_available(rt_vlm.url, rt_vlm.models[0]):
-        return None, None
+    if not deployment.has("vst"):
+        return None, None, "no VST route is configured"
+    if rt_vlm is None or not rt_vlm.url or not rt_vlm.models:
+        return None, None, "no RT-VLM route is configured"
+    reason = await _rt_vlm_probe(rt_vlm.url, rt_vlm.models[0])
+    if reason is not None:
+        logger.warning("Search critic disabled: %s", reason)
+        return None, None, reason
 
     from vss_core.critic import CriticAgent
     from vss_core.vios import VSTClient
@@ -362,7 +389,23 @@ async def _critic_from(
         # in this proxy request.
         cosmos_nim_runtime_options=False,
     )
-    return CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset"), vlm
+    # iso, not offset: the critic already rebases file-source bounds onto the
+    # real replay timeline itself (cached per sensor), so the analyzer's clip-URL
+    # request takes the ISO fast path and does not refetch the full VST timelines
+    # map once per candidate. offset would force that redundant fetch.
+    # Cap how many hits the VLM verifies; None = verify every hit (bounded by
+    # --top-k). Bounding this caps latency and remote-VLM cost on large result
+    # sets; hits beyond the cap keep their model default of `unverified`.
+    return (
+        CriticAgent(
+            vlm_analyzer=vlm,
+            vst=vst,
+            time_format="iso",
+            num_videos_to_evaluate=eval_count,
+        ),
+        vlm,
+        None,
+    )
 
 
 class SearchGroup(CommandGroup):
@@ -429,6 +472,10 @@ class SearchGroup(CommandGroup):
         # The flag reads as a negation; the runtime field is positive.
         if tuning.pop("no_merge_adjacent", False):
             tuning["merge_adjacent"] = False
+        # critic_eval_count is a caller preference, not a runtime field: pop it
+        # out of `tuning` (which feeds SearchRuntime) and thread it to the
+        # critic instead. None = verify every hit (bounded by --top-k).
+        critic_eval_count = tuning.pop("critic_eval_count", None)
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action
@@ -531,13 +578,27 @@ class SearchGroup(CommandGroup):
             return "stale"
 
         async def _go() -> Any:
-            critic, vlm = await _critic_from(deployment)
+            critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
             try:
                 async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
-                    return await vss.search(**payload)
+                    output = await vss.search(**payload)
             finally:
                 if vlm is not None:
                     await vlm.aclose()
+            # The critic failing to build must be visible: without this the hits
+            # come back ``unverified`` with no distinction from "critic ran but
+            # the VLM could not decide". Surface the reason so the caller (and the
+            # vss-search-archive skill, which reads search_messages) can explain it.
+            if critic is None and disabled_reason and output.data:
+                output = output.model_copy(
+                    update={
+                        "search_messages": [
+                            *output.search_messages,
+                            f"Visual verification disabled: {disabled_reason}.",
+                        ]
+                    }
+                )
+            return output
 
         try:
             output = asyncio.run(_go())
