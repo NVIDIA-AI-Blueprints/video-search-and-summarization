@@ -421,7 +421,19 @@ void NvLLTransform::doTransformTask()
                     NvBufSurfTransform_Error transform_error = NvBufWrapper::getInstance()->NvBufSurfTransform (ip_surf, dst_surf, &transform_params);
                     if (transform_error != NvBufSurfTransformError_Success)
                     {
-                        LOG(error) << "Transform failure" << endl;
+                        /* The code, the surfaces and the geometry, because
+                         * without them this is unactionable: a host was found
+                         * with seven thousand of these and nothing to say
+                         * whether the call was rejected for its parameters, ran
+                         * out of memory, or failed inside the driver. */
+                        LOG(error) << "Transform failure: error=" << static_cast<int>(transform_error)
+                                   << " gpu=" << config_params.gpu_id
+                                   << " src=" << sink_frame->m_sourceWidth << "x"
+                                   << sink_frame->m_sourceHeight
+                                   << " dst=" << sink_frame->m_targetWidth << "x"
+                                   << sink_frame->m_targetHeight
+                                   << " ip_surf=" << static_cast<const void*>(ip_surf)
+                                   << " dst_surf=" << static_cast<const void*>(dst_surf) << endl;
                         is_error = true;
                         goto error;
                     }
