@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import threading
@@ -279,7 +280,7 @@ def ingest_videos(
 # =============================================================================
 
 
-def run_evaluation(
+def run_evaluation(  # noqa: PLR0913
     query_backend: Any,
     data_dir: Path,
     dataset: str,
@@ -292,6 +293,7 @@ def run_evaluation(
     readiness: dict[str, Any] | None = None,
     cleared: dict[str, Any] | None = None,
     vst_url: str | None = None,
+    decomposer: Any = None,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
 
@@ -337,6 +339,10 @@ def run_evaluation(
     print(f"{'concurrency:':<22}{concurrency}")
     print(f"{'=' * 60}\n")
 
+    # The prompt asks which sources exist so it can fill `video_sources`; the
+    # dataset already knows, which beats asking VST for an inventory that may
+    # include unrelated uploads.
+    video_names = {s["video_name"] for segs in annotations.values() for s in segs if s.get("video_name")}
     all_results: list[dict[str, Any] | None] = [None] * len(queries)
     print_lock = threading.Lock()
     completed = [0]
@@ -345,11 +351,28 @@ def run_evaluation(
 
     def _run_single_query(qi: int, query: str) -> None:
         expected = annotations[query]
+
+        # Decompose first, then search. The backend already routes from its
+        # `decompositions` map, so writing this query's entry is the whole
+        # integration -- path choice, attributes and top_k all follow. Distinct
+        # keys per thread, so the shared dict needs no lock.
+        decompose_s = 0.0
+        if decomposer is not None:
+            decomposition, decompose_s = decomposer.decompose(query, video_sources=sorted(video_names))
+            query_backend.decompositions[query] = decomposition
+
         raw_results, latency_s = query_backend.search(query)
         normalized = flows.normalize_results(raw_results)
         sources_seen.update(flows.verification_sources(normalized))
 
         result = flows.evaluate_query(query, flows.for_scoring(normalized), expected, latency_s)
+        if decomposer is not None:
+            # Kept apart from latency_s: one is the LLM deciding what to search
+            # for, the other is the search. Summing them silently would hide
+            # which half a regression came from.
+            result["decompose_s"] = round(decompose_s, 4)
+            result["total_latency_s"] = round(decompose_s + latency_s, 4)
+            result["decomposition"] = query_backend.decompositions.get(query)
 
         # Present only when the deployment carries the search_core timings
         # change. Absent means nobody collected -- not that stages took no time.
@@ -608,6 +631,25 @@ def _summarize(
             3,
         )
 
+    decompose_times = [r["decompose_s"] for r in results if r.get("decompose_s") is not None]
+    if decompose_times:
+        # Reported next to, not inside, the search latency: decomposition is an
+        # LLM call the CLI never makes, so folding it into latency_s would make
+        # runs with and without it incomparable.
+        summary["decomposition"] = {
+            "queries": len(decompose_times),
+            "mean_s": round(statistics.mean(decompose_times), 3),
+            "median_s": round(statistics.median(decompose_times), 3),
+            "max_s": round(max(decompose_times), 3),
+            "total_s": round(sum(decompose_times), 3),
+            "share_of_query_pct": round(
+                100 * sum(decompose_times) / max(sum(r["latency_s"] + r["decompose_s"] for r in results if r.get("decompose_s") is not None), 1e-9), 1
+            ),
+            "routed_to": flows.path_distribution(
+                [flows.plan_for(r["query"], r.get("decomposition")) for r in results if r.get("decomposition")]
+            ),
+        }
+
     summary["throughput"] = {
         "wall_clock_s": round(wall_clock_s, 3),
         "qps": round(n / wall_clock_s, 3) if wall_clock_s > 0 else 0.0,
@@ -673,6 +715,15 @@ def _print_summary(summary: dict[str, Any]) -> None:
             print(f"  {'  of which:':<18}")
             print(f"  {'    search:':<18}{lat['search_internal_mean_s']:.3f}s")
             print(f"  {'    CLI startup:':<18}{lat['cli_startup_mean_s']:.3f}s")
+
+    dec = summary.get("decomposition")
+    if dec:
+        print(f"\nQuery decomposition ({dec['queries']} queries, live)")
+        print(f"  {'Mean:':<18}{dec['mean_s']:.3f}s")
+        print(f"  {'Median:':<18}{dec['median_s']:.3f}s")
+        print(f"  {'Max:':<18}{dec['max_s']:.3f}s")
+        print(f"  {'Share of query:':<18}{dec['share_of_query_pct']:.1f}%")
+        print(f"  {'Routed to:':<18}{dec['routed_to']}")
 
     stage = summary.get("stage_latency")
     if stage:
@@ -876,6 +927,13 @@ def parse_args() -> argparse.Namespace:
         help=f"Exact path for the results JSON. Default: {RESULTS_DIR}/<name>.json",
     )
     p.add_argument(
+        "--llm-url",
+        default=os.environ.get("VSS_LLM_URL"),
+        help="LLM origin for live query decomposition, e.g. http://HOST:30081 "
+        "(env: VSS_LLM_URL). Without it every query uses --search-path.",
+    )
+    p.add_argument("--llm-model", help="Decomposition model id (default: ask the endpoint).")
+    p.add_argument(
         "--name",
         help="Name this run's results file, instead of <dataset>_<subset>_<timestamp>. "
         "Ignored when --output-file gives an exact path.",
@@ -890,6 +948,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    decomposer = None
+    if args.llm_url and not args.dry_run:
+        try:
+            decomposer = flows.LiveDecomposer(
+                args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model
+            )
+        except flows.DecompositionError as e:
+            raise SystemExit(f"ERROR: {e}") from e
+        print(f"decomposition: live via {args.llm_url}  model={decomposer.model}")
+    elif not args.dry_run:
+        print(f"decomposition: none -- every query uses --search-path {args.search_path}")
 
     ingest_backend = build_ingest_backend(args)
     query_backend = build_query_backend(args)
@@ -983,6 +1053,7 @@ def main() -> None:
         data_dir=args.data_dir,
         dataset=args.dataset,
         subset=args.subset,
+        decomposer=decomposer,
         output_file=args.output_file,
         run_name=args.name,
         concurrency=args.concurrency,
