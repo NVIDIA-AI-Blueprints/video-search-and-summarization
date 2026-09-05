@@ -1,0 +1,10 @@
+# Run outputs: a result describes one deployment at one moment, not source.
+scripts/cli_eval_result/
+
+# Datasets and media are licensed content and are never committed here.
+data/
+datasets/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
