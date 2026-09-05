@@ -39,7 +39,7 @@ metadata:
 | Build, create, extend, customize, combine, add, or remove capabilities | Delta mode using the closest current developer profile as the Foundation. |
 | A named profile qualified as headless | Delta mode off that profile, not a stock deploy. |
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
-| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — `vss-agent`, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
+| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | **Warehouse does not support NemoClaw yet.** The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — `vss-agent`, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
 | Install the harness against an already-deployed build (no composition requested) | `references/agent-harness.md` bring-up alone — resolve the origin from the running build, skip Steps 5–8. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
@@ -152,11 +152,10 @@ and minimal variants ship agentless. **No warehouse variant reaches
 selecting `bp_wh` *is* naming the in-stack agent, since that is the only thing
 distinguishing it from `bp_wh_kafka`. So `vss-agent` is kept, the list is
 expanded verbatim with no edits, and every warehouse deploy is a Stock deploy.
-Driving a warehouse build from NemoClaw instead requires naming it. The shared
-lifecycle applies from there, with four warehouse divergences: skip **Step 4**
-(`references/composition.md` is the delta flow), **Step 5**'s effective service
-set is already fixed above, **Step 7** additionally writes `configurator.env`,
-and **Step 8** resolves through
+The shared lifecycle applies from there, with four warehouse divergences: skip
+**Step 4** (`references/composition.md` is the delta flow), **Step 5**'s
+effective service set is already fixed above, **Step 7** additionally writes
+`configurator.env`, and **Step 8** resolves through
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) rather
 than the delta flow in `references/composition.md`.
 

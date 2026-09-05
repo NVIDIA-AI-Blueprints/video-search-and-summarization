@@ -377,12 +377,8 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
     if mode == "3d":
         dataset_type = env.get("DATASET_TYPE", "")
         if not dataset_type:
-            # The label mount interpolates this into a HOST path
-            # (labels-$DATASET_TYPE.txt), so empty yields labels-.txt and
-            # Docker creates a directory where a file is expected. The
-            # ${DATASET_TYPE:-synthetic} fallback in warehouse-3d-app.yml
-            # covers the configurator's environment but not that bind source,
-            # so an empty value splits the two.
+            # The bare consumer is streamprocessing-ms-3d, in
+            # services/vios/streamprocessing/docker-compose.yaml.
             errors.append(
                 "DATASET_TYPE is empty or unset under MODE=3d; it selects the "
                 "Sparse4D model, anchor and labels, and the label bind source "
