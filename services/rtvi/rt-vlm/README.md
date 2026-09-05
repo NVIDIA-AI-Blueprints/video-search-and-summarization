@@ -52,36 +52,19 @@ The Docker artifacts are shipped under [`docker/`](docker/):
 | File | Purpose |
 |------|---------|
 | [`docker/compose.yaml`](docker/compose.yaml) | Standalone Compose stack: `rtvi-server` + Kafka + Redis. Common Compose/Helm variables are listed in [Docker Compose and Helm Variables](#docker-compose-and-helm-variables) |
+| [`docker/.env.example`](docker/.env.example) | Copyable Compose configuration with a GHCR developer image and a pinned NVCR release alternative |
 | [`docker/Dockerfile`](docker/Dockerfile) | (Optional) layers your local `src/` edits onto the shipped image |
 
 #### 2. Create a `.env` file
 
-Create `.env` with your configuration:
+Copy the tracked sample to `.env`, then replace the NGC API key placeholder:
 
 ```bash
-cat > .env << EOF
-BACKEND_PORT=8000
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
-# For DGX Spark/SBSA platforms:
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa
-VLM_MODEL_TO_USE=cosmos-reason3
-MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-KAFKA_ENABLED=true
-#KAFKA_BOOTSTRAP_SERVERS=<Kafka_server_ip:port>
-MESSAGE_BUS=kafka
-MESSAGE_BUS_TOPIC=mdx-vlm-captions
-ERROR_BUS=kafka
-KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
-NGC_API_KEY=nvapi-XXXXXX
-VLM_BATCH_SIZE=128
-NVIDIA_VISIBLE_DEVICES=0
-
-# Omni audio support (set true for Nemotron Nano Omni and similar models)
-#VLM_MODEL_SUPPORTS_AUDIO=false
-#VLM_TRUST_REMOTE_CODE=false
-#INSTALL_PROPRIETARY_CODECS=false
-EOF
+cp .env.example .env
 ```
+
+The sample defaults to the moving GHCR development image. For a pinned release,
+replace its `RTVI_IMAGE` value with the NVCR release image shown in the sample.
 
 `compose.yaml` provides defaults for every other Compose variable except `BACKEND_PORT`, which must be set. See [Docker Compose and Helm Variables](#docker-compose-and-helm-variables) for variables common to the standalone Compose stack and Helm override.
 
@@ -206,7 +189,7 @@ helm upgrade --install vss-rtvi-vlm . \
 
 When using the `hf-token-secret` secret, set `hfTokenSecret.name=hf-token-secret` and `hfTokenSecret.key=HF_TOKEN` in your values file or with `--set`.
 
-The standalone override sets `enabled=true`, `useSharedNim=false`, `modelPath=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, disables Kafka publishing with `KAFKA_ENABLED=false`, and uses loopback placeholders for Kafka and Redis.
+The standalone override sets `enabled=true`, `useSharedNim=false`, and `modelPath=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`; it uses loopback Kafka and Redis placeholders. `KAFKA_ENABLED` is a legacy runtime no-op; use `MESSAGE_BUS` to control generated-message output.
 
 #### 4. Expose the API for local testing
 
@@ -969,7 +952,7 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `VLLM_MM_ENCODER_ATTN_BACKEND` | vLLM multimodal encoder attention backend | Empty |
 | `VLLM_ROOT` | vLLM package root used by runtime patches | `/usr/local/lib/python3.12/dist-packages/vllm` |
 | `VLLM_USE_NVFP4_CT_EMULATIONS` | Enable NVFP4 CT emulation | `0` |
-| `KAFKA_ENABLED` | Enable Kafka publishing | Compose: `true`; Helm: `false` |
+| `KAFKA_ENABLED` | Legacy runtime no-op; use `MESSAGE_BUS` to select or disable generated-message output | Passed through by Compose and Helm |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | Compose: `kafka:9092`; Helm: `127.0.0.1:9092` |
 | `MESSAGE_BUS` | Generated-output broker type | `kafka` |
 | `MESSAGE_BUS_TOPIC` | VisionLLM message topic / Redis stream | `mdx-vlm-captions` |
