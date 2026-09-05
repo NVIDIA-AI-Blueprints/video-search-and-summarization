@@ -53,6 +53,9 @@ from .base import (
     resolve_vss_cmd,
     vss_origin_for,
 )
+from .decompose import DecompositionError
+from .decompose import LiveDecomposer
+from .decompose import load_prompt as load_decomposition_prompt
 from .dataset import (
     DATASETS,
     DEFAULT_DATA_DIR,
@@ -165,6 +168,9 @@ __all__ = [
     "CONTENT_TYPES",
     "DATASETS",
     "DEFAULT_DATA_DIR",
+    "DecompositionError",
+    "LiveDecomposer",
+    "load_decomposition_prompt",
     "DEFAULT_UPLOAD_TIMESTAMP",
     "DEFAULT_VSS_ORIGIN_PORT",
     "DSS_DATASET_NAME",
