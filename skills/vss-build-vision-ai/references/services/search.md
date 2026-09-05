@@ -12,14 +12,18 @@
   profile's VIOS/NvStreamer path.
 - Agent search requires `COSMOS_EMBED_ENDPOINT`, `ELASTIC_SEARCH_ENDPOINT`, and
   `ELASTIC_SEARCH_INDEX`.
-- Result critique and visual follow-up Q&A are served by RT-VLM **through the
-  agent**; there is no build-time critique env flag. Critique is chosen **per
-  request** (the agent's `use_critic` option, default on) — never at deploy
-  time. Include `rtvi-vlm` together with the `vss-agent` tier that invokes it
-  only when the build must serve those agent surfaces. A headless build (no
-  `vss-agent`) has no consumer for `rtvi-vlm` — the retrieval CLI never calls
-  it — so omit both. Do **not** introduce an `ENABLE_CRITIC` (or equivalent)
-  env delta; the search profile no longer honors one.
+- RT-VLM serves result critique and visual follow-up Q&A, chosen **per request**
+  and never at deploy time: the agent's `use_critic` (default on) and every
+  `vss search run`. There is no build-time flag.
+- `rtvi-vlm` is **opt in**. Retrieval never needs it, so closure drops it unless
+  the request asks to verify results or to ask questions about clips. Both
+  consumers call it directly, so include it whenever either is requested, with
+  or without a `vss-agent` tier. When it is absent, say so: verdicts come back
+  `unverified` and `vss-ask-video` stops rather than deploying one.
+- Presence alone is not enough. The CLI verifies only when the recorded
+  deployment has both `rt_vlm` and `vst`, so a build that ships `rtvi-vlm` must
+  also route `/rtvi-vlm` through the ingress. Prune that route and
+  `vss configure` records the service absent while the container runs.
 - `vss-video-analytics-api` is a **separate** service key from
   `vss-search-analytics-2d-fusion`. The analytics API (`:9901`) provides the
   REST query/browse surface over ES indices; the search-analytics service is the
