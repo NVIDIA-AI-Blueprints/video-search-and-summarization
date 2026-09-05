@@ -23,10 +23,14 @@ def marker_cell(*sources: str) -> dict:
 
 
 class ParameterContractTests(unittest.TestCase):
-    def test_covers_both_checked_in_setup_notebooks(self) -> None:
+    def test_covers_checked_in_setup_notebooks(self) -> None:
         self.assertEqual(
             sorted(runner.NOTEBOOK_PARAMETERS),
-            ["deploy_nemoclaw.ipynb", "deploy_vss_orchestrator.ipynb"],
+            [
+                "deploy_nemo_relay.ipynb",
+                "deploy_nemoclaw.ipynb",
+                "deploy_vss_orchestrator.ipynb",
+            ],
         )
         for name in runner.NOTEBOOK_PARAMETERS:
             self.assertTrue((SCRIPTS_DIR / name).is_file(), name)
@@ -126,17 +130,94 @@ class ParameterizeNotebookTests(unittest.TestCase):
         for name in runner.NOTEBOOK_PARAMETERS:
             path = SCRIPTS_DIR / name
             notebook = json.loads(path.read_text(encoding="utf-8"))
+            parameters = runner.parameters_for(path)
             runner.parameterize_notebook(
-                notebook, runner.parameters_for(path), label=name
+                notebook, parameters, label=name
             )
             injected = [
                 cell["source"]
                 for cell in notebook["cells"]
                 if "run_setup_notebook" in str(cell.get("source", ""))
             ]
+            if not parameters:
+                self.assertEqual(injected, [], name)
+                continue
             self.assertEqual(len(injected), 1, name)
-            for parameter in runner.parameters_for(path):
+            for parameter in parameters:
                 self.assertIn(f"{parameter} = _vss_setup_os.environ.get", injected[0])
+
+
+class NemoRelayNotebookContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.path = SCRIPTS_DIR / "deploy_nemo_relay.ipynb"
+        cls.notebook = json.loads(cls.path.read_text(encoding="utf-8"))
+        cls.sources = {
+            cell["id"]: "".join(cell["source"]) for cell in cls.notebook["cells"]
+        }
+
+    def test_relay_is_a_separate_line_formatted_notebook(self) -> None:
+        parent = (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
+        self.assertIn("deploy_nemo_relay.ipynb", parent)
+        self.assertNotIn("nemo-relay-openclaw", parent)
+        for cell in self.notebook["cells"]:
+            self.assertIsInstance(cell["source"], list)
+            self.assertTrue(all(line.count("\n") <= 1 for line in cell["source"]))
+            if cell["cell_type"] == "code":
+                self.assertIsNone(cell["execution_count"])
+                self.assertEqual(cell["outputs"], [])
+                compile("".join(cell["source"]), f"{self.path}:{cell['id']}", "exec")
+
+    def test_install_targets_the_active_pinned_plugin_generation(self) -> None:
+        settings = self.sources["relay-settings"]
+        preflight = self.sources["relay-preflight"]
+        configure = self.sources["relay-configure"]
+        self.assertNotIn('"openshell"', preflight)
+        self.assertIn(
+            '["nemoclaw", NEMOCLAW_SANDBOX_NAME, "status", "--json"]',
+            preflight,
+        )
+        self.assertIn("result = sandbox_exec(probe", preflight)
+        self.assertIn('RELAY_RELEASE = "0.7.3"', settings)
+        self.assertIn("npm:nemo-relay-openclaw@{RELAY_RELEASE}", settings)
+        self.assertIn('"policy", "add", "npm", "--yes"', configure)
+        self.assertIn("openclaw plugins install", configure)
+        self.assertIn("--force", configure)
+        self.assertIn("openclaw plugins inspect nemo-relay --json", configure)
+        self.assertIn(
+            "nemo-relay-node-linux-$(node -p process.arch)-gnu@{RELAY_RELEASE}",
+            configure,
+        )
+        self.assertIn("openclaw plugins disable nemo-relay", configure)
+        self.assertIn("openclaw plugins inspect nemo-relay --runtime --json", configure)
+        self.assertNotIn("plugins.allow", configure)
+
+    def test_capture_configuration_keeps_call_payloads_out(self) -> None:
+        configure = self.sources["relay-configure"]
+        for setting in ("includePrompts", "includeResponses"):
+            self.assertIn(f'"{setting}": False', configure)
+        for setting in ("stripToolArgs", "stripToolResults"):
+            self.assertIn(f'"{setting}": True', configure)
+        self.assertIn('"allowConversationAccess": True', configure)
+        self.assertIn('"opentelemetry": {"enabled": False}', configure)
+        self.assertIn('"output_directory": RELAY_ATIF_DIR', configure)
+
+    def test_environment_can_disable_the_default(self) -> None:
+        notebook = json.loads(self.path.read_text(encoding="utf-8"))
+        settings = next(
+            cell for cell in notebook["cells"] if cell["id"] == "relay-settings"
+        )
+        namespace: dict[str, object] = {}
+        with mock.patch.dict(os.environ, {"RELAY_OBSERVABILITY": "false"}, clear=True):
+            exec(  # noqa: S102 - executes a checked-in notebook settings cell.
+                compile(
+                    "".join(settings["source"]),
+                    f"{self.path}:relay-settings",
+                    "exec",
+                ),
+                namespace,
+            )
+        self.assertIs(namespace["RELAY_OBSERVABILITY"], False)
 
 
 class OutputTests(unittest.TestCase):
@@ -197,13 +278,14 @@ class RunNotebooksTests(unittest.TestCase):
 
     def test_executes_in_the_order_given(self) -> None:
         first = SCRIPTS_DIR / "deploy_nemoclaw.ipynb"
-        second = SCRIPTS_DIR / "deploy_vss_orchestrator.ipynb"
+        second = SCRIPTS_DIR / "deploy_nemo_relay.ipynb"
+        third = SCRIPTS_DIR / "deploy_vss_orchestrator.ipynb"
         with mock.patch.object(
             runner, "execute_notebook", return_value=self._streamed("")
         ) as execute:
-            runner.run_notebooks([first, second], cwd=SCRIPTS_DIR, timeout=600)
+            runner.run_notebooks([first, second, third], cwd=SCRIPTS_DIR, timeout=600)
         self.assertEqual(
-            [call.args[0] for call in execute.call_args_list], [first, second]
+            [call.args[0] for call in execute.call_args_list], [first, second, third]
         )
 
     def test_a_marker_may_be_printed_by_any_notebook_in_the_run(self) -> None:
