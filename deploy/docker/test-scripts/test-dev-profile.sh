@@ -1824,12 +1824,12 @@ run_dry_run_up_and_check_generated_env "generated.env Search keeps Nemotron 3.5 
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
-run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects ARM64 LLM and SBSA RT-VLM" "base" \
+run_dry_run_up_and_check_generated_env "generated.env Base GB300 selects the default SBSA RT-VLM tag" "base" \
  -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
   "HARDWARE_PROFILE" "GB300" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
-  "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
+  "VSS_RT_VLM_TAG" '"develop-latest-sbsa"'
 
 run_dry_run_up_and_check_generated_env "generated.env Base defaults to Nemotron 3.5 Lightning on H100" "base" \
  -i 127.0.0.1 -H H100 -d -- \
