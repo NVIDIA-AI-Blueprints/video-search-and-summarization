@@ -17,7 +17,11 @@
 import logging
 import logging.handlers
 import os
+import re
 import time
+from collections.abc import Mapping
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 LOG_COLORS = {
     "RESET": "\033[0m",
@@ -33,11 +37,91 @@ LOG_COLORS = {
 LOG_PERF_LEVEL = 15
 LOG_STATUS_LEVEL = 16
 
+_LOGGED_URL_PATTERN = re.compile(
+    r"(?:https?|s3|rtsp|file)://[^\s\"'<>]+", re.IGNORECASE
+)
+
+
+def sanitize_url_for_logging(url: str) -> str:
+    """Return a URL safe to include in logs.
+
+    URL user-info, query parameters, and fragments can all carry credentials.
+    Logging only the origin and path keeps the source identifiable without
+    requiring an ever-growing list of sensitive parameter names.
+    """
+    try:
+        parsed = urlsplit(url)
+        netloc = parsed.netloc.rsplit("@", 1)[-1]
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+    except (TypeError, ValueError):
+        return "[malformed URL redacted]"
+
+
+def sanitize_urls_for_logging(message: str) -> str:
+    """Remove credential-bearing portions from URLs embedded in log text.
+
+    This is a defense-in-depth fallback for call sites that have not sanitized
+    their structured values.  Once a query or fragment starts, its contents
+    are attacker-controlled and may contain any apparent log delimiter.  The
+    only safe generic boundary is therefore the end of the message.
+    """
+    message = str(message)
+    match = _LOGGED_URL_PATTERN.search(message)
+    while match:
+        url = match.group(0)
+        delimiter_offsets = [
+            offset for offset in (url.find("?"), url.find("#")) if offset >= 0
+        ]
+        if delimiter_offsets:
+            delimiter = min(delimiter_offsets)
+            safe_url = sanitize_url_for_logging(url[:delimiter])
+            return f"{message[:match.start()]}{safe_url} [URL query redacted]"
+
+        safe_url = sanitize_url_for_logging(url)
+        message = f"{message[:match.start()]}{safe_url}{message[match.end():]}"
+        next_start = match.start() + len(safe_url)
+        match = _LOGGED_URL_PATTERN.search(message, next_start)
+    return message
+
+
+def sanitize_data_for_logging(value: Any) -> Any:
+    """Return structured request data with URL credentials removed."""
+    if isinstance(value, Mapping):
+        sanitized = {}
+        for key, item in value.items():
+            normalized_key = str(key).lower()
+            if normalized_key == "url_headers":
+                sanitized[key] = "[redacted]"
+            elif normalized_key.endswith("url") and isinstance(item, str):
+                sanitized[key] = sanitize_url_for_logging(item)
+            else:
+                sanitized[key] = sanitize_data_for_logging(item)
+        return sanitized
+    if isinstance(value, list):
+        return [sanitize_data_for_logging(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitize_data_for_logging(item) for item in value)
+    return value
+
+
+class _SensitiveURLFilter(logging.Filter):
+    """Sanitize the LogRecord itself before any handler or propagation."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = sanitize_urls_for_logging(record.getMessage())
+        record.args = ()
+        return True
+
+
 # Configure the logger
 logger = logging.getLogger(__name__)
 
 for handler in logger.handlers[:]:
     logger.removeHandler(handler)
+
+for log_filter in logger.filters[:]:
+    logger.removeFilter(log_filter)
+logger.addFilter(_SensitiveURLFilter())
 
 logging.addLevelName(LOG_PERF_LEVEL, "PERF")
 logging.addLevelName(LOG_STATUS_LEVEL, "STATUS")
