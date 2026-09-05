@@ -67,6 +67,14 @@
 {{- if and $infraOn (include $en (dict "vals" $fp "default" true)) }}
 {{- $_ := set $b "phoenix" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" $fp)) "port" $vi.phoenixPort) }}
 {{- end }}
+{{- /* The text LLM, mounted only when this profile runs the local NIM. A
+       profile pointed at a remote LLM has no Service to mount, so it declares
+       no backend and the shared table leaves /llm unmounted. */}}
+{{- $nims := .Values.nims | default dict }}
+{{- $llmNim := index $nims "nemotron35" | default dict }}
+{{- if and (include $en (dict "vals" $nims "default" true)) (include $en (dict "vals" $llmNim "default" true)) }}
+{{- $_ := set $b "llm" (dict "service" (include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "nemotron35" "chartName" $vi.llmServiceName "subchartValues" $llmNim)) "port" $vi.llmPort) }}
+{{- end }}
 {{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
 {{- if $host }}
 apiVersion: networking.k8s.io/v1

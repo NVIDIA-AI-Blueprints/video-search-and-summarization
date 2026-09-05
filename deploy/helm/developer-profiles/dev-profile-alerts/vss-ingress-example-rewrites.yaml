@@ -44,6 +44,8 @@ metadata:
       /elasticsearch /
       /rtvi-cv/(.*) /\1
       /rtvi-cv /
+      /llm/(.*) /\1
+      /llm /
       /phoenix/(.*) /\1
       /phoenix /
 spec:
@@ -94,6 +96,13 @@ spec:
             name: <RELEASE_NAME>-vss-rtvi-cv
             port:
               number: 9010
+      - path: /llm
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-nemotron-35-lightning-30b-a3b
+            port:
+              number: 8000
       - path: /phoenix
         pathType: Prefix
         backend:

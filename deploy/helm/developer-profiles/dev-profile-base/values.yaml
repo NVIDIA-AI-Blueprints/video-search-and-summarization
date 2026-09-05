@@ -35,6 +35,11 @@ ngc:
 # Set global.imagePullSecrets when using a private registry (e.g. nvcr.io). Set global.storageClass for PVCs.
 # When using NGC (or copy from values-ngc-secrets.example.yaml):
 global:
+  # Send the agent to the LLM through the HAProxy edge (/llm) instead of
+  # straight to the NIM Service. Requires global.externalHost; with no host
+  # set, the in-cluster Service URL is used, so this never yields a hostless
+  # base_url. Set false to keep agent->LLM traffic off the proxy.
+  llmViaIngress: true
   # When true, all subcharts default to <release>-<chart> naming again.
   # Per-subchart <subchart>.useReleaseNamePrefix overrides this value.
   useReleaseNamePrefix: false
@@ -162,6 +167,11 @@ vssIngress:
   # these three and still wins where set.
   rtviVlmServiceName: "vss-rtvi-vlm"
   rtviVlmPort: 8000
+  # The text LLM is published at /llm, not at the origin root: /llm/v1/models,
+  # /llm/v1/chat/completions. Mounted only when this profile runs the local NIM
+  # (nims.nemotron35.enabled); a profile using a remote LLM gets no route.
+  llmServiceName: "nemotron-35-lightning-30b-a3b"
+  llmPort: 8000
   elasticsearchPort: 9200
   # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
   # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
@@ -257,7 +267,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nemotron-35-lightning-30b-a3b:8000" .Release.Name) "http://nemotron-35-lightning-30b-a3b:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nemotron-35-lightning-30b-a3b:8000" .Release.Name) "http://nemotron-35-lightning-30b-a3b:8000" $pfx }}{{- $edgeHost := ((index $g "externalHost") | default "") | toString | trim }}{{- $viaEdge := and (default false (index $g "llmViaIngress")) $edgeHost }}{{- if $llm }}{{ $llm }}{{- else if $viaEdge }}{{ printf "http://%s/llm" $edgeHost }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-vlm:8000" .Release.Name) "http://vss-rtvi-vlm:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
       - name: VST_EXTERNAL_URL
