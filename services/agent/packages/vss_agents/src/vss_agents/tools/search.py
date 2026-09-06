@@ -69,7 +69,9 @@ Extract the following parameters from the user query:
 - source_type: "rtsp" if referring to live/camera streams, "video_file" if referring to uploaded video files (default: "video_file")
 - timestamp_start: Start time in ISO format (e.g., "2025-01-01T13:00:00Z"). Use 2025-01-01 as the base date.
 - timestamp_end: End time in ISO format (e.g., "2025-01-01T14:00:00Z"). Use 2025-01-01 as the base date.
-- attributes: List of person with attributes, ONLY. Don't include other objects, don't just put "person".
+- attributes: List of person appearance descriptors only (clothing, colours, worn or
+  carried items). Never include actions or verbs, never other object classes, and never
+  bare "person". Empty list if the query describes no appearance details.
 - has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
 - object_ids: List of integer object IDs if explicitly mentioned in the query (e.g., "find object 5" → [5], "search for objects 10, 20" → [10, 20]). null if no object IDs are mentioned.
 - top_k: Number of results to return (integer, only if explicitly mentioned, e.g., "top 5", "first 10")
@@ -116,7 +118,15 @@ Output: {{"query": "object ids 5, 6", "object_ids": [5, 6], "has_action": false}
 
 Example 10:
 User query: "find more objects like object 42 near warehouse entrance"
-Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false}}"""
+Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false}}
+
+Example 11:
+User query: "person physically assaulting someone"
+Output: {{"query": "person physically assaulting someone", "attributes": [], "has_action": true}}
+
+Example 12:
+User query: "people running near a doorway"
+Output: {{"query": "people running near a doorway", "attributes": [], "has_action": true}}"""
 
 
 class DecomposedQuery(BaseModel):
