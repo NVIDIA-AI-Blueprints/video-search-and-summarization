@@ -35,6 +35,7 @@ ships rather than a REST endpoint that is being retired.
 | Media already ingested and indexed | Skip to **Step 5** with `--skip-ingest` |
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
+| Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
 
 ## Prerequisites
 
@@ -47,6 +48,7 @@ ships rather than a REST endpoint that is being retired.
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
 | Python 3.10+ | `python3 --version` |
 | LLM reachable, **only if** decomposing | `curl -sf ${LLM_URL}/v1/models` returns 200 |
+| ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
 
 ## Step 1 — Configure the CLI
 
@@ -59,6 +61,13 @@ every query exit 4.
 vss configure --base-url http://HOST:7777
 vss configure show
 ```
+
+**If you are running on the deployment host, do not use `localhost`.** Use the
+host's LAN IP anyway. The critic hands the VST clip URL to RT-VLM, which is a
+*container*: `localhost` there resolves to the container itself, the fetch
+fails, and because verification is best-effort every hit stays `unverified`
+while retrieval looks perfectly healthy. Running off-host hides this, because
+nothing but a routable address works in the first place.
 
 ## Step 2 — Dry run
 
