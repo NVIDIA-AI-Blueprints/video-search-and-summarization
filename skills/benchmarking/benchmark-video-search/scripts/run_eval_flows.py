@@ -347,6 +347,7 @@ def run_evaluation(  # noqa: PLR0913
     print_lock = threading.Lock()
     completed = [0]
     sources_seen: set[str] = set()
+    verdicts: dict[str, int] = {}
     fatal: list[BaseException] = []
 
     def _run_single_query(qi: int, query: str) -> None:
@@ -364,6 +365,8 @@ def run_evaluation(  # noqa: PLR0913
         raw_results, latency_s = query_backend.search(query)
         normalized = flows.normalize_results(raw_results)
         sources_seen.update(flows.verification_sources(normalized))
+        for verdict, count in flows.verdict_counts(normalized).items():
+            verdicts[verdict] = verdicts.get(verdict, 0) + count
 
         result = flows.evaluate_query(query, flows.for_scoring(normalized), expected, latency_s)
         if decomposer is not None:
@@ -448,6 +451,7 @@ def run_evaluation(  # noqa: PLR0913
         wall_clock_s=wall_clock_s,
         concurrency=concurrency,
         sources_seen=sources_seen,
+        verdicts=verdicts,
         upload_stats=upload_stats,
         path_counts=(
             flows.path_distribution(query_backend.executed_plans)
@@ -510,6 +514,7 @@ def _summarize(
     concurrency: int,
     sources_seen: set[str],
     upload_stats: dict[str, Any] | None,
+    verdicts: dict[str, int] | None = None,
     path_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Aggregate per-query metrics.
@@ -538,7 +543,35 @@ def _summarize(
     # actually present. Emitting them off an unverified response would publish
     # unfiltered numbers under a filtered label -- see flows.py for why that
     # failure mode is the one worth engineering against.
+    # A verification block on every hit does not mean the critic formed an
+    # opinion. Every critic failure path -- unreachable VLM, a 4xx on a clip URL
+    # the VLM cannot resolve, a parse error -- degrades that candidate to
+    # `unverified` and carries on, so a totally broken critic still attaches a
+    # block to everything. Filtering then drops nothing and critic-filtered
+    # metrics come out numerically identical to raw, which reads as "the critic
+    # agreed with retrieval" when it never rendered an opinion at all.
+    #
+    # Observed in practice: a CLI configured with a loopback base_url hands
+    # RT-VLM a `localhost` clip link, its SSRF guard returns 422, and all 121
+    # queries came back unverified at exit 0.
     real_sources = sources_seen - {flows.VERIFICATION_ABSENT}
+    verdicts = verdicts or {}
+    opinions = verdicts.get("confirmed", 0) + verdicts.get("rejected", 0)
+    if real_sources and not opinions:
+        summary["critic"] = {
+            "verdicts": dict(verdicts),
+            "status": "no_opinion",
+            "detail": (
+                "Verification blocks were present but every verdict was 'unverified': "
+                "the critic ran and formed no opinion. Critic-filtered metrics are "
+                "suppressed because they would equal raw. Common cause: the clip URL "
+                "handed to RT-VLM is not resolvable from inside its container -- check "
+                "`vss configure show` is not a loopback address."
+            ),
+        }
+        real_sources = set()
+    elif real_sources:
+        summary["critic"] = {"verdicts": dict(verdicts), "status": "ok"}
     if real_sources:
         favg = lambda key: sum(r["critic_filtered"][key] for r in results) / n
         favg_hit = lambda k: sum(r["critic_filtered"]["hit_at_k"][k] for r in results) / n
@@ -715,6 +748,13 @@ def _print_summary(summary: dict[str, Any]) -> None:
             print(f"  {'  of which:':<18}")
             print(f"  {'    search:':<18}{lat['search_internal_mean_s']:.3f}s")
             print(f"  {'    CLI startup:':<18}{lat['cli_startup_mean_s']:.3f}s")
+
+    crit = summary.get("critic")
+    if crit and crit.get("status") == "no_opinion":
+        print(f"\n!! CRITIC RENDERED NO OPINION  {crit['verdicts']}")
+        for line in crit["detail"].split(". "):
+            if line.strip():
+                print(f"   {line.strip().rstrip('.')}.")
 
     dec = summary.get("decomposition")
     if dec:
