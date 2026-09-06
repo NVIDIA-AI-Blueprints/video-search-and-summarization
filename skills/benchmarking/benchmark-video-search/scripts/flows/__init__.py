@@ -88,6 +88,7 @@ from .metrics import (
 from .normalize import (
     VERIFICATION_ABSENT,
     filter_rejected,
+    verdict_counts,
     for_scoring,
     has_verification,
     normalize_result,
@@ -205,6 +206,7 @@ __all__ = [
     "ensure_vss_configured",
     "evaluate_query",
     "filter_rejected",
+    "verdict_counts",
     "for_scoring",
     "format_inline",
     "has_cli_package",
