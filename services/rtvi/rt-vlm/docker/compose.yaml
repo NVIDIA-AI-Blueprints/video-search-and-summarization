@@ -132,6 +132,8 @@ services:
       VLLM_ROOT: "${VLLM_ROOT:-/usr/local/lib/python3.12/dist-packages/vllm}"
       VLLM_USE_STANDALONE_COMPILE: "${VLLM_USE_STANDALONE_COMPILE:-0}"
       VLLM_ENFORCE_EAGER: "${VLLM_ENFORCE_EAGER:-false}"
+      # Opt in only on platforms that hit the Qwen3-VL Conv3D cuDNN-v8 engine issue.
+      TORCH_CUDNN_V8_API_DISABLED: "${TORCH_CUDNN_V8_API_DISABLED:-false}"
       VLLM_USE_NVFP4_CT_EMULATIONS: "${VLLM_USE_NVFP4_CT_EMULATIONS:-0}"
       # API cap on output tokens.
       VLM_MAX_GENERATION_TOKENS: "${RTVI_VLM_MAX_GENERATION_TOKENS:-16384}"
