@@ -1363,9 +1363,14 @@ standalone Helm override.
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs exposed to the container | `all` |
 | `OPENAI_API_KEY` | OpenAI-compatible API key | `NOAPIKEYSET` |
 | `OPENAI_API_VERSION` | OpenAI-compatible API version | Empty |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key for `openai-compat` | Empty |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL for `openai-compat` | Empty |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version for `openai-compat` | Empty |
 | `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
 | `VIA_VLM_ENDPOINT` | OpenAI-compatible VLM endpoint URL | Empty |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | OpenAI-compatible VLM model or deployment name | Empty |
+| `NV_LLMG_CLIENT_ID` | NVIDIA LLM Gateway OAuth client ID for `openai-compat` | Empty |
+| `NV_LLMG_CLIENT_SECRET` | NVIDIA LLM Gateway OAuth client secret for `openai-compat` | Empty |
 | `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason3` |
 | `VLM_BATCH_SIZE` | VLM inference batch size | Empty |
 | `NUM_VLM_PROCS` | Number of VLM inference processes | Empty |
