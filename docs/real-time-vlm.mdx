@@ -1360,7 +1360,6 @@ standalone Helm override.
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Server-side URL download connection timeout in seconds | `10` |
 | `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains where URL ingestion skips SSL verification | Empty |
 | `ASSET_DOWNLOAD_AUTH_TOKENS` | Server-level URL ingestion auth tokens, formatted as `domain1=Bearer token1;domain2=Basic xyz` | Empty |
-| `NVIDIA_API_KEY` | NVIDIA API key for hosted endpoints | `NOAPIKEYSET` |
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs exposed to the container | `all` |
 | `OPENAI_API_KEY` | OpenAI-compatible API key | `NOAPIKEYSET` |
 | `OPENAI_API_VERSION` | OpenAI-compatible API version | Empty |
@@ -1376,7 +1375,6 @@ standalone Helm override.
 | `VLM_BATCH_SIZE` | VLM inference batch size | Empty |
 | `NUM_VLM_PROCS` | Number of VLM inference processes | Empty |
 | `NUM_GPUS` | Number of GPUs to use | Compose: Empty; Helm: `1` |
-| `VSS_NUM_GPUS_PER_VLM_PROC` | Number of GPUs per VLM process | Empty |
 | `VLM_INPUT_WIDTH` | Input frame width | Empty |
 | `VLM_INPUT_HEIGHT` | Input frame height | Empty |
 | `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | Frame sampling rate or fixed frames per chunk | `30` |
@@ -1432,7 +1430,6 @@ standalone Helm override.
 | `VLLM_NUM_PREPROCESS_WORKERS` | vLLM multimodal preprocessing worker count | `16` |
 | `RTVI_VLLM_ADAPTIVE_PREPROCESS` | Adaptive preprocessing limiter: `disabled`, `shadow`, `enforced`, or a JSON tuning object | `disabled` |
 | `VLLM_NUM_SCHEDULER_STEPS` | Number of scheduler steps for vLLM | `8` |
-| `VLLM_WORKER_MULTIPROC_METHOD` | Multiprocessing method for vLLM workers | `spawn` |
 | `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `false` |
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `true` |
 | `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
@@ -1459,7 +1456,6 @@ standalone Helm override.
 | `MESSAGE_BUS` | Generated-message output bus (`kafka`, `redis`, or empty to disable in the service runtime) | Service runtime: Empty; Docker Compose: `kafka`; performance Compose: Empty |
 | `MESSAGE_BUS_TOPIC` | VisionLLM output topic or Redis stream; replaces legacy `KAFKA_TOPIC` | `mdx-vlm-captions` |
 | `KAFKA_PORT` | Docker Compose host port for Kafka | `9092` |
-| `KAFKA_ENABLED` | Legacy runtime no-op; use `MESSAGE_BUS` to select or disable generated-message output | Passed through by Compose and Helm |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | Compose: `kafka:9092`; Helm: `127.0.0.1:9092` |
 | `KAFKA_INCIDENT_TOPIC` | Kafka-only topic for incident messages; independent of `MESSAGE_BUS_TOPIC` | `mdx-vlm-incidents` |
 | `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
