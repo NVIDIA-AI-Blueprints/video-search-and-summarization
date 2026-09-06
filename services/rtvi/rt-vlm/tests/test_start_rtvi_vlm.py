@@ -231,3 +231,12 @@ def test_environment_validator_is_packaged_for_runtime_and_public_release() -> N
     entrypoint = START_SCRIPT.read_text(encoding="utf-8")
     assert f"python3 {RUNTIME_VALIDATOR_PATH}" in entrypoint
     assert f"python3 {SOURCE_VALIDATOR_PATH}" in entrypoint
+
+
+def test_ipc_environment_is_forwarded_to_server() -> None:
+    script = START_SCRIPT.read_text(encoding="utf-8")
+
+    assert "RTVI_IPC_FRAME_COPY:-false" in script
+    assert 'EXTRA_ARGS+=" --ipc-frame-copy"' in script
+    assert 'local ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"' in script
+    assert "ipc_socket_template='nvds_ipc_{camera_id}.sock'" in script

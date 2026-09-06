@@ -1086,7 +1086,8 @@ Generated-message output is controlled by the following environment variables:
 * **ERROR_BUS**: Error-message output bus. Set to `kafka` (default),
   `redis`, or empty to disable error-message output.
 * **ERROR_MESSAGE_TOPIC**: Topic/channel for error messages. Default:
-  `mdx-vlm-errors`.
+  `vision-llm-errors` in the standard Docker Compose deployment. The bare
+  service fallback, when this variable is not set, is `mdx-vlm-errors`.
 
 ### Generated-Message Bus Startup Selection
 
@@ -1369,6 +1370,7 @@ standalone Helm override.
 | `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
 | `VIA_VLM_ENDPOINT` | OpenAI-compatible VLM endpoint URL | Empty |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | OpenAI-compatible VLM model or deployment name | Empty |
+| `VIA_VLM_OPENAI_TOKEN_PARAM` | Token-limit field for `openai-compat`: `max_tokens` or `max_completion_tokens` | `max_tokens` |
 | `NV_LLMG_CLIENT_ID` | NVIDIA LLM Gateway OAuth client ID for `openai-compat` | Empty |
 | `NV_LLMG_CLIENT_SECRET` | NVIDIA LLM Gateway OAuth client secret for `openai-compat` | Empty |
 | `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason3` |
@@ -1386,6 +1388,7 @@ standalone Helm override.
 | `VLM_MAX_GENERATION_TOKENS` (alias: `RTVI_VLM_MAX_GENERATION_TOKENS`) | Maximum generated tokens | `16384` |
 | `VLM_MODEL_SUPPORTS_AUDIO` | Enable native audio support for Omni models | `false` |
 | `VLM_TRUST_REMOTE_CODE` | Enable trust of model-supplied remote code | `false` |
+| `RTVI_ALLOW_UNSAFE_MODEL_CONFIG` | Allow blocked model configuration keys. Use only with a trusted local model configuration. | `false` |
 | `RTVI_ENFORCE_MODEL_PATH_ALLOWLIST` | Require `MODEL_PATH` to match `RTVI_MODEL_PATH_ALLOWLIST` | `false` |
 | `RTVI_MODEL_PATH_ALLOWLIST` | Comma- or newline-separated `MODEL_PATH` glob allowlist; required when remote code is trusted | Empty |
 | `INSTALL_PROPRIETARY_CODECS` | Install proprietary codecs at container startup | `false` |
@@ -1408,6 +1411,11 @@ standalone Helm override.
 | `RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE` | Custom suffix appended after the user query for RTSP inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, and `{last_ts}`. VLM only. | `(unset)` |
 | `RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS` | When `true`, encodes absolute video timestamps into `frames_indices` for models using mRoPE temporal encoding, such as Qwen3-VL. VLM only. | `false` |
 | `RTVI_EMPTY_CUDA_CACHE_ON_RESULT` | Empty CUDA cache after result handling | `false` |
+| `RTVI_ENABLE_CUDA_OOM_RECOVERY` | Convert CUDA OOM during frame copy/preprocess into recoverable chunk errors and clear cached CUDA tensors | `true` |
+| `RTVI_IPC_FRAME_COPY` | Consume live frames from CV-published `nvunixfd` sockets. Requires `RTVI_IPC_SOCKET_HOST_DIR`. | `false` |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing CV-published IPC sockets; bind-mounted read-only when set | Empty |
+| `RTVI_IPC_SOCKET_DIR` | In-container directory containing IPC sockets | `/run/rtvi-ipc` |
+| `RTVI_IPC_SOCKET_TEMPLATE` | IPC socket filename template with `{camera_id}`, `{sensor_id}`, or `{stream_id}` | `nvds_ipc_{camera_id}.sock` |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete drain timeout for non-blocking live-stream and file cleanup | `30` |
 | `RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC` | Blocking timeout for stream deletion cleanup | `300` |
 | `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization for file-based H.264/H.265/MPEG4 decoding. No effect on live RTSP or when all frames are selected. | `true` |
@@ -1416,7 +1424,6 @@ standalone Helm override.
 | `RTVI_VLM_ADMISSION_MODE` | Request admission control: `off`, `bounded`, or `adaptive` | `off` |
 | `RTVI_VLM_ADMISSION_MAX_ACTIVE_COST` | Maximum active admission cost; `0` derives a limit from decoder and batch settings | `0` |
 | `ENABLE_DENSE_CAPTION` | Reuse saved dense-caption sidecar responses for file inputs | `false` |
-| `RTVI_ENABLE_CUDA_OOM_RECOVERY` | Convert CUDA OOM during frame copy/preprocess into recoverable chunk errors and clear cached CUDA tensors | `true` |
 | `RTVI_DISABLE_LIVESTREAM_PREVIEW` | Disable live stream preview frames | `true` |
 | `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
 | `SKIP_PIPELINE_WARMUP` | Skip pipeline warmup on startup | `0` |
