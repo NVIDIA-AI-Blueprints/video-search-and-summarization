@@ -237,21 +237,7 @@ class BrevEnvironment(BaseEnvironment):
         # wipe (suspected in PR #1281's base/search legs losing SSH
         # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
         # legs died there). Must run before the /logs wipe and docker reset.
-        reap_result = await _run_brev_exec(
-            self._instance_name,
-            _stray_agent_reap_command(),
-            timeout=30,
-        )
-        if reap_result.return_code != 0:
-            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
-            raise RuntimeError(
-                f"stray-agent reap failed on {self._instance_name}: "
-                f"exit {reap_result.return_code}; tail:\n{tail}"
-            )
-        logger.info(
-            "Stray-agent reap on %s: %s",
-            self._instance_name, (reap_result.stdout or "").strip(),
-        )
+        await self._reap_stray_agents()
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
@@ -522,9 +508,10 @@ class BrevEnvironment(BaseEnvironment):
             await self._sync_repo_to_pr_head()
             # A cancelled predecessor can have an on-box child that survives
             # the initial reap long enough to recreate containers or files
-            # while the repository is syncing. Repeat the same verified prep
-            # at the final handoff boundary so the agent inherits neither
-            # runtime nor filesystem state from that race.
+            # while the repository is syncing. Reap again, then repeat the
+            # verified prep at the final handoff boundary so the agent inherits
+            # neither runtime nor filesystem state from that race.
+            await self._reap_stray_agents()
             await self._reset_docker_runtime()
             await self._purge_host_data_dirs()
             await self._sync_repo_to_pr_head()
@@ -540,6 +527,25 @@ class BrevEnvironment(BaseEnvironment):
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _reap_stray_agents(self) -> None:
+        """Fail closed after killing marked agent processes on the eval box."""
+        result = await _run_brev_exec(
+            self._instance_name,
+            _stray_agent_reap_command(),
+            timeout=30,
+        )
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"stray-agent reap failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Stray-agent reap on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip(),
+        )
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
