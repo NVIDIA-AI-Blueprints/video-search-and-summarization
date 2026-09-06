@@ -262,10 +262,16 @@ class CriticAgent:
             if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
                 raise outcome
             if isinstance(outcome, Exception):
+                # The message carries the actual cause -- an HTTP status, an
+                # SSRF rejection, a bad endpoint -- and the type alone does not.
+                # A misconfiguration that fails every candidate identically then
+                # reads as isolated noise, and the only way to the real reason is
+                # the VLM container's own logs.
                 logger.error(
-                    "Unexpected critic failure for candidate %d (%s); marking only that candidate unverified",
+                    "Unexpected critic failure for candidate %d (%s: %s); marking only that candidate unverified",
                     index,
                     type(outcome).__name__,
+                    outcome,
                 )
                 results.append(
                     VideoResult(
