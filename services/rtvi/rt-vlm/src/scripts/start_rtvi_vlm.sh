@@ -240,6 +240,18 @@ start_rtvi_server() {
     if [ "${VLM_MODEL_SUPPORTS_AUDIO:-false}" = "true" ]; then
         EXTRA_ARGS+=" --enable-audio"
     fi
+    case "$(printf '%s' "${RTVI_IPC_FRAME_COPY:-false}" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes|on)
+            local ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
+            local ipc_socket_template="${RTVI_IPC_SOCKET_TEMPLATE:-}"
+            if [ -z "$ipc_socket_template" ]; then
+                ipc_socket_template='nvds_ipc_{camera_id}.sock'
+            fi
+            EXTRA_ARGS+=" --ipc-frame-copy"
+            EXTRA_ARGS+=" --ipc-socket-dir $ipc_socket_dir"
+            EXTRA_ARGS+=" --ipc-socket-template $ipc_socket_template"
+            ;;
+    esac
     if [ $ENABLE_NSYS_PROFILER = true ]; then
 	    echo "Profiling with  nsys"
 	    PROFILE_GPU_IDS=$(nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd "," -)

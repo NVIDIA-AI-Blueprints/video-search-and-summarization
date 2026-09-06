@@ -24,7 +24,9 @@ def _run_entrypoint_defaults(
     cudagraph_mode: str | None = None,
     gemm_backend: str | None = None,
 ) -> str:
-    prefix = START_SCRIPT.read_text(encoding="utf-8").split("mkdir -p /tmp/rtvi-logs/", 1)[0]
+    prefix = START_SCRIPT.read_text(encoding="utf-8").split(
+        "mkdir -p /tmp/rtvi-logs/", 1
+    )[0]
     stubs = r"""
 nvdec_get_count() { echo 8; }
 python3() { return 0; }
@@ -115,7 +117,8 @@ def test_cr3_nano_non_gb300_does_not_default_to_triton_attention() -> None:
 
 def test_explicit_attention_backend_is_preserved() -> None:
     output = _run_entrypoint_defaults(
-        "FLASHINFER", model_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-test"
+        "FLASHINFER",
+        model_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-test",
     )
 
     assert output.endswith("FLASHINFER")
@@ -140,3 +143,12 @@ def test_non_gb300_empty_cudagraph_behavior_is_unchanged() -> None:
     )
 
     assert output.endswith("x:|:|")
+
+
+def test_ipc_environment_is_forwarded_to_server() -> None:
+    script = START_SCRIPT.read_text(encoding="utf-8")
+
+    assert "RTVI_IPC_FRAME_COPY:-false" in script
+    assert 'EXTRA_ARGS+=" --ipc-frame-copy"' in script
+    assert 'local ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"' in script
+    assert "ipc_socket_template='nvds_ipc_{camera_id}.sock'" in script
