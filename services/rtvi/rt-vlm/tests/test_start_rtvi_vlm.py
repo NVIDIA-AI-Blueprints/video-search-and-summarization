@@ -149,6 +149,7 @@ def test_ipc_environment_is_forwarded_to_server() -> None:
     script = START_SCRIPT.read_text(encoding="utf-8")
 
     assert "RTVI_IPC_FRAME_COPY:-false" in script
-    assert 'EXTRA_ARGS+=" --ipc-frame-copy"' in script
+    assert "local -a ipc_args=()" in script
+    assert '"${ipc_args[@]}"' in script
     assert 'local ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"' in script
     assert "ipc_socket_template='nvds_ipc_{camera_id}.sock'" in script
