@@ -1456,6 +1456,7 @@ standalone Helm override.
 | `VLLM_USE_AOT_COMPILE` | Reuse vLLM ahead-of-time compile artifacts; disabled by default | `0` |
 | `VLLM_DISABLE_COMPILE_CACHE` | Disable persisted vLLM/Torch Inductor compile cache | `1` |
 | `VLLM_ENFORCE_EAGER` | Force eager vLLM execution | `false` |
+| `TORCH_CUDNN_V8_API_DISABLED` | Disable the cuDNN v8 API on platforms affected by the Qwen3-VL Conv3D engine issue | `false` |
 | `VLLM_CUDAGRAPH_MODE` | vLLM CUDA graph mode; supported values are `NONE`, `PIECEWISE`, `FULL`, `FULL_DECODE_ONLY`, and `FULL_AND_PIECEWISE` | Empty (Cosmos3 Edge defaults to `PIECEWISE`) |
 | `VLLM_DISABLED_KERNELS` | Comma-separated vLLM kernels to disable | `MacheteLinearKernel` |
 | `GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS` | Enable custom GStreamer parser modifications | `1` |
