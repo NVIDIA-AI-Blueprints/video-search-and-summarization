@@ -238,10 +238,11 @@ async def test_sourced_tag_search_without_vst_narrows_to_empty() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sourceless_tag_search_skips_unreachable_vst() -> None:
+async def test_sourceless_tag_search_tolerates_unreachable_vst() -> None:
     # A configured-but-unreachable VST must not fail a source-less (unscoped)
-    # tag query before Elasticsearch is queried: name resolution is mandatory
-    # only for scoped queries, so the unscoped path never contacts VST.
+    # tag query: name resolution is mandatory only for scoped queries, and the
+    # unscoped path fetches the name map best-effort, so an unreachable VST
+    # returns empty (no enrichment) instead of raising.
     class _UnreachableVst(_Vst):
         async def get_name_to_stream_id_map(self) -> dict[str, str]:
             raise VSTError("VST unreachable")
@@ -253,6 +254,22 @@ async def test_sourceless_tag_search_skips_unreachable_vst() -> None:
     out = await TagSearch(es=es, vst=_UnreachableVst(), tag_index="default_*").run(
         TagSearchInput(query="red forklift", source_type="video_file")
     )
-    # Source-less query returned hits without raising and without calling VST.
+    # Source-less query returned hits without raising; VST was best-effort, so
+    # no name enrichment (video_name falls back to the sensor ID, not the name).
     assert len(out.results) == 1
     assert es.index == "default_*"
+    assert out.results[0].video_name != "dock camera"  # no enrichment from unreachable VST
+
+
+@pytest.mark.asyncio
+async def test_sourceless_tag_search_enriches_video_name_from_vst() -> None:
+    # A source-less (unscoped) tag search still enriches `video_name` with the
+    # registered VST source name when VST is available: RT-VLM tag documents
+    # store `metadata.source` as `N/A` and only carry a sensor ID, so without
+    # the VST name map the result would expose that ID as `video_name`.
+    es = _Es([_hit()])
+    out = await TagSearch(es=es, vst=_Vst(), tag_index="default_*").run(
+        TagSearchInput(query="red forklift", source_type="video_file")
+    )
+    assert len(out.results) == 1
+    assert out.results[0].video_name == "dock camera"  # enriched from VST, not the sensor ID

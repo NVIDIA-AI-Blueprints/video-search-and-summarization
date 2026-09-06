@@ -63,10 +63,11 @@ class TagSearch:
 
     async def run(self, inp: TagSearchInput) -> TagSearchOutput:
         inp.validate_semantics()
-        # Name->ID resolution is mandatory only for scoped queries: a source-less
-        # tag search queries the ``default_*`` family directly and must not contact
-        # VST (optional enrichment), so a configured-but-unreachable VST does not
-        # fail an unscoped query before Elasticsearch is reached.
+        # Name->ID resolution is mandatory only for scoped queries. A source-less
+        # tag search queries the ``default_*`` family directly; it still fetches
+        # the VST name map best-effort to enrich ``video_name`` with the
+        # registered source name (a configured-but-unreachable VST returns
+        # empty rather than failing the unscoped query).
         if inp.video_sources:
             name_to_id = await self._name_to_id()
             source_ids = self._resolve_source_ids(inp.video_sources, name_to_id)
@@ -78,7 +79,7 @@ class TagSearch:
                 # empty result without querying.
                 return TagSearchOutput(results=[], malformed_documents=0)
         else:
-            name_to_id = {}
+            name_to_id = await self._name_to_id_best_effort()
             source_ids = []
         search_index = self._resolve_search_index(source_ids)
         query = helpers.build_es_query(inp, source_ids=source_ids, default_max_results=self._default_k)
@@ -152,6 +153,23 @@ class TagSearch:
         if self._vst is None:
             return {}
         return await self._vst.get_name_to_stream_id_map()
+
+    async def _name_to_id_best_effort(self) -> dict[str, str]:
+        """Best-effort VST source mapping for unscoped tag search enrichment.
+
+        An unscoped query does not need name->ID resolution (it queries the
+        ``default_*`` family directly), but the mapping still enriches
+        ``video_name`` with the registered source name instead of the raw
+        sensor ID. Fetch it best-effort: a configured-but-unreachable VST
+        returns empty (no enrichment) rather than failing the unscoped query.
+        """
+        if self._vst is None:
+            return {}
+        try:
+            return await self._vst.get_name_to_stream_id_map()
+        except VSTError as error:
+            logger.warning("Could not fetch VST source-name map for tag enrichment: %s", error)
+            return {}
 
     async def _timelines_best_effort(self) -> dict[str, tuple[str, str]]:
         fetch = getattr(self._vst, "get_timelines_map", None)
