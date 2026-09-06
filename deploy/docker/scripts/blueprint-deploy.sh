@@ -92,30 +92,27 @@ function warehouse_default_bp_profile() {
 }
 
 function warehouse_sample_video_dataset() {
-  local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
-    echo "warehouse-loading-dock-3cams-synthetic"
-  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
-    echo "warehouse-4cams-20mx20m-synthetic"
-  elif [[ "${_profile}" == "bp_wh" ]]; then
+  if [[ "${_profile}" == "bp_wh" ]]; then
     echo "nv-warehouse-4cams"
   else
-    echo "warehouse-loading-dock-3cams-synthetic"
+    echo "warehouse-4cams-20mx20m-synthetic"
   fi
 }
 
 function warehouse_num_streams() {
-  local _mode="${1}"
-  local _profile="${2}"
-  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
-    echo "3"
-  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
-    echo "4"
-  elif [[ "${_profile}" == "bp_wh" ]]; then
-    echo "4"
+  # All supported warehouse fixtures now use four cameras. Keep this helper
+  # separate from dataset selection so the generated configuration remains
+  # explicit about its batch and synchronized-playback size.
+  echo "4"
+}
+
+function warehouse_dataset_type() {
+  local _profile="${1}"
+  if [[ "${_profile}" == "bp_wh" ]]; then
+    echo "real"
   else
-    echo "3"
+    echo "synthetic"
   fi
 }
 
@@ -458,10 +455,10 @@ function usage() {
   echo "                                   • Default: cpu"
   echo "  -s, --sample-video-dataset      [Warehouse only] Override sample video dataset."
   echo "                                   • Default by MODE/BP_PROFILE (or COMPOSE_PROFILES in overrides.env):"
-  echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams)"
-  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-loading-dock-3cams-synthetic (3 streams)"
-  echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams)"
-  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams, real)"
+  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
+  echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
+  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
@@ -1317,7 +1314,7 @@ function state_up() {
       set_env_var "STREAM_TYPE" "kafka"
     fi
     # SAMPLE_VIDEO_DATASET and NUM_STREAMS per mode+profile (see warehouse .env comments)
-    local _sample_dataset _num_streams
+    local _sample_dataset _num_streams _dataset_type
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
@@ -1326,8 +1323,10 @@ function state_up() {
       _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
       _num_streams="$(warehouse_num_streams "${mode}" "${bp_profile}")"
     fi
+    _dataset_type="$(warehouse_dataset_type "${bp_profile}")"
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
+    set_env_var "DATASET_TYPE" "${_dataset_type}"
 
     # -p/-m select the compose list; copy of overrides.env is rewritten here.
     if [[ -z "${compose_profiles_selector}" ]]; then
