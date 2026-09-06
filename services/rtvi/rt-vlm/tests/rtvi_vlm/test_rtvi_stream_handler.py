@@ -36,7 +36,7 @@ import pytest
 
 from common.chunk_info import ChunkInfo
 from models.base_vlm_model import VlmModelOutput
-from server.rtvi_stream_handler import RequestInfo, RTVIStreamHandler
+from server.rtvi_stream_handler import RequestInfo, RTVIStreamHandler, _get_bool_env
 from tests.tests_common import TempEnv
 from utils.asset_manager import Asset
 from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType
@@ -46,6 +46,20 @@ from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType
 # other rtvi_vlm test files.
 
 API_PREFIX = "/v1"
+
+
+@pytest.mark.parametrize(
+    ("value", "default", "expected"),
+    [
+        ("true", False, True),
+        ("false", True, False),
+        ("off", True, False),
+        ("unknown", False, False),
+    ],
+)
+def test_get_bool_env(monkeypatch, value, default, expected):
+    monkeypatch.setenv("RTVI_TEST_BOOL", value)
+    assert _get_bool_env("RTVI_TEST_BOOL", default) is expected
 
 
 class TestStreamHandlerInitialization:
