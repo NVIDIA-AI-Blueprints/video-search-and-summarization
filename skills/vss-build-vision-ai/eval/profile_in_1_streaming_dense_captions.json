@@ -66,7 +66,7 @@
         "Kafka topic `mdx-vlm-captions` exists and its end offset advances after streamed processing.",
         "Elasticsearch contains a caption document attributable to the processed sensor or video, indexed by Logstash's `mdx-lvs` pipeline.",
         "A VLM Q&A request issued directly to RT-VLM's `/v1/chat/completions` on port 8018 returns a non-empty, on-topic answer about the processed video, with no VSS Agent in the request path.",
-        "The final response reports `base` as the Foundation, the six added and four removed service keys, the changed environment knobs, readiness evidence, Kafka before/after offsets, and Elasticsearch evidence."
+        "The final response reports `base` as the Foundation, the six added and five removed service keys, the changed environment knobs, readiness evidence, Kafka before/after offsets, and Elasticsearch evidence."
       ]
     }
   ]
