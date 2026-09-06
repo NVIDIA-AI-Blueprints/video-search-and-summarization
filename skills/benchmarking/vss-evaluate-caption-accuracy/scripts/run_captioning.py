@@ -246,8 +246,16 @@ def _model_env() -> dict:
     """
     model_path = os.environ.get("MODEL_PATH", "").strip()
     if not model_path:
+        # Inherit the deployment's model AND its trust-remote-code setting.
+        # Setting VLM_TRUST_REMOTE_CODE=true here without an allowlist would
+        # force-enable allowlist enforcement with nothing allowed, and the
+        # server would refuse to start.
         return {}
-    return {"MODEL_PATH": model_path, "RTVI_MODEL_PATH_ALLOWLIST": model_path}
+    return {
+        "MODEL_PATH": model_path,
+        "RTVI_MODEL_PATH_ALLOWLIST": model_path,
+        "VLM_TRUST_REMOTE_CODE": "true",
+    }
 
 
 COMMON_ENV = {
@@ -285,7 +293,6 @@ def build_hyp_env(mode):
         **COMMON_ENV,
         "VLM_MODEL_TO_USE":            "vllm-compatible",
         **_model_env(),
-        "VLM_TRUST_REMOTE_CODE":       "true",
         "CHOOSE_FSELECT":              "true",
         "TEMPORAL_DEDUP_ENABLED":      "false",
         "VLLM_GPU_MEMORY_UTILIZATION": "0.85",
@@ -382,7 +389,6 @@ RUN_ENV = {
         **COMMON_ENV,
         "VLM_MODEL_TO_USE":             "vllm-compatible",
         **_model_env(),
-        "VLM_TRUST_REMOTE_CODE":        "true",
         "CHOOSE_FSELECT":               "false",
         "TEMPORAL_DEDUP_ENABLED":       "false",
         "VLLM_GPU_MEMORY_UTILIZATION":  "0.85",
@@ -704,14 +710,11 @@ def execute_run(run_name, scenes, desc, ready_timeout, run_dir):
         kill_server()
         print(f"\n  Writing per-scene {run_name}.txt files ...")
         write_run_outputs(run_name, desc, file_id_by_scene, captions_root)
-        # Append the server's "VLM pipeline time" line so the compare script
-        # can populate its Pipeline time row.
-        try:
-            from augment_pipeline_time import augment_run_dir as _aug
-        except ImportError:
-            sys.path.insert(0, str(SCRIPT_DIR))
-            from augment_pipeline_time import augment_run_dir as _aug
-        _aug(captions_root.parent)
+        # No pipeline-time augmentation here: that appended the server's
+        # "VLM pipeline time" line to the caption files for the legacy
+        # compare_vlm_captions_llm_as_judge.py. This workflow reads timings
+        # straight from server_logs/ in aggregate_table.py, so the line had no
+        # consumer -- and the import raised on every run once the script moved.
 
 
 # ---------------------------------------------------------------------------
