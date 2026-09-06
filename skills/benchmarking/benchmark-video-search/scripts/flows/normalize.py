@@ -95,6 +95,27 @@ def has_verification(results: list[dict[str, Any]]) -> bool:
     return bool(verification_sources(results) - {VERIFICATION_ABSENT})
 
 
+def verdict_counts(results: list[dict[str, Any]]) -> dict[str, int]:
+    """Tally confirmed / rejected / unverified across NORMALIZED results.
+
+    A verification block being *present* does not mean the critic formed an
+    opinion. Every failure mode in the critic -- an unreachable VLM, a 4xx from
+    a clip URL the VLM cannot resolve, a parse error -- degrades that candidate
+    to ``unverified`` and continues. So a totally broken critic still attaches a
+    block to every hit, and ``has_verification`` is satisfied while zero verdicts
+    were actually rendered.
+
+    Counting them is what lets a caller tell "the critic agreed with retrieval"
+    from "the critic never ran", which are numerically identical once filtering
+    drops nothing.
+    """
+    counts = {"confirmed": 0, "rejected": 0, "unverified": 0}
+    for r in results:
+        verdict = str((r.get("verification") or {}).get("result", "unverified"))
+        counts[verdict] = counts.get(verdict, 0) + 1
+    return counts
+
+
 def filter_rejected(results: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Drop results the critic rejected. Operates on NORMALIZED results.
 
