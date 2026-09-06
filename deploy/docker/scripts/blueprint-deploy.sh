@@ -108,12 +108,24 @@ function warehouse_num_streams() {
 }
 
 function warehouse_dataset_type() {
-  local _profile="${1}"
-  if [[ "${_profile}" == "bp_wh" ]]; then
-    echo "real"
-  else
-    echo "synthetic"
-  fi
+  local _dataset="${1}"
+  local _configured_type="${2:-}"
+  case "${_dataset}" in
+    nv-warehouse-4cams)
+      echo "real"
+      ;;
+    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
+      echo "synthetic"
+      ;;
+    *)
+      if [[ -n "${_configured_type}" ]]; then
+        echo "${_configured_type}"
+      else
+        echo "[ERROR] Cannot infer DATASET_TYPE for SAMPLE_VIDEO_DATASET=${_dataset}; set DATASET_TYPE in overrides.env" >&2
+        return 1
+      fi
+      ;;
+  esac
 }
 
 # COMPOSE_PROFILES selector: -p/-m (or --minimal/--playback) override generated.env;
@@ -1314,7 +1326,7 @@ function state_up() {
       set_env_var "STREAM_TYPE" "kafka"
     fi
     # SAMPLE_VIDEO_DATASET and NUM_STREAMS per mode+profile (see warehouse .env comments)
-    local _sample_dataset _num_streams _dataset_type
+    local _sample_dataset _num_streams _dataset_type _configured_dataset_type
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
@@ -1323,7 +1335,8 @@ function state_up() {
       _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
       _num_streams="$(warehouse_num_streams "${mode}" "${bp_profile}")"
     fi
-    _dataset_type="$(warehouse_dataset_type "${bp_profile}")"
+    _configured_dataset_type="$(get_env_value_from_files "DATASET_TYPE" "${_source_env}" "${_overrides_env}")"
+    _dataset_type="$(warehouse_dataset_type "${_sample_dataset}" "${_configured_dataset_type}")"
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
     set_env_var "DATASET_TYPE" "${_dataset_type}"
