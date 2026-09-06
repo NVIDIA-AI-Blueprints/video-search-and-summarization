@@ -108,6 +108,10 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 BUILD_ARTIFACT_INSPECTOR = (
     Path(__file__).resolve().parents[2] / "verifiers" / "build_artifact_inspector.py"
 )
+BUILD_ARTIFACT_EVIDENCE_HINT = (
+    "For build-artifact claims, read `/logs/verifier/build-artifacts.json` and "
+    "prefer that deterministic evidence over trajectory or prose inspection."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +156,7 @@ def generate_test_script(step: int, spec_name: str, build_profile: str) -> str:
     return (
         "#!/bin/bash\n"
         f"# vss-build-vision-ai verifier (step {step}): delegates to generic_judge.\n"
-        "set -uo pipefail\n"
+        "set -euo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         'REPO_ROOT="${HOME}/video-search-and-summarization"\n'
@@ -240,6 +244,11 @@ def generate_task(
         build_profile = Path(spec_name).stem  # fallback to spec filename stem
 
     rendered_spec = _substitute_spec(spec, platform)
+    for rendered_expect in rendered_spec.get("expects") or []:
+        rendered_expect["checks"] = [
+            f"{check}\n\n{BUILD_ARTIFACT_EVIDENCE_HINT}"
+            for check in rendered_expect.get("checks") or []
+        ]
     runtime_deploy = bool(spec.get("runtime_deploy", True))
     judge_max_turns = int(spec.get("judge_max_turns", 60))
 
