@@ -169,6 +169,33 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
     && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
     && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
 
+# nvm shim. Harbor's openclaw adapter bootstraps node with nvm (`. ~/.nvm/nvm.sh
+# && nvm use 22 && node -v`); this image pins node, so the shim answers `use`
+# and `install` for the pinned major and refuses any other, exactly as the
+# openshell-community image did. Without it every trial fails at agent setup
+# with "/sandbox/.nvm/nvm.sh: No such file or directory".
+RUN mkdir -p /sandbox/.nvm && cat > /sandbox/.nvm/nvm.sh <<'NVM' && chown -R sandbox:sandbox /sandbox/.nvm
+# Shim, not nvm: node is pinned by the image.
+nvm() {
+  case "$1" in
+    use|install)
+      want="${2#v}"; want="${want%%.*}"
+      have="$(node -v 2>/dev/null)"; have="${have#v}"; have="${have%%.*}"
+      if [ -z "$want" ] || [ "$want" = "$have" ] || [ "$want" = "default" ] \
+         || [ "$want" = "node" ] || [ "$want" = "lts" ]; then
+        echo "Now using node $(node -v) (nvm shim)"
+        return 0
+      fi
+      echo "nvm shim: this image ships node $(node -v); it cannot install v$want" >&2
+      return 1 ;;
+    current) node -v ;;
+    which)   command -v node ;;
+    ls|list) node -v ;;
+    *)       return 0 ;;
+  esac
+}
+NVM
+
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
 # Entrypoint and health check are inherited from the managed runtime. The command
