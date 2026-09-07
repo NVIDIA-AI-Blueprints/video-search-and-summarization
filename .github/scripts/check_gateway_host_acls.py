@@ -49,7 +49,7 @@ reason:
         [ALERT] config : parsing [haproxy.cfg:184]: argument number 4 at
         position 44 is empty and marks the end of the argument list
 
-    Four of the seven variables have no Compose default, so what keeps a
+    Four of the eight variables have no Compose default, so what keeps a
     never-configured deployment parseable is the profile chain bottoming out in
     ``HOST_IP='<HOST_IP>'``. That placeholder looks like something to tidy away
     and is load-bearing, which is exactly what this rule is here to say.
