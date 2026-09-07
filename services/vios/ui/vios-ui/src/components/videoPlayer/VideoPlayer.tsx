@@ -79,6 +79,11 @@ const FALLBACK_START_TIME = '1970-01-01T00:00:00.000Z';
 const DEFAULT_QUALITY = 'auto';
 // Delay before auto-hiding the overlay controls while in fullscreen (YouTube/VLC style).
 const CONTROLS_HIDE_DELAY_MS = 3000;
+/* How long a DASH rebuffer has to last before the overlay covers the picture.
+ * Short enough that a real stall is explained rather than looking like a
+ * freeze, long enough that the ordinary segment-boundary hiccup passes
+ * unremarked. */
+const DASH_REBUFFER_OVERLAY_DELAY_MS = 400;
 
 
 interface SensorTimelineEntry {
@@ -206,6 +211,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
      * packaging, waits for a manifest that appears only once enough media has
      * been written, then fills a buffer before the first frame moves. */
     const [dashPhase, setDashPhase] = useState<DashPhase | null>(null);
+    /* The callbacks below are created once and outlive any protocol change, so
+     * they read the protocol from here rather than closing over it. */
+    const deliveryProtocolRef = useRef(deliveryProtocol);
+    deliveryProtocolRef.current = deliveryProtocol;
+    /* Held so a momentary rebuffer does not flash the overlay over a picture
+     * that is about to keep moving; see onDashPhase. */
+    const dashBufferingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /* Whether this DASH session has ever presented a frame, which is what
+     * separates the wait before the first picture from a rebuffer during one. */
+    const dashHasPlayedRef = useRef(false);
     const [isLoadingTimelines, setIsLoadingTimelines] = useState<boolean>(false);
 
     // Dialog states
@@ -402,7 +417,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             Promise.resolve().then(() => {
                 LOG.info('Stream status update received:', status.state);
                 setPlaybackStatus(status.state);
-                setIsLoading(status.state === StreamState.NOT_PLAYING);
+                /* A DASH session reports PLAYING as soon as the service has a
+                 * manifest to serve, which is up to ten seconds before a frame
+                 * is presented.  Clearing the loader on that left the viewer
+                 * looking at an unexplained black rectangle for the whole of
+                 * the buffering that follows, so for DASH the loader belongs to
+                 * the phase the player reports rather than to the session.  A
+                 * session that has stopped still clears it: that is the end of
+                 * a recording, and it has its own wording. */
+                if (deliveryProtocolRef.current !== 'dash' || status.state === StreamState.NOT_PLAYING) {
+                    setIsLoading(status.state === StreamState.NOT_PLAYING);
+                }
                 setHasError(false);
             });
         }
@@ -416,6 +441,40 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Callback for handling WebRTC network scores
     const onWebRTCNetworkScoresUpdated = useCallback((scores: WebRTCNetworkScores) => {
         LOG.info('WebRTC Network Scores:', scores);
+    }, []);
+
+    /* What the viewer is told while a DASH session starts.  The service takes
+     * seconds to publish a manifest and the player then fills a cushion before
+     * it presents anything, and both of those are waits with nothing on screen
+     * to explain them. */
+    const onDashPhase = useCallback((phase: DashPhase) => {
+        setDashPhase(phase);
+        if (dashBufferingTimerRef.current) {
+            clearTimeout(dashBufferingTimerRef.current);
+            dashBufferingTimerRef.current = null;
+        }
+        if (phase === 'playing') {
+            dashHasPlayedRef.current = true;
+            setIsLoading(false);
+            return;
+        }
+        if (phase === 'loading') {
+            // A new session; the next wait is a first picture again.
+            dashHasPlayedRef.current = false;
+        }
+        /* Before the first frame, say so immediately - there is nothing behind
+         * the overlay to obscure.  Once playback has started the same phase
+         * means a rebuffer, and most of those are over in a few hundred
+         * milliseconds; covering the picture for one of those reads as a fault
+         * of its own, so wait and see whether it lasts. */
+        if (dashHasPlayedRef.current && phase === 'buffering') {
+            dashBufferingTimerRef.current = setTimeout(() => {
+                dashBufferingTimerRef.current = null;
+                setIsLoading(true);
+            }, DASH_REBUFFER_OVERLAY_DELAY_MS);
+            return;
+        }
+        setIsLoading(true);
     }, []);
 
     // Callback for handling video metadata loading
@@ -463,7 +522,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             enableLogs: true,
             vstWebsocketEndpoint: wsEndpoint,
             firstFrameReceivedCallback: onFirstFrameReceived,
-            dashPhaseCallback: setDashPhase,
+            dashPhaseCallback: onDashPhase,
             enableDummyUDPCall: false,
             onPlaybackUpdate: onPlaybackTimeUpdate,
             onStreamStatusUpdate: onStreamStatusUpdate,
@@ -703,6 +762,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             if (controlsHideTimerRef.current) {
                 clearTimeout(controlsHideTimerRef.current);
                 controlsHideTimerRef.current = null;
+            }
+
+            // Clear the pending DASH rebuffer overlay timer.
+            if (dashBufferingTimerRef.current) {
+                clearTimeout(dashBufferingTimerRef.current);
+                dashBufferingTimerRef.current = null;
             }
         };
 
