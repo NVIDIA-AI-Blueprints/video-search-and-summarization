@@ -62,6 +62,10 @@ spec:
     service:
       port: {{ .Values.service.port }}
       type: {{ .Values.service.type }}
+      {{- with .Values.ingressTimeoutServer }}
+      annotations:
+        haproxy.org/timeout-server: {{ . | quote }}
+      {{- end }}
   image:
     pullPolicy: {{ .Values.image.pullPolicy }}
     pullSecrets:

@@ -154,6 +154,15 @@
   path: /phoenix
   pathType: Prefix
   rewrite: strip
+# One address for the LLM whatever GPU it landed on, so a consumer needs no
+# knowledge of the placement: <origin>/llm/v1/chat/completions reaches the NIM's
+# own /v1/chat/completions. Backed by the in-deployment LLM NIM Service, which
+# is why a profile that runs no NIM does not mount this at all rather than
+# proxying to a Service that was never created.
+- key: llm
+  path: /llm
+  pathType: Prefix
+  rewrite: strip
 - key: ui
   path: /
   pathType: Prefix
@@ -177,6 +186,61 @@
 {{- if $vals.enabled }}true{{ end -}}
 {{- else if .default -}}
 true
+{{- end -}}
+{{- end -}}
+
+{{/*
+  The `llm` backend entry, or "" when this profile runs no LLM NIM of its own.
+
+  The four profiles resolve every other backend with their own serviceShort /
+  subchartFullname helper, but the LLM NIM is not a profile-level dependency:
+  it is `nims.nemotron35`, a subchart of a subchart, whose Service is created by
+  the NIM Operator from the NIMService CR and therefore named by that chart's
+  own fullname rule rather than by the profile's. Resolving it once here is what
+  keeps the /llm mount identical on all four, and is why the enablement test
+  lives here too -- a remote-LLM or NIM-less profile mounts nothing and the
+  request falls through to the UI catch-all as a 404, rather than reaching an
+  Ingress backed by a Service that does not exist (FR-19).
+
+  Deliberately not gated on llmBaseUrl: that value says where *consumers* were
+  pointed, not whether a NIM is deployed. The Docker edge draws the same line --
+  bk_llm_strip is DOWN and answers 503 when the LLM NIM container is not up,
+  regardless of where the agent was told to send its own traffic.
+
+  Pass: dict "root" .
+  Returns a YAML mapping for `fromYaml`, empty when there is no in-cluster LLM.
+*/}}
+{{- define "vss.ingress.llmBackend" -}}
+{{- $root := index . "root" -}}
+{{- $vals := $root.Values | default dict -}}
+{{- $nims := index $vals "nims" | default dict -}}
+{{- $llm := index $nims "nemotron35" | default dict -}}
+{{- $on := and
+      (include "vss.ingress.enabled" (dict "vals" $nims "default" false))
+      (include "vss.ingress.enabled" (dict "vals" $llm "default" false)) -}}
+{{- if $on -}}
+{{- $name := "" -}}
+{{- if $llm.fullnameOverride -}}
+{{- $name = $llm.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $short := default "nemotron-35-lightning-30b-a3b" $llm.nameOverride -}}
+{{- /* Same precedence the subchart's own fullname helper sees: its leaf value,
+       then the global Helm merges into it (nims.global, then the chart root). */}}
+{{- $nimsGlobal := index $nims "global" | default dict -}}
+{{- $g := index $vals "global" | default dict -}}
+{{- $pfx := default false (coalesce
+      (index $llm "useReleaseNamePrefix")
+      (index $nimsGlobal "useReleaseNamePrefix")
+      (index $g "useReleaseNamePrefix")) -}}
+{{- $name = ternary (printf "%s-%s" $root.Release.Name $short) $short $pfx -}}
+{{- $name = $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- /* The NIM's own port, not a vssIngress key: a second place to write it is a
+       second place for it to disagree with the Service it is mounting. 8000 is
+       the nims chart default, which the minimal profiles do not restate. */}}
+{{- $svc := index $llm "service" | default dict -}}
+service: {{ $name }}
+port: {{ index $svc "port" | default 8000 }}
 {{- end -}}
 {{- end -}}
 
