@@ -80,6 +80,92 @@ The Video Summarization microservice consists of the following core components:
 * NVIDIA GPU(s) with appropriate drivers
 * NGC API Key (for NVIDIA NIMs)
 
+## Migrating from 3.2.x to 3.3.0
+
+Review the following changes before you reuse a 3.2.x deployment configuration
+with Video Summarization 3.3.0.
+
+### Update Required
+
+* Replace `KAFKA_TOPIC` with `MESSAGE_BUS_TOPIC` in your `.env` file when you use
+  the streaming profile. The default topic remains `mdx-vlm-captions`.
+  `MESSAGE_BUS_TOPIC` configures the Logstash and RTVI-VLM services; the Video
+  Summarization server does not read either variable.
+* Update `LVS_LLM_MODEL_NAME` from the removed `openai/gpt-oss-20b` model to
+  `nvidia/nemotron-3.5-lightning-30b-a3b`, or to another LLM that your
+  deployment provides. The 3.3.0 deployment rejects the removed model name.
+* If you use `services/video-summarization/docker/deploy/compose.yaml` with the
+  `rtvi` profile, set `VLM_MODEL_TO_USE` explicitly. For a local model, also
+  set `MODEL_PATH`. For an OpenAI-compatible endpoint, set `VIA_VLM_ENDPOINT`
+  and its required API key. This standalone service Compose profile now rejects
+  missing RTVI-VLM configuration at startup. The top-level blueprint profile
+  under `deploy/docker` retains its `openai-compat` default.
+* Replace `LVS_ENABLE_LLM_MERGE` with `LVS_ENABLE_LLM_MERGING`. The former name
+  appeared in earlier documentation but is not read by the service.
+
+### New Environment Variables
+
+* `LVS_AGGREGATION_EMPTY_RETRIES` sets the number of additional CA-RAG
+  aggregation attempts when a response contains neither events nor a video
+  summary. The default is `2`. Set it to `0` to retain the 3.2.x
+  single-attempt behavior.
+* `MESSAGE_BUS` selects the RTVI-VLM message bus, and `ERROR_BUS` selects its
+  error bus. Both default to `kafka` in the streaming profile.
+* `MESSAGE_BUS_TOPIC` replaces `KAFKA_TOPIC` for the raw VLM event topic and
+  defaults to `mdx-vlm-captions`.
+
+The in-stack RTVI-VLM profile also forwards the new EVS++ settings
+`VIA_EVS_SESSION`, `VLM_VIDEO_PRUNING_RATE`,
+`VLLM_EVS_SIMILARITY_THRESHOLD`, `VIA_EVS_TOKEN_BUDGET`, and
+`VIA_EVS_MAX_SESSIONS`. For supported models, defaults, and behavior, refer to
+*Efficient Video Sampling (EVS and EVS++)* in the
+[Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm)
+documentation.
+
+### Removed Environment Variables
+
+* `KAFKA_TOPIC` is no longer read by the 3.3.0 stack. Use
+  `MESSAGE_BUS_TOPIC`.
+* `VSS_DISABLE_DECODER_REUSE` is no longer read by the Video Summarization
+  service. Remove it from carried-over configurations.
+
+### API Changes
+
+* `POST /v1/chat/completions` adds question answering for assets that were
+  summarized with `enable_qa=true`.
+* `DELETE /assets/{asset_id}/index` adds an idempotent way to reclaim a
+  retained per-asset Elasticsearch index. For automatic and manual cleanup
+  behavior, refer to the
+  [Asset Management API](/vss/system-components/vision-microservices/video-summarization/api-reference#asset-management).
+* `POST /summarize` and `POST /v1/summarize` now return HTTP 422 when
+  `media_info.start_offset` is greater than or equal to
+  `media_info.end_offset`, or when `min_tokens` is greater than `max_tokens`.
+  In 3.2.x, these requests could return HTTP 200 with an empty result.
+* The development-only `GET /files` endpoint now returns HTTP 422 for an
+  unsupported `purpose` value instead of HTTP 200 with an empty list.
+* Responses omit `media_info.start_offset` and `media_info.end_offset` when
+  either value is unavailable, nonnumeric, or not a strictly increasing
+  range. Update clients that assume both keys are always present.
+* `POST /summarize` and `POST /v1/stream_summarize` accept an inbound
+  `traceparent` header and link the request to the caller's distributed trace.
+
+### Functionality Changes
+
+* Video Summarization now uses CA-RAG 3.1.0 instead of CA-RAG 3.0.1.
+* Aggregation retries only when CA-RAG returns neither events nor a video
+  summary. A response that has no events but has a summary is not retried.
+* The service always forwards `scenario` and `events` to CA-RAG, including when
+  `enable_vlm_structured_output` is enabled.
+* The 3.3.0 RTVI-VLM profile supports optional EVS++ video token pruning to
+  reduce redundant visual input and per-chunk inference time.
+* The Elasticsearch index retention default is unchanged. The Compose
+  configuration retains per-asset indices by default, and the service drops
+  them after file summarization when
+  `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=false`. The new asset-management API
+  provides explicit cleanup for retained indices.
+* The RTVI-VLM client closes the caption-stream HTTP response after processing
+  to prevent a long-running file descriptor and memory leak.
+
 ## Deployment
 
 ### Clone the Repository
