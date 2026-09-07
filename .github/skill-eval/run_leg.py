@@ -773,13 +773,14 @@ def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
     Build Vision AI treats a sandbox as part of a build. A shared
     ``skill-eval`` name lets a later leg reuse a previous leg's gateway and
     sessions, so CI derives one name from its run and leg instead. Keep it
-    compact because OpenShell backends impose conservative resource-name
-    limits.
+    compact because NemoClaw limits sandbox names to 19 characters.
     """
-    safe_run_id = SAFE_PART_RE.sub("-", run_id).strip("-") or "manual"
+    safe_run_id = SAFE_PART_RE.sub("-", run_id.lower()).strip("-") or "manual"
     identity = f"{run_id}:{leg_slug}".encode("utf-8")
-    digest = hashlib.sha256(identity).hexdigest()[:12]
-    return f"skill-eval-{safe_run_id[:20]}-{digest}"
+    digest = hashlib.sha256(identity).hexdigest()[:8]
+    # ``se-`` + six run-id characters + ``-`` + eight digest characters =
+    # 18 characters: valid for the 19-character NemoClaw limit.
+    return f"se-{safe_run_id[-6:]}-{digest}"
 
 
 def attempt_lock_timeout(

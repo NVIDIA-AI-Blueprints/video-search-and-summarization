@@ -1784,8 +1784,8 @@ class NemoClawSandboxName(unittest.TestCase):
             first,
             run_leg.nemoclaw_sandbox_name("34118027479", "other__RTXPRO6000BW"),
         )
-        self.assertTrue(first.startswith("skill-eval-34118027479-"))
-        self.assertLessEqual(len(first), 64)
+        self.assertTrue(first.startswith("se-027479-"))
+        self.assertLessEqual(len(first), 19)
 
 
 if __name__ == "__main__":
