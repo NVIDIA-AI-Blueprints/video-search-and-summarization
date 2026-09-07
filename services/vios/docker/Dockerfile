@@ -47,8 +47,8 @@
 #    time matters, publish the toolchain as a PRIVATE GHCR package and set
 #    `--build-arg TOOLCHAIN_IMAGE=...` to skip rebuilding it (see below).
 #    CI additionally persists the build layers in a private GHCR registry
-#    buildcache (inventory `registry_buildcache: true`) so the grpc layer
-#    survives the 10GB GHA-cache eviction between builds.
+#    buildcache (inventory `registry_buildcache: true`) so the expensive grpc
+#    layer survives the 10GB GHA-cache eviction between builds.
 # =============================================================================
 
 ARG CUDA_VERSION=13.2.0
