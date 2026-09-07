@@ -86,6 +86,23 @@ void sendText(struct mg_connection* connection, int status, const char* statusTe
     mg_write(connection, body.data(), body.size());
 }
 
+/* The same response without a body, for HEAD.
+ *
+ * Content-Length is omitted rather than guessed: RFC 9110 allows a HEAD
+ * response to leave it out, and a manifest is generated per request, so any
+ * length written here would be a promise about a GET that has not happened. */
+void sendHeaders(struct mg_connection* connection, int status, const char* statusText,
+                 const char* contentType, const char* extraHeaders = "")
+{
+    mg_printf(connection,
+              "HTTP/1.1 %d %s\r\n"
+              "Content-Type: %s\r\n"
+              "Cache-Control: no-store\r\n"
+              "%s"
+              "\r\n",
+              status, statusText, contentType, extraHeaders);
+}
+
 uint32_t readBigEndianUint32(const std::string& data, size_t offset)
 {
     return vst::dash::readBigEndianUint32(data, offset);
@@ -1258,5 +1275,66 @@ bool DashHttpHandler::handleGet(CivetServer* /*server*/, struct mg_connection* c
                    << " bytes=" << (ec ? 0 : size);
     }
 #endif
+    return true;
+}
+
+/* HEAD for the assets GET serves, headers only.
+ *
+ * A DASH player that cannot read the wall clock from a manifest response asks
+ * its timing source for one, and the scheme configured against this deployment
+ * is an HTTP HEAD on the manifest itself.  civetweb routes HEAD to its own
+ * callback, so without this the request was answered 404 and the player fell
+ * back to a time service on the public internet - the wrong dependency for a
+ * deployment that may have no route off site.
+ *
+ * The status codes match GET so the two cannot disagree about what exists; the
+ * body is the only difference, and a HEAD response must not carry one. */
+bool DashHttpHandler::handleHead(CivetServer* /*server*/, struct mg_connection* connection)
+{
+    const struct mg_request_info* requestInfo = mg_get_request_info(connection);
+    if (requestInfo == nullptr || requestInfo->request_uri == nullptr)
+    {
+        return false;
+    }
+
+    if (GET_CONFIG().use_multi_user)
+    {
+        Json::Value request;
+        request["url"] = requestInfo->request_uri;
+        if (!UserAuthHandler::isAuthorized(request, Json::Value(Json::objectValue), connection))
+        {
+            sendHeaders(connection, 401, "Unauthorized", "text/plain");
+            return true;
+        }
+    }
+
+    std::string token;
+    std::string fileName;
+    if (!parsePath(requestInfo->request_uri, token, fileName))
+    {
+        sendHeaders(connection, 400, "Bad Request", "text/plain");
+        return true;
+    }
+
+    // As in handleGet: the initialisation URL is segment 1 without its media.
+    const std::string initSuffix = "_init.mp4";
+    if (fileName.size() > initSuffix.size()
+        && fileName.compare(fileName.size() - initSuffix.size(), initSuffix.size(), initSuffix) == 0)
+    {
+        fileName = fileName.substr(0, fileName.size() - initSuffix.size()) + "_1.mp4";
+    }
+
+    const DashAssetResult asset = DashSessionManager::instance().resolveAsset(token, fileName);
+    if (!asset.valid)
+    {
+        sendHeaders(connection, 404, "Not Found", "text/plain");
+        return true;
+    }
+    if (asset.starting)
+    {
+        sendHeaders(connection, 202, "Accepted", "text/plain", "Retry-After: 1\r\n");
+        return true;
+    }
+    sendHeaders(connection, 200, "OK", asset.mimeType.c_str());
     return true;
 }
