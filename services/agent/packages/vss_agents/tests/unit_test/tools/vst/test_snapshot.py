@@ -14,6 +14,8 @@
 # limitations under the License.
 """Unit tests for VST snapshot module."""
 
+from unittest.mock import AsyncMock
+
 from pydantic import ValidationError
 import pytest
 
@@ -21,6 +23,7 @@ from vss_agents.tools.vst.snapshot import VSTSnapshotConfig
 from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
 from vss_agents.tools.vst.snapshot import VSTSnapshotOffsetInput
 from vss_agents.tools.vst.snapshot import VSTSnapshotOutput
+from vss_agents.tools.vst.snapshot import get_latest_snapshot_time
 
 
 class TestVSTSnapshotConfig:
@@ -117,10 +120,9 @@ class TestVSTSnapshotOffsetInput:
         with pytest.raises(ValidationError):
             VSTSnapshotOffsetInput(sensor_id="", start_time=5.0)
 
-    def test_missing_start_time_raises(self):
-        """Test that missing start_time raises ValidationError."""
-        with pytest.raises(ValidationError):
-            VSTSnapshotOffsetInput(sensor_id="test_video")
+    def test_missing_start_time_uses_default(self):
+        """An omitted timestamp asks the tool for the latest recorded frame."""
+        assert VSTSnapshotOffsetInput(sensor_id="test_video").start_time is None
 
     def test_input_descriptions(self):
         """Test that input fields have proper descriptions."""
@@ -149,10 +151,9 @@ class TestVSTSnapshotISOInput:
         with pytest.raises(ValidationError):
             VSTSnapshotISOInput(sensor_id="", start_time="2025-08-25T03:05:55.752Z")
 
-    def test_missing_start_time_raises(self):
-        """Test that missing start_time raises ValidationError."""
-        with pytest.raises(ValidationError):
-            VSTSnapshotISOInput(sensor_id="test_video")
+    def test_missing_start_time_uses_default(self):
+        """An omitted timestamp asks the tool for the latest recorded frame."""
+        assert VSTSnapshotISOInput(sensor_id="test_video").start_time is None
 
     def test_empty_start_time_raises(self):
         """Test that empty start_time raises ValidationError."""
@@ -211,3 +212,16 @@ class TestVSTSnapshotOutput:
         """Test that output field has proper description."""
         field_info = VSTSnapshotOutput.model_fields["image_url"]
         assert "URL" in field_info.description or "image" in field_info.description.lower()
+
+
+@pytest.mark.asyncio
+async def test_latest_snapshot_time_stays_inside_recorded_timeline(monkeypatch):
+    timeline = AsyncMock(
+        return_value=("2025-01-01T00:00:00.000Z", "2025-01-01T00:00:40.100Z"),
+    )
+    monkeypatch.setattr("vss_agents.tools.vst.snapshot.get_timeline", timeline)
+
+    result = await get_latest_snapshot_time("stream-1", "http://vst")
+
+    assert result == "2025-01-01T00:00:40.099Z"
+    timeline.assert_awaited_once_with("stream-1", "http://vst")
