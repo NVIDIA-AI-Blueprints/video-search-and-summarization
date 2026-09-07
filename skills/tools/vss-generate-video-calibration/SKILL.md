@@ -75,6 +75,12 @@ AMC v3.3.0 cannot calibrate raw media. After the mode-specific workflow has uplo
 - **Already-linear/pinhole media** — call `POST /v1/linear_media/<project_id>` and require `rectification_state == "COMPLETED"`.
 - **Distorted media** — open AMC UI Step 4: Rectification; select Auto, Manual, or Videos Are Rectified; review the estimate; then click Generate Rectified Videos. Auto supports `simple_divisional` (default), `simple_radial`, and `radial`; Manual supports per-camera `model`, `k1`, and `k2` for `radial`. `READY_FOR_REVIEW` is not complete: require `rectification_state == "COMPLETED"` before continuing. Re-rectification invalidates verification, calibration, and post-processing outputs.
 
+For REST-only rectification, use the running AMC service contract exposed by `<MS_URL>/docs` (OpenAPI: `<MS_URL>/openapi.json`):
+
+1. **Auto** — `POST /v1/rectification/<project_id>` starts frame-0 estimation. Poll `GET /v1/rectification/<project_id>` until `READY_FOR_REVIEW`; then `GET /v1/rectification/<project_id>/cameras`, review every `auto_estimate`, and commit all camera parameters with `POST /v1/rectification/<project_id>/manual` using `{"cameras":{"cam_00":{"model":"...","k1":0.0,"k2":0.0},...}}`. This explicit commit generates full rectified videos.
+2. **Manual** — `POST /v1/rectification/<project_id>/manual/start`; optionally preview each adjustment through `POST /v1/rectification/<project_id>/preview/<camera_id>`; then commit a complete per-camera `cameras` map to `POST /v1/rectification/<project_id>/manual`.
+3. Poll `GET /v1/rectification/<project_id>` until `COMPLETED`. Stop on `ERROR`; do not verify or calibrate from `READY_FOR_REVIEW`.
+
 Rectification produces `rectified.mp4` and `rectified.jpg`. External alignment files normally use `coord_space=original`; use `rectified` only for points created on AMC rectified media. Never call `/v1/calibrate/<project_id>` before the linear-media or rectification state is complete.
 
 ### Step B — Verify Project
@@ -146,7 +152,7 @@ Poll every 10 s. Use `project_info.amc_state` for AMC completion; aggregate `pro
 
 When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`), and the log endpoint so the user can watch progress while the run proceeds. During `RUNNING`, emit a progress line at least once a minute with elapsed time so a long run doesn't look stalled. On `ERROR`, fetch and show the last lines of `GET /v1/amc/calibrate/<id>/log` before stopping. Live logs can also be streamed via `GET /v1/calibrate/<project_id>/log/<type>/stream`.
 
-Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample).
+Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample). A six-camera transformer run can exceed one hour; keep polling and inspect logs/UI instead of treating 60 minutes as failure.
 
 ### Step F — AMC Post-process and Results
 
@@ -176,7 +182,7 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 
 ## Settings File + Detector Pattern
 
-Optional across all three modes. When the user provides a JSON settings file (typically exported from UI Step 3 Download), POST it verbatim:
+Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.json` (or `<MS_URL>/docs`) from the running AMC version. Parse the file; reject unsupported keys instead of silently translating them. In particular, do not submit legacy `skip` as a substitute for `skip_frame`. Then POST the validated JSON:
 
 ```
 POST /v1/config/<project_id>
@@ -185,7 +191,7 @@ Content-Type: application/json
 <file contents, posted as-is>
 ```
 
-The file replaces what the user would otherwise tune in UI Step 3 (rectification, bundle-adjustment, evaluation knobs, detector, …). After a successful POST, **also** parse the file for `"detector"` / `"detector_type"` — if it's `"resnet"` or `"transformer"`, use that value for the `/calibrate` call in Step D (detector is a separate API parameter, not consumed by `/config`).
+The file replaces what the user would otherwise tune in UI Step 3 (parameters, bundle-adjustment, and evaluation knobs). Rectification is UI Step 4 and follows Step A. After a successful POST, **also** parse the file for `"detector"` / `"detector_type"` — if it's `"resnet"` or `"transformer"`, use that value for the `/calibrate` call in Step D (detector is a separate API parameter, not consumed by `/config`).
 
 Non-2xx is surfaced — do not silently fall back. Skip this call entirely if the user chose the UI-fallback path.
 
