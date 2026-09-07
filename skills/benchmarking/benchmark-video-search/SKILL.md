@@ -3,7 +3,7 @@ name: benchmark-video-search
 description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
 license: Apache-2.0
 metadata:
-  version: "3.4.0"
+  version: "3.5.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
@@ -45,7 +45,7 @@ about the rest.
 ```bash
 python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET \
-    --only-dataset --llm-url http://HOST:30081 --name RUN_NAME
+    --only-dataset --name RUN_NAME
 ```
 
 Three defaults, each load-bearing:
@@ -54,16 +54,24 @@ Three defaults, each load-bearing:
   videos, then ingests. A foreign source cannot be retrieved by any query in the
   dataset, so it adds nothing but false-positive surface and ingest time. Report
   how many sources will be deleted before it runs.
-- **`--llm-url`** decomposes each query live, which is what the deployed agent
-  does. Without it every query takes `--search-path` and routing is never
-  exercised — a run that looks fine and measured one path.
+- **Live decomposition is on by default.** The LLM origin is derived from
+  `--endpoint` (same host, port 30081), so there is no flag to forget. Every
+  query is decomposed the way the deployed agent decomposes it, and that choice
+  picks the retrieval path. If the NIM is unreachable the run **stops** rather
+  than quietly falling back to one path. Override with `--llm-url` /
+  `--llm-port`; turn it off only with `--no-decompose`.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
 
 Deviate only on request: `--skip-ingest` to reuse what is there, `--clear` to
 wipe the whole deployment, `--subset` to narrow the slice, `--concurrency N` to
-trade latency fidelity for wall-clock.
+trade latency fidelity for wall-clock, `--no-decompose` for a single-path
+baseline.
+
+Never add `--no-decompose` to a run the user called an eval. It measures one
+retrieval path instead of the product's routing, and nothing in the metrics
+says so.
 
 ## Prerequisites
 
@@ -75,7 +83,7 @@ trade latency fidelity for wall-clock.
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
 | Python 3.10+ | `python3 --version` |
-| LLM reachable (the default run decomposes) | `curl -sf ${LLM_URL}/v1/models` returns 200 |
+| LLM reachable — **required**; the run aborts without it | `curl -sf http://HOST:30081/v1/models` returns 200 |
 | ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
 
 ## Step 1 — Configure the CLI
@@ -152,13 +160,14 @@ upload.
 ```bash
 python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --subset SUBSET \
-    --skip-download --skip-ingest --llm-url http://HOST:30081 --name RUN_NAME
+    --skip-download --skip-ingest --name RUN_NAME
 ```
 
-`--llm-url` is not optional in a default run. An LLM turns the sentence into
+Decomposition needs no flag. An LLM turns the sentence into
 `{query, attributes, has_action, ...}` and that decides which path runs — the
-same call the deployed agent makes. Drop it and every query takes
-`--search-path`, so one path is measured and routing is not exercised at all.
+same call the deployed agent makes. The script derives the NIM origin from
+`--endpoint` and aborts if it cannot reach it, so a run either decomposes or
+tells you why it did not.
 
 Leave `--concurrency` alone unless asked. It defaults to 1 because concurrent
 queries contend for the same VLM and embedding services, which inflates every

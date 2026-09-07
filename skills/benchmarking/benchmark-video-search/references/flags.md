@@ -67,8 +67,8 @@ one moves a run further from the baseline everything else is compared against.
 # Shared box — do not touch others' data
 --dataset warehouse --skip-existing
 
-# One fixed path instead of routing
---search-path fusion --attribute "person wearing a hardhat"
+# One fixed path instead of routing (baseline only -- not an eval)
+--no-decompose --search-path fusion --attribute "person wearing a hardhat"
 
 # Name the results file, for comparing two runs deliberately
 --dataset warehouse --skip-download --name embed-baseline

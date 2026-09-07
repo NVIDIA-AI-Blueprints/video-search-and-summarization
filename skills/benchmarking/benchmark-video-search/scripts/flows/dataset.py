@@ -263,3 +263,18 @@ def vst_url_for(endpoint: str, vst_port: int = 30888) -> str:
     """Derive VST URL from the agent endpoint (same host, VST port)."""
     parsed = urlparse(endpoint)
     return f"{parsed.scheme}://{parsed.hostname}:{vst_port}"
+
+
+def llm_url_for(endpoint: str, llm_port: int = 30081) -> str:
+    """Derive the decomposition LLM origin from the agent endpoint.
+
+    Same host, NIM port. The LLM is not routed through the unified origin the
+    other services share, so it is derived from ``--endpoint`` rather than read
+    off the HAProxy prefix map -- the same reasoning as :func:`vst_url_for`.
+
+    Deriving it is what makes live decomposition the default: an eval that
+    silently falls back to one fixed path measures a flow the product does not
+    run, and that failure is invisible in the metrics.
+    """
+    parsed = urlparse(endpoint)
+    return f"{parsed.scheme}://{parsed.hostname}:{llm_port}"
