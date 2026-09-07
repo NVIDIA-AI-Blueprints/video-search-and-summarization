@@ -835,6 +835,23 @@ class TopAgent(AsyncMixin):
         if plan_reasoning:
             logger.debug("Plan node reasoning:\n%s", plan_reasoning)
 
+        requests_lvs_report = "report" in lowered_question and (
+            "lvs" in lowered_question or re.search(r"\blong[\s-]+video[\s-]+summari[sz]", lowered_question) is not None
+        )
+        if (
+            requests_lvs_report
+            and "lvs_video_understanding" in self.tools_dict
+            and "report_agent" in self.tools_dict
+            and "lvs_video_understanding" not in plan_text
+        ):
+            plan_text = (
+                "1. Call `lvs_video_understanding` using the exact sensor ID and time range from the user's request "
+                "to analyze the video with LVS.\n"
+                "2. Call `report_agent` with the same sensor ID and time range plus the original request as "
+                "`user_query`, then present the generated report."
+            )
+            logger.warning("Corrected LVS report plan that omitted lvs_video_understanding")
+
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()

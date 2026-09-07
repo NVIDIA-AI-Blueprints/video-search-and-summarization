@@ -585,6 +585,68 @@ class TestRequestOptionsContext:
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Generate a report for gwfix6 using long video summarization.",
+            "Generate an LVS report for gwfix6.",
+        ],
+    )
+    async def test_plan_node_requires_lvs_analysis_before_explicit_lvs_report(self, monkeypatch, question):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = self._agent_with_search_tool()
+        for tool_name in ("lvs_video_understanding", "report_agent"):
+            tool = MagicMock()
+            tool.name = tool_name
+            tool.description = f"Run {tool_name}."
+            agent.tools_dict[tool_name] = tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="1. Call `report_agent` with sensor_id='gwfix6' and the original request as user_query."
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(current_message=HumanMessage(content=question), options=AgentRequestOptions())
+
+        result = await agent._plan_node(state)
+
+        assert result.plan.index("lvs_video_understanding") < result.plan.index("report_agent")
+        assert "same sensor ID and time range" in result.plan
+        assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
+
+    @pytest.mark.asyncio
+    async def test_plan_node_keeps_ordinary_report_plan_without_lvs_analysis(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        for tool_name in ("lvs_video_understanding", "report_agent"):
+            tool = MagicMock()
+            tool.name = tool_name
+            tool.description = f"Run {tool_name}."
+            agent.tools_dict[tool_name] = tool
+        ordinary_plan = "1. Call `report_agent` with sensor_id='gwfix6'."
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=ordinary_plan))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report for gwfix6."),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ordinary_plan
+
+    @pytest.mark.asyncio
     async def test_plan_node_keeps_camera_clarification_for_uploaded_video_report(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
