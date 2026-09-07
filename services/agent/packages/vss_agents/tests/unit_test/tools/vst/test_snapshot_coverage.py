@@ -76,9 +76,8 @@ class TestVSTSnapshotOffsetInput:
         inp = VSTSnapshotOffsetInput(sensor_id="cam1", start_time=0.0)
         assert inp.start_time == 0.0
 
-    def test_missing_fields_raises(self):
-        with pytest.raises(ValidationError):
-            VSTSnapshotOffsetInput(sensor_id="cam1")
+    def test_missing_start_time_defaults_to_none(self):
+        assert VSTSnapshotOffsetInput(sensor_id="cam1").start_time is None
 
 
 class TestVSTSnapshotISOInput:
@@ -96,9 +95,8 @@ class TestVSTSnapshotISOInput:
         with pytest.raises(ValidationError):
             VSTSnapshotISOInput(sensor_id="", start_time="2025-08-25T03:05:55.752Z")
 
-    def test_missing_start_time_raises(self):
-        with pytest.raises(ValidationError):
-            VSTSnapshotISOInput(sensor_id="cam1")
+    def test_missing_start_time_defaults_to_none(self):
+        assert VSTSnapshotISOInput(sensor_id="cam1").start_time is None
 
     def test_empty_start_time_raises(self):
         with pytest.raises(ValidationError):
