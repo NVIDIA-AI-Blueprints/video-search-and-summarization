@@ -108,10 +108,10 @@ Before deploying the Alerts Microservice, ensure the following requirements are 
 
 ## Configuring Prompts
 
-Prompts control how the VLM analyzes video content for each alert type. They are configured via a JSON file (`alert_type_config.json`) that is loaded at startup and stored in RedisJSON for runtime access.
+Prompts control how the VLM analyzes video content for each alert type. They are seeded from a JSON file (`alert_type_config.json`) at startup into the alert-config store, which is backed by Elasticsearch. Each verification reads the store, so a record changed there takes effect on the next alert.
 
 <Note>
-Prompt configuration changes require a container restart in the current release. API-based prompt management is not supported.
+Editing `alert_type_config.json` requires a container restart, because the file is only read at startup. Changing a prompt without a restart is done through `PUT /api/v1/verification/config/{alert_type}`, which writes to the store the pipeline reads.
 </Note>
 
 ### Prompt Structure
@@ -124,11 +124,11 @@ Each alert type requires a configuration with the following components:
 - **output_category** (optional): A user-friendly display name for the alert category in output. When specified, this name appears in Elasticsearch and downstream systems instead of the internal `alert_type` value (e.g., `"collision"` displays as `"Vehicle Collision"`).
 - **vlm_params** (optional): Per-alert-type VLM parameter overrides (for example `model`, `max_tokens`, `temperature`, `num_frames`). Specified fields override the global `vlm` config; unspecified fields fall back to the global defaults. Unknown fields raise a startup validation error so configuration typos fail fast.
 
-Prompts are stored in RedisJSON at startup and selected based on the alert type during processing.
+Records are keyed by alert type and selected on that key during processing.
 
-`vlm_params` may also be updated at runtime via `PUT /api/v1/verification/config/{alert_type}` (see the [Alert Verification API](/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api)) without restarting the container. At request time the service merges all sources with the following precedence:
+Prompts and `vlm_params` may both be updated at runtime via `PUT /api/v1/verification/config/{alert_type}` (see the [Alert Verification API](/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api)) without restarting the container. At request time the service merges all sources with the following precedence:
 
-1. Runtime overrides set via the API and persisted in Redis under `alert_config:{alert_type}` — applied without restart.
+1. Runtime overrides set via the API and persisted in the alert-config store as `alert_config:{alert_type}` — applied without restart.
 2. Static `vlm_params` from `alert_type_config.json` — requires container restart to take effect.
 3. Global `vlm` config in `config.yaml` — requires container restart to take effect.
 
@@ -693,10 +693,14 @@ Metric shape and coverage are affected by these `config.yml` keys:
 | Key | Default | Effect |
 | --- | --- | --- |
 | `alert_agent.metrics.per_sensor_labels` | `false` | Emits the opt-in `sensorId` histogram and counter variants listed below. |
-| `event_bridge.redis_source.end_time_delta_filter.enabled` | `false` | When enabled, dropped events increment `alert_bridge_events_dropped_total{reason="end_time_delta"}`. |
+| `alert_agent.event_filters.end_time_delta_filter.enabled` | `false` | When enabled, dropped events increment `alert_bridge_events_dropped_total{reason="end_time_delta"}`. |
 | `vlm_rate_limit_enabled` | `false` | When enabled, VLM rate-limit drops increment `alert_bridge_events_dropped_total{reason="rate_limit"}`. |
-| `event_bridge.redis_source.protect_confirmed_verdicts.enabled` | `false` | When enabled, confirmed-verdict short-circuits increment `alert_bridge_events_skipped_confirmed_total` instead of `alert_bridge_events_total`. |
+| `alert_agent.event_filters.protect_confirmed_verdicts.enabled` | `false` | When enabled, confirmed-verdict short-circuits increment `alert_bridge_events_skipped_confirmed_total` instead of `alert_bridge_events_total`. |
 | `alert_agent.include_latency_info` | `false` | Not required for Prometheus metrics. It only controls whether latency fields are written into output documents for Elasticsearch-based analysis. |
+
+<Note>
+Dedup and filter tuning moved from `event_bridge.redis_source` to `alert_agent.event_filters` when Redis was removed. The old section is still read when the new one is absent, and the service logs a warning naming it, so an existing config keeps working — but new deployments should use `alert_agent.event_filters`.
+</Note>
 
 When per-sensor labels are enabled, missing, non-string, empty, or over-128-character sensor IDs are folded into `sensorId="unknown"`. Valid string IDs, including IDs with punctuation such as `/`, `:`, `?`, or `.`, pass through unchanged after trimming whitespace. The recorder caps distinct `sensorId` label values at 128 per process; any additional unseen ID is recorded as `sensorId="unknown_overflow"`. ### Pipeline histograms These histograms expose `_bucket`, `_sum`, and `_count` series.
 
@@ -717,7 +721,7 @@ When per-sensor labels are enabled, missing, non-string, empty, or over-128-char
 | --- | --- | --- |
 | `alert_bridge_events_after_dedup_total` | (none) | Events entering per-event processing after filters. |
 | `alert_bridge_events_dropped_total` | `reason` | Batch-level drops before per-event processing. |
-| `alert_bridge_events_skipped_confirmed_total` | (none) | Events skipped because Redis already held a confirmed verdict. |
+| `alert_bridge_events_skipped_confirmed_total` | (none) | Events skipped because a confirmed verdict was already stored for them. |
 | `alert_bridge_events_total` | `verdict` | Events completed by the per-event recorder. |
 | `alert_bridge_verification_failures_total` | `reason` | Events that failed verification. |
 
@@ -725,7 +729,7 @@ When per-sensor labels are enabled, missing, non-string, empty, or over-128-char
 
 **Verdicts** (`alert_bridge_events_total`): `confirmed`, `rejected`, `verification-failed`, `unknown`.
 
-**Verification failure reasons** (for breakdowns and operations that label by failure): `vst_timeout`, `vst_overloaded`, `vst_not_found`, `vst_unavailable`, `vst_client_error`, `vst_server_error`, `vst_unknown`, `url_validation`, `vlm_parse_failure`, `vlm_timeout`, `vlm_connection_error`, `vlm_server_error`, `vlm_invalid_payload`, `no_prompt`, `redis_unavailable`, `unknown`.
+**Verification failure reasons** (for breakdowns and operations that label by failure): `vst_timeout`, `vst_overloaded`, `vst_not_found`, `vst_unavailable`, `vst_client_error`, `vst_server_error`, `vst_unknown`, `url_validation`, `vlm_parse_failure`, `vlm_timeout`, `vlm_connection_error`, `vlm_server_error`, `vlm_invalid_payload`, `no_prompt`, `redis_unavailable`, `unknown`. `redis_unavailable` is a legacy label name, kept unchanged so existing dashboards and alerting rules keep matching; it now means the verdict-protection store was unreachable.
 
 ### Per-sensor variants
 
@@ -756,7 +760,7 @@ When `alert_agent.metrics.per_sensor_labels` is `true`, the service also emits t
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
-| `alert_bridge_async_external_io_duration_seconds` | `operation`, `mode`, `result` | Duration of async-capable Redis, VST, and sink operations, including sync fallbacks. |
+| `alert_bridge_async_external_io_duration_seconds` | `operation`, `mode`, `result` | Duration of async-capable VIOS/VST, sink, and dedup-state operations, including sync fallbacks. |
 | `alert_bridge_async_external_io_fallback_total` | `operation`, `reason` | Async operations that fell back to a synchronous path. |
 | `alert_bridge_async_sink_in_flight` | (none) | Current number of in-flight async sink operations. |
 

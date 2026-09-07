@@ -17,8 +17,9 @@
 """
 Entity Management Parameter Models
 
-Defines Pydantic models for VSS and VLM parameters with external configuration support.
-Provides validated parameter objects for alert processing.
+Defines Pydantic models for VLM and request parameters with external
+configuration support. Provides validated parameter objects for alert
+processing.
 """
 
 import logging
@@ -104,7 +105,11 @@ class MetaLabel(BaseModel):
 
 class VLMParams(BaseModel):
     """
-    Vision Language Model processing parameters (nested inside vssParams).
+    Vision Language Model processing parameters.
+
+    Carried at the top level of a request as ``vlm_params`` (or ``vlmParams``).
+    The nested ``vss_params.vlm_params`` form is still accepted by the
+    validator as compatibility behavior for older clients.
     """
     prompt: Optional[str] = Field(None, description="VLM processing prompt (optional for Alert Bridge)", max_length=12000)
     system_prompt: Optional[str] = Field(None, description="System Prompt with context of the stream", max_length=14000)

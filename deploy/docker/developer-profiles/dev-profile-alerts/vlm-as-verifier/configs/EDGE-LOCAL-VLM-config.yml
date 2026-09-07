@@ -17,7 +17,7 @@
 # SIMPLIFIED ALERT AGENT CONFIGURATION
 # ============================================================================
 # This configuration supports the simplified alert processing flow:
-# JSON Input → Entity Building → VSS Video Analysis → Enhanced JSON Output
+# JSON Input → Entity Building → VIOS/VST Clip Resolution → VLM Verification → Enhanced JSON Output
 
 # Base directory for media used during alert review (optional)
 # If set, components can resolve relative media paths against this base dir
@@ -36,7 +36,7 @@ vst_config:
   retry_without_overlay: true
   verify_time_existence: true
 
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (its own base URL and endpoint, separate from the VST APIs above)
   storage:
     base_url: ${VST_INTERNAL_URL}
     # Endpoint to fetch media file path by VST id
@@ -235,15 +235,6 @@ rtvi_vlm:
     max_inter_alert_gap_seconds: 60    # a positive arriving after this gap starts a new event
     max_event_duration_seconds: 300    # cap on a single consolidated event (null = unbounded)
     representative: "latest"           # chunk that supplies the representative fields: latest | longest_reasoning
-
-# WebSocket Configuration - Real-time alert broadcasting
-websocket:
-  enabled: false                                 # Enable/disable WebSocket service
-  consumer_group_prefix: "websocket_instance"  # Prefix for consumer groups
-  redis_consumer:
-    block_time: 1000                           # Redis XREAD block time in milliseconds
-    count: 1                                   # Number of messages to read per batch
-    reconnect_delay: 5                         # Seconds to wait before reconnecting on failure
 
 cors:
   enabled: true
