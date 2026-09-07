@@ -110,6 +110,6 @@ points at the **rendered** file under `/app/runtime` when always-on is enabled.
 - `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`
 - `deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_*.json`
 - `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/`
-- `skills/vss-build-vision-agent/references/profiles/alerts.md`
+- `skills/vss-build-vision-ai/references/profiles/alerts.md`
 - `skills/operations/vss-manage-alerts/references/integrate-alerts.md`
 - `skills/operations/vss-manage-alerts/references/deploy-alerts.md`

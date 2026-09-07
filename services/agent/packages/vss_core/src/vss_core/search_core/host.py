@@ -35,9 +35,12 @@ from .models.embed_search import EmbedSearchInput
 from .models.embed_search import EmbedSearchOutput
 from .models.search import SearchInput
 from .models.search import SearchOutput
+from .models.tag_search import TagSearchInput
+from .models.tag_search import TagSearchOutput
 from .primitives.attribute_search import AttributeSearch
 from .primitives.embed_search import EmbedSearch
 from .primitives.search import Search
+from .primitives.tag_search import TagSearch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -54,7 +57,7 @@ class VSSSearch:
     """One-stop facade for direct (non-HTTP) callers — host skills, notebooks, evals.
 
     Build from a SearchRuntime; call .embed_search / .attribute_search /
-    .search. Use as an async context manager so resources close cleanly:
+    .tag_search / .search. Use as an async context manager so resources close cleanly:
 
         async with VSSSearch.from_runtime(runtime) as vss:
             out = await vss.embed_search(query="red car", source_type="rtsp")
@@ -68,6 +71,7 @@ class VSSSearch:
         self._critic = critic
         self._embed: EmbedSearch | None = None
         self._attribute: AttributeSearch | None = None
+        self._tag: TagSearch | None = None
         self._search: Search | None = None
 
     @property
@@ -99,6 +103,11 @@ class VSSSearch:
         """Build just an AttributeSearch."""
         return AttributeSearch.from_runtime(rt)
 
+    @staticmethod
+    def tag_only(rt: SearchRuntime) -> TagSearch:
+        """Build just a TagSearch."""
+        return TagSearch.from_runtime(rt)
+
     # -------------------------------------------------------------- Primitives
 
     async def embed_search(self, **kw: Any) -> EmbedSearchOutput:
@@ -110,6 +119,11 @@ class VSSSearch:
         if self._attribute is None:
             self._attribute = AttributeSearch.from_runtime(self._rt)
         return await self._attribute.run(AttributeSearchInput(**kw))
+
+    async def tag_search(self, **kw: Any) -> TagSearchOutput:
+        if self._tag is None:
+            self._tag = TagSearch.from_runtime(self._rt)
+        return await self._tag.run(TagSearchInput(**kw))
 
     def _build_search(self) -> Search:
         """Lazy-build the Search primitive."""
@@ -240,13 +254,14 @@ class VSSSearch:
     async def aclose(self) -> None:
         """Close every lazily-built search primitive."""
         coros: list[Any] = []
-        for p in (self._embed, self._attribute, self._search):
+        for p in (self._embed, self._attribute, self._tag, self._search):
             if p is not None:
                 coros.append(p.aclose())
         if coros:
             await asyncio.gather(*coros, return_exceptions=True)
         self._embed = None
         self._attribute = None
+        self._tag = None
         self._search = None
 
     async def __aenter__(self) -> VSSSearch:

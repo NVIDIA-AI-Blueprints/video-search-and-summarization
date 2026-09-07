@@ -32,7 +32,7 @@ metadata:
 ## Routing
 
 | Request | Route |
-|---|---|
+| --- | --- |
 | Deploy, start, run, verify, or stop a named `base`, `alerts`, `lvs`, or `search` profile | Stock mode for that profile. |
 | Any warehouse request — deploy, run, verify, stop, customize | `references/profiles/warehouse.md` owns every warehouse fact. It carries no intake questions and no step sequence — variant selection is **Q2w below**, and the lifecycle is the shared Steps. Warehouse **registers its own sources** via `bp-configurator-<mode>`; never hand-provision one. Select a variant per Q2w and expand its `COMPOSE_PROFILES_WH_*` list verbatim. Warehouse is variant selection, not composition: to change the shape of a deployment, select a different variant. |
 | Deploy capabilities that exactly match one current developer profile | Stock mode for the exact match. |
@@ -75,7 +75,7 @@ Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until 
 The recommended first-run path. Deploys a validated developer profile via **Stock mode** — it keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (**no delta**: no added or removed profile keys, no new service composes), then writes and deploys the standard stock `_builds/<name>/` artifacts like any other build (Steps 5-9). Ask **Q2a (single-select): "Which pre-built workflow do you want to deploy?"** and map the choice to the developer profile:
 
 | Option | Capability | Profile |
-|---|---|---|
+| --- | --- | --- |
 | **Base** | VLM dense captioning and Q&A | `base` |
 | **Alerts** | VLM real-time alerting or alert verification | `alerts` (mode picked in Q2a-mode) |
 | **Video Summarization** | Time-windowed video summaries | `lvs` |
@@ -86,7 +86,7 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 **Q2a-mode — only when the user picks Alerts (single-select): "Which alerts mode?"** The `alerts` developer profile ships two modes, selected by its `MODE` knob; each has its own checked-in `COMPOSE_PROFILES` set in `dev-profile-alerts/overrides.env`, so both are still stock deployments (no delta):
 
 | Option | Capability | Mode |
-|---|---|---|
+| --- | --- | --- |
 | **Real-time alerting** | Continuous RT-VLM inspection + real-time alert APIs | `2d_vlm` |
 | **Alert verification** | Object detection with analytics and VLM event contextualization (RT-CV detection + behavior analytics + VLM verification + incidents) | `2d_cv` |
 
@@ -110,7 +110,7 @@ each option from warehouse.md's **Profile Service Set** table; do not restate
 its service lists here, or this table drifts from the one that is authoritative:
 
 | Question | Options |
-|---|---|
+| --- | --- |
 | **Q2w-mode** — *"Which warehouse mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) · `mv3dt` (multi-view 3D tracking, BEV fusion) · `auto-calibration` (produce a calibration) |
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
@@ -161,12 +161,12 @@ than the delta flow in `references/composition.md`.
 
 ### Mode: Custom build (guided)
 
-For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Video I/O + storage (VIOS) is always included** — every profile needs it — along with the shared `redis` cache peer that ships with the Foundation; present these as informational, not as choices. The **ELK + Kafka message bus / indexing stack is _not_ unconditional**: it is added only when a selected capability is Kafka-backed or Elasticsearch-indexed (see the note under the table), so a dense-captioning-only build keeps the smallest delta. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
+For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Video I/O + storage (VIOS) is always included** — every profile needs it — along with the shared `redis` cache peer that ships with the Foundation; present these as informational, not as choices. The **ELK + Kafka message bus / indexing stack is *not* unconditional**: it is added only when a selected capability is Kafka-backed or Elasticsearch-indexed (see the note under the table), so a dense-captioning-only build keeps the smallest delta. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
 
 Offer the user **exactly** the capabilities in the table below. Each row's owner contract, canonical service-profile key(s), and closest Foundation profile are fixed — do not invent options or keys outside it. Because this list can exceed four rows and `AskUserQuestion` caps a question at four options, **do not pose Q2b through the `AskUserQuestion` widget** — present this table in the conversation and have the user reply with the capabilities they want (by name or number; multiple allowed). Fall back to an `AskUserQuestion` multi-select only when four or fewer capabilities remain offerable.
 
 | Option (shown to user) | Owner contract (`references/services/`) | Canonical service-profile key(s) | Closest Foundation | Peer notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Dense captioning** — natural-language descriptions of video | `rt-vlm.md` | `rtvi-vlm` | `base` | — |
 | **Object detection & tracking (2D)** — bounding boxes, class labels, track IDs | `rt-cv.md` | `perception-2d-fusion` *(search)* / `perception-alerts` *(alerts)* | `search` | Kafka-backed; use the selected profile's key, not the shared `perception` extends source |
 | **Semantic search over video** — embeddings + agentic search | `search.md` (+ `rt-embed.md`) | `vss-search-analytics-2d-fusion`, `rtvi-embed` | `search` | Requires RT-CV + RT-Embed + ELK; critique needs RT-VLM unless disabled |
@@ -176,6 +176,7 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 **Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** retain the HAProxy ingress (`ingress.md`) only with the Agent/UI tier or when the request explicitly asks for a unified browse/operate origin; otherwise prune `vss-haproxy-ingress` and create no ingress patch. The **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka when its resolved `RTVI_VLM_MESSAGE_BUS` is `kafka`. Kibana is not implied by selecting Elasticsearch: retain `kibana` and exactly the selected Foundation's initializer only when that Foundation already ships them, and never add or borrow Kibana keys for a Foundation that does not. A dense-captioning-only build means the request does not publish or index captions; it adds **no** ELK/Kafka and sets both `RTVI_VLM_MESSAGE_BUS=` and `RTVI_VLM_KAFKA_ENABLED=false` during the VSS Compose compatibility transition. If the request publishes captions or stores them in Elasticsearch, it is not dense-captioning-only: retain the approved Kafka/ELK service set and message-bus settings unchanged when generating artifacts. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
 
 Rules for the multi-select:
+
 - **Offer exactly the table rows** whose owner contract exists under `references/services/` (all rows are present on this branch); show any pending capability disabled with a short "not yet available" note. **Never offer a foundational or model-backend owner as a choice** — do **not** silently offer a capability the skill cannot resolve.
 - **Require at least one capability** — the foundational services alone are not a vision agent.
 - Multiple selections compose in one deployment (e.g. captioning + alerting, or captioning + detection).
@@ -191,7 +192,7 @@ Applies to **every** entry mode — prompt-driven, quickstart, and custom build 
 **Q3 — Harness (yes/no).** *"Deploy an agent harness with this build?"*
 
 | Answer | Harness | Effect on the build |
-|---|---|---|
+| --- | --- | --- |
 | **yes** *(default)* | `nemoclaw` | A host-side sandbox with the VSS skills installed drives the build over its public origin, and is its only conversational surface. |
 | **no** | none | No harness at all. Drive the build with the `vss` CLI from the host. |
 
