@@ -1208,7 +1208,6 @@ documentation.
 * `KAFKA_EXTERNAL_PORT`: Host port mapping for the broker's external listener; also embedded in `KAFKA_ADVERTISED_LISTENERS` (default: `9094`)
 * `KAFKA_ADVERTISED_HOST`: Hostname or IP that host-side or cross-host clients use to reconnect (default: `localhost`)
 * `LVS_CAPTION_SOURCE`: Controls where file-path Kafka aggregation reads captions: `sse` (default) uses captions received in-process via the RTVI SSE response, `db` retrieves captions from Elasticsearch populated by the Kafka → Logstash → ES pipeline
-* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: `true` keeps the per-stream context-manager state across consecutive `/v1/stream_summarize` calls — recommended for live-stream sessions
 * `LVS_KAFKA_CONSUMER_SETTLE_SECS`: Seconds to wait after the RTVI-VLM SSE stream completes so Logstash can flush the final chunk, used when the YAML key is absent (default: `5.0`)
 
 **Database Configuration**
@@ -1219,7 +1218,7 @@ Backend selection is covered in [Database Backends](/vss/system-components/visio
 * `LVS_QA_DATABASE_BACKEND`: Store used by the question-answering ingestion function (default: `graph_db`)
 * `LVS_INGESTION_FUNCTION`: Ingestion function type (default: `graph_ingestion`)
 * `LVS_RETRIEVER_FUNCTION`: Retriever function type
-* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: Preserve request data in the database after processing
+* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: `true` preserves request data and the per-asset Elasticsearch index after processing; `false` resets request data and automatically drops the index after file summarization completes. The Compose configuration defaults to `true`, while the service code defaults to `false` when the variable is unset. Live-stream summarization retains its index with either value because consecutive `/v1/stream_summarize` calls reuse the same asset ID.
 * `ES_HOST`, `ES_PORT`: Elasticsearch connection
 * `ES_TRANSPORT_PORT`: Elasticsearch transport port (default: 9302)
 * `ES_MAX_SHARDS_PER_NODE`: Maximum number of shards allowed per Elasticsearch node (default: `2000`). Each `POST /v1/summarize` creates one `default_<asset_id>` index with one shard; raise this cap for long-retention or high-volume deployments, or reclaim indices with `DELETE /assets/{asset_id}/index`.
