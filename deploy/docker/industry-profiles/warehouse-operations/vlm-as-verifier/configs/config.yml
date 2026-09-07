@@ -17,7 +17,7 @@
 # SIMPLIFIED ALERT AGENT CONFIGURATION
 # ============================================================================
 # This configuration supports the simplified alert processing flow:
-# JSON Input → Entity Building → VSS Video Analysis → Enhanced JSON Output
+# JSON Input → Entity Building → VIOS/VST Clip Resolution → VLM Verification → Enhanced JSON Output
 
 # Base directory for media used during alert review (optional)
 # If set, components can resolve relative media paths against this base dir
@@ -35,7 +35,7 @@ vst_config:
   retry_without_overlay: false
   verify_time_existence: true
   url_retention_minutes: 20160
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (its own base URL and endpoint, separate from the VST APIs above)
   storage:
     base_url: "http://vst-ingress:30888"
     # Endpoint to fetch media file path by VST id

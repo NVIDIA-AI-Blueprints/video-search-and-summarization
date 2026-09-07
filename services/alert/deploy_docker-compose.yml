@@ -31,6 +31,10 @@ services:
       - STORAGE_MODULE_ENDPOINT=http://${HOST_IP:-127.0.0.1}:${STORAGE_HTTP_PORT:-30000}
     volumes:
       - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
+      # /app is the image WORKDIR, which is where the defaults loader looks
+      # when ALERT_BRIDGE_DEFAULTS_FILE is unset -- so mounting over that path
+      # is what makes a custom file take effect, with no in-container env var.
+      - ${ALERT_BRIDGE_DEFAULTS_FILE:-./alert_request_defaults.yaml}:/app/alert_request_defaults.yaml
 
 
     container_name: alert-bridge

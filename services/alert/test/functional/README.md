@@ -116,7 +116,7 @@ Step1–4 are shared building blocks: setup → start AB → trigger → verify 
 - Each test in `p1/` is a directory with a `run.sh` and optionally a `config.yaml`
 - Tests without a `config.yaml` automatically use the shared base config
 - Tests only need a custom config when they require non-default AB settings (e.g., verdict protection, enrichment)
-- For tests with different output sinks (Kafka, Redis), write your own verification in `run.sh`
+- The shared verification step reads Elasticsearch; to assert on the Kafka sink instead, write your own verification in `run.sh`
 - The framework handles timestamps, dedup isolation, and state reset between tests automatically
 
 ## File Structure

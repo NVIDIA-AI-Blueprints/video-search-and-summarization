@@ -86,7 +86,8 @@ Or build/run with Docker (see Quick Start).
 1. **Configure** — edit `config.yaml`: set the VLM `base_url`/`model`, the
    Kafka/Elasticsearch endpoints, and the sink type. Optionally override
    request defaults in `alert_request_defaults.yaml` (or point
-   `ALERT_AGENT_DEFAULTS_FILE` at a custom file). Dedup / end-time-delta /
+   `ALERT_BRIDGE_DEFAULTS_FILE` at a custom file — see
+   [`src/schemas/config/README.md`](src/schemas/config/README.md)). Dedup / end-time-delta /
    verdict-protection tuning lives under `alert_agent.event_filters`.
 
 2. **Start the stack** (Kafka source/sink is the default; no Redis):
@@ -96,6 +97,9 @@ Or build/run with Docker (see Quick Start).
 
    # or with a custom config file
    ALERT_BRIDGE_CONFIG_FILE=./your-config.yaml docker compose -f deploy_docker-compose.yml up -d
+
+   # or with custom request defaults
+   ALERT_BRIDGE_DEFAULTS_FILE=./your-defaults.yaml docker compose -f deploy_docker-compose.yml up -d
    ```
 
 3. **Verify** — the service is available at:
