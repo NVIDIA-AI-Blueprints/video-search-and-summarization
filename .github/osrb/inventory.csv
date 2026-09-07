@@ -3623,8 +3623,6 @@ zipp,3.23.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt
 zipp,4.1.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 zipp,4.1.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 zmq,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/docker/rtvi_vlm/patches/evs_vllm_public_files/distributed/ec_transfer/ec_connector/cuda_ipc_connector.py,runtime,no,no,no,imported-only,Unknown
-zod,4.4.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-zod-validation-error,4.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 zstandard,0.25.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 zstandard,0.25.0,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 zstandard,0.25.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
