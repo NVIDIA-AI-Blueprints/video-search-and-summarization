@@ -81,12 +81,14 @@ FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
 
 # Harbor trial paths. Harbor and its agent adapters address /task, /output,
-# /logs, /tests and /solution by name, but everything physically lives under
-# /sandbox — the OpenShell workspace (WORKDIR below), which the sandbox user
-# owns and `openshell sandbox download` serves. Nothing is created here: the
-# harness creates the directories at trial start as the sandbox user; these are
-# only root-level names pointing into the workspace.
-RUN for d in task output logs tests solution; do ln -s "/sandbox/$d" "/$d"; done
+# /logs, /tests and /solution by name. They are REAL directories, not symlinks
+# into /sandbox: the OpenShell policy engine chowns every read_write path at
+# sandbox start and refuses a symlink ("read_write path '/task' is a symlink —
+# refusing to chown, potential privilege escalation"), which failed every trial
+# before the agent started. World-writable like the openshell-community image,
+# so the harness can populate them as the sandbox user; the eval harness moves
+# files in and out with exec+tar, so they do not need to live in the workspace.
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
 # The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
 # same pinned checkout the skills came from. Its packages are uv workspace
