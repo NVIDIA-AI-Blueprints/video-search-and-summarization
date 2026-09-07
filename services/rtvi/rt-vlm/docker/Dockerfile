@@ -395,9 +395,12 @@ RUN set -eu; \
     done; \
     rm -rf /tmp/evs-libs
 
-# Fail the image build if the protected EVS modules and their public protocol
-# compatibility types are not a coherent set.
-RUN python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions'
+# Fail the image build if the EVS++ modules and their public protocol
+# compatibility types are not a coherent set. The SBSA build environment does
+# not mount the Tegra driver, which vLLM imports during this check.
+RUN if [ "$TARGETARCH" != "arm64" ] || [ "$ARM_PLATFORM" != "sbsa" ]; then \
+        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions'; \
+    fi
 
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
 # libraries under /opt/tritonserver (e.g. hashed shared objects inside the DALI wheel).
