@@ -110,7 +110,16 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
 
         # Parse the result if it's a string
         if isinstance(fov_result, str):
-            fov_data = json.loads(fov_result)
+            if not fov_result.strip():
+                raise ValueError(
+                    f"FOV histogram service returned an empty response for sensor '{input_data.sensor_id}'",
+                )
+            try:
+                fov_data = json.loads(fov_result)
+            except json.JSONDecodeError as ex:
+                raise ValueError(
+                    f"FOV histogram service returned invalid JSON for sensor '{input_data.sensor_id}'",
+                ) from ex
         else:
             fov_data = fov_result
 
