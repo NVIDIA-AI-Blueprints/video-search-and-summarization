@@ -438,8 +438,12 @@ jobs:
           cache_name=$(python3 -c "import json,os; inv=json.load(open('deploy/docker/container-inventory.json')); imgs=inv['images'] if isinstance(inv,dict) else inv; e=next((x for x in imgs if x.get('name')==os.environ['IMAGE_NAME']),{}); v=e.get('registry_buildcache'); print(v if isinstance(v,str) else '')")
           if [ -n "$cache_name" ]; then
             ref="${IMAGE_REF%/*}/${cache_name}:${IMAGE_ARCH}"
+            # cache-from import failure is already non-fatal (buildkit warns and
+            # builds from scratch). ignore-error=true makes a cache-to *export*
+            # failure (registry hiccup) non-fatal too, so the image build never
+            # fails on a cache problem.
             echo "from=type=registry,ref=${ref}" >> "$GITHUB_OUTPUT"
-            echo "to=type=registry,mode=max,image-manifest=true,oci-mediatypes=true,ref=${ref}" >> "$GITHUB_OUTPUT"
+            echo "to=type=registry,mode=max,ignore-error=true,image-manifest=true,oci-mediatypes=true,ref=${ref}" >> "$GITHUB_OUTPUT"
             echo "buildcache backend: registry (${ref})"
           else
             scope="${IMAGE_NAME}-${IMAGE_ARCH}"
