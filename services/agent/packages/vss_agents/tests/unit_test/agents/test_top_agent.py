@@ -551,6 +551,66 @@ class TestRequestOptionsContext:
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
 
     @pytest.mark.asyncio
+    async def test_plan_node_does_not_request_camera_for_unfiltered_incident_report(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = self._agent_with_search_tool()
+        report_tool = MagicMock()
+        report_tool.name = "report_agent"
+        report_tool.description = "Generate a report for the latest incident."
+        report_tool.args_schema.model_fields = {
+            "incident_id": MagicMock(),
+            "source": MagicMock(),
+        }
+        agent.tools_dict["report_agent"] = report_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="[USER] Which camera should I use?"))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a detailed report for the latest incident."),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert result.plan == (
+            "1. Call `report_agent` without a sensor filter to retrieve the most recent incident "
+            "and generate its detailed report."
+        )
+        assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
+
+    @pytest.mark.asyncio
+    async def test_plan_node_keeps_camera_clarification_for_uploaded_video_report(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        report_tool = MagicMock()
+        report_tool.name = "report_agent"
+        report_tool.description = "Generate an uploaded video report."
+        report_tool.args_schema.model_fields = {"sensor_id": MagicMock()}
+        agent.tools_dict["report_agent"] = report_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="[USER] Which video should I use?"))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report."),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ""
+        assert result.final_answer == "Which video should I use?"
+
+    @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
