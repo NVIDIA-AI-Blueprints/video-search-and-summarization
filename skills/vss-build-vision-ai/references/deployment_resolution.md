@@ -289,11 +289,16 @@ asymmetry is deliberate — each matches the vantage it runs from:
   (`http://localhost:<port>`; stock deploys fall back to profile defaults) and
   hands them to `vss-manage-video-io-storage` `provision-vios-source.md`. Loopback
   covers RT-VLM natively and keeps RT-Embed's live SSE stream off the proxy hop.
-  `vss configure` records **ingress URLs, not loopback ports**, so nothing on the
-  write path consumes the recorded config — the two mechanisms do not overlap.
-- **RT-VLM is loopback-only** on both paths: it has no ingress route
-  (`vss configure` records no entry), so it is always the host port
-  (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`).
+  `vss configure` records **ingress URLs, not loopback ports**, so the two
+  mechanisms do not overlap — except on a build that fronts RT-VLM for the tagging
+  leg, where the RT-VLM tagging call may also use the recorded `/rtvi-vlm` origin
+  from a remote host; loopback stays the lower-latency choice from the deploy host.
+- **RT-VLM is loopback-only by default**, but fronted at `/rtvi-vlm` on builds that
+  resolve the VLM **tagging** capability (see `services/ingress.md`), so the tagging
+  leg can be driven from any host that reaches the origin. `vss configure` then
+  records `rt_vlm` present (activating the search CLI's fail-open critic). On builds
+  that use RT-VLM only for Critic verification, it stays loopback-only
+  (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`) and records `absent`.
 
 ## Kubernetes consumer contract (no port-forward)
 

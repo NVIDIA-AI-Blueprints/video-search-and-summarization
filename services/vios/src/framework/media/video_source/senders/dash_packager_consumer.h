@@ -88,6 +88,10 @@ public:
     DashPackagerConsumer& operator=(const DashPackagerConsumer&) = delete;
 
     [[nodiscard]] bool wantsDecodedPictures() const override { return m_config.encodeRawInput; }
+    [[nodiscard]] unsigned publishedSegmentSeconds() const override
+    {
+        return m_config.targetDurationSeconds;
+    }
 
     void onFrame(FrameParams& params) override;
     void onFrame(std::shared_ptr<RawFrameParams> frameData) override;
@@ -99,6 +103,10 @@ public:
 
     [[nodiscard]] DashPackagerState state() const;
     [[nodiscard]] bool audioEnabled() const;
+
+    /* The segment length this session publishes at, so the pruner can keep a
+     * window measured in seconds rather than in files. */
+    [[nodiscard]] unsigned targetDurationSeconds() const;
     /* How far along the published media timeline this session has reached, and
      * how many frames put it there.  This is what the session has written, not
      * what a viewer is watching: a player sits behind the live edge by its own

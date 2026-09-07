@@ -32,6 +32,8 @@ llm=""
 vlm=""
 llm_device_id=""
 vlm_device_id=""
+gpu_device_id=""
+hardware_device_id=""
 llm_base_url=""
 vlm_base_url=""
 llm_model_type=""
@@ -659,6 +661,8 @@ function usage() {
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
+  echo "  --gpu-device-id                 GPU device ID for all GB300-consuming services."
+  echo "                                   Required when GB300 auto-detection cannot access nvidia-smi."
   echo "  --llm                           LLM model (e.g. nvidia/nemotron-3.5-lightning-30b-a3b)"
   echo "  --vlm                           VLM model (e.g. nvidia/cosmos3-reasoner)"
   echo "  --llm-device-id                 GPU device ID for LLM"
@@ -706,25 +710,13 @@ function disable_sdrc_routing_in_env() {
   done
 }
 
-# Swap non-SBSA image tag lines for commented *sbsa* variants in generated.env (DGX-SPARK or --use-sbsa-images).
-function apply_sbsa_image_tags_to_env() {
-  local _generated_env="${1}"
-  local _reason="${2}"
-  local _key
-  while IFS= read -r _key; do
-    [[ -z "${_key}" ]] && continue
-    sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
-    sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-    echo "[INFO] Swapped to SBSA (${_reason}): ${_key}"
-  done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
-}
 
 function validate_args() {
   local _args _valid_args _all_good
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -758,12 +750,85 @@ function validate_args() {
   fi
 }
 
+# Return whether nvidia-smi can inspect the host GPU inventory. An unavailable
+# inventory is distinct from an invalid individual device ID.
+function nvidia_smi_is_available() {
+  command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=index --format=csv,noheader >/dev/null 2>&1
+}
+
+# Return the selected GB300 index. An explicit GPU/LLM/VLM device ID selects
+# the deployment GPU; otherwise exactly one detected GB300 is required.
+function resolve_gb300_device_id() {
+  local _gpu_selector="${gpu_device_id}" _llm_selector="" _vlm_selector="" _device_id _gpu_name _is_explicit=0
+  # Remote models do not consume a local GPU, so their device IDs
+  # must not participate in choosing or conflicting with the shared GB300.
+  if contains_element "llm-device-id" "${options_provided[@]}" && ! contains_element "use-remote-llm" "${options_provided[@]}"; then
+    _llm_selector="${llm_device_id}"
+  fi
+  if contains_element "vlm-device-id" "${options_provided[@]}" && ! contains_element "use-remote-vlm" "${options_provided[@]}"; then
+    _vlm_selector="${vlm_device_id}"
+  fi
+  if [[ -n "${_gpu_selector}" ]]; then
+    _is_explicit=1
+    if [[ -n "${_llm_selector}" ]] && [[ "${_llm_selector}" != "${_gpu_selector}" ]] || [[ -n "${_vlm_selector}" ]] && [[ "${_vlm_selector}" != "${_gpu_selector}" ]]; then
+      echo "[ERROR] --gpu-device-id must match any supplied --llm-device-id or --vlm-device-id for GB300" >&2
+      return 1
+    fi
+  elif [[ -n "${_llm_selector}" ]] && [[ -n "${_vlm_selector}" ]] && [[ "${_llm_selector}" != "${_vlm_selector}" ]]; then
+    echo "[ERROR] GB300 requires --llm-device-id and --vlm-device-id to select the same GPU" >&2
+    return 1
+  elif [[ -n "${_llm_selector}" || -n "${_vlm_selector}" ]]; then
+    _is_explicit=1
+  fi
+  _device_id="${_gpu_selector:-${_llm_selector:-${_vlm_selector}}}"
+
+  if [[ -z "${_device_id}" ]]; then
+    local _gb300_matches=()
+    local _index _name _lower
+    while IFS=, read -r _index _name; do
+      _index="${_index#"${_index%%[![:space:]]*}"}"
+      _index="${_index%"${_index##*[![:space:]]}"}"
+      [[ -n "${_index}" && -n "${_name}" ]] || continue
+      _lower="${_name,,}"
+      if [[ "${_lower}" == *gb300* || "${_lower}" == *b300* ]]; then
+        _gb300_matches+=("${_index}")
+      fi
+    done < <(nvidia-smi --query-gpu=index,name --format=csv,noheader 2>/dev/null)
+    if [[ "${#_gb300_matches[@]}" -eq 1 ]]; then
+      _device_id="${_gb300_matches[0]}"
+    elif [[ "${#_gb300_matches[@]}" -eq 0 ]]; then
+      echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected. Pass --gpu-device-id <id> when nvidia-smi is unavailable." >&2
+      return 1
+    else
+      echo "[ERROR] Multiple GB300 GPUs were detected; select the deployment GPU with --llm-device-id or --vlm-device-id" >&2
+      return 1
+    fi
+  fi
+
+  _gpu_name="$(nvidia-smi --id="${_device_id}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  _gpu_name="${_gpu_name,,}"
+  if [[ -z "${_gpu_name}" ]] && [[ "${_is_explicit}" -eq 1 ]]; then
+    if nvidia_smi_is_available; then
+      echo "[ERROR] Selected GPU device ID '${_device_id}' does not exist or cannot be queried" >&2
+      return 1
+    fi
+    echo "[WARN] nvidia-smi is unavailable; using explicit GB300 device ID ${_device_id}" >&2
+    echo "${_device_id}"
+    return 0
+  fi
+  if [[ "${_gpu_name}" != *gb300* && "${_gpu_name}" != *b300* ]]; then
+    echo "[ERROR] Selected GPU device ID '${_device_id}' is not a GB300" >&2
+    return 1
+  fi
+  echo "${_device_id}"
+}
+
 function process_args() {
   local _args _valid_args _all_good
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -800,6 +865,12 @@ function process_args() {
         shift
         hardware_profile="${1}"
         options_provided+=("hardware-profile")
+        shift
+        ;;
+      --gpu-device-id)
+        shift
+        gpu_device_id="${1}"
+        options_provided+=("gpu-device-id")
         shift
         ;;
       --llm)
@@ -1074,10 +1145,27 @@ function process_args() {
         fi
       fi
 
+      # Resolve the single GB300 that every GPU-consuming warehouse service
+      # shares. Profile defaults describe multi-GPU systems and must not choose
+      # a different physical GPU on GB300.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        if ! hardware_device_id="$(resolve_gb300_device_id)"; then
+          ((_all_good++))
+        else
+          llm_device_id="${hardware_device_id}"
+          vlm_device_id="${hardware_device_id}"
+        fi
+      fi
+
       # Resolve the committed placement against the GPUs this host actually has.
       # Runs for every warehouse mode, not just 2d/bp_wh: RT_CV_DEVICE_ID and
       # RT_VLM_DEVICE_ID come from the deployment .env and apply to all of them,
       # so gating this on the mode is how the general case gets missed.
+      #
+      # After the GB300 resolution above, never before it: the clamp only
+      # rewrites indices the host does not have, so a GB300 choice that exists
+      # survives it, whereas clamping first would let the GB300 branch reinstate
+      # an index this host cannot serve.
       clamp_device_ids_to_gpu_count "${_deploy_env}" "${_deploy_overrides_env}"
 
       if [[ "${deployment}" == "warehouse" ]]; then
@@ -1480,10 +1568,15 @@ function state_up() {
     echo "[INFO] Warehouse COMPOSE_PROFILES=\${${compose_profiles_selector}}"
   fi
 
-  if [[ "${hardware_profile}" == "DGX-SPARK" ]]; then
-    apply_sbsa_image_tags_to_env "${_generated_env}" "DGX-SPARK"
-  elif [[ "${use_sbsa_images}" == "true" ]]; then
-    apply_sbsa_image_tags_to_env "${_generated_env}" "${hardware_profile:-OTHER} (--use-sbsa-images)"
+  # All GPU-consuming warehouse services share the resolved GB300 device.
+  if [[ "${hardware_profile}" == "GB300" ]]; then
+    set_env_var "LLM_DEVICE_ID" "${hardware_device_id}"
+    set_env_var "VLM_DEVICE_ID" "${hardware_device_id}"
+    set_env_var "SHARED_LLM_VLM_DEVICE_ID" "${hardware_device_id}"
+    set_env_var "FIXED_SHARED_DEVICE_IDS" "${hardware_device_id}"
+    set_env_var "RT_CV_DEVICE_ID" "${hardware_device_id}"
+    set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
+    set_env_var "RT_EMBED_DEVICE_ID" "${hardware_device_id}"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
@@ -1521,6 +1614,11 @@ function state_up() {
   local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
   local _compose_file_args_text=" ${_compose_file_args[*]}"
   echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
+
+  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
+    export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+    echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+  fi
 
   # Resolve and display the managed container channel before deployment.
   set -a

@@ -82,4 +82,34 @@ describe('useChatSidebarMainTabBridge', () => {
     });
     expect(result.current.chatSidebarHighlight).toBe(false);
   });
+
+  it('fans full-page Chat answers out to structured-result tabs', () => {
+    const { result } = renderHook(() =>
+      useChatSidebarMainTabBridge({
+        activeTab: 'chat',
+        sidebarCollapsed: true,
+      }),
+    );
+    const received: string[] = [];
+
+    act(() => {
+      result.current.registerSearchTabChatAnswer((answer) => {
+        received.push(`search:${answer}`);
+        return true;
+      });
+      result.current.registerAlertsTabChatAnswer((answer) => {
+        received.push(`alerts:${answer}`);
+        return true;
+      });
+    });
+
+    let callerInfo: string | void;
+    act(() => {
+      callerInfo = result.current.handleMainChatAnswerCompleteWithContent('artifact');
+    });
+
+    expect(received).toEqual(['search:artifact', 'alerts:artifact']);
+    expect(callerInfo).toContain('#vss-mt-search');
+    expect(callerInfo).toContain('#vss-mt-alerts');
+  });
 });

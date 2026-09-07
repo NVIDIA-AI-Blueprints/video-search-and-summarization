@@ -141,11 +141,23 @@ spec:
               value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) "http://vss-agent:8000/api/v1" $pfx) | quote }}
             - name: NEXT_PUBLIC_VST_API_URL
               value: {{ .Values.vstApiUrl | default (ternary (printf "%s/vst/api" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-vios-ingress:30888/vst/api" .Release.Name) "http://vss-vios-ingress:30888/vst/api" $pfx) | quote }}
+            {{- $vstInternal := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}
+            # Server-only target for /api/proxy. Keep media reads in-cluster
+            # instead of hairpinning through the public ingress and its auth.
+            - name: VSS_PROXY_BASE_URL
+              value: {{ .Values.proxyBaseUrl | default $vstInternal | quote }}
             {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/chat/stream" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx) }}
             - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}
             - name: NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}
+            {{- $chatInternal := ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx }}
+            # The replacement UI posts to its same-origin API route; that
+            # server-side handler must use the in-cluster agent address.
+            - name: VSS_CHAT_BACKEND_MAIN
+              value: {{ .Values.chatBackendUrl | default .Values.chatCompletionUrl | default $chatInternal | quote }}
+            - name: VSS_CHAT_BACKEND_SIDEBAR
+              value: {{ .Values.sidebarChatBackendUrl | default .Values.chatBackendUrl | default .Values.chatCompletionUrl | default $chatInternal | quote }}
             {{- $wsUrl := .Values.websocketChatUrl | default (ternary (printf "%s/websocket" $globalWs) "" (ne $globalWs "")) }}
             {{- if $wsUrl }}
             - name: NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL
@@ -159,6 +171,51 @@ spec:
               value: {{ .Values.alertsRealtimeEnabled | quote }}
             - name: NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION
               value: {{ .Values.alertsCvVerificationEnabled | quote }}
+            {{- /*
+              Backend-agnostic external-agent adapter env (compose parity with
+              deploy/docker/services/ui/compose.yml AGENT_*). Server-side only;
+              AGENT_BACKEND_TOKEN and other secrets never carry NEXT_PUBLIC_.
+              Adapter keys are always emitted so a Deployment restart is enough
+              to toggle behaviour without a template change.
+            */}}
+            {{- $adapter := .Values.agentAdapter | default dict }}
+            {{- $adapterEnabled := (default false $adapter.enabled) }}
+            - name: AGENT_ADAPTER_ENABLED
+              value: {{ $adapterEnabled | quote }}
+            - name: AGENT_BACKEND_PROTOCOL
+              value: {{ (default "responses" $adapter.backendProtocol) | quote }}
+            - name: AGENT_BACKEND_URL
+              value: {{ (default "" $adapter.backendUrl) | quote }}
+            - name: AGENT_BACKEND_PATH
+              value: {{ (default "" $adapter.backendPath) | quote }}
+            - name: AGENT_BACKEND_TOKEN
+              value: {{ (default "" $adapter.backendToken) | quote }}
+            - name: AGENT_BACKEND_MODEL
+              value: {{ (default "agent" $adapter.backendModel) | quote }}
+            - name: AGENT_BACKEND_SESSION_FIELD
+              value: {{ $adapter.backendSessionField | quote }}
+            - name: AGENT_BACKEND_SESSION_HEADER
+              value: {{ (default "" $adapter.backendSessionHeader) | quote }}
+            - name: AGENT_BACKEND_HEADERS_JSON
+              value: {{ (default "{}" $adapter.backendHeadersJson) | quote }}
+            - name: AGENT_BACKEND_TIMEOUT_SECONDS
+              value: {{ (default 900 $adapter.backendTimeoutSeconds) | quote }}
+            - name: AGENT_RUN_RETENTION_SECONDS
+              value: {{ (default 3600 $adapter.runRetentionSeconds) | quote }}
+            - name: AGENT_MAX_EVENT_CHARS_PER_RUN
+              value: {{ (default 20000000 $adapter.maxEventCharsPerRun) | quote }}
+            - name: AGENT_MAX_THREAD_STATE_CHARS
+              value: {{ (default 20000000 $adapter.maxThreadStateChars) | quote }}
+            - name: AGENT_MAX_RETAINED_CHARS
+              value: {{ (default 64000000 $adapter.maxRetainedChars) | quote }}
+            - name: NEXT_PUBLIC_AGENT_ADAPTER_ENABLED
+              value: {{ $adapterEnabled | quote }}
+            {{- $forceHttp := $adapter.forceHttpChatTransport }}
+            {{- if or (kindIs "invalid" $forceHttp) (eq ($forceHttp | toString | trim) "") }}
+            {{- $forceHttp = $adapterEnabled }}
+            {{- end }}
+            - name: NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT
+              value: {{ $forceHttp | quote }}
             {{- range .Values.extraEnv }}
             - name: {{ .name }}
               value: {{ .value | quote }}

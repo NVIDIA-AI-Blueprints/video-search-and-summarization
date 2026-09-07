@@ -1326,6 +1326,26 @@ def parse_node_lock(data: bytes) -> Inventory:
     return out
 
 
+def parse_node_workspace_names(data: bytes) -> set[str]:
+    """Return package names npm resolves to local workspace links.
+
+    npm represents a workspace dependency declared as ``"*"`` with a
+    ``link: true`` entry in package-lock.json. The link has no version, so it
+    is intentionally absent from :func:`parse_node_lock`; without retaining
+    its name separately, however, the package.json pass mistakes the same
+    first-party dependency for an unresolved registry package.
+    """
+    doc = json.loads(data.decode("utf-8"))
+    out: set[str] = set()
+    for path, entry in (doc.get("packages") or {}).items():
+        if not path or "node_modules/" not in path or not entry.get("link"):
+            continue
+        name = path.rsplit("node_modules/", 1)[-1].lower()
+        if name:
+            out.add(name)
+    return out
+
+
 # Specs that resolve to something inside this repository rather than to a
 # registry release. `services/vios/ui/vios-ui/package.json` depends on
 # `vst-streaming-lib` as `file:../streaming-lib` today; reporting our own code
@@ -2034,6 +2054,33 @@ def _inventory_at_ref(
     return inv
 
 
+def node_workspace_names_by_module(
+    ref: str, paths: list[str]
+) -> dict[str, set[str]]:
+    """Return local npm workspace names, grouped by their owning module.
+
+    The ordinary Node inventory deliberately excludes these versionless link
+    entries. This companion walk lets declaration consumers suppress their
+    package.json ranges without turning first-party workspaces into OSRB rows.
+    A malformed lockfile is reported by the primary lockfile parser, so this
+    secondary classification pass only skips it.
+    """
+    grouped: dict[str, set[str]] = {}
+    for path in paths:
+        if _basename(path).lower() != "package-lock.json":
+            continue
+        data = _git_show(ref, path)
+        if data is None:
+            continue
+        try:
+            names = parse_node_workspace_names(data)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if names:
+            grouped.setdefault(owning_module(path), set()).update(names)
+    return grouped
+
+
 def _walk_inventory(
     ref: str,
     paths: list[str],
@@ -2163,7 +2210,38 @@ def diff_language(
                 )
             continue
 
-        # Coexisting set changed (version bump, license change, or both).
+        # A package can coexist at several versions across independent
+        # modules.  If the head merely contracts or expands that set, report
+        # the versions that actually left or entered.  Pairing a removed UI
+        # version with unchanged VIOS versions fabricates a cross-module
+        # "license changed" update and needlessly blocks the PR.
+        if only_old and not only_new:
+            for v in only_old:
+                meta = base[(name, v)]
+                if language == "python" and not meta.get("license"):
+                    meta = {**meta, **pypi_metadata(name, v)}
+                rows.append(
+                    _row(
+                        language,
+                        name,
+                        CHANGE_REMOVED,
+                        v,
+                        "",
+                        meta.get("license", ""),
+                        meta,
+                    )
+                )
+            continue
+        if only_new and not only_old:
+            for v in only_new:
+                meta = head[(name, v)]
+                if language == "python" and not meta.get("license"):
+                    meta = {**meta, **pypi_metadata(name, v)}
+                rows.append(_row(language, name, CHANGE_ADDED, "", v, "", meta))
+            continue
+
+        # Both sides changed: pair the departing and arriving version sets as
+        # one update so a real version/license transition stays reviewable.
         old_v = ",".join(only_old) or ",".join(sorted(base_versions))
         new_v = ",".join(only_new) or ",".join(sorted(head_versions))
 
@@ -2241,6 +2319,18 @@ def _drop_covered(inventory: Inventory, covered: set[str]) -> Inventory:
     package with two different "versions", one of which is not a version.
     """
     return {key: meta for key, meta in inventory.items() if key[0] not in covered}
+
+
+def _drop_local_node_workspace_rows(
+    inventory: Inventory, names_by_module: dict[str, set[str]]
+) -> Inventory:
+    """Remove first-party npm links without suppressing another module's row."""
+    return {
+        key: meta
+        for key, meta in inventory.items()
+        if key[0]
+        not in names_by_module.get(owning_module(meta.get("source_file", "")), set())
+    }
 
 
 def _names(inventory: Inventory) -> set[str]:
@@ -2662,6 +2752,8 @@ def main() -> int:
     nd_head = _inventory_at_ref(
         args.head_ref, "package-lock.json", parse_node_lock, errors=head_errors
     )
+    node_workspace_base = node_workspace_names_by_module(args.base_ref, base_paths)
+    node_workspace_head = node_workspace_names_by_module(args.head_ref, head_paths)
 
     rows.extend(diff_language("python", py_base, py_head))
     rows.extend(diff_language("node", nd_base, nd_head))
@@ -2713,12 +2805,21 @@ def main() -> int:
     python_manifest_covered = direct_covered
     for language in sorted(set(manifest_base) | set(manifest_head)):
         covered = covered_by_language.get(language, set())
+        base_manifest = manifest_base.get(language, {})
+        head_manifest = manifest_head.get(language, {})
+        if language == "node":
+            base_manifest = _drop_local_node_workspace_rows(
+                base_manifest, node_workspace_base
+            )
+            head_manifest = _drop_local_node_workspace_rows(
+                head_manifest, node_workspace_head
+            )
         if language == "python":
             # setup.py / setup.cfg / Pipfile add to the same namespace the
             # requirements.txt and pyproject.toml passes already filled.
             covered = covered | python_manifest_covered
-        base_inventory = _drop_covered(manifest_base.get(language, {}), covered)
-        head_inventory = _drop_covered(manifest_head.get(language, {}), covered)
+        base_inventory = _drop_covered(base_manifest, covered)
+        head_inventory = _drop_covered(head_manifest, covered)
         if language == "python":
             rows.extend(diff_requirements(
                 _flatten(base_inventory),

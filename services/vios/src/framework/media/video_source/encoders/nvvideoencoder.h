@@ -81,6 +81,9 @@ class NvEncoderVideoConsumer : public IMediaDataConsumer
         std::atomic<bool>                    m_encoderTransformed{false};
         std::string                          m_peerIdStreamId{""};
         int                                  m_prevBitRate {0};
+        /* The keyframe spacing already asked of the encoder, in frames, so a
+         * DASH session sets it once rather than on every frame. */
+        uint32_t                             m_dashIdrInterval {0};
         std::shared_ptr<IMediaDataConsumer>  m_consumer = nullptr;
         std::atomic<int64_t>                 m_firstTS {0};
 };

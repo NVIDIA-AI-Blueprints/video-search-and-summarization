@@ -147,7 +147,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 ## Perception Model
 
 - **2D model:** RT-DETR with ResNet-50 backbone (`nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2`) — the same package backs the MV3DT per-camera detector
-- **3D model:** Sparse4D (depth-aware perception, requires 4-camera dataset)
+- **3D model:** Sparse4D (depth-aware perception, requires 4-camera dataset). **Which Sparse4D bundle loads is selected by `DATASET_TYPE` (`real` or `synthetic`, `MODE=3d` only).** `real` → `sparse4d_warehouse_v3.0`, `synthetic` → `v2.3`, each with its own `_ov_kmeans900_v*_r50.npy` anchor and `labels-<type>.txt`; the configurator rewrites `warehouse-3d-app/models-download.json` so only the selected pair is downloaded from NGC. It must track the footage: `nv-warehouse-4cams` is `real`, both `*-synthetic` are `synthetic`, and custom footage is whatever it actually is. A mismatch is silent — the labels differ only in confidence thresholds (`real` 0.85/0.75 vs `synthetic` 0.5/0.3), so the wrong weights load with every container healthy
 - **MV3DT model:** Per-camera DeepStream perception + BEV Fusion (multi-view 3D tracking, fuses detections from multiple cameras into a unified BEV frame via MQTT)
 - **Detects:** People, humanoid robots, forklifts, autonomous vehicles, warehouse equipment
 - **Output (broker topic depends on mode):** **2D** — detections with tracked object IDs on `mdx-raw`. **3D** — Sparse4D publishes BEV frames directly to `mdx-bev`; `mdx-raw` stays empty, so do not use it to check whether 3D perception is alive. **MV3DT** — per-camera detections on `mdx-raw`, which `vss-rtvi-cv-bev-fusion` consumes and republishes as `mdx-bev`. MV3DT additionally emits `mdx-compressed-embeddings` from `vss-reid-embed-mv3dt`. Logstash indexes all of these into date-suffixed Elasticsearch indices (`mdx-bev-YYYY-MM-DD`, `mdx-compressed-embeddings-YYYY-MM-DD`), extended lists only
@@ -1047,6 +1047,10 @@ STREAM_TYPE=<kafka|redis>           # redis only for bp_wh_redis; kafka for bp_w
 
 SAMPLE_VIDEO_DATASET="<dataset-name>"
 NUM_STREAMS=<3|4>
+DATASET_TYPE=<real|synthetic>       # MODE=3d only; selects the Sparse4D bundle. Must match the
+                                    # footage: nv-warehouse-4cams=real, *-synthetic=synthetic.
+                                    # A mismatch loads the wrong weights silently. Never leave it
+                                    # empty — it interpolates into the labels-<type>.txt host path.
 ELASTICSEARCH_MODE=cpu              # inert on the compose path — leave at cpu
 
 # --- Hardware ---

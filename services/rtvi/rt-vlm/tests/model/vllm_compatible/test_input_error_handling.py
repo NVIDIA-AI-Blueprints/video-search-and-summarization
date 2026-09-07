@@ -16,6 +16,7 @@
 import asyncio
 import concurrent.futures
 import json
+import logging
 import sys
 import threading
 from importlib import metadata
@@ -1380,6 +1381,104 @@ def test_mm_processor_cache_size_rejects_negative_values(monkeypatch):
 
     with pytest.raises(ValueError, match="greater than or equal to 0"):
         vllm_compatible_model._get_mm_processor_cache_gb()
+
+
+@pytest.mark.test_in_ci
+def test_mm_processor_cache_disable_uses_zero_gb_when_legacy_flag_missing(monkeypatch, caplog):
+    """vLLM 0.17.1 has no disable_mm_preprocessor_cache; size 0 is the only lever.
+
+    The warning is the audit trail for that translation, so assert it as well as
+    the kwarg -- a silently dropped disable is what leaked the shm objects.
+    """
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+    monkeypatch.delenv("VLLM_MM_INPUT_CACHE_GIB", raising=False)
+    engine_args = {}
+
+    with caplog.at_level(logging.WARNING, logger=vllm_compatible_model.logger.name):
+        vllm_compatible_model._apply_mm_processor_cache_engine_args(
+            engine_args,
+            {"mm_processor_cache_gb"},
+        )
+
+    assert engine_args == {"mm_processor_cache_gb": 0.0}
+    assert "honored via mm_processor_cache_gb=0" in caplog.text
+    assert "does not support disable_mm_preprocessor_cache" in caplog.text
+
+
+@pytest.mark.test_in_ci
+def test_mm_processor_cache_disable_zeros_gb_even_when_legacy_flag_exists(monkeypatch):
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+    monkeypatch.setenv("VLLM_MM_PROCESSOR_CACHE_GB", "1")
+    engine_args = {}
+
+    vllm_compatible_model._apply_mm_processor_cache_engine_args(
+        engine_args,
+        {"disable_mm_preprocessor_cache", "mm_processor_cache_gb"},
+    )
+
+    assert engine_args == {
+        "disable_mm_preprocessor_cache": True,
+        "mm_processor_cache_gb": 0.0,
+    }
+
+
+@pytest.mark.test_in_ci
+def test_mm_processor_cache_opt_in_uses_configured_size(monkeypatch):
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+    monkeypatch.setenv("VLLM_DISABLE_MM_PREPROCESSOR_CACHE", "false")
+    monkeypatch.setenv("VLLM_MM_PROCESSOR_CACHE_GB", "0.5")
+    engine_args = {}
+
+    vllm_compatible_model._apply_mm_processor_cache_engine_args(
+        engine_args,
+        {"mm_processor_cache_gb"},
+    )
+
+    assert engine_args == {"mm_processor_cache_gb": 0.5}
+
+
+@pytest.mark.test_in_ci
+def test_mm_processor_cache_opt_in_keeps_size_when_legacy_flag_exists(monkeypatch):
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+    monkeypatch.setenv("VLLM_DISABLE_MM_PREPROCESSOR_CACHE", "false")
+    monkeypatch.setenv("VLLM_MM_PROCESSOR_CACHE_GB", "2")
+    engine_args = {}
+
+    vllm_compatible_model._apply_mm_processor_cache_engine_args(
+        engine_args,
+        {"disable_mm_preprocessor_cache", "mm_processor_cache_gb"},
+    )
+
+    assert engine_args == {
+        "disable_mm_preprocessor_cache": False,
+        "mm_processor_cache_gb": 2.0,
+    }
+
+
+@pytest.mark.test_in_ci
+def test_mm_processor_cache_type_is_applied_even_when_the_cache_is_disabled(monkeypatch):
+    for source, target in vllm_compatible_model._RTVI_VLLM_ENV_ALIASES.items():
+        monkeypatch.delenv(source, raising=False)
+        monkeypatch.delenv(target, raising=False)
+    engine_args = {}
+
+    vllm_compatible_model._apply_mm_processor_cache_engine_args(
+        engine_args,
+        {"mm_processor_cache_gb", "mm_processor_cache_type"},
+    )
+
+    assert engine_args == {
+        "mm_processor_cache_gb": 0.0,
+        "mm_processor_cache_type": "shm",
+    }
 
 
 def test_mm_processor_cache_type_defaults_to_shared_memory(monkeypatch):

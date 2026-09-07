@@ -43,6 +43,27 @@ spec:
             name: <RELEASE_NAME>-vss-agent-ui
             port:
               number: 3000
+      - path: /api/agent
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent-ui
+            port:
+              number: 3000
+      - path: /api/vss-chat
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent-ui
+            port:
+              number: 3000
+      - path: /api/proxy
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent-ui
+            port:
+              number: 3000
       - path: /api
         pathType: Prefix
         backend:

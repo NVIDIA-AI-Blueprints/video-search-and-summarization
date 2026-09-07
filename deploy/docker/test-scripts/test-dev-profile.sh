@@ -240,9 +240,9 @@ get_commented_sbsa_keys() {
   grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${env_file}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u
 }
 
-# Run one DGX-SPARK dry-run test for a profile: discover sbsa keys from profile overrides.env, run up -H DGX-SPARK, assert.
-# Skips if profile overrides.env is missing. Alerts gets -m real-time. Search must
-# name remote LLM/VLM endpoints, which the single-GPU edge policy requires.
+# Run one DGX-SPARK dry-run test for a profile and assert the centralized SBSA tag suffix.
+# Alerts gets -m real-time. Search must name remote LLM/VLM endpoints.
+
 run_spark_test_for_profile() {
   local profile="${1}"
   local env_file="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-${profile}/overrides.env"
@@ -258,12 +258,12 @@ run_spark_test_for_profile() {
   [[ "${profile}" == "alerts" ]] && run_args+=(-m real-time)
   if [[ "${profile}" == "search" ]]; then
     run_args+=(--use-remote-llm --llm x --use-remote-vlm --vlm y)
-    LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 \
-      run_dry_run_up_and_check_generated_env "generated.env DGX-SPARK swaps to sbsa tags (${profile})" "${profile}" \
+    LLM_ENDPOINT_URL=http://127.0.0.1:8000 VLM_ENDPOINT_URL=http://127.0.0.1:8001 EXPECTED_STDOUT="Managed container tag suffix: -sbsa" \
+      run_dry_run_up_and_check_generated_env "generated.env DGX-SPARK enables the SBSA tag suffix (${profile})" "${profile}" \
       "${run_args[@]}" -- "${check_args[@]}"
     return 0
   fi
-  run_dry_run_up_and_check_generated_env "generated.env DGX-SPARK swaps to sbsa tags (${profile})" "${profile}" \
+  EXPECTED_STDOUT="Managed container tag suffix: -sbsa" run_dry_run_up_and_check_generated_env "generated.env DGX-SPARK enables the SBSA tag suffix (${profile})" "${profile}" \
     "${run_args[@]}" -- "${check_args[@]}"
 }
 
@@ -327,6 +327,10 @@ run_dry_run_up_and_check_generated_env() {
   fi
 
   local failed=0
+  if [[ -n "${EXPECTED_STDOUT:-}" ]] && ! grep -Fq "${EXPECTED_STDOUT}" "${out_file}"; then
+    echo "FAIL: ${name} (stdout missing: ${EXPECTED_STDOUT})"
+    ((failed++)) || true
+  fi
   local i=0
   while [[ $i -lt ${#checks[@]} ]]; do
     local var="${checks[$i]}"
@@ -1043,9 +1047,8 @@ run_dry_run_up_and_check_generated_env "generated.env search default wires RT-VL
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0" \
   "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
-run_dry_run_up_and_check_generated_env "generated.env search selects SBSA RT Embed tag" "search" \
+EXPECTED_STDOUT="Managed container tag suffix: -sbsa" run_dry_run_up_and_check_generated_env "search explicit SBSA override enables the tag suffix" "search" \
   -i 127.0.0.1 -H OTHER --use-sbsa-images -d -- \
-  "VSS_RT_EMBED_TAG" "develop-latest-sbsa"
 _mock_brev_one_gpu_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_brev_one_gpu_dir}")
 cat > "${_mock_brev_one_gpu_dir}/nvidia-smi" <<'EOF'
@@ -1657,6 +1660,31 @@ else
   echo "FAIL: smartcities profile should have overrides.env"
   ((_split_failed++)) || true
 fi
+# Every launchable profile exposes the same backend-neutral harness settings.
+# Values remain disabled/empty in source control; generated.env or the ignored
+# user-overrides.env carries the deployment's endpoint and token.
+_agent_adapter_override_keys=(
+  VSS_AGENT_ADAPTER_ENABLED VSS_AGENT_BACKEND_PROTOCOL
+  VSS_AGENT_BACKEND_URL VSS_AGENT_BACKEND_PATH VSS_AGENT_BACKEND_TOKEN
+  VSS_AGENT_BACKEND_MODEL VSS_AGENT_BACKEND_SESSION_FIELD
+  VSS_AGENT_BACKEND_SESSION_HEADER VSS_AGENT_BACKEND_HEADERS_JSON
+  VSS_AGENT_BACKEND_TIMEOUT_SECONDS
+)
+for _adapter_env in \
+  "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env \
+  "${REPO_ROOT}"/deploy/docker/industry-profiles/*/overrides.env; do
+  [[ -f "${_adapter_env}" ]] || continue
+  for _key in "${_agent_adapter_override_keys[@]}"; do
+    if ! grep -Eq "^${_key}=" "${_adapter_env}"; then
+      echo "FAIL: ${_adapter_env} should define external-agent setting ${_key}"
+      ((_split_failed++)) || true
+    fi
+  done
+  if ! grep -Fqx 'VSS_AGENT_BACKEND_TOKEN=${VSS_AGENT_BACKEND_TOKEN:-}' "${_adapter_env}"; then
+    echo "FAIL: ${_adapter_env} should keep the harness token out of source control"
+    ((_split_failed++)) || true
+  fi
+done
 _shared_service_env_specs=(
   "deploy/docker/services/agent/agent.env:VSS_AGENT_HOST VSS_AGENT_PORT VSS_AGENT_OBJECT_STORE_TYPE PHOENIX_ENDPOINT VSS_ES_PORT VSS_VA_MCP_PORT VIDEO_ANALYSIS_MCP_URL"
   "deploy/docker/services/alert/alert.env:ALERT_BRIDGE_PORT ALERT_BRIDGE_URL"
@@ -1884,12 +1912,18 @@ run_dry_run_up_and_check_generated_env "generated.env Search keeps Nemotron 3.5 
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b"
 
-run_dry_run_up_and_check_generated_env "generated.env Base GB300 overlay selects ARM64 LLM and SBSA RT-VLM" "base" \
+EXPECTED_STDOUT="Managed container tag suffix: -sbsa" run_dry_run_up_and_check_generated_env "generated.env Base GB300 selects the centralized SBSA suffix" "base" \
  -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
   "HARDWARE_PROFILE" "GB300" \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "FIXED_SHARED_DEVICE_IDS" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
-  "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
 
 run_dry_run_up_and_check_generated_env "generated.env Base defaults to Nemotron 3.5 Lightning on H100" "base" \
  -i 127.0.0.1 -H H100 -d -- \

@@ -110,10 +110,10 @@ independent of the index inventory.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 
-   Preserve both the matched source's `.sensorId` and `.name`. The required
-   `--video-source` value depends on the search path, not the source type:
-   `embed` and `fusion` use the sensor ID; `attribute` and `object` use the
-   name. The CLI matches this value literally and does no name↔ID conversion.
+   Preserve both the matched source's `.sensorId` and `.name`. The
+   `--video-source` value depends on the search path, not the source type (optional for every path):
+   `embed` matches the sensor ID literally; `attribute` and `object` match the
+   name literally; only `tag` resolves a source name to its VST sensor ID (passing an already-id through). `fusion` does **not** resolve — its embedding leg filters by sensor ID literally — so hand fusion the preserved sensor ID (the tag leg accepts IDs too). For every path an unknown source yields an empty, narrowed result, not an error.
    Set `--source-type video_file` for uploads or `--source-type rtsp` for live
    streams. This selects the index partition for that media kind from a fixed
    uploads anchor (not a discovered index), independently of the identifier, so
@@ -128,6 +128,7 @@ independent of the index inventory.
    - free-text intent with no detectable property → `run embed`
    - detectable properties only, no action or relation → `run attribute`
    - explicit tracked object IDs → `run object`
+   - explicit keyword or tag intent — lexical (BM25) match against indexed VLM tags, with no detectable property and no semantic free-text → `run tag`
 
    `--attribute` is for specific detectable properties, not generic nouns or
    actions. A property counts only when RT-CV detects it on the subject (attire,
@@ -135,16 +136,18 @@ independent of the index inventory.
    `red forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has
    a property (`hard hat`) and an action (`carrying a cone`): `run fusion --query
    "worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
-   for genuinely attribute-free intent.
+   for genuinely attribute-free intent. `run tag` is for explicit lexical
+   intent — matching indexed VLM tag keywords by BM25 — not semantic similarity;
+   reserve it for keyword/tag queries that name no detectable property.
 
 4. Construct the invocation as a Bash array and validate only its exact
    stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
 
 ```bash
-: "${SEARCH_PATH:?set embed|attribute|fusion|object}"
+: "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
 : "${SOURCE_TYPE:?set video_file or rtsp}"
 TOP_K="${TOP_K:-3}"
-VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object
+VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
 : "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
 if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
   echo "Resolved source scope is empty; refusing an unrestricted search" >&2
@@ -173,7 +176,7 @@ Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
 `search run`; `vss configure` owns those values. Do not replace a failed CLI
 call with `/api/v1/search` or private backend access.
 
-5. Validate each nonempty hit's exact returned `screenshot_url` with a bounded
+1. Validate each nonempty hit's exact returned `screenshot_url` with a bounded
 GET for availability only. Its normalized scheme, host, and effective port
 always match the origin recorded by `vss configure`, because the CLI stamps
 that origin into every hit — a localhost media URL means the deployment was
@@ -185,7 +188,7 @@ routing diagnosis. Reject credentials in the URL and never rewrite the URL or
 add a `streamId` routing header. Discard the response body; availability is not
 visual evidence.
 
-6. Read every hit's `verification` object:
+2. Read every hit's `verification` object:
 
    - `confirmed`: the critic found all requested visual criteria in that clip.
    - `rejected`: the critic found a visual criterion was not met.
@@ -196,7 +199,7 @@ The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
 availability. Treat boolean `criteria_met` values as critic evidence only.
 
-7. Format nonempty results without raw JSON:
+1. Format nonempty results without raw JSON:
 
 ```text
 ## Video Search Results
@@ -215,14 +218,14 @@ entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
 omit it even when other hits are unverified. Never deploy a VLM or call
 `vss-ask-video` automatically during this results turn.
 
-8. If the user explicitly confirms, read
+1. If the user explicitly confirms, read
 [search-result verification](references/result_verification.md) completely and
 delegate the displayed hits only after confirming again that every one is
 still `unverified`. Preserve their exact bounded intervals and the complete
 original visual intent. Keep at most three delegations in flight. Never hand
 off a partially verified result set.
 
-9. If `.data` is empty, report zero candidates faithfully — a fact about
+2. If `.data` is empty, report zero candidates faithfully — a fact about
 retrieval, not about the video. Do not claim the object is absent, describe
 what the footage contains, or argue it is not something you would expect
 there: a threshold or embedding gap yields the same empty result as a genuine

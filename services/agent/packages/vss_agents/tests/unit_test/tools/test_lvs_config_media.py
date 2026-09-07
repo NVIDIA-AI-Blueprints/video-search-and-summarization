@@ -28,8 +28,10 @@ from vss_agents.tools.lvs_config_media import LVSConfigMediaOutput
 from vss_agents.tools.lvs_config_media import LVSMediaStatus
 from vss_agents.tools.lvs_config_media import lvs_config_media
 from vss_agents.tools.lvs_config_media import user_requested_caption_generation
+from vss_agents.tools.lvs_media_state import LVSConfiguredMedia
 from vss_agents.tools.lvs_media_state import clear_configured_media_state
 from vss_agents.tools.lvs_media_state import configured_media
+from vss_agents.tools.lvs_media_state import remember_configured_media
 
 
 class TestLVSConfigMediaModels:
@@ -60,6 +62,7 @@ class TestLVSConfigMediaModels:
         input_data = LVSConfigMediaInput(stream_name=" CAM_1 ")
         assert input_data.media_type == "stream"
         assert input_data.stream_name == "CAM_1"
+        assert input_data.reconfigure is False
 
         with pytest.raises(ValidationError):
             LVSConfigMediaInput(stream_name=" ")
@@ -201,6 +204,44 @@ class TestLVSConfigMediaInner:
                 "use_fps_for_chunking": False,
             },
         )
+
+    @pytest.mark.asyncio
+    async def test_config_media_does_not_reopen_hitl_for_configured_stream(self):
+        remember_configured_media(
+            LVSConfiguredMedia(
+                media_type="stream",
+                media_name="CAM_1",
+                media_id="stream-uuid",
+                media_url="rtsp://example/stream",
+                scenario="warehouse monitoring",
+                events=("accident",),
+                objects_of_interest=("forklift",),
+            )
+        )
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            vst_internal_url="http://localhost:30888",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+        )
+
+        with (
+            patch(
+                "vss_agents.tools.lvs_config_media.get_stream_info_by_name",
+                new=AsyncMock(return_value=("stream-uuid", "rtsp://example/stream")),
+            ),
+            patch("vss_agents.tools.lvs_config_media._prompt_user_input", new_callable=AsyncMock) as mock_prompt,
+            patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession") as mock_session,
+        ):
+            inner_fn = await self._get_inner_fn(config)
+            result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+
+        assert result.status == LVSMediaStatus.ACCEPTED
+        assert result.configured is True
+        assert "already configured" in result.message.lower()
+        mock_prompt.assert_not_awaited()
+        mock_session.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_config_media_payload_includes_enable_audio_when_set(self):

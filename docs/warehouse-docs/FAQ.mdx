@@ -473,6 +473,10 @@ sudo systemctl enable --now nvidia-cdi-refresh.service
 
 ### How do I resolve a failure when deploying the one-click deployment?
 
+<Warning>
+The host-wide cleanup commands below are intended only for a dedicated deployment host. They stop and remove every container, delete every local image, and prune unused volumes and build data, including resources unrelated to Warehouse. Back up persistent data and verify that no other workloads use the host before running them.
+</Warning>
+
 We recommend the following steps to resolve deployment failures -
 
     * In case of one click Baremetal Docker, Make sure a previous deployment isn't already running using `docker ps`. If a previous deployment exists, then perform a cleanup using the following commands and run the one click deployment again.

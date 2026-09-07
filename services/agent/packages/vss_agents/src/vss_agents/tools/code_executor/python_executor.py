@@ -70,6 +70,7 @@ class CodeExecutorOutput(BaseModel):
     """Output for the Code Executor tool"""
 
     message: str = Field(..., description="The output of the code execution")
+    success: bool = Field(default=True, description="Whether the code exited successfully")
 
 
 @register_function(config_type=CodeExecutorConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -103,9 +104,9 @@ async def python_executor(config: CodeExecutorConfig, _builder: Builder) -> Asyn
         code = code_executor_input.code or ""
         output = executor.run_code(code, code_executor_input.files, image=image_name)
         if output["exit_code"] == 0:
-            return CodeExecutorOutput(message=f"{output['stdout']}")
+            return CodeExecutorOutput(message=f"{output['stdout']}", success=True)
         else:
-            return CodeExecutorOutput(message=f"Error: {output}")
+            return CodeExecutorOutput(message=f"Error: {output}", success=False)
 
     yield FunctionInfo.create(
         single_fn=_python_executor,

@@ -356,23 +356,30 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_qwen3_omni_audio_patch.py
 
-# EVS++ is shipped as prebuilt architecture-specific extensions below. Do not
-# copy its Python overlay into this public build; install the compiled modules
-# directly and retain the independent tensor-IPC patch.
+# Install the public EVS++ vLLM overlay first. The eleven EVS++ libraries are
+# installed as architecture-specific extensions below.
+COPY docker/rtvi_vlm/patches/evs_vllm_public_files/ /tmp/evs-public-overlay/
+RUN set -eu; \
+    vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
+    cp -a /tmp/evs-public-overlay/. "$vllm_root"/; \
+    rm -rf /tmp/evs-public-overlay
+
+# Apply the remaining public compatibility patches after the overlay. The
+# protected serving module imports VideoClipAddRequest from the protocol.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
-    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
+    && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
 # Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_flashinfer_cudart_patch.py
 
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-x86-evs-cython/ /tmp/evs-libs/x86/
-COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/igpu/
-COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-sbsa-evs-cython/ /tmp/evs-libs/sbsa/
+COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/arm64/
 RUN set -eu; \
     case "$TARGETARCH" in \
         amd64) evs_arch=x86 ;; \
-        arm64) case "$ARM_PLATFORM" in igpu|sbsa) evs_arch="$ARM_PLATFORM" ;; *) echo "Unsupported ARM platform: $ARM_PLATFORM" >&2; exit 1 ;; esac ;; \
+        arm64) case "$ARM_PLATFORM" in igpu|sbsa) evs_arch=arm64 ;; *) echo "Unsupported ARM platform: $ARM_PLATFORM" >&2; exit 1 ;; esac ;; \
         *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     source_root="/tmp/evs-libs/$evs_arch/vllm"; \
@@ -387,6 +394,13 @@ RUN set -eu; \
         rm -f "$vllm_root/${relative%%.cpython-312-*}.py"; \
     done; \
     rm -rf /tmp/evs-libs
+
+# Fail the image build if the EVS++ modules and their public protocol
+# compatibility types are not a coherent set. The SBSA build environment does
+# not mount the Tegra driver, which vLLM imports during this check.
+RUN if [ "$TARGETARCH" != "arm64" ] || [ "$ARM_PLATFORM" != "sbsa" ]; then \
+        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions'; \
+    fi
 
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
 # libraries under /opt/tritonserver (e.g. hashed shared objects inside the DALI wheel).

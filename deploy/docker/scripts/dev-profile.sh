@@ -34,6 +34,7 @@ ngc_cli_api_key="${NGC_CLI_API_KEY:-}"
 nvidia_api_key="${NVIDIA_API_KEY:-}"
 openai_api_key="${OPENAI_API_KEY:-}"
 dry_run="false"
+use_sbsa_images="false"
 # Build the VIOS runtime-media packages into a local image instead of installing
 # them on every container start. Env var so CI can set it without a flag.
 prebake_vios_packages="${VSS_VIOS_PREBAKE_PACKAGES:-false}"
@@ -942,6 +943,8 @@ function usage() {
   echo "  --vlm-env-file                   Path to VLM env file. Absolute or relative to CWD."
   echo "                                   • Not allowed when --use-remote-vlm is passed"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
+  echo "  --use-sbsa-images                Use SBSA-tagged managed-image variants."
+  echo "                                   • Enabled automatically for -H DGX-SPARK or GB300"
   echo ""
   echo "Options for 'up' and 'down':"
   echo "  -d, --dry-run                    print commands without executing them"
@@ -966,7 +969,7 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,dry-run,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -1007,7 +1010,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,dry-run,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   # Parse options
@@ -1104,6 +1107,11 @@ function process_args() {
         shift
         vlm_env_file="${1}"
         options_provided+=("vlm-env-file")
+        shift
+        ;;
+      --use-sbsa-images)
+        use_sbsa_images="true"
+        options_provided+=("use-sbsa-images")
         shift
         ;;
       -d | --dry-run)
@@ -1220,12 +1228,10 @@ function process_args() {
         _vlm_is_remote=1
       fi
 
-      # Search places every local model on one shared GB300, so it resolves a
-      # single deployment GPU from an explicitly selected local model, or
-      # auto-detects it when exactly one GB300 is present (including
-      # remote+remote). Other profiles carry their own GB300 handling and must
-      # not be routed through this resolution.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # Every profile places its GPU-consuming services on one selected GB300.
+      # Resolve that GPU from an explicitly selected local model, or auto-detect
+      # it when exactly one GB300 is present (including remote+remote).
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         # Device IDs reach here from the CLI or from the profile environment, and
         # only a CLI value is an explicit selection. The profile defaults describe
         # the two-GPU layout (LLM on 1, VLM on 0), which cannot apply to a single
@@ -1251,7 +1257,7 @@ function process_args() {
           # A conflict the user actually expressed is an error; one inherited
           # wholly from the profile environment is not.
           if [[ "${_llm_id_is_cli}" -eq 1 ]] || [[ "${_vlm_id_is_cli}" -eq 1 ]]; then
-            echo "[ERROR] GB300 search requires local LLM and VLM device IDs to select the same GPU"
+            echo "[ERROR] GB300 requires local LLM and VLM device IDs to select the same GPU"
             ((_all_good++))
           fi
         else
@@ -1281,9 +1287,9 @@ function process_args() {
         if [[ "${_vlm_is_remote}" -eq 0 ]]; then
           vlm_device_id="${hardware_device_id}"
         fi
-        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
+        if [[ "${profile}" == "search" ]] && [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
           && [[ "${llm}" != "nvidia/nemotron-3.5-lightning-30b-a3b" ]]; then
-          echo "[ERROR] GB300 search supports only the local LLM nvidia/nemotron-3.5-lightning-30b-a3b"
+          echo "[ERROR] The search profile on GB300 supports only the locally hosted LLM nvidia/nemotron-3.5-lightning-30b-a3b"
           ((_all_good++))
         fi
       fi
@@ -1306,6 +1312,9 @@ function process_args() {
         _gpu_name="$(get_nvidia_smi_gpu_name "${_hardware_check_device_id}")"
         if [[ -z "${_gpu_name}" ]]; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match detected hardware (no NVIDIA GPU detected)."
+          ((_all_good++))
+        elif [[ "${hardware_profile}" == "GB300" ]] && [[ "$(get_detected_hardware_profile "${_gpu_name}")" != "GB300" ]]; then
+          echo "[ERROR] Selected GPU device ID '${_hardware_check_device_id}' is not a GB300."
           ((_all_good++))
         elif ! host_has_detected_hardware_profile "$(get_canonical_hardware_profile "${hardware_profile}")"; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match any detected NVIDIA GPU."
@@ -1450,9 +1459,9 @@ function process_args() {
         fi
       fi
 
-      # Every local model on the single selected GB300 shares that GPU with the
-      # search runtime services, even when the other model uses a remote endpoint.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # Every local model on the single selected GB300 shares that GPU with
+      # the profile runtime services, even when the other model is remote.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         [[ "${llm_mode}" != "remote" ]] && llm_mode="local_shared"
         [[ "${vlm_mode}" != "remote" ]] && vlm_mode="local_shared"
       fi
@@ -1521,8 +1530,9 @@ function process_args() {
       fi
 
       # Device IDs must not be in profile RESERVED_DEVICE_IDS (comma-separated list; may be empty).
-      # Exception: DGX-SPARK, IGX-THOR, AGX-THOR are exempt (device ID options not accepted).
-      if ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
+      # Edge boards and GB300 are exempt: their resolved device is the shared
+      # deployment GPU, so it intentionally supersedes profile reservations.
+      if [[ "${hardware_profile}" != "GB300" ]] && ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
         if [[ -n "${profile}" ]] && [[ -f "${deployment_directory}/developer-profiles/dev-profile-${profile}/.env" ]]; then
           # The effective reservation, not the committed one: on a host with
           # fewer GPUs than the profile assumes the reservation has already been
@@ -2090,7 +2100,7 @@ function state_up() {
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
   fi
-  if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]]; then
+  if [[ "${hardware_profile}" == "GB300" ]]; then
     local _gb300_device_id="${hardware_device_id}"
     set_env_var "SHARED_LLM_VLM_DEVICE_ID" "${_gb300_device_id}"
     set_env_var "FIXED_SHARED_DEVICE_IDS" "${_gb300_device_id}"
@@ -2233,9 +2243,9 @@ function state_up() {
       else
         set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
       fi
-      # RT-VLM remains a local proxy for remote VLM endpoints on GB300 search,
-      # which is the only profile that resolves a single deployment GPU.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # RT-VLM remains a local proxy for remote VLM endpoints on GB300, so it
+      # follows the selected deployment GPU for every profile.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
       fi
     fi
@@ -2311,29 +2321,6 @@ function state_up() {
     esac
   fi
 
-  # ARM64 GPU systems use explicit SBSA image tags where profiles provide them.
-  # This includes DGX-SPARK and GB300 (Grace Blackwell), whose generic image
-  # manifests do not include the required DeepStream/Tegra runtime libraries.
-  # For any env var with a commented line whose value contains sbsa, comment the
-  # uncommented line (non-sbsa) and uncomment the sbsa line. Discover keys from
-  # the file. Comment format may be "# VAR=..." or "#VAR=..." (optional space).
-  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" ]]; then
-    local _key
-    while IFS= read -r _key; do
-      [[ -z "${_key}" ]] && continue
-      # Comment the uncommented line for this key when value does not contain sbsa
-      sed -i -E "/sbsa/! s/^(${_key})=(.*)/# \1=\2/" "${_generated_env}"
-      # Uncomment the commented line for this key when value contains sbsa
-      sed -i -E "/sbsa/ s/^#[[:space:]]*(${_key})=(.*)/\1=\2/" "${_generated_env}"
-      echo "[INFO] Swapped to SBSA (${hardware_profile}): ${_key}"
-    done < <(grep -E '^#[[:space:]]*[A-Za-z0-9_]+=.*sbsa' "${_generated_env}" 2>/dev/null | sed -nE 's/^#[[:space:]]*([A-Za-z0-9_]+)=.*/\1/p' | sort -u)
-  fi
-  # Write the ARM64 RT-VLM image selector into generated.env where it wins
-  # during Compose interpolation.
-  if [[ "${hardware_profile}" == "GB300" ]]; then
-    set_env_var "VSS_RT_VLM_TAG" "3.3.0-26.08.2-sbsa"
-    echo "[INFO] Selected SBSA RT-VLM image for GB300"
-  fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 
@@ -2394,6 +2381,11 @@ function state_up() {
   if [[ "${dry_run}" != "true" ]]; then
     echo "[INFO] Applying VSS Linux kernel settings..."
     set_vss_linux_kernel_settings
+  fi
+
+  if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
+    export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+    echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
   fi
 
   # Resolve and display the managed container channel before deployment.

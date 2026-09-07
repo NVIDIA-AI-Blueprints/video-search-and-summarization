@@ -110,6 +110,12 @@ services:
       RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE: "${RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE:-}"
       RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE: "${RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE:-}"
       RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS: "${RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS:-false}"
+      # Optional EVS++ session controls.
+      VIA_EVS_SESSION: "${VIA_EVS_SESSION:-}"
+      VLLM_EVS_SIMILARITY_THRESHOLD: "${VLLM_EVS_SIMILARITY_THRESHOLD:-}"
+      VLLM_NUM_PREPROCESS_WORKERS: "${VLLM_NUM_PREPROCESS_WORKERS:-16}"
+      VIA_EVS_TOKEN_BUDGET: "${VIA_EVS_TOKEN_BUDGET:-}"
+      VIA_EVS_MAX_SESSIONS: "${VIA_EVS_MAX_SESSIONS:-}"
       VLLM_MAX_NUM_SEQS: "${VLLM_MAX_NUM_SEQS:-1024}"
       VLM_MAX_MODEL_LEN: "${VLM_MAX_MODEL_LEN:-32768}"
       # Additional VLLM Runtime Configuration
@@ -131,14 +137,21 @@ services:
       VLLM_DISABLED_KERNELS: "${VLLM_DISABLED_KERNELS:-MacheteLinearKernel}"
       VLLM_ROOT: "${VLLM_ROOT:-/usr/local/lib/python3.12/dist-packages/vllm}"
       VLLM_USE_STANDALONE_COMPILE: "${VLLM_USE_STANDALONE_COMPILE:-0}"
+      VLLM_USE_AOT_COMPILE: "${VLLM_USE_AOT_COMPILE:-0}"
+      VLLM_DISABLE_COMPILE_CACHE: "${VLLM_DISABLE_COMPILE_CACHE:-1}"
       VLLM_ENFORCE_EAGER: "${VLLM_ENFORCE_EAGER:-false}"
+      # Opt in only on platforms that hit the Qwen3-VL Conv3D cuDNN-v8 engine issue.
+      TORCH_CUDNN_V8_API_DISABLED: "${TORCH_CUDNN_V8_API_DISABLED:-false}"
       VLLM_USE_NVFP4_CT_EMULATIONS: "${VLLM_USE_NVFP4_CT_EMULATIONS:-0}"
       # API cap on output tokens.
       VLM_MAX_GENERATION_TOKENS: "${RTVI_VLM_MAX_GENERATION_TOKENS:-16384}"
       # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
       VLLM_MOE_BACKEND: "${RTVI_VLLM_MOE_BACKEND:-}"
-      # vLLM multimodal preprocessor cache size in GiB.
-      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-1}"
+      # vLLM multimodal preprocessor cache size in GiB, off by default: vLLM
+      # unlinks the shm cache only from __del__, so a SIGKILL leaks a 1 GiB
+      # object into the host tmpfs because this service runs ipc: host.
+      # Opting in also needs VLLM_DISABLE_MM_PREPROCESSOR_CACHE=false.
+      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-0}"
       # Bounded queue size for the async Kafka sender.
       KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"

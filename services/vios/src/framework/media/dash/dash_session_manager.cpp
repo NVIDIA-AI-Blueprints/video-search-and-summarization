@@ -75,7 +75,22 @@ unsigned parsePositive(const std::string& value, unsigned fallback)
 
 namespace
 {
+/* Retention has to cover the window the manifest advertises, and the manifest
+ * measures that window in seconds while this counts files. The two agreed only
+ * while segments happened to be long: at eight seconds apiece sixty of them
+ * held eight minutes, comfortably more than the ninety second window. A one
+ * second segment turns the same count into sixty seconds, which is less than
+ * the window, so the oldest third of what the manifest offered no longer
+ * existed. Derive the count from the window instead, with a margin so a player
+ * sitting at the far edge is not racing the pruner. */
 constexpr uint64_t kDashRetainedSegments = 60;
+
+uint64_t retainedSegmentsFor(unsigned segmentDurationSeconds)
+{
+    const unsigned seconds = segmentDurationSeconds > 0 ? segmentDurationSeconds : 1;
+    const uint64_t needed = (static_cast<uint64_t>(vst::dash::kDashTimeShiftBufferDepthSeconds) / seconds) + 10;
+    return std::max(kDashRetainedSegments, needed);
+}
 
 // A fresh session has no back catalogue, so a player that starts on the live
 // edge stalls once per segment.  Withhold the manifest until this many seconds
@@ -86,7 +101,14 @@ constexpr uint64_t kDashRetainedSegments = 60;
 // than on it.  It must cover both the player live delay and the manifest's
 // availability shift, otherwise Chrome starts at the edge with no jitter
 // tolerance.  This adds startup time, but prevents recurring stalls.
-constexpr unsigned kDashPrerollSeconds = 8;
+/* Eight seconds was this floor while segments were published on a one second
+ * grid, where two of them bought a catalogue barely wider than the player's
+ * live delay and the rest of the wait was doing the work. On a grid that
+ * reaches the configured length, two segments already carry that catalogue, so
+ * the floor only has to cover the case where segments are shorter than asked
+ * for. Every second beyond it is a second of black screen: measured at eight,
+ * the manifest was withheld for ten seconds of a twelve second start-up. */
+constexpr unsigned kDashPrerollSeconds = 4;
 
 /* How much media must exist before the manifest is published, as a count of
  * segments.
@@ -137,24 +159,46 @@ double parseFrameRate(const std::string& value, double fallback)
  * was published as nine second segments, and a player that must hold a whole
  * segment before it can show any of it froze for ten seconds at a time with ten
  * seconds already buffered. */
-unsigned encoderSegmentSeconds(const std::string& frameRate, unsigned configured)
+/* A session that re-encodes does not inherit the source's keyframe interval:
+ * the encoder is told its own, so the segments it can actually produce are that
+ * long and no longer.  Sizing them from the camera instead advertises segments
+ * the media does not contain - a 250 picture source re-encoded at one second
+ * was published as nine second segments, and a player that must hold a whole
+ * segment before it can show any of it froze for ten seconds at a time with ten
+ * seconds already buffered. */
+/* How long a segment should be, given the keyframe interval the media is
+ * arriving on and the length DASH has been configured to aim for.
+ *
+ * A segment can only end on a keyframe, so the achievable lengths are whole
+ * multiples of the keyframe interval and nothing else. Asking for a length that
+ * is not one of them does not split the difference: the muxer ends the segment
+ * at whichever keyframe is nearest and the published timeline comes back a
+ * mixture. Measured against a one second interval, asking for four produced
+ * alternating four and three second segments; a player sizes its buffer from
+ * the longest while the short ones arrive faster, and stalls on the difference.
+ *
+ * So round the target up to a whole number of intervals. A one second interval
+ * asked for two seconds gives exactly two, by ending every second keyframe
+ * rather than every one. An interval already longer than the target is left
+ * alone - it is the shortest segment that source can produce. */
+/* What to ask for when the source's keyframe interval is not known. One second
+ * is at or below every interval worth publishing, and a target at or below the
+ * interval ends the segment on each keyframe, so the timeline stays uniform. */
+constexpr unsigned kDashUnknownKeyframeSeconds = 1;
+
+/* How long a segment is where the session re-encodes and the encoder is
+ * therefore ours to program. */
+unsigned encoderSegmentSeconds(unsigned configured)
 {
-    const int interval = GET_CONFIG().webrtc_out_set_idr_interval > 0
-                             ? GET_CONFIG().webrtc_out_set_idr_interval
-                             : GET_CONFIG().webrtc_out_set_iframe_interval;
-    const double rate = parseFrameRate(frameRate, 0.0);
-    if (interval <= 0 || rate <= 0.0)
-    {
-        return configured;
-    }
-    const double seconds = static_cast<double>(interval) / rate;
-    if (seconds <= 0.0 || seconds > 60.0)
-    {
-        return configured;
-    }
-    // Never below one second: a sub-second grid multiplies requests per stream
-    // for no benefit a viewer can see.
-    return static_cast<unsigned>(std::max(1.0, std::ceil(seconds)));
+    /* The configured length, directly. This used to be derived from the WebRTC
+     * keyframe interval, which is the one the encoder happened to be given, but
+     * that interval counts frames and so means a different length at every
+     * frame rate: a video wall composed at eight frames a second read thirty
+     * frames as 3.75 s and published four second segments however short the
+     * configured length was. The encoder is now told to emit a keyframe at the
+     * published segment length instead - it reads publishedSegmentSeconds() and
+     * converts to frames itself - so what DASH asks for is what it gets. */
+    return std::max(1u, configured);
 }
 
 /* One place to see what a DASH request asked for and what the pipeline was
@@ -180,13 +224,21 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
 {
     if (reEncodes)
     {
-        return encoderSegmentSeconds(frameRate, configured);
+        return encoderSegmentSeconds(configured);
     }
     const unsigned pictures = parsePositive(govLength, 0);
     const double rate = parseFrameRate(frameRate, 0.0);
     if (pictures == 0 || rate <= 0.0)
     {
-        return configured;
+        /* The configured length is what DASH would like, and it is the right
+         * answer wherever we own the encoder. Here we do not: the keyframes are
+         * the camera's and their spacing is unknown. Asking for longer than
+         * they happen to be is what produces a mixed timeline - measured as one
+         * two second segment followed by three one second ones - so ask for the
+         * shortest thing instead. Any target at or below the interval ends the
+         * segment on every keyframe, which is uniform whatever the camera is
+         * doing; only asking for more than the interval is unsafe. */
+        return kDashUnknownKeyframeSeconds;
     }
     const double seconds = static_cast<double>(pictures) / rate;
     /* Asking for more than the keyframe interval does not lengthen the segment
@@ -196,12 +248,36 @@ unsigned segmentDurationFor(const std::string& govLength, const std::string& fra
      * longest segment while the short ones arrive at twice the rate, and that
      * measured as a stall every few seconds.  Ask for what the source gives.
      *
+     * Re-measured against a two second target: a one second source published
+     * `d=6000` once and `d=3000` three times running, so grouping keyframes is
+     * not something the muxer can be asked for. A pass-through session is
+     * therefore stuck with the camera's grid, and a camera on a one second grid
+     * stays expensive to watch from far away. Lengthening it needs either the
+     * muxer to end a segment on a chosen keyframe rather than the next one, or
+     * the stream to be re-encoded - and re-encoding every pass-through session
+     * to save requests is not a trade worth making silently.
+     *
      * An implausible interval is not worth trusting over the configured value. */
-    if (seconds <= 1.0 || seconds > 60.0)
+    if (seconds <= 0.0 || seconds > 60.0)
+    {
+        return kDashUnknownKeyframeSeconds;
+    }
+    /* A target at or below the interval ends the segment on every keyframe and
+     * the timeline is uniform, so where the camera is already publishing
+     * segments as long as delivery wants, round down and take them.
+     *
+     * Where it is not, the only lever left is to ask for longer anyway. The
+     * muxer then skips to a later keyframe and the timeline comes back mixed -
+     * measured as alternating four and three second segments against a four
+     * second target. That is not what a uniform grid would give, but it is what
+     * makes a camera on a one second interval watchable from far away, where
+     * each segment has to be worth more than the round trips it costs to fetch,
+     * and it was measured playing without a stall on exactly such a link. */
+    if (static_cast<double>(configured) > seconds)
     {
         return configured;
     }
-    return static_cast<unsigned>(std::ceil(seconds));
+    return static_cast<unsigned>(std::max(1.0, std::floor(seconds)));
 }
 
 } // namespace
@@ -389,6 +465,13 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
      * only that the source asks for it rather than the viewer. */
     const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
     const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
+    /* Whether this session ends at an encoder we own, which is what decides
+     * the segment grid: an overlay, a composite and a transcode all do, and
+     * with always_encode set so does an ordinary live stream. Republishing the
+     * camera's access units is the only case that does not, and it leaves the
+     * grid to whatever keyframe interval the camera happens to use. */
+    const bool encodeSession = GET_CONFIG().dash_always_encode || overlayRequested
+                               || compositeRequested || transcodeRequired;
     const std::string mediaUrl = stream->live_proxy_url.empty() ? stream->live_url : stream->live_proxy_url;
     if (mediaUrl.rfind("rtsp://", 0) != 0 && mediaUrl.rfind("rtsps://", 0) != 0)
     {
@@ -466,7 +549,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * keyframe interval rather than the camera's. */
         packagerConfig.targetDurationSeconds = segmentDurationFor(
             stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
-            m_targetDuration, overlayRequested || compositeRequested || transcodeRequired);
+            m_targetDuration, encodeSession);
         packagerConfig.playlistLength = m_playlistLength;
         packagerConfig.enableAac = enableAac;
         packagerConfig.audioSampleRate = parsePositive(stream->settings.audioEncoderValues.sample_rate, 48000);
@@ -499,12 +582,21 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * but it writes every hitch in the decode-draw-encode chain into the
          * media timeline as a real gap - visible as a stutter with an overlay
          * on. */
-        if (transcodeRequired)
+        /* A composite stamps by arrival below and an overlay carries the
+         * source's own timestamps through the draw, so those two already have
+         * a timeline that works. Every other re-encoding session does not: the
+         * encoder hands over frames the packager cannot place, which it reports
+         * as source timestamps that are not advancing, and the session then
+         * writes an initialisation segment and nothing else - the manifest
+         * never becomes ready and the viewer waits on a black player forever.
+         * Measured on hardware the moment ordinary live sessions began to
+         * encode rather than republish. */
+        if (transcodeRequired || (encodeSession && !overlayRequested && !compositeRequested))
         {
             packagerConfig.synthesizeTimestamps = true;
         }
 
-        if (dashNeedsSoftwareEncode(overlayRequested || compositeRequested || transcodeRequired))
+        if (dashNeedsSoftwareEncode(encodeSession))
         {
             packagerConfig.encodeRawInput = true;
         }
@@ -548,7 +640,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         return result;
     }
 
-    if (overlayRequested || compositeRequested || transcodeRequired)
+    if (encodeSession)
     {
         LOG(info) << "Creating private live DASH session streamId=" << streamId
                   << (overlayRequested ? " with overlay" : "")
@@ -578,7 +670,13 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
         opts["codec"] = stream->settings.encoderValues.encoding;
         opts["framerate"] = stream->settings.encoderValues.frameRate;
         opts["dash"] = "dash";
-        if (transcodeRequired)
+        /* This is what keeps the pipeline builders off their pass-through
+         * wiring, where the decoder parses the camera's bitstream and hands it
+         * straight to the packager. That wiring skips the encoder, and the
+         * encoder is the whole point of a session that owns its segment grid:
+         * without this the pipeline decodes, publishes nothing the packager can
+         * use, and the manifest never appears. */
+        if (encodeSession)
         {
             opts["dash_transcode"] = "true";
         }
@@ -757,6 +855,11 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
      * that here the recording's codec asks for it rather than the viewer. */
     const std::string videoCodec = compactCodec(stream->settings.encoderValues.encoding);
     const bool transcodeRequired = (videoCodec != "h264" && videoCodec != "avc");
+    /* As for live: the session ends at an encoder we own unless it is
+     * republishing the recording's own access units, and only then does the
+     * recording's keyframe interval decide the segment grid. */
+    const bool encodeSession =
+        GET_CONFIG().dash_always_encode || dashOverlayRequested(overlay) || transcodeRequired;
     if (stream->replay_url.empty())
     {
         result.error = "Stream has no recording to replay";
@@ -797,7 +900,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
          * decides. */
         packagerConfig.targetDurationSeconds = segmentDurationFor(
             stream->settings.encoderValues.govLength, stream->settings.encoderValues.frameRate,
-            m_targetDuration, dashOverlayRequested(overlay) || transcodeRequired);
+            m_targetDuration, encodeSession);
         packagerConfig.playlistLength = m_playlistLength;
         // Recordings are selected by whole file, so the first one usually starts
         // before the requested window; the packager drops what precedes it.
@@ -812,21 +915,33 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
          * are pushed, and not one segment is ever cut.  Build the timeline from
          * the frame index instead, which is what the live path does for the
          * same reason. */
-        if (dashNeedsSoftwareEncode(dashOverlayRequested(overlay) || transcodeRequired))
+        if (dashNeedsSoftwareEncode(encodeSession))
         {
             packagerConfig.encodeRawInput = true;
         }
-        if (transcodeRequired)
+        /* Any session that decodes needs this, not only one whose codec forced
+         * the decode: the timing problem below belongs to the decode and encode
+         * chain, so a session that always encodes has it too. */
+        if (encodeSession)
         {
             packagerConfig.synthesizeTimestamps = true;
-            /* Counting frames is only honest while every frame arrives. With an
-             * overlay on, the frames it drew nothing on are suppressed, so half
-             * of them reach the packager and a timeline built by counting packs
-             * a second of recording into half a second - the recording plays at
-             * double speed, which is what the WebRTC path never does because it
-             * carries each frame's own timestamp. Use the same timestamps here
-             * and keep the counted timeline as the fallback for a source that
-             * cannot supply them. */
+        }
+        /* Counting frames is only honest while every frame arrives. With an
+         * overlay on, the frames it drew nothing on are suppressed, so half of
+         * them reach the packager and a timeline built by counting packs a
+         * second of recording into half a second - the recording plays at
+         * double speed, which is what the WebRTC path never does because it
+         * carries each frame's own timestamp. Use the same timestamps here and
+         * keep the counted timeline as the fallback.
+         *
+         * Only where the frames actually carry one. An overlay and a transcode
+         * both preserve the recording's timestamps through the chain; a session
+         * that merely re-encodes does not, and asking for them there published
+         * the first frames against timestamps that never advanced and killed
+         * the muxer before the fallback could take over - the viewer got a 404
+         * where the manifest should have been. */
+        if (dashOverlayRequested(overlay) || transcodeRequired)
+        {
             packagerConfig.preferSourceTimestamps = true;
         }
     }
@@ -865,13 +980,15 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
     }
     opts["codec"] = stream->settings.encoderValues.encoding;
     opts["framerate"] = stream->settings.encoderValues.frameRate;
-    // Terminates the pipeline in this session's packager.  With neither an
-    // overlay nor a transcode the decoder republishes the recording's own
-    // bitstream and nothing is decoded or encoded; an overlay has to burn boxes
-    // into pixels and an H.265 recording has to become H.264, so either of
-    // those still runs the full decode, overlay and encode chain.
+    // Terminates the pipeline in this session's packager.  A session that
+    // republishes the recording's own bitstream decodes and encodes nothing;
+    // one that draws an overlay, converts an H.265 recording, or simply owns
+    // its segment grid runs the full decode, overlay and encode chain.
     opts["dash"] = "dash";
-    if (transcodeRequired)
+    /* This is also what turns republishing off: the decoder passes the
+     * recording through only when neither an overlay nor a transcode is asked
+     * for, so a session that has to end at an encoder says so here. */
+    if (encodeSession)
     {
         opts["dash_transcode"] = "true";
     }
@@ -1327,18 +1444,22 @@ DashAssetResult DashSessionManager::resolveAsset(const std::string& streamToken,
              * well never appears. One segment that long is already a wider
              * catalogue than the player's live delay, which is all the multiple
              * was ever buying. */
+            /* Two segments, and never fewer, however long they are.
+             *
+             * Letting a single long segment satisfy the whole preroll looked
+             * reasonable - it already carries more media than the player's live
+             * delay - but it publishes a manifest with nothing behind the
+             * segment being played. Measured on four second segments: the
+             * manifest listed one, the player fetched it, and then sat for ten
+             * seconds with nothing to ask for until the next manifest update
+             * appeared, which the viewer saw as a five second freeze followed
+             * by a two second one. The player needs something to fetch while it
+             * plays the first segment, and that is a second segment. */
             const double required = published.longestSeconds > 0.0
                 ? std::max(static_cast<double>(kDashPrerollSeconds),
-                           published.longestSeconds)
+                           published.longestSeconds * kDashPrerollSegments)
                 : static_cast<double>(kDashPrerollSeconds);
-            /* Two segments is the right floor while they are short, because the
-             * seconds rule needs several of them anyway. A single segment that
-             * already carries the whole cushion does not need a second one to
-             * sit behind. */
-            const unsigned neededFragments =
-                (published.longestSeconds > 0.0 && published.longestSeconds >= required)
-                    ? 1u
-                    : kDashPrerollSegments;
+            const unsigned neededFragments = kDashPrerollSegments;
             /* A recording can be shorter than the preroll asks for - a twelve
              * second clip seeked six seconds in has six seconds left, and
              * waiting for eight of them waits forever, which the viewer sees as
@@ -1442,7 +1563,7 @@ bool keepSegmentsForDiagnosis()
     return value != nullptr && value[0] == '1';
 }
 
-void pruneSegments(const std::filesystem::path& directory)
+void pruneSegments(const std::filesystem::path& directory, uint64_t retained)
 {
     if (keepSegmentsForDiagnosis())
     {
@@ -1476,7 +1597,7 @@ void pruneSegments(const std::filesystem::path& directory)
             continue;
         }
     }
-    if (segments.size() <= kDashRetainedSegments)
+    if (segments.size() <= retained)
     {
         return;
     }
@@ -1485,11 +1606,11 @@ void pruneSegments(const std::filesystem::path& directory)
     {
         newest = std::max(newest, segment.first);
     }
-    if (newest <= kDashRetainedSegments)
+    if (newest <= retained)
     {
         return;
     }
-    const uint64_t oldestKept = newest - kDashRetainedSegments;
+    const uint64_t oldestKept = newest - retained;
     for (const auto& [number, path] : segments)
     {
         if (number > 1 && number < oldestKept)
@@ -1556,26 +1677,28 @@ void DashSessionManager::reaperLoop()
                 ++iterator;
             }
         }
-        std::vector<std::filesystem::path> liveDirectories;
+        std::vector<std::pair<std::filesystem::path, uint64_t>> liveDirectories;
         for (const auto& [streamId, session] : m_sessionsByStream)
         {
-            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+            liveDirectories.emplace_back(session->packager->manifestPath().parent_path(),
+                                         retainedSegmentsFor(session->packager->targetDurationSeconds()));
         }
         // Replay is pruned on the same terms as live.  Publishing is paced at
         // the recording's own rate, so the viewer stays within the retained
         // window instead of trailing a session that has already run to the end.
         for (const auto& [token, session] : m_replaySessionsByToken)
         {
-            liveDirectories.push_back(session->packager->manifestPath().parent_path());
+            liveDirectories.emplace_back(session->packager->manifestPath().parent_path(),
+                                         retainedSegmentsFor(session->packager->targetDurationSeconds()));
         }
         lock.unlock();
         for (const auto& session : expired)
         {
             destroySession(session);
         }
-        for (const auto& directory : liveDirectories)
+        for (const auto& [directory, retained] : liveDirectories)
         {
-            pruneSegments(directory);
+            pruneSegments(directory, retained);
         }
         lock.lock();
     }

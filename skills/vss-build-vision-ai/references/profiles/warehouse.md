@@ -134,6 +134,7 @@ its absence from the service list is not a defect.
 |---|---|
 | `MODE`, `BP_PROFILE`, `STREAM_TYPE` | Select the variant. These three pick the `COMPOSE_PROFILES_WH_*` list; they are not free-form. |
 | `SAMPLE_VIDEO_DATASET`, `NUM_STREAMS` | Must match each other and the variant — see Hard constraints. |
+| `DATASET_TYPE` | `MODE=3d` **only** — inert for `2d`, `mv3dt` and `auto-calibration`. `real` or `synthetic`; selects the whole Sparse4D bundle: ONNX and engine (`v3.0` vs `v2.3`), the `_ov_kmeans900_v*_r50.npy` anchor, `labels-<type>.txt`, and the NGC TAO Sparse4D artifact the configurator writes into `warehouse-3d-app/models-download.json`. Must track `SAMPLE_VIDEO_DATASET` — see Hard constraints. Effective default is `synthetic`, from `overrides.env`; the `${DATASET_TYPE:-synthetic}` fallback in `warehouse-3d-app.yml` only fires if no env layer sets it. |
 | `HARDWARE_PROFILE` | Selects perception tuning in `blueprint-configurator/blueprint_config.yml` and LLM NIM sizing, including the per-mode stream ceiling in [`../sizing.md`](../sizing.md). Not validated by Compose; the configurator only uppercases it, so an unrecognized value (including a spacing or hyphenation variant such as `IGX THOR`) silently matches no tuning section. |
 | `VSS_APPS_DIR`, `VSS_DATA_DIR` | Ship as `/path/to/…` sentinels — always set both. See the closure table under Build and resolve. |
 | `RT_CV_DEVICE_ID` (0), `RT_VLM_DEVICE_ID` (1), `LLM_DEVICE_ID` (2) | GPU layout. |
@@ -157,6 +158,7 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
 | `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
 | `NUM_STREAMS` must equal the dataset's camera count: `nv-warehouse-4cams` 4, `warehouse-loading-dock-3cams-synthetic` 3, `warehouse-4cams-20mx20m-synthetic` 4. **Dataset and mode are independent** — every shipped dataset now carries calibration for `2d`, `3d` and `mv3dt`, so any dataset pairs with any analytics mode | short stream count with every container healthy |
+| Under `MODE=3d`, `DATASET_TYPE` must track the footage family: `nv-warehouse-4cams` → `real`; both `*-synthetic` → `synthetic`; a custom dataset → whatever the footage actually is. It must also be non-empty — the label mount interpolates it into a **host path** | wrong Sparse4D weights and detection thresholds (`real` 0.85/0.75 vs `synthetic` 0.5/0.3), every container healthy, no error anywhere. Empty resolves to `labels-.txt`, so Docker creates a directory where a file is expected |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
 | `MODE=3d` or `mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
@@ -192,6 +194,13 @@ Only a **custom** dataset needs a calibration run — produced by
 `vss-generate-video-calibration`, or by a `MODE=auto-calibration` build — dropped
 at the path above under its dataset name.
 `scripts/validate_warehouse_env.py` fails the build when it is missing.
+
+A custom dataset needs a **second** thing under `MODE=3d`: an explicit
+`DATASET_TYPE`. The three shipped datasets determine it (`nv-warehouse-4cams` is
+`real`, both `*-synthetic` are `synthetic`), but custom footage carries no
+provenance the skill can infer, so the value has to be asked for rather than
+derived — SKILL.md's Q2w-datatype. The validator can only check that some valid
+value is set; it cannot tell whether it matches the footage.
 
 `MODE=auto-calibration` is the exception to this whole section: it is the run that
 *produces* a calibration, so it has no `warehouse-auto-calibration-app` tree and the
@@ -381,6 +390,12 @@ JSONs are bind-mounted read-write (only `models-download.json` is `:ro`), and
 `Created backup: …` and `Successfully wrote JSON file`, leaving both a
 `*.backup_<timestamp>.json` and a reformatted original. After a deploy, `git status`
 shows several config files nobody edited.
+
+`models-download.json` being `:ro` describes only its **container** mount — it does
+not mean the file is never modified. On `MODE=3d` the configurator rewrites
+`warehouse-3d-app/models-download.json` on the host, pointing the model and anchor
+entries at the Sparse4D bundle `DATASET_TYPE` selects, and leaves a backup beside
+it. Expect that file in `git status` after any 3D deploy.
 
 ## Stock readiness checks
 

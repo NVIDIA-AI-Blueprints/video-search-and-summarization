@@ -1,9 +1,12 @@
-<!-- SPDX-License-Identifier: MIT -->
-# Nemo Agent Toolkit UI Monorepo
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: MIT AND Apache-2.0
+-->
+# VSS UI Monorepo
 
-This is the monorepo for the Nemo Agent Toolkit UI and other apps (example: VSS Blueprints Agentic UI) that are built on top of it.
-
-This is forked from the original [NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI) repository.
+This workspace contains the Video Search and Summarization (VSS) web apps and
+shared UI packages. File-level SPDX headers record the applicable licenses and
+provenance for retained code.
 
 ## Node version (nvm)
 
@@ -58,7 +61,6 @@ Run a single application in dev mode:
 ```bash
 # replace <APP_NAME> with the name of the application you want to run
 npx turbo dev --filter=./apps/<APP_NAME>
-# npx turbo dev --filter=./apps/nemo-agent-toolkit-ui
 ```
 
 Run all applications in parallel in dev mode:
@@ -78,15 +80,7 @@ npx turbo build --filter=./packages/** \
   && npx turbo start --filter=./apps/nv-metropolis-bp-vss-ui
 ```
 
-For **`nemo-agent-toolkit-ui`**, bundling those assets is already part of the app `build` script, so only `build` is required:
-
-```bash
-npx turbo build --filter=./packages/** \
-  && npx turbo build --filter=./apps/nemo-agent-toolkit-ui \
-  && npx turbo start --filter=./apps/nemo-agent-toolkit-ui
-```
-
-**Possible app names:** `nemo-agent-toolkit-ui`, `nv-metropolis-bp-vss-ui`
+**Possible app names:** `nv-metropolis-bp-vss-ui`, `vss-chat`
 
 Note: Root `npm run build` runs `turbo run build` only (no `bundle`). Use the commands above—or CI’s `npx turbo run build bundle`—when you need a runnable standalone tree for **`nv-metropolis-bp-vss-ui`**.
 
@@ -181,11 +175,15 @@ Requires Docker. The script reads the Node version from `services/ui/.nvmrc` and
 
 ## License
 
-This module is governed by **two separate licenses**, depending on what you use:
+This module contains source under file-level open-source licenses and a
+separately licensed pre-built container distribution:
 
-- **The source code in this directory and its subdirectories is licensed under the MIT License.** The
-  full license text is included in this directory: [`LICENSE`](./LICENSE). If you clone, build, modify,
-  or redistribute the source, MIT License terms apply.
+- **Source code:** retained upstream-derived code remains under MIT, while VSS
+  additions are accepted under Apache-2.0. Modified derived files identify both
+  obligations as `MIT AND Apache-2.0`. The SPDX header on each file is
+  authoritative; see the repository [contributor guide](../../CONTRIBUTING.md),
+  the repository [`LICENSE`](../../LICENSE), and the UI's bundled MIT
+  [`LICENSE`](./LICENSE).
 
 - **The pre-built VSS Agent UI container images distributed by NVIDIA via NGC**
   (`nvcr.io/nvidia/blueprint/vss-agent-ui` and related tags) **are licensed under the NVIDIA Software

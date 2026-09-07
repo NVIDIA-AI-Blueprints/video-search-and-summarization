@@ -336,11 +336,17 @@ class VideoUnderstandingOffsetInput(BaseModel):
     )
     start_timestamp: float | None = Field(
         None,
-        description="Optional start time offsets (in seconds since beginning of the stream), if None, then the entire stream is returned",
+        description=(
+            "Optional start time offset in seconds since the beginning of the stream. "
+            "For whole-video analysis, omit both timestamp fields; do not send a string placeholder."
+        ),
     )
     end_timestamp: float | None = Field(
         None,
-        description="Optional end time offsets (in seconds since beginning of the stream), if None, then the entire stream is returned",
+        description=(
+            "Optional end time offset in seconds since the beginning of the stream. "
+            "For whole-video analysis, omit both timestamp fields; do not send a string placeholder."
+        ),
     )
     user_prompt: str = Field(
         ...,
@@ -360,6 +366,17 @@ class VideoUnderstandingOffsetInput(BaseModel):
     def validate_start_and_end_time(cls, info: dict) -> dict:
         start = info.get("start_timestamp")
         end = info.get("end_timestamp")
+
+        # Tool-calling models sometimes serialize an omitted optional value as
+        # the strings "None" or "null". Treat those JSON-like sentinels (and an
+        # empty string) as an omitted offset so whole-video requests do not fail
+        # while trying to evaluate float("None").
+        if isinstance(start, str) and start.strip().lower() in {"", "none", "null"}:
+            start = None
+            info["start_timestamp"] = None
+        if isinstance(end, str) and end.strip().lower() in {"", "none", "null"}:
+            end = None
+            info["end_timestamp"] = None
 
         if start is not None:
             start = float(start)
@@ -729,7 +746,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             end_timestamp: The end timestamp in offset seconds since beginning of the stream
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
             vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
-            Note: start_timestamp and end_timestamp are optional. If None, then the entire stream is returned.
+            Note: start_timestamp and end_timestamp are optional. For the entire stream, omit both fields; do not send string placeholders such as "None" or "null".
         """
 
         yield FunctionInfo.create(

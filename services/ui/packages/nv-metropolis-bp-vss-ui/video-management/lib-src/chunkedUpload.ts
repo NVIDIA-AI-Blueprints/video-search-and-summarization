@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 //
 // Chunked upload helper for the Video Management tab. The core chunking
-// logic lives in the shared package so the Chat upload path can reuse it.
+// logic lives in the shared `common` package so the Chat upload path can
+// reuse it.
 
 import type { FileUploadResponse } from './types';
-import { chunkedUpload as sharedChunkedUpload } from '@nemo-agent-toolkit/ui';
-import type { ChunkedUploadOptions, ChunkedUploadResponse } from '@nemo-agent-toolkit/ui';
+import { chunkedUpload as sharedChunkedUpload } from 'common';
+import type { ChunkedUploadOptions, ChunkedUploadResponse } from 'common';
 
 export type { ChunkedUploadOptions };
 

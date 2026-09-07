@@ -4,8 +4,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { AlertsViewFilterControls } from '../../lib-src/components/AlertsSidebarControls';
 import { VLM_VERDICT } from '../../lib-src/types';
 
-jest.mock('@nemo-agent-toolkit/ui');
-
 const defaultProps = {
   isDark: false,
   vlmVerified: true,

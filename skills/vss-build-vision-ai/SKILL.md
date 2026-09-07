@@ -33,21 +33,21 @@ metadata:
 ## Routing
 
 | Request | Route |
-|---|---|
+| --- | --- |
 | Deploy, start, run, verify, or stop a named `base`, `alerts`, `lvs`, or `search` profile | Stock mode for that profile. |
 | Any warehouse request — deploy, run, verify, stop, customize | `references/profiles/warehouse.md` owns every warehouse fact. It carries no intake questions and no step sequence — variant selection is **Q2w below**, and the lifecycle is the shared Steps. Warehouse **registers its own sources** via `bp-configurator-<mode>`; never hand-provision one. Select a variant per Q2w and expand its `COMPOSE_PROFILES_WH_*` list verbatim. Warehouse is variant selection, not composition: to change the shape of a deployment, select a different variant. |
 | Deploy capabilities that exactly match one current developer profile | Stock mode for the exact match. |
 | Build, create, extend, customize, combine, add, or remove capabilities | Delta mode using the closest current developer profile as the Foundation. |
 | A named profile qualified as headless | Delta mode off that profile, not a stock deploy. |
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
-| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — `vss-agent`, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
+| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | **Warehouse does not support NemoClaw yet.** The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — `vss-agent`, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
 | Install the harness against an already-deployed build (no composition requested) | `references/agent-harness.md` bring-up alone — resolve the origin from the running build, skip Steps 5–8. |
 | Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no `vss-agent`); not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
 | `smartcities` or another industry profile | Stop: `warehouse` is the only supported industry Foundation. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
-**Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, `search`, and `bp_wh` ships `vss-agent`, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent (the warehouse Kafka, Redis, and minimal variants) or where the request names the in-stack agent and so skips Q3.
+**Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, and `search` ships `vss-agent`, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent, where the request names the in-stack agent and so skips Q3, or on a warehouse variant, none of which reach Q3 at all (see Q2w).
 
 ## Entry Mode (Step 0)
 
@@ -76,7 +76,7 @@ Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until 
 The recommended first-run path. Deploys a validated developer profile via **Stock mode** — it keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (**no delta**: no added or removed profile keys, no new service composes), then writes and deploys the standard stock `_builds/<name>/` artifacts like any other build (Steps 5-9). Ask **Q2a (single-select): "Which pre-built workflow do you want to deploy?"** and map the choice to the developer profile:
 
 | Option | Capability | Profile |
-|---|---|---|
+| --- | --- | --- |
 | **Base** | VLM dense captioning and Q&A | `base` |
 | **Alerts** | VLM real-time alerting or alert verification | `alerts` (mode picked in Q2a-mode) |
 | **Video Summarization** | Time-windowed video summaries | `lvs` |
@@ -87,7 +87,7 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 **Q2a-mode — only when the user picks Alerts (single-select): "Which alerts mode?"** The `alerts` developer profile ships two modes, selected by its `MODE` knob; each has its own checked-in `COMPOSE_PROFILES` set in `dev-profile-alerts/overrides.env`, so both are still stock deployments (no delta):
 
 | Option | Capability | Mode |
-|---|---|---|
+| --- | --- | --- |
 | **Real-time alerting** | Continuous RT-VLM inspection + real-time alert APIs | `2d_vlm` |
 | **Alert verification** | Object detection with analytics and VLM event contextualization (RT-CV detection + behavior analytics + VLM verification + incidents) | `2d_cv` |
 
@@ -106,16 +106,17 @@ variant selection, not composition, so there is no delta path. Read
 asking, and apply its Hard constraints while asking, not after. Apply any build
 requirements its **Profile Service Set** states.
 
-Up to four single-select questions, each inside the four-option cap. Describe
+Up to five single-select questions, each inside the four-option cap. Describe
 each option from warehouse.md's **Profile Service Set** table; do not restate
 its service lists here, or this table drifts from the one that is authoritative:
 
 | Question | Options |
-|---|---|
+| --- | --- |
 | **Q2w-mode** — *"Which warehouse mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) · `mv3dt` (multi-view 3D tracking, BEV fusion) · `auto-calibration` (produce a calibration) |
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
 | **Q2w-dataset** — *"Which sample dataset?"* | `nv-warehouse-4cams` · `warehouse-loading-dock-3cams-synthetic` · `warehouse-4cams-20mx20m-synthetic` |
+| **Q2w-datatype** — *"Is this footage real or synthetic?"* | `real` · `synthetic` |
 
 Filter the remaining options rather than validating the answers afterwards.
 Both filters below are warehouse.md's to state; it is the source of truth for
@@ -129,6 +130,13 @@ why, and this list only says when to apply them:
   answers are forced.
 - **Skip Q2w-size entirely for `bp_wh`** — the Profile Service Set table lists
   no minimal variant for it.
+- **Ask Q2w-datatype only when Q2w-mode is `3d` and the dataset is not one of
+  the three shipped.** `DATASET_TYPE` is inert outside `3d`, and for the shipped
+  datasets it is determined, not chosen — `nv-warehouse-4cams` is `real`, both
+  `*-synthetic` are `synthetic` — so derive it and do not ask. Only custom
+  footage carries no inferable provenance. A custom dataset arrives through a
+  prompt-driven request rather than Q2w-dataset, which offers the shipped three
+  only, so this question fires on that path.
 - **Ask Q2w-dataset for every mode, including `auto-calibration`.** Dataset and
   mode are independent — all three ship calibration for `2d`, `3d` and `mv3dt`,
   and auto-calibration needs to know which dataset it is calibrating. Set
@@ -140,25 +148,26 @@ The answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its name in
 at **Step 2** with `FOUNDATION=warehouse`.
 
 Only `COMPOSE_PROFILES_WH_2D` (`bp_wh`) carries `vss-agent`; the Kafka, Redis,
-and minimal variants ship agentless and so **skip [Q3](#harness-selection--q3)
-entirely**. Where Q3 is asked, dropping that one key is the single edit
-permitted to a warehouse variant list — everything else stays verbatim, and
-Step 8 still resolves through `warehouse.md`. The shared lifecycle applies from
-there, with four warehouse divergences: skip **Step 4**
-(`references/composition.md` is the delta flow), **Step 5**'s effective service
-set is already fixed above, **Step 7** additionally writes `configurator.env`,
-and **Step 8** resolves through
+and minimal variants ship agentless. **No warehouse variant reaches
+[Q3](#harness-selection--q3)**: the agentless ones have no agent to remove, and
+selecting `bp_wh` *is* naming the in-stack agent, since that is the only thing
+distinguishing it from `bp_wh_kafka`. So `vss-agent` is kept, the list is
+expanded verbatim with no edits, and every warehouse deploy is a Stock deploy.
+The shared lifecycle applies from there, with four warehouse divergences: skip
+**Step 4** (`references/composition.md` is the delta flow), **Step 5**'s
+effective service set is already fixed above, **Step 7** additionally writes
+`configurator.env`, and **Step 8** resolves through
 [`references/profiles/warehouse.md`](references/profiles/warehouse.md) rather
 than the delta flow in `references/composition.md`.
 
 ### Mode: Custom build (guided)
 
-For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Video I/O + storage (VIOS) is always included** — every profile needs it — along with the shared `redis` cache peer that ships with the Foundation; present these as informational, not as choices. The **ELK + Kafka message bus / indexing stack is _not_ unconditional**: it is added only when a selected capability is Kafka-backed or Elasticsearch-indexed (see the note under the table), so a dense-captioning-only build keeps the smallest delta. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
+For a user who wants a specific composition. Reached from Q1 → Custom build, or by customizing a pre-built workflow (seeded with that profile as the Foundation). Ask **Q2b (multi-select): "Which vision capabilities do you want? (select all that apply)"** Each option maps to canonical service-profile keys owned by a capability owner under `references/services/`. **Video I/O + storage (VIOS) is always included** — every profile needs it — along with the shared `redis` cache peer that ships with the Foundation; present these as informational, not as choices. The **ELK + Kafka message bus / indexing stack is *not* unconditional**: it is added only when a selected capability is Kafka-backed or Elasticsearch-indexed (see the note under the table), so a dense-captioning-only build keeps the smallest delta. (When seeded from a pre-built workflow, that profile's capabilities are pre-checked.)
 
 Offer the user **exactly** the capabilities in the table below. Each row's owner contract, canonical service-profile key(s), and closest Foundation profile are fixed — do not invent options or keys outside it. Because this list can exceed four rows and `AskUserQuestion` caps a question at four options, **do not pose Q2b through the `AskUserQuestion` widget** — present this table in the conversation and have the user reply with the capabilities they want (by name or number; multiple allowed). Fall back to an `AskUserQuestion` multi-select only when four or fewer capabilities remain offerable.
 
 | Option (shown to user) | Owner contract (`references/services/`) | Canonical service-profile key(s) | Closest Foundation | Peer notes |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Dense captioning** — natural-language descriptions of video | `rt-vlm.md` | `rtvi-vlm` | `base` | — |
 | **Object detection & tracking (2D)** — bounding boxes, class labels, track IDs | `rt-cv.md` | `perception-2d-fusion` *(search)* / `perception-alerts` *(alerts)* | `search` | Kafka-backed; use the selected profile's key, not the shared `perception` extends source |
 | **Semantic search over video** — embeddings + agentic search | `search.md` (+ `rt-embed.md`) | `vss-search-analytics-2d-fusion`, `rtvi-embed` | `search` | Requires RT-CV + RT-Embed + ELK; critique needs RT-VLM unless disabled |
@@ -168,6 +177,7 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 **Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** retain the HAProxy ingress (`ingress.md`) only with the Agent/UI tier or when the request explicitly asks for a unified browse/operate origin; otherwise prune `vss-haproxy-ingress` and create no ingress patch. The **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka when its resolved `RTVI_VLM_MESSAGE_BUS` is `kafka`. Kibana is not implied by selecting Elasticsearch: retain `kibana` and exactly the selected Foundation's initializer only when that Foundation already ships them, and never add or borrow Kibana keys for a Foundation that does not. A dense-captioning-only build means the request does not publish or index captions; it adds **no** ELK/Kafka and sets both `RTVI_VLM_MESSAGE_BUS=` and `RTVI_VLM_KAFKA_ENABLED=false` during the VSS Compose compatibility transition. If the request publishes captions or stores them in Elasticsearch, it is not dense-captioning-only: retain the approved Kafka/ELK service set and message-bus settings unchanged when generating artifacts. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
 
 Rules for the multi-select:
+
 - **Offer exactly the table rows** whose owner contract exists under `references/services/` (all rows are present on this branch); show any pending capability disabled with a short "not yet available" note. **Never offer a foundational or model-backend owner as a choice** — do **not** silently offer a capability the skill cannot resolve.
 - **Require at least one capability** — the foundational services alone are not a vision agent.
 - Multiple selections compose in one deployment (e.g. captioning + alerting, or captioning + detection).
@@ -176,14 +186,14 @@ After Q2b, the selected capabilities **are** the required-capability set. Select
 
 ### Harness selection — Q3
 
-Applies to **every** entry mode — quickstart, warehouse, and custom build alike — and only when the request does not already name a harness. A harness is what a person or another agent talks to in order to drive the build; it is orthogonal to the capability set. Read [`references/agent-harness.md`](references/agent-harness.md) before offering this — it owns the contract.
+Applies to **every** entry mode — prompt-driven, quickstart, and custom build alike — but **not** to warehouse, whose variants never reach Q3 (see Q2w), and only when the request does not already name a harness. A harness is what a person or another agent talks to in order to drive the build; it is orthogonal to the capability set. Read [`references/agent-harness.md`](references/agent-harness.md) before offering this — it owns the contract.
 
-**Ask Q3 exactly when the Foundation's service set carries `vss-agent`** — every developer profile does, as does warehouse `bp_wh`. Skip it entirely, with no question and no harness, when the set carries no agent: an ingest-, index-, or API-only build is legitimately headless, and Q3 would invent a requirement. When the user has already said "headless", that *is* the answer — do not re-ask.
+**Ask Q3 exactly when the Foundation's service set carries `vss-agent`** — every developer profile does; warehouse is the exception, since `bp_wh` carries one but selecting it already names the agent (see Q2w). Skip it entirely, with no question and no harness, when the set carries no agent: an ingest-, index-, or API-only build is legitimately headless, and Q3 would invent a requirement. When the user has already said "headless", that *is* the answer — do not re-ask.
 
 **Q3 — Harness (yes/no).** *"Deploy an agent harness with this build?"*
 
 | Answer | Harness | Effect on the build |
-|---|---|---|
+| --- | --- | --- |
 | **yes** *(default)* | `nemoclaw` | A host-side sandbox with the VSS skills installed drives the build over its public origin, and is its only conversational surface. |
 | **no** | none | No harness at all. Drive the build with the `vss` CLI from the host. |
 

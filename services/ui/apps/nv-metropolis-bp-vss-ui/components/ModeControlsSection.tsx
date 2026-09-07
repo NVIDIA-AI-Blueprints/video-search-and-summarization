@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { ChatSidebarContent, type ChatSidebarControlHandlers } from '@nemo-agent-toolkit/ui';
+import {
+  ConversationList,
+  type ChatSidebarControlHandlers,
+} from '@nv-metropolis-bp-vss-ui/chat';
 import type { 
   AlertsSidebarControlHandlers,
   SearchSidebarControlHandlers,
@@ -64,7 +67,7 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
       {/* Content Area */}
       {hasActualControlsContent ? (
         <div className="flex-1 overflow-y-auto overflow-x-auto flex flex-col bg-white dark:bg-neutral-900">
-          {chatHandlers && <ChatSidebarContent {...chatHandlers} />}
+          {chatHandlers && <ConversationList {...chatHandlers} />}
           {alertsHandlers && alertsHandlers.controlsComponent}
           {searchHandlers && searchHandlers.controlsComponent}
           {dashboardHandlers && dashboardHandlers.controlsComponent}

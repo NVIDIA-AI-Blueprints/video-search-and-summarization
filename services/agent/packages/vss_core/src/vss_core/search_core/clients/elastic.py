@@ -325,6 +325,21 @@ class ElasticClient:
         except (ESConnectionError, ESApiError, ESTransportError) as e:
             raise BackendUnreachableError("elasticsearch", str(e), e) from e
 
+    async def index(
+        self,
+        *,
+        index: str,
+        document: Mapping[str, Any],
+        id: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Index or replace one document through the shared transport."""
+        try:
+            client = await self._client_for_active_loop()
+            return await client.index(index=index, document=document, id=id, **kwargs)
+        except (ESConnectionError, ESApiError, ESTransportError) as e:
+            raise BackendUnreachableError("elasticsearch", str(e), e) from e
+
     async def aclose(self) -> None:
         """Release this wrapper's shared transport reference. Idempotent."""
         if not self._managed or self._released or self._registry_key is None or self._client is None:

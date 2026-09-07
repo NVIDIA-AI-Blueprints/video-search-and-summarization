@@ -1,16 +1,64 @@
-<!-- SPDX-License-Identifier: MIT -->
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: MIT AND Apache-2.0
+-->
+
 # Docker Readme
+
 Uses standalone production build of the app.
 
 Uses custom-server.js to start the server.
 
+## Connect a profile to an existing agent harness
+
+Every Docker profile's checked-in `overrides.env` exposes the same
+`VSS_AGENT_*` settings. The adapter is disabled until both
+`VSS_AGENT_ADAPTER_ENABLED=true` and `VSS_AGENT_BACKEND_URL` are set. It only
+connects the UI to an existing harness; it does not provision or modify that
+harness.
+
+For `dev-profile.sh`, provide deployment values through the environment so the
+generated, ignored `generated.env` receives them:
+
+```bash
+export VSS_AGENT_ADAPTER_ENABLED=true
+export VSS_AGENT_BACKEND_PROTOCOL=responses
+export VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642
+export VSS_AGENT_BACKEND_PATH=/v1/responses
+export VSS_AGENT_BACKEND_MODEL=agent
+export VSS_AGENT_BACKEND_TOKEN='<harness-token>'
+
+./deploy/docker/scripts/dev-profile.sh up --profile base --hardware-profile H100
+```
+
+For direct Compose, copy the selected profile's `overrides.env` to the ignored
+`user-overrides.env` and set the same values there. OpenClaw uses
+`VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
+`/`. Never commit a real harness token. The Compose service maps these
+host-side settings to the server-only `AGENT_*` variables shown below.
+
 .env sample to use for docker run when running the Metropolis BP VSS UI app:
+
 ```
 PORT=3001
 
 RUN_APP_NAME=nv-metropolis-bp-vss-ui
 NEXT_PUBLIC_APP_TITLE=VSS BLUEPRINT
 NEXT_PUBLIC_APP_SUBTITLE=Warehouse
+
+# Optional backend-neutral run/event adapter embedded in the Next.js server.
+# The backend token is server-only: never expose it through NEXT_PUBLIC_*.
+# When omitted, the UI uses the legacy chat-SSE backend settings below.
+AGENT_ADAPTER_ENABLED=true
+AGENT_BACKEND_PROTOCOL=openclaw-ws
+AGENT_BACKEND_URL=ws://host.docker.internal:18789
+AGENT_BACKEND_PATH=/
+AGENT_BACKEND_TOKEN=replace-with-the-harness-token
+
+# Server-only targets used by the same-origin media and chat proxy routes.
+VSS_PROXY_BASE_URL=http://vss-haproxy-ingress:7777
+VSS_CHAT_BACKEND_MAIN=http://vss-agent:8000/chat/stream
+VSS_CHAT_BACKEND_SIDEBAR=http://vss-agent:8000/chat/stream
 
 NEXT_PUBLIC_ENABLE_CHAT_TAB=true
 NEXT_PUBLIC_WORKFLOW=Warehouse Management Agent
@@ -26,7 +74,6 @@ NEXT_PUBLIC_SIDE_CHATBAR_COLLAPSED=true
 NEXT_PUBLIC_AGENT_API_URL_BASE=http://127.0.0.1:8000/api/v1
 NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE=true
 NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED=false
-NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED=false
 NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED=true
 NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED=true
 NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED=true
@@ -86,7 +133,7 @@ NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON='{
     ]
 }'
 
-# Sidebar Nemo instance — prefix NEXT_PUBLIC_SIDEBAR_CHAT_* (each falls back to main NEXT_PUBLIC_* above when unset).
+# Sidebar chat instance — prefix NEXT_PUBLIC_SIDEBAR_CHAT_* (each falls back to main NEXT_PUBLIC_* above when unset).
 NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=false
 NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT=false
 NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW=Search Agent
@@ -100,7 +147,6 @@ NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED=true
 NEXT_PUBLIC_SIDEBAR_CHAT_AGENT_API_URL_BASE=http://127.0.0.1:8000/api/v1
 NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=true
 NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED=false
-NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED=false
 NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_EDIT_ENABLED=true
 NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_SPEAKER_ENABLED=true
 NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_COPY_ENABLED=true
@@ -144,85 +190,7 @@ NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE=true
 NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE=true
 ```
 
-.env sample to use for docker run when running the NeMo Agent Toolkit UI app:
-```
-PORT=3000
-RUN_APP_NAME=nemo-agent-toolkit-ui
-NEXT_PUBLIC_WORKFLOW=NeMo Agent Toolkit
-NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL=ws://127.0.0.1:8000/websocket
-NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL=http://127.0.0.1:8000/chat/stream
-NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false
-NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON=false
-NEXT_PUBLIC_RIGHT_MENU_OPEN=false
-NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS=true
-NEXT_PUBLIC_DARK_THEME_DEFAULT=false
-NEXT_PUBLIC_SIDE_CHATBAR_COLLAPSED=false
-NEXT_PUBLIC_AGENT_API_URL_BASE=http://127.0.0.1:8000/api/v1
-NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE=false
-NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED=true
-NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED=true
-NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED=true
-NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED=true
-NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED=true
-NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED=false
-NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE=Can you show the video clip of the video {filenames} that I just uploaded?
-
-# Upload file config template JSON - Configure form fields for file upload
-# Format: {"fields": [<field1>, <field2>, ...]}
-# Each field object:
-#   - field-name: string - Name of the field (e.g., "embedding", "description")
-#   - field-type: "boolean" | "string" | "number" | "select" - Input type
-#   - field-default-value: any - Default value for the field
-#   - field-options: string[] - Options for select type (e.g., ["Type 1", "Type 2"])
-#   - changeable: boolean - Allow user to modify value (true=editable, false=readonly)
-#   - tooltip-info: string - Tooltip text on hover
-NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON='{
-    "fields": [
-        {
-            "field-name": "embedding",
-            "field-type": "boolean",
-            "field-default-value": true,
-            "changeable": false,
-            "tooltip-info": ""
-        }
-    ]
-}'
-
-# Custom Agent Parameters JSON - Configure dynamic form fields for chat request
-# Format: {"params": [<param1>, <param2>, ...]}
-# Each param object:
-#   - name: string - Parameter key sent to backend API (e.g., "llm_reasoning", "model")
-#   - label: string - Display label shown in the form UI
-#   - type: "boolean" | "string" | "number" | "select" - Input type
-#   - default-value: any - Initial value for the parameter
-#   - options: string[] - Options for select type (e.g., ["gpt-4", "gpt-3.5-turbo"])
-#   - changeable: boolean - Allow user to modify value (true=editable, false=readonly)
-#   - tooltip-info: string - Tooltip text on hover
-
-NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON='{
-    "params": [
-        {
-            "name": "llm_reasoning",
-            "label": "LLM Reasoning",
-            "type": "boolean",
-            "default-value": false,
-            "changeable": true,
-            "tooltip-info": ""
-        },
-        {
-            "name": "vlm_reasoning",
-            "label": "VLM Reasoning",
-            "type": "boolean",
-            "default-value": false,
-            "changeable": true,
-            "tooltip-info": ""
-        }
-    ]
-}'
-
-```
-
-**Note:** RUN_APP_NAME should match the name of the app in the apps folder. Default is 'nemo-agent-toolkit-ui'.
+**Note:** RUN_APP_NAME should match the name of the app in the apps folder. Default is 'nv-metropolis-bp-vss-ui'.
 
 ```bash
 # Build the Docker image from the parent directory
@@ -243,17 +211,20 @@ docker run --env-file <path-to-env-file> -p 3000:3000 <image-name>
 ## Debug inside the container
 
 Create a debug container image:
+
 ```
 docker build -t <image-name> --build-arg BUILD_TYPE=dev -f Dockerfile .
 ```
 
 Since the resulting docker is a distroless docker image, if needed to run any commands to debug the container,
 you can use the following command:
+
 ```
 docker run --entrypoint=sh --rm -it --env-file <path-to-env-file> -p 3000:3000 <image-name>
 ```
 
 To start the app inside the debug container:
+
 ```
 node custom-server.js
 ```

@@ -27,8 +27,11 @@ module.exports = {
       'fi',
     ],
   },
+  // The app's own locales. This used to resolve into the toolkit package,
+  // which shipped 9 English-to-English strings for components that no longer
+  // exist; nothing was ever translated, so nothing is lost by pointing here.
   localePath:
     typeof window === 'undefined'
-      ? require('path').resolve('../../node_modules/@nemo-agent-toolkit/ui/lib/public/locales')
+      ? require('path').resolve('./public/locales')
       : '/public/locales',
 };

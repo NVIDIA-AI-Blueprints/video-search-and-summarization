@@ -4,8 +4,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { SEARCH_CLIP_PLAYBACK_TIMEOUT_MS, VideoSearchList } from '../../lib-src/components/VideoSearchList';
 import { SearchData } from '../../lib-src/types';
 
-jest.mock('@nemo-agent-toolkit/ui');
-
 const makeItem = (overrides: Partial<SearchData> = {}): SearchData => ({
   video_name: 'video-1.mp4',
   similarity: 0.85,
