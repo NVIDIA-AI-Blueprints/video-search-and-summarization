@@ -206,6 +206,61 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     return {"found": len(streams), "deleted": deleted, "failed": failed, "names": list(streams.values())}
 
 
+def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> dict[str, Any]:
+    """Delete every registered source that is NOT one of this dataset's videos.
+
+    The narrow form of ``--clear``. A run is only interpretable if the index
+    holds what the dataset says it holds: a foreign source cannot be retrieved
+    for any query in the dataset, so it contributes nothing but the chance of a
+    false positive and a longer ingest. Removing exactly the foreign ones keeps
+    the deployment reproducible without wiping fixtures the dataset does need.
+
+    Membership uses :func:`flows.name_variants` -- the same normalisation
+    ``--skip-existing`` uses to decide a video is already present. Sharing one
+    matcher is what stops this deleting a video the very next step re-uploads.
+    """
+    try:
+        streams = flows.list_sensor_streams(vst_url)
+    except Exception as e:
+        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
+
+    ours: set[str] = set()
+    for vf in sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")):
+        ours |= flows.name_variants(vf.name)
+    if not ours:
+        raise SystemExit(
+            f"ABORTED: no video files under {video_dir}, so every source looks foreign. "
+            f"Refusing to delete the whole deployment -- pass --clear if that is what you meant."
+        )
+
+    foreign = {sid: n for sid, n in streams.items() if str(n).lower() not in ours}
+    kept = len(streams) - len(foreign)
+    print(f"  {len(streams)} source(s) registered: {kept} belong to this dataset, {len(foreign)} do not")
+    if not foreign:
+        print("  Nothing to prune.")
+        return {"found": len(streams), "kept": kept, "deleted": 0, "names": []}
+
+    for stream_id, name in foreign.items():
+        print(f"    - {name}  ({stream_id})")
+
+    deleted, failed = 0, []
+    for stream_id, name in foreign.items():
+        try:
+            resp = requests.delete(f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60)
+            resp.raise_for_status()
+            deleted += 1
+            print(f"    deleted {name} -> {resp.status_code}")
+        except Exception as e:
+            failed.append(name)
+            print(f"    FAILED {name}: {e}")
+
+    print(f"  Pruned {deleted}/{len(foreign)} foreign video(s); kept {kept}")
+    return {
+        "found": len(streams), "kept": kept, "deleted": deleted,
+        "failed": failed, "names": list(foreign.values()),
+    }
+
+
 def ingest_videos(
     backend: Any,
     video_dir: Path,
@@ -954,6 +1009,15 @@ def parse_args() -> argparse.Namespace:
     )
     ingest.add_argument("--skip-readiness-wait", action="store_true")
     ingest.add_argument(
+        "--only-dataset",
+        action="store_true",
+        help=(
+            "Delete every source that is NOT one of this dataset's videos, then "
+            "ingest. Leaves the dataset's own sources alone. Safer than --clear "
+            "on a shared deployment, and enough to make a run reproducible."
+        ),
+    )
+    ingest.add_argument(
         "--clear",
         action="store_true",
         help=(
@@ -1043,13 +1107,16 @@ def main() -> None:
     print(f"VST origin:     {vst_url}")
 
     cleared: dict[str, Any] | None = None
+    video_dir = args.data_dir / args.dataset / "videos"
     if args.clear:
         print("\nClearing ALL existing videos (--clear)...")
         cleared = clear_all_videos(args.endpoint, vst_url)
+    elif args.only_dataset:
+        print("\nPruning sources that are not in this dataset (--only-dataset)...")
+        cleared = prune_foreign_videos(args.endpoint, vst_url, video_dir)
 
     upload_stats: dict[str, Any] | None = None
     readiness: dict[str, Any] | None = None
-    video_dir = args.data_dir / args.dataset / "videos"
 
     if args.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
