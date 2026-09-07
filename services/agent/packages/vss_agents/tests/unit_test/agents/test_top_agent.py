@@ -666,6 +666,50 @@ class TestRequestOptionsContext:
         assert result.final_answer == "Tool call failed: streamId not found for 'Camera_01'. Available: ['gwfix6']"
 
     @pytest.mark.asyncio
+    async def test_tool_node_omits_llm_rendered_null_sentinels(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class CapturingTool:
+            args_schema = None
+
+            def __init__(self):
+                self.received_input = None
+
+            async def astream(self, input, config=None):
+                self.received_input = input
+                yield "no incidents found"
+
+        report_tool = CapturingTool()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"report_agent": report_tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling report",
+                    tool_calls=[
+                        {
+                            "name": "report_agent",
+                            "args": {
+                                "sensor_id": "Camera",
+                                "start_time": "None",
+                                "end_time": "null",
+                                "vlm_verified": None,
+                            },
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert report_tool.received_input == {"sensor_id": "Camera"}
+
+    @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_subagent_trace(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)

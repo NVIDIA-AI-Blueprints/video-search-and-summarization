@@ -1039,8 +1039,13 @@ class TopAgent(AsyncMixin):
 
                     logger.info(f"Executing tool/sub-agent: {tool_name}")
 
-                    # Build tool args once, filtering None values and injecting request options when supported.
-                    tool_args = {k: v for k, v in tool_call["args"].items() if v is not None}
+                    # Build tool args once, filtering actual nulls and common LLM-rendered null sentinels.
+                    tool_args = {
+                        key: value
+                        for key, value in tool_call["args"].items()
+                        if value is not None
+                        and not (isinstance(value, str) and value.strip().lower() in {"none", "null"})
+                    }
                     if self._tool_accepts_param(tool_name, "request_options"):
                         tool_args["request_options"] = state.options.model_dump(mode="json")
                         logger.info("Passing request_options to %s", tool_name)
