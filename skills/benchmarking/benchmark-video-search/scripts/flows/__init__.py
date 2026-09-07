@@ -65,6 +65,7 @@ from .dataset import (
     load_dataset_file,
     print_upload_summary,
     llm_url_for,
+    sidecar_decompositions_for,
     vst_url_for,
 )
 from .ingest import (
@@ -238,6 +239,7 @@ __all__ = [
     "video_name_matches",
     "vss_origin_for",
     "llm_url_for",
+    "sidecar_decompositions_for",
     "vst_url_for",
     "wait_for_sources",
 ]
