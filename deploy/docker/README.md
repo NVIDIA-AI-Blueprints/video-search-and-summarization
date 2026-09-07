@@ -357,7 +357,8 @@ curl -fsS "${VSS_GATEWAY_ORIGIN}/elasticsearch/"
 
 The Host ACLs are an allowlist, so the gateway answers only for origins the
 deployment was told about: `VSS_PUBLIC_HOST`, `VSS_GATEWAY_HOST`, `HOST_IP`,
-`EXTERNAL_IP`, `localhost` and `127.0.0.1`, each with and without the port.
+`EXTERNAL_IP`, `HOST_INTERNAL_ALIAS`, `localhost` and `127.0.0.1`, each with and
+without the port.
 **Reaching a deployment by any other name returns 404 on every path**, however
 correct the route is — the common cases being a public DNS record, a client-side
 `/etc/hosts` alias, and a Brev secure link.
@@ -365,11 +366,18 @@ correct the route is — the common cases being a public DNS record, a client-si
 The match is exact, and the port is part of the identity rather than an
 afterthought. Each host value is paired with one specific port: `VSS_PUBLIC_HOST`
 with `VSS_PUBLIC_PORT`, `VSS_GATEWAY_HOST` with `VSS_GATEWAY_PORT`, and
-`HOST_IP` / `EXTERNAL_IP` / `localhost` / `127.0.0.1` with `HAPROXY_PORT`. So a
-name declared for a TLS terminator on 443 is *not* admitted on 7777, and neither
-a suffix nor a prefix of a declared name is admitted at all —
-`example.com.evil`, `evil-example.com` and `example.com:9999` are each refused
-alongside any other undeclared origin.
+`HOST_IP` / `EXTERNAL_IP` / `HOST_INTERNAL_ALIAS` / `localhost` / `127.0.0.1`
+with `HAPROXY_PORT`. So a name declared for a TLS terminator on 443 is *not*
+admitted on 7777, and neither a suffix nor a prefix of a declared name is
+admitted at all — `example.com.evil`, `evil-example.com` and `example.com:9999`
+are each refused alongside any other undeclared origin.
+
+`HOST_INTERNAL_ALIAS` is the name by which a caller *outside* the Compose
+network but on the same machine reaches the host — the sandboxed notebook
+environments address the deployment that way rather than by its address. It
+defaults to `host.openshell.internal` in
+`services/infra/haproxy/compose.yml`, so it is already declared on every
+deployment; set it only when the sandbox uses a different alias.
 
 Set `VSS_PUBLIC_HOST` to the hostname callers use and recreate
 `vss-haproxy-ingress`. The IP entries stay valid alongside it, so declaring a
@@ -432,7 +440,7 @@ at all rather than merely dropping one origin from the allowlist:
 ```
 
 Which is why `HOST_IP='<HOST_IP>'` in the profile is load-bearing rather than
-untidy: four of the seven allowlist variables have no Compose default, and that
+untidy: four of the eight allowlist variables have no Compose default, and that
 placeholder is what the rest of the chain resolves to before `dev-profile.sh`
 fills in a real address. `check_gateway_host_acls.py` fails CI if any of them
 loses its guaranteed value. In profiles that include the SDRC services Compose
