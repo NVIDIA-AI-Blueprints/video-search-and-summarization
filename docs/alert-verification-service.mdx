@@ -698,7 +698,11 @@ Metric shape and coverage are affected by these `config.yml` keys:
 | `event_bridge.redis_source.protect_confirmed_verdicts.enabled` | `false` | When enabled, confirmed-verdict short-circuits increment `alert_bridge_events_skipped_confirmed_total` instead of `alert_bridge_events_total`. |
 | `alert_agent.include_latency_info` | `false` | Not required for Prometheus metrics. It only controls whether latency fields are written into output documents for Elasticsearch-based analysis. |
 
-When per-sensor labels are enabled, missing, non-string, empty, or over-128-character sensor IDs are folded into `sensorId="unknown"`. Valid string IDs, including IDs with punctuation such as `/`, `:`, `?`, or `.`, pass through unchanged after trimming whitespace. The recorder caps distinct `sensorId` label values at 128 per process; any additional unseen ID is recorded as `sensorId="unknown_overflow"`. ### Pipeline histograms These histograms expose `_bucket`, `_sum`, and `_count` series.
+When per-sensor labels are enabled, missing, non-string, empty, or over-128-character sensor IDs are folded into `sensorId="unknown"`. Valid string IDs, including IDs with punctuation such as `/`, `:`, `?`, or `.`, pass through unchanged after trimming whitespace. The recorder caps distinct `sensorId` label values at 128 per process; any additional unseen ID is recorded as `sensorId="unknown_overflow"`.
+
+### Pipeline histograms
+
+These histograms expose `_bucket`, `_sum`, and `_count` series.
 
 | Metric | Measures |
 | --- | --- |
@@ -831,6 +835,105 @@ Events per second by verdict:
 ```text
 sum by (verdict) (rate(alert_bridge_events_total[1m]))
 ```
+
+## OpenTelemetry Tracing
+
+With tracing enabled, the Alerts Microservice starts one [OpenTelemetry](https://opentelemetry.io/) trace per alert and exports the sampled ones over OTLP/HTTP to the configured endpoint; it does not open a port or store spans itself. The shipped sampling ratio is `0.1`, so about one alert in ten is exported. Where the metrics above aggregate across events, a trace covers a single alert. Tracing is off by default and is enabled independently of Prometheus metrics. Turning it off, or leaving it off, does not change alert processing or the `alert_bridge_*` Prometheus metrics.
+
+Spans need a collector and a backend to reach. The Docker Compose deployment ships an OpenTelemetry Collector and a Jaeger instance behind their own Compose profiles, neither of which is in a shipped profile list. The microservice sends OTLP/HTTP to the collector on port `4318`. The collector forwards traces to both backends:
+
+- Jaeger, with its UI at `http://<HOST_IP>:16686` when the `jaeger` profile is enabled.
+- Phoenix, through the trace ingestion and UI service already deployed with the alert profiles.
+
+The collector's published ports, including the Prometheus scrape port, are bound to `127.0.0.1` on the host; services reach the collector over the Compose network. Set `OTEL_COLLECTOR_HTTP_HOST_PORT`, `OTEL_COLLECTOR_GRPC_HOST_PORT`, or `OTEL_COLLECTOR_METRICS_HOST_PORT` to `0.0.0.0:<port>` to widen a binding. Workflow endpoints are listed in [Alert Verification](/vss/vision-agent/agent-workflows/alert-verification#service-endpoints) and [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts#service-endpoints).
+
+### Enabling tracing
+
+In the `dev-profile-alerts` developer profile, edit `overrides.env`:
+
+1. Set `ALERT_ENABLE_OTEL_MONITORING=true`.
+2. Append `otel-collector,jaeger` to both `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM`.
+3. Deploy, or redeploy, the profile.
+
+Add the two profiles to the list definitions rather than to `COMPOSE_PROFILES`. The deploy script rewrites `COMPOSE_PROFILES` for `--mode real-time`, so anything appended there is dropped. Then open the Jaeger UI and select the `vss-alert-ms` service.
+
+### Span hierarchy
+
+Each alert produces one root span, `Alert Verification`, covering the event from ingestion to sink completion. Child spans divide that interval.
+
+| Span | Covers |
+| --- | --- |
+| `Alert Verification` | Root span for one alert, from ingestion to sink-ready completion. |
+| `Kafka Consume Lag` | Kafka publish to microservice consume. |
+| `Worker Queue Wait` | Consume to worker assignment. |
+| `Dispatch Wait` | Task dispatch to task start. |
+| `VST Video URL Resolution (overlay)` | VIOS (VST) video URL fetch with overlay. |
+| `VST Video URL Resolution (no overlay)` | The retry fallback fetch. Both VST spans can appear for one event: the no-overlay call is a fallback, not a replacement. |
+| `VST Capacity Wait`, `VLM Capacity Wait` | Time spent waiting for a per-service concurrency slot before the call is made, one span per acquisition. A long wait here means the microservice is at its own configured limit rather than waiting on the downstream service. |
+| `VLM Request` | One VLM attempt. The retry loop emits one span per attempt, so a retried event shows several. |
+| `Elasticsearch get`, `Elasticsearch update`, `Elasticsearch write` | Elasticsearch reads and writes made while processing the event. |
+
+`Dispatch Wait`, the two `Capacity Wait` spans, and `VLM Request` are emitted by the `event_loop` pipeline, which is the shipped default. The synchronous path does not emit them.
+
+Requests to the REST API produce their own server spans through FastAPI instrumentation, and outbound HTTP calls to VIOS (VST) and the VLM backend add client spans beneath whichever span is active.
+
+### Trace context
+
+Trace context is read from Kafka records. When an upstream producer stamps a W3C `traceparent` header, the root span for that record continues the caller's trace. One trace then spans the producer and the Alerts Microservice. Records without the header start their own trace. Each record uses its own header, so a batch carrying several callers is not collapsed onto one of them. REST requests carrying a `traceparent` header are joined the same way.
+
+The current propagation boundaries are:
+
+- Inbound: Kafka record headers and REST request headers.
+- Outbound: HTTP calls to VIOS (VST) and the VLM backend carry the active trace context. The consolidation Kafka sink stamps `traceparent` on the records it produces; other produce sites do not.
+- Not included: `vss_agents` does not stamp `traceparent` on the records it produces, and Elasticsearch requests do not carry trace context.
+
+### OpenTelemetry metrics
+
+With tracing enabled, the microservice also exports three OpenTelemetry metrics on the same OTLP/HTTP connection. The collector exposes them in Prometheus format on port `8889`, bound to `127.0.0.1` by default. No shipped profile scrapes the collector; the `dev-profile-alerts` profile does not deploy Prometheus. The `alert_bridge_*` metrics and the `/metrics` endpoint described above are unchanged. A Prometheus server you deploy can scrape the collector, the `/metrics` endpoint, or both.
+
+| Metric | Type | Attributes | Measures |
+| --- | --- | --- | --- |
+| `alert.verification.duration` | Histogram (s) | `pipeline_mode`, `verdict` | End-to-end verification time per event, from event end to sink-ready completion. |
+| `alert.vlm.attempt.count` | Counter | `success`, `attempt` | VLM requests, counted per attempt rather than per event. |
+| `alert.capacity.wait.duration` | Histogram (s) | `service` | Time spent waiting for a VST or VLM concurrency slot. |
+
+### Log correlation
+
+Log lines written while a trace is active end with `trace_id=<id> span_id=<id>`. Use the `trace_id` with the Jaeger lookup by trace ID to open the trace for that log line. The IDs are appended for every alert, but the trace is present in Jaeger only when it was sampled. Log lines written outside a trace are unchanged.
+
+### Configuration
+
+Tracing is switched on with an environment variable. The values below are the ones the Docker Compose deployment sets. A container run outside it keeps the service name `vss-alert-ms` and falls back to the OpenTelemetry SDK default endpoint on `localhost`:
+
+| Option | Compose value | Meaning |
+| --- | --- | --- |
+| `ENABLE_OTEL_MONITORING` | `false` | Set to `true` to enable tracing and OpenTelemetry metrics. When false, the OpenTelemetry SDK is not initialized and no spans are created. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` | Base OTLP/HTTP endpoint. The exporter appends `/v1/traces` and `/v1/metrics`. |
+| `OTEL_SERVICE_NAME` | `vss-alert-ms` | Service name that spans are recorded under in the backend. |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Set to `none` to keep tracing initialized but export no spans. |
+| `OTEL_METRICS_EXPORTER` | Same as `OTEL_TRACES_EXPORTER` | Set to `none` to export no OpenTelemetry metrics. Follows the traces setting unless set explicitly. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric export interval, in milliseconds. |
+| `OTEL_METRIC_EXPORT_TIMEOUT` | `5000` | Metric export timeout, in milliseconds. |
+| `OTEL_RESOURCE_ATTRIBUTES` | (empty) | Additional resource attributes, as `key=value` pairs. |
+| `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `4096` | SDK-level ceiling on attribute value length; unlimited when unset. Applies after the `max_content_chars` limit below. |
+
+In the Docker Compose deployment, each option is set through the matching `ALERT_`-prefixed variable in `overrides.env`. `ALERT_ENABLE_OTEL_MONITORING` sets `ENABLE_OTEL_MONITORING`, `ALERT_OTEL_EXPORTER_OTLP_ENDPOINT` sets `OTEL_EXPORTER_OTLP_ENDPOINT`, and so on. The container receives the unprefixed name.
+
+Tracing behavior is tuned with these `config.yml` keys:
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `alert_agent.tracing.sampling_ratio` | `0.1` | Fraction of traces sampled, 0.0-1.0. Applied with ParentBased sampling, so a record whose caller was sampled keeps its whole trace. It affects export volume and backend storage. In the recorded test below, throughput at `0.1` and at `1.0` was within about one point, so lowering the ratio does not recover the tracing overhead. |
+| `alert_agent.tracing.include_content` | `false` | When true, prompt text, VLM responses, and video URLs are attached to spans. See the warning below. |
+| `alert_agent.tracing.max_content_chars` | `512` | Maximum characters of any content attribute, applied only when `include_content` is true. Truncated values end with `...[+N chars]`, and that marker counts against the limit. `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` applies after it and adds no marker, so the effective ceiling is the lower of the two. |
+
+<Warning>
+`include_content` records prompts, VLM responses, and video URLs in spans. Alert data may contain personally identifiable information, and video URLs may carry presigned access tokens. Do not enable it where the tracing backend is not equally protected.
+</Warning>
+
+### Performance
+
+In a recorded test on a single host, the microservice processed 39.24 events/s with tracing disabled and 35.31 events/s with tracing enabled at the shipped `sampling_ratio` of `0.1`, about 10% lower. The test measured the cost of producing telemetry; the exporters were set to `none`, so network and collector cost were not included. Results on other hardware and workloads will differ. Choose the sampling ratio by the trace volume and backend storage you need. To remove the overhead, disable tracing.
 
 ## Configuration
 
