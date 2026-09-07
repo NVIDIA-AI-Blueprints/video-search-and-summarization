@@ -1830,6 +1830,13 @@ run_dry_run_up_and_check_generated_env "generated.env Search keeps Nemotron 3.5 
 EXPECTED_STDOUT="Managed container tag suffix: -sbsa" run_dry_run_up_and_check_generated_env "generated.env Base GB300 selects the centralized SBSA suffix" "base" \
  -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
   "HARDWARE_PROFILE" "GB300" \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "SHARED_LLM_VLM_DEVICE_ID" "1" \
+  "FIXED_SHARED_DEVICE_IDS" "1" \
+  "RT_CV_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1" \
+  "RT_EMBED_DEVICE_ID" "1" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
 

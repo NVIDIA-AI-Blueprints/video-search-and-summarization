@@ -931,12 +931,10 @@ function process_args() {
         _vlm_is_remote=1
       fi
 
-      # Search places every local model on one shared GB300, so it resolves a
-      # single deployment GPU from an explicitly selected local model, or
-      # auto-detects it when exactly one GB300 is present (including
-      # remote+remote). Other profiles carry their own GB300 handling and must
-      # not be routed through this resolution.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # Every profile places its GPU-consuming services on one selected GB300.
+      # Resolve that GPU from an explicitly selected local model, or auto-detect
+      # it when exactly one GB300 is present (including remote+remote).
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         # Device IDs reach here from the CLI or from the profile environment, and
         # only a CLI value is an explicit selection. The profile defaults describe
         # the two-GPU layout (LLM on 1, VLM on 0), which cannot apply to a single
@@ -962,7 +960,7 @@ function process_args() {
           # A conflict the user actually expressed is an error; one inherited
           # wholly from the profile environment is not.
           if [[ "${_llm_id_is_cli}" -eq 1 ]] || [[ "${_vlm_id_is_cli}" -eq 1 ]]; then
-            echo "[ERROR] GB300 search requires local LLM and VLM device IDs to select the same GPU"
+            echo "[ERROR] GB300 requires local LLM and VLM device IDs to select the same GPU"
             ((_all_good++))
           fi
         else
@@ -992,9 +990,9 @@ function process_args() {
         if [[ "${_vlm_is_remote}" -eq 0 ]]; then
           vlm_device_id="${hardware_device_id}"
         fi
-        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
+        if [[ "${profile}" == "search" ]] && [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
           && [[ "${llm}" != "nvidia/nemotron-3.5-lightning-30b-a3b" ]]; then
-          echo "[ERROR] GB300 search supports only the local LLM nvidia/nemotron-3.5-lightning-30b-a3b"
+          echo "[ERROR] The search profile on GB300 supports only the locally hosted LLM nvidia/nemotron-3.5-lightning-30b-a3b"
           ((_all_good++))
         fi
       fi
@@ -1017,6 +1015,9 @@ function process_args() {
         _gpu_name="$(get_nvidia_smi_gpu_name "${_hardware_check_device_id}")"
         if [[ -z "${_gpu_name}" ]]; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match detected hardware (no NVIDIA GPU detected)."
+          ((_all_good++))
+        elif [[ "${hardware_profile}" == "GB300" ]] && [[ "$(get_detected_hardware_profile "${_gpu_name}")" != "GB300" ]]; then
+          echo "[ERROR] Selected GPU device ID '${_hardware_check_device_id}' is not a GB300."
           ((_all_good++))
         elif ! host_has_detected_hardware_profile "$(get_canonical_hardware_profile "${hardware_profile}")"; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match any detected NVIDIA GPU."
@@ -1161,9 +1162,9 @@ function process_args() {
         fi
       fi
 
-      # Every local model on the single selected GB300 shares that GPU with the
-      # search runtime services, even when the other model uses a remote endpoint.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # Every local model on the single selected GB300 shares that GPU with
+      # the profile runtime services, even when the other model is remote.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         [[ "${llm_mode}" != "remote" ]] && llm_mode="local_shared"
         [[ "${vlm_mode}" != "remote" ]] && vlm_mode="local_shared"
       fi
@@ -1232,8 +1233,9 @@ function process_args() {
       fi
 
       # Device IDs must not be in profile RESERVED_DEVICE_IDS (comma-separated list; may be empty).
-      # Exception: DGX-SPARK, IGX-THOR, AGX-THOR are exempt (device ID options not accepted).
-      if ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
+      # Edge boards and GB300 are exempt: their resolved device is the shared
+      # deployment GPU, so it intentionally supersedes profile reservations.
+      if [[ "${hardware_profile}" != "GB300" ]] && ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
         if [[ -n "${profile}" ]] && [[ -f "${deployment_directory}/developer-profiles/dev-profile-${profile}/.env" ]]; then
           local _profile_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
           local _profile_overrides_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env"
@@ -1711,7 +1713,7 @@ function state_up() {
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
   fi
-  if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]]; then
+  if [[ "${hardware_profile}" == "GB300" ]]; then
     local _gb300_device_id="${hardware_device_id}"
     set_env_var "SHARED_LLM_VLM_DEVICE_ID" "${_gb300_device_id}"
     set_env_var "FIXED_SHARED_DEVICE_IDS" "${_gb300_device_id}"
@@ -1854,9 +1856,9 @@ function state_up() {
       else
         set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
       fi
-      # RT-VLM remains a local proxy for remote VLM endpoints on GB300 search,
-      # which is the only profile that resolves a single deployment GPU.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # RT-VLM remains a local proxy for remote VLM endpoints on GB300, so it
+      # follows the selected deployment GPU for every profile.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
       fi
     fi
