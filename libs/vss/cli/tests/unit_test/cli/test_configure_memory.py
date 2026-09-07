@@ -124,7 +124,7 @@ def test_memory_check_accepts_reachable_backend(
     monkeypatch.setattr(configure_mod, "_check_memory_backend", reachable)
     result = _invoke("check")
     assert result.exit_code == 0, result.output
-    assert result.output.strip() == "reachable"
+    assert result.output.strip().splitlines() == ["reachable", "Introspection not configured"]
     assert checked == [("http://example/elasticsearch", "vss-memory")]
 
 
@@ -376,21 +376,108 @@ def test_configure_introspection_judge_round_trip_and_show(config_home: Path) ->
         )
     )
     shown = json.loads(_invoke("show").output)
+    assert shown["introspection"]["enabled"] is True
     assert shown["introspection"]["judge"] == memory_config.introspection.judge.to_json()
 
 
-def test_first_introspection_configuration_requires_only_endpoint(config_home: Path) -> None:
+def test_first_introspection_configuration_defaults_to_enabled_and_requires_endpoint(config_home: Path) -> None:
     missing = _invoke("introspection")
     assert missing.exit_code == int(Exit.INVALID_INPUT)
     assert "--judge-endpoint is required" in missing.output
 
     configured = _invoke("introspection", "--judge-endpoint", "http://127.0.0.1:18789/v1")
     assert configured.exit_code == 0, configured.output
-    judge = config_mod.load().memory.introspection.judge  # type: ignore[union-attr]
+    introspection = config_mod.load().memory.introspection  # type: ignore[union-attr]
+    assert introspection.enabled is True  # type: ignore[union-attr]
+    judge = introspection.judge  # type: ignore[union-attr]
     assert judge.model == "openclaw/default"
     assert judge.criteria_prompt == config_mod.DEFAULT_INTROSPECTION_CRITERIA_PROMPT
     assert judge.backend_model is None
     assert judge.api_key_env is None
+
+
+def test_first_introspection_configuration_accepts_explicit_enable(config_home: Path) -> None:
+    result = _invoke(
+        "introspection",
+        "--enable",
+        "--judge-endpoint",
+        "http://127.0.0.1:18789/v1",
+    )
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().memory.introspection.enabled is True  # type: ignore[union-attr]
+
+
+def test_disable_preserves_complete_judge_and_reenable_without_endpoint(config_home: Path) -> None:
+    criteria = "Use only directly supported facts."
+    configured = _invoke(
+        "introspection",
+        "--enable",
+        "--judge-endpoint",
+        "https://judge.example/v1",
+        "--judge-model",
+        "openclaw/research",
+        "--judge-backend-model",
+        "ollama/gemma3:12b",
+        "--judge-api-key-env",
+        "JUDGE_TOKEN",
+        "--judge-criteria",
+        criteria,
+    )
+    assert configured.exit_code == 0, configured.output
+    before = config_mod.load().memory.introspection  # type: ignore[union-attr]
+
+    disabled = _invoke("introspection", "--disable")
+    assert disabled.exit_code == 0, disabled.output
+    after_disable = config_mod.load().memory.introspection  # type: ignore[union-attr]
+    assert after_disable.enabled is False  # type: ignore[union-attr]
+    assert after_disable.judge == before.judge  # type: ignore[union-attr]
+    shown = json.loads(_invoke("show").output)
+    assert shown["introspection"]["enabled"] is False
+    assert shown["introspection"]["judge"] == before.judge.to_json()  # type: ignore[union-attr]
+
+    enabled = _invoke("introspection", "--enable")
+    assert enabled.exit_code == 0, enabled.output
+    after_enable = config_mod.load().memory.introspection  # type: ignore[union-attr]
+    assert after_enable.enabled is True  # type: ignore[union-attr]
+    assert after_enable.judge == before.judge  # type: ignore[union-attr]
+
+
+def test_disable_before_first_introspection_configuration_fails(config_home: Path) -> None:
+    result = _invoke("introspection", "--disable")
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "not configured" in result.output
+    assert config_mod.load().memory is None
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    (
+        (None, "Introspection not configured"),
+        (True, "Introspection enabled; judge target=openclaw/default"),
+        (False, "Introspection disabled; preserved judge target=openclaw/default"),
+    ),
+)
+def test_memory_check_reports_introspection_state_without_calling_judge(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: bool | None,
+    expected: str,
+) -> None:
+    assert _invoke().exit_code == 0
+    if configured is not None:
+        assert _invoke("introspection", "--judge-endpoint", "http://127.0.0.1:18789/v1").exit_code == 0
+        if not configured:
+            assert _invoke("introspection", "--disable").exit_code == 0
+    monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "reachable")
+    monkeypatch.setattr(
+        "vss_core.introspection.OpenAIIntrospectionClient",
+        lambda **_kwargs: pytest.fail("memory check must not construct the judge"),
+    )
+
+    result = _invoke("check")
+
+    assert result.exit_code == 0, result.output
+    assert expected in result.output
 
 
 def test_introspection_update_preserves_configured_embeddings_and_retrieval(config_home: Path) -> None:
@@ -539,6 +626,41 @@ def test_introspection_judge_rejects_invalid_values(updates: dict[str, object], 
 def test_introspection_config_rejects_unknown_fields(raw: dict[str, object], message: str) -> None:
     with pytest.raises(config_mod.ConfigError, match=message):
         config_mod.IntrospectionMemoryConfig.from_json(raw)
+
+
+@pytest.mark.parametrize("enabled", (True, False))
+def test_introspection_enabled_state_round_trips_explicitly(enabled: bool) -> None:
+    config = config_mod.IntrospectionMemoryConfig(
+        enabled=enabled,
+        judge=config_mod.IntrospectionJudgeConfig(endpoint="https://llm.example/v1"),
+    )
+    serialized = config.to_json()
+    assert serialized["enabled"] is enabled
+    assert config_mod.IntrospectionMemoryConfig.from_json(serialized) == config
+
+
+def test_old_introspection_object_without_enabled_loads_as_enabled() -> None:
+    loaded = config_mod.IntrospectionMemoryConfig.from_json({"judge": {"endpoint": "https://llm.example/v1"}})
+    assert loaded.enabled is True
+    assert loaded.to_json()["enabled"] is True
+
+
+@pytest.mark.parametrize("enabled", ("false", 0, 1, None))
+def test_introspection_enabled_rejects_non_boolean_values(enabled: object) -> None:
+    with pytest.raises(config_mod.ConfigError, match=r"enabled.*true or false"):
+        config_mod.IntrospectionMemoryConfig.from_json(
+            {
+                "enabled": enabled,
+                "judge": {"endpoint": "https://llm.example/v1"},
+            }
+        )
+
+
+def test_disabled_introspection_still_requires_valid_judge() -> None:
+    with pytest.raises(config_mod.ConfigError, match=r"judge.*required"):
+        config_mod.IntrospectionMemoryConfig.from_json({"enabled": False})
+    with pytest.raises(config_mod.ConfigError, match="endpoint"):
+        config_mod.IntrospectionMemoryConfig.from_json({"enabled": False, "judge": {"endpoint": ""}})
 
 
 def test_old_memory_configuration_without_introspection_still_loads(
