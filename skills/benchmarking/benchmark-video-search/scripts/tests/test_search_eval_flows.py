@@ -791,3 +791,62 @@ def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
 
     out = rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", _dataset_dir(tmp_path))
     assert out == {"found": 2, "kept": 2, "deleted": 0, "names": []}
+
+
+# ---------------------------------------------------------------------------
+# Flow description vs live decomposition
+# ---------------------------------------------------------------------------
+
+
+class _Backend:
+    """Minimal stand-in: describe() reports routing from `decompositions`."""
+
+    def __init__(self) -> None:
+        self.decompositions: dict[str, Any] = {}
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "routing": "per-query (from decompositions)" if self.decompositions else "fixed",
+            "decompositions": len(self.decompositions),
+        }
+
+
+class _Decomposer:
+    @staticmethod
+    def describe() -> dict[str, Any]:
+        return {"llm_url": "http://llm:30081", "model": "nemotron", "temperature": 0.0}
+
+
+def test_flow_records_live_decomposition_before_any_query_runs() -> None:
+    """A live decomposer fills `decompositions` only as queries run.
+
+    describe() is called before the first query, so on its own it reports
+    `routing: fixed, decompositions: 0` for a run that decomposes everything --
+    and the saved flow block then tells the reader one path was measured.
+    """
+    import run_eval_flows as rf
+
+    backend = _Backend()
+    assert backend.describe()["routing"] == "fixed"  # the trap
+
+    out = rf.describe_query_flow(backend, _Decomposer())
+    assert out["routing"] == "per-query (live decomposition)"
+    assert out["live_decomposition"]["model"] == "nemotron"
+
+
+def test_dry_run_reports_planned_decomposition_without_building_one() -> None:
+    """The dry run builds no decomposer -- that would call the LLM."""
+    import run_eval_flows as rf
+
+    out = rf.describe_query_flow(_Backend(), None, planned_llm_url="http://llm:30081")
+    assert out["routing"] == "per-query (live decomposition)"
+    assert out["live_decomposition"]["llm_url"] == "http://llm:30081"
+    assert out["live_decomposition"]["model"] == "(discovered at run time)"
+
+
+def test_flow_reports_false_when_nothing_decomposes() -> None:
+    import run_eval_flows as rf
+
+    out = rf.describe_query_flow(_Backend(), None)
+    assert out["routing"] == "fixed"
+    assert out["live_decomposition"] is False
