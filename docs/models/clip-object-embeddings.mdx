@@ -5,7 +5,7 @@ position: 2
 ---
 ## Role in VSS
 
-The RT-CV microservice ([Object Detection and Tracking ](/vss/system-components/vision-microservices/object-detection-and-tracking)) can produce **object embeddings** from detection crops and **text embeddings** from prompts using a **combined CLIP-style ONNX** export: vision on TensorRT, text on ONNX Runtime with tokenizer assets. Runtime INI keys and APIs are documented under [ReID and Embeddings](/vss/system-components/vision-microservices/object-detection-and-tracking#reid-and-embeddings-rest-api-and-config-reference) on that page.
+The RT-CV microservice ([Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking)) can produce **object embeddings** from detection crops and **text embeddings** from prompts using a **combined CLIP-style ONNX** export: vision on TensorRT, text on ONNX Runtime with tokenizer assets. Runtime INI keys and APIs are documented under [ReID and Embeddings](/vss/system-components/vision-microservices/object-detection-and-tracking#reid-and-embeddings-rest-api-and-config-reference) on that page.
 
 <Note>
 **Purpose-built model cards** (inputs, outputs, licensing, integration notes) are maintained alongside NGC collaterals. For SigLIP 2, see `SigLIP_2` under `ngc-collaterals/multimodal/docs/purpose_built_models/` in the collaterals repo. Use those files together with the published TAO embedding guides when you need field-level model card detail.
@@ -252,10 +252,10 @@ Further **export shapes**, separate vision/text ONNX, tokenizer artifacts, and O
 1. Export a **combined** image+text ONNX (and tokenizer directory) so vision and text paths stay aligned.
 2. Deploy artifacts beside the RT-CV container or mount them with volumes.
 3. In DeepStream, enable the vision encoder and text embedder blocks; set `onnx-model-path` and `tokenizer-dir`; rebuild the **TensorRT** engine for the vision branch. Keep image size, tokenizer max length, and normalization consistent with training.
-4. Validate REST text embedding APIs, Kafka embedding dimensions, and downstream services (for example [Behavior Analytics ](/vss/system-components/analytics-microservices/behavior-analytics)).
+4. Validate REST text embedding APIs, Kafka embedding dimensions, and downstream services (for example [Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics)).
 
 <Note>
-Changing embedding dimension or geometry usually requires **re-indexing** vectors and rechecking similarity thresholds—see [Model customization overview ](/vss/system-components/models/model-customization-overview).
+Changing embedding dimension or geometry usually requires **re-indexing** vectors and rechecking similarity thresholds—see [Model customization overview](/vss/system-components/models/model-customization-overview).
 </Note>
 
 ## Source material in this repo’s doc trees

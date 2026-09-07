@@ -7,7 +7,7 @@ position: 2
 ## Overview
 
 The Video Summarization microservice processes uploaded video files through
-[RTVI-VLM ](/vss/system-components/vision-microservices/real-time-vlm) for per-chunk vision inference and a summarization LLM (CA-RAG) for
+[RTVI-VLM](/vss/system-components/vision-microservices/real-time-vlm) for per-chunk vision inference and a summarization LLM (CA-RAG) for
 event aggregation. The tables below report mean end-to-end (E2E) latency for file summarization
 and maximum concurrent request capacity (burst) across video lengths. Use these numbers to size
 GPU count and topology for batch summarization workloads on H100, RTX Pro 6000 SE, and L40S

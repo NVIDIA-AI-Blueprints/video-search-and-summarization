@@ -81,7 +81,7 @@ fcdbc01b99ee   nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1          
 f656d6a94dd0   docker.elastic.co/kibana/kibana:9.3.3                               "/bin/tini -- /usr/l…"    2 days ago   Up 2 days (healthy)                                                  kibana
 4504d14836f1   mdx-elasticsearch-init-container                                    "bash -c ' /opt/mdx/…"    2 days ago   Exited (0) 2 days ago                                                vss-elasticsearch-init
 ba933c9f035e   alpine:3.23.4                                                       "/bin/sh -c 'apk add…"    2 days ago   Exited (0) 2 days ago                                                sdrc-wdm-env-from-config
-8ac40145a98b   nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1                     "/opt/nvidia/nvidia_…"    2 days ago   Up 2 days (healthy)     0.0.0.0:30081->8000/tcp                      nvidia-nemotron-nano-9b-v2
+8ac40145a98b   nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b:2.0.9-variant     "/opt/nvidia/nvidia_…"    2 days ago   Up 2 days (healthy)     0.0.0.0:30081->8000/tcp                      nemotron-3.5-lightning-30b-a3b
 cdd60a3e6d56   postgres:17.9-alpine                                                "docker-entrypoint.s…"    2 days ago   Up 2 days (healthy)                                                  vss-vios-postgres
 3d5c25a4637b   confluentinc/cp-kafka:8.2.0                                         "/bin/sh /usr/local/…"    2 days ago   Up 2 days (healthy)                                                  kafka
 a3f44e5fe8ad   quay.io/prometheus/prometheus:v3.11.3                               "/bin/prometheus --c…"    2 days ago   Up 2 days               0.0.0.0:9090->9090/tcp                       prometheus

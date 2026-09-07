@@ -37,6 +37,7 @@ from typing import Any, Dict, Optional, Tuple
 from handlers.direct_media.direct_media_handler import DirectMediaHandler
 from handlers.prompt_handler.prompt_manager import PromptManager
 from mdx.sink.vlm_enhanced_sink import build_vlm_enhanced_sink
+from tracing import spans as tracing_spans
 from metrics import PROMETHEUS_ENABLED
 from metrics.recorder import (
     observe_ondemand_vlm_duration,
@@ -107,6 +108,12 @@ class OnDemandVerificationService:
             ValueError: prompt manager failure or other validation issue.
         """
         message = dict(request_data)
+        # The request body is user input and its schema allows extra fields, so
+        # strip anything reserved for internal transport before the body is
+        # treated as a message. open_root_span() also refuses to derive a parent
+        # on this path, but the body should not be carrying the key in the first
+        # place -- defence at the boundary, not only at the consumer.
+        message.pop(tracing_spans.KAFKA_HEADERS_KEY, None)
 
         now = datetime.now(timezone.utc).isoformat()
         message.setdefault("id", f"ondemand-{uuid.uuid4()}")
@@ -147,6 +154,7 @@ class OnDemandVerificationService:
         user_prompt: str,
         system_prompt: str,
         request_start_time: Optional[float] = None,
+        request_span_context: Any = None,
     ) -> None:
         """Run VLM evaluation and publish results to Kafka/ES.
 
@@ -155,6 +163,16 @@ class OnDemandVerificationService:
         blocking (synchronous) and is intended to run inside a background task.
         """
         processing_start_time = time.monotonic() if PROMETHEUS_ENABLED else 0.0
+        # Its own root, linked to the request that scheduled it rather than
+        # parented to it: Starlette runs this after the response is sent, so the
+        # server span has already ended and a child would sit outside its
+        # parent's lifetime. The link is what lets Jaeger and Phoenix associate
+        # the two without breaking that ordering.
+        span_handle = tracing_spans.open_root_span(
+            message,
+            pipeline_mode='ondemand',
+            link_to=request_span_context,
+        )
         failure_reason = None
         try:
             info_block = message.get("info", {})
@@ -169,6 +187,13 @@ class OnDemandVerificationService:
             failure_reason = "background_exception"
             raise
         finally:
+            # Closed on this thread, independently of the Prometheus gate below:
+            # the span is this path's own and nothing else will end it.
+            if span_handle is not None:
+                span_handle.mark_finally_reached()
+                if span_handle.should_close_from_finally():
+                    span_handle.close(None, message, failure_reason=failure_reason)
+                span_handle.detach()
             if PROMETHEUS_ENABLED:
                 record_ondemand_event_complete(
                     request_start_time=request_start_time,

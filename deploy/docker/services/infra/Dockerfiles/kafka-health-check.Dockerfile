@@ -22,8 +22,12 @@
 #   kafka-health-check - broker/topic readiness check (default)
 
 FROM alpine:3.24.1 AS jq-fetch
-RUN apk add --no-cache curl=8.21.0-r0 \
-    && ARCH=$(uname -m) \
+# Fetch the upstream *static* jq: Alpine's own jq package is musl-linked and
+# would not run once copied into the glibc-based cp-kafka stage below. busybox
+# wget is already in the base image, so nothing needs installing -- an earlier
+# `apk add curl=<version>` here broke when Alpine dropped that exact version
+# from its index.
+RUN ARCH=$(uname -m) \
     && if [ "$ARCH" = "x86_64" ]; then \
          JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"; \
        elif [ "$ARCH" = "aarch64" ]; then \
@@ -32,7 +36,7 @@ RUN apk add --no-cache curl=8.21.0-r0 \
          echo "Unsupported architecture: $ARCH" && exit 1; \
        fi \
     && mkdir -p /jqbin \
-    && curl -fsSL -o /jqbin/jq "$JQ_URL" \
+    && wget -q -O /jqbin/jq "$JQ_URL" \
     && chmod +x /jqbin/jq
 
 FROM confluentinc/cp-kafka:8.3.0 AS kafka-base

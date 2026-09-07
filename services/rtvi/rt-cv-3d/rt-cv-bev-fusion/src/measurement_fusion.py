@@ -24,8 +24,12 @@ Fusion logic:
     sensors arrive or on timeout. Timestamp bucketing is required for multi-container
     deployments where each DeepStream instance maintains an independent frame counter
     — frame IDs diverge across containers but wall-clock timestamps stay aligned.
-  - For each unique object ID: element-wise average of bbox3d coordinates and confidence
-  - Object type resolved by majority vote across sensors (ties broken by total confidence)
+  - For each unique object ID: views collapsed to one position per FUSION_METHOD —
+    "average" means every view, unweighted; "gated_weighted" (default) refuses views
+    under VISIBILITY_MIN, averages the rest weighted by 2D box area, and publishes
+    nothing for an object no view sees well enough. See README, Fusion Methods.
+  - Object type resolved by majority vote across the fused sensors (ties broken by
+    total confidence)
   - Fused Frame timestamp: arithmetic mean of all sensor timestamps
   - Per-sensor timestamps stored in Frame.info (key = sensorId, value = ISO timestamp)
   - Output sensorId = "bev-sensor-1"
@@ -68,6 +72,18 @@ MAX_EXPECTED_SENSORS = int(os.environ.get("MAX_EXPECTED_SENSORS", "4"))
 # sensorId stamped on every fused Frame published to FUSED_TOPIC.
 FUSED_SENSOR_ID      = "bev-sensor-1"
 
+# --- Measurement fusion -----------------------------------------------------
+# How the views of one object become one position. VISIBILITY_MIN=0 is not "average":
+# it admits every view but keeps the area weighting.
+FUSION_METHOD        = os.environ.get("FUSION_METHOD",  "gated_weighted").strip().lower()
+FUSION_METHODS       = ("average", "gated_weighted")
+# Gate for gated_weighted, from Object.info["visibility"]. 
+# Needs TargetManagement.outputVisibility: 1 upstream, or the value is pinned 
+# to 1.0 and the gate is a no-op.
+VISIBILITY_MIN       = float(os.environ.get("VISIBILITY_MIN",     "0.3"))
+if not 0.0 <= VISIBILITY_MIN <= 1.0:
+    raise ValueError("VISIBILITY_MIN must be a finite value between 0 and 1")
+
 # --- Fusion timing ----------------------------------------------------------
 # Max time a bucket waits for missing sensors before flushing with whatever it has.
 # Applied to BOTH event-time lag (watermark trigger in _buffer_frame) and arrival-time
@@ -103,6 +119,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Fail rather than default: a typo would silently change every published position.
+if FUSION_METHOD not in FUSION_METHODS:
+    raise ValueError(f"FUSION_METHOD={FUSION_METHOD!r} unknown; expected one of "
+                     f"{', '.join(FUSION_METHODS)}")
+logger.info("Fusion method: %s%s", FUSION_METHOD,
+            f" (VISIBILITY_MIN={VISIBILITY_MIN:g})" if FUSION_METHOD == "gated_weighted" else "")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -135,16 +158,65 @@ def _ts_bucket_key(posix_ts: float) -> int:
     return round(posix_ts * 1000 / BUCKET_MS)
 
 
-def _element_wise_mean(arrays: list[list[float]]) -> list[float]:
+def _element_wise_mean(arrays: list[list[float]],
+                       weights: list[float] | None = None) -> list[float]:
+    """Per-coordinate mean across the sensors reporting one object.
+
+    Weights are 2D box areas, a proxy for range: a sensor further away returns a
+    smaller box and gets less say. Absent or all-zero weights fall back to a plain
+    mean. Visibility gates rather than weights here — after gating it spans a narrow
+    range and barely correlates with distance, and it measured worse as a weight than
+    area or than nothing at all.
+    """
     if not arrays:
         return []
+    if weights is None or sum(weights) <= 0:
+        weights = [1.0] * len(arrays)
+    total = sum(weights)
     n = len(arrays[0])
     result = [0.0] * n
-    for arr in arrays:
+    for w, arr in zip(weights, arrays):
         for i, v in enumerate(arr):
-            result[i] += v
-    count = len(arrays)
-    return [x / count for x in result]
+            result[i] += w * v
+    return [x / total for x in result]
+
+
+def _visibility(obj: schema_pb2.Object) -> float | None:
+    """Tracker-reported visibility for one view, or None if not reported at all.
+
+    None is not zero: an unreported view cannot be assessed and must be admitted,
+    a reported 0.0 must be refused. Conflating them empties every bucket for a
+    producer that omits the field.
+    """
+    raw = obj.info.get("visibility")
+    if raw is None: return None
+    try:
+        value = float(raw)
+        return value if 0.0 <= value <= 1.0 else None
+    except ValueError:
+        return None
+
+
+def _admits(obj: schema_pb2.Object) -> bool:
+    v = _visibility(obj)
+    return v is None or v >= VISIBILITY_MIN
+
+
+def _bbox_area(obj: schema_pb2.Object) -> float:
+    """Area of the 2D detection box in pixels, 0.0 when no box is attached."""
+    if not obj.HasField("bbox"): return 0.0
+    b = obj.bbox
+    return max(0.0, b.rightX - b.leftX) * max(0.0, b.bottomY - b.topY)
+
+
+def _views_to_fuse(instances: list) -> tuple[list, bool]:
+    """Views to fuse for one object, and whether to weight them by box area.
+
+    Returns a flag, not the weights: a view without a usable bbox3d is dropped
+    downstream, and a precomputed list would drift out of step with it.
+    """
+    if FUSION_METHOD == "average": return instances, False
+    return [inst for inst in instances if _admits(inst)], True
 
 
 def _majority_type(instances: list) -> str:
@@ -185,20 +257,31 @@ def fuse_frames(bucket_key: int, sensor_frames: dict) -> schema_pb2.Frame:
 
     fused_objects = []
     for obj_id, instances in objects_by_id.items():
-        coord_arrays = []
-        for inst in instances:
+        admitted, weighted = _views_to_fuse(instances)
+        if not admitted:
+            # No view is trustworthy
+            continue
+
+        coord_arrays, weights = [], []
+        for inst in admitted:
             if inst.HasField("bbox3d") and len(inst.bbox3d.coordinates) == 12:
                 coord_arrays.append(list(inst.bbox3d.coordinates))
+                weights.append(_bbox_area(inst))
 
-        avg_coords = _element_wise_mean(coord_arrays) if coord_arrays else [0.0] * 12
-        avg_conf = sum(inst.confidence for inst in instances) / len(instances)
+        avg_coords = (_element_wise_mean(coord_arrays, weights if weighted else None)
+                      if coord_arrays else [0.0] * 12)
+        avg_conf = sum(inst.confidence for inst in admitted) / len(admitted)
 
         fused_obj = schema_pb2.Object()
         fused_obj.id         = obj_id
-        fused_obj.type       = _majority_type(instances)
+        fused_obj.type       = _majority_type(admitted)
         fused_obj.confidence = avg_conf
         fused_obj.bbox3d.coordinates[:] = avg_coords
         fused_obj.bbox3d.confidence     = avg_conf
+
+        vis = [v for v in (_visibility(inst) for inst in admitted) if v is not None]
+        if vis: fused_obj.info["visibility"] = f"{sum(vis) / len(vis):g}"
+
         fused_objects.append(fused_obj)
 
     # --- build fused Frame ---

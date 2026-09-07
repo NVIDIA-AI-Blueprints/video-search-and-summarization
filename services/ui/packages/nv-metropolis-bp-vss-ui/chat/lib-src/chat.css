@@ -1,0 +1,290 @@
+/* SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
+/* SPDX-License-Identifier: Apache-2.0 */
+/*
+ * Styles for the VSS chat surface.
+ *
+ * Matches the surrounding app: NVIDIA green accent, the same #171717/#262626
+ * surfaces, NVIDIA Sans, JetBrains Mono for code, and square-ish corners
+ * rather than pill shapes.
+ *
+ * Markdown typography is spelled out in full on purpose. The host app loads
+ * Tailwind, whose preflight strips heading sizes, list markers and margins, so
+ * without these rules assistant replies render as undifferentiated text.
+ */
+
+.vss-chat {
+  --vss-chat-bg: #171717;
+  --vss-chat-surface: #262626;
+  --vss-chat-fg: #e8eaed;
+  --vss-chat-muted: #9b9b9b;
+  --vss-chat-border: #3a3a3a;
+  --vss-chat-accent: #76b900;
+  --vss-chat-accent-hover: #5a8f00;
+  --vss-chat-radius: 4px;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--vss-chat-bg);
+  color: var(--vss-chat-fg);
+  font-family: 'NVIDIA Sans', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.vss-chat-light {
+  --vss-chat-bg: #ffffff;
+  --vss-chat-surface: #f3f4f6;
+  --vss-chat-fg: #1f2328;
+  --vss-chat-muted: #5f6368;
+  --vss-chat-border: #d9dce1;
+}
+
+.vss-chat-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--vss-chat-border);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  flex: 0 0 auto;
+}
+
+.vss-chat-log {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vss-chat-empty {
+  color: var(--vss-chat-muted);
+  margin: auto;
+  text-align: center;
+}
+
+.vss-chat-msg { max-width: 100%; overflow-wrap: anywhere; }
+
+/* User turns: an elevated surface, not a coloured bubble. */
+.vss-chat-msg-user .vss-chat-usertext {
+  background: var(--vss-chat-surface);
+  border: 1px solid var(--vss-chat-border);
+  border-left: 3px solid var(--vss-chat-accent);
+  border-radius: var(--vss-chat-radius);
+  padding: 10px 14px;
+  margin-left: auto;
+  width: fit-content;
+  max-width: 88%;
+  white-space: pre-wrap;
+}
+
+/* ---- markdown typography (Tailwind preflight removes all of this) ---- */
+.vss-chat-markdown > :first-child { margin-top: 0; }
+.vss-chat-markdown > :last-child { margin-bottom: 0; }
+.vss-chat-markdown p { margin: 0 0 10px; }
+.vss-chat-markdown h1,
+.vss-chat-markdown h2,
+.vss-chat-markdown h3,
+.vss-chat-markdown h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 18px 0 8px;
+}
+.vss-chat-markdown h1 { font-size: 1.4em; }
+.vss-chat-markdown h2 { font-size: 1.25em; }
+.vss-chat-markdown h3 { font-size: 1.1em; }
+.vss-chat-markdown h4 { font-size: 1em; }
+.vss-chat-markdown ul,
+.vss-chat-markdown ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+.vss-chat-markdown ul { list-style: disc; }
+.vss-chat-markdown ol { list-style: decimal; }
+.vss-chat-markdown li { margin: 3px 0; }
+.vss-chat-markdown li > ul,
+.vss-chat-markdown li > ol { margin: 3px 0; }
+.vss-chat-markdown a { color: var(--vss-chat-accent); text-decoration: underline; }
+.vss-chat-markdown strong { font-weight: 600; }
+.vss-chat-markdown em { font-style: italic; }
+.vss-chat-markdown blockquote {
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 3px solid var(--vss-chat-border);
+  color: var(--vss-chat-muted);
+}
+.vss-chat-markdown hr {
+  border: none;
+  border-top: 1px solid var(--vss-chat-border);
+  margin: 16px 0;
+}
+.vss-chat-markdown code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.88em;
+  background: var(--vss-chat-surface);
+  border: 1px solid var(--vss-chat-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.vss-chat-markdown pre {
+  background: var(--vss-chat-surface);
+  border: 1px solid var(--vss-chat-border);
+  border-radius: var(--vss-chat-radius);
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0 0 10px;
+}
+.vss-chat-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85em;
+}
+.vss-chat-markdown table {
+  border-collapse: collapse;
+  margin: 0 0 10px;
+  display: block;
+  overflow-x: auto;
+}
+.vss-chat-markdown th,
+.vss-chat-markdown td {
+  border: 1px solid var(--vss-chat-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.vss-chat-markdown th { background: var(--vss-chat-surface); font-weight: 600; }
+
+.vss-chat-cursor {
+  animation: vss-chat-blink 1s steps(2, start) infinite;
+  color: var(--vss-chat-accent);
+}
+@keyframes vss-chat-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) {
+  .vss-chat-cursor { animation: none; }
+}
+
+.vss-chat-error {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: var(--vss-chat-radius);
+  padding: 10px 12px;
+}
+
+/* ---- tool / skill progress ---- */
+.vss-chat-steps {
+  margin-bottom: 10px;
+  border: 1px solid var(--vss-chat-border);
+  border-radius: var(--vss-chat-radius);
+  background: var(--vss-chat-surface);
+}
+.vss-chat-steps-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--vss-chat-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px 12px;
+  text-align: left;
+}
+.vss-chat-steps-toggle:hover { color: var(--vss-chat-fg); }
+.vss-chat-steps-list {
+  margin: 0;
+  padding: 0 12px 10px 12px;
+  list-style: none;
+  font-size: 0.9em;
+}
+.vss-chat-steps-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 0;
+  border-top: 1px solid var(--vss-chat-border);
+}
+.vss-chat-step-name {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--vss-chat-fg);
+}
+.vss-chat-step-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background: var(--vss-chat-accent);
+  vertical-align: middle;
+}
+.vss-chat-steps-list li[data-status='in_progress'] .vss-chat-step-dot {
+  background: var(--vss-chat-accent);
+  animation: vss-chat-pulse 1.2s ease-in-out infinite;
+}
+.vss-chat-steps-list li[data-status='error'] .vss-chat-step-dot { background: #ff6b6b; }
+@keyframes vss-chat-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .vss-chat-steps-list li .vss-chat-step-dot { animation: none; }
+}
+.vss-chat-steps-list pre {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--vss-chat-bg);
+  border: 1px solid var(--vss-chat-border);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.85em;
+  color: var(--vss-chat-muted);
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* ---- composer ---- */
+.vss-chat-input {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--vss-chat-border);
+  background: var(--vss-chat-bg);
+}
+.vss-chat-input textarea {
+  flex: 1 1 auto;
+  resize: none;
+  max-height: 160px;
+  padding: 10px 12px;
+  border-radius: var(--vss-chat-radius);
+  border: 1px solid var(--vss-chat-border);
+  background: var(--vss-chat-surface);
+  color: inherit;
+  font: inherit;
+}
+.vss-chat-input textarea::placeholder { color: var(--vss-chat-muted); }
+.vss-chat-input textarea:focus-visible,
+.vss-chat-input button:focus-visible {
+  outline: 2px solid var(--vss-chat-accent);
+  outline-offset: 1px;
+}
+.vss-chat-input button {
+  padding: 0 20px;
+  border-radius: var(--vss-chat-radius);
+  border: none;
+  background: var(--vss-chat-accent);
+  color: #111;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vss-chat-input button:hover:not(:disabled) { background: var(--vss-chat-accent-hover); }
+.vss-chat-input button:disabled { opacity: 0.4; cursor: default; }
+.vss-chat-stop {
+  background: transparent !important;
+  color: var(--vss-chat-fg) !important;
+  border: 1px solid var(--vss-chat-border) !important;
+}

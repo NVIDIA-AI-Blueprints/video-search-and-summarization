@@ -24,7 +24,7 @@ workflow:       # Top agent
 llms:
   nim_llm:
     _type: nim
-    model_name: nvidia/nvidia-nemotron-nano-9b-v2
+    model_name: nvidia/nemotron-3.5-lightning-30b-a3b
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
     temperature: 0.0
@@ -88,7 +88,7 @@ video_understanding:
   max_pixels: 8388608
   reasoning: false
   video_url_tool: vst_video_url
-  enable_audio: ${ENABLE_AUDIO:-false}   # Omni audio-in-video; see :ref:`vss_omni_audio`
+  enable_audio: ${ENABLE_AUDIO:-false}   # Omni audio-in-video; refer to Configure the VLM
 ```
 
 <details>
@@ -313,7 +313,7 @@ For details on enabling telemetry and navigating traces in the Phoenix UI, see [
 ## Evaluation Configuration
 
 The `eval:` section configures the evaluation framework for assessing agent performance.
-For complete evaluation configuration options and evaluator types, see [VSS-Agent-Evaluation](/vss/vision-agent/vss-agents/agent-evaluation).
+For complete evaluation configuration options and evaluator types, see [Agent Evaluation](/vss/vision-agent/vss-agents/agent-evaluation).
 
 ## Environment Variables
 
@@ -353,7 +353,7 @@ VST_MCP_PORT=8001
 VST_MCP_URL=http://${HOST_IP}:${VST_MCP_PORT}
 
 # LLM Configuration
-LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
+LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 NEMOTRON_PORT=30081
 LLM_BASE_URL=http://${HOST_IP}:${NEMOTRON_PORT}
 

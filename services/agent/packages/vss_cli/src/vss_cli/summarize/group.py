@@ -43,6 +43,7 @@ to run it again -- not that an in-flight VLM call can be rejoined.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -371,7 +372,25 @@ def _adapter() -> SummaryAdapter:
     return SummaryAdapter()
 
 
-def _memory_input(inputs: SummarizeInput, options: SummarizeOptions, request: dict[str, Any]) -> MemoryInput:
+def _resolve_memory_sensor(
+    deployment: config_mod.Deployment,
+    inputs: SummarizeInput,
+    options: SummarizeOptions,
+) -> Any | None:
+    """Resolve a raw ``--id`` to VIOS identity when memory needs a name."""
+    if options.media_name or not inputs.id or not deployment.has("vst"):
+        return None
+    from vss_core import vios
+
+    return asyncio.run(vios.resolve_sensor(str(deployment.base_url).rstrip("/"), inputs.id))
+
+
+def _memory_input(
+    inputs: SummarizeInput,
+    options: SummarizeOptions,
+    request: dict[str, Any],
+    resolved_sensor: Any | None = None,
+) -> MemoryInput:
     """The record's request side: what was asked, of which asset, with what.
 
     ``params`` carries the LVS request verbatim, so a persisted job describes
@@ -382,8 +401,12 @@ def _memory_input(inputs: SummarizeInput, options: SummarizeOptions, request: di
         media_ref["stream_id"] = inputs.id
     if inputs.url:
         media_ref["url"] = inputs.url
-    if options.media_name:
-        media_ref["name"] = options.media_name
+    media_name = options.media_name or getattr(resolved_sensor, "name", None)
+    if media_name:
+        media_ref["name"] = media_name
+    if resolved_sensor is not None:
+        media_ref["sensor_id"] = resolved_sensor.sensor_id
+        media_ref["stream_id"] = resolved_sensor.stream_id
     return _adapter().build_input(
         prompt=inputs.prompt,
         video_id=options.video_id or inputs.id,
@@ -523,7 +546,8 @@ class SummarizeGroup(CommandGroup):
 
         job_id = _mint_job_id()
         created_at = utc_now_iso()
-        input_data = _memory_input(inputs, options, request)
+        resolved_sensor = _resolve_memory_sensor(deployment, inputs, options) if want_persist else None
+        input_data = _memory_input(inputs, options, request, resolved_sensor)
         persist_error: str | None = None
 
         def outcome(

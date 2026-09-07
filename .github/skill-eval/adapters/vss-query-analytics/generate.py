@@ -8,7 +8,7 @@ The vss-query-analytics skill answers **read-only** analytics questions
 (port 9901), backed by Elasticsearch. It must NOT trigger deploys, call
 live VLM endpoints, or POST to ``/generate``.
 
-The spec (``skills/vss-query-analytics/evals/query_analytics.json``)'s
+The spec (``skills/operations/vss-query-analytics/evals/query_analytics.json``)'s
 **first** ``expects[]`` query deploys the VSS alerts profile in real-time
 mode via ``/vss-deploy-profile`` in the trial's own first turn; the
 remaining queries then read analytics over the VA-MCP server it brings
@@ -47,9 +47,9 @@ behaviour of the dispatch loop is harmless here.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-query-analytics/generate.py \\
         --output-dir <scratch>/datasets/vss-query-analytics/query_analytics \\
-        --skill-dir skills/vss-query-analytics \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
-        --spec skills/vss-query-analytics/evals/query_analytics.json
+        --skill-dir skills/operations/vss-query-analytics \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --spec skills/operations/vss-query-analytics/evals/query_analytics.json
 """
 from __future__ import annotations
 
@@ -273,11 +273,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--skill-dir", required=True,
-        help="Path to skills/vss-query-analytics",
+        help="Path to skills/operations/vss-query-analytics",
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
-        help="Path to skills/vss-deploy-profile (optional — included for agent diagnosis)",
+        help="Path to skills/deployment/vss-deploy-profile (optional — included for agent diagnosis)",
     )
     parser.add_argument(
         "--spec", default=None,

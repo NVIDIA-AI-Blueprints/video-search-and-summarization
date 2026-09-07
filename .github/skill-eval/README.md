@@ -46,7 +46,7 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 | `NGC_CLI_API_KEY` | Pull VSS NIM containers from `nvcr.io` |
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
-| `HF_TOKEN` | Required by the Edge 4B vLLM on SPARK / Thor `shared` mode |
+| `HF_TOKEN` | Required by RT-VLM / RT-Embed when loading Hugging Face checkpoints |
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
@@ -130,7 +130,7 @@ PROFILES = {
 
 An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
 
-### Worked example — `skills/vss-manage-video-io-storage/evals/vios_ops.json`
+### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
 
 13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-deploy-profile` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
 
@@ -151,7 +151,7 @@ An empty or absent `profile` means the dict key *is* the deploy profile (the `ba
 }
 ```
 
-Source: [`skills/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/vss-manage-video-io-storage/evals/vios_ops.json)
+Source: [`skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/operations/vss-manage-video-io-storage/evals/vios_ops.json)
 
 What the agent derives from this spec:
 - `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
@@ -169,7 +169,7 @@ set -a && source /home/ubuntu/eval-coordinator/.env && set +a
 # 1. Generate the dataset for one spec.
 python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
   --output-dir /tmp/skill-eval/datasets/vss-manage-video-io-storage \
-  --skill-dir skills/vss-manage-video-io-storage \
+  --skill-dir skills/operations/vss-manage-video-io-storage \
   --platform L40S
 
 # 2. Make sure you have a Brev instance for the target platform

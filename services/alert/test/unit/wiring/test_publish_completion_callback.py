@@ -178,7 +178,8 @@ class TestSyncModeFiresInline:
         )
 
         spy_record.assert_called_once_with(
-            123.0, msg, lat, failure_reason="url_validation",
+            123.0, msg, lat, failure_reason="url_validation", span_handle=None,
+            pipeline_mode=None,
         )
 
     def test_none_future_fires_with_no_failure_reason(self, spy_record):

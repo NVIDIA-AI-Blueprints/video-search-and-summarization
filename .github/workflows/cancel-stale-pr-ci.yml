@@ -3,18 +3,25 @@
 #
 # PR CI runs on copy-pr-bot `pull-request/<N>` pushes, not on the source PR
 # event. Concurrency in those workflows only fires when the *mirror* moves.
-# A rebase of the source PR otherwise leaves the previous mirror SHA running
-# until the next `/ok to test`.
+# A rebase or new commit on the source PR otherwise leaves the previous
+# mirror SHA running until the next `/ok to test`. Close (merge or
+# abandon) cancels leftover PR runs, including non-required jobs, but
+# not `develop`/`main` delivery CI.
 #
-# This workflow is cancel-only. It does not start CI and does not execute
-# PR code: `pull_request_target` with a base-ref checkout (the default SHA)
-# and no credentials.
+# `pull_request` (not `pull_request_target`): this repo has never fired a
+# pull_request_target run from develop, while pull_request registers on
+# both develop and main. PRs are branched in-repo, not from forks, so
+# GITHUB_TOKEN still has actions: write. The job is cancel-only and does
+# not start CI. `branches` is the PR base, so only PRs into main/develop.
 
 name: Cancel Stale PR CI
 
 on:
-  pull_request_target:
+  pull_request:
     types: [synchronize, closed]
+    branches:
+      - main
+      - develop
 
 permissions:
   actions: write
@@ -31,7 +38,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # Base/default SHA of this trusted workflow — never the PR head.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           persist-credentials: false
@@ -42,5 +48,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_CLOSED: ${{ github.event.action == 'closed' }}
         run: python3 .github/scripts/cancel_stale_pr_ci.py

@@ -51,6 +51,13 @@ class FakeMessage:
     def timestamp(self):
         return (1, 1700000000000)
 
+    def headers(self):
+        """confluent_kafka.Message always has this; the double must too.
+
+        Returning None is the ordinary case -- most records carry no headers.
+        Tests that need an inbound traceparent set ``self._headers``.
+        """
+        return getattr(self, "_headers", None)
 
 class FakeConsumer:
     def __init__(self, messages, commit_error=False):

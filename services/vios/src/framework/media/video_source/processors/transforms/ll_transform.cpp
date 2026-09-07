@@ -186,7 +186,13 @@ void NvLLTransform::onFrame(std::shared_ptr<RawFrameParams> frame_data)
     // Start performance tracking when frame is received
     m_transcodeStats.startProcessing();
 
-    bool is_sw_transform = NvHwDetection::getInstance()->m_useNvV4l2Enc == false && m_consumer && (m_consumer->getConsumerType() == ConsumerType::webrtcConsumer);
+    /* The software conversion below produces the decoded picture a consumer that
+     * encodes for itself needs. libwebrtc is one; so is the DASH packager on a
+     * platform with no hardware encoder, which encodes with x264 for the same
+     * reason. Testing only for the WebRTC sink left a DASH session wired
+     * correctly all the way to the packager and fed nothing at all. */
+    bool is_sw_transform = NvHwDetection::getInstance()->m_useNvV4l2Enc == false && m_consumer
+                           && m_consumer->wantsDecodedPictures();
     bool is_transform_needed = frame_data->m_sourceHeight != frame_data->m_targetHeight ||
                             frame_data->m_sourceWidth != frame_data->m_targetWidth ||
                             frame_data->m_sourceLayout != frame_data->m_targetLayout ||
@@ -350,7 +356,8 @@ void NvLLTransform::doTransformTask()
             // Check for consumer present and update if its HW -> SW transform
             if (m_consumer)
             {
-                is_sw_transform = NvHwDetection::getInstance()->m_useNvV4l2Enc == false && (m_consumer->getConsumerType() == ConsumerType::webrtcConsumer);
+                is_sw_transform = NvHwDetection::getInstance()->m_useNvV4l2Enc == false
+                                  && m_consumer->wantsDecodedPictures();
             }
             if (!is_sw_mode && (!m_surfacePool->m_surfacesAllocated || is_drc))
             {
@@ -420,7 +427,8 @@ void NvLLTransform::doTransformTask()
                     }
                 }
 
-                if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true || (m_consumer && m_consumer->getConsumerType() != ConsumerType::webrtcConsumer))
+                if (NvHwDetection::getInstance()->m_useNvV4l2Enc == true
+                    || (m_consumer && !m_consumer->wantsDecodedPictures()))
                 {
                     // case 1 hw enc present
                     std::shared_ptr<RawFrameParams> frame_data = std::make_shared<RawFrameParams>();

@@ -157,6 +157,7 @@ create_ilm_policies(){
     create_ilm_policy 'mdx-incidents-ilm-policy' "{\"policy\":{\"phases\":{\"delete\":{\"min_age\":\"${ELASTICSEARCH_ILM_MIN_AGE}\",\"actions\":{\"delete\":{}}}}}}"
     create_ilm_policy 'mdx-vlm-incidents-ilm-policy' "{\"policy\":{\"phases\":{\"delete\":{\"min_age\":\"${ELASTICSEARCH_ILM_MIN_AGE}\",\"actions\":{\"delete\":{}}}}}}"
     create_ilm_policy 'mdx-embed-filtered-ilm-policy' "{\"policy\":{\"phases\":{\"delete\":{\"min_age\":\"${ELASTICSEARCH_ILM_MIN_AGE}\",\"actions\":{\"delete\":{}}}}}}"
+    create_ilm_policy 'mdx-compressed-embeddings-ilm-policy' "{\"policy\":{\"phases\":{\"delete\":{\"min_age\":\"${ELASTICSEARCH_ILM_MIN_AGE}\",\"actions\":{\"delete\":{}}}}}}"
 
     echo "All ILM policies created successfully."
 }

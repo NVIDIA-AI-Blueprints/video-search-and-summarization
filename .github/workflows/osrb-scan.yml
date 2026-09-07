@@ -1,0 +1,732 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: OSRB Scan
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+# Same shape as ci.yml: one OSRB Scan per PR mirror. A newer revision
+# cancels the stale run so the workflow_run follower is not launched
+# from an obsolete CSV. (Ported from license-diff.yml on develop; the
+# group key follows the workflow rename.)
+concurrency:
+  group: osrb-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: the DELTA pipeline. Diffs base-ref against head-ref and reports what
+  # this pull request changes. It is the input to the private OSRB review, and
+  # it is blind by construction to anything already in the tree.
+  # ---------------------------------------------------------------------------
+  osrb-scan:
+    name: OSRB Scan (dependency inventory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Consumed by the triage job below: release-branch PRs short-circuit this
+    # job and upload no delta CSV, so triage has nothing to read there.
+    outputs:
+      skip: ${{ steps.ctx.outputs.skip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve base ref and PR number
+        id: ctx
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: develop
+        run: |
+          set -euo pipefail
+          pr_number="${GITHUB_REF##*/pull-request/}"
+          # This workflow runs on push-to-mirror (refs/heads/pull-request/<N>),
+          # so github.base_ref is empty. Query the PR API for the real target
+          # branch so cherry-pick / hotfix PRs against release branches
+          # (e.g. dev/3.2.0) get a sensible diff baseline. Fall back to
+          # develop only if the lookup fails (e.g. PR closed mid-run).
+          # `// ""` coerces a missing/null baseRefName to an empty string —
+          # bare `.baseRefName` would emit the literal "null" and bypass the
+          # `${target:-DEFAULT_BRANCH}` fallback below.
+          target="$(gh pr view "${pr_number}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json baseRefName --jq '.baseRefName // ""' 2>/dev/null || true)"
+          target="${target:-${DEFAULT_BRANCH}}"
+          # Release branches (dev/*, release/*) accept only curated content
+          # that already passed the OSRB Scan on its develop-targeted PR. Running
+          # the diff again here just floods every cherry-pick / release-train
+          # PR with noise, so short-circuit and skip the rest of the workflow.
+          case "${target}" in
+            dev/*|release/*)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Skipping OSRB Scan: PR targets release branch '${target}' — diff already enforced on the develop-targeted PR."
+              exit 0
+              ;;
+          esac
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags origin "+refs/heads/${target}:refs/remotes/origin/${target}"
+          merge_base=$(git merge-base HEAD "origin/${target}" || git rev-parse "origin/${target}")
+          echo "base=${merge_base}" >> "$GITHUB_OUTPUT"
+          echo "pr=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "Comparing HEAD against ${merge_base} (PR target: ${target}) for PR #${pr_number}"
+
+      # `--output license-diff.csv` is deliberate: see the upload step below.
+      - name: Generate OSRB dependency CSV
+        id: gen
+        if: steps.ctx.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          python .github/osrb/osrb_scan.py \
+            --base-ref "${{ steps.ctx.outputs.base }}" \
+            --head-ref HEAD \
+            --output license-diff.csv
+          row_count=$(($(wc -l < license-diff.csv) - 1))
+          echo "rows=${row_count}" >> "$GITHUB_OUTPUT"
+          echo "--- csv preview (rows=${row_count}) ---"
+          head -n 30 license-diff.csv || true
+
+      - name: Render OSRB review overview
+        id: overview
+        if: steps.ctx.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          python .github/osrb/osrb_summary.py \
+            --input license-diff.csv \
+            --inventory .github/osrb/inventory.csv \
+            --output osrb-summary.md \
+            --github-output "$GITHUB_OUTPUT"
+
+      # DO NOT RENAME the artifact or the CSV. The private GitLab OSRB
+      # pipeline fetches the artifact named `license-diff` and reads
+      # `license-diff.csv` out of it by those exact names, and that consumer
+      # lives in a repository we cannot see or change from here. Renaming
+      # either one to match the new "OSRB Scan" wording does not fail this
+      # workflow — the download simply finds nothing and the OSRB review
+      # proceeds against an empty dependency list. Leave both names alone.
+      - name: Upload review evidence
+        id: upload
+        if: always() && steps.ctx.outputs.skip != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: license-diff
+          path: |
+            license-diff.csv
+            osrb-summary.md
+          if-no-files-found: warn
+
+      - name: Write step summary
+        if: always()
+        env:
+          SKIP: ${{ steps.ctx.outputs.skip }}
+          BASE: ${{ steps.ctx.outputs.base }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          {
+            if [[ "${SKIP}" == "true" ]]; then
+              echo "## OSRB Scan"
+              echo
+              echo "Skipped: PR targets a release branch (\`dev/*\` or \`release/*\`)."
+              echo "The OSRB Scan already ran on the develop-targeted PR; running again here only adds noise."
+            elif [[ ! -f license-diff.csv ]]; then
+              echo "## OSRB Scan"
+              echo
+              echo "No CSV produced."
+            else
+              cat osrb-summary.md
+              echo
+              echo "Compared HEAD against \`${BASE}\`."
+              echo "Download the complete \`license-diff.csv\` from the [license-diff artifact](${ARTIFACT_URL})."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post or update PR comment
+        if: always() && steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.ctx.outputs.pr }}
+          RAW_ROWS: ${{ steps.gen.outputs.rows }}
+          BASE: ${{ steps.ctx.outputs.base }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GUIDE_URL: ${{ github.server_url }}/${{ github.repository }}/blob/develop/.github/osrb/OSRB_REVIEW.md
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          # Not renamed with the workflow: this marker is how the step finds
+          # the comment it posted on earlier pushes. A new marker would leave
+          # the old comment stranded and post a second one on every open PR.
+          marker='<!-- license-diff-osrb -->'
+          {
+            echo "$marker"
+            cat osrb-summary.md
+            echo
+            echo "Compared against \`${BASE}\`. The complete CSV retains all **${RAW_ROWS}** changes."
+            echo "Review the [GitHub Actions run](${RUN_URL}) or download the [\`license-diff\` artifact](${ARTIFACT_URL})."
+            echo
+            echo "<details><summary>Raw CSV (inline)</summary>"
+            echo
+            echo '```csv'
+            cat license-diff.csv
+            echo '```'
+            echo "</details>"
+            echo
+            echo "### What to do"
+            echo
+            echo "The **OSRB Review** check evaluates these changes against existing approval evidence and posts its verdict on this PR."
+            echo "While that check is being rolled out, a red OSRB Scan is still a real signal:"
+            echo "get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched paths."
+            echo "Do not paste private approval evidence into this public PR."
+            echo
+            echo "[Developer instructions](${GUIDE_URL}) · CODEOWNERS remains the final merge gate."
+          } > comment.md
+          existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")
+          payload=$(jq -Rsn '{body: input}' < comment.md)
+          if [[ -n "$existing" && "$existing" != "null" ]]; then
+            echo "Updating existing comment $existing"
+            echo "$payload" | gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" --input - > /dev/null
+          else
+            echo "Creating new comment on PR #${PR}"
+            echo "$payload" | gh api -X POST "repos/${REPO}/issues/${PR}/comments" --input - > /dev/null
+          fi
+
+      # Two independent reasons to fail, kept in one step so the job cannot
+      # end green with either one outstanding. They are NOT the same problem:
+      # review_rows is a dependency a human must approve; uncovered_rows is the
+      # scanner admitting it does not understand a file in this PR, which no
+      # OSRB approval can fix.
+      - name: Fail when OSRB attention or scanner coverage is required
+        # Folded to one line by YAML. Every continuation stays at the same
+        # indent on purpose: a more-indented line in a folded scalar keeps its
+        # newline instead of becoming a space.
+        if: >-
+          steps.ctx.outputs.skip != 'true' &&
+          ((steps.overview.outputs.review_rows != '' && steps.overview.outputs.review_rows != '0')
+          || (steps.overview.outputs.uncovered_rows != '' && steps.overview.outputs.uncovered_rows != '0'))
+        env:
+          REVIEW_ROWS: ${{ steps.overview.outputs.review_rows }}
+          UNCOVERED_ROWS: ${{ steps.overview.outputs.uncovered_rows }}
+        run: |
+          set -uo pipefail
+          status=0
+          if [[ -n "${UNCOVERED_ROWS}" && "${UNCOVERED_ROWS}" != "0" ]]; then
+            {
+              printf '::error title=OSRB scanner coverage gap::'
+              printf '%s dependency-bearing file(s) in this PR are not understood by ' "${UNCOVERED_ROWS}"
+              printf 'the scanner, so their dependencies were never inventoried. This is a '
+              printf 'scanner gap, not an OSRB decision: asking for OSRB approval will not '
+              printf 'clear it. Teach .github/osrb/osrb_scan.py to parse the file '
+              printf '(is_dependency_file / the matching parser) or, with a maintainer, '
+              printf 'record why the file carries no third-party dependency. See '
+              printf 'UNCOVERED_SOURCE rows in the step summary.\n'
+            }
+            status=1
+          fi
+          if [[ -n "${REVIEW_ROWS}" && "${REVIEW_ROWS}" != "0" ]]; then
+            {
+              printf '::error title=OSRB review required::'
+              printf '%s package change(s) require OSRB attention. Get approval for the ' "${REVIEW_ROWS}"
+              printf 'touched paths from @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers; see '
+              printf '.github/osrb/OSRB_REVIEW.md.\n'
+            }
+            status=1
+          fi
+          exit "${status}"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: the STATE pipeline. Rebuilds the whole dependency inventory from the
+  # tree and compares it against the OSRB-approved baseline. Deliberately not a
+  # diff: a dependency that drifted out of approval three merges ago is a
+  # finding here on every pull request until someone fixes it, which is exactly
+  # what the delta pipeline can never say.
+  #
+  # It runs on release-branch pull requests too, unlike Job 1. Job 1 skips them
+  # because the same diff was already reviewed on the develop-targeted pull
+  # request; that argument does not transfer, because the state of a release
+  # branch is its own state and nothing else has checked it.
+  # ---------------------------------------------------------------------------
+  dependency-inventory:
+    name: OSRB Scan (approved-state comparison)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Depth 1 is enough and deliberate: this job reads one tree, never a
+      # range. Job 1 needs full history because it computes a merge base.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      # `--previous` is what makes this reproduce the committed file rather
+      # than a near-copy of it. osrb_inventory.py makes no network calls, so a
+      # licence it cannot read out of the tree is carried forward from the last
+      # inventory; drop the flag and every such row regenerates as UNKNOWN and
+      # the gate is red on every pull request forever. It cannot mask real
+      # drift: carry-forward is the last resort, after the parser and after
+      # every attribution file.
+      # Regenerate IN PLACE: the PR tree is the source of truth for the
+      # inventory, and the comparison below reads this refreshed file. The
+      # triage job re-runs the identical regeneration (deterministic, same
+      # tree, same --previous) and commits the result, so nothing here has to
+      # be committed and this job needs no write token.
+      - name: Refresh the dependency inventory from the PR tree
+        run: |
+          set -euo pipefail
+          python .github/osrb/osrb_inventory.py \
+            --ref HEAD \
+            --previous .github/osrb/inventory.csv \
+            --output .github/osrb/inventory.csv
+          echo "--- refreshed inventory ($(($(wc -l < .github/osrb/inventory.csv) - 1)) rows) ---"
+          head -n 10 .github/osrb/inventory.csv
+          if git diff --quiet -- .github/osrb/inventory.csv; then
+            echo "Committed inventory already matched the tree."
+          else
+            echo "::notice title=OSRB inventory refreshed::the committed inventory did not match the PR tree; the triage job will commit the refresh."
+          fi
+
+      - name: Compare the inventory against the OSRB-approved baseline
+        id: compare
+        run: |
+          set -euo pipefail
+          python .github/osrb/osrb_compare.py \
+            --inventory .github/osrb/inventory.csv \
+            --approved .github/osrb/approved.csv \
+            --conditions .github/osrb/conditions.csv \
+            --output osrb-compliance.csv \
+            --summary osrb-compliance.md \
+            --submissions osrb-submissions \
+            --github-output "$GITHUB_OUTPUT"
+
+      # A SEPARATE artifact on purpose. The `license-diff` artifact in Job 1 is
+      # fetched by name by a private GitLab pipeline this repository cannot see;
+      # adding files to it, or renaming it, is how that consumer breaks quietly.
+      - name: Upload compliance report
+        id: compliance-upload
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: osrb-compliance
+          path: |
+            osrb-compliance.csv
+            osrb-compliance.md
+            osrb-submissions/
+          if-no-files-found: warn
+
+      - name: Write step summary
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.compliance-upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          {
+            if [[ ! -f osrb-compliance.md ]]; then
+              echo "## OSRB approved-state comparison"
+              echo
+              echo "No report produced — the inventory drift gate above failed first."
+            else
+              cat osrb-compliance.md
+              echo
+              echo "Full row-level detail: [\`osrb-compliance\` artifact](${ARTIFACT_URL})."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # REPORT-ONLY, deliberately, and this is not timidity.
+      #
+      # A ratchet was implemented here and removed, because adversarial review
+      # found it unsound in four independent ways:
+      #   1. `steps.ctx.outputs.base` was a CROSS-JOB reference (ctx lives in
+      #      the osrb-scan job), so BASE_SHA was always "" - and
+      #      `git show ":path"` with an empty rev does not fail, it reads the
+      #      INDEX. Base counts became byte-identical to head counts and the
+      #      gate could never fire.
+      #   2. The baseline was computed against the PR's OWN approved.csv, so
+      #      gutting the approved list raised both sides equally and stayed
+      #      green. The trust anchor was un-gated by construction.
+      #   3. Counts net out: remove one NOT_APPROVED row, add another, and a
+      #      brand-new GPL-3.0 dependency merges green. Gating has to compare
+      #      finding IDENTITIES, not totals.
+      #   4. `owning_module()` falls back to the first path segment, and any
+      #      module in neither MODULE_MAP nor UNSUBMITTED lands in the ungated
+      #      MODULE_UNSUBMITTED bucket - so a dependency added under a new
+      #      directory raised no gated count at all.
+      #
+      # Separately, the signal is not yet clean enough to gate on: 1350 of the
+      # 1717 NOT_APPROVED rows are services/ui, whose entire approved baseline
+      # is two PR-delta rows. That is one missing OSRB submission reported 1350
+      # times, not 1350 findings.
+      #
+      # So this reports and never fails. The delta gate in the osrb-scan job
+      # above still blocks - a dependency change a PR actually introduces is
+      # caught there. Turning this into a gate needs, in order: identity-based
+      # comparison against the merge base, CODEOWNERS on approved.csv and
+      # module_map.py, a real verdict for unknown modules, and the services/ui
+      # submission. Tracked in .github/osrb/README.md.
+      - name: Report drift from the approved baseline
+        if: always() && steps.compare.outcome == 'success'
+        env:
+          NOT_APPROVED: ${{ steps.compare.outputs.not_approved }}
+          VERSION_DRIFT: ${{ steps.compare.outputs.version_drift }}
+          LICENSE_DRIFT: ${{ steps.compare.outputs.license_drift }}
+          USAGE_DRIFT: ${{ steps.compare.outputs.usage_drift }}
+          GUIDE_URL: ${{ github.server_url }}/${{ github.repository }}/blob/develop/.github/osrb/README.md
+        run: |
+          set -uo pipefail
+          {
+            echo "### OSRB approved-baseline comparison (report-only)"
+            echo
+            echo "| verdict | rows |"
+            echo "| --- | --- |"
+            echo "| NOT_APPROVED | ${NOT_APPROVED:-0} |"
+            echo "| VERSION_DRIFT | ${VERSION_DRIFT:-0} |"
+            echo "| LICENSE_DRIFT | ${LICENSE_DRIFT:-0} |"
+            echo "| USAGE_DRIFT | ${USAGE_DRIFT:-0} |"
+            echo
+            echo "This check does not fail. See ${GUIDE_URL} for what each verdict means"
+            echo "and what has to be true before it can gate."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Job 3: the TRIAGE agent. Reads what the two jobs above produced — the delta
+  # CSV and the approved-state comparison — runs .github/osrb/osrb_agent.py
+  # (deterministic pre-pass, bounded agent loop, deterministic validator), and
+  # posts one `<!-- osrb-triage -->` comment on the source PR. It replaces the
+  # internal OSRB reviewer bot, which this branch also stops triggering.
+  #
+  # REPORT-ONLY for agent/model failures: every step that can fail because a
+  # model was slow, unavailable or unconvincing carries continue-on-error, so
+  # none of them turns the workflow red. The delta gate in the osrb-scan job
+  # above remains the blocking check.
+  #
+  # The inventory sync is the one exception and is NOT continue-on-error. A
+  # failure there is infrastructure, not judgement, and hiding it is what let
+  # a rejected push leave a stale inventory in the pull request unnoticed.
+  #
+  # Trust model, in one place: this workflow runs on the pull-request/<N>
+  # mirror, which copy-pr-bot creates only after a vetted contributor (or an
+  # explicit /ok-to-test) — the code was human-vetted before anything here
+  # executes. The agent itself never reads PR-authored files (its inputs are
+  # the generated CSVs and public registries; see osrb_agent.py's docstring),
+  # and the auto-commit below is guarded by validate_inventory_diff, which
+  # limits the writable surface to the license and risk columns of existing
+  # rows of one file: .github/osrb/inventory.csv.
+  # ---------------------------------------------------------------------------
+  triage:
+    name: OSRB Scan (agent triage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [osrb-scan, dependency-inventory]
+    # `always()` is load-bearing: a red osrb-scan job is exactly the run that
+    # has new dependencies to triage (the delta gate fails on them), and a red
+    # dependency-inventory (stale-inventory gate) still deserves the fallback
+    # comment. Only a cancelled producer (superseded push) or a release-branch
+    # PR (no delta CSV by design) stops this job.
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/heads/pull-request/') &&
+      needs.osrb-scan.outputs.skip != 'true' &&
+      needs.osrb-scan.result != 'cancelled' &&
+      needs.dependency-inventory.result != 'cancelled'
+    permissions:
+      contents: write          # push the guarded inventory.csv commit to the mirror branch
+      pull-requests: write     # post/update the triage comment
+    steps:
+      # persist-credentials:false on purpose. The triage agent takes
+      # PR-authored package names as input and runs a Bash tool, so it is an
+      # injection target; a git token in .git/config would be reachable by a
+      # `cat .git/config` the injection could induce. The agent's Bash is ALSO
+      # gated to registry GETs in osrb_agent.py, but keeping the token out of
+      # this checkout is the belt to that suspenders. The commit step below
+      # re-checks-out WITH a token, in its own step, after the untrusted agent
+      # has finished and produced only data files.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      # Mirrors helm-sync.yml: pinned floor, explicit step so a transient PyPI
+      # failure surfaces here rather than as an opaque ModuleNotFoundError
+      # inside the agent. osrb_agent.py guards the import and still runs
+      # --skip-agent without it, so even this step is continue-on-error.
+      - name: Install claude-agent-sdk
+        continue-on-error: true
+        run: pip install --quiet 'claude-agent-sdk>=0.0.5'
+
+      # Both downloads read THIS run's artifacts. Either can be missing —
+      # osrb-scan skipped-then-cancelled edge cases, or the drift gate failing
+      # before the comparison ran — and the triage step below handles absence
+      # itself, so the downloads must not fail the job.
+      - name: Download the delta CSV (license-diff artifact)
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: license-diff
+          path: ${{ runner.temp }}/license-diff
+
+      - name: Download the state comparison (osrb-compliance artifact)
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: osrb-compliance
+          path: ${{ runner.temp }}/osrb-compliance
+
+      # The PR tree is the source of truth. Regenerate the inventory here, the
+      # same deterministic call the comparison job ran, so the file the agent
+      # annotates and this job commits describes THIS tree — not whatever was
+      # last committed. The agent step below snapshots this refreshed file as
+      # its baseline, so the commit guard sees the agent's licence changes on
+      # top of a legitimate regeneration, and the regeneration itself is a pure
+      # function of the already-reviewed tree.
+      - name: Refresh the inventory from the PR tree
+        id: refresh
+        run: |
+          set -euo pipefail
+          python3 .github/osrb/osrb_inventory.py \
+            --ref HEAD \
+            --previous .github/osrb/inventory.csv \
+            --output .github/osrb/inventory.csv
+          # The structural baseline for the commit guard: the agent may only add
+          # license/risk on top of this.
+          cp .github/osrb/inventory.csv "${RUNNER_TEMP}/inventory-regen.csv"
+
+      - name: Run the triage agent
+        id: agent
+        # Agent/model failure must never red the workflow. Exit 2 (validator
+        # rejected agent output) and 3 (max_turns) are fail-safe by contract —
+        # the comment is still written and still gets posted below.
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          # Some Anthropic-compatible proxies reject `context_management`;
+          # harmless on direct Anthropic. Same setting as helm-sync.yml.
+          CLAUDE_CODE_DISABLE_THINKING: "1"
+          DELTA_DIR: ${{ runner.temp }}/license-diff
+          STATE_DIR: ${{ runner.temp }}/osrb-compliance
+        run: |
+          set -euo pipefail
+          # Shell default, not a workflow default: the secret may be unset and
+          # an empty string must not reach the SDK as a model name.
+          export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-opus-5}"
+          if [[ ! -f "${DELTA_DIR}/license-diff.csv" ]]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "No license-diff.csv in this run; nothing to triage."
+            exit 0
+          fi
+          if [[ ! -f "${STATE_DIR}/osrb-compliance.csv" ]]; then
+            # The stale-inventory gate failed before the comparison ran.
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "No osrb-compliance.csv in this run; nothing to triage."
+            exit 0
+          fi
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          # Snapshot the committed inventory so the commit guard below diffs
+          # exactly what the agent changed, not what the PR changed.
+          # baseline for the guard is the regenerated file from the refresh step
+          cp "${RUNNER_TEMP}/inventory-regen.csv" "${RUNNER_TEMP}/inventory-before.csv"
+          extra=()
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            # Missing key (e.g. not configured yet) must never fail the job:
+            # fall back to the deterministic pre-pass, which still writes the
+            # full comment minus agent verdicts.
+            echo "ANTHROPIC_API_KEY is not set; running the deterministic pre-pass only."
+            extra+=(--skip-agent)
+          fi
+          python3 .github/osrb/osrb_agent.py \
+            --delta "${DELTA_DIR}/license-diff.csv" \
+            --compliance "${STATE_DIR}/osrb-compliance.csv" \
+            --inventory .github/osrb/inventory.csv \
+            --approved .github/osrb/approved.csv \
+            --conditions .github/osrb/conditions.csv \
+            --comment-out triage-comment.md \
+            --verdicts-out triage-verdicts.json \
+            "${extra[@]}"
+
+      # The comment posts on EVERY path through this job — agent success,
+      # validator rejection (exit 2/3, comment already written), agent crash,
+      # or missing inputs (fallback body composed here). Same marker-scan
+      # update-in-place pattern as the license-diff comment in job 1; distinct
+      # marker so the two comments never collide, and distinct from the
+      # internal reviewer's `<!-- hinton-osrb-review -->`.
+      - name: Post or update the triage PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AGENT_OUTCOME: ${{ steps.agent.outcome }}
+          AGENT_SKIPPED: ${{ steps.agent.outputs.skipped }}
+        run: |
+          set -euo pipefail
+          pr="${GITHUB_REF##*/pull-request/}"
+          marker='<!-- osrb-triage -->'
+          {
+            echo "$marker"
+            if [[ -f triage-comment.md ]]; then
+              # Strip the marker if osrb_agent.py already embedded it; it is
+              # prepended above so the scan-for-existing-comment always works.
+              grep -vxF "$marker" triage-comment.md || true
+            else
+              # Fail-safe body: the agent crashed before writing its comment,
+              # or this run produced no CSVs to read. Never silent.
+              echo "## OSRB triage"
+              echo
+              if [[ "${AGENT_SKIPPED}" == "true" ]]; then
+                echo "Triage did not run: this run produced no delta/compliance CSV to read (see the jobs above)."
+              else
+                echo "The triage agent failed before producing a report (outcome: ${AGENT_OUTCOME:-unknown})."
+                echo "The delta gate above is unaffected — it remains the blocking check."
+              fi
+              echo
+              echo "Supersedes the internal OSRB reviewer comment for triage; the OSRB Review check remains the compliance gate until ci-vss-oss retires it."
+              echo
+              echo "[GitHub Actions run](${RUN_URL})"
+            fi
+          } > osrb-triage-comment-body.md
+          existing=$(gh api "repos/${REPO}/issues/${pr}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")
+          payload=$(jq -Rsn '{body: input}' < osrb-triage-comment-body.md)
+          if [[ -n "$existing" && "$existing" != "null" ]]; then
+            echo "Updating existing comment $existing"
+            echo "$payload" | gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" --input - > /dev/null
+          else
+            echo "Creating new comment on PR #${pr}"
+            echo "$payload" | gh api -X POST "repos/${REPO}/issues/${pr}/comments" --input - > /dev/null
+          fi
+
+      # Fold the triage outputs into the osrb-compliance artifact — NEVER into
+      # `license-diff`, whose payload is fetched by name by the private GitLab
+      # pipeline (see the job 1 upload comment). v4 artifacts are immutable, so
+      # this re-uploads the downloaded contents plus the triage files with
+      # `overwrite`.
+      - name: Stage triage outputs for the compliance artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/osrb-compliance"
+          for f in triage-comment.md triage-verdicts.json; do
+            if [[ -f "$f" ]]; then
+              cp "$f" "${RUNNER_TEMP}/osrb-compliance/"
+            fi
+          done
+
+      - name: Upload triage outputs into the compliance artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: osrb-compliance
+          path: ${{ runner.temp }}/osrb-compliance
+          overwrite: true
+          if-no-files-found: warn
+
+      # Sync the inventory to the PR tree — LAST step on purpose.
+      #
+      # This pushes to the mirror branch, which re-triggers this workflow. That
+      # is fine and self-healing: the new run regenerates the same inventory
+      # (no change), the agent finds no new unknowns, and its commit step makes
+      # no commit — one quiet extra run, then stable. Because it is last, the
+      # concurrency cancel that the push causes lands after the comment above
+      # has already posted, so nothing is lost.
+      #
+      # What is committed: the deterministic regeneration (structural — new deps
+      # from the PR tree) plus the agent's validated licence seeds. The guard
+      # proves the agent part is licence/risk-only on top of the regeneration;
+      # the regeneration itself is a pure function of the already-reviewed tree,
+      # so it introduces nothing a reviewer has not seen in the PR diff.
+      - name: Sync inventory.csv to the PR tree
+        id: commit
+        if: always() && steps.refresh.outcome == 'success' && steps.agent.outcome != 'cancelled'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/osrb/inventory.csv; then
+            echo "Inventory already matches the PR tree; nothing to commit."
+            exit 0
+          fi
+          # Guard, in a fresh process so the workflow does not trust the agent
+          # process that produced the diff: the change from the regenerated
+          # baseline to the final file must be license/risk-only. The structural
+          # delta (committed -> regenerated) is not re-checked here because it is
+          # a deterministic osrb_inventory output of the reviewed tree. Fail
+          # closed: a guard crash aborts the commit exactly like a violation.
+          if ! python3 .github/osrb/osrb_agent.py \
+            --check-inventory-diff "${RUNNER_TEMP}/inventory-regen.csv" .github/osrb/inventory.csv
+          then
+            {
+              echo "### OSRB inventory sync aborted"
+              echo
+              echo "The agent's licence changes did not pass validate_inventory_diff"
+              echo "against the regenerated baseline; nothing was committed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=OSRB inventory sync aborted::validate_inventory_diff rejected the agent diff; inventory.csv was not committed."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898024+github-actions[bot]@users.noreply.github.com"
+          git add .github/osrb/inventory.csv
+          # `-s` is mandatory (org DCO), same as skill-eval's adapter commit.
+          git commit -s -m "chore(osrb): sync inventory.csv with the PR tree"
+          # The checkout had persist-credentials:false to keep a token off disk
+          # during the injection-reachable agent step; set the push credential
+          # HERE, scoped to this push, from the job's own contents:write token.
+          auth=$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)
+          # Push to the pull request's OWN branch, not ${GITHUB_REF_NAME}.
+          # This workflow runs on the copy-pr-bot mirror, and
+          # refs/heads/pull-request/* is protected by two rulesets, so a push
+          # there is rejected with GH013 "Cannot update this protected ref" --
+          # which is how this sync silently did nothing on every pull request.
+          pr="${GITHUB_REF##*/pull-request/}"
+          head_ref=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.head.ref')
+          cross=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '.head.repo.full_name != .base.repo.full_name')
+          if [[ "${cross}" == "true" ]]; then
+            # GITHUB_TOKEN cannot write to a fork. Nothing to do but say so:
+            # the drift is already reported in the triage comment.
+            regen="python3 .github/osrb/osrb_inventory.py"
+            regen="${regen} --previous .github/osrb/inventory.csv"
+            regen="${regen} --output .github/osrb/inventory.csv"
+            msg="this pull request is from a fork, so the refreshed"
+            msg="${msg} inventory.csv cannot be pushed. Regenerate it with"
+            msg="${msg} '${regen}' and commit."
+            echo "::warning title=OSRB inventory not synced::${msg}"
+            exit 0
+          fi
+          if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:${head_ref}"
+          then
+            echo "::error title=OSRB inventory sync failed::could not push the refreshed inventory.csv to ${head_ref}."
+            exit 1
+          fi
+          echo "Pushed inventory sync to ${head_ref}."

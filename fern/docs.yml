@@ -64,196 +64,193 @@ navigation:
             slug: industry-specific-examples
             path: ../docs/industry-examples.mdx
             contents:
-              - section: "Industry-Specific Examples"
-                skip-slug: true
+              - section: "Smart City Blueprint"
+                slug: smart-city-blueprint
+                path: ../docs/smartcity-docs/smartcity-toc.mdx
                 contents:
-                  - section: "Smart City Blueprint"
-                    slug: smart-city-blueprint
-                    path: ../docs/smartcity-docs/smartcity-toc.mdx
+                  - page: "Introduction to the NVIDIA Smart City AI Blueprint"
+                    slug: introduction-to-the-nvidia-smart-city-ai-blueprint
+                    path: ../docs/smartcity-docs/Introduction.mdx
+                  - page: "Prerequisites"
+                    slug: prerequisites
+                    path: ../docs/smartcity-docs/Prerequisites.mdx
+                  - page: "Quickstart Guide - Docker Compose"
+                    slug: quickstart-guide-docker-compose
+                    path: ../docs/smartcity-docs/Quickstart-Guide.mdx
+                  - section: "Development Workflow"
+                    slug: development-workflow
+                    path: ../docs/smartcity-docs/Smartcity-Development-Workflow.mdx
                     contents:
-                      - page: "Introduction to the NVIDIA Smart City AI Blueprint"
-                        slug: introduction-to-the-nvidia-smart-city-ai-blueprint
-                        path: ../docs/smartcity-docs/Introduction.mdx
-                      - page: "Prerequisites"
-                        slug: prerequisites
-                        path: ../docs/smartcity-docs/Prerequisites.mdx
-                      - page: "Quickstart Guide - Docker Compose"
-                        slug: quickstart-guide-docker-compose
-                        path: ../docs/smartcity-docs/Quickstart-Guide.mdx
-                      - section: "Development Workflow"
-                        slug: development-workflow
-                        path: ../docs/smartcity-docs/Smartcity-Development-Workflow.mdx
-                        contents:
-                          - page: "Blueprint Deep Dive"
-                            slug: blueprint-deep-dive
-                            path: ../docs/smartcity-docs/Blueprint-deep-dive.mdx
-                          - page: "Calibration"
-                            slug: calibration
-                            path: ../docs/smartcity-docs/Calibration.mdx
-                          - page: "Deployment"
-                            slug: deployment
-                            path: ../docs/smartcity-docs/Deployment.mdx
-                          - page: "Simulation and Synthetic Data Generation"
-                            slug: simulation-and-synthetic-data-generation
-                            path: ../docs/smartcity-docs/Simulation-SDG.mdx
-                          - page: "Model Fine Tuning"
-                            slug: model-fine-tuning
-                            path: ../docs/smartcity-docs/Model-Fine-Tuning.mdx
-                      - section: "Operations (Monitoring, Troubleshooting, FAQ, Known Limitations)"
-                        slug: operations-monitoring-troubleshooting-faq-known-limitations
-                        path: ../docs/smartcity-docs/Operations.mdx
-                        contents:
-                          - page: "Known Limitations"
-                            slug: known-limitations
-                            path: ../docs/smartcity-docs/Known-Limitations.mdx
-                          - page: "Troubleshooting Guide"
-                            slug: troubleshooting-guide
-                            path: ../docs/smartcity-docs/Troubleshooting-Guide.mdx
-                          - page: "FAQ"
-                            slug: faq
-                            path: ../docs/smartcity-docs/FAQ.mdx
-                          - page: "License Information"
-                            slug: license-information
-                            path: ../docs/smartcity-docs/License-Information.mdx
-                  - section: "Warehouse Operations Blueprint"
-                    slug: warehouse-operations-blueprint
-                    path: ../docs/warehouse-docs/warehouse-toc.mdx
+                      - page: "Blueprint Deep Dive"
+                        slug: blueprint-deep-dive
+                        path: ../docs/smartcity-docs/Blueprint-deep-dive.mdx
+                      - page: "Calibration"
+                        slug: calibration
+                        path: ../docs/smartcity-docs/Calibration.mdx
+                      - page: "Deployment"
+                        slug: deployment
+                        path: ../docs/smartcity-docs/Deployment.mdx
+                      - page: "Simulation and Synthetic Data Generation"
+                        slug: simulation-and-synthetic-data-generation
+                        path: ../docs/smartcity-docs/Simulation-SDG.mdx
+                      - page: "Model Fine Tuning"
+                        slug: model-fine-tuning
+                        path: ../docs/smartcity-docs/Model-Fine-Tuning.mdx
+                  - section: "Operations (Monitoring, Troubleshooting, FAQ, Known Limitations)"
+                    slug: operations-monitoring-troubleshooting-faq-known-limitations
+                    path: ../docs/smartcity-docs/Operations.mdx
                     contents:
-                      - page: "Introduction"
-                        slug: introduction
-                        path: ../docs/warehouse-docs/Introduction.mdx
-                      - page: "Release Notes"
-                        slug: release-notes
-                        path: ../docs/warehouse-docs/Release-Notes.mdx
-                      - page: "Prerequisites"
-                        slug: prerequisites
-                        path: ../docs/warehouse-docs/Prerequisites.mdx
-                      - page: "Quickstart"
-                        slug: quickstart
-                        path: ../docs/warehouse-docs/Quickstart-Guide.mdx
-                      - section: "Development Workflow"
-                        slug: development-workflow
-                        path: ../docs/warehouse-docs/Core-Development-Workflow.mdx
+                      - page: "Known Limitations"
+                        slug: known-limitations
+                        path: ../docs/smartcity-docs/Known-Limitations.mdx
+                      - page: "Troubleshooting Guide"
+                        slug: troubleshooting-guide
+                        path: ../docs/smartcity-docs/Troubleshooting-Guide.mdx
+                      - page: "FAQ"
+                        slug: faq
+                        path: ../docs/smartcity-docs/FAQ.mdx
+                      - page: "License Information"
+                        slug: license-information
+                        path: ../docs/smartcity-docs/License-Information.mdx
+              - section: "Warehouse Operations Blueprint"
+                slug: warehouse-operations-blueprint
+                path: ../docs/warehouse-docs/warehouse-toc.mdx
+                contents:
+                  - page: "Introduction"
+                    slug: introduction
+                    path: ../docs/warehouse-docs/Introduction.mdx
+                  - page: "Release Notes"
+                    slug: release-notes
+                    path: ../docs/warehouse-docs/Release-Notes.mdx
+                  - page: "Prerequisites"
+                    slug: prerequisites
+                    path: ../docs/warehouse-docs/Prerequisites.mdx
+                  - page: "Quickstart"
+                    slug: quickstart
+                    path: ../docs/warehouse-docs/Quickstart-Guide.mdx
+                  - section: "Development Workflow"
+                    slug: development-workflow
+                    path: ../docs/warehouse-docs/Core-Development-Workflow.mdx
+                    contents:
+                      - section: "Deployment & Customization"
+                        slug: deployment-customization
+                        path: ../docs/warehouse-docs/blueprint-profiles.mdx
                         contents:
-                          - section: "Deployment & Customization"
-                            slug: deployment-customization
-                            path: ../docs/warehouse-docs/blueprint-profiles.mdx
-                            contents:
-                              - page: "2D Vision AI Profile"
-                                slug: 2d-vision-ai-profile
-                                path: ../docs/warehouse-docs/2D-profile.mdx
-                              - page: "2D Vision AI with Agents Profile"
-                                slug: 2d-vision-ai-with-agents-profile
-                                path: ../docs/warehouse-docs/2D-profile-with-agents.mdx
-                              - page: "3D Vision AI Profile"
-                                slug: 3d-vision-ai-profile
-                                path: ../docs/warehouse-docs/3D-profile.mdx
-                              - page: "MV3DT Vision AI Profile"
-                                slug: mv3dt-vision-ai-profile
-                                path: ../docs/warehouse-docs/MV3DT-profile.mdx
-                          - section: "Simulation and Synthetic Data Generation"
-                            slug: simulation-and-synthetic-data-generation
-                            path: ../docs/warehouse-docs/Simulation-and-Synthetic-Data-Generation.mdx
-                            contents:
-                              - page: "Development Tools Setup"
-                                slug: development-tools-setup
-                                path: ../docs/warehouse-docs/Development-Tools-Setup.mdx
-                              - section: "Synthetic Data Generation"
-                                slug: synthetic-data-generation
-                                path: ../docs/warehouse-docs/Synthetic-Data-Generation.mdx
-                                contents:
-                                  - page: "Quick Start for SDG"
-                                    slug: quick-start-for-sdg
-                                    path: ../docs/warehouse-docs/Quick-Start-for-SDG.mdx
-                                  - page: "Camera Calibration"
-                                    slug: camera-calibration
-                                    path: ../docs/warehouse-docs/Camera-Calibration.mdx
-                              - section: "Scene Customization"
-                                slug: scene-customization
-                                path: ../docs/warehouse-docs/Scene-Customization.mdx
-                                contents:
-                                  - page: "NavMesh Setup"
-                                    slug: navmesh-setup
-                                    path: ../docs/warehouse-docs/NavMesh-Setup.mdx
-                                  - page: "Camera Placement"
-                                    slug: camera-placement
-                                    path: ../docs/warehouse-docs/Camera-Placement.mdx
-                                  - page: "Semantic Label Setup"
-                                    slug: semantic-label-setup
-                                    path: ../docs/warehouse-docs/Semantic-Label-Setup.mdx
-                                  - page: "Customized Scene Saving"
-                                    slug: customized-scene-saving
-                                    path: ../docs/warehouse-docs/Customized-Scene-Saving.mdx
-                              - page: "Dataset Post-Processing"
-                                slug: dataset-post-processing
-                                path: ../docs/warehouse-docs/Dataset-Post-Processing.mdx
-                              - page: "Sim2Real Data Transfer"
-                                slug: sim2real-data-transfer
-                                path: ../docs/warehouse-docs/Sim2Real-Data-Transfer.mdx
-                          - section: "Model Finetuning"
-                            slug: model-finetuning
-                            path: ../docs/warehouse-docs/Models.mdx
-                            contents:
-                              - page: "RT-DETR"
-                                slug: rt-detr
-                                path: ../docs/models/rt-detr.mdx
-                              - page: "Sparse4D"
-                                slug: sparse4d
-                                path: ../docs/models/sparse4d.mdx
-                              - page: "Cosmos Reasoner"
-                                slug: cosmos-reasoner
-                                path: ../docs/warehouse-docs/CR.mdx
-                      - section: "Microservice Configuration"
-                        slug: microservice-configuration
-                        path: ../docs/warehouse-docs/microservices-configs-and-outputs.mdx
+                          - page: "2D Vision AI Profile"
+                            slug: 2d-vision-ai-profile
+                            path: ../docs/warehouse-docs/2D-profile.mdx
+                          - page: "2D Vision AI with Agents Profile"
+                            slug: 2d-vision-ai-with-agents-profile
+                            path: ../docs/warehouse-docs/2D-profile-with-agents.mdx
+                          - page: "3D Vision AI Profile"
+                            slug: 3d-vision-ai-profile
+                            path: ../docs/warehouse-docs/3D-profile.mdx
+                          - page: "MV3DT Vision AI Profile"
+                            slug: mv3dt-vision-ai-profile
+                            path: ../docs/warehouse-docs/MV3DT-profile.mdx
+                      - section: "Simulation and Synthetic Data Generation"
+                        slug: simulation-and-synthetic-data-generation
+                        path: ../docs/warehouse-docs/Simulation-and-Synthetic-Data-Generation.mdx
                         contents:
-                          - section: "Perception"
-                            slug: perception
-                            path: ../docs/warehouse-docs/Perception.mdx
+                          - page: "Development Tools Setup"
+                            slug: development-tools-setup
+                            path: ../docs/warehouse-docs/Development-Tools-Setup.mdx
+                          - section: "Synthetic Data Generation"
+                            slug: synthetic-data-generation
+                            path: ../docs/warehouse-docs/Synthetic-Data-Generation.mdx
                             contents:
-                              - page: "2D Single Camera Detection and Tracking (RT-DETR)"
-                                slug: 2d-single-camera-detection-and-tracking-rt-detr
-                                path: ../docs/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR.mdx
-                              - page: "3D Multi Camera Detection and Tracking (Sparse4D)"
-                                slug: 3d-multi-camera-detection-and-tracking-sparse4d
-                                path: ../docs/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.mdx
-                              - page: "3D Multi Camera Detection and Tracking (MV3DT)"
-                                slug: 3d-multi-camera-detection-and-tracking-mv3dt
-                                path: ../docs/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT.mdx
-                          - page: "Behavior Analytics"
-                            slug: behavior-analytics
-                            path: ../docs/warehouse-docs/Behavior-Analytics.mdx
-                          - page: "Alerting Service"
-                            slug: alerting-service
-                            path: ../docs/warehouse-docs/alerting-service.mdx
-                          - page: "Agents"
-                            slug: agents
-                            path: ../docs/warehouse-docs/agents.mdx
-                          - page: "Reference Agentic UI"
-                            slug: reference-agentic-ui
-                            path: ../docs/warehouse-docs/vss-warehouse-ui.mdx
-                      - section: "Operations (Monitoring, Troubleshooting, FAQ, Known Limitations)"
-                        slug: operations-monitoring-troubleshooting-faq-known-limitations
-                        path: ../docs/warehouse-docs/Appendix-toc.mdx
+                              - page: "Quick Start for SDG"
+                                slug: quick-start-for-sdg
+                                path: ../docs/warehouse-docs/Quick-Start-for-SDG.mdx
+                              - page: "Camera Calibration"
+                                slug: camera-calibration
+                                path: ../docs/warehouse-docs/Camera-Calibration.mdx
+                          - section: "Scene Customization"
+                            slug: scene-customization
+                            path: ../docs/warehouse-docs/Scene-Customization.mdx
+                            contents:
+                              - page: "NavMesh Setup"
+                                slug: navmesh-setup
+                                path: ../docs/warehouse-docs/NavMesh-Setup.mdx
+                              - page: "Camera Placement"
+                                slug: camera-placement
+                                path: ../docs/warehouse-docs/Camera-Placement.mdx
+                              - page: "Semantic Label Setup"
+                                slug: semantic-label-setup
+                                path: ../docs/warehouse-docs/Semantic-Label-Setup.mdx
+                              - page: "Customized Scene Saving"
+                                slug: customized-scene-saving
+                                path: ../docs/warehouse-docs/Customized-Scene-Saving.mdx
+                          - page: "Dataset Post-Processing"
+                            slug: dataset-post-processing
+                            path: ../docs/warehouse-docs/Dataset-Post-Processing.mdx
+                          - page: "Sim2Real Data Transfer"
+                            slug: sim2real-data-transfer
+                            path: ../docs/warehouse-docs/Sim2Real-Data-Transfer.mdx
+                      - section: "Model Finetuning"
+                        slug: model-finetuning
+                        path: ../docs/warehouse-docs/Models.mdx
                         contents:
-                          - page: "Accuracy & Performance Benchmarks"
-                            slug: accuracy-performance-benchmarks
-                            path: ../docs/warehouse-docs/Accuracy-Performance-Benchmarks.mdx
-                          - page: "System Sizing Guide"
-                            slug: system-sizing-guide
-                            path: ../docs/warehouse-docs/System-Sizing-Guide.mdx
-                          - page: "Known Limitations"
-                            slug: known-limitations
-                            path: ../docs/warehouse-docs/Known-Limitations.mdx
-                          - page: "Troubleshooting Guide"
-                            slug: troubleshooting-guide
-                            path: ../docs/warehouse-docs/Troubleshooting-Guide.mdx
-                          - page: "FAQ"
-                            slug: faq
-                            path: ../docs/warehouse-docs/FAQ.mdx
-                          - page: "License Information"
-                            slug: license-information
-                            path: ../docs/warehouse-docs/License-Information.mdx
+                          - page: "RT-DETR"
+                            slug: rt-detr
+                            path: ../docs/models/rt-detr.mdx
+                          - page: "Sparse4D"
+                            slug: sparse4d
+                            path: ../docs/models/sparse4d.mdx
+                          - page: "Cosmos Reasoner"
+                            slug: cosmos-reasoner
+                            path: ../docs/warehouse-docs/CR.mdx
+                  - section: "Microservice Configuration"
+                    slug: microservice-configuration
+                    path: ../docs/warehouse-docs/microservices-configs-and-outputs.mdx
+                    contents:
+                      - section: "Perception"
+                        slug: perception
+                        path: ../docs/warehouse-docs/Perception.mdx
+                        contents:
+                          - page: "2D Single Camera Detection and Tracking (RT-DETR)"
+                            slug: 2d-single-camera-detection-and-tracking-rt-detr
+                            path: ../docs/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR.mdx
+                          - page: "3D Multi Camera Detection and Tracking (Sparse4D)"
+                            slug: 3d-multi-camera-detection-and-tracking-sparse4d
+                            path: ../docs/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.mdx
+                          - page: "3D Multi Camera Detection and Tracking (MV3DT)"
+                            slug: 3d-multi-camera-detection-and-tracking-mv3dt
+                            path: ../docs/warehouse-docs/3D-multi-camera-detection-and-tracking-MV3DT.mdx
+                      - page: "Behavior Analytics"
+                        slug: behavior-analytics
+                        path: ../docs/warehouse-docs/Behavior-Analytics.mdx
+                      - page: "Alerting Service"
+                        slug: alerting-service
+                        path: ../docs/warehouse-docs/alerting-service.mdx
+                      - page: "Agents"
+                        slug: agents
+                        path: ../docs/warehouse-docs/agents.mdx
+                      - page: "Reference Agentic UI"
+                        slug: reference-agentic-ui
+                        path: ../docs/warehouse-docs/vss-warehouse-ui.mdx
+                  - section: "Operations (Monitoring, Troubleshooting, FAQ, Known Limitations)"
+                    slug: operations-monitoring-troubleshooting-faq-known-limitations
+                    path: ../docs/warehouse-docs/Appendix-toc.mdx
+                    contents:
+                      - page: "Accuracy & Performance Benchmarks"
+                        slug: accuracy-performance-benchmarks
+                        path: ../docs/warehouse-docs/Accuracy-Performance-Benchmarks.mdx
+                      - page: "System Sizing Guide"
+                        slug: system-sizing-guide
+                        path: ../docs/warehouse-docs/System-Sizing-Guide.mdx
+                      - page: "Known Limitations"
+                        slug: known-limitations
+                        path: ../docs/warehouse-docs/Known-Limitations.mdx
+                      - page: "Troubleshooting Guide"
+                        slug: troubleshooting-guide
+                        path: ../docs/warehouse-docs/Troubleshooting-Guide.mdx
+                      - page: "FAQ"
+                        slug: faq
+                        path: ../docs/warehouse-docs/FAQ.mdx
+                      - page: "License Information"
+                        slug: license-information
+                        path: ../docs/warehouse-docs/License-Information.mdx
       - page: "Agent Skills"
         slug: agent-skills
         path: ../docs/agent-skills.mdx
@@ -285,12 +282,9 @@ navigation:
             slug: agent-overview
             path: ../docs/vss-agent/VSS-Agent-Overview.mdx
             contents:
-              - section: "API Reference"
+              - page: "API Reference"
                 slug: api-reference
-                contents:
-                  - page: "API Reference"
-                    slug: api-reference
-                    path: ../docs/vss-agent/vss-agent-api.mdx
+                path: ../docs/vss-agent/vss-agent-api.mdx
           - page: "Agent Profiles"
             slug: agent-profiles
             path: ../docs/vss-agent/VSS-Agent-Profiles.mdx
@@ -336,42 +330,30 @@ navigation:
             slug: object-detection-and-tracking
             path: ../docs/object-detection-tracking.mdx
             contents:
-              - section: "API Reference"
+              - page: "API Reference"
                 slug: api-reference
-                contents:
-                  - page: "API Reference"
-                    slug: api-reference
-                    path: ../docs/object-detection-tracking-api.mdx
+                path: ../docs/object-detection-tracking-api.mdx
           - section: "Real-Time VLM"
             slug: real-time-vlm
             path: ../docs/real-time-vlm.mdx
             contents:
-              - section: "API Reference"
+              - page: "API Reference"
                 slug: api-reference
-                contents:
-                  - page: "API Reference"
-                    slug: api-reference
-                    path: ../docs/real-time-vlm-api.mdx
+                path: ../docs/real-time-vlm-api.mdx
           - section: "Video Embedding Generation"
             slug: video-embedding-generation
             path: ../docs/real-time-embedding.mdx
             contents:
-              - section: "API Reference"
+              - page: "API Reference"
                 slug: api-reference
-                contents:
-                  - page: "API Reference"
-                    slug: api-reference
-                    path: ../docs/real-time-embedding-api.mdx
+                path: ../docs/real-time-embedding-api.mdx
           - section: "Video Summarization"
             slug: video-summarization
             path: ../docs/long-video-summarization.mdx
             contents:
-              - section: "API Reference"
+              - page: "API Reference"
                 slug: api-reference
-                contents:
-                  - page: "API Reference"
-                    slug: api-reference
-                    path: ../docs/long-video-summarization-api.mdx
+                path: ../docs/long-video-summarization-api.mdx
       - section: "Analytics Microservices"
         slug: analytics-microservices
         path: ../docs/analytics-microservices.mdx
@@ -383,12 +365,9 @@ navigation:
             slug: alerts-microservice
             path: ../docs/alert-verification-service.mdx
             contents:
-              - section: "API Reference"
-                slug: api-reference
-                contents:
-                  - page: "Alert Verification API"
-                    slug: alert-verification-api
-                    path: ../docs/alert-verification-api.mdx
+              - page: "Alert Verification API"
+                slug: alert-verification-api
+                path: ../docs/alert-verification-api.mdx
       - section: "Middleware"
         slug: middleware
         path: ../docs/middleware.mdx
@@ -410,62 +389,44 @@ navigation:
                     slug: vst-sensor-management-api
                     path: ../docs/vst-sensor-management-api.mdx
                     contents:
-                      - section: "VST Sensor Management API Reference"
+                      - page: "VST Sensor Management API Reference"
                         slug: vst-sensor-management-api-reference
-                        contents:
-                          - page: "VST Sensor Management API Reference"
-                            slug: vst-sensor-management-api-reference
-                            path: ../docs/vst-sensor-management-api-reference.mdx
+                        path: ../docs/vst-sensor-management-api-reference.mdx
                   - section: "VST Live Stream Management API"
                     slug: vst-live-stream-management-api
                     path: ../docs/vst-live-stream-management-api.mdx
                     contents:
-                      - section: "VST Live Stream Management API Reference"
+                      - page: "VST Live Stream Management API Reference"
                         slug: vst-live-stream-management-api-reference
-                        contents:
-                          - page: "VST Live Stream Management API Reference"
-                            slug: vst-live-stream-management-api-reference
-                            path: ../docs/vst-live-stream-management-api-reference.mdx
+                        path: ../docs/vst-live-stream-management-api-reference.mdx
                   - section: "VST Replay Stream Management API"
                     slug: vst-replay-stream-management-api
                     path: ../docs/vst-replay-stream-management-api.mdx
                     contents:
-                      - section: "VST Replay Stream Management API Reference"
+                      - page: "VST Replay Stream Management API Reference"
                         slug: vst-replay-stream-management-api-reference
-                        contents:
-                          - page: "VST Replay Stream Management API Reference"
-                            slug: vst-replay-stream-management-api-reference
-                            path: ../docs/vst-replay-stream-management-api-reference.mdx
+                        path: ../docs/vst-replay-stream-management-api-reference.mdx
                   - section: "VST Record Stream Management API"
                     slug: vst-record-stream-management-api
                     path: ../docs/vst-record-stream-management-api.mdx
                     contents:
-                      - section: "VST Record Stream Management API Reference"
+                      - page: "VST Record Stream Management API Reference"
                         slug: vst-record-stream-management-api-reference
-                        contents:
-                          - page: "VST Record Stream Management API Reference"
-                            slug: vst-record-stream-management-api-reference
-                            path: ../docs/vst-record-stream-management-api-reference.mdx
+                        path: ../docs/vst-record-stream-management-api-reference.mdx
                   - section: "VST Proxy Stream Management API"
                     slug: vst-proxy-stream-management-api
                     path: ../docs/vst-proxy-stream-management-api.mdx
                     contents:
-                      - section: "VST Proxy Stream Management API Reference"
+                      - page: "VST Proxy Stream Management API Reference"
                         slug: vst-proxy-stream-management-api-reference
-                        contents:
-                          - page: "VST Proxy Stream Management API Reference"
-                            slug: vst-proxy-stream-management-api-reference
-                            path: ../docs/vst-proxy-stream-management-api-reference.mdx
+                        path: ../docs/vst-proxy-stream-management-api-reference.mdx
                   - section: "VST Storage Management API"
                     slug: vst-storage-management-api
                     path: ../docs/vst-storage-management-api.mdx
                     contents:
-                      - section: "VST Storage Management API Reference"
+                      - page: "VST Storage Management API Reference"
                         slug: vst-storage-management-api-reference
-                        contents:
-                          - page: "VST Storage Management API Reference"
-                            slug: vst-storage-management-api-reference
-                            path: ../docs/vst-storage-management-api-reference.mdx
+                        path: ../docs/vst-storage-management-api-reference.mdx
           - section: "API Gateway / MCP"
             slug: api-gateway-mcp
             path: ../docs/api-gateway-mcp.mdx
@@ -474,12 +435,9 @@ navigation:
                 slug: video-analytics-api
                 path: ../docs/video-analytics-api-server.mdx
                 contents:
-                  - section: "Video Analytics API Reference"
+                  - page: "Video Analytics API Reference"
                     slug: video-analytics-api-reference
-                    contents:
-                      - page: "Video Analytics API Reference"
-                        slug: video-analytics-api-reference
-                        path: ../docs/video-analytics-api.mdx
+                    path: ../docs/video-analytics-api.mdx
               - page: "Video Analytics MCP"
                 slug: video-analytics-mcp
                 path: ../docs/video-analytics-mcp.mdx
@@ -663,3 +621,123 @@ redirects:
     destination: "/vss"
   - source: "/nightly/:path*"
     destination: "/vss/:path*"
+
+  # Duplicate Fern slugs from the first conversion preview.
+  - source: "/vision-agent/agent-workflows/industry-specific-examples/industry-specific-examples/:path*"
+    destination: "/vss/vision-agent/agent-workflows/industry-specific-examples/:path*"
+  - source: "/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference/video-analytics-api-reference"
+    destination: "/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference"
+  - source: "/system-components/vision-microservices/object-detection-and-tracking/api-reference/api-reference"
+    destination: "/vss/system-components/vision-microservices/object-detection-and-tracking/api-reference"
+  - source: "/system-components/vision-microservices/real-time-vlm/api-reference/api-reference"
+    destination: "/vss/system-components/vision-microservices/real-time-vlm/api-reference"
+  - source: "/system-components/vision-microservices/video-embedding-generation/api-reference/api-reference"
+    destination: "/vss/system-components/vision-microservices/video-embedding-generation/api-reference"
+  - source: "/system-components/vision-microservices/video-summarization/api-reference/api-reference"
+    destination: "/vss/system-components/vision-microservices/video-summarization/api-reference"
+  - source: "/vision-agent/vss-agents/agent-overview/api-reference/api-reference"
+    destination: "/vss/vision-agent/vss-agents/agent-overview/api-reference"
+  - source: "/system-components/analytics-microservices/alerts-microservice/api-reference/alert-verification-api"
+    destination: "/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api"
+  - source: "/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api/vst-sensor-management-api-reference/vst-sensor-management-api-reference"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api/vst-sensor-management-api-reference"
+  - source: "/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api/vst-live-stream-management-api-reference/vst-live-stream-management-api-reference"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api/vst-live-stream-management-api-reference"
+  - source: "/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api/vst-replay-stream-management-api-reference/vst-replay-stream-management-api-reference"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api/vst-replay-stream-management-api-reference"
+  - source: "/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api/vst-record-stream-management-api-reference/vst-record-stream-management-api-reference"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api/vst-record-stream-management-api-reference"
+  - source: "/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api/vst-proxy-stream-management-api-reference/vst-proxy-stream-management-api-reference"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api/vst-proxy-stream-management-api-reference"
+  - source: "/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api/vst-storage-management-api-reference/vst-storage-management-api-reference"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api/vst-storage-management-api-reference"
+
+  # Sphinx-era root-relative paths reported in the migration review.
+  - source: "/prerequisites"
+    destination: "/vss/getting-started/prerequisites"
+  - source: "/agent-skills"
+    destination: "/vss/vision-agent/agent-skills"
+  - source: "/agent-harnesses"
+    destination: "/vss/vision-agent/agent-harnesses"
+  - source: "/behavior-analytics"
+    destination: "/vss/system-components/analytics-microservices/behavior-analytics"
+  - source: "/vios-microservices"
+    destination: "/vss/system-components/middleware/video-io-storage-vios/vios-microservices"
+  - source: "/vss-orchestrator-mcp"
+    destination: "/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp"
+  - source: "/vss-agent/configure-llm"
+    destination: "/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm"
+  - source: "/vss-configurator"
+    destination: "/vss/system-components/configuration/vss-configurator"
+  - source: "/vss-ui"
+    destination: "/vss/system-components/user-interface"
+  - source: "/vss-vios"
+    destination: "/vss/system-components/middleware/video-io-storage-vios"
+  - source: "/warehouse-docs/FAQ"
+    destination: "/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq"
+  - source: "/long-video-summarization"
+    destination: "/vss/system-components/vision-microservices/video-summarization"
+  - source: "/object-detection-tracking"
+    destination: "/vss/system-components/vision-microservices/object-detection-and-tracking"
+  - source: "/real-time-embedding"
+    destination: "/vss/system-components/vision-microservices/video-embedding-generation"
+  - source: "/real-time-vlm"
+    destination: "/vss/system-components/vision-microservices/real-time-vlm"
+  - source: "/real-time-embedding-api"
+    destination: "/vss/system-components/vision-microservices/video-embedding-generation/api-reference"
+  - source: "/Protobuf-Schema"
+    destination: "/vss/system-components/middleware/nvschema/protobuf-schema"
+  - source: "/JSON-Schema"
+    destination: "/vss/system-components/middleware/nvschema/json-schema"
+  - source: "/agent-workflow-search"
+    destination: "/vss/vision-agent/agent-workflows/search"
+  - source: "/models/cosmos-embed1"
+    destination: "/vss/system-components/models/cosmos-embed1-video-embedding"
+  - source: "/models/model-customization"
+    destination: "/vss/system-components/models/model-customization-overview"
+  - source: "/kafka"
+    destination: "/vss/system-components/middleware/message-broker/kafka"
+  - source: "/redis"
+    destination: "/vss/system-components/middleware/message-broker/redis"
+  - source: "/video-analytics-api"
+    destination: "/vss/system-components/middleware/api-gateway-mcp/video-analytics-api"
+  - source: "/calibration"
+    destination: "/vss/system-components/calibration"
+  - source: "/calibration-schema"
+    destination: "/vss/system-components/calibration/calibration-schema"
+  - source: "/vss/prerequisites"
+    destination: "/vss/getting-started/prerequisites"
+  - source: "/vss/behavior-analytics"
+    destination: "/vss/system-components/analytics-microservices/behavior-analytics"
+  - source: "/vss/calibration"
+    destination: "/vss/system-components/calibration"
+  - source: "/vss/calibration-schema"
+    destination: "/vss/system-components/calibration/calibration-schema"
+  - source: "/vss/Protobuf-Schema"
+    destination: "/vss/system-components/middleware/nvschema/protobuf-schema"
+  - source: "/vss/JSON-Schema"
+    destination: "/vss/system-components/middleware/nvschema/json-schema"
+  - source: "/vss/agent-skills"
+    destination: "/vss/vision-agent/agent-skills"
+  - source: "/vss/kafka"
+    destination: "/vss/system-components/middleware/message-broker/kafka"
+  - source: "/vss/redis"
+    destination: "/vss/system-components/middleware/message-broker/redis"
+  - source: "/vss/video-analytics-api"
+    destination: "/vss/system-components/middleware/api-gateway-mcp/video-analytics-api"
+  - source: "/vss/long-video-summarization"
+    destination: "/vss/system-components/vision-microservices/video-summarization"
+  - source: "/vss/object-detection-tracking"
+    destination: "/vss/system-components/vision-microservices/object-detection-and-tracking"
+  - source: "/vss/real-time-embedding"
+    destination: "/vss/system-components/vision-microservices/video-embedding-generation"
+  - source: "/vss/real-time-vlm"
+    destination: "/vss/system-components/vision-microservices/real-time-vlm"
+  - source: "/vss/real-time-embedding-api"
+    destination: "/vss/system-components/vision-microservices/video-embedding-generation/api-reference"
+  - source: "/vss/agent-workflow-search"
+    destination: "/vss/vision-agent/agent-workflows/search"
+  - source: "/vss/models/cosmos-embed1"
+    destination: "/vss/system-components/models/cosmos-embed1-video-embedding"
+  - source: "/vss/models/model-customization"
+    destination: "/vss/system-components/models/model-customization-overview"

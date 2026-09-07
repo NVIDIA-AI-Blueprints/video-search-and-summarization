@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <vector>
 
 struct DashPackagerConfig
 {
@@ -36,6 +37,14 @@ struct DashPackagerConfig
     // one from the frame rate instead.  Live sessions carry real RTSP
     // timestamps and leave this off.
     bool synthesizeTimestamps = false;
+    /* Try the frames' own timestamps first and keep synthesizeTimestamps as the
+     * fallback. A synthesized timeline advances by exactly 1/sourceFrameRate per
+     * frame, so it only tells the truth while every frame reaches the packager.
+     * An overlay that suppresses the frames it drew nothing on delivers half of
+     * them, and the recording then plays at twice speed. The encoder stamps each
+     * re-encoded frame with the picture's own presentation time, which stays
+     * right whatever the delivered rate turns out to be. */
+    bool preferSourceTimestamps = false;
     double sourceFrameRate = 30.0;
     // Live composition.  A wall is composed in real time but its frames reach
     // the packager without a timestamp, and counting them instead turns any
@@ -51,6 +60,14 @@ struct DashPackagerConfig
     bool enableAac = false;
     unsigned audioSampleRate = 48000;
     unsigned audioChannels = 2;
+    /* An x86 part without NVENC - H100 has none - has no hardware encoder, so
+     * the overlay and composite pipelines end at the transform, which hands its
+     * consumer a decoded picture instead of an encoded one. That is what the
+     * WebRTC sink wants, because libwebrtc encodes for itself, but DASH has to
+     * publish an encoded elementary stream, and a packager fed pictures drops
+     * every one of them and publishes nothing. Encode here instead, the way the
+     * download pipeline does when it finds no hardware encoder. */
+    bool encodeRawInput = false;
 };
 
 enum class DashPackagerState
@@ -69,6 +86,8 @@ public:
 
     DashPackagerConsumer(const DashPackagerConsumer&) = delete;
     DashPackagerConsumer& operator=(const DashPackagerConsumer&) = delete;
+
+    [[nodiscard]] bool wantsDecodedPictures() const override { return m_config.encodeRawInput; }
 
     void onFrame(FrameParams& params) override;
     void onFrame(std::shared_ptr<RawFrameParams> frameData) override;
@@ -126,6 +145,8 @@ private:
         GstClockTime lastRaw = 0;
         bool lastRawValid = false;
         bool synthesize = false;
+        bool modeReported = false;
+        bool rawCapsSet = false;
         uint64_t frameIndex = 0;
         // The timeline actually published, which is not always the one the
         // source offers: a hole in it cannot be handed to a player.
@@ -157,6 +178,16 @@ private:
     GstElement* m_pipeline = nullptr;
     GstElement* m_videoAppsrc = nullptr;
     GstElement* m_videoParser = nullptr;
+    void pushRawPicture(const std::shared_ptr<RawFrameParams>& frameData);
+
+    /* Reused across frames: a 1080p picture is about 3 MB, and allocating that
+     * per frame is 90 MB a second of churn on the encode path for a buffer
+     * whose size never changes. Guarded by m_mutex, like the rest of the push
+     * path. */
+    std::vector<uint8_t> m_rawScratch;
+
+    GstElement* m_videoConvert = nullptr;
+    GstElement* m_videoEncoder = nullptr;
     GstElement* m_audioAppsrc = nullptr;
     GstElement* m_audioParser = nullptr;
     GstElement* m_dashSink = nullptr;

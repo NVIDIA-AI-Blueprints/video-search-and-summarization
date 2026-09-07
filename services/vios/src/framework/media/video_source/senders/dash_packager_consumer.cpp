@@ -18,14 +18,18 @@
 #include "dash_packager_consumer.h"
 
 #include "logger.h"
+#include "video_resolution.h"
+#include "config.h"
 
 #include <gst/app/gstappsrc.h>
+#include "api/video/i420_buffer.h"
 #include <unistd.h>
 #include <dirent.h>
 #include <climits>
 #include <cstdlib>
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstring>
 #include <iterator>
@@ -195,18 +199,29 @@ bool DashPackagerConsumer::createPipeline()
         return false;
     }
 
-    GstCaps* videoCaps = gst_caps_new_simple("video/x-h264",
-                                             "stream-format", G_TYPE_STRING, "byte-stream",
-                                             "alignment", G_TYPE_STRING, "au", nullptr);
+    /* Raw input is encoded here rather than upstream, so the encoder is inserted
+     * ahead of the parser and the caps are left unset until the first picture
+     * arrives. Announcing "video/x-raw, format=I420" without a width or height
+     * is worse than announcing nothing: videoconvert tries to negotiate against
+     * a size it does not have and the pipeline fails at startup with
+     * "Error calculating the output scaled size - integer overflow", before a
+     * single frame is offered. The picture carries its own dimensions, which is
+     * also the only description guaranteed to match what is actually sent. */
+    if (!m_config.encodeRawInput)
+    {
+        GstCaps* videoCaps = gst_caps_new_simple("video/x-h264",
+                                                 "stream-format", G_TYPE_STRING, "byte-stream",
+                                                 "alignment", G_TYPE_STRING, "au", nullptr);
+        g_object_set(G_OBJECT(m_videoAppsrc), "caps", videoCaps, nullptr);
+        gst_caps_unref(videoCaps);
+    }
     g_object_set(G_OBJECT(m_videoAppsrc),
-                 "caps", videoCaps,
                  "format", GST_FORMAT_TIME,
                  "is-live", TRUE,
                  "block", FALSE,
                  "do-timestamp", FALSE,
                  "max-bytes", MAX_APP_SRC_BYTES,
                  nullptr);
-    gst_caps_unref(videoCaps);
     g_object_set(G_OBJECT(m_videoParser), "config-interval", -1, nullptr);
 
     const std::string outputDirectory = m_outputDirectory.string() + "/";
@@ -235,13 +250,61 @@ bool DashPackagerConsumer::createPipeline()
         g_object_set(G_OBJECT(m_dashSink), "playlist-length", m_config.playlistLength, nullptr);
     }
 
-    gst_bin_add_many(GST_BIN(m_pipeline), m_videoAppsrc, m_videoParser, m_dashSink, nullptr);
-    if (!gst_element_link(m_videoAppsrc, m_videoParser)
-        || !linkToDashPad(m_videoParser, m_dashSink, "video_%u"))
+    if (m_config.encodeRawInput)
     {
-        setFailure("Failed to link the DASH video branch");
-        destroyPipeline();
-        return false;
+        m_videoConvert = gst_element_factory_make("videoconvert", "dash_video_convert");
+        m_videoEncoder = gst_element_factory_make("x264enc", "dash_video_enc");
+        if (m_videoConvert == nullptr || m_videoEncoder == nullptr)
+        {
+            setFailure("DASH software encoding requires videoconvert and x264enc");
+            destroyPipeline();
+            return false;
+        }
+        /* The same settings the download pipeline uses when it finds no
+         * hardware encoder, plus the two a live stream needs: no B-frames so a
+         * frame never waits on a later one, and a keyframe every interval so
+         * the muxer has somewhere to cut a segment. zerolatency stops x264
+         * holding frames back to look ahead, which would otherwise show up as
+         * the first segment arriving seconds late. */
+        /* Segments can only be cut on a keyframe, so a keyframe every target
+         * duration is what makes the segments come out the length that was
+         * asked for. Taking it from the encoder's configured IDR interval
+         * instead would put 256 frames between keyframes and produce eight
+         * second segments no matter what the target said. */
+        const double encodeRate = m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0;
+        const unsigned targetSeconds =
+            m_config.targetDurationSeconds > 0 ? m_config.targetDurationSeconds : 1;
+        const auto keyIntMax = static_cast<guint>(
+            std::max(1L, std::lround(encodeRate * static_cast<double>(targetSeconds))));
+        g_object_set(G_OBJECT(m_videoEncoder),
+                     "bframes", static_cast<guint>(0),
+                     "key-int-max", keyIntMax,
+                     "tune", 0x00000004 /* zerolatency */,
+                     "speed-preset", 1 /* ultrafast */,
+                     nullptr);
+        LOG(info) << "DASH encoding raw input for " << m_config.streamToken
+                  << " with x264enc: bframes=0, key-int-max=" << keyIntMax
+                  << endl;
+        gst_bin_add_many(GST_BIN(m_pipeline), m_videoAppsrc, m_videoConvert, m_videoEncoder,
+                         m_videoParser, m_dashSink, nullptr);
+        if (!gst_element_link_many(m_videoAppsrc, m_videoConvert, m_videoEncoder, m_videoParser, nullptr)
+            || !linkToDashPad(m_videoParser, m_dashSink, "video_%u"))
+        {
+            setFailure("Failed to link the DASH software encoding branch");
+            destroyPipeline();
+            return false;
+        }
+    }
+    else
+    {
+        gst_bin_add_many(GST_BIN(m_pipeline), m_videoAppsrc, m_videoParser, m_dashSink, nullptr);
+        if (!gst_element_link(m_videoAppsrc, m_videoParser)
+            || !linkToDashPad(m_videoParser, m_dashSink, "video_%u"))
+        {
+            setFailure("Failed to link the DASH video branch");
+            destroyPipeline();
+            return false;
+        }
     }
 
     if (m_config.enableAac)
@@ -341,6 +404,24 @@ bool DashPackagerConsumer::start()
     LOG(info) << "DASH packager started for " << m_config.streamToken
               << ", manifest=" << m_manifestPath << ", audio="
               << (m_config.enableAac ? "aac" : "none") << endl;
+    /* One line carrying every setting that decides what this session publishes.
+     * Reading them out of the config by hand means guessing which of several
+     * files the container actually mounted, and the effective bitrate is not in
+     * any of them - it is derived from the picture unless someone set it. */
+    LOG(info) << "DASH config for " << m_config.streamToken
+              << ": segment_duration=" << m_config.targetDurationSeconds << "s"
+              << " playlist_length=" << m_config.playlistLength
+              << " idle_timeout=" << GET_CONFIG().dash_idle_timeout_sec << "s"
+              << " max_live_sessions=" << GET_CONFIG().max_live_dash_sessions
+              << " idr_interval=" << GET_CONFIG().webrtc_out_set_idr_interval
+              << " bitrate_kbps=" << GET_CONFIG().dash_bitrate_kbps
+              << (GET_CONFIG().dash_bitrate_kbps > 0 ? " (configured)" : " (derived from height)")
+              << " frame_rate=" << m_config.sourceFrameRate
+              << " encode=" << (m_config.encodeRawInput ? "software" : "passthrough-or-hardware")
+              << " timeline=" << (m_config.useArrivalTimestamps ? "arrival"
+                                  : (m_config.preferSourceTimestamps ? "source-preferred"
+                                     : (m_config.synthesizeTimestamps ? "synthesized" : "source")))
+              << endl;
     return true;
 }
 
@@ -576,6 +657,8 @@ void DashPackagerConsumer::destroyPipeline()
     m_pipeline = nullptr;
     m_videoAppsrc = nullptr;
     m_videoParser = nullptr;
+    m_videoConvert = nullptr;
+    m_videoEncoder = nullptr;
     m_audioAppsrc = nullptr;
     m_audioParser = nullptr;
     m_dashSink = nullptr;
@@ -628,7 +711,7 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
     // that the gap around it reads as a whole segment, which makes the muxer
     // cut a segment holding nothing but that keyframe.  A recording has a known
     // constant frame rate, so the timeline is built from the frame index.
-    if (m_config.synthesizeTimestamps)
+    if (m_config.synthesizeTimestamps && !m_config.preferSourceTimestamps)
     {
         timeline.synthesize = true;
     }
@@ -649,6 +732,17 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
             timeline.lastRaw = rawPts;
             timeline.lastRawValid = true;
         }
+    }
+
+    if (!timeline.modeReported)
+    {
+        timeline.modeReported = true;
+        LOG(info) << "DASH timeline for " << m_config.streamToken << ": "
+                  << (m_config.useArrivalTimestamps ? "arrival"
+                      : (timeline.synthesize ? "synthesized" : "source-timestamps"))
+                  << " (first rawPts=" << (GST_CLOCK_TIME_IS_VALID(rawPts) ? rawPts : 0)
+                  << " valid=" << GST_CLOCK_TIME_IS_VALID(rawPts)
+                  << " rate=" << m_config.sourceFrameRate << ")" << endl;
     }
 
     GstClockTime pts = 0;
@@ -706,9 +800,21 @@ bool DashPackagerConsumer::pushFrame(GstElement* appsrc, const uint8_t* data, si
         if (timeline.lastOutValid && frameDuration > 0)
         {
             const GstClockTime expected = timeline.lastOut + frameDuration;
-            // One frame of slack absorbs ordinary jitter; beyond that it is a
-            // gap the player cannot cross.
-            if (pts > expected + frameDuration)
+            /* Only a stall is worth closing. One frame of slack is not enough
+             * slack to tell a stall from a stream that is simply arriving at a
+             * lower rate than the source nominally runs at: an overlay that
+             * suppresses the frames it drew nothing on delivers every other one,
+             * whose neighbours sit two source frames apart, and GST_SECOND/30
+             * truncating to 33333333 ns puts that a nanosecond over a two-frame
+             * limit. Closing those removed 33 ms per dropped frame - measured at
+             * 12.8 seconds carried out of a 20 second replay - and the recording
+             * played fast, because the timeline was shorter than the pictures in
+             * it. A player copes with a hole of a few frames by showing one for
+             * longer; what it cannot cross is the multi-second kind this was
+             * written for. */
+            const GstClockTime stallLimit =
+                std::max<GstClockTime>(4 * frameDuration, 500 * GST_MSECOND);
+            if (pts > timeline.lastOut + stallLimit)
             {
                 const GstClockTime skipped = pts - expected;
                 timeline.baseline += skipped;
@@ -921,11 +1027,18 @@ void DashPackagerConsumer::onFrame(FrameParams& params)
 
 void DashPackagerConsumer::onFrame(std::shared_ptr<RawFrameParams> frameData)
 {
-    // The replay path hands over the recording's own encoded frames, so this
-    // callback carries a compressed access unit rather than a decoded picture.
-    // Decoded frames belong to the overlay pipeline and are not ours.
-    if (!frameData || frameData->m_isYuvBuffer)
+    if (!frameData)
     {
+        return;
+    }
+    /* Where there is no hardware encoder the pipeline ends at the transform and
+     * this callback carries a decoded picture, which is ours to encode. */
+    if (frameData->m_isYuvBuffer)
+    {
+        if (m_config.encodeRawInput)
+        {
+            pushRawPicture(frameData);
+        }
         return;
     }
     // Producers either hand over their own pointer or a mapped GstBuffer.
@@ -1058,6 +1171,111 @@ int64_t DashPackagerConsumer::publishedPositionMs() const
         return -1;
     }
     return static_cast<int64_t>(m_videoTimeline.lastOut / GST_MSECOND);
+}
+
+/* The transform hands over the picture as the buffer libwebrtc wants, because
+ * the WebRTC sink is the consumer it was written for: a reference counted
+ * I420 buffer whose planes are strided and not necessarily contiguous. appsrc
+ * needs one contiguous allocation, so copy row by row, honouring each plane's
+ * own stride rather than assuming width. */
+void DashPackagerConsumer::pushRawPicture(const std::shared_ptr<RawFrameParams>& frameData)
+{
+    if (frameData->m_buffer == nullptr)
+    {
+        return;
+    }
+    if (m_state.load() != DashPackagerState::Running)
+    {
+        return;
+    }
+    webrtc::scoped_refptr<webrtc::I420Buffer> picture(
+        static_cast<webrtc::I420Buffer*>(static_cast<void*>(frameData->m_buffer)));
+    if (picture.get() == nullptr)
+    {
+        return;
+    }
+    const int width = picture->width();
+    const int height = picture->height();
+    if (width <= 0 || height <= 0)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_videoAppsrc == nullptr)
+    {
+        return;
+    }
+    /* The size is known from the first picture, not from configuration, so a
+     * source that turns out to differ from what was requested still plays. */
+    if (!m_videoTimeline.rawCapsSet)
+    {
+        GstCaps* caps = gst_caps_new_simple(
+            "video/x-raw",
+            "format", G_TYPE_STRING, "I420",
+            "width", G_TYPE_INT, width,
+            "height", G_TYPE_INT, height,
+            "framerate", GST_TYPE_FRACTION,
+            static_cast<int>(m_config.sourceFrameRate > 0.0 ? m_config.sourceFrameRate : 30.0), 1,
+            nullptr);
+        gst_app_src_set_caps(GST_APP_SRC(m_videoAppsrc), caps);
+        gst_caps_unref(caps);
+        m_videoTimeline.rawCapsSet = true;
+        /* The encoder is built before any picture arrives, so the rate is set
+         * here instead - this is the first point the height is known, and
+         * x264enc takes a bitrate change in any state. Left unset it encodes at
+         * its own 2048 kbit/s default whatever the resolution, which is thin
+         * for 1080p and far too thin for 2160p. */
+        if (m_videoEncoder != nullptr)
+        {
+            const int kbps = dashBitrateKbpsForHeight(GET_CONFIG().dash_bitrate_kbps, height);
+            g_object_set(G_OBJECT(m_videoEncoder), "bitrate", static_cast<guint>(kbps), nullptr);
+            /* Same shape as the hardware line so one search finds either. */
+            LOG(info) << "DASH software encoder bitrate: " << kbps
+                      << " kbit/s for height " << height
+                      << " (configured=" << GET_CONFIG().dash_bitrate_kbps << ")"
+                      << " stream=" << m_config.streamToken << endl;
+        }
+        LOG(info) << "DASH raw input caps for " << m_config.streamToken << ": I420 "
+                  << width << "x" << height << " at " << m_config.sourceFrameRate << " fps" << endl;
+    }
+
+    const size_t ySize = static_cast<size_t>(width) * static_cast<size_t>(height);
+    const int chromaWidth = (width + 1) / 2;
+    const int chromaHeight = (height + 1) / 2;
+    const size_t chromaSize = static_cast<size_t>(chromaWidth) * static_cast<size_t>(chromaHeight);
+    const size_t total = ySize + 2U * chromaSize;
+
+    m_rawScratch.resize(total);
+    uint8_t* out = m_rawScratch.data();
+    for (int row = 0; row < height; ++row)
+    {
+        std::memcpy(out + static_cast<size_t>(row) * static_cast<size_t>(width),
+                    picture->DataY() + static_cast<size_t>(row) * static_cast<size_t>(picture->StrideY()),
+                    static_cast<size_t>(width));
+    }
+    out += ySize;
+    for (int row = 0; row < chromaHeight; ++row)
+    {
+        std::memcpy(out + static_cast<size_t>(row) * static_cast<size_t>(chromaWidth),
+                    picture->DataU() + static_cast<size_t>(row) * static_cast<size_t>(picture->StrideU()),
+                    static_cast<size_t>(chromaWidth));
+    }
+    out += chromaSize;
+    for (int row = 0; row < chromaHeight; ++row)
+    {
+        std::memcpy(out + static_cast<size_t>(row) * static_cast<size_t>(chromaWidth),
+                    picture->DataV() + static_cast<size_t>(row) * static_cast<size_t>(picture->StrideV()),
+                    static_cast<size_t>(chromaWidth));
+    }
+
+    const GstClockTime rawPts = frameData->pts > 0
+        ? static_cast<GstClockTime>(frameData->pts) * GST_MSECOND
+        : GST_CLOCK_TIME_NONE;
+    if (!pushFrame(m_videoAppsrc, m_rawScratch.data(), m_rawScratch.size(), rawPts, m_videoTimeline))
+    {
+        reportDroppedFrame("raw");
+    }
 }
 
 uint64_t DashPackagerConsumer::framesPublished() const

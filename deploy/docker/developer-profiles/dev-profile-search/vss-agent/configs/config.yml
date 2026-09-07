@@ -139,13 +139,17 @@ functions:
     reasoning: false
     video_url_tool: vst_video_clip
     time_format: offset
-    # Search always talks to the local vss-rtvi-vlm proxy (rtvi_vlm profile,
-    # base_url=RTVI_VLM_BASE_URL), even when VLM_MODE=remote. Keep the agent on the
-    # plain video_url path (send the internal VST URL, not an inlined base64 MP4/frames)
-    # so RT-VLM fetches the clip and forwards it to the remote NIM. VLM_MODE stays
-    # 'remote' at the host level for COMPOSE_PROFILES / RT-VLM's own remote-NIM config;
-    # only the agent's media framing must be local here.
-    vlm_mode: local_shared
+    # Media framing only, deliberately decoupled from VLM_MODE. Search normally
+    # talks to the local vss-rtvi-vlm proxy (rtvi_vlm profile,
+    # base_url=RTVI_VLM_BASE_URL) even when VLM_MODE=remote, so the default keeps
+    # the agent on the plain video_url path (send the internal VST URL, not an
+    # inlined base64 MP4/frames) and lets RT-VLM fetch the clip and forward it to
+    # the remote NIM. VLM_MODE stays 'remote' at the host level for
+    # COMPOSE_PROFILES / RT-VLM's own remote-NIM config.
+    # Single-GPU edge boards have no RT-VLM to proxy through, so dev-profile.sh
+    # sets VLM_AGENT_MEDIA_MODE=remote there and the agent inlines the media and
+    # calls the remote endpoint directly.
+    vlm_mode: ${VLM_AGENT_MEDIA_MODE:-local_shared}
     vst_internal_url: ${VST_INTERNAL_URL}
 
 llms:

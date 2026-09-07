@@ -151,32 +151,43 @@ commons:
           - "*sbsa*"
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
+      # SAMPLE_VIDEO_DATASET selects a directory under
+      # <app>/calibration/sample-data/, and only matters when the sample videos
+      # are the stream source. Other sensor sources take their sensors from
+      # elsewhere and are left unconstrained.
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "nv-warehouse-4cams"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "2d"
-            - variable: NUM_STREAMS
-              equals: "4"
-            - variable: BP_PROFILE
-              equals: "bp_wh"
+        condition:
+          variable: SENSOR_INFO_SOURCE
+          equals: "nvstreamer"
+        required: true
+        disallowed_values: [""]
+        error_message: "SENSOR_INFO_SOURCE=nvstreamer streams the sample dataset, so SAMPLE_VIDEO_DATASET must name a directory under <app>/calibration/sample-data (for example nv-warehouse-4cams). Set NUM_STREAMS to the camera count of the dataset you pick."
 
-      - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-loading-dock-3cams-synthetic"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "2d"
-            - variable: NUM_STREAMS
-              equals: "3"
-            - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+      # NUM_STREAMS must match the camera count of the selected dataset. It
+      # drives nv_streamer_sync_file_count, which decides how many video files
+      # nvstreamer waits for, as well as the DS batch size, the pgie engine
+      # name, and on 3d the fusion sensor count and preprocess input shape. A
+      # value larger than the dataset has leaves nvstreamer waiting for a file
+      # that does not exist; smaller silently drops cameras the calibration
+      # still describes.
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "nv-warehouse-4cams"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=nv-warehouse-4cams has 4 cameras, so NUM_STREAMS must be 4."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-loading-dock-3cams-synthetic"
+        allowed_values: ["3"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-loading-dock-3cams-synthetic has 3 cameras, so NUM_STREAMS must be 3."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-4cams-20mx20m-synthetic"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic has 4 cameras, so NUM_STREAMS must be 4."
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -192,6 +203,12 @@ commons:
         required: true
         disallowed_values: ["", "<HOST_IP>"]
         error_message: "HOST_IP must be set to the host IP address and must not be empty or the placeholder '<HOST_IP>'"
+
+      # Sparse4D model, anchor, and labels are selected by this explicit dataset family.
+      - variable: DATASET_TYPE
+        required: true
+        allowed_values: ["real", "synthetic"]
+        error_message: "DATASET_TYPE must be either real or synthetic"
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
@@ -237,21 +254,43 @@ commons:
           - "*sbsa*"
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
+      # SAMPLE_VIDEO_DATASET selects a directory under
+      # <app>/calibration/sample-data/, and only matters when the sample videos
+      # are the stream source. Other sensor sources take their sensors from
+      # elsewhere and are left unconstrained.
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-4cams-20mx20m-synthetic"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "3d"
-            - variable: NUM_STREAMS
-              equals: "4"
-            - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+        condition:
+          variable: SENSOR_INFO_SOURCE
+          equals: "nvstreamer"
+        required: true
+        disallowed_values: [""]
+        error_message: "SENSOR_INFO_SOURCE=nvstreamer streams the sample dataset, so SAMPLE_VIDEO_DATASET must name a directory under <app>/calibration/sample-data (for example nv-warehouse-4cams). Set NUM_STREAMS to the camera count of the dataset you pick."
+
+      # NUM_STREAMS must match the camera count of the selected dataset. It
+      # drives nv_streamer_sync_file_count, which decides how many video files
+      # nvstreamer waits for, as well as the DS batch size, the pgie engine
+      # name, and on 3d the fusion sensor count and preprocess input shape. A
+      # value larger than the dataset has leaves nvstreamer waiting for a file
+      # that does not exist; smaller silently drops cameras the calibration
+      # still describes.
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "nv-warehouse-4cams"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=nv-warehouse-4cams has 4 cameras, so NUM_STREAMS must be 4."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-loading-dock-3cams-synthetic"
+        allowed_values: ["3"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-loading-dock-3cams-synthetic has 3 cameras, so NUM_STREAMS must be 3."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-4cams-20mx20m-synthetic"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic has 4 cameras, so NUM_STREAMS must be 4."
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -308,21 +347,43 @@ commons:
           - "*sbsa*"
         error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
+      # SAMPLE_VIDEO_DATASET selects a directory under
+      # <app>/calibration/sample-data/, and only matters when the sample videos
+      # are the stream source. Other sensor sources take their sensors from
+      # elsewhere and are left unconstrained.
       - variable: SAMPLE_VIDEO_DATASET
-        when_equals: "warehouse-4cams-20mx20m-synthetic"
-        validate_conditions:
-          and:
-            - variable: MODE
-              equals: "mv3dt"
-            - variable: NUM_STREAMS
-              equals: "4"
-            - or:
-                - variable: BP_PROFILE
-                  equals: "bp_wh_kafka"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_redis"
-                - variable: BP_PROFILE
-                  equals: "bp_wh_auto_calib"
+        condition:
+          variable: SENSOR_INFO_SOURCE
+          equals: "nvstreamer"
+        required: true
+        disallowed_values: [""]
+        error_message: "SENSOR_INFO_SOURCE=nvstreamer streams the sample dataset, so SAMPLE_VIDEO_DATASET must name a directory under <app>/calibration/sample-data (for example nv-warehouse-4cams). Set NUM_STREAMS to the camera count of the dataset you pick."
+
+      # NUM_STREAMS must match the camera count of the selected dataset. It
+      # drives nv_streamer_sync_file_count, which decides how many video files
+      # nvstreamer waits for, as well as the DS batch size, the pgie engine
+      # name, and on 3d the fusion sensor count and preprocess input shape. A
+      # value larger than the dataset has leaves nvstreamer waiting for a file
+      # that does not exist; smaller silently drops cameras the calibration
+      # still describes.
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "nv-warehouse-4cams"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=nv-warehouse-4cams has 4 cameras, so NUM_STREAMS must be 4."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-loading-dock-3cams-synthetic"
+        allowed_values: ["3"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-loading-dock-3cams-synthetic has 3 cameras, so NUM_STREAMS must be 3."
+      - variable: NUM_STREAMS
+        condition:
+          variable: SAMPLE_VIDEO_DATASET
+          equals: "warehouse-4cams-20mx20m-synthetic"
+        allowed_values: ["4"]
+        error_message: "SAMPLE_VIDEO_DATASET=warehouse-4cams-20mx20m-synthetic has 4 cameras, so NUM_STREAMS must be 4."
 
   variables:
     2d:
@@ -343,6 +404,17 @@ commons:
       - trim_sample_videos: 'False if "${SENSOR_INFO_SOURCE}" == "file" else True'
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
       - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
+      # Synthetic datasets use Sparse4D v2.3; real datasets use v3.0.
+      - sparse4d_onnx_file: '"/opt/storage/sparse4d/sparse4d_warehouse_v2.3.onnx" if "${DATASET_TYPE}" == "synthetic" else "/opt/storage/sparse4d/sparse4d_warehouse_v3.0.onnx"'
+      - sparse4d_engine_file: '"/opt/storage/sparse4d/sparse4d_warehouse_v2.3_b${final_stream_count}.engine" if "${DATASET_TYPE}" == "synthetic" else "/opt/storage/sparse4d/sparse4d_warehouse_v3.0_b${final_stream_count}.engine"'
+      - sparse4d_labels_file: '"/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/labels-${DATASET_TYPE}.txt"'
+      - sparse4d_anchor_file: '"/opt/storage/sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${DATASET_TYPE}" == "synthetic" else "/opt/storage/sparse4d/_ov_kmeans900_v3.0_r50.npy"'
+      - sparse4d_anchor_source: '"_ov_kmeans900_v2.3_r50.npy" if "${DATASET_TYPE}" == "synthetic" else "_ov_kmeans900_v3.0_r50.npy"'
+      - sparse4d_anchor_destination: '"sparse4d/_ov_kmeans900_v2.3_r50.npy" if "${DATASET_TYPE}" == "synthetic" else "sparse4d/_ov_kmeans900_v3.0_r50.npy"'
+      - sparse4d_model: '"nvstaging/tao/sparse4d_rn50:deployable_v2.3" if "${DATASET_TYPE}" == "synthetic" else "nvstaging/tao/sparse4d_rn50:deployable_v3.0"'
+      - sparse4d_model_source: '"sparse4d_warehouse_v2.3_r50.onnx" if "${DATASET_TYPE}" == "synthetic" else "sparse4d_warehouse_v3.0_r50.onnx"'
+      - sparse4d_model_destination: '"sparse4d/sparse4d_warehouse_v2.3.onnx" if "${DATASET_TYPE}" == "synthetic" else "sparse4d/sparse4d_warehouse_v3.0.onnx"'
+
       - msg-broker-conn-str: '"redis;6379;" if "${STREAM_TYPE}" == "redis" else "kafka;29092;mdx-bev"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
@@ -445,6 +517,37 @@ commons:
         backup: true
         updates:
           num_sensors: ${final_stream_count}
+          onnx_file: "${sparse4d_onnx_file}"
+          engine_file: "${sparse4d_engine_file}"
+          labels_file: "${sparse4d_labels_file}"
+          anchor: "${sparse4d_anchor_file}"
+
+      # Download only the Sparse4D model selected for this dataset.
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json"
+        backup: true
+        array_kv_updates:
+          - list_key: downloads
+            match_field: artifact
+            updates:
+              - match: "model"
+                set_key: model
+                set_value: "${sparse4d_model}"
+              - match: "model"
+                set_key: sourcePath
+                set_value: "${sparse4d_model_source}"
+              - match: "model"
+                set_key: destPath
+                set_value: "${sparse4d_model_destination}"
+              - match: "anchor"
+                set_key: model
+                set_value: "${sparse4d_model}"
+              - match: "anchor"
+                set_key: sourcePath
+                set_value: "${sparse4d_anchor_source}"
+              - match: "anchor"
+                set_key: destPath
+                set_value: "${sparse4d_anchor_destination}"
 
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -545,6 +648,20 @@ commons:
         backup: true
         updates:
           property.model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b${final_stream_count}_gpu0_fp16.engine
+
+      # Keep the tracker's ReIDService port in step with the port vss-reid-embed-mv3dt
+      # actually binds; DeepStream does not expand env vars in its own configs.
+      # text_replace rather than yaml_update so the surrounding ReID block keeps
+      # its inline comments, which a round-trip through a YAML parser would put
+      # at risk. servicePort occurs once, hence the line-anchored pattern.
+      - operation_type: "text_replace"
+        target_file: "${DS_CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
+        backup: true
+        operations:
+          - action: "replace"
+            pattern: '(?m)^(\s*)servicePort:.*$'
+            replacement: '\1servicePort: ${REID_SERVICE_PORT}'
+            regex: true
 
       # Update NVStreamer configs
       - operation_type: "json_update"

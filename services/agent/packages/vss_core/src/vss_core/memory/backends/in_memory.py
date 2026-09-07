@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from collections.abc import Sequence
 from datetime import datetime
 
 from ..models import UnifiedMemoryRecord
@@ -17,7 +19,10 @@ def _sensor_match(record: UnifiedMemoryRecord, sensor_id: str | None) -> bool:
     if not sensor_id:
         return True
     sensors = (record.input.sensors if record.input is not None else None) or []
-    return any(sensor.id == sensor_id for sensor in sensors)
+    return any(
+        sensor.id == sensor_id or (sensor.info is not None and sensor.info.get("name") == sensor_id)
+        for sensor in sensors
+    )
 
 
 def _time_in_range(value: datetime, since: datetime | None, until: datetime | None) -> bool:
@@ -89,6 +94,12 @@ def _matches_query(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
     return True
 
 
+def _text_score(record: UnifiedMemoryRecord, text: str) -> int:
+    """Simple relevance score for parity with Elasticsearch ``_score`` ordering."""
+    needle = text.casefold()
+    return sum(haystack.casefold().count(needle) for haystack in _text_haystacks(record))
+
+
 def _matches_filters(record: UnifiedMemoryRecord, filters: JobFilters) -> bool:
     if record.job.is_child:
         return False
@@ -132,9 +143,28 @@ class InMemoryStore:
     ) -> UnifiedMemoryRecord | None:
         return self._records.get(make_storage_id(job_id=job_id, record_type=record_type, record_id=record_id))
 
+    def get_many(self, storage_ids: Sequence[str]) -> list[UnifiedMemoryRecord]:
+        """Return existing records in caller-supplied storage-ID order."""
+        return [record for storage_id in storage_ids if (record := self._records.get(storage_id)) is not None]
+
+    def scan(self, *, batch_size: int, limit: int | None = None) -> Iterator[UnifiedMemoryRecord]:
+        """Yield a stable snapshot in ascending storage-ID order."""
+        if batch_size <= 0:
+            raise ValueError("scan batch_size must be positive")
+        if limit is not None and limit < 0:
+            raise ValueError("scan limit must not be negative")
+        storage_ids = sorted(self._records)
+        if limit is not None:
+            storage_ids = storage_ids[:limit]
+        for storage_id in storage_ids:
+            yield self._records[storage_id]
+
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
         matched = [record for record in self._records.values() if _matches_query(record, query)]
-        matched.sort(key=_sort_key, reverse=True)
+        if query.text:
+            matched.sort(key=lambda record: (_text_score(record, query.text or ""), _sort_key(record)), reverse=True)
+        else:
+            matched.sort(key=_sort_key, reverse=True)
         return matched[: max(query.limit, 0)]
 
     def list_jobs(self, filters: JobFilters) -> list[UnifiedMemoryRecord]:

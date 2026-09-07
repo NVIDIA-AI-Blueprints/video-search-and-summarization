@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Button, TextInput } from '@nvidia/foundations-react-core';
-import { IconSettings } from '@tabler/icons-react';
+import { IconInfoCircle } from '@tabler/icons-react';
 import { TIME_WINDOW_OPTIONS, getCurrentTimeWindowLabel } from '../utils/timeUtils';
 import { CustomTimeInput } from './CustomTimeInput';
 
@@ -45,9 +45,7 @@ function CustomNumericField({
           max={max}
           placeholder={`${min} – ${max}`}
           value={value}
-          onValueChange={(val: string) => {
-            onValueChange(val);
-          }}
+          onValueChange={onValueChange}
           onKeyDown={(e: React.KeyboardEvent) => {
             if (e.key === 'Enter') onApply();
           }}
@@ -69,7 +67,6 @@ function CustomNumericField({
 interface AlertsFetchSettingsProps {
   isOpen: boolean;
   isDark: boolean;
-  onClose: () => void;
   timeWindow: number;
   onTimeWindowChange: (minutes: number) => void;
   showCustomTimeInput: boolean;
@@ -87,7 +84,6 @@ interface AlertsFetchSettingsProps {
 export function AlertsFetchSettings({
   isOpen,
   isDark,
-  onClose,
   timeWindow,
   onTimeWindowChange,
   showCustomTimeInput,
@@ -101,7 +97,6 @@ export function AlertsFetchSettings({
   fetchSize,
   onFetchSizeChange,
 }: AlertsFetchSettingsProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const customFetchRef = useRef<HTMLInputElement>(null);
   const [showCustomFetch, setShowCustomFetch] = useState(false);
   const [customFetchValue, setCustomFetchValue] = useState('');
@@ -111,7 +106,7 @@ export function AlertsFetchSettings({
     if (showCustomFetch && customFetchRef.current) customFetchRef.current.focus();
   }, [showCustomFetch]);
 
-  const applyCustomFetch = useCallback(() => {
+  const applyCustomFetch = () => {
     const num = Number(customFetchValue);
     if (!Number.isInteger(num) || num < 10 || num > 5000) {
       setCustomFetchError('Enter a number between 10 and 5000');
@@ -120,153 +115,116 @@ export function AlertsFetchSettings({
     onFetchSizeChange(num);
     setShowCustomFetch(false);
     setCustomFetchError('');
-  }, [customFetchValue, onFetchSizeChange]);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen, onClose]);
+  };
 
   if (!isOpen) return null;
 
-  const border = isDark ? 'border-gray-600' : 'border-gray-200';
-  const bg = isDark ? 'bg-black' : 'bg-white';
   const label = `text-sm font-medium whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`;
-  const hint = `text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`;
   const selectCls = `rounded-lg pl-3 pr-8 py-1.5 text-sm focus:outline-none transition-all cursor-pointer ${
     isDark
-      ? 'bg-black border border-gray-600 text-white hover:border-gray-500 focus:border-[#76b900] focus:ring-1 focus:ring-[#76b900]/40'
-      : 'bg-white border border-gray-300 text-gray-600 focus:ring-green-400 hover:border-gray-400'
+      ? 'border border-gray-600 text-white hover:border-gray-500 focus:border-[#76b900] focus:ring-1 focus:ring-[#76b900]/40'
+      : 'border border-gray-300 text-gray-600 focus:ring-green-400 hover:border-gray-400'
   }`;
 
   return (
-    <div
-      ref={containerRef}
-      className={`absolute top-full right-0 mt-2 w-80 rounded-lg shadow-lg border z-50 ${border} ${bg}`}
-    >
-      {/* Header */}
-      <div className={`px-4 py-2.5 border-b flex items-center justify-between ${border}`}>
-        <div className="flex items-center gap-2">
-          <IconSettings className={`w-4 h-4 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
-          <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
-            Alerts Settings
+    <>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className={label}>Query range</span>
+          <span
+            title="How far back to fetch alerts."
+            aria-label="How far back to fetch alerts."
+            className={isDark ? 'text-gray-400' : 'text-gray-500'}
+          >
+            <IconInfoCircle size={14} />
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className={`p-1 rounded transition-colors text-gray-400 ${
-            isDark ? 'hover:text-white hover:bg-neutral-700' : 'hover:text-gray-700 hover:bg-gray-200'
-          }`}
+        <select
+          id="settings-period-select"
+          data-testid="period-select"
+          value={String(timeWindow)}
+          className={selectCls}
+          onChange={(e) => {
+            const value = Number.parseInt(e.target.value, 10);
+            if (value === -1) {
+              onOpenCustomTime();
+            } else {
+              onTimeWindowChange(value);
+            }
+          }}
         >
-          ✕
-        </button>
+          {TIME_WINDOW_OPTIONS.map((option) => (
+            <option key={option.value} value={String(option.value)}>
+              {option.label}
+            </option>
+          ))}
+          {!TIME_WINDOW_OPTIONS.some((opt) => opt.value === timeWindow) && (
+            <option value={String(timeWindow)}>
+              {getCurrentTimeWindowLabel(timeWindow)}
+            </option>
+          )}
+        </select>
       </div>
+      <CustomTimeInput
+        isOpen={showCustomTimeInput}
+        timeWindow={timeWindow}
+        customTimeValue={customTimeValue}
+        customTimeError={customTimeError}
+        isDark={isDark}
+        maxTimeLimitInMinutes={maxTimeLimitInMinutes}
+        onTimeValueChange={onCustomTimeValueChange}
+        onApply={onCustomTimeApply}
+        onCancel={onCustomTimeCancel}
+      />
 
-      {/* Content */}
-      <div className="px-4 py-3 space-y-3">
-        {/* Period */}
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <span className={label}>Query range</span>
-            <p className={hint}>How far back to fetch alerts</p>
-          </div>
-          <select
-            id="settings-period-select"
-            data-testid="period-select"
-            value={String(timeWindow)}
-            className={selectCls}
-            onChange={(e) => {
-              const value = Number.parseInt(e.target.value, 10);
-              if (value === -1) {
-                onOpenCustomTime();
-              } else {
-                onTimeWindowChange(value);
-              }
-            }}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className={label}>Fetch size</span>
+          <span
+            title="Max alerts per API call, higher values may be slower."
+            aria-label="Max alerts per API call, higher values may be slower."
+            className={isDark ? 'text-gray-400' : 'text-gray-500'}
           >
-            {TIME_WINDOW_OPTIONS.map((option) => (
-              <option key={option.value} value={String(option.value)}>
-                {option.label}
-              </option>
-            ))}
-            {!TIME_WINDOW_OPTIONS.some((opt) => opt.value === timeWindow) && (
-              <option value={String(timeWindow)}>
-                {getCurrentTimeWindowLabel(timeWindow)}
-              </option>
-            )}
-          </select>
+            <IconInfoCircle size={14} />
+          </span>
         </div>
-        <CustomTimeInput
-          isOpen={showCustomTimeInput}
-          timeWindow={timeWindow}
-          customTimeValue={customTimeValue}
-          customTimeError={customTimeError}
+        <select
+          value={FETCH_SIZE_PRESETS.includes(fetchSize) ? String(fetchSize) : CUSTOM_SELECT_VALUE}
+          className={selectCls}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === CUSTOM_SELECT_VALUE) {
+              setShowCustomFetch(true);
+              setCustomFetchValue(String(fetchSize));
+              setCustomFetchError('');
+            } else {
+              onFetchSizeChange(Number(v));
+            }
+          }}
+        >
+          {FETCH_SIZE_PRESETS.map((p) => (
+            <option key={p} value={String(p)}>{p}</option>
+          ))}
+          {FETCH_SIZE_PRESETS.includes(fetchSize) ? (
+            <option value={CUSTOM_SELECT_VALUE}>Custom</option>
+          ) : (
+            <option value={CUSTOM_SELECT_VALUE}>{fetchSize} (custom)</option>
+          )}
+        </select>
+      </div>
+      {showCustomFetch && (
+        <CustomNumericField
+          inputRef={customFetchRef}
+          min={10}
+          max={5000}
+          value={customFetchValue}
+          error={customFetchError}
           isDark={isDark}
-          maxTimeLimitInMinutes={maxTimeLimitInMinutes}
-          onTimeValueChange={onCustomTimeValueChange}
-          onApply={onCustomTimeApply}
-          onCancel={onCustomTimeCancel}
+          onValueChange={(val) => { setCustomFetchValue(val); setCustomFetchError(''); }}
+          onApply={applyCustomFetch}
+          onCancel={() => setShowCustomFetch(false)}
         />
-
-        {/* Fetch size */}
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <span className={label}>Fetch size</span>
-            <p className={hint}>Max alerts per API call</p>
-            <p className={`text-xs italic ${isDark ? 'text-yellow-500/70' : 'text-yellow-600/70'}`}>Higher values may be slower</p>
-          </div>
-          <select
-            value={FETCH_SIZE_PRESETS.includes(fetchSize) ? String(fetchSize) : CUSTOM_SELECT_VALUE}
-            className={selectCls}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === CUSTOM_SELECT_VALUE) {
-                setShowCustomFetch(true);
-                setCustomFetchValue(String(fetchSize));
-                setCustomFetchError('');
-              } else {
-                onFetchSizeChange(Number(v));
-              }
-            }}
-          >
-            {FETCH_SIZE_PRESETS.map((p) => (
-              <option key={p} value={String(p)}>{p}</option>
-            ))}
-            {FETCH_SIZE_PRESETS.includes(fetchSize) ? (
-              <option value={CUSTOM_SELECT_VALUE}>Custom</option>
-            ) : (
-              <option value={CUSTOM_SELECT_VALUE}>{fetchSize} (custom)</option>
-            )}
-          </select>
-        </div>
-        {showCustomFetch && (
-          <CustomNumericField
-            inputRef={customFetchRef}
-            min={10}
-            max={5000}
-            value={customFetchValue}
-            error={customFetchError}
-            isDark={isDark}
-            onValueChange={(val) => { setCustomFetchValue(val); setCustomFetchError(''); }}
-            onApply={applyCustomFetch}
-            onCancel={() => setShowCustomFetch(false)}
-          />
-        )}
-      </div>
-    </div>
+      )}
+    </>
   );
 }

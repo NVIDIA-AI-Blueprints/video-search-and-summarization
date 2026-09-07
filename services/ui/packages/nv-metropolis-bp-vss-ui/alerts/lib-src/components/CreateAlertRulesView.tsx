@@ -42,6 +42,10 @@ interface CreateAlertRulesViewProps {
   activeKind: AlertRulesType;
   onActiveKindChange?: (kind: AlertRulesType) => void;
   onAddNew: () => void;
+  streamFilter?: string;
+  typeFilter?: string;
+  onStreamFilterChange?: (value: string) => void;
+  onTypeFilterChange?: (value: string) => void;
   /** vss-alert-bridge base URL (NEXT_PUBLIC_ALERTS_API_URL). */
   alertsApiUrl?: string;
   /** Base URL of the VST service (NEXT_PUBLIC_VST_API_URL); used for sensor thumbnails. */
@@ -69,6 +73,10 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   activeKind,
   onActiveKindChange = () => undefined,
   onAddNew,
+  streamFilter,
+  typeFilter,
+  onStreamFilterChange,
+  onTypeFilterChange,
   alertsApiUrl,
   vstApiUrl,
   enableRealtimeAlerts = true,
@@ -98,7 +106,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   // --- kind tabs -------------------------------------------------------------
   const kindTabs = (
     <div
-      className={`flex-shrink-0 px-6 pt-4 border-b ${
+      className={`flex-shrink-0 px-4 pt-4 border-b ${
         isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'
       }`}
     >
@@ -142,14 +150,18 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
           className="flex flex-col flex-1 min-h-0"
           style={{ display: activeKind === 'real-time' ? 'flex' : 'none' }}
         >
-          <RealtimeAlertsTab
-            isDark={isDark}
-            alertsApiUrl={alertsApiUrl}
-            vstApiUrl={vstApiUrl}
-            inputClass={inputClass}
-            readOnlyCellClass={readOnlyCellClass}
-            thClass={thClass}
-          />
+    <RealtimeAlertsTab
+      isDark={isDark}
+      alertsApiUrl={alertsApiUrl}
+      vstApiUrl={vstApiUrl}
+      streamFilter={streamFilter}
+      typeFilter={typeFilter}
+      onStreamFilterChange={onStreamFilterChange}
+      onTypeFilterChange={onTypeFilterChange}
+      inputClass={inputClass}
+      readOnlyCellClass={readOnlyCellClass}
+      thClass={thClass}
+    />
         </div>
       )}
       {enableCvAlertsVerification && (
@@ -189,6 +201,10 @@ interface RealtimeAlertsTabProps {
   isDark: boolean;
   alertsApiUrl?: string;
   vstApiUrl?: string;
+  streamFilter?: string;
+  typeFilter?: string;
+  onStreamFilterChange?: (value: string) => void;
+  onTypeFilterChange?: (value: string) => void;
   inputClass: string;
   readOnlyCellClass: string;
   thClass: string;
@@ -198,6 +214,10 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   isDark,
   alertsApiUrl,
   vstApiUrl,
+  streamFilter: streamFilterProp,
+  typeFilter: typeFilterProp,
+  onStreamFilterChange,
+  onTypeFilterChange,
   inputClass,
   readOnlyCellClass,
   thClass,
@@ -211,8 +231,12 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   const [liveStreams, setLiveStreams] = useState<VstLiveStream[]>([]);
   const [liveStreamsLoading, setLiveStreamsLoading] = useState(false);
   const [liveStreamsError, setLiveStreamsError] = useState<string | null>(null);
-  const [streamFilter, setStreamFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const [internalStreamFilter, setInternalStreamFilter] = useState('');
+  const [internalTypeFilter, setInternalTypeFilter] = useState('');
+  const streamFilter = streamFilterProp ?? internalStreamFilter;
+  const typeFilter = typeFilterProp ?? internalTypeFilter;
+  const setStreamFilter = onStreamFilterChange ?? setInternalStreamFilter;
+  const setTypeFilter = onTypeFilterChange ?? setInternalTypeFilter;
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Two-step delete confirmation: clicking trash on a saved rule sets this to
@@ -416,51 +440,11 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
     <>
       {/* Filter Row */}
       <div
-        className={`flex-shrink-0 px-6 py-4 border-b ${
+        className={`flex-shrink-0 px-4 py-4 border-b ${
           isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'
         }`}
       >
         <div className="flex items-center gap-4 flex-wrap">
-          <span className={`text-sm font-medium ${isDark ? 'text-neutral-300' : 'text-gray-700'}`}>
-            Filter by
-          </span>
-
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="filter-stream-url"
-              className={`text-sm whitespace-nowrap ${isDark ? 'text-neutral-400' : 'text-gray-600'}`}
-            >
-              Live Stream URL
-            </label>
-            <input
-              id="filter-stream-url"
-              data-testid="filter-stream-url"
-              type="text"
-              placeholder="Filter by URL"
-              value={streamFilter}
-              onChange={(e) => setStreamFilter(e.target.value)}
-              className={`${inputClass} w-72`}
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="filter-alert-type-rt"
-              className={`text-sm whitespace-nowrap ${isDark ? 'text-neutral-400' : 'text-gray-600'}`}
-            >
-              Alert Type
-            </label>
-            <input
-              id="filter-alert-type-rt"
-              data-testid="filter-alert-type-rt"
-              type="text"
-              placeholder="Filter by type"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className={`${inputClass} w-48`}
-            />
-          </div>
-
           <div className="ml-auto flex items-center gap-3 text-xs">
             {lastRefreshedAt && (
               <span

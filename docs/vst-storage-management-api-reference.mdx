@@ -1,5 +1,42 @@
 ---
 title: "VST Storage Management API Reference"
-description: ""
-position: 1
+description: "The Storage Management is designed to facilitate the management of media files. For nvstreamer the media files are static media files that are scanned from the specified directory "
 ---
+REST endpoints for the VST Storage Management service.
+
+The machine-readable OpenAPI specification is `services/vios/doc/api/vst_storage_management_ms/swagger.yaml` in this repository.
+
+**Servers:** `https://localhost/api`
+
+## Endpoint catalog
+
+### v1
+
+| Method | Endpoint | Summary |
+| --- | --- | --- |
+| `DELETE` | `/v1/storage/file/{streamId}` | Delete media file associated with the provided ID |
+| `GET` | `/v1/storage/file/{streamId}` | Download video files of a particular stream |
+| `GET` | `/v1/storage/file/{streamId}/url` | Get temporary URL for accessing stored video files |
+| `GET` | `/v1/storage/{streamId}` | Get the total space occupied by the video recordings of a stream |
+| `GET` | `/v1/storage/file/mediainfo` | Get media file metadata information |
+| `POST` | `/v1/storage/file/protect` | Add or remove files from the protected list |
+| `GET` | `/v1/storage/file` | Download media file by unique ID |
+| `DELETE` | `/v1/storage/file` | Delete media file(s) |
+| `POST` | `/v1/storage/file` | Upload or register media file |
+| `PUT` | `/v1/storage/file/{filename}/{timestamp}` | Upload media file via PUT |
+| `PUT` | `/v1/storage/file/{filename}` | Upload media file via PUT (New API) |
+| `GET` | `/v1/storage/file/{sensorId}` | Download media files by sensor ID |
+| `GET` | `/v1/storage/file/list` | Get list of all media files |
+| `GET` | `/v1/storage/file/path` | Get media file path by unique ID |
+| `GET` | `/v1/storage/file/{sensorId}/list` | Get list of media files by sensor ID |
+| `GET` | `/v1/storage/file/{sensorId}/path` | Get media file paths by sensor ID |
+| `GET` | `/v1/storage/configuration` | Get configuration of storage management service |
+| `GET` | `/v1/storage/version` | Get storage management service version |
+| `GET` | `/v1/storage/help` | Get list of supported APIs |
+| `GET` | `/v1/storage/size` | Get total used storage size by recordings of each sensor |
+| `GET` | `/v1/storage/timelines` | Get recording timelines for all streams |
+| `GET` | `/v1/storage/{streamId}/timelines` | Get recording timelines for a specific stream |
+| `GET` | `/v1/storage/stream/{streamId}/picture` | Get picture or snapshot of recorded streaming |
+| `GET` | `/v1/storage/stream/{streamId}/picture/url` | Get temporary URL for accessing storage picture |
+| `GET` | `/v1/storage/info` | Get information about total, used and available storage. |
+| `GET` | `/v1/storage/file/protected` | Get protected file list |

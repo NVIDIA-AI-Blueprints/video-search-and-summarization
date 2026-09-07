@@ -36,6 +36,8 @@ StreamMetadata = live_stream.StreamMetadata
 MAX_GENERATION_TOKENS = live_stream.MAX_GENERATION_TOKENS
 StreamAddRequest = live_stream.StreamAddRequest
 StreamAddResponse = live_stream.StreamAddResponse
+DeleteLiveStreamsRequest = live_stream.DeleteLiveStreamsRequest
+DeleteLiveStreamsResponse = live_stream.DeleteLiveStreamsResponse
 StreamRemoveValue = live_stream.StreamRemoveValue
 StreamRemoveRequest = live_stream.StreamRemoveRequest
 StreamRemoveResponse = live_stream.StreamRemoveResponse
@@ -397,6 +399,23 @@ class TestStreamRemoveRequest:
             headers={"source": "vios", "created_at": "2025-01-01T00:00:00Z"},
         )
         assert req.headers.source == "vios"
+
+
+# =============================================================================
+# DeleteLiveStreamsRequest / DeleteLiveStreamsResponse
+# =============================================================================
+
+
+class TestDeleteLiveStreamsRequest:
+    """Test batch delete stream model construction."""
+
+    def test_accepts_camera_id_stream_ids(self):
+        req = DeleteLiveStreamsRequest(stream_ids=["my-camera-123"])
+        assert req.stream_ids == ["my-camera-123"]
+
+    def test_response_accepts_camera_id_stream_ids(self):
+        resp = DeleteLiveStreamsResponse(deleted=["my-camera-123"])
+        assert resp.deleted == ["my-camera-123"]
 
 
 # =============================================================================

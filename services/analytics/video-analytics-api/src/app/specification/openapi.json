@@ -1072,7 +1072,7 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "It is used to calculate occupancy based on IN/OUT tripwire events and the value of reset occupancy. It is advised to reset a place's occupancy by using '/occupancy/reset' endpoint. This helps in keeping the occupancy calculated to be accurate.",
+                "summary": "Calculate occupancy from IN/OUT tripwire events and occupancy reset values. Use the '/metrics/occupancy/reset' endpoint to reset a place's occupancy and keep the calculated occupancy accurate.",
                 "operationId": "controller.metrics.getTripwireBasedOccupancy",
                 "parameters": [
                     {

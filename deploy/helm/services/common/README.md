@@ -35,7 +35,7 @@ the paths `vss configure` records
 
 | Backend key | Mount | Prefix | Notes |
 |---|---|---|---|
-| `ui` | `/api/chat`, `/` | kept | `/` is the catch-all and renders last |
+| `ui` | `/api/chat`, `/api/agent`, `/api/vss-chat`, `/api/proxy`, `/` | kept | UI API routes render before the agent's `/api`; `/` is the catch-all and renders last |
 | `agent` | `/api`, `/chat`, `/websocket`, `/static`, `/docs`, `/redoc`, `/generate`, `/openapi.json` | kept | `/openapi.json` is `Exact`, the rest `Prefix` |
 | `vst` | `/vst` | kept | |
 | `vst` | `/storage` | → `/vst/storage` | VST mints absolute media links against the origin root |

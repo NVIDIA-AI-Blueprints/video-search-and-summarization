@@ -20,38 +20,38 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([link ](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
-2. **Video IO & Storage (VIOS)** ([link ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices)):
+2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/vss/system-components/middleware/video-io-storage-vios/vios-microservices)):
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr)):
+3. **DeepStream** ([2D Single Camera Detection and Tracking (RT-DETR)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr)):
 
-   - DeepStream processes RTSP streams for 2D single-camera detection and tracking, utilizing the RT-DETR (Real-Time Detection Transformer) model ([link ](/vss/system-components/models/rt-detr-2d-warehouse-detection)) to generate precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment.
+   - DeepStream processes RTSP streams for 2D single-camera detection and tracking, utilizing the RT-DETR (Real-Time Detection Transformer) model ([RT-DETR (2D warehouse detection)](/vss/system-components/models/rt-detr-2d-warehouse-detection)) to generate precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment.
    - RT-DETR features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments.
    - It sends frame data, including detected and tracked object IDs, in Protobuf format to the **Kafka** messaging system via the `mdx-raw` topic.
 
-4. **Kafka (Messaging System)** ([link ](/vss/system-components/middleware/message-broker/kafka)):
+4. **Kafka (Messaging System)** ([Kafka](/vss/system-components/middleware/message-broker/kafka)):
 
    - Kafka serves as the central hub for data distribution, using Protobuf for all data exchanges.
    - It also functions as a control bus, managing notifications (in JSON, via `mdx-notification`) for calibration updates, such as new ROI or tripwire definitions.
 
-5. **Behavior Analytics** ([link ](/vss/system-components/analytics-microservices/behavior-analytics)):
+5. **Behavior Analytics** ([Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics)):
 
    - This microservice consumes `mdx-raw` data (Protobuf) from Kafka.
    - It processes the data to generate behavior analytics, safety insights, and metrics (ROI occupancy, tripwire crossings, proximity detections).
    - The resulting data, in Protobuf format, is sent back to Kafka (`mdx-behavior`, `mdx-events`, `mdx-incidents`) for indexing into Elasticsearch.
    - Candidate incidents (e.g., proximity violations) are forwarded to the Alerting Service for VLM-based verification.
 
-6. **RTVI VLM (Real-Time Vision-Language Model)** ([link ](/vss/system-components/vision-microservices/real-time-vlm)):
+6. **RTVI VLM (Real-Time Vision-Language Model)** ([Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm)):
 
    - A real-time inference microservice that processes video through a Vision-Language Model (VLM).
    - Chunks live RTSP streams or stored video clips into short segments and sends them to the VLM NIM for analysis.
    - Serves both the Alert Verification workflow (re-evaluating candidate events) and the Real-Time Alerts workflow (continuous always-on monitoring).
 
-7. **Alerting Service** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service)):
+7. **Alerting Service** ([Alerting Service](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service)):
 
    - Operates in two modes:
 
@@ -59,29 +59,29 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
      - **Real-Time Alerts**: Applies always-on rules (PPE, Load Quality, Pathway Obstruction, Spillover) to live RTSP streams via RTVI VLM, emitting an alert whenever the VLM classifies a chunk as a violation.
 
    - Alert type configurations are stored in Redis (RedisJSON) and can be updated at runtime.
-   - For the full microservice reference, see [../alert-verification-service](/vss/system-components/analytics-microservices/alerts-microservice).
+   - For the full microservice reference, see [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice).
 
 8. **LLM and VLM NIMs**:
 
    - **VLM NIM** (e.g., NVIDIA Cosmos3 Nano Reasoner): The vision-language model backend that powers alert verification, real-time alerts, and video understanding for the agent. Receives video frames plus prompts and returns structured predictions.
-   - **LLM NIM** (e.g., NVIDIA Nemotron Nano 9B v2): The language model that powers the agent's reasoning, query routing, and report generation.
+   - **LLM NIM** (e.g., NVIDIA Nemotron 3.5 Lightning 30B A3B): The language model that powers the agent's reasoning, query routing, and report generation.
 
 9. **Storage**
 
-   - **Redis** ([link ](/vss/system-components/middleware/message-broker/redis)): Stores alert type configurations (RedisJSON), sensor data router state, and serves as an optional message broker.
-   - **ELK (Elasticsearch, Logstash, Kibana)** ([link ](/vss/system-components/middleware/database/elk)): Logstash retrieves raw frames, behavior, incidents, and VLM alert outputs from Kafka, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
+   - **Redis** ([Redis](/vss/system-components/middleware/message-broker/redis)): Stores alert type configurations (RedisJSON), sensor data router state, and serves as an optional message broker.
+   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/vss/system-components/middleware/database/elk)): Logstash retrieves raw frames, behavior, incidents, and VLM alert outputs from Kafka, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
 
 10. **Visualization**
 
-    - **Kibana UI** ([link](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
-    - **VIOS UI** ([link](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from Kafka.
+    - **Kibana UI** ([Kibana UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
+    - **VIOS UI** ([VIOS UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from Kafka.
 
 11. **External Interfaces**
 
-    - **Video Analytics API** ([link ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)): RESTful API providing programmatic access to analytics data, events, and incidents stored in Elasticsearch.
-    - **Video Analytics MCP Server** ([link ](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp)): Exposes Elasticsearch queries, RTVI VLM controls, and alert management as MCP (Model Context Protocol) tools for the agent.
+    - **Video Analytics API** ([Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)): RESTful API providing programmatic access to analytics data, events, and incidents stored in Elasticsearch.
+    - **Video Analytics MCP Server** ([VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp)): Exposes Elasticsearch queries, RTVI VLM controls, and alert management as MCP (Model Context Protocol) tools for the agent.
 
-12. **Agents** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/agents)):
+12. **Agents** ([Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/agents)):
 
     - **VSS Agent**: An LLM-powered orchestration agent that interprets natural language queries, plans multi-step workflows, and invokes MCP tools. Capabilities include:
 
@@ -90,14 +90,14 @@ The diagram depicts **VSS Warehouse 2D Vision AI with Agents Profile**, emphasiz
       - Generating structured incident reports using VLM video analysis
       - Retrieving live camera snapshots and video clips
 
-    - **Agentic Reference UI** ([link ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/reference-agentic-ui)): A browser-based interface with Chat, Alerts, and Dashboard modes for interacting with the agent system.
+    - **Agentic Reference UI** ([Reference Agentic UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/reference-agentic-ui)): A browser-based interface with Chat, Alerts, and Dashboard modes for interacting with the agent system.
 
 ### Key Technologies
 
 - **Microservices**: Components like NvStreamer, VIOS, DeepStream, Behavior Analytics, RTVI VLM, and the Alerting Service are modular, independently deployable microservices.
 - **RTSP**: Facilitates real-time video streaming between cameras, NvStreamer, VIOS, and RTVI VLM.
 - **Vision-Language Models (VLMs)**: NVIDIA Cosmos3 Nano Reasoner enables multi-step visual reasoning for alert verification, real-time anomaly detection, and video understanding.
-- **Large Language Models (LLMs)**: NVIDIA Nemotron Nano 9B v2 powers agent reasoning, query interpretation, and report generation.
+- **Large Language Models (LLMs)**: NVIDIA Nemotron 3.5 Lightning 30B A3B powers agent reasoning, query interpretation, and report generation.
 - **MCP (Model Context Protocol)**: A standardized tool interface that exposes microservice capabilities (analytics queries, alert management, video storage) to the LLM-powered agent.
 - **Protobuf**: Ensures efficient, compact data exchange across the CV pipeline.
 - **Kafka**: Manages data distribution and control messaging across all microservices.
@@ -132,7 +132,7 @@ Browse the Kibana UI, discover the data views and visualize the data.
 
 ### VIOS UI
 
-Please note: At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VIOS docs ](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
+Please note: At this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS, details can be found in [VIOS docs](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
 
   1. Launch Chrome browser
   2. In the address bar enter `http://<IP_address>:30888/vst/`
@@ -144,7 +144,7 @@ Please note: At this point the web-based application is only available for Chrom
 ### Reference Agentic UI
 
 The browser-based interface supports Chat, Alerts, and Dashboard modes.
-Details can be found in [Reference Agentic UI ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/reference-agentic-ui).
+Details can be found in [Reference Agentic UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/reference-agentic-ui).
 
   1. Launch Chrome browser
   2. In the address bar enter `http://<IP_address>:7777`
@@ -274,7 +274,7 @@ Number of streams to be processed can be configured in two ways:
    NUM_STREAMS=4
    ```
 
-   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. When `SENSOR_INFO_SOURCE=nvstreamer`, the same `NUM_STREAMS` value is the expected camera count the Sensor Configuration Manager waits for before VST registration. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section and [NVStreamer Settings](/vss/system-components/configuration/vss-configurator#nvstreamer-settings) in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
 
 2. **Dynamic Configuration**: Use the VSS Configurator's prerequisite operations to automatically count the number of video files in the recorded videos directory and use that count for configuration updates.
 
@@ -315,7 +315,7 @@ Dynamic Configuration cannot be used for live RTSP streams.
              batch-size: ${final_stream_count}
    ```
 
-   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
 
 When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number of video files available in that dataset. Make sure `NUM_STREAMS` is less than or equal to the number of videos you want to process.
 
@@ -350,14 +350,14 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Deploy the auto-calibration profile (`bp_wh_auto_calib_2d`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start-guide). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
 
 <Note>
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For 2D profile use cases, ROIs and Tripwires are drawn for each camera view.
 - The calibration file exported from the AMC UI may include `group` and `region` blocks under each entry in `sensors[]`. These are used only by the 3D and MV3DT profiles and are not needed by the 2D profile with Agents. Remove the `group` and `region` blocks from each sensor entry before importing the file.
-- Add new camera information following the schema defined in [Calibration Schema ](/vss/system-components/calibration/calibration-schema).
+- Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
 - Auto Calibration requires time-synchronized videos as input. For RTSP cameras, record videos from the RTSP source (e.g. using ffmpeg or similar tools), manually trim the videos to time-synchronize them if needed, then provide them to Auto Calibration.
@@ -382,10 +382,10 @@ No containers belonging to the previous deployment should be present before star
 #### Perception Model Fine-tuning
 
 The Blueprint uses RT-DETR (Real-Time Detection Transformer) as its primary perception model. RT-DETR features a ResNet-50 backbone and is pretrained on warehouse scene datasets for precise 2D object detection in industrial environments. For details, see:
-[2D Single Camera Detection and Tracking ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr).
+[2D Single Camera Detection and Tracking](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr).
 
 For fine-tuning the RT-DETR model via TAO Toolkit on custom datasets, refer to:
-[RT-DETR (TAO fine-tuning) ](/vss/system-components/models/rt-detr-2d-warehouse-detection).
+[RT-DETR (TAO fine-tuning)](/vss/system-components/models/rt-detr-2d-warehouse-detection).
 
 #### LLM Integration
 
@@ -401,9 +401,9 @@ The Blueprint uses a modular microservices architecture with the following commu
 
 Users can build their own microservices by consuming data from the above channels.
 
-For complete API documentation, see [API Reference Page ](/vss/appendix/api-reference).
+For complete API documentation, see [API Reference Page](/vss/appendix/api-reference).
 
-A deployed 2D Vision AI with Agents Profile can also be driven from a coding agent (Claude Code or Codex) using [Agent Skills](/vss/vision-agent/agent-skills). Skills such as `vss-deploy-profile`, `vss-deploy-detection-tracking-2d`, `vss-query-analytics`, `vss-setup-behavior-analytics`, and `vss-manage-video-io-storage` cover deployment, operation, and analytics queries against this profile through natural language.
+A deployed 2D Vision AI with Agents Profile can also be driven from a coding agent (Claude Code or Codex) using [Agent Skills](/vss/vision-agent/agent-skills). Skills such as `vss-build-vision-ai`, `vss-deploy-detection-tracking-2d`, `vss-query-analytics`, `vss-setup-behavior-analytics`, and `vss-manage-video-io-storage` cover deployment, operation, and analytics queries against this profile through natural language.
 
 #### Available Service Ports
 
@@ -429,14 +429,14 @@ The following ports are used during deployment, and users can leverage them for 
 
 For detailed information about customizing specific analytics microservices, refer to:
 
-* [Behavior Analytics ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
-* [VSS Video Analytics API ](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
+* [Behavior Analytics](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
+* [VSS Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
 
 ### Alert Microservices Customization (Advanced)
 
 For detailed information about customizing specific alert microservices, refer to:
 
-* [Alerting Service ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service) — alert use cases (Near Miss,
+* [Alerting Service](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service) — alert use cases (Near Miss,
   Load Quality, Pathway Obstruction, Spillover, PPE), Alert Bridge output
   formats, and prompt-tuning workflow.
 * RTVI VLM for [Alert Verification](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-verification)
@@ -508,11 +508,11 @@ The VSS Configurator provides a comprehensive set of features for automated prof
 
 | Feature | Description |
 | --- | --- |
-| **Configuration File Updates** | Automatically update configuration files in multiple formats:  * `yaml_update` - Updates `.yaml`/`.yml` files while preserving structure. Supports nested keys via dot notation (e.g., `nested.config.value`) * `json_update` - Updates `.json` files with nested object support via dot notation (e.g., `data.stream_count`) * `text_config_update` - Updates `.txt`/`.conf`/`.cfg` files. Supports `key=value`, `key: value`, and `key value` formats * `file_management` - Manage files in directories (keep N files, remove extras) |
+| **Configuration File Updates** | Automatically update configuration files in multiple formats:  * `yaml_update` - Updates `.yaml`/`.yml` files while preserving structure. Supports nested keys via dot notation (e.g., `nested.config.value`) * `json_update` - Updates `.json` files with nested object support via dot notation, optional `array_kv_updates` to patch items in a JSON array by a match field, and preservation of original indent. Typed variables can write JSON lists or `null`. * `text_config_update` - Updates `.txt`/`.conf`/`.cfg` files. Supports `key=value`, `key: value`, and `key value` formats * `text_replace` - Pattern-based edits on any text file (`replace`, `comment_line`, `insert_after`, `append_lines`) * `file_management` - Manage files in directories (keep N files, remove extras) * Per-operation `enabled: true\|false\|${VAR}` to skip an operation without removing it from the YAML |
 | **Environment Variable Validation** | Validate environment variables before deployment to catch configuration errors early:  * `allowed_values` - Restrict to specific values (e.g., `["none", "local", "remote"]`) * `allowed_patterns` - Wildcard matching (e.g., `bp_wh_kafka*`) * `disallowed_values` - Block specific values * `regex` - Regular expression validation * Conditional validation based on other variables |
 | **Prerequisite Operations** | Run operations before variable processing to dynamically determine values:  * `file_count` - Count files in a directory matching a pattern (e.g., count `*.mp4` files to determine available streams) * Results stored as variables for use in subsequent calculations * Useful for adapting configuration to actual data availability |
 | **Variable Computations** | Create computed variables for intermediate calculations and condition checking. **Use case:** Automatically cap stream count to GPU limits using `final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"`, then reuse this value across all config files.  * Mathematical expressions: `min()`, `max()`, `+`, `-`, `*`, `/` * Conditional expressions: `"4 if ${count} > 10 else 2"` * Environment variable substitution: `${VAR_NAME}` * **Value:** Define once, use everywhere - ensures consistency across multiple config files |
 
-**Execution Order:** Prerequisite Operations → Environment Variable Validation → Variable Computations → Configuration File Updates
+**Execution Order:** Environment Variable Validation → Prerequisite Operations → Variable Computations → Configuration File Updates
 
-For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation ](/vss/system-components/configuration/vss-configurator).
+For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).

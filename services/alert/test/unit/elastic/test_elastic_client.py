@@ -53,6 +53,10 @@ def api_error(status):
 def make_client(url="http://es:9200", config=None, ping=True):
     with patch("clients.elastic.Elasticsearch") as es_cls:
         es_cls.return_value.ping.return_value = ping
+        # `.options(...)` returns the client itself, matching elasticsearch-py,
+        # so a test can keep stubbing `client.get` regardless of whether the
+        # call under test goes through `.options()`.
+        es_cls.return_value.options.return_value = es_cls.return_value
         return ElasticClient(url=url, config=config)
 
 
@@ -288,11 +292,12 @@ class TestUpdateDocument:
 
 class TestGetDocument:
     def test_returns_the_source(self, client):
-        client.client.get.return_value = {"_source": {"a": 1}}
+        client.client.get.return_value = {"found": True, "_source": {"a": 1}}
         assert client.get_document("idx", "d-1") == {"a": 1}
 
     def test_missing_document_returns_none(self, client):
-        client.client.get.side_effect = api_error(404)
+        # ignore_status=404 means a miss is a response, not an exception.
+        client.client.get.return_value = {"found": False}
         assert client.get_document("idx", "d-1") is None
 
     def test_other_api_errors_propagate(self, client):
@@ -304,7 +309,7 @@ class TestGetDocument:
 
 class TestGetDocumentWithMeta:
     def test_returns_source_and_concurrency_metadata(self, client):
-        client.client.get.return_value = {"_source": {"a": 1}, "_seq_no": 5, "_primary_term": 1}
+        client.client.get.return_value = {"found": True, "_source": {"a": 1}, "_seq_no": 5, "_primary_term": 1}
 
         assert client.get_document_with_meta("idx", "d-1") == {
             "source": {"a": 1},
@@ -313,14 +318,14 @@ class TestGetDocumentWithMeta:
         }
 
     def test_absent_metadata_becomes_none(self, client):
-        client.client.get.return_value = {"_source": {"a": 1}}
+        client.client.get.return_value = {"found": True, "_source": {"a": 1}}
         result = client.get_document_with_meta("idx", "d-1")
 
         assert result["seq_no"] is None
         assert result["primary_term"] is None
 
     def test_missing_document_returns_none(self, client):
-        client.client.get.side_effect = api_error(404)
+        client.client.get.return_value = {"found": False}
         assert client.get_document_with_meta("idx", "d-1") is None
 
     def test_other_api_errors_propagate(self, client):

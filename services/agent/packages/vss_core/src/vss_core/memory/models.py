@@ -152,7 +152,11 @@ class JobInfo(BaseModel):
 
 
 class SensorInfo(BaseModel):
-    """Sensor / video source identity carried on a memory record."""
+    """Sensor / video source identity carried on a memory record.
+
+    ``id`` is the human-readable VIOS sensor name used for recall. Backend
+    sensor UUIDs, stream IDs, and video IDs belong in ``info``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

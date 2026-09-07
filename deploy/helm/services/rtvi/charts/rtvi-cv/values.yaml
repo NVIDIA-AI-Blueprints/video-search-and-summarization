@@ -190,6 +190,8 @@ standaloneWarehouse:
       # Truly-dynamic sensor count would be an image-side feature, not a Helm wrapper.
       maxExpectedSensors: "4"
       bufferDurationS: "2.0"
+      fusionMethod: "gated_weighted"
+      visibilityMin: "0.3"
       resources: {}
     # Generate camInfo + pub/sub + tracker cameraModelFilepath map from
     # calibration.json at pod start (sensor ids/count come from calibration).

@@ -32,6 +32,8 @@ interface ToolbarProps {
    * be opened on top of the first.
    */
   isDialogOpen?: boolean;
+  /** Vertical stack for the app left sidebar; horizontal bar is the standalone header. */
+  layout?: 'horizontal' | 'sidebar';
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -53,6 +55,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   hasVideoStreams = true,
   hasRtspStreams = true,
   isDialogOpen = false,
+  layout = 'horizontal',
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const filterTriggerRef = useRef<HTMLDivElement>(null);
@@ -151,6 +154,155 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </button>
   ) : undefined;
 
+  const displayCheckboxes = (
+    <>
+      {showVideoOption && (
+        <label className="flex items-center gap-2 px-1 py-1.5 w-full text-left cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showVideos}
+            onChange={() => onShowVideosChange(!showVideos)}
+            onClick={(e) => e.stopPropagation()}
+            className="sr-only"
+            aria-label="Video"
+          />
+          <span
+            className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+              showVideos
+                ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
+                : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
+            }`}
+            aria-hidden
+          >
+            {showVideos && (
+              <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">Video</span>
+        </label>
+      )}
+      {showRtspOption && (
+        <label className="flex items-center gap-2 px-1 py-1.5 w-full text-left cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showRtsps}
+            onChange={() => onShowRtspsChange(!showRtsps)}
+            onClick={(e) => e.stopPropagation()}
+            className="sr-only"
+            aria-label="RTSP"
+          />
+          <span
+            className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+              showRtsps
+                ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
+                : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
+            }`}
+            aria-hidden
+          >
+            {showRtsps && (
+              <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">RTSP</span>
+        </label>
+      )}
+    </>
+  );
+
+  const deleteButton = (
+    <Button
+      kind="secondary"
+      onClick={onDeleteSelected}
+      disabled={selectedCount === 0 || isDeleting || isDialogOpen}
+      className={layout === 'sidebar' ? 'w-full' : 'shrink-0'}
+    >
+      {isDeleting ? (
+        <svg
+          className="animate-spin"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+          <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="1" />
+        </svg>
+      ) : (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0"
+          aria-hidden
+        >
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" />
+          <line x1="15" y1="9" x2="9" y2="15" />
+          <line x1="9" y1="9" x2="15" y2="15" />
+        </svg>
+      )}
+      {isDeleting ? 'Deleting...' : 'Delete Selected'}
+    </Button>
+  );
+
+  if (layout === 'sidebar') {
+    return (
+      <div
+        data-testid="video-management-sidebar-controls"
+        className="flex flex-col gap-3 px-3 pt-2 pb-3"
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".mp4,.mkv"
+          onChange={handleFileInputChange}
+          className="hidden"
+        />
+        {enableVideoUpload && (
+          <Button kind="primary" onClick={onUploadClick ?? handleUploadClick} disabled={isDialogOpen} className="w-full">
+            + Upload Video
+          </Button>
+        )}
+        {enableAddRtspButton && (
+          <Button kind="secondary" onClick={onAddRtspClick} disabled={isDialogOpen} className="w-full">
+            + Add RTSP
+          </Button>
+        )}
+        <div className="flex flex-col gap-2">
+          <TextInput
+            data-testid="search-video-input"
+            value={searchQuery}
+            onValueChange={(val: string) => onSearchChange(val)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Search Files"
+            slotRight={clearSearchSlot}
+          />
+          <Button data-testid="search-video-button" kind="secondary" onClick={onSearch} className="w-full">
+            Search
+          </Button>
+        </div>
+        {showDisplayFilter && (
+          <fieldset className="flex flex-col gap-1 rounded-lg border border-gray-200 dark:border-gray-700 p-3 m-0 min-w-0">
+            <legend className="px-1 text-sm font-semibold text-gray-800 dark:text-gray-100">Display</legend>
+            {displayCheckboxes}
+          </fieldset>
+        )}
+        {deleteButton}
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 max-w-full overflow-x-auto overflow-y-clip border-b border-gray-200 dark:border-gray-800">
       {/* One wrapping flex row — no flex-1 + justify-end strip */}
@@ -241,65 +393,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       zIndex: DISPLAY_FILTER_MENU_Z_INDEX,
                     }}
                   >
-                    {showVideoOption && (
-                      <label
-                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={showVideos}
-                          onChange={() => onShowVideosChange(!showVideos)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="sr-only"
-                          aria-label="Video"
-                        />
-                        <span
-                          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                            showVideos
-                              ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
-                              : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
-                          }`}
-                          aria-hidden
-                        >
-                          {showVideos && (
-                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </span>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">Video</span>
-                      </label>
-                    )}
-
-                    {showRtspOption && (
-                      <label
-                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={showRtsps}
-                          onChange={() => onShowRtspsChange(!showRtsps)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="sr-only"
-                          aria-label="RTSP"
-                        />
-                        <span
-                          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                            showRtsps
-                              ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
-                              : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
-                          }`}
-                          aria-hidden
-                        >
-                          {showRtsps && (
-                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </span>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">RTSP</span>
-                      </label>
-                    )}
+                    {displayCheckboxes}
                   </div>,
                   document.body
                 )}
@@ -307,45 +401,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         )}
 
-        <Button
-          kind="secondary"
-          onClick={onDeleteSelected}
-          disabled={selectedCount === 0 || isDeleting || isDialogOpen}
-          className="shrink-0"
-        >
-          {isDeleting ? (
-            <svg
-              className="animate-spin"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-              <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="1" />
-            </svg>
-          ) : (
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0"
-              aria-hidden
-            >
-              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" />
-              <line x1="15" y1="9" x2="9" y2="15" />
-              <line x1="9" y1="9" x2="15" y2="15" />
-            </svg>
-          )}
-          {isDeleting ? 'Deleting...' : 'Delete Selected'}
-        </Button>
+        {deleteButton}
       </div>
     </div>
   );

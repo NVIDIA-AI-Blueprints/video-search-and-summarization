@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
+import { Toolbar } from './Toolbar';
 
-interface VideoManagementSidebarControlsProps {
-  onFilesSelected: (files: File[]) => void;
-  enableVideoUpload?: boolean;
-}
+type VideoManagementSidebarControlsProps = Omit<
+  React.ComponentProps<typeof Toolbar>,
+  'layout'
+>;
 
-export const VideoManagementSidebarControls: React.FC<VideoManagementSidebarControlsProps> = ({ enableVideoUpload = true }) => {
-  // Add video management sidebar controls here if needed in future
-  // enableVideoUpload prop is available for future implementation
-  return null;
-};
+export const VideoManagementSidebarControls: React.FC<VideoManagementSidebarControlsProps> = (props) => (
+  <Toolbar {...props} layout="sidebar" />
+);

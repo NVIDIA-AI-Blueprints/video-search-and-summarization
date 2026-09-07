@@ -70,7 +70,7 @@ export interface SearchComponentProps {
   // External controls rendering
   renderControlsInLeftSidebar?: boolean; // Default: false - set true to render controls in external left sidebar
   onControlsReady?: (handlers: SearchSidebarControlHandlers) => void; // Callback to provide control handlers externally
-  /** When provided, Agent Mode + Search sends the query to the Chat sidebar (programmatic submit). */
+  /** When provided, Search by Image confirms by sending the query to the Chat sidebar. */
   submitChatMessage?: (message: string) => void;
   /** Registers a handler that receives each Chat sidebar answer from the app-wide callback. */
   registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);

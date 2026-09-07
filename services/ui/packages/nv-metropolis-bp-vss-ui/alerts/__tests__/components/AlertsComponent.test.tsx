@@ -17,7 +17,9 @@ import { render, screen } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 import { AlertsComponentProps } from '../../lib-src/types';
 
-// Mock @nvidia/foundations-react-core (Button, Select, Switch used by FilterControls)
+const mockRefetch = jest.fn();
+
+// Mock @nvidia/foundations-react-core (Button, Select, Switch, Tag, TextInput)
 jest.mock('@nvidia/foundations-react-core', () => {
   const React = require('react');
   return {
@@ -49,19 +51,19 @@ jest.mock('@nvidia/foundations-react-core', () => {
         onChange: (e: any) => onCheckedChange?.(e.target.checked),
       }),
     ),
+    Tag: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Tag', type: 'button' }, children),
+    ),
+    TextInput: React.forwardRef(({ onValueChange, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        'data-foundation': 'TextInput',
+        onChange: (e: any) => onValueChange?.(e.target.value),
+      }),
+    ),
   };
 });
-
-// Mock common (VideoModal + useVideoModal)
-jest.mock('common', () => ({
-  VideoModal: jest.fn(() => null),
-  useVideoModal: jest.fn(() => ({
-    videoModal: { isOpen: false, videoUrl: '', title: '' },
-    openVideoModalFromAlert: jest.fn(),
-    closeVideoModal: jest.fn(),
-    loadingAlertId: null,
-  })),
-}));
 
 // Mock the hooks
 jest.mock('../../lib-src/hooks/useAlerts', () => ({
@@ -70,7 +72,7 @@ jest.mock('../../lib-src/hooks/useAlerts', () => ({
     loading: false,
     loadingMore: false,
     error: null,
-    refetch: jest.fn(),
+    refetch: mockRefetch,
     loadMoreAlerts: jest.fn(),
     canLoadMore: false,
   })),
@@ -198,5 +200,25 @@ describe('AlertsComponent', () => {
     // This is just demonstrating the pattern
     expect(mockOnThemeChange).toBeDefined();
   });
-});
 
+  it('refreshes alerts when chat delivers an incident artifact', () => {
+    let answerHandler: ((answer: string) => boolean | void) | undefined;
+    const registerChatAnswerHandler = jest.fn((handler) => {
+      answerHandler = handler;
+      return jest.fn();
+    });
+    render(
+      <AlertsComponent
+        {...defaultProps}
+        registerChatAnswerHandler={registerChatAnswerHandler}
+      />,
+    );
+
+    const handled = answerHandler?.(
+      '<vss-ui-artifact>{"version":"1.0","kind":"vss.alert.incidents","payload":{"incidents":[]}}</vss-ui-artifact>',
+    );
+
+    expect(handled).toBe(true);
+    expect(mockRefetch).toHaveBeenCalledWith({ includeSensorList: true });
+  });
+});

@@ -3696,11 +3696,30 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (unsigned char* buffer, G
         elasticTimestamp = convertEpocToISO8601_2(elasticTS);
     }
 
+    /* Suppresses a frame the overlay drew nothing on, so a viewer sees a box
+     * held steady at the analytics rate rather than one that blinks off on
+     * every frame that fell between two records. Two things follow from that.
+     *
+     * It has to key on whether metadata matched this frame, not on which
+     * branch found the match: dropping a frame that was just drawn on costs
+     * the box it was carrying, and recorded playback reaches that branch for
+     * every frame, because the frame clock runs ahead of the record the queue
+     * is parked on.
+     *
+     * And it only means anything while the records are about this part of the
+     * stream. Replaying a window whose analytics have aged out of
+     * Elasticsearch returns the oldest surviving record, hours after the frame
+     * being drawn; suppressing on that basis discards every frame in the
+     * stream, so the encoder is handed nothing and the session looks like it
+     * never started. Video without boxes beats no video. */
     bool skip_frame = GET_CONFIG().enable_overlay_skip_frame;
+    bool matched = false;
+    const int64_t skipHorizonUs = static_cast<int64_t>(tolerance) * 10;
     int num_objects = 0;
     if (m_bboxParams.m_overlay.m_enableGodsEyeView ||
         elasticTS == frameTS || (abs(elasticTS - frameTS) < tolerance)) // Remove tolerance part for exact matching
     {
+        matched = true;
         Json::Value objects = metadata["objects"];
         if (m_bboxParams.m_overlay.m_bboxDebug)
         {
@@ -3738,6 +3757,7 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (unsigned char* buffer, G
         // Re-check if match occurs, otherwise we might miss drawing on a frame.
         if (elasticTS == frameTS || (abs(elasticTS - frameTS) < tolerance)) // Remove tolerance part for exact matching
         {
+            matched = true;
             Json::Value objects = metadata["objects"];
             if (m_bboxParams.m_overlay.m_bboxDebug)
             {
@@ -3758,14 +3778,14 @@ bool NvLLOverlayInternal::processOsdSinkPadBufferProbe (unsigned char* buffer, G
             }
 #endif
         }
-        if (skip_frame)
+        if (skip_frame && !matched && (elasticTS - frameTS) <= skipHorizonUs)
         {
             return false;
         }
     }
     else
     {
-        if (skip_frame)
+        if (skip_frame && !matched && (elasticTS - frameTS) <= skipHorizonUs)
         {
             return false;
         }

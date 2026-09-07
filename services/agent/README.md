@@ -201,7 +201,7 @@ or are only needed for specific features.
 | `INTERNAL_IP` | yes | — | Internal IP (usually same as `HOST_IP`) |
 | `LLM_BASE_URL` | yes | — | LLM endpoint (e.g. `http://HOST:30081`) |
 | `VLM_BASE_URL` | yes | — | VLM endpoint (e.g. `http://HOST:30082`) |
-| `LLM_NAME` | yes | — | LLM model name (e.g. `nvidia/nvidia-nemotron-nano-9b-v2`) |
+| `LLM_NAME` | yes | — | LLM model name (e.g. `nvidia/nemotron-3.5-lightning-30b-a3b`) |
 | `VLM_NAME` | yes | — | VLM model name (e.g. `nvidia/cosmos-reason2-8b`) |
 | `LLM_MODEL_TYPE` | no | `nim` | LLM backend type: `nim`, `openai` |
 | `VLM_MODEL_TYPE` | no | `nim` | VLM backend type: `nim`, `openai`, `vllm`, `rtvi` |

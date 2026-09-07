@@ -1,0 +1,35 @@
+{
+  "skills": [
+    "vss-deploy-video-embedding"
+  ],
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 0,
+        "modes": [
+          "routing"
+        ]
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "What skill should I use to integrate a custom BYOM backend for RT-Embed, for example VideoPrism? Do not deploy anything; just explain the route and key files.",
+      "checks": [
+        "The agent selects or loads `vss-deploy-video-embedding` and uses its custom model BYOM guidance.",
+        "The answer identifies the request as a bring-your-own-model / custom RT-Embed model integration task, with VideoPrism only as an example backend.",
+        "The answer names the key RT-Embed BYOM hooks: `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, and `MODEL_REPOSITORY_SCRIPT_PATH`.",
+        "The answer points to the custom model implementation area under `services/rtvi/rt-embed/src/models/custom/samples/`.",
+        "The agent does not run Docker, deploy services, pull images, or expose credential values."
+      ]
+    },
+    {
+      "query": "I only need to deploy RT-Embed with the default Cosmos-Embed1 model. Which skill should handle it, and is this the default deployment path or the BYOM/custom-model path? Do not deploy anything.",
+      "checks": [
+        "The agent routes standard default Cosmos-Embed1 deployment to `vss-deploy-video-embedding`, using the default deployment path, not the BYOM path.",
+        "The answer explains that `vss-deploy-video-embedding` distinguishes custom BYOM integration from normal default RT-Embed operation.",
+        "The answer does not run Docker, deploy services, pull images, or expose credential values."
+      ]
+    }
+  ]
+}

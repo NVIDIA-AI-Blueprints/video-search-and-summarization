@@ -23,8 +23,8 @@ with skip-on-prior-fail.
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-deploy-detection-tracking-2d/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-detection-tracking-2d \\
-        --skill-dir skills/vss-deploy-detection-tracking-2d \\
-        --spec skills/vss-deploy-detection-tracking-2d/evals/deploy-evals.json
+        --skill-dir skills/deployment/vss-deploy-detection-tracking-2d \\
+        --spec skills/deployment/vss-deploy-detection-tracking-2d/evals/deploy-evals.json
 """
 from __future__ import annotations
 

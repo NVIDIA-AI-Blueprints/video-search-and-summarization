@@ -62,6 +62,10 @@ NVIDIA_VISIBLE_DEVICES=0
 MESSAGE_BUS=kafka
 MESSAGE_BUS_TOPIC=mdx-embed
 ERROR_BUS=kafka
+
+# Optional decoded-frame IPC for a compatible RTVI CV producer on this host.
+#RTVI_IPC_FRAME_COPY=true
+#RTVI_IPC_SOCKET_HOST_DIR=/tmp
 ```
 
 Set `RTVI_IMAGE` in `docker/.env` to a promoted or immutable GHCR tag when you need to pin an exact image for your deployment.
@@ -97,6 +101,75 @@ curl -fsS "http://localhost:${BACKEND_PORT}/v1/ready" && echo "Service is ready"
 **Troubleshooting:** If startup fails with an out-of-memory error, set `NVIDIA_VISIBLE_DEVICES=<gpuid>` to a free GPU.
 
 The APIs are available at `http://<host_ip>:<BACKEND_PORT>/docs`.
+
+## Optional: Run RT-Embed on an NVIDIA MIG slice
+
+MIG is optional. Existing Docker Compose and Helm deployments continue to use their
+default full-GPU configuration without changes. Before using MIG, configure the
+GPU and NVIDIA Container Toolkit or Kubernetes device plugin on the host, then
+obtain the slice UUID or resource name from `nvidia-smi -L` or `kubectl describe
+node <node-name>`. The selected slice must have sufficient memory for the model.
+
+MIG availability, the supported profile geometries, and valid co-placement
+combinations are defined by the GPU and its driver. Consult NVIDIA's
+[Supported MIG Profiles](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html)
+before partitioning a GPU; do not infer a profile name or instance count from a
+different platform.
+
+### VSS Docker Compose profiles
+
+For the VSS deployment Compose manifest at
+`deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`, set both
+variables to the same MIG UUID reported by `nvidia-smi -L` in the active
+deployment override or shell environment. Current drivers may report a compact
+`MIG-<uuid>` value; older drivers report `MIG-GPU-<gpu-uuid>/<gi>/<ci>`.
+
+```bash
+RT_EMBED_DEVICE_ID="MIG-<uuid-from-nvidia-smi-L>"
+RTVI_EMBED_NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
+```
+
+`RT_EMBED_DEVICE_ID` assigns the MIG device to the container.
+`RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` exposes that same device to CUDA and the
+embedding service. Inside the container it is CUDA device `0`. Do not set these
+MIG values for a normal full-GPU deployment.
+
+For a multi-instance deployment, run isolated Compose projects or service
+instances and give each service a different MIG UUID. Do not assign multiple MIG
+UUIDs to one single-GPU RT-Embed service.
+
+### Standalone Docker Compose
+
+The standalone Compose file under `services/rtvi/rt-embed/docker/` uses its
+existing `NVIDIA_VISIBLE_DEVICES` setting. Set it to the MIG UUID in that stack's
+`.env` file:
+
+```bash
+NVIDIA_VISIBLE_DEVICES="MIG-<uuid-from-nvidia-smi-L>"
+```
+
+### Standalone Helm chart
+
+The Kubernetes NVIDIA device plugin assigns the device. Do not set a MIG UUID in
+`NVIDIA_VISIBLE_DEVICES`. Configure the resource name advertised by the plugin
+instead. For a device plugin using the `mixed` MIG strategy, an example is:
+
+```yaml
+gpuResourceName: "nvidia.com/mig-3g.40gb"
+```
+
+The repository provides `overrides_rtvi_embed_mig.yaml` as a complete example.
+Install it after the normal standalone override:
+
+```bash
+helm upgrade --install vss-rtvi-embed . \
+  -n vss-rtvi \
+  -f overrides_rtvi_embed.yaml \
+  -f overrides_rtvi_embed_mig.yaml
+```
+
+The MIG resource replaces the chart's default `nvidia.com/gpu: 1` request; the
+chart does not request a full GPU and a MIG slice together.
 
 ### 3. (Optional) Enable monitoring
 
@@ -408,7 +481,7 @@ ASSET_STORAGE_DIR=/path/to/assets           # Host path for uploaded files
 EXAMPLE_STREAMS_DIR=/path/to/sample-videos  # Host path for example streams
 
 # GPU Configuration
-NVIDIA_VISIBLE_DEVICES=0                    # Use specific GPUs (default: all)
+NVIDIA_VISIBLE_DEVICES=0                    # GPU index, UUID, or MIG UUID (default: all)
 VLM_BATCH_SIZE=128                          # Override automatic batch size
 
 # Logging
@@ -493,7 +566,7 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `VLM_BATCH_SIZE` | Inference batch size | Auto-calculated | No |
 | `NUM_VLM_PROCS` | Number of inference processes | `10` | No |
 | `NUM_GPUS` | Number of GPUs to use | Auto-detected | No |
-| `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
+| `NVIDIA_VISIBLE_DEVICES` | GPU index, UUID, or MIG UUID exposed to the container | `all` | No |
 | `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
 | `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. | - | No |
@@ -531,7 +604,30 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `RTVI_RTSP_RECONNECTION_INTERVAL` | Time to detect stream interruption and wait for reconnection (seconds) | `5.0` | No |
 | `RTVI_RTSP_RECONNECTION_WINDOW` | Duration to attempt reconnection after interruption before terminating the session (seconds) | `60.0` | No |
 | `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Max attempts for reconnection after interruption before terminating the session (no.) | `10` | No |
+| `RTVI_IPC_FRAME_COPY` | Enable decoded-frame IPC for live streams. | `false` | No |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at the fixed container path `/run/rtvi-ipc` when set. | *(unset)* | No |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete upper bound (seconds) shared by the pre-delete setup wait (while `use_count > 1`) and the pipeline drain of in-flight chunks. On timeout each stage logs a warning and proceeds. Applies to `DELETE /v1/streams/delete-batch`, `DELETE /v1/streams/delete/{stream_id}`, `POST /v1/stream/remove`, `DELETE /v1/generate_video_embeddings/{stream_id}`. | `30` | No |
+
+#### Single decode for multiple microservices
+
+RTVI CV can own the RTSP connection and publish decoded frames through
+`nvunixfd` Unix sockets for RTVI Embed. Set `RTVI_IPC_FRAME_COPY=true` for
+live RTSP streams that consume a compatible CV producer. CV and Embed must run
+on the same host. The producer and consumer must use the same camera ID and
+socket template, so camera `camera-1` resolves to `nvds_ipc_camera-1.sock` by
+default. Send the stream processing request to both RTVI CV (the producer) and
+RTVI Embed (the consumer) with that same camera ID.
+
+IPC camera, sensor, and stream IDs must be non-empty and use only ASCII letters,
+digits, `.`, `_`, and `-` (standard UUIDs are valid). Other characters are
+rejected to prevent distinct stream IDs from selecting the same socket.
+
+Set `RTVI_IPC_SOCKET_HOST_DIR` to the producer's host directory; Compose mounts
+it at the fixed `/run/rtvi-ipc` path.
+Embed resolves each socket as `nvds_ipc_{camera_id}.sock`. The directory and
+socket must be accessible to the Embed container user (UID/GID `1001`). A
+compatible RTVI CV image must provide `ipc-frame-copy` and create the producer
+socket before Embed starts the stream.
 
 #### OpenTelemetry / Monitoring
 | Variable | Description | Default | Required |

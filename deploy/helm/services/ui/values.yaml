@@ -51,9 +51,17 @@ extraEnv: []
 envOverrides: []
 agentApiUrlBase: ""
 vstApiUrl: ""
+# Server-only destination used by /api/proxy. Empty selects the in-cluster
+# vss-vios-ingress Service even when browser URLs use global.externalHost.
+proxyBaseUrl: ""
 # Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/chat/stream
 chatCompletionUrl: ""
 websocketChatUrl: ""
+# Server-only destinations used by /api/vss-chat and the /api/chat alias.
+# Empty values select chatCompletionUrl when explicitly set, otherwise the
+# in-cluster vss-agent Service.
+chatBackendUrl: ""
+sidebarChatBackendUrl: ""
 # LVS: explicit Kibana base URL for the Dashboard tab (overrides auto-derived kibana.<externalHost>).
 dashboardKibanaBaseUrl: ""
 # Alerts tab: base URL for alerts API (vss-alert-bridge), including the API version prefix.
@@ -63,6 +71,37 @@ alertsApiUrl: ""
 # their deployed alert pipeline; both remain enabled by default for compatibility.
 alertsRealtimeEnabled: true
 alertsCvVerificationEnabled: true
+# Backend-agnostic external-agent adapter embedded in this Next.js server.
+# Compose parity: deploy/docker/services/ui/compose.yml sets AGENT_* env from
+# VSS_AGENT_* host-side vars; here they are chart values with the same
+# defaults. Leave `backendUrl` empty to keep the adapter disabled (default);
+# profiles that expose an external agent set backendUrl to a cluster-private
+# URL and toggle enabled=true. Credentials MUST NOT use NEXT_PUBLIC_* — the
+# token is only rendered into AGENT_BACKEND_TOKEN which stays server-side.
+# `extra_hosts: host.docker.internal:host-gateway` from compose has no helm
+# analog: K8s pods reach services via in-cluster DNS or hostAliases, not the
+# Docker-bridge host-gateway trick. Set backendUrl to the cluster-reachable
+# harness URL directly.
+agentAdapter:
+  enabled: false
+  backendProtocol: responses
+  backendUrl: ""
+  backendPath: ""
+  backendToken: ""
+  backendModel: agent
+  # "" means the field is omitted from the outbound payload; the docker default
+  # keeps the `user` field, matching compose ${VSS_AGENT_BACKEND_SESSION_FIELD-user}.
+  backendSessionField: "user"
+  backendSessionHeader: ""
+  backendHeadersJson: "{}"
+  backendTimeoutSeconds: 900
+  runRetentionSeconds: 3600
+  maxEventCharsPerRun: 20000000
+  maxThreadStateChars: 20000000
+  maxRetainedChars: 64000000
+  # Force browser off legacy WebSocket transport when the adapter is on; mirrors
+  # compose default (falls back to agentAdapter.enabled).
+  forceHttpChatTransport: ""
 # When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
 # When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).
 fillAlertBridgeUrlFromGlobal: true
@@ -158,8 +197,6 @@ env:
     value: "false"
   - name: NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON
     value: "false"
-  - name: NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED
-    value: "false"
   - name: NEXT_PUBLIC_DARK_THEME_DEFAULT
     value: "true"
   - name: NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON
@@ -183,8 +220,6 @@ env:
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
     value: "Let's show the videos just uploaded {filenames}?"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_SHOW_THEME_TOGGLE_BUTTON
-    value: "false"
-  - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
     value: "false"
   - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
     value: "true"

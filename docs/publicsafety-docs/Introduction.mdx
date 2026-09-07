@@ -22,7 +22,7 @@ At a high level, the blueprint includes the following components:
 * **Perception and Video Analytics** – filter and analyze video content to identify events relevant for VLM review.
 * **Alerts Microservice** – connect filtered content from the perception pipeline with the VLM for validation.
 * **Video Storage Toolkit (VST)** – use as a Video Management System (VMS) or interface with third‑party VMS solutions.
-* **Agent** – powered by Nemotron Nano 9B v2 for natural language interaction, enabling queries, report generation and incident lookup.
+* **Agent** – powered by Nemotron 3.5 Lightning 30B A3B for natural language interaction, enabling queries, report generation and incident lookup.
 * **Scalable Deployment** – deploy the solution at scale across multiple cameras and locations.
 
 ## Architecture Overview
@@ -45,7 +45,7 @@ All components communicate via a Message Bus, with alerts and CV metadata stored
 
 **Agent Pipeline (Right)**
 
-Users interact with the system through an AI Agent powered by Nemotron Nano 9B v2. The Agent connects to various tools via MCP (Model Context Protocol):
+Users interact with the system through an AI Agent powered by Nemotron 3.5 Lightning 30B A3B. The Agent connects to various tools via MCP (Model Context Protocol):
 
 - **Video IO & Storage** – Access to VST/VMS for video retrieval
 - **Video Analytics Tool** – Query incident data from Video Analytics Storage
@@ -53,7 +53,7 @@ Users interact with the system through an AI Agent powered by Nemotron Nano 9B v
 
 **Inference Microservices** provide the underlying AI capabilities:
 
-- nvidia-nemotron-nano-9bv2 – Agent reasoning and natural language understanding
+- nemotron-3.5-lightning-30b-a3b – Agent reasoning and natural language understanding
 - cosmos3-nano-reasoner – Alert verification and report generation
 - RT‑DETR detector (Real‑Time Detection Transformer) – Object detection and tracking
 

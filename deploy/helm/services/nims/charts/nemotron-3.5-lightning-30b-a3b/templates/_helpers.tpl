@@ -5,7 +5,7 @@
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- default "nemotron-3.5-lightning-30b-a3b" .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- default "nemotron-35-lightning-30b-a3b" .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 

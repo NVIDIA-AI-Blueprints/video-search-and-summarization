@@ -29,6 +29,8 @@ data:
 {{- $redisAddr := .Values.redisServerAddress | default (ternary (printf "%s-redis:6379" .Release.Name) "redis:6379" $pfx) }}
 {{- $videoMeta := .Values.videoMetadataServerUrl | default (ternary (printf "http://%s-elasticsearch:9200/mdx-raw*" .Release.Name) "http://elasticsearch:9200/mdx-raw*" $pfx) }}
 {{- $syncCount := .Values.syncFileCount | default 0 }}
+{{- $rtspBasePort := .Values.rtsp.basePort | default 31554 }}
+{{- $rtspInstanceCount := .Values.rtsp.instanceCount | default 8 }}
 {{- $turnServerUrl := .Values.turnServerUrl | default (index $g "turnServerUrl" | default "") }}
 {{- $turnUrls := list }}
 {{- if $turnServerUrl }}
@@ -36,7 +38,7 @@ data:
 {{- $turnUrls = append $turnUrls (trim .) }}
 {{- end }}
 {{- end }}
-{{ .Files.Get "configs/vst-config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__SYNC_FILE_COUNT__" (printf "%d" (int $syncCount)) | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | replace "__SERVER_DOMAIN_NAME__" (include "vss-vios-nvstreamer.fullname" .) | indent 4 }}
+{{ .Files.Get "configs/vst-config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__SYNC_FILE_COUNT__" (printf "%d" (int $syncCount)) | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | replace "__SERVER_DOMAIN_NAME__" (include "vss-vios-nvstreamer.fullname" .) | replace "__RTSP_SERVER_PORT__" (printf "%d" (int $rtspBasePort)) | replace "__RTSP_SERVER_INSTANCES_COUNT__" (printf "%d" (int $rtspInstanceCount)) | indent 4 }}
   notification_config.json: |
 {{ .Files.Get "configs/notification-config.json" | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__REDIS_ADDRESS__" $redisAddr | indent 4 }}
   vst_storage.json: |

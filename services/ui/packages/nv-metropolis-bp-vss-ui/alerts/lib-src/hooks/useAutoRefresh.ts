@@ -8,7 +8,7 @@
  * when the page is refreshed or the browser tab is closed.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
  * Configuration options for the useAutoRefresh hook
@@ -156,9 +156,13 @@ export const useAutoRefresh = ({
     saveToStorage(STORAGE_KEY_INTERVAL, intervalValue);
   }, [intervalValue, hydrated]);
 
-  const toggleEnabled = () => {
+  // Stable identity: this is a dependency of the memoized sidebar controls JSX,
+  // which AlertsComponent pushes to its parent from an effect. A fresh function
+  // every render makes that JSX new every render, so the effect refires, the
+  // parent re-renders, and the cycle never settles.
+  const toggleEnabled = useCallback(() => {
     setIsEnabled(prev => !prev);
-  };
+  }, []);
 
   return {
     isEnabled,

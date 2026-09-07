@@ -1,0 +1,37 @@
+[
+  {
+    "id": "amc-deploy",
+    "question": "Deploy auto calibration.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Loads vss-generate-video-calibration and walks the deploy reference: runs the platform preflight first, confirms the NGC key can access the AMC images before bringing the stack up, brings up vss-auto-calibration plus its UI, and verifies the microservice is ready at /v1/ready.",
+    "expected_behavior": [
+      "Loads the vss-generate-video-calibration skill and its deploy reference.",
+      "Runs the AMC platform preflight before NGC/image/compose work, checks Ubuntu 24.04, x86_64, Driver 590+, non-root Docker, NVIDIA Container Toolkit, and NVENC compatibility, and stops to ask for existing/generated calibration artifacts or a supported calibration host if the preflight fails.",
+      "Verifies NGC access to the AMC images before docker compose up, brings up vss-auto-calibration and vss-auto-calibration-ui, and checks /v1/ready.",
+      "Does not print plaintext API tokens."
+    ]
+  },
+  {
+    "id": "amc-calibrate-videos",
+    "question": "Calibrate these videos in ~/warehouse/videos.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Routes to the videos mode: runs the AMC platform preflight before upload/calibration, discovers sorted MP4 files plus calibration settings / alignment / layout files in the directory; requires confirmed staging or rectification, runs VGGT first when ready, post-processes it, then runs AMC and post-processes again.",
+    "expected_behavior": [
+      "Routes to the videos mode of the calibration skill, runs the platform preflight before upload/calibration work, and stops instead of continuing automatically if the host is not supported.",
+      "Auto-detects the settings (including calibration_settings.json), alignment, and layout files when present.",
+      "Asks which detector to use (resnet vs transformer) when no settings file pins one, rather than silently defaulting.",
+      "Requires confirmed linear-media staging or completed UI rectification before calibration, starts or resumes VGGT first, post-processes both completed calibration methods, compares VGGT and AMC results, and confirms the resolved plan before starting calibration."
+    ]
+  },
+  {
+    "id": "amc-calibrate-rtsp",
+    "question": "Calibrate these live RTSP camera streams.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Routes to the RTSP mode: runs the AMC platform preflight first, confirms VIOS is reachable, starts one all-camera capture via /v1/rtsp/capture, polls automatic ingest until INGESTED without a manual ingest endpoint, and only then runs VGGT/post-process followed by AMC/post-process and result comparison.",
+    "expected_behavior": [
+      "Routes to the RTSP mode of the calibration skill.",
+      "Runs the platform preflight before VIOS probing/capture and stops instead of continuing automatically if the host is not supported.",
+      "Uses /v1/rtsp/capture, polls automatic ingest until INGESTED, stages or rectifies media, starts or resumes VGGT before AMC, post-processes each completed method, and compares both results."
+    ]
+  }
+]

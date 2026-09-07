@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Re-export all components from nv-metropolis-bp-vss-ui packages
-export { AlertsComponent, Controls as AlertsControls, CreateAlertRulesView } from '@nv-metropolis-bp-vss-ui/alerts';
+export { AlertsComponent, AlertsSidebarControls as AlertsControls, CreateAlertRulesView } from '@nv-metropolis-bp-vss-ui/alerts';
 export type {
   AlertsComponentProps,
   AlertsSidebarControlHandlers,

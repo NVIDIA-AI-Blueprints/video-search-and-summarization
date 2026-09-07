@@ -39,7 +39,7 @@
 
 Surface this topic-level flow in the architecture preview (SKILL.md step 6
 requires principal data flows and topics); it is authoritatively defined in
-`skills/vss-setup-behavior-analytics/references/integrate-behavior-analytics-service.md`.
+`skills/deployment/vss-setup-behavior-analytics/references/integrate-behavior-analytics-service.md`.
 
 - Detection: `perception-2d-fusion -> mdx-raw`.
 - Embeddings: `rtvi-embed -> mdx-embed -> vss-search-analytics-2d-fusion ->

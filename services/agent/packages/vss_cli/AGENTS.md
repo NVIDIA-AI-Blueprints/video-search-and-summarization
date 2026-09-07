@@ -25,7 +25,7 @@ This file covers what is specific to the CLI's own surface.
 
 ## The two shapes
 
-**Job groups** — `search`, `summarize`. Work that runs a model and produces
+**Job groups** — `search`, `summarize`, `vlm`. Work that runs a model and produces
 evidence. Every `run` mints a `job_id` and persists a record, so the result is
 retrievable afterwards by that id:
 
@@ -85,7 +85,7 @@ vss vios add --type video /path/to/clip.mp4         # if absent; the filename be
 Uploaded filenames must have no whitespace — the filename *is* the sensor name.
 The CLI rejects a bad one locally rather than spending the upload first.
 
-## `vss search` and `vss summarize`
+## `vss search`, `vss summarize`, and `vss vlm`
 
 ```bash
 vss search run "forklift near the loading dock" [--limit N]
@@ -93,12 +93,37 @@ vss search get --job-id <id>
 
 vss summarize run --video-uri <uri> --prompt "..." --timeout <seconds>
 vss summarize get --job-id <id>
+
+vss vlm run --sensor NAME --start-time <ISO-UTC> --end-time <ISO-UTC> --prompt "..."
+vss vlm get --job-id <id>
 ```
 
 If a preflight fails, report its error and stop. Do not fall back to calling
-Elasticsearch, the embedding NIM, or the agent API directly — a hand-built query
+Elasticsearch, the embedding service, or the agent API directly — a hand-built query
 that returns *something* is worse than a clean failure, because nothing
 downstream can tell it was improvised.
+
+## `vss memory` — recall
+
+```bash
+vss memory query --query "..." [--mode keyword|semantic|hybrid]
+vss memory introspect --query "..." --sensor NAME
+vss memory embeddings backfill [--dry-run]
+```
+
+Text queries use the configured retrieval mode — `hybrid` whenever embeddings
+are enabled, fusing the keyword and semantic rankings client-side. Asking for a
+semantic mode with embeddings disabled warns on stderr and answers from keyword
+retrieval rather than failing. Lookups by identity embed nothing and stay
+deterministic: `get`, a `query` with no `--query`, and an introspection scoped
+by `--job-id` or `--record-id`.
+
+Canonical Elasticsearch memory remains authoritative. Vectors live in a
+versioned companion index, and authoritative records carry only
+`output.embedding` references to it. The CLI runs no model — by default it
+reuses the OpenClaw Gateway's `openclaw/default` target, while an explicitly
+configured OpenAI-compatible service can be used instead. Policy, prerequisites,
+and the backfill contract are in [MEMORY.md](MEMORY.md).
 
 ## Rules
 
@@ -113,7 +138,7 @@ once there because they are not specific to this package, and two copies drift.
 The CLI covers the operations agents actually need. VIOS's full REST surface —
 WebRTC session control, the proxy, recorder configuration, network scan, device
 settings — is documented in
-`skills/vss-manage-video-io-storage/references/api-reference.md` and is reached
+`skills/operations/vss-manage-video-io-storage/references/api-reference.md` and is reached
 with `curl`. That is also the right tool when you are debugging VIOS itself: when
 the question is *why* the service is failing, a wrapper over it tells you less
 than the status code does.

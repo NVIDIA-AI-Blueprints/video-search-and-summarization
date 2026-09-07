@@ -45,6 +45,11 @@ jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
 fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
+> **Warehouse needs a data-plane check, not just Gate 0.** Every container can
+> report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the
+> liveness checks in [`profiles/warehouse.md`](profiles/warehouse.md) before
+> declaring a warehouse deploy done.
+
 ## Step 2 — probe the profile's documented readiness endpoints
 
 Container state alone isn't enough — the processes inside may still be
@@ -90,10 +95,27 @@ snapshot again, and confirm every one increased:
 # broker's INTERNAL listener localhost:29092 — the same bootstrap the shipped
 # healthcheck uses; no host port and nothing to read from resolved.yml:
 docker compose -f "$BUILD_DIR/resolved.yml" exec -T kafka \
-  kafka-get-offsets --bootstrap-server localhost:29092 --topic mdx-raw --time -1
+  kafka-get-offsets --bootstrap-server localhost:29092 --topic "$TOPIC" --time -1
 # Fallbacks if that binary is absent: `kafka-run-class kafka.tools.GetOffsetShell`,
 # or `kafka-consumer-groups --describe` and read each partition's LOG-END-OFFSET.
 ```
+
+**Pick `$TOPIC` from the build's perception mode — the topic a healthy stack
+advances is not the same one in every build.** `mdx-raw` is the 2D detector's
+output; on a warehouse `MODE=3d` build it stays flat at `0` forever while the
+stack is perfectly healthy, so snapshotting it reports a dead data plane on a
+working deployment. There is no universal topic to poll:
+
+| Build | Perception topic | Analytics topics |
+|---|---|---|
+| Warehouse `MODE=2d`, Alerts, Search (RT-CV 2D) | `mdx-raw` | `mdx-behavior`, `mdx-incidents` |
+| Warehouse `MODE=3d` (Sparse4D / MV3DT) | `mdx-bev` | `mdx-behavior`, `mdx-incidents` |
+
+Confirm rather than assume: `kafka-topics --bootstrap-server localhost:29092
+--list` shows every topic the build created (a warehouse stack creates ~20
+regardless of mode, so presence proves nothing), and only the offset delta
+proves which one is advancing. When a check names specific topics, snapshot
+each of those.
 
 `kafka-console-consumer` only shows that *some* messages exist; it gives no
 stable before/after end-offset delta, so it cannot prove a topic advanced for a

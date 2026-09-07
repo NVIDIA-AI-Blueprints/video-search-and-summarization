@@ -201,7 +201,8 @@ class TestProcessSingleMessageUsesSuppliedStamp:
 
         captured = {}
 
-        def _capture(worker_start_time, message, latency, failure_reason=None):
+        def _capture(worker_start_time, message, latency, failure_reason=None,
+                     span_handle=None, pipeline_mode=None):
             captured["latency"] = latency
 
         monkeypatch.setattr(eavw, "record_event_complete", _capture)
@@ -235,7 +236,8 @@ class TestProcessSingleMessageUsesSuppliedStamp:
 
         captured = {}
 
-        def _capture(worker_start_time, message, latency, failure_reason=None):
+        def _capture(worker_start_time, message, latency, failure_reason=None,
+                     span_handle=None, pipeline_mode=None):
             captured["latency"] = latency
 
         monkeypatch.setattr(eavw, "record_event_complete", _capture)

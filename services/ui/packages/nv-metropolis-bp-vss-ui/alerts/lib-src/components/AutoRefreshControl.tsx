@@ -37,7 +37,9 @@ interface AutoRefreshControlProps {
   controlsDisabled?: boolean;
   onToggle: () => void;
   onIntervalChange: (milliseconds: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  /** Render in the left sidebar instead of as a header popover. */
+  inline?: boolean;
 }
 
 // Quick preset values: [milliseconds, label] 
@@ -149,17 +151,17 @@ type ToggleRowProps = Readonly<{
 
 function toggleThumbTranslateClass(isEnabled: boolean): string {
   if (isEnabled) {
-    return 'translate-x-9';
+    return 'translate-x-5';
   }
-  return 'translate-x-1';
+  return 'translate-x-0.5';
 }
 
 function AutoRefreshToggleRow({ isDark, isEnabled, settingsLocked, onToggle }: ToggleRowProps) {
   const trackClass = toggleTrackBackgroundClass(isEnabled, isDark);
   const thumbClass = toggleThumbTranslateClass(isEnabled);
   return (
-    <div className="flex items-center justify-between">
-      <div>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <div className="min-w-0 flex-1">
         <span
           id="alerts-auto-refresh-heading"
           className={`block text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}
@@ -170,6 +172,8 @@ function AutoRefreshToggleRow({ isDark, isEnabled, settingsLocked, onToggle }: T
           Automatically refresh data at intervals
         </span>
       </div>
+      {/* shrink-0 keeps the track at its full width: the thumb offset is fixed,
+          so a squeezed track would push the thumb past the rounded edge. */}
       <button
         id="alerts-auto-refresh-switch"
         type="button"
@@ -177,18 +181,18 @@ function AutoRefreshToggleRow({ isDark, isEnabled, settingsLocked, onToggle }: T
         onClick={() => {
           if (!settingsLocked) onToggle();
         }}
-        className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${trackClass}`}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${trackClass}`}
         role="switch"
         aria-checked={isEnabled}
         aria-labelledby="alerts-auto-refresh-heading"
       >
         <span
-          className={`inline-flex h-6 w-6 transform rounded-full bg-white transition items-center justify-center ${thumbClass}`}
+          className={`inline-flex h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out items-center justify-center ${thumbClass}`}
         >
           {isEnabled ? (
-            <IconPlayerPlay className="w-3 h-3 text-green-600" />
+            <IconPlayerPlay className="w-2.5 h-2.5 text-green-600" />
           ) : (
-            <IconPlayerPause className="w-3 h-3 text-gray-600" />
+            <IconPlayerPause className="w-2.5 h-2.5 text-gray-600" />
           )}
         </span>
       </button>
@@ -286,8 +290,9 @@ type UseAutoRefreshPanelArgs = Readonly<{
   isOpen: boolean;
   interval: number;
   controlsDisabled: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   onIntervalChange: (milliseconds: number) => void;
+  inline: boolean;
 }>;
 
 function useAutoRefreshPanelState({
@@ -296,6 +301,7 @@ function useAutoRefreshPanelState({
   controlsDisabled,
   onClose,
   onIntervalChange,
+  inline,
 }: UseAutoRefreshPanelArgs) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -303,16 +309,18 @@ function useAutoRefreshPanelState({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!isOpen || !inputRef.current) {
+    if (!isOpen) {
       return;
     }
-    inputRef.current.focus();
     setTempValue(interval.toString());
     setError('');
-  }, [isOpen, interval]);
+    if (!inline && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen, interval, inline]);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || inline || !onClose) {
       return undefined;
     }
     const handleClickOutside = (event: MouseEvent) => {
@@ -331,7 +339,7 @@ function useAutoRefreshPanelState({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscapeKey);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, inline]);
 
   const handleInputChange = useCallback(
     (value: string) => {
@@ -362,6 +370,7 @@ export const AutoRefreshControl: React.FC<Readonly<AutoRefreshControlProps>> = (
   onToggle,
   onIntervalChange,
   onClose,
+  inline = false,
 }) => {
   const { containerRef, inputRef, tempValue, error, handleInputChange } = useAutoRefreshPanelState({
     isOpen,
@@ -369,17 +378,21 @@ export const AutoRefreshControl: React.FC<Readonly<AutoRefreshControlProps>> = (
     controlsDisabled,
     onClose,
     onIntervalChange,
+    inline,
   });
 
   if (!isOpen) return null;
 
   const settingsLocked = controlsDisabled;
   const inputDisabled = settingsLocked || !isEnabled;
+  const panelClass = inline
+    ? 'relative w-full'
+    : modalShellClassName(isDark);
 
   return (
-    <div ref={containerRef} className={modalShellClassName(isDark)}>
-      <AutoRefreshModalHeader isDark={isDark} onClose={onClose} />
-      <div className="p-4">
+    <div ref={containerRef} className={panelClass}>
+      {!inline && onClose && <AutoRefreshModalHeader isDark={isDark} onClose={onClose} />}
+      <div className={inline ? 'pt-1' : 'p-4'}>
         <div className="space-y-4">
           {settingsLocked && <LockedSettingsNotice isDark={isDark} />}
           <AutoRefreshToggleRow

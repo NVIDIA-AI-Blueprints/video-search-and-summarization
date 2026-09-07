@@ -6,16 +6,16 @@ position: 1
 The **Real Time Video Intelligence CV Microservice** leverages [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to generate metadata for each stream that downstream microservices can use to generate spatial metrics and alerts.
 
 The microservice features `metropolis-perception-app`, a DeepStream pipeline that builds on the built-in [deepstream-test5 app](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) in the DeepStream SDK.
-This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema ](/vss/system-components/middleware/nvschema/protobuf-schema).
+This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema](/vss/system-components/middleware/nvschema/protobuf-schema).
 
 The application features a modular architecture that integrates preprocessing plugins and RT-DETR (Real-Time Detection Transformer), specifically designed for 2D single-camera object detection and tracking in warehouse environments.
 
-RT-DETR is an advanced real-time detection transformer that generates precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment. The model features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments. Refer to the [TAO RT-DETR fine-tuning ](/vss/system-components/models/rt-detr-2d-warehouse-detection) page for more details on the model architecture and training process.
+RT-DETR is an advanced real-time detection transformer that generates precise 2D bounding boxes for diverse objects including people, humanoid robots, autonomous vehicles, and warehouse equipment. The model features a ResNet-50 backbone, pretrained on warehouse scene datasets for accurate 2D object detection in industrial environments. Refer to the [TAO RT-DETR fine-tuning](/vss/system-components/models/rt-detr-2d-warehouse-detection) page for more details on the model architecture and training process.
 
 The pipeline ingests single-camera video streams, performs real-time 2D object detection, and utilizes DeepStream's tracking capabilities to maintain object identity across frames.
 Detection results include 2D bounding boxes, class labels, confidence scores, and instance IDs, enabling sophisticated tracking and analytics capabilities.
 
-For detailed information on all components, APIs, and customization options, refer to the [../object-detection-tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
+For detailed information on all components, APIs, and customization options, refer to the [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
 
 The diagram below shows the perception pipeline used in the microservice:
 
@@ -46,7 +46,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 | Parameter | Description | Default Value |
 | --- | --- | --- |
 | `onnx-file` | Path to the ONNX model file | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx` |
-| `model-engine-file` | Path to the TensorRT engine file (stored under the `$VSS_DATA_DIR/models/mtmc/` mount at `/opt/storage/`) | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b4_gpu0_fp16.engine` |
+| `model-engine-file` | Path to the TensorRT engine file (stored under the `$VSS_DATA_DIR/models/mtmc/` mount at `/opt/storage/`). The configurator replaces the batch suffix with the final stream count. | `/opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b<stream-count>_gpu0_fp16.engine` |
 | `labelfile-path` | Path to the object class labels file | `ds-detector-labels.txt` |
 | `gpu-id` | GPU ID to use for inference | `0` |
 | `network-mode` | Precision mode (0=FP32, 1=INT8, 2=FP16) | `2` |
@@ -54,7 +54,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 | `interval` | Inference interval (process every Nth frame) | `0` |
 | `gie-unique-id` | Unique ID for the inference engine | `1` |
 | `network-type` | Type of detection network (0=Detector) | `0` |
-| `cluster-mode` | Clustering algorithm (1=DBSCAN, 2=NMS, 3=DBSCAN+NMS, 4=None) | `4` |
+| `cluster-mode` | Clustering algorithm (1=DBSCAN, 2=NMS, 3=DBSCAN+NMS, 4=None) | `2` |
 
 #### Input/Output Properties
 
@@ -63,7 +63,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 | `net-scale-factor` | Scaling factor for preprocessing (1/255) | `0.00392156862745098` |
 | `model-color-format` | Input color format (0=RGB, 1=BGR) | `0` |
 | `infer-dims` | Input dimensions (C;H;W) | `3;640;640` |
-| `maintain-aspect-ratio` | Maintain aspect ratio during preprocessing | `1` |
+| `maintain-aspect-ratio` | Maintain aspect ratio during preprocessing | `0` |
 | `offsets` | Mean subtraction offsets for preprocessing | `0;0;0` |
 | `output-tensor-meta` | Enable output tensor metadata | `1` |
 | `output-blob-names` | Names of output tensors from the model | `pred_boxes;pred_logits` |
@@ -320,4 +320,4 @@ property:
   output-blob-names: pred_boxes;pred_logits  # TAO RT-DETR default output names
 ```
 
-After making these changes, restart the Perception microservice for the changes to take effect. For detailed instructions on fine-tuning RT-DETR models via TAO Toolkit, refer to the [TAO RT-DETR fine-tuning ](/vss/system-components/models/rt-detr-2d-warehouse-detection) page.
+After making these changes, restart the Perception microservice for the changes to take effect. For detailed instructions on fine-tuning RT-DETR models via TAO Toolkit, refer to the [TAO RT-DETR fine-tuning](/vss/system-components/models/rt-detr-2d-warehouse-detection) page.

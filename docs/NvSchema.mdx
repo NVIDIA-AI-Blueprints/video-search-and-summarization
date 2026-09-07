@@ -3,9 +3,10 @@ title: "NvSchema"
 description: ""
 position: 4
 ---
-NvSchema can be defined in the following two formats.
+NvSchema can be defined in the following two formats. Only one may be used for a given deployment (default: Protobuf).
 
-Only one may be used for a given deployment (default: Protobuf).
+- [JSON Schema](/vss/system-components/middleware/nvschema/json-schema)
+- [Protobuf Schema](/vss/system-components/middleware/nvschema/protobuf-schema)
 
 ## Introduction
 
@@ -430,18 +431,13 @@ Imagine Thing 1 and Thing 2 need to be now combined in a new container
 For any container that needs to contain multiple Things, define a new
 Thing class.
 
- ```text
- ```
-
-   Thing Object,
-
-   Object.ID=3
-
-   Object.Thingtype=Composite
-
-   Object.Join (1,3) # Thing 3 now includes Thing 1
-
-   Object.Join (2,3) # Thing 3 now includes Thing 2
+```text
+Thing Object,
+Object.ID=3
+Object.Thingtype=Composite
+Object.Join (1,3) # Thing 3 now includes Thing 1
+Object.Join (2,3) # Thing 3 now includes Thing 2
+```
 
 If Thing 2 now has to leave the container:
 

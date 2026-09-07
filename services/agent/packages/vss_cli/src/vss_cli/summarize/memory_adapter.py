@@ -56,7 +56,11 @@ class SummaryAdapter(LifecycleAdapter):
         sensors: list[SensorInfo] | None = None
         if video_id:
             info = dict(media_ref or {})
-            sensors = [SensorInfo(id=str(video_id), type=str(info.get("source") or "video"), info=info or None)]
+            # Sensor ids are recall handles, so persist the readable VIOS name
+            # there and keep backend video/stream/sensor identifiers as details.
+            sensor_name = str(info.get("name") or video_id).strip()
+            info.setdefault("video_id", str(video_id))
+            sensors = [SensorInfo(id=sensor_name, type=str(info.get("source") or "video"), info=info or None)]
         return MemoryInput(
             query=prompt,
             intent=intent,
@@ -154,12 +158,15 @@ class SummaryAdapter(LifecycleAdapter):
             prefix="evt",
             digest_payload=_event_digest_payload(event),
         )
-        sensor_id = (
-            str(event.get("sensor_id") or event.get("camera_id") or event.get("video_id") or "").strip()
+        sensor_name = (
+            str(event.get("name") or event.get("sensor_name") or event.get("video_name") or "").strip()
             or default_sensor_id
         )
+        sensor_info = {
+            key: event[key] for key in ("sensor_id", "camera_id", "stream_id", "video_id") if event.get(key) is not None
+        }
         child_input = MemoryInput(
-            sensors=[SensorInfo(id=sensor_id)] if sensor_id else None,
+            sensors=[SensorInfo(id=sensor_name, info=sensor_info or None)] if sensor_name else None,
             window=window_from_row(event),
         )
         answer = event.get("description") or event.get("summary") or event.get("answer") or event.get("text")

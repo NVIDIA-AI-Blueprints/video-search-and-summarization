@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-setup-video-analytics-api skill.
 
-This adapter handles specs under `skills/vss-setup-video-analytics-api/evals/`.
+This adapter handles specs under `skills/deployment/vss-setup-video-analytics-api/evals/`.
 The current spec (`standalone_deploy.json`) exercises the skill's
 **standalone-deploy** flow — pulling and starting `vss-video-analytics-api`
 via the service compose file at
@@ -36,7 +36,7 @@ Directory layout (one spec → one task per platform key):
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-setup-video-analytics-api/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-setup-video-analytics-api \\
-        --skill-dir skills/vss-setup-video-analytics-api
+        --skill-dir skills/deployment/vss-setup-video-analytics-api
 
 Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
@@ -416,7 +416,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--skill-dir", required=True,
-        help="Path to skills/vss-setup-video-analytics-api",
+        help="Path to skills/deployment/vss-setup-video-analytics-api",
     )
     parser.add_argument(
         "--spec", default=None,

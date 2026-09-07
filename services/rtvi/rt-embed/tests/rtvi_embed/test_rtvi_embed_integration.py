@@ -406,6 +406,8 @@ class TestCvStreamApiIntegration:
         add_data = resp.json()
         assert add_data["camera_id"] == camera_id
         assert "asset_id" in add_data
+        # asset_id is reused from camera_id, not a server-generated UUID.
+        assert add_data["asset_id"] == camera_id
         assert add_data["status"] in ("added", "processing")
         assert isinstance(add_data["inference"], bool)
         asset_id = add_data["asset_id"]

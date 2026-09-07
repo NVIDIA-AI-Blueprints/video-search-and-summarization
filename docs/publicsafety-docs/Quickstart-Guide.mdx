@@ -20,7 +20,7 @@ The deployment includes:
 
 - CV perception pipeline for tailgating detection
 - Cosmos3 Nano Reasoner for VLM-based verification of alerts
-- Nemotron Nano 9B v2 for Agent natural language interaction
+- Nemotron 3.5 Lightning 30B A3B for Agent natural language interaction
 - API access
 - Kibana dashboard
 - Kafka event streams
@@ -203,10 +203,8 @@ To use remote NIM endpoints, modify the `public-safety/.env` file:
 # Set VLM_BASE_URL=http://<remote-host>:<vlm-port>
 #
 # Set LLM_NAME based on the provided remote LLM endpoint to any of
-# - LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
-# - LLM_NAME=nvidia/nemotron-3-nano
-# - LLM_NAME=nvidia/llama-3.3-nemotron-super-49b-v1.5
-# - LLM_NAME=openai/gpt-oss-20b
+# - LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
+# - LLM_NAME=nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
 #
 # Set VLM_NAME based on the provided remote VLM endpoint to any of
 # - VLM_NAME=nvidia/cosmos3-nano-reasoner

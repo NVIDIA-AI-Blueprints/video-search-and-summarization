@@ -357,6 +357,173 @@ class TestRequestOptionsContext:
         assert "Request options context" in captured["system"]
 
     @pytest.mark.asyncio
+    async def test_failed_tool_call_cannot_be_marked_complete(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="1. [x] Fabricated successful result."))
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="What happened in warehouse_safety_001?"),
+            plan="1. [ ] Call `video_understanding` to analyze the video.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding",
+                            "args": {
+                                "sensor_id": "warehouse_safety_001",
+                                "start_timestamp": "None",
+                                "end_timestamp": "None",
+                            },
+                            "id": "call_1",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding",
+                    tool_call_id="call_1",
+                    content="Tool call failed: invalid timestamp",
+                ),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_not_awaited()
+        assert result.plan.startswith("1. [ ] Call `video_understanding`")
+        assert "1. [x]" not in result.plan
+        assert "Tool call failed: invalid timestamp" in result.plan
+        assert result.agent_scratchpad == []
+        assert any("Updated Plan" in chunk.content for chunk in chunks)
+
+    @pytest.mark.asyncio
+    async def test_error_status_cannot_be_marked_complete(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="1. [x] Fabricated successful result."))
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="Run the calculation."),
+            plan="1. [ ] Call `python_executor`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling python executor",
+                    tool_calls=[{"name": "python_executor", "args": {"code": "raise Error"}, "id": "call_1"}],
+                ),
+                ToolMessage(
+                    name="python_executor",
+                    tool_call_id="call_1",
+                    content="message='Error: process exited with status 1' success=False",
+                    status="error",
+                ),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_not_awaited()
+        assert result.plan.startswith("1. [ ] Call `python_executor`")
+        assert "1. [x]" not in result.plan
+        assert "Error: process exited with status 1" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_mixed_results_preserve_plan_without_llm_rewrite(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content=(
+                    "1. [x] Inspect camera one. Result: A worker climbed a green ladder.\n"
+                    "2. [x] Inspect camera two. Result: An unsupported incident."
+                )
+            )
+        )
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="What happened on both cameras?"),
+            plan="1. [ ] Inspect camera one.\n2. [ ] Inspect camera two.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {"name": "video_understanding", "args": {"sensor_id": "camera_one"}, "id": "call_1"},
+                        {"name": "video_understanding", "args": {"sensor_id": "camera_two"}, "id": "call_2"},
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding",
+                    tool_call_id="call_1",
+                    content="A worker climbed a green ladder.",
+                ),
+                ToolMessage(
+                    name="video_understanding",
+                    tool_call_id="call_2",
+                    content="Tool call failed: invalid timestamp",
+                    status="error",
+                ),
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_not_awaited()
+        assert "1. [ ] Inspect camera one." in result.plan
+        assert "2. [ ] Inspect camera two." in result.plan
+        assert "A worker climbed a green ladder." in result.plan
+        assert "Tool call failed: invalid timestamp" in result.plan
+        assert "unsupported incident" not in result.plan
+
+    @pytest.mark.parametrize(
+        "tool_response",
+        [
+            SimpleNamespace(message="Error: process exited with status 1", success=False),
+            SimpleNamespace(message="Video analysis was cancelled", status="aborted"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_tool_node_marks_structured_failure_as_error(self, monkeypatch, tool_response):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class FailedTool:
+            args_schema = None
+
+            async def astream(self, input, config=None):
+                yield tool_response
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"python_executor": FailedTool()}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling python executor",
+                    tool_calls=[{"name": "python_executor", "args": {"code": "raise Error"}, "id": "call_1"}],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        result = state.agent_scratchpad[-1]
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert not str(result.content).startswith("Tool call failed:")
+
+    @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)

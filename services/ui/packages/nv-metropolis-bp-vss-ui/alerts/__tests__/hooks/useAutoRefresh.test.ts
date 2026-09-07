@@ -220,6 +220,19 @@ describe('useAutoRefresh', () => {
     expect(onRefresh).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps toggleEnabled identity stable across renders', () => {
+    const onRefresh = jest.fn();
+    const { result, rerender } = renderHook(() =>
+      useAutoRefresh({ onRefresh, defaultInterval: 1000 })
+    );
+
+    // AlertsComponent feeds this into the memoized sidebar controls JSX it pushes
+    // to its host from an effect; a fresh function per render loops that push.
+    const first = result.current.toggleEnabled;
+    rerender();
+    expect(result.current.toggleEnabled).toBe(first);
+  });
+
   it('continues auto-refresh chain when onRefresh throws', async () => {
     const onRefresh = jest.fn()
       .mockRejectedValueOnce(new Error('Network error'))

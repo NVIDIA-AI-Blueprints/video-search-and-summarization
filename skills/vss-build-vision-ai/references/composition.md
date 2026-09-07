@@ -24,8 +24,11 @@ Current Foundations:
 - `lvs`
 - `search`
 
-Use only developer profiles. Do not route warehouse or industry profiles through
-this workflow.
+Use only developer profiles here. The `warehouse` industry blueprint is **not**
+composed as a delta — it selects one of nine validated service lists — and is
+documented end to end in [`profiles/warehouse.md`](profiles/warehouse.md),
+including its own env layers, artifacts and resolve pipeline. Do not route
+warehouse or another industry profile through the rules below.
 
 ## Select the foundation
 

@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Example override for an RTVI-Embed pod on one MIG slice. Apply this together
+# with overrides_rtvi_embed.yaml, changing the resource name to one advertised
+# by the NVIDIA Kubernetes device plugin on the target cluster:
+#
+#   helm upgrade --install vss-rtvi-embed . -n <ns> \
+#     -f overrides_rtvi_embed.yaml -f overrides_rtvi_embed_mig.yaml
+#
+# This chart deliberately does not set NVIDIA_VISIBLE_DEVICES. The Kubernetes
+# NVIDIA device plugin injects the allocated full GPU or MIG device. RTVI-Embed
+# then uses it as logical CUDA device 0.
+
+gpuResourceName: "nvidia.com/mig-3g.40gb"

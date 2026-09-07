@@ -225,7 +225,7 @@ _SLUG = "vss-deploy-profile__search__RTXPRO6000BW"
 _LEG = {
     "eval_kind": "eval",
     "eval_skill": "vss-deploy-profile",
-    "eval_spec_path": "skills/vss-deploy-profile/evals/search.json",
+    "eval_spec_path": "skills/deployment/vss-deploy-profile/evals/search.json",
     "eval_platform": "RTXPRO6000BW",
     "eval_slug": _SLUG,
     "eval_spec_stem": "search",

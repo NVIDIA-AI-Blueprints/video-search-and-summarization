@@ -220,6 +220,7 @@ start_rtvi_server() {
     fi
 
     EXTRA_ARGS="$RTVI_EXTRA_ARGS"
+    IPC_ARGS=()
     if [ "$ENABLE_AUDIO" = true ]; then
         EXTRA_ARGS+=" --enable-audio"
     fi
@@ -256,6 +257,10 @@ start_rtvi_server() {
     if [ ! -z "$MODEL_REPOSITORY_SCRIPT_PATH" ]; then
         EXTRA_ARGS+=" --model-repository-script-path $MODEL_REPOSITORY_SCRIPT_PATH"
     fi
+    ipc_frame_copy=$(echo "${RTVI_IPC_FRAME_COPY:-false}" | tr '[:upper:]' '[:lower:]')
+    if [ "$ipc_frame_copy" = "true" ] || [ "$ipc_frame_copy" = "1" ] || [ "$ipc_frame_copy" = "yes" ] || [ "$ipc_frame_copy" = "on" ]; then
+        IPC_ARGS+=(--ipc-frame-copy)
+    fi
 
     # Generated-message output bus configuration.
     if [ ! -z "$MESSAGE_BUS" ]; then
@@ -278,7 +283,7 @@ start_rtvi_server() {
         --vlm-model-type $VLM_MODEL_TO_USE \
         --vlm-batch-size $VLM_BATCH_SIZE \
         --asset-dir $ASSET_STORAGE_DIR --num-decoders-per-gpu $(( NUM_NVDEC_ENGINES + 1)) \
-        $EXTRA_ARGS &
+        $EXTRA_ARGS "${IPC_ARGS[@]}" &
     check_rtvi_process_status
 }
 

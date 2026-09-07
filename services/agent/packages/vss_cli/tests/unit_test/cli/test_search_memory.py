@@ -202,6 +202,10 @@ def test_persisted_search_parent_and_children(search_group: SearchGroup) -> None
     assert children[0].output is not None
     assert children[0].output.ext is not None
     assert "rank" in children[0].output.ext
+    assert children[0].input is not None
+    assert children[0].input.sensors is not None
+    assert children[0].input.sensors[0].id == "warehouse"
+    assert children[0].input.sensors[0].info == {"sensor_id": "warehouse-camera"}
     assert result.body["data"][0]["description"] == "hit 1"
 
 

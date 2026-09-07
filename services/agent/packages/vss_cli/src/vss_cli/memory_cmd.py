@@ -9,10 +9,13 @@ the underlying parent/child store across groups.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import sys
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import cast
 
 import click
 from pydantic import ValidationError
@@ -22,9 +25,17 @@ from . import memory as memory_mod
 from .exits import Exit
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+    from collections.abc import Callable
+
     from vss_cli.memory import Memory
+    from vss_core.introspection import IntrospectionRequest
+    from vss_core.introspection import IntrospectionResult
+    from vss_core.memory.models import MemoryGroup
+    from vss_core.memory.models import RecordType
 
 _TEST_MEMORY: Memory | None = None
+_TEST_INTROSPECT: Callable[[IntrospectionRequest], Awaitable[IntrospectionResult]] | None = None
 
 
 def set_test_memory(memory: Memory | None) -> None:
@@ -33,14 +44,37 @@ def set_test_memory(memory: Memory | None) -> None:
     _TEST_MEMORY = memory
 
 
-def _memory() -> Memory:
+def set_test_introspect(
+    function: Callable[[IntrospectionRequest], Awaitable[IntrospectionResult]] | None,
+) -> None:
+    """Inject the complete workflow boundary for hermetic CLI tests."""
+    global _TEST_INTROSPECT
+    _TEST_INTROSPECT = function
+
+
+def _memory(
+    deployment: config_mod.Deployment | None = None,
+    *,
+    discover_dimensions: bool = True,
+) -> Memory:
     if _TEST_MEMORY is not None:
         return _TEST_MEMORY
-    return memory_mod.build(config_mod.load())
+    memory = memory_mod.build(deployment or config_mod.load(), discover_dimensions=discover_dimensions)
+    context = click.get_current_context(silent=True)
+    if context is not None:
+        context.call_on_close(memory.close)
+    return memory
 
 
 def _emit(value: Any, *, pretty: bool) -> None:
-    click.echo(json.dumps(value, indent=2 if pretty else None, default=str))
+    click.echo(
+        json.dumps(
+            value,
+            indent=2 if pretty else None,
+            separators=None if pretty else (",", ":"),
+            default=str,
+        )
+    )
 
 
 def _fail(prefix: str, error: BaseException, exit_code: Exit) -> None:
@@ -67,6 +101,96 @@ def _read_failure(error: BaseException) -> None:
 def _output_options(function: Any) -> Any:
     function = click.option("--pretty", is_flag=True, help="Indent JSON output.")(function)
     return function
+
+
+def _exception_exit(error: BaseException) -> Exit:
+    if isinstance(error, (config_mod.ConfigError, memory_mod.MemoryUnavailable)):
+        return Exit.CONFIGURATION
+    names = {klass.__name__ for klass in type(error).__mro__}
+    if "ConfigurationError" in names:
+        return Exit.CONFIGURATION
+    if names & {
+        "BackendUnreachableError",
+        "ConnectError",
+        "ConnectTimeout",
+        "HTTPStatusError",
+        "ReadTimeout",
+        "VSTError",
+        "VIOSTimeoutError",
+    }:
+        return Exit.BACKEND_UNREACHABLE
+    if isinstance(error, (ValidationError, ValueError)):
+        return Exit.INVALID_INPUT
+    if isinstance(error, TimeoutError):
+        return Exit.TIMEOUT
+    return Exit.ERROR
+
+
+async def _execute_introspection(request: IntrospectionRequest) -> tuple[IntrospectionResult, Exit]:
+    if _TEST_INTROSPECT is not None:
+        result = await _TEST_INTROSPECT(request)
+        if result.failure_kind == "timeout":
+            return result, Exit.TIMEOUT
+        if result.failure_kind == "backend_unreachable":
+            return result, Exit.BACKEND_UNREACHABLE
+        return result, Exit.NOT_FOUND if result.status == "no_memory" else Exit.SUCCESS
+
+    from vss_cli.memory_policy import effective_persist
+    from vss_cli.vlm.runner import IntrospectionVLMJobRunner
+    from vss_core.introspection import IntrospectionSettings
+    from vss_core.introspection import OpenAIIntrospectionClient
+    from vss_core.introspection import introspect
+
+    deployment = config_mod.load()
+    memory_config = deployment.memory
+    if memory_config is None or memory_config.introspection is None:
+        raise config_mod.ConfigError(
+            "memory introspection judge is not configured; run `vss configure memory introspection`"
+        )
+    judge_config = memory_config.introspection.judge
+    api_key: str | None = None
+    if judge_config.api_key_env is not None:
+        api_key = os.environ.get(judge_config.api_key_env, "")
+        if not api_key.strip():
+            raise config_mod.ConfigError(
+                f"introspection judge credential environment variable {judge_config.api_key_env!r} is missing or empty"
+            )
+    memory = _memory(deployment)
+    client: OpenAIIntrospectionClient | None = None
+    try:
+        settings = IntrospectionSettings()
+        client = OpenAIIntrospectionClient(
+            base_url=judge_config.endpoint,
+            model=judge_config.model,
+            backend_model=judge_config.backend_model,
+            api_key=api_key,
+            criteria_prompt=judge_config.criteria_prompt,
+            settings=settings,
+        )
+        runner = IntrospectionVLMJobRunner(
+            deployment,
+            memory=memory if effective_persist(deployment, no_persist=False) else None,
+            timeout_seconds=settings.timeout_seconds,
+        )
+        result = await introspect(
+            request,
+            memory=memory.service,
+            judge=client,
+            synthesizer=client,
+            vlm_runner=runner,
+            settings=settings,
+        )
+    finally:
+        if client is not None:
+            await client.aclose()
+
+    if result.failure_kind == "timeout" or runner.timed_out:
+        return result, Exit.TIMEOUT
+    if result.failure_kind == "backend_unreachable" or runner.backend_errors:
+        return result, Exit.BACKEND_UNREACHABLE
+    if runner.persistence_errors:
+        return result, Exit.PARTIAL
+    return result, Exit.NOT_FOUND if result.status == "no_memory" else Exit.SUCCESS
 
 
 @click.group(name="memory")
@@ -127,6 +251,7 @@ def get_record(
 
 @memory.command("query")
 @click.option("--query", "text", default=None, help="Free-text match over memory content.")
+@click.option("--mode", type=click.Choice(("keyword", "semantic", "hybrid")), help="Override the retrieval strategy.")
 @click.option("--job-id")
 @click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
@@ -141,6 +266,7 @@ def get_record(
 @_output_options
 def query_records(
     text: str | None,
+    mode: str | None,
     job_id: str | None,
     group: str | None,
     status: str | None,
@@ -171,14 +297,117 @@ def query_records(
             until=until,
             time_field=time_field,
             limit=limit,
+            mode=mode,  # type: ignore[arg-type]
         )
-        records = _memory().service.query(query)
+        service = _memory().service
+        if mode in {"semantic", "hybrid"} and not service.semantic_retrieval_available:
+            click.echo(
+                "vss memory: warning: memory embeddings are disabled; falling back to keyword retrieval",
+                err=True,
+            )
+            query.mode = "keyword"
+        records = service.query(query)
     except ValueError as error:
         _fail("invalid input", error, Exit.INVALID_INPUT)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
     _emit({"records": [record.model_dump_memory() for record in records]}, pretty=pretty)
+
+
+@memory.group("embeddings")
+def embeddings() -> None:
+    """Manage derived memory embeddings."""
+
+
+@embeddings.command("backfill")
+@click.option(
+    "--batch-size",
+    type=click.IntRange(1),
+    default=None,
+    help="Records per backfill batch (default: configured embedding batch size).",
+)
+@click.option("--limit", type=click.IntRange(1), default=None, help="Maximum records to scan (default: all).")
+@click.option("--dry-run", is_flag=True, help="Scan eligibility without provider calls or writes.")
+@_output_options
+def backfill_embeddings(
+    batch_size: int | None,
+    limit: int | None,
+    dry_run: bool,
+    pretty: bool,
+) -> None:
+    """Backfill derived embeddings for all eligible memory records."""
+    try:
+        facade = _memory(discover_dimensions=not dry_run)
+        backfill = facade.embedding_backfill
+        configured_batch_size = facade.embedding_batch_size
+        if backfill is None or configured_batch_size is None:
+            raise config_mod.ConfigError(
+                "memory embeddings are disabled or incomplete; run `vss configure memory "
+                "--embeddings --embedding-endpoint http[s]://host[/v1]`"
+            )
+        result = backfill.run(
+            batch_size=batch_size or configured_batch_size,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except Exception as error:
+        _fail("embedding backfill failed", error, _exception_exit(error))
+        raise AssertionError("unreachable") from error
+    _emit(result.to_dict(), pretty=pretty)
+    if result.failed:
+        raise SystemExit(int(Exit.PARTIAL))
+
+
+@memory.command("introspect")
+@click.option("--query", required=True, help="Question to answer from stored memory.")
+@click.option("--sensor", help="Limit recall to one VIOS sensor name.")
+@click.option("--start-time", help="Inclusive ISO-8601 UTC window start.")
+@click.option("--end-time", help="Inclusive ISO-8601 UTC window end.")
+@click.option("--job-id")
+@click.option("--record-id")
+@click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
+@click.option("--group", type=click.Choice(("summary", "search", "alert")))
+@_output_options
+def introspect_memory(
+    query: str,
+    sensor: str | None,
+    start_time: str | None,
+    end_time: str | None,
+    job_id: str | None,
+    record_id: str | None,
+    record_type: str | None,
+    group: str | None,
+    pretty: bool,
+) -> None:
+    """Answer via the configured text judge and bounded RT-VLM follow-ups."""
+    try:
+        from vss_core.introspection import IntrospectionRequest
+
+        request = IntrospectionRequest(
+            query=query,
+            sensor=sensor,
+            start_time=start_time,
+            end_time=end_time,
+            job_id=job_id,
+            record_id=record_id,
+            record_type=cast("RecordType | None", record_type),
+            group=cast("MemoryGroup | None", group),
+        )
+        has_time_range = request.start_time is not None and request.end_time is not None
+        if not (request.sensor or request.job_id or has_time_range):
+            raise ValueError(
+                "provide useful scope with --sensor, --job-id, or both --start-time and --end-time; "
+                "child identity requires --job-id, --record-type, and --record-id together"
+            )
+        result, exit_code = asyncio.run(_execute_introspection(request))
+    except Exception as error:
+        _fail("introspection failed", error, _exception_exit(error))
+        raise AssertionError("unreachable") from error
+
+    _emit(result.model_dump(mode="json"), pretty=pretty)
+    if exit_code != Exit.SUCCESS:
+        raise SystemExit(int(exit_code))
 
 
 @memory.command("events")
@@ -230,4 +459,4 @@ class _MemoryGroup:
 
 MEMORY = _MemoryGroup()
 
-__all__ = ["MEMORY", "memory", "set_test_memory"]
+__all__ = ["MEMORY", "memory", "set_test_introspect", "set_test_memory"]

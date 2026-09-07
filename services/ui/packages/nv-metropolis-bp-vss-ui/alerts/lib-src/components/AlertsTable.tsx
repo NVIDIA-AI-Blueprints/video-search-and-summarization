@@ -611,7 +611,7 @@ function AlertsTableContent({
         <div className="flex flex-wrap items-center gap-3">
           <fieldset
             aria-labelledby="alerts-displayed-label"
-            className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg transition-all border-0 min-w-0 m-0 ${
+            className={`inline-flex items-center gap-2 rounded-lg transition-all border-0 min-w-0 m-0 ${
               isDark ? 'bg-black/30 hover:bg-black/40' : 'bg-gray-100/60 hover:bg-gray-100'
             }`}
           >

@@ -53,14 +53,16 @@ class SearchAdapter(LifecycleAdapter):
             if isinstance(item, SensorInfo):
                 sensor_models.append(item)
             else:
-                sensor_id = str(item.get("id") or item.get("sensor_id") or "").strip()
-                if not sensor_id:
-                    raise ValueError("search sensors require a non-empty id")
+                sensor_name = str(
+                    item.get("name") or item.get("sensor_name") or item.get("id") or item.get("sensor_id") or ""
+                ).strip()
+                if not sensor_name:
+                    raise ValueError("search sensors require a non-empty name or id")
                 sensor_models.append(
                     SensorInfo(
-                        id=sensor_id,
+                        id=sensor_name,
                         type=str(item.get("type") or "video") or None,
-                        info={k: v for k, v in item.items() if k not in {"id", "sensor_id", "type"}} or None,
+                        info={k: v for k, v in item.items() if k not in {"name", "sensor_name", "type"}} or None,
                     )
                 )
         window_model: TimeWindow | None = None
@@ -180,11 +182,14 @@ class SearchAdapter(LifecycleAdapter):
             prefix="hit",
             digest_payload=_search_digest_payload(row),
         )
-        sensor_id = (
-            str(row.get("sensor_id") or row.get("camera_id") or row.get("stream_id") or "").strip() or default_sensor_id
+        sensor_name = (
+            str(row.get("name") or row.get("sensor_name") or row.get("video_name") or "").strip() or default_sensor_id
         )
+        sensor_info = {
+            key: row[key] for key in ("sensor_id", "camera_id", "stream_id", "video_id") if row.get(key) is not None
+        }
         child_input = MemoryInput(
-            sensors=[SensorInfo(id=sensor_id)] if sensor_id else None,
+            sensors=[SensorInfo(id=sensor_name, info=sensor_info or None)] if sensor_name else None,
             window=window_from_row(row),
         )
         answer = row.get("description") or row.get("caption") or row.get("answer") or row.get("text")

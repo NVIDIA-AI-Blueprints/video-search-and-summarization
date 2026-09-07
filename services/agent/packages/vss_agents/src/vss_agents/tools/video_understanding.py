@@ -17,7 +17,6 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from datetime import timedelta
 import logging
-import tempfile
 from typing import Any
 from typing import Literal
 
@@ -47,7 +46,6 @@ except ImportError:
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
-from vss_agents.utils.frame_select import frame_select
 from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
@@ -116,7 +114,7 @@ def _should_use_video_base64(
     enable_audio: bool = False,
     model_name: str = "",
 ) -> bool:
-    """Return whether the video payload should be downloaded locally and sent as base64 JPEG frames.
+    """Return whether the video should be downloaded and sent as one base64 MP4.
 
     Returns ``False`` when the full-MP4 ``video_url`` path should be used instead
     (see ``_should_use_video_file_base64``).  That covers:
@@ -124,18 +122,16 @@ def _should_use_video_base64(
     * Remote Omni + ``enable_audio`` — preserves the audio track.
     * Remote Cosmos models — avoids the per-prompt image count limit.
 
-    Edge case: ``enable_audio=True`` with a non-Omni remote VLM. The model can't process
-    the audio track anyway, and the internal VST URL is unreachable from a remote NIM, so
-    sending ``video_url`` would produce no analysis at all. Fall back to JPEG frame
-    sampling (the normal remote-VLM path) and warn loudly so the misconfiguration is
-    visible in logs.
+    Edge case: ``enable_audio=True`` with a non-Omni remote VLM. The full MP4 is
+    still sent because the internal VST URL is unreachable from a remote NIM,
+    though the model may ignore its audio track.
     """
     if enable_audio:
         if _is_remote_vlm(vlm_mode) and not _is_omni_audio_model(model_name):
             logger.warning(
                 "enable_audio=True with non-Omni remote VLM (model=%r) cannot honor audio "
-                "(remote NIM cannot reach internal VST URL, and the model has no audio "
-                "head). Falling back to JPEG frame sampling; audio is dropped. Set "
+                "(the model has no audio head). Sending the full MP4 inline; the audio "
+                "track may be ignored. Set "
                 "enable_audio=false or use an Omni-capable model to silence this warning.",
                 model_name,
             )
@@ -189,8 +185,8 @@ def _should_use_video_file_base64(
        that rejects >5 individual ``image_url`` entries.  The NIM handles
        frame sampling server-side via ``media_io_kwargs``.
 
-    Non-cosmos remote VLMs (Qwen, GPT-4o, etc.) stay on the ``image_url``
-    frame-sampling path for OpenAI API compatibility.
+    Non-cosmos remote VLMs also use the native MP4 path selected by
+    ``_should_use_video_base64``.
     """
     return _is_remote_vlm(vlm_mode) and (
         _is_cosmos_model(model_name) or (enable_audio and _is_omni_audio_model(model_name))
@@ -279,7 +275,7 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
     enable_audio: bool = Field(
         False,
         description="When True, send the full MP4 via video_url (preserves audio for Omni VLMs). "
-        "When False with VLM_MODE=remote, JPEG frame sampling is used instead. "
+        "When False with VLM_MODE=remote, the MP4 is downloaded and sent as one base64 video input. "
         "Align with vst.video_clip.enable_audio and ENABLE_AUDIO.",
     )
 
@@ -340,11 +336,17 @@ class VideoUnderstandingOffsetInput(BaseModel):
     )
     start_timestamp: float | None = Field(
         None,
-        description="Optional start time offsets (in seconds since beginning of the stream), if None, then the entire stream is returned",
+        description=(
+            "Optional start time offset in seconds since the beginning of the stream. "
+            "For whole-video analysis, omit both timestamp fields; do not send a string placeholder."
+        ),
     )
     end_timestamp: float | None = Field(
         None,
-        description="Optional end time offsets (in seconds since beginning of the stream), if None, then the entire stream is returned",
+        description=(
+            "Optional end time offset in seconds since the beginning of the stream. "
+            "For whole-video analysis, omit both timestamp fields; do not send a string placeholder."
+        ),
     )
     user_prompt: str = Field(
         ...,
@@ -364,6 +366,17 @@ class VideoUnderstandingOffsetInput(BaseModel):
     def validate_start_and_end_time(cls, info: dict) -> dict:
         start = info.get("start_timestamp")
         end = info.get("end_timestamp")
+
+        # Tool-calling models sometimes serialize an omitted optional value as
+        # the strings "None" or "null". Treat those JSON-like sentinels (and an
+        # empty string) as an omitted offset so whole-video requests do not fail
+        # while trying to evaluate float("None").
+        if isinstance(start, str) and start.strip().lower() in {"", "none", "null"}:
+            start = None
+            info["start_timestamp"] = None
+        if isinstance(end, str) and end.strip().lower() in {"", "none", "null"}:
+            end = None
+            info["end_timestamp"] = None
 
         if start is not None:
             start = float(start)
@@ -400,12 +413,9 @@ async def _build_vlm_messages(
     *,
     use_base64: bool,
     use_video_file_base64: bool = False,
-    video_length_seconds: float,
-    num_frames: int,
-    max_fps: int,
 ) -> list[HumanMessage]:
     """Download/transform video and build VLM messages for the appropriate backend."""
-    if use_video_file_base64:
+    if use_video_file_base64 or use_base64:
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
             resp.raise_for_status()
@@ -416,33 +426,6 @@ async def _build_vlm_messages(
                 content=[
                     {"type": "text", "text": user_prompt},
                     {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
-                ]
-            )
-        ]
-
-    if use_base64:
-        timeout = aiohttp.ClientTimeout(total=300)
-        async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
-            resp.raise_for_status()
-            video_data = await resp.read()
-
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
-            tmp.write(video_data)
-            tmp.flush()
-            step_size = max(video_length_seconds / num_frames, 1.0 / max_fps)
-            base64_frames = frame_select(tmp.name, 0.0, video_length_seconds, step_size)
-
-        return [
-            HumanMessage(
-                content=[
-                    {
-                        "type": "text",
-                        "text": f"The following images are a sequence of frames from a video. Answer the user's question based on the video: {user_prompt}",
-                    },
-                    *[
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame}"}}
-                        for frame in base64_frames
-                    ],
                 ]
             )
         ]
@@ -703,9 +686,6 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             user_prompt,
             use_base64=use_video_base64,
             use_video_file_base64=use_video_file_base64,
-            video_length_seconds=video_length_seconds,
-            num_frames=num_frames,
-            max_fps=config.max_fps,
         )
 
         # Suppress NAT's profiler for the VLM call — it deep-copies the full
@@ -766,7 +746,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             end_timestamp: The end timestamp in offset seconds since beginning of the stream
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
             vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
-            Note: start_timestamp and end_timestamp are optional. If None, then the entire stream is returned.
+            Note: start_timestamp and end_timestamp are optional. For the entire stream, omit both fields; do not send string placeholders such as "None" or "null".
         """
 
         yield FunctionInfo.create(

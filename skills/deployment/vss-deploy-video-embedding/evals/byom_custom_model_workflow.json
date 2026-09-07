@@ -1,0 +1,30 @@
+{
+  "skills": [
+    "vss-deploy-video-embedding"
+  ],
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 0,
+        "modes": [
+          "routing"
+        ]
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Use `/vss-deploy-video-embedding` to draft an RT-Embed BYOM integration checklist for a custom video embedding model named `acme-video-embed`. Use VideoPrism only as an example pattern. Do not deploy anything, pull images, run Docker, or expose credential values.",
+      "checks": [
+        "The agent uses the `vss-deploy-video-embedding` skill's custom model BYOM workflow rather than treating this as a default Cosmos-Embed1 deployment.",
+        "The answer frames the task as generic bring-your-own-model / custom RT-Embed model integration and uses VideoPrism only as an example pattern.",
+        "The checklist includes creating an `inference.py` wrapper under `services/rtvi/rt-embed/src/models/custom/samples/acme-video-embed/` or an equivalent model-specific custom samples directory.",
+        "The answer names and explains the three RT-Embed BYOM deployment hooks: `MODEL_PATH`, `MODEL_IMPLEMENTATION_PATH`, and `MODEL_REPOSITORY_SCRIPT_PATH`.",
+        "The answer calls out the `BaseVlmModel` contract, including model initialization, `model_name`, model info/input config, and `generate(...)` returning JSON-serializable embedding vectors.",
+        "The answer explicitly addresses text endpoint behavior for video-only models: either provide a compatible text encoder in the same embedding space or return a clear 4xx for `/v1/generate_text_embeddings`.",
+        "The answer includes Docker Compose and Helm override guidance at a high level without assuming credentials, downloading model artifacts, or running deployment commands.",
+        "The agent does not run Docker, deploy services, pull images, fabricate credentials, or print secret values."
+      ]
+    }
+  ]
+}

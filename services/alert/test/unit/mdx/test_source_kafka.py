@@ -308,6 +308,33 @@ class TestReadData:
 
         record.assert_called_once_with(b"cam-1", payload())
 
+    def test_the_header_block_survives_read_data(self, source):
+        """TS-024: the third hop where the inbound trace context can be lost.
+
+        `read_data` groups records by partition and reads `msg[0..2]` for key
+        alignment and the earliest producer timestamp; nothing here needs the
+        fourth field, which is exactly why it can be dropped without anything
+        noticing. Every other fixture in this file is a 3-tuple, so collapsing
+        records back to three fields left the whole suite green while REQ-007
+        was silently gone end to end.
+        """
+        from mdx.kafka_message_broker import KafkaMessage
+
+        headers = (("traceparent", b"00-" + b"a" * 32 + b"-00f067aa0ba902b7-01"),)
+        record = KafkaMessage(b"cam-1", payload(), 1700000000000, headers)
+        source.kafka_message_broker.get_consumed_messages.side_effect = [
+            {"mdx-incidents-0": [record]},
+            {},
+        ]
+
+        carried = source.read_data()[0]["messages"][0]
+
+        assert len(carried) == 4, (
+            f"read_data collapsed the record to {len(carried)} fields; the "
+            "inbound traceparent is gone before the decoder ever sees it"
+        )
+        assert getattr(carried, "headers", None) == headers
+
     def test_messages_are_passed_through_verbatim(self, source):
         record = (b"cam-1", payload(), 1700000000000)
         source.kafka_message_broker.get_consumed_messages.side_effect = [

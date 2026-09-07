@@ -27,20 +27,29 @@
 #   ./scripts/add-streams.sh Camera=rtsp://host/cam0 Camera_01=rtsp://host/cam1 ...
 #   ./scripts/add-streams.sh --file streams.txt          # one NAME=URL per line, # comments
 #   ./scripts/add-streams.sh --remove Camera_01                   # remove one stream
-#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # also accepted
+#   ./scripts/add-streams.sh --remove Camera_01=rtsp://host/cam1  # also accepted, any URL scheme
 #   ./scripts/add-streams.sh --remove --file streams.txt          # remove every listed stream
+#   ./scripts/add-streams.sh --remove-all                         # remove every registered stream
+#   ./scripts/add-streams.sh --remove-all --yes                   # same, no confirmation prompt
 #   ./scripts/add-streams.sh --list                      # show current stream-info
 #
-# Options / env:
+# Options:
 #   --ds-port P        perception REST port      (default: $DS_HTTP_PORT or 9000)
 #   --delay S          seconds between adds      (default: 1)
 #   --no-url-check     skip the pre-add RTSP reachability check
 #   --no-sei-check     skip the VST SEI frame-ID prerequisite check
+#   -y, --yes          answer yes to the --remove-all confirmation
 #   --activation-timeout S  wait for added streams to produce frames (default: 60;
 #                      0 disables). A stream the server accepts but never decodes
 #                      is reported as inactive.
 #   --ready-timeout S  wait for ds-ready: YES    (default: 600 — a cold TensorRT
 #                      engine build for a new batch size takes minutes)
+#
+# Env:
+#   DS_HTTP_PORT     perception REST port      (default: 9000)
+#   VST_HTTP_PORT    pin the VST proxy API port. Unset probes 30000-30005
+#                    and 31000-31005, and reuses whichever answered.
+#                    0 skips the check, same as --no-sei-check.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -56,19 +65,27 @@ ACTIVATION_TIMEOUT="${ACTIVATION_TIMEOUT:-60}"
 RTSP_PROBE_TIMEOUT="${RTSP_PROBE_TIMEOUT:-2}"
 # VST management API, used to confirm the proxy emits SEI frame IDs before
 # streams are registered. Port is VST's http_port; host is taken from the RTSP
-# URLs. Set VST_HTTP_PORT=0 or pass --no-sei-check to skip.
-VST_HTTP_PORT="${VST_HTTP_PORT:-30000}"
+# URLs. Set VST_HTTP_PORT to pin the port, or pass --no-sei-check to skip.
+# Unset means "discover it": see check_sei_frame_ids.
+VST_HTTP_PORT="${VST_HTTP_PORT:-}"
+SEI_CHECK=1
 
 STREAMS=()
 MODE=add
 LIST=0
+REMOVE_ALL=0
+ASSUME_YES=0
 
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# Print the commented Usage/Options block, skipping the SPDX licence header.
+usage() { sed -n '/^# Usage:/,/^set -euo pipefail/p' "$0" | sed '$d; s/^#\{0,1\} \{0,1\}//'; exit "${1:-0}"; }
 
 while (($#)); do
   case "$1" in
-    --file)           mapfile -t -O "${#STREAMS[@]}" STREAMS < <(grep -vE '^\s*(#|$)' "$2"); shift 2 ;;
+    --file)           mapfile -t -O "${#STREAMS[@]}" STREAMS \
+                        < <(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$2" | grep -vE '^(#|$)'); shift 2 ;;
     --remove)         MODE=remove; shift ;;
+    --remove-all)     MODE=remove; REMOVE_ALL=1; shift ;;
+    -y|--yes)         ASSUME_YES=1; shift ;;
     --list)           LIST=1; shift ;;
     --ds-host)        DS_HOST="$2"; shift 2 ;;
     --ds-port)        DS_PORT="$2"; shift 2 ;;
@@ -76,7 +93,7 @@ while (($#)); do
     --ready-timeout)  READY_TIMEOUT="$2"; shift 2 ;;
     --activation-timeout) ACTIVATION_TIMEOUT="$2"; shift 2 ;;
     --no-url-check)   RTSP_PROBE_TIMEOUT=0; shift ;;
-    --no-sei-check)   VST_HTTP_PORT=0; shift ;;
+    --no-sei-check)   SEI_CHECK=0; shift ;;
     -h|--help)        usage 0 ;;
     *=*)              STREAMS+=("$1"); shift ;;
     *) if [[ "$MODE" == remove ]]; then STREAMS+=("$1"); shift; else echo "Unknown arg: $1" >&2; usage 2; fi ;;
@@ -242,7 +259,12 @@ if registered < required:
 PY
 }
 
-lookup_stream_url() {  # $1=camera_id; prints URL when stream-info includes one.
+# True when camera_id is currently registered. That is all the removal needs:
+# the REST API identifies a stream by camera_id and accepts an empty
+# camera_url (nvbugs/6557680).
+#
+# Returns 0 registered, 1 not registered, 2 API unreachable.
+stream_is_registered() {  # $1=camera_id
   local cam="$1"
   if [[ -z "$STREAM_INFO_JSON" ]]; then
     if ! STREAM_INFO_JSON="$(curl -fsS --max-time 5 --connect-timeout 3 \
@@ -252,21 +274,12 @@ lookup_stream_url() {  # $1=camera_id; prints URL when stream-info includes one.
   fi
   printf '%s' "$STREAM_INFO_JSON" | python3 -c '
 import json, sys
-
-camera_id = sys.argv[1]
-d = json.load(sys.stdin)
-info = d.get("stream-info", {})
-streams = info.get("stream-info", [])
-for stream in streams:
-    if str(stream.get("camera_id", "")) != camera_id:
-        continue
-    for key in ("camera_url", "url", "rtsp_url", "uri"):
-        value = stream.get(key)
-        if isinstance(value, str):
-            print(value)
-            break
-    sys.exit(0)
-sys.exit(1)
+try:
+    streams = json.load(sys.stdin)["stream-info"]["stream-info"]
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(str(s.get("camera_id", "")) == sys.argv[1] for s in streams
+                  if isinstance(s, dict)) else 1)
 ' "$cam"
 }
 
@@ -447,6 +460,10 @@ print(json.dumps({
     echo "   ✗ HTTP ${code} failed to ${3#camera_} stream"
     cat "$tmp" >&2 || true
     echo >&2
+    if grep -q 'Source url empty' "$tmp"; then
+      echo "     This build of the API will not drop a stream by camera_id alone." >&2
+      echo "     Retry with the source URL:  --remove ${1}=<url>" >&2
+    fi
     rm -f "$tmp"; return 1
   fi
   if [[ "$code" == "200" || "$code" == "201" ]]; then
@@ -479,58 +496,81 @@ if (( LIST )); then
   exit 1
 fi
 
-(( ${#STREAMS[@]} )) || { echo "ERROR: no streams given (NAME=URL args or --file)" >&2; usage 2; }
+(( ${#STREAMS[@]} || REMOVE_ALL )) || { echo "ERROR: no streams given (NAME=URL args, --file, or --remove-all)" >&2; usage 2; }
 
 # ── --remove mode: delete each listed stream (camera_id or NAME=URL) ──────────
 # Paced by --delay, mirroring the add path.
-# True when the requested removals would leave the perception service with no
-# registered streams. On this build the REST API stops answering once no sources
-# remain: the container keeps running but every /api/v1 request times out, and it
-# has to be recreated. Worth saying before it happens rather than after a silent
-# timeout, but not worth refusing -- clearing every stream is a normal request.
-removal_empties_registry() {
+# Camera ids currently registered, one per line. No output means either an empty
+# registry or an unreachable API; callers tell them apart by the exit status.
+registered_camera_ids() {
   local payload
   payload="$(curl -fsS --max-time 5 --connect-timeout 3 \
              "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)" || return 1
   STREAM_INFO_PAYLOAD="$payload" python3 -c '
 import json, os, sys
-
-wanted = {a.split("=", 1)[0] for a in sys.argv[1:] if a}
 try:
     streams = json.loads(os.environ["STREAM_INFO_PAYLOAD"])["stream-info"]["stream-info"]
 except Exception:
     sys.exit(1)
-registered = {str(s.get("camera_id", "")) for s in streams if isinstance(s, dict)}
-registered.discard("")
-sys.exit(0 if registered and registered <= wanted else 1)
-' "$@"
+for cam in sorted({str(s.get("camera_id", "")) for s in streams if isinstance(s, dict)} - {""}):
+    print(cam)
+'
+}
+
+# Recovery guidance, printed only once the API has actually stopped answering.
+# Removing the last source can wedge the REST server (bug 6631012), but it does
+# not always, so report it after the fact instead of predicting it.
+report_api_lost() {
+  echo >&2
+  echo "   ⚠ the perception REST API stopped responding after the removal." >&2
+  echo "     The container keeps running but /api/v1 requests time out; recreate it" >&2
+  echo "     before adding or listing streams again:" >&2
+  echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
 }
 
 if [[ "$MODE" == remove ]]; then
-  if removal_empties_registry "${STREAMS[@]}"; then
-    echo "   ⚠ this removes every registered stream. With no sources left the perception" >&2
-    echo "     REST API stops responding: the container keeps running but /api/v1 requests" >&2
-    echo "     time out, and it has to be recreated before streams can be added again:" >&2
-    echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
+  if (( REMOVE_ALL )); then
+    # Assign first, then split. A process substitution reports only mapfile's
+    # own status, so a failed lookup would arrive as an empty list and be
+    # reported as "nothing to remove" rather than as the error it is.
+    if ! registered_ids="$(registered_camera_ids)"; then
+      echo "ERROR: cannot reach the perception REST API at ${BASE} to list streams." >&2
+      exit 1
+    fi
+    STREAMS=()
+    [[ -n "$registered_ids" ]] && mapfile -t STREAMS <<<"$registered_ids"
+    (( ${#STREAMS[@]} )) || { echo "No streams are registered; nothing to remove."; exit 0; }
+    echo "── ${#STREAMS[@]} registered stream(s) will be removed:"
+    printf '     %s\n' "${STREAMS[@]}"
+    if ! (( ASSUME_YES )); then
+      if [[ ! -t 0 ]]; then
+        echo "ERROR: --remove-all needs confirmation but stdin is not a terminal." >&2
+        echo "       Re-run with --yes to confirm non-interactively." >&2
+        exit 1
+      fi
+      read -r -p "   Remove all of them? [y/N] " reply || reply=""
+      [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+    fi
   fi
+
   echo "── Removing ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
   rc=0; idx=0
   for entry in "${STREAMS[@]}"; do
     if [[ "$entry" == *=* ]]; then
       cam="${entry%%=*}"; url="${entry#*=}"
-      if [[ -z "$cam" || "$url" != rtsp://* ]]; then
-        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
+      if [[ -z "$cam" || "$url" != *://* ]]; then
+        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=URL or camera_id)" >&2
         rc=2; continue
       fi
     else
       cam="$entry"; url=""
       if [[ -z "$cam" ]]; then
-        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=rtsp://... or camera_id)" >&2
+        echo "   ⚠ skipping malformed removal entry: [${entry}] (want NAME=URL or camera_id)" >&2
         rc=2; continue
       fi
-      lu=0; url="$(lookup_stream_url "$cam")" || lu=$?
+      lu=0; stream_is_registered "$cam" || lu=$?
       if (( lu == 2 )); then
-        echo "   ✗ cannot reach the perception REST API at ${BASE} to look up [${cam}]" >&2
+        echo "   ✗ cannot reach the perception REST API at ${BASE} to check [${cam}]" >&2
         echo "     Check whether it is alive:  docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
         rc=2; continue
       fi
@@ -544,7 +584,14 @@ if [[ "$MODE" == remove ]]; then
     idx=$((idx + 1))
     (( idx < ${#STREAMS[@]} )) && sleep "$DELAY"
   done
-  echo; show_stream_info
+  echo
+  # On failure show_stream_info prints its own connectivity block, which just
+  # repeats what the removal already said. Keep its success output, replace its
+  # error with the one message that explains the removal context.
+  if ! show_stream_info 2>/dev/null; then
+    report_api_lost
+    (( rc )) || rc=1
+  fi
   exit "$rc"
 fi
 
@@ -587,32 +634,71 @@ except Exception as exc:
 '
 }
 
-# With INPUT_MODE=stream every RTSP source must carry NVDS_CUSTOMMETA SEI: the
-# staged DeepStream config sets extract-sei-sim-time=1 with
-# attach-sys-ts-as-ntp=0, so frame timestamps come from the SEI. File input is
-# staged the other way round (SEI extraction off, attach-sys-ts-as-ntp=1) and
-# takes them from the host clock, so this prerequisite is specific to the live
-# stream path, not to MV3DT as such.
-# In this deployment the VST proxy is what injects that SEI. With
-# "enable_proxy_server_sei_metadata": false the proxy serves video without it,
-# and the perception service accepts every stream but never activates any
-# source -- no bbox, no mdx-raw. That misconfiguration is invisible from the
-# perception side, so ask VST directly before registering anything.
-#
-# VST exposes it at GET /api/v1/proxy/configuration on its http_port as
-# "enableProxyServerFrameIdSupport". Fails open: deployments that feed RTSP
-# from cameras rather than a VST proxy have no such endpoint, and must not be
-# blocked by a check that cannot apply to them.
-check_sei_frame_ids() {  # $1=an rtsp:// url the streams will come from
-  [[ "$VST_HTTP_PORT" =~ ^[0-9]+$ ]] || return 0
-  (( VST_HTTP_PORT > 0 )) || return 0
+# An explicit VST_HTTP_PORT is used alone; otherwise probe both ranges. The
+# caller stores whatever answered, so later hosts skip the search.
+# Ports to try for one host. An explicit VST_HTTP_PORT pins every host; a port
+# we discovered is remembered per host, because a batch can span VST deployments
+# that serve the proxy API on different ports.
+declare -A VST_PORT_BY_HOST=()
 
-  local host payload enabled
+vst_candidate_ports() {  # $1=host
+  if [[ -n "$VST_HTTP_PORT" ]]; then printf '%s\n' "$VST_HTTP_PORT"; return; fi
+  local cached="${VST_PORT_BY_HOST[${1:-}]:-}"
+  if [[ -n "$cached" ]]; then printf '%s\n' "$cached"; return; fi
+  seq 30000 30005
+  seq 31000 31005
+}
+
+# True when the staged config takes frame timestamps from the SEI. Absent
+# config means we cannot tell, so do not block.
+sei_required() {
+  local cfg="${ROOT}/generated/configs/ds-main-config-mv3dt.txt" v
+  [[ -f "$cfg" ]] || return 1
+  v="$(awk '/^[[:space:]]*\[/ { s = ($0 ~ /^[[:space:]]*\[streammux\]/) }
+            s && /^[[:space:]]*extract-sei-sim-time[[:space:]]*=/ {
+              sub(/.*=[[:space:]]*/, ""); print $1; exit }' "$cfg")"
+  [[ "$v" == 1 ]]
+}
+
+# Without the SEI, streams register and no source activates, and nothing on the
+# perception side says so. Ask VST before registering anything.
+#
+# The proxy answers GET /api/v1/proxy/configuration with
+# "enableProxyServerFrameIdSupport". Its port is not fixed, and a VIOS
+# deployment runs several VST-family services of which only the proxy serves
+# that path, so a 404 means "keep looking" rather than "no VST here".
+#
+# A deployment we cannot verify is stopped: no timestamp configuration makes a
+# SEI-less live source work, so passing it through only defers the failure.
+check_sei_frame_ids() {  # $1=an rtsp:// url the streams will come from
+  (( SEI_CHECK )) || return 0
+  [[ "$VST_HTTP_PORT" == 0 ]] && return 0    # long-standing "skip" spelling
+  sei_required || return 0
+
+  local host payload enabled port found_port
   host="${1#rtsp://}"; host="${host%%/*}"; host="${host%%:*}"
   [[ -n "$host" ]] || return 0
 
-  payload="$(curl -fsS --max-time 3 --connect-timeout 2 \
-             "http://${host}:${VST_HTTP_PORT}/api/v1/proxy/configuration" 2>/dev/null)" || return 0
+  payload=""; found_port=""
+  for port in $(vst_candidate_ports "$host"); do
+    payload="$(curl -fsS --max-time 2 --connect-timeout 1 \
+               "http://${host}:${port}/api/v1/proxy/configuration" 2>/dev/null)" || continue
+    [[ "$payload" == *enableProxyServerFrameIdSupport* ]] || { payload=""; continue; }
+    found_port="$port"
+    VST_PORT_BY_HOST["$host"]="$port"   # remember for this host only
+    break
+  done
+
+  if [[ -z "$payload" ]]; then
+    echo "ERROR: could not verify the SEI frame-ID prerequisite: no VST proxy API" >&2
+    echo "       answered at ${host} (tried ports $(vst_candidate_ports "$host" | tr '\n' ' ' | sed 's/ $//'))." >&2
+    echo "       This deployment is staged for live streams (extract-sei-sim-time=1)," >&2
+    echo "       so every source must carry NVDS_CUSTOMMETA SEI. Without it the streams" >&2
+    echo "       register, ds-ready reports YES, and no source ever activates." >&2
+    echo "       If VST serves on another port, set VST_HTTP_PORT." >&2
+    echo "       If these sources carry the SEI themselves, pass --no-sei-check." >&2
+    return 1
+  fi
 
   enabled="$(printf '%s' "$payload" | python3 -c '
 import json, sys
@@ -627,7 +713,7 @@ if isinstance(v, bool):
 
   [[ "$enabled" == "false" ]] || return 0
 
-  echo "ERROR: the VST proxy at ${host}:${VST_HTTP_PORT} is not emitting SEI frame IDs" >&2
+  echo "ERROR: the VST proxy at ${host}:${found_port} is not emitting SEI frame IDs" >&2
   echo "       (enableProxyServerFrameIdSupport=false)." >&2
   echo "       MV3DT stamps frames from the host clock or from NVDS_CUSTOMMETA SEI," >&2
   echo "       depending on the input mode. This deployment is staged for live streams" >&2
@@ -709,7 +795,7 @@ print(registered, required)
 ' 2>/dev/null || echo "0 0"
 }
 
-verify_streams_active() {  # args: camera IDs added in this run
+verify_streams_active() {  # args: camera IDs added in this run, used as a fallback
   (( $# )) || return 0
   [[ "$ACTIVATION_TIMEOUT" =~ ^[0-9]+$ ]] || return 0
   (( ACTIVATION_TIMEOUT > 0 )) || return 0
@@ -724,6 +810,19 @@ verify_streams_active() {  # args: camera IDs added in this run
     return 0
   fi
 
+  # The batch is complete, so judge every registered source rather than only the
+  # ones this run added. One source that cannot decode stalls the whole batch, so
+  # the camera that completes the batch is reported as not producing even when the
+  # broken one was registered earlier. Fall back to this run's list when the
+  # registry cannot be read, which is worse but still better than nothing.
+  local judged=() all_ids
+  if all_ids="$(registered_camera_ids)" && [[ -n "$all_ids" ]]; then
+    mapfile -t judged <<<"$all_ids"
+  else
+    judged=("$@")
+  fi
+  (( ${#judged[@]} )) || return 0
+
   # Liveness is frame_number advancing, not membership of stream-stats. That list
   # is a rolling buffer of recent per-source samples, not one row per stream: a
   # single payload can carry the same sensor_id twice with consecutive frame
@@ -731,13 +830,12 @@ verify_streams_active() {  # args: camera IDs added in this run
   # source that is decoding therefore shows up repeatedly across a few seconds of
   # polling with a rising frame_number, while one that is not either never
   # appears or stays frozen -- observed live at frame_number 296 while DeepStream
-  # retried its RTSP connect. Both count as not producing; only the wording of
-  # the report differs, because only cameras added by this run are judged.
+  # retried its RTSP connect. Both count as not producing.
   echo "── Waiting up to ${ACTIVATION_TIMEOUT}s for the sources to produce frames"
 
   local out rc=0
   out="$(BASE="$BASE" ACTIVATION_TIMEOUT="$ACTIVATION_TIMEOUT" \
-         python3 - "$@" <<'PY'
+         python3 - "${judged[@]}" <<'PY'
 import json
 import os
 import sys
@@ -812,8 +910,7 @@ PY
   fi
 
   echo >&2
-  echo "ERROR: the perception service accepted these streams but they are not producing frames" >&2
-  echo "       after ${ACTIVATION_TIMEOUT}s:" >&2
+  echo "ERROR: registered streams are not producing frames after ${ACTIVATION_TIMEOUT}s:" >&2
   printf '%s\n' "$out" | grep -v '^OBS ' | sed 's/^/         /' >&2
   echo "       Their frame_number never advanced in /api/v1/metrics: STATIC means the" >&2
   echo "       stream was sampled but frozen, UNSEEN that it was never sampled at all." >&2

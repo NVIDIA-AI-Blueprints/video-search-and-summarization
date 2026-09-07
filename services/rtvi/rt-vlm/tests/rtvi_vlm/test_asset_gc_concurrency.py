@@ -3,6 +3,8 @@
 
 import asyncio
 import os
+import pickle
+from multiprocessing.reduction import ForkingPickler
 from threading import Event, Thread
 
 import pytest
@@ -18,6 +20,36 @@ def _asset(tmp_path, asset_id):
     path = asset_dir / "video.mp4"
     path.touch()
     return Asset(asset_id, str(path), "vision", "video", str(asset_dir))
+
+
+def test_live_asset_command_payload_is_picklable(tmp_path):
+    asset = Asset(
+        "live",
+        "rtsp://example.com/live",
+        "vision",
+        "video",
+        str(tmp_path),
+        username="user",
+        password="password",
+        sensor_name="sensor",
+        camera_id="camera",
+    )
+
+    payload = pickle.loads(
+        ForkingPickler.dumps({"command": "start-live-stream", "asset": asset})
+    )
+    restored = payload["asset"]
+
+    assert restored.asset_id == asset.asset_id
+    assert restored.path == asset.path
+    assert restored.username == asset.username
+    assert restored.password == asset.password
+    assert restored.sensor_name == asset.sensor_name
+    assert restored.camera_id == asset.camera_id
+    restored.lock()
+    assert restored.use_count == 1
+    restored.unlock()
+    assert restored.use_count == 0
 
 
 def test_age_out_uses_stable_asset_snapshot(tmp_path, monkeypatch):

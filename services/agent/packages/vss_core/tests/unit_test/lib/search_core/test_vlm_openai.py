@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 
 import httpx
@@ -58,6 +59,7 @@ async def test_rt_vlm_uses_video_url_without_direct_cosmos_nim_options() -> None
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         assert "media_io_kwargs" not in payload
+        assert "num_frames_per_second_or_fixed_frames_chunk" not in payload
         assert payload["messages"][0]["content"][1] == {
             "type": "video_url",
             "video_url": {"url": "https://vst.example/clip.mp4"},
@@ -88,6 +90,90 @@ async def test_rt_vlm_uses_video_url_without_direct_cosmos_nim_options() -> None
         assert answer == '{"subject:forklift": true}'
     finally:
         await analyzer.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rt_vlm_frame_budget_is_sent_instead_of_media_io_kwargs() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "media_io_kwargs" not in payload
+        assert payload["num_frames_per_second_or_fixed_frames_chunk"] == 8
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "No"}}]},
+            request=request,
+        )
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://rt-vlm.example/v1",
+        model="nim_nvidia_cosmos3-nano-reasoner",
+        vst=_VST(),  # type: ignore[arg-type]
+        media_mode="video_url",
+        video_url_scope="external",
+        cosmos_nim_runtime_options=False,
+        rt_vlm_frame_budget=8,
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        answer = await analyzer.analyze(
+            sensor_id="sensor-1",
+            start_timestamp="0.0",
+            end_timestamp="5.0",
+            prompt="was the worker wearing a hard hat?",
+            time_format="offset",
+        )
+        assert answer == "No"
+    finally:
+        await analyzer.aclose()
+
+
+def test_rt_vlm_frame_budget_must_be_positive() -> None:
+    with pytest.raises(ConfigurationError, match="rt_vlm_frame_budget"):
+        OpenAIVLMAnalyzer(
+            base_url="https://rt-vlm.example/v1",
+            model="model",
+            vst=_VST(),  # type: ignore[arg-type]
+            rt_vlm_frame_budget=0,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("media_mode", ("video_base64", "frame_base64"))
+async def test_base64_modes_send_one_native_mp4_video_part(media_mode: str) -> None:
+    video_bytes = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00native-video"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, content=video_bytes, request=request)
+        payload = json.loads(request.content)
+        content = payload["messages"][0]["content"]
+        assert len(content) == 2
+        assert content[0] == {"type": "text", "text": "What happened?"}
+        assert content[1]["type"] == "video_url"
+        data_uri = content[1]["video_url"]["url"]
+        assert data_uri.startswith("data:video/mp4;base64,")
+        assert base64.b64decode(data_uri.partition(",")[2]) == video_bytes
+        assert all(part["type"] != "image_url" for part in content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "A worker moved."}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://vlm.example/v1",
+        model="model",
+        vst=_VST(),  # type: ignore[arg-type]
+        media_mode=media_mode,  # type: ignore[arg-type]
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        answer = await analyzer.analyze(
+            sensor_id="sensor-1",
+            start_timestamp="2025-01-01T00:00:00Z",
+            end_timestamp="2025-01-01T00:00:05Z",
+            prompt="What happened?",
+        )
+    finally:
+        await analyzer.aclose()
+
+    assert answer == "A worker moved."
 
 
 def test_direct_cosmos_nim_keeps_runtime_options_by_default() -> None:

@@ -46,7 +46,8 @@ CONFIG = {
 }
 
 
-def make_message(topic="alerts", partition=0, key=b"k", value=b"v", ts=(1, 1700000000000)):
+def make_message(topic="alerts", partition=0, key=b"k", value=b"v", ts=(1, 1700000000000),
+                 headers=None):
     msg = MagicMock()
     msg.error.return_value = None
     msg.topic.return_value = topic
@@ -54,6 +55,10 @@ def make_message(topic="alerts", partition=0, key=b"k", value=b"v", ts=(1, 17000
     msg.key.return_value = key
     msg.value.return_value = value
     msg.timestamp.return_value = ts
+    # Spelled out rather than left to MagicMock's auto-attribute: the broker
+    # keeps this on the envelope now, and an auto-mock would silently become
+    # the "inbound traceparent" of every record in these tests.
+    msg.headers.return_value = headers
     return msg
 
 
@@ -148,8 +153,8 @@ class TestGetConsumedMessages:
         result = broker.get_consumed_messages(consumer)
 
         assert set(result) == {"alerts-0", "alerts-1"}
-        assert result["alerts-0"] == [(b"k1", b"v1", 1700000000000)]
-        assert result["alerts-1"] == [(b"k2", b"v2", 1700000000000)]
+        assert result["alerts-0"] == [(b"k1", b"v1", 1700000000000, None)]
+        assert result["alerts-1"] == [(b"k2", b"v2", 1700000000000, None)]
 
     def test_accumulates_multiple_messages_per_partition(self, broker):
         consumer = MagicMock()
@@ -229,7 +234,7 @@ class TestGetConsumedMessages:
         result = broker.get_consumed_messages(consumer)
 
         # The message collected before the error is still returned.
-        assert result["alerts-0"] == [(b"k1", b"v", 1700000000000)]
+        assert result["alerts-0"] == [(b"k1", b"v", 1700000000000, None)]
 
     def test_missing_timestamp_type_yields_none(self, broker):
         consumer = MagicMock()
@@ -271,3 +276,50 @@ class TestGetConsumedMessages:
         consumer.poll.return_value = None
 
         assert broker.get_consumed_messages(consumer) == {}
+
+
+class TestHeadersReachTheEnvelope:
+    """The leg a `headers=None` assertion cannot cover.
+
+    Every other test here builds records without headers, so replacing
+    ``msg.headers()`` with ``None`` in the broker left them all green. Inbound
+    trace context is the entire point of the fourth field (REQ-007), so at least
+    one test has to carry a real header block through.
+    """
+
+    def test_record_headers_are_carried_onto_the_envelope(self, broker):
+        headers = [("traceparent", b"00-" + b"a" * 32 + b"-00f067aa0ba902b7-01")]
+        consumer = MagicMock()
+        consumer.poll.side_effect = [
+            make_message(partition=0, key=b"k1", value=b"v1", headers=headers),
+            None,
+        ]
+
+        result = broker.get_consumed_messages(consumer)
+
+        (record,) = result["alerts-0"]
+        assert record.headers == tuple(headers), (
+            "the broker dropped the header block; an inbound traceparent cannot "
+            "reach open_root_span"
+        )
+        # And the envelope is still a plain tuple to anyone unpacking it.
+        key, value, ts, hdrs = record
+        assert (key, value, ts) == (b"k1", b"v1", 1700000000000)
+
+    def test_the_record_is_still_hashable(self, broker):
+        """The 3-tuple it replaces could go in a set; this must too.
+
+        confluent-kafka hands back a list of headers, and a list inside a
+        NamedTuple makes the whole record unhashable. Nothing in this service
+        hashes a record, which is exactly why it would have gone unnoticed --
+        the point is not to quietly withdraw something a consumer had.
+        """
+        consumer = MagicMock()
+        consumer.poll.side_effect = [
+            make_message(key=b"k1", value=b"v1",
+                         headers=[("traceparent", b"00-" + b"a" * 32 + b"-x-01")]),
+            None,
+        ]
+
+        (record,) = broker.get_consumed_messages(consumer)["alerts-0"]
+        assert {record}, "the record is unhashable; the old 3-tuple was not"

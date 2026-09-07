@@ -13,6 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+{{- $resources := deepCopy (.Values.resources | default dict) }}
+{{- $gpuResourceName := trim (.Values.gpuResourceName | default "") }}
+{{- if $gpuResourceName }}
+{{- $limits := $resources.limits | default dict }}
+{{- $requests := $resources.requests | default dict }}
+{{- $_ := unset $limits "nvidia.com/gpu" }}
+{{- $_ := unset $requests "nvidia.com/gpu" }}
+{{- $_ := set $limits $gpuResourceName 1 }}
+{{- $_ := set $requests $gpuResourceName 1 }}
+{{- $_ := set $resources "limits" $limits }}
+{{- $_ := set $resources "requests" $requests }}
+{{- end }}
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -152,14 +165,14 @@ spec:
               protocol: TCP
           env:
             {{- /*
-              NVIDIA_VISIBLE_DEVICES is only emitted when gpuDeviceId is set,
-              so the empty chart default leaves the container's runtime default
-              intact (whichever GPUs the pod's resource request exposed).
-              Set .Values.gpuDeviceId to e.g. "1" to pin a specific device.
+              NVIDIA_VISIBLE_DEVICES is emitted only when gpuDeviceId is set
+              and no gpuResourceName is configured. A MIG resource is assigned
+              by the NVIDIA device plugin, which injects the allocated device.
+              Otherwise, the empty default leaves the runtime setting intact.
             */}}
-            {{- with .Values.gpuDeviceId }}
+            {{- if and (eq $gpuResourceName "") .Values.gpuDeviceId }}
             - name: NVIDIA_VISIBLE_DEVICES
-              value: {{ . | quote }}
+              value: {{ .Values.gpuDeviceId | quote }}
             {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
@@ -253,6 +266,8 @@ spec:
               value: {{ .Values.rtspReconnectionMaxAttempts | quote }}
             - name: RTVI_RTSP_RECONNECTION_WINDOW
               value: {{ .Values.rtspReconnectionWindow | quote }}
+            - name: RTVI_IPC_FRAME_COPY
+              value: {{ .Values.ipcFrameCopy | quote }}
             - name: ASSET_DOWNLOAD_CONNECT_TIMEOUT
               value: {{ .Values.assetDownloadConnectTimeout | default "10" | quote }}
             - name: ASSET_DOWNLOAD_TOTAL_TIMEOUT
@@ -305,7 +320,7 @@ spec:
             timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml $resources | nindent 12 }}
           volumeMounts:
             - name: ngc-model-cache
               mountPath: /opt/nvidia/rtvi/.rtvi/ngc_model_cache
@@ -320,6 +335,10 @@ spec:
             {{- if .Values.clipStorage.enabled }}
             - name: clip-storage
               mountPath: /home/vst/vst_release/streamer_videos
+            {{- end }}
+            {{- if .Values.ipcSocketHostPath }}
+            - name: ipc-socket-dir
+              mountPath: /run/rtvi-ipc
             {{- end }}
       volumes:
         - name: ngc-model-cache
@@ -348,6 +367,12 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- end }}
+        {{- if .Values.ipcSocketHostPath }}
+        - name: ipc-socket-dir
+          hostPath:
+            path: {{ .Values.ipcSocketHostPath | quote }}
+            type: Directory
         {{- end }}
 ---
 apiVersion: v1

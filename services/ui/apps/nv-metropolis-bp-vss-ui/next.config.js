@@ -17,7 +17,6 @@ const nextConfig = {
     '@nv-metropolis-bp-vss-ui/dashboard',
     '@nv-metropolis-bp-vss-ui/map',
     '@nv-metropolis-bp-vss-ui/video-management',
-    '@nemo-agent-toolkit/ui',
   ],
   typescript: {
     // !! WARN !!

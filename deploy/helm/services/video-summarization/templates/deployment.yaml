@@ -45,7 +45,7 @@ spec:
       {{- $esTransportPort := .Values.elasticsearchTransportPort | default "9300" }}
       {{- $kafkaHost := ternary (printf "%s-kafka-kafka" $release) "kafka-kafka" $pfx }}
       {{- $kafkaBootstrap := .Values.kafkaBootstrapServers | default (printf "%s:9092" $kafkaHost) }}
-      {{- $llmSvc := .Values.llmService | default "nvidia-nemotron-nano-9b-v2" }}
+      {{- $llmSvc := .Values.llmService | default "nemotron-35-lightning-30b-a3b" }}
       {{- $vlmSvc := .Values.vlmService | default "nvidia-cosmos3-reasoner" }}
       {{- /* Same base URL as vss-agent (global / subchart); LVS OpenAI paths need /v1 — append when missing */}}
       {{- $llmIn := trim (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) }}
@@ -54,7 +54,7 @@ spec:
       {{- $vlmHost := ternary (printf "%s-%s" $release $vlmSvc) $vlmSvc $pfx }}
       {{- $llmBaseUrl := ternary (printf "http://%s:8000/v1" $llmHost) (ternary (printf "%s/v1" (trimSuffix "/" $llmIn)) $llmIn (not (hasSuffix "/v1" $llmIn))) (eq $llmIn "") }}
       {{- $vlmBaseUrl := ternary (printf "http://%s:8000/v1" $vlmHost) (ternary (printf "%s/v1" (trimSuffix "/" $vlmIn)) $vlmIn (not (hasSuffix "/v1" $vlmIn))) (eq $vlmIn "") }}
-      {{- $llmModelName := trim (default "" (coalesce .Values.llmName (index $g "llmName") "nvidia/nvidia-nemotron-nano-9b-v2")) }}
+      {{- $llmModelName := trim (default "" (coalesce .Values.llmName (index $g "llmName") "nvidia/nemotron-3.5-lightning-30b-a3b")) }}
       {{- $vlmModelName := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "nvidia/cosmos3-nano-reasoner")) }}
       {{- $vstIng := ternary (printf "%s-vss-vios-ingress" $release) "vss-vios-ingress" $pfx }}
       {{- $vstInternalUrl := .Values.vstInternalUrl | default (printf "http://%s:30888" $vstIng) }}

@@ -555,6 +555,44 @@ setup_elasticsearch_templates(){
         }
       }'
 
+#   dims is deliberately omitted: the width is fixed by whichever secondary
+#   embedding model reid-embed is configured with (SECONDARY_EMBEDDING_MODEL,
+#   siglip2 by default), so it is not ours to state here. Elasticsearch infers
+#   it from the first indexed document, whereas a hard-coded value that
+#   disagreed would reject every document in the index.
+    create_index_template "mdx_compressed_embeddings_template" '{
+        "index_patterns": ["mdx-compressed-embeddings-*"],
+        "priority": 516,
+        "template": {
+          "settings": {
+            "index.lifecycle.name": "mdx-compressed-embeddings-ilm-policy",
+            "index.mapping.exclude_source_vectors": false
+          },
+          "mappings": {
+            "properties": {
+              "objects": {
+                "type": "nested",
+                "properties": {
+                  "bbox": { "enabled": false },
+                  "bbox3d": { "enabled": false },
+                  "coordinate": { "enabled": false },
+                  "dir": { "enabled": false },
+                  "embedding": {
+                    "properties": {
+                      "vector": { "type": "dense_vector", "index": true }
+                    }
+                  },
+                  "gaze": { "enabled": false },
+                  "lipActivity": { "enabled": false },
+                  "location": { "enabled": false },
+                  "pose": { "enabled": false }
+                }
+              }
+            }
+          }
+        }
+      }'
+
     echo "Successfully created index templates."
 }
 

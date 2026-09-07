@@ -3,13 +3,13 @@ title: "Auto Calibration"
 description: ""
 position: 1
 ---
-**AutoMagicCalib Microservice** enables automatic calibration of multi-camera systems through a simple, web-based, step-by-step workflow.
+**AutoMagicCalib Microservice** enables automatic calibration of single-camera and multi-camera systems through a web-based, seven-step workflow.
 
 It is powered by **AutoMagicCalib (AMC)**, which estimates camera intrinsics and extrinsics to generate accurate projection matrices and lens distortion parameters for 3D and multi-view applications.
 
 Unlike checkerboard-based methods, AMC uses **naturally moving objects** in the scene. With NVIDIA DeepStream detection and tracking, it follows objects (e.g., people) and derives camera parameters from normal operational footage—no setup, no downtime, and supports calibration from archived videos.
 
-The service supports both a **geometry-based approach (AMC)** using object trajectories and geometric relationships, and a **model-based approach (VGGT)** that leverages learned models for higher accuracy and robustness.
+The service supports both a **geometry-based approach (AMC)** using object trajectories and geometric relationships, and an optional **model-based approach (VGGT)** that leverages learned models for higher accuracy and robustness.
 
 The overall microservice architecture is as shown below:
 
@@ -23,7 +23,7 @@ UI launch screen is as shown below:
 
 **Guided Workflow**
 
-* **6-Step Process**: Intuitive step-by-step calibration workflow
+* **7-Step Process**: Project Setup, Video Configuration, Parameters, Rectification, Manual Alignment, Execute, and Results
 * **Progress Tracking**: Visual indicators for completion status
 * **Validation**: Real-time validation of inputs at each step
 
@@ -35,8 +35,8 @@ UI launch screen is as shown below:
 
 **Interactive Tools**
 
-* **ROI Drawing**: Draw regions of interest directly on video frames
-* **Tripwire Configuration**: Define tripwire lines and directions
+* **ROI Drawing**: Draw regions of interest directly on video frames after calibration
+* **Tripwire Configuration**: Define tripwire lines and directions after calibration
 * **Manual Alignment**: Interactive point selection for camera-to-world alignment
 * **Real-time Preview**: See annotations and calibration results immediately
 
@@ -54,13 +54,16 @@ UI launch screen is as shown below:
 
 ## Workflow Overview
 
-The calibration process follows a logical 6-step workflow:
+The calibration process follows a logical 7-step workflow:
 
 1. **Project Setup**: Create or select a calibration project
-2. **Video Configuration**: Provide camera inputs by uploading video files **or** time-synchronized RTSP streams (when VIOS is configured), plus layout image and optional files
-3. **Parameters**: Draw ROIs, tripwires, and configure focal lengths, settings
-4. **Manual Alignment**: Create alignment data by selecting corresponding points
-5. **Execute**: Run the calibration pipeline with live monitoring
-6. **Results**: View calibration results and export data
+2. **Video Configuration**: Upload video files or capture time-synchronized RTSP streams, plus the layout image and optional files
+3. **Parameters**: Configure scale, focal lengths, and calibration settings
+4. **Rectification**: Correct lens distortion automatically or manually, then optionally download rectified videos and parameters
+5. **Manual Alignment**: Upload or create camera-to-layout alignment data
+6. **Execute**: Verify inputs and run AMC or VGGT calibration with live monitoring
+7. **Results**: View results, optionally draw ROI/tripwire annotations, verify them in the layout, and export data
 
 Each step validates inputs before allowing progression to the next step, ensuring a smooth calibration experience.
+
+For deployment instructions and detailed usage, see [Getting Started](/vss/system-components/calibration/auto-calibration/getting-started).

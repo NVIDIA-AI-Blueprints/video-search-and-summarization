@@ -12,7 +12,9 @@ a cold NIM start.
   the NGC CLI and build override use `NGC_CLI_API_KEY`; NIM / RT-VLM
   containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
-- `HF_TOKEN`: required on edge targets that use the gated Edge 4B model.
+- `HF_TOKEN`: required only on edge targets that use the standalone
+  RT-VLM / RT-Embed Hugging Face checkpoints; no in-tree edge
+  LLM does not need it.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
   endpoints because their `/v1/models` response can list many models.
@@ -75,11 +77,23 @@ Probe each artifact with the normalized NGC key:
   an NGC image path. A `401` or `403` from a gated repository proves the key
   lacks the required org/team entitlement.
 - NGC models/resources: run `ngc registry model info ...` or `ngc registry
-  resource info ...` for the exact repository and tag. Do not use `docker
-  manifest inspect` for non-OCI models or a raw `Authorization: Bearer <key>`
-  REST call; their expected failures are false entitlement signals. If the NGC
-  CLI is unavailable, use the selected gated container-image probe as the
-  org/team entitlement signal.
+  resource info ...` for the exact repository and tag. Pass the org and team
+  explicitly — an `ngc:` path already carries them, and without them the CLI
+  fails `Missing org - If Authenticated, org is also required.` on a perfectly
+  entitled key. Split `ngc:<org>/<team>/<name>:<version>` and hand back both:
+
+  ```bash
+  # RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+  ngc registry model info nim/nvidia/cosmos3-nano-reasoner:bf16-final \
+    --org nim --team nvidia
+  ```
+
+  Treat that error as a malformed probe, not a failed entitlement, and do not
+  reach for `ngc config set` ([`ngc.md`](ngc.md)) to fix a one-off check. Do not
+  use `docker manifest inspect` for non-OCI models or a raw
+  `Authorization: Bearer <key>` REST call; their expected failures are false
+  entitlement signals. If the NGC CLI is unavailable, use the selected gated
+  container-image probe as the org/team entitlement signal.
 - Profile-staged TAO/perception models: run the corresponding NGC model or
   resource probe before downloading them.
 
@@ -111,7 +125,7 @@ REMOTE_API_KEY="$NVIDIA_API_KEY" \
   skills/vss-build-vision-ai/scripts/probe_remote_models.sh "$LLM_BASE_URL" "$LLM_NAME"
 
 skills/vss-build-vision-ai/scripts/probe_remote_models.sh \
-  "http://localhost:30081" "nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark"
+  "http://localhost:30081" "nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8"
 ```
 
 If `/v1/models` fails or does not advertise the selected model, stop and ask

@@ -76,17 +76,6 @@
                     -0.2863155045319298
                 ]
             },
-            "region": {
-                "placeLevel": "region",
-                "origin": [
-                    -19.56343667699759,
-                    -21.020382049300217
-                ],
-                "dimensions": {
-                    "length": 22.020284004566015,
-                    "width": 39.14717156367291
-                }
-            },
             "place": [
                 {
                     "name": "building",
@@ -95,10 +84,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [
@@ -309,17 +294,6 @@
                     -0.2863155045319298
                 ]
             },
-            "region": {
-                "placeLevel": "region",
-                "origin": [
-                    -19.56343667699759,
-                    -21.020382049300217
-                ],
-                "dimensions": {
-                    "length": 22.020284004566015,
-                    "width": 39.14717156367291
-                }
-            },
             "place": [
                 {
                     "name": "building",
@@ -328,10 +302,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [
@@ -542,17 +512,6 @@
                     -0.2863155045319298
                 ]
             },
-            "region": {
-                "placeLevel": "region",
-                "origin": [
-                    -19.56343667699759,
-                    -21.020382049300217
-                ],
-                "dimensions": {
-                    "length": 22.020284004566015,
-                    "width": 39.14717156367291
-                }
-            },
             "place": [
                 {
                     "name": "building",
@@ -561,10 +520,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [
@@ -775,17 +730,6 @@
                     -0.2863155045319298
                 ]
             },
-            "region": {
-                "placeLevel": "region",
-                "origin": [
-                    -19.56343667699759,
-                    -21.020382049300217
-                ],
-                "dimensions": {
-                    "length": 22.020284004566015,
-                    "width": 39.14717156367291
-                }
-            },
             "place": [
                 {
                     "name": "building",
@@ -794,10 +738,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [

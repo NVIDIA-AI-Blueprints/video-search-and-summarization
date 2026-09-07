@@ -1,0 +1,26 @@
+{
+  "name": "vss-chat",
+  "version": "3.3-dev",
+  "private": true,
+  "description": "Standalone VSS chat UI. No NeMo Agent Toolkit dependency, in UI or core.",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .next node_modules"
+  },
+  "dependencies": {
+    "@nv-metropolis-bp-vss-ui/chat": "*",
+    "next": "16.3.3",
+    "next-runtime-env": "^1.8.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.12",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "typescript": "5.9.3"
+  }
+}

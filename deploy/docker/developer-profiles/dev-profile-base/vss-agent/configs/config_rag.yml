@@ -461,7 +461,7 @@ eval:
         The trajectory is a list of (action, result) pairs showing the agent's reasoning and tool usage:
 
         1. **Agent's Tool Selection Step**: When the tool name is an LLM model name
-           (e.g., "nvidia/nvidia-nemotron-nano-9b-v2"), this represents the agent deciding which tool to call.
+           (e.g., "nvidia/nemotron-3.5-lightning-30b-a3b"), this represents the agent deciding which tool to call.
            The result shows which tools the agent chose.
 
         2. **Tool Execution Step**: When the tool name is an actual tool (e.g., "video_understanding",

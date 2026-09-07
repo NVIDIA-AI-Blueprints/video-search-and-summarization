@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Profile-neutral RT-CV service, selectable as COMPOSE_PROFILES=...,rtvi-cv.
+#
+# This is the concrete sibling of the `perception` template in compose.yaml,
+# and it is the only RT-CV unit that joins the compose project by module name.
+# It exists so a blueprint being composed from the catalog can pick RT-CV
+# directly instead of borrowing another blueprint's clone (`perception-2d`,
+# `perception-3d`, `perception-alerts`, `perception-2d-fusion`).
+#
+# It is additive: the template in compose.yaml is unchanged and the four
+# existing clone tokens keep working exactly as before.
+#
+# `vss-rtvi-cv-mv3dt` is deliberately not covered here. It extends a different
+# base (rtvi-cv-mv3dt/compose.yaml), runs a different entrypoint
+# (ds-start-mv3dt.sh) and needs a measurement-fusion companion, so it stays a
+# structural variant rather than a configuration of this service.
+#
+# ---------------------------------------------------------------------------
+# Configuring it
+# ---------------------------------------------------------------------------
+# Every knob below is optional. The rt-cv image ships no `configs/` directory,
+# only `reference-configs/`, so with no config mount ds-start.sh seeds `configs/`
+# from the `reference-configs/<set>` matching DS_MODEL_FAMILY and this service is
+# usable without a blueprint's config tree. Those reference files carry
+# <PATH_TO_*>-style placeholders: supply each one as RTVI_CV_REF_<TOKEN> (for
+# example RTVI_CV_REF_PATH_TO_ONNX_MODEL) and ds-start.sh stops and lists any
+# that are still missing rather than failing later inside nvinfer.
+#
+# Seeding is skipped whenever either config mount below supplies files, so a
+# deployment that brings its own config tree is never seeded underneath.
+#
+# Mounts — set only the ones the deployment needs:
+#   RTVI_CV_MODELS_DIR            host model tree            -> /opt/storage/
+#   RTVI_CV_MODELS_MANIFEST       models-download.json       -> /opt/config/... (ro)
+#   RTVI_CV_MOUNTED_CONFIG_DIR    configs staged by ds-start -> mounted-configs/ (ro)
+#   RTVI_CV_DIRECT_CONFIG_DIR     configs read in place (rw) -> configs/
+#   RTVI_CV_ENGINES_DIR           TensorRT engine cache      -> /opt/engines/
+#   RTVI_CV_EXTRA_MOUNT_1..3      free-form "src:dst[:opts]" entries
+#
+# Reference-config seeding (ds-start.sh, only when neither config dir is set):
+#   RTVI_CV_REF_<TOKEN>           value for a <TOKEN> placeholder in the set
+#   RTVI_CV_REFERENCE_CONFIG_SET  override the DS_MODEL_FAMILY -> set mapping
+#   RTVI_CV_REFERENCE_CONFIGS     auto (default) | never | require
+#
+# Pick MOUNTED_CONFIG_DIR when the configs are static and may be copied once at
+# startup. Pick DIRECT_CONFIG_DIR when a configurator rewrites them while the
+# service runs and the changes must be visible in place — that is why the
+# warehouse 2D/3D clones bind straight onto configs/ rather than staging.
+#
+# Environment:
+#   Keys the template already declares (DS_MODEL_FAMILY, DS_MODE_FLAG,
+#   DS_CONFIG_FILE, DS_TRACKER_REID, STREAM_TYPE, HARDWARE_PROFILE, ...) are
+#   plain `${VAR:-default}` lookups, so set them in the deployment's .env /
+#   overrides.env like any other value.
+#
+#   RTVI_CV_ENV_FILE points at an extra env file for keys the template does NOT
+#   declare — SPARSE4D_*, VISION_ENCODER_*, NUM_SENSORS, MODEL_NAME_2D,
+#   GST_PLUGIN_PATH, and so on. NOTE: Compose gives `environment:` precedence
+#   over `env_file:`, so this file cannot override a key the template already
+#   lists; use the .env layer for those.
+#
+# Dependencies are declared `required: false`, so the service can be selected on
+# its own. When a broker is part of the same deployment it is still waited on.
+
+services:
+  rtvi-cv:
+    extends:
+      file: compose.yaml
+      service: perception
+    profiles: ["rtvi-cv"]
+
+    env_file:
+      - path: ${RTVI_CV_ENV_FILE:-/dev/null}
+        required: false
+
+    # Each entry collapses to a shared anonymous /dummy volume when its variable
+    # is unset; Compose de-duplicates those, so unused slots cost nothing.
+    volumes:
+      - ${RTVI_CV_MODELS_DIR:-/dummy}${RTVI_CV_MODELS_DIR:+:/opt/storage/}
+      - ${RTVI_CV_MODELS_MANIFEST:-/dummy}${RTVI_CV_MODELS_MANIFEST:+:/opt/config/models-download.json:ro}
+      - ${RTVI_CV_MOUNTED_CONFIG_DIR:-/dummy}${RTVI_CV_MOUNTED_CONFIG_DIR:+:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/:ro}
+      - ${RTVI_CV_DIRECT_CONFIG_DIR:-/dummy}${RTVI_CV_DIRECT_CONFIG_DIR:+:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/}
+      - ${RTVI_CV_ENGINES_DIR:-/dummy}${RTVI_CV_ENGINES_DIR:+:/opt/engines/}
+      - ${RTVI_CV_EXTRA_MOUNT_1:-/dummy}
+      - ${RTVI_CV_EXTRA_MOUNT_2:-/dummy}
+      - ${RTVI_CV_EXTRA_MOUNT_3:-/dummy}
+
+    # Only module-level infra is referenced here. Per-blueprint units
+    # (sensor-ms-*, sdr-controller, bp-configurator-*) are deliberately absent:
+    # depending on them is what makes the existing clones un-selectable alone.
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+      kafka-topic-init-container:
+        condition: service_completed_successfully
+        required: false

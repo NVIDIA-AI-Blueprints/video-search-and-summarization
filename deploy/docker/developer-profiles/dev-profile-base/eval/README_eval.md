@@ -1,34 +1,114 @@
 # Developer Workflow - Dev Profile Base Evaluation Setup (E2E)
 
-This directory contains evaluation resources for the Developer Workflow - Dev Profile Base report agent.
+This directory contains evaluation resources for the Developer Workflow - Dev Profile Base.
 
-### 0. Deploy Blueprint
+**Video Q&A (recommended).** QA accuracy and latency are measured by calling
+**`vss vlm run`** against the deployed Cosmos Reason 3 RT-VLM, with no dependency on
+vss-agent or NAT. That path does **not** score tool-calling or trajectories.
 
-Deploy the developer workflow (dev-base) blueprint.
+```bash
+# Prerequisites: vss configure already run; rt_vlm ok; a DSS credential
+# (NVDATASET_API_KEY, or `nvdataset auth login`) plus a tenant — see
+# "Download the eval Dataset".
+# Judge: any OpenAI-compatible chat-completions endpoint. EVAL_LLM_JUDGE_API_KEY
+# authenticates it; NGC_API_KEY is never sent to a non-NVIDIA judge host. The judge
+# moves absolute scores on its own, so keep it fixed across runs you compare.
+# EVAL_LLM_JUDGE_NAME must be the id that endpoint itself lists (GET .../models) —
+# multi-provider gateways reject a bare model name with 403, scoring nothing.
+export EVAL_LLM_JUDGE_BASE_URL="${LLM_BASE_URL}"
+export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
+export EVAL_LLM_JUDGE_API_KEY="${LLM_API_KEY}"
+
+# The dataset is named, never assumed: the script carries no default so it does
+# not bake one team's DSS coordinates into the blueprint.
+<repo>/skills/benchmarking/benchmark-vlm-qa/scripts/run_vlm_qa_benchmark.sh \
+  --dataset-name vss-devx-base \
+  --dataset-file dataset_single_turn.json
+```
+
+The benchmark lives with its skill, not in this directory, so that copying the skill
+takes its implementation along.
+
+Outputs: `results/vlm_qa/summary.json` (mean accuracy + latency percentiles),
+`qa_evaluator_output.json`, `latency_summary.json`, `summary.csv`.
+See `benchmark_vlm_qa.py --help` and
+[`skills/benchmarking/benchmark-vlm-qa/SKILL.md`](../../../../../skills/benchmarking/benchmark-vlm-qa/SKILL.md).
+
+Report and trajectory evaluation still run through `nat eval` inside the `vss-agent`
+container — section 4. That container is being deprecated and there is no replacement
+for those two yet, so it stays documented.
+
+### 1. Deploy Blueprint
+
+Deploy the developer workflow (dev-base) blueprint so RT-VLM (Cosmos Reason 3)
+is reachable, then `vss configure --base-url <origin>`.
+
+Use a **routable** origin — `http://<host-ip>:7777`, not `localhost`. Clips are
+addressed as VIOS sensors so RT-VLM fetches them by URL, and that URL is built
+from the configured origin. A loopback origin mints a URL that means nothing
+inside the RT-VLM container, so the CLI inlines the clip as base64 instead and
+the larger `vss-devx-base` videos fail with
+`HTTP 422 ... content ... valid string`. `--inline-media` forces inlining and is
+only safe for clips under ~10 MB.
 
 
-### 1. Download the `eval` Dataset
+### 2. Download the `eval` Dataset
 
 The eval dataset (ground truth files, reference reports, and videos) is hosted on the NVIDIA Dataset Service (DSS) under the dataset name `vss-devx-base`.
 
 **a. Install the `nvdataset` CLI:**
 
 ```bash
-pip install --extra-index-url https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple nvdataset
+pip install --extra-index-url https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple nvdataset
 ```
 
-**b. Download the dataset:**
+That is the read-only index from the [nvdataset onboarding
+docs](https://nsv-data-platform.gitlab-master-pages.nvidia.com/nv_datasets/onboarding_installation/)
+and needs no credentials. The `urm.nvidia.com/.../sw-ngc-data-platform-pypi` index
+used previously returns 403.
+
+**b. Authenticate.** DSS uses a *Personal* Key scoped to one NGC org and to the
+service `NVIDIA Dataset Service` — not the global NGC key used by the NGC CLI, which
+returns 403 even when it works elsewhere. Generate one at
+[org.ngc.nvidia.com/setup/personal-keys](https://org.ngc.nvidia.com/setup/personal-keys)
+after switching the org to the one owning the dataset:
 
 ```bash
-export NGC_API_KEY=<your-ngc-api-key>
-export NVDATASET_TENANTID=0573334707593577
-export NVDATASET_GROUPID=vss-bp-team
+export NVDATASET_TENANTID=<tenant>        # ask the dataset's owning team
+export NVDATASET_GROUPID=<group>
+export NVDATASET_API_KEY=<personal-key>   # NGC_API_KEY works but is deprecated
+```
+
+Or skip the key entirely with Starfleet SSO, adding `--flow device` when the machine
+has no browser (a remote box over SSH). Access to a group needs membership in
+`ngc-datasetservice-viewer-<tenant>-<group>` for read:
+
+```bash
+nvdataset auth login --flow device
+```
+
+SSO authenticates you but does **not** select a tenant — `nvdataset auth status` still
+shows `"tenant_id": null` afterwards, and every call then fails with `Did not find
+tenant_id`. Tenancy is separate from identity, so set it either way: keep the two
+exports above, or save it once as a context.
+
+```bash
+nvdataset auth context add   # then: nvdataset auth context use <name>
+```
+
+The benchmark deliberately names no tenant of its own — it inherits whichever one your
+environment or active context selects, so pointing it at a different dataset needs no
+change to the script.
+
+**c. Download the dataset:**
+
+```bash
 nvdataset download vss-devx-base <bp_dir>/deploy/docker/data-dir/agent_eval/dataset/vss-devx-base
 ```
 
 > Note: `data-dir` is only available after the blueprint/workflow has been deployed.
 
-**c. Verify that the files have been placed correctly:**
+**d. Verify that the files have been placed correctly:**
 
 ```bash
 $ sudo apt install tree  # optional
@@ -57,17 +137,27 @@ data-dir/agent_eval/
 └── results
 ```
 
+### 3. Run the benchmark
 
-### 2. Upload Videos
+Use the command at the top of this file — the script sits in
+`skills/benchmarking/benchmark-vlm-qa/scripts/`, not here. `benchmark_vlm_qa.py --help`
+lists the flags; `--dry-run` resolves items without calling the VLM, `--limit N` runs a
+smoke subset, and `--skip-judge` collects latency only.
+
+### 4. Report and trajectory eval (`nat eval`, inside vss-agent)
+
+Still the only path for **report** and **trajectory** scoring — the `vss vlm`
+benchmark above covers QA only. It runs inside the `vss-agent` container, which is
+being deprecated, so treat this as the legacy path and prefer section 3 for QA.
+
+#### 4a. Upload the videos to VST
 
 The eval videos are included in the `vss-devx-base` dataset downloaded above. Upload them to VST using the VSS Agent UI at http://<your-ip-address>:3000/ or via the blueprint configurator.
 
 
-### 3. Run Eval
+#### 4b. Run `nat eval`
 
-**a. Run evaluation:**
-
-On the deployment machine, run the evaluation:
+On the deployment machine:
 
 ```bash
 # `cd` into the `<bp_dir>/deploy/docker` directory
@@ -78,7 +168,7 @@ docker exec vss-agent nat eval \
     --override workflow.postprocessing.enabled false
 ```
 
-**b. Results**
+**Results**
 
 - Accuracy Results: The detailed accuracy report is generated in JSON format and can be found at:
 

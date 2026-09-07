@@ -46,7 +46,7 @@ python generate_cam_info_configs.py \
     --class 2 1.60 0.3 \
     --class 3 0.48 0.3 \
     --class 4 0.2  0.52 \
-    --class 5 2.2  0.9
+    --class 5 2.75 1.00
 
 # 2. Generate the MQTT pub/sub topology from those camInfo files
 python generate_pub_sub_configs.py \
@@ -135,8 +135,8 @@ modelInfo:
     height: 0.2
     radius: 0.52
   - classID: 5
-    height: 2.2
-    radius: 0.9
+    height: 2.75
+    radius: 1.0
 ```
 
 ### `generate_pub_sub_configs.py`

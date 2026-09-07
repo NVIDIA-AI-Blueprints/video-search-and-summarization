@@ -73,6 +73,46 @@ openshell forward start --background 18789 "$SB"
 nemoclaw "$SB" gateway-token
 ```
 
+## Non-interactive execution
+
+Automation runs the notebook itself rather than a copy of the steps above.
+[`run_setup_notebook.py`](../run_setup_notebook.py) — "the runner" below — reads
+a checked-in notebook with `nbformat` and executes every cell with `nbclient`
+(`allow_errors=False`, so the first failing cell aborts the run), which keeps
+the notebook as the single source of setup logic:
+
+```bash
+uv run --isolated --no-project --python 3.12 \
+  --with nbformat --with nbclient --with ipykernel -- \
+  python deploy/docker/scripts/run_setup_notebook.py \
+    --notebook deploy/docker/scripts/deploy_nemoclaw.ipynb
+```
+
+Two things invoke it. Skill-eval CI is the usual one:
+[`notebook_setup_adapter.py`](../../../../.github/skill-eval/nemoclaw/notebook_setup_adapter.py)
+loads the runner by file path (`.github` is not an importable package), maps the
+eval's provider contract onto the notebook-native variables below, and runs
+`deploy_nemoclaw.ipynb` then `deploy_vss_orchestrator.ipynb` on the trial box.
+The other is anyone running the command above by hand or from their own
+automation. Everything CI-specific — the provider mapping, the scoped MCP
+cleanup, the runtime env file — stays in the adapter; the runner has no
+knowledge of it.
+
+Settings come from the environment. Most are picked up unaided, because the
+notebook's own advanced-settings block reads them from its `SHELL_ENV` snapshot.
+The provider variables in section 1.2 are the exception: cells (a), (b) and (c)
+are mutually exclusive choices a human picks between, each assigning
+`NEMOCLAW_PROVIDER` and friends as plain Python literals, so executing the
+notebook top to bottom runs all three and the last one wins no matter what the
+caller asked for. The runner therefore injects
+`NAME = os.environ.get("NAME", NAME)` immediately before the derived-settings
+marker — the first point where every provider literal is in scope — giving the
+environment the last word. `NOTEBOOK_PARAMETERS` in the runner lists which
+variables get that treatment per notebook; a variable the notebook already
+reads from `SHELL_ENV` does not belong there. The injection touches only the
+in-memory copy and executed notebooks are never written back, so a run cannot
+persist credentials into the checkout.
+
 ## Why canonical
 
 Keeping the flow on first-class NemoClaw commands means VSS and NemoClaw stay

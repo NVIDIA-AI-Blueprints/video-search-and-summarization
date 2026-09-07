@@ -35,6 +35,11 @@ turnServerUrl: ""
 # (final_stream_count); set it to the stream count or nvstreamer serves no media.
 syncFileCount: 0
 
+# RTSP port range Service/Deployment must expose; keep in sync with vst-config.json
+rtsp:
+  basePort: 31554
+  instanceCount: 8
+
 env:
   ADAPTOR: "streamer"
   HTTP_PORT: "31000"

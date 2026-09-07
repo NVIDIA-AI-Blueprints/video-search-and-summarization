@@ -35,7 +35,16 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
   - **580.105.08** — Ubuntu 24.04
   - **580.65.06** — Ubuntu 22.04
 
-- **Volume provisioner** — the chart creates PVCs for VST, Elasticsearch, and related storage. A StorageClass must exist on the cluster. Set **`global.storageClass`** to its name in your values override. On bare-metal clusters, [local-path-provisioner](https://github.com/rancher/local-path-provisioner) is a straightforward option:
+- **Volume provisioner** — the chart creates PVCs for VST, Elasticsearch, and related storage. A StorageClass must exist on the cluster. Set **`global.storageClass`** to its name in your values override. On bare-metal clusters with no provisioner yet, install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) via Helm:
+
+  ```bash
+  helm repo add containeroo https://charts.containeroo.ch
+  helm repo update
+  helm upgrade --namespace local-path-storage --create-namespace --install \
+    local-path-provisioner-default containeroo/local-path-provisioner --version '0.0.32'
+  ```
+
+  Then, if `local-path` isn't already the default StorageClass:
 
   ```bash
   kubectl patch storageclass local-path \
@@ -43,6 +52,23 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
   ```
 
   Replace `local-path` with your StorageClass name if it differs.
+
+  `local-path` binds each PV to whichever node claims it first — on a multi-node cluster, a pod
+  with several PVCs can end up unschedulable if they land on different nodes. Prefer a shared
+  StorageClass on multi-node clusters instead, e.g.
+  [nfs-subdir-external-provisioner](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner)
+  (needs an existing NFS server):
+
+  ```bash
+  helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+  helm repo update
+  helm upgrade --namespace nfs-provisioner --create-namespace --install \
+    nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+    --set nfs.server=<NFS_SERVER_IP> \
+    --set nfs.path=<NFS_EXPORT_PATH>
+  ```
+
+  Creates a StorageClass named `nfs-client` by default.
 
 - **Helm 3.x** and **kubectl**
 
@@ -363,6 +389,22 @@ To reach a service directly:
 ```bash
 kubectl port-forward -n <namespace> svc/grafana 3000:3000
 ```
+
+## Scaling: NUM_STREAMS by GPU
+
+The chart ships a fixed `NUM_STREAMS=4` in `bp-configurator.env` with no GPU cap —
+unlike Docker Compose, which caps it automatically per `HARDWARE_PROFILE`. Before an initial
+install or an upgrade where you want streams sized to your hardware, generate a values-override:
+
+```bash
+python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py \
+  --mode mv3dt --num-streams <N> -o values-stream-cap.generated.yaml
+```
+
+Layer `-f values-stream-cap.generated.yaml` into `helm upgrade --install`, and set
+`vios.vss-vios-nvstreamer.syncFileCount` to the effective count it prints. See
+[`skills/deployment/vss-deploy-warehouse-helm/references/streams.md`](../../../../../skills/deployment/vss-deploy-warehouse-helm/references/streams.md)
+for the full command and GPU→cap table. No skill/agent required — the script runs standalone.
 
 ## Upgrade and uninstall
 

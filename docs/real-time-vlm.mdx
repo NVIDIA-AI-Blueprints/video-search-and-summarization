@@ -71,9 +71,9 @@ The following model families are supported.
 | Cosmos Reason2 | [Cosmos Reason2 8B (0303-fp8-dynamic-kv8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp8-dynamic-kv8) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8` |
 | Cosmos Reason2 | [Cosmos Reason2 8B (hf-0303)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=hf-0303) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-0303` |
 | Cosmos Reason2 | [Cosmos Reason2 8B (0303-fp4-dynamic-kv8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos-reason2-8b?version=0303-fp4-dynamic-kv8) | `cosmos-reason2` | `ngc:nim/nvidia/cosmos-reason2-8b:0303-fp4-dynamic-kv8` |
-| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-nvfp4)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
-| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
-| Cosmos Reason3 | [Cosmos3 Nano Reasoner (bf16)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/files?version=bf16-final) **(Default)** | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-nvfp4)](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (modelopt-fp8)](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| Cosmos Reason3 | [Cosmos3 Nano Reasoner (bf16)](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner) **(Default)** | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | Cosmos Reason3 | [Cosmos3 Nano Reasoner (Diffuser)](https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner) | `cosmos-reason3` | `git:https://huggingface.co/nvidia/Cosmos3-Nano-Reasoner` |
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-nvfp4)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-nvfp4-full-quantize-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
@@ -152,7 +152,7 @@ details.
 ## API Reference
 
 For complete API documentation including all endpoints, request/response
-schemas, and interactive examples, see the [Real-Time VLM API Reference ](/vss/system-components/vision-microservices/real-time-vlm/api-reference/api-reference).
+schemas, and interactive examples, see the [Real-Time VLM API Reference](/vss/system-components/vision-microservices/real-time-vlm/api-reference).
 
 The API is organized into the following categories:
 
@@ -194,7 +194,6 @@ The API is organized into the following categories:
 | `/v1/chat/completions` | `POST` | OpenAI-compatible chat completion endpoint |
 | `/v1/completions` | `POST` | OpenAI-compatible completions endpoint |
 | `/v1/version` | `GET` | Get release and API versions |
-| `/v1/license` | `GET` | Get license information |
 | `/v1/manifest` | `GET` | Get service manifest information |
 | `/v1/health/live` | `GET` | NIM-compatible liveness check |
 | `/v1/health/ready` | `GET` | NIM-compatible readiness check |
@@ -1429,14 +1428,14 @@ standalone Helm override.
 | `VLLM_NUM_SCHEDULER_STEPS` | Number of scheduler steps for vLLM | `8` |
 | `VLLM_WORKER_MULTIPROC_METHOD` | Multiprocessing method for vLLM workers | `spawn` |
 | `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `true` |
-| `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `false` |
+| `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `true` |
 | `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
 | `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.2` when EVS++ session mode is enabled |
 | `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `20000` |
 | `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `100` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
-| `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `1` |
+| `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
 | `VLLM_MULTIMODAL_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
 | `VLLM_MM_ENCODER_ATTN_BACKEND` | vLLM multimodal encoder attention backend | Empty |

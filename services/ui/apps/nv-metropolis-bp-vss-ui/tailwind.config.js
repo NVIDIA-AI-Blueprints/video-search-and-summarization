@@ -7,7 +7,6 @@ module.exports = {
     './components/**/*.{js,ts,jsx,tsx}',
     '../../packages/nv-metropolis-bp-vss-ui/*/lib/**/*.{js,jsx}',
     '../../packages/nv-metropolis-bp-vss-ui/*/lib-src/**/*.{ts,tsx}',
-    '../../packages/nemo-agent-toolkit-ui/components/**/*.{js,jsx,ts,tsx}',
     '../../packages/common/lib/**/*.{js,jsx}',
     '../../packages/common/lib-src/**/*.{ts,tsx}',
   ],

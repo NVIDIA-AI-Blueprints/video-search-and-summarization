@@ -21,6 +21,7 @@ image:
   tag: "develop-latest"
   pullPolicy: IfNotPresent
 replicas: 1
+streamType: "kafka"
 
 kafkaBrokers: ""   # default: kafka-kafka:9092 (<release>-kafka-kafka:9092 if global.useReleaseNamePrefix)
 elasticsearchNode: ""   # default: http://<release>-elasticsearch:9200

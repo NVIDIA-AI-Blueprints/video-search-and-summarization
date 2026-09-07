@@ -22,42 +22,27 @@ TargetManagement:
   enableBboxUnClipping: 1
   preserveStreamUpdateOrder: 0
   maxTargetsPerStream: 200
-  minIouDiff4NewTarget: 0.3
+  minIouDiff4NewTarget: 0.33
   minTrackerConfidence: 0.6
   probationAge: 17
-  maxShadowTrackingAge: 150
+  maxShadowTrackingAge: 140
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
+  outputVisibility: 1
 
 TrajectoryManagement:
   useUniqueID: 0
-  enableReAssoc: 1
-  minMatchingScore4Overall: 0.95
-  minTrackletMatchingScore: 0.3
-  minMatchingScore4ReidSimilarity: 0
-  matchingScoreWeight4TrackletSimilarity: 0.8
-  matchingScoreWeight4ReidSimilarity: 0
-  minTrajectoryLength4Projection: 34
-  prepLength4TrajectoryProjection: 58
-  trajectoryProjectionLength: 33
-  maxAngle4TrackletMatching: 67
-  minSpeedSimilarity4TrackletMatching: 0.06
-  minBboxSizeSimilarity4TrackletMatching: 0.1
-  maxTrackletMatchingTimeSearchRange: 27
-  trajectoryProjectionProcessNoiseScale: 0.01
-  trajectoryProjectionMeasurementNoiseScale: 100
-  trackletSpacialSearchRegionScale: 0.01
-  reidExtractionInterval: 0
+  enableReAssoc: 0
 
 DataAssociator:
   dataAssociatorType: 0
   associationMatcherType: 1
   minMatchingScore4Overall: 0.5
-  minMatchingScore4SizeSimilarity: 0.1
-  minMatchingScore4Iou: 0.25
-  matchingScoreWeight4SizeSimilarity: 0.2
-  matchingScoreWeight4Iou: 0.6
-  tentativeDetectorConfidence: 0.8
+  minMatchingScore4SizeSimilarity: 0.01
+  minMatchingScore4Iou: 0.15
+  matchingScoreWeight4SizeSimilarity: 0.3
+  matchingScoreWeight4Iou: 0.4
+  tentativeDetectorConfidence: 0.78
   minMatchingScore4TentativeIou: 0.25
   minMatchingScore4PeerAssocIou: 0.25
 
@@ -86,8 +71,9 @@ PoseEstimator:
   poseInferenceInterval: -1
 
 ObjectModelProjection:
-  outputFootLocation: 1
   minPoseConfidence: 0.95
+  outputFootLocation: 1
+  outputConvexHull: 1
   cameraModelFilepath:
     Camera: /tmp/camInfo/Camera.yml
     Camera_01: /tmp/camInfo/Camera_01.yml
@@ -101,12 +87,12 @@ MultiViewAssociator:
   enableIDCorrection: 0
   enableSeeThrough: 1
   maxPeerTrackletSize: 30
-  recentlyActiveAge: 150
+  recentlyActiveAge: 9000
   minCommonFrames4MatchScore: 15
   minPeerTrackletMatchScore: 0.25
   minPeerVisibility4Fusion: 0.1
   maxPeerToPredDistance4Fusion: 2.0
-  maxTrackletMatchingTimeSearchRange: 5
+  maxTrackletMatchingTimeSearchRange: 1
   maxPeerFrameDiff4NoDet: 5
 
 Communicator:

@@ -8,6 +8,10 @@ import re
 import socket
 import ssl
 import sys
+import uuid
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
 from typing import Any
 from urllib.error import ContentTooShortError
 from urllib.error import HTTPError
@@ -18,6 +22,7 @@ from urllib.parse import urlencode
 from urllib.request import Request
 from urllib.request import urlopen
 
+CORRELATION_VARIABLE = "VSS_TRIGGER_CORRELATION_ID"
 LAUNCHABLE_NOTEBOOK_PATH = "deploy/docker/scripts/deploy_vss_launchable.ipynb"
 LAUNCHABLE_NOTEBOOK_TRIGGER_VARIABLE = "BREV_LAUNCHABLE_NOTEBOOK_TESTS"
 CHANGED_FILE_FIELDS = ("added", "modified")
@@ -159,6 +164,7 @@ def trigger_pipeline(
     target_branch: str,
     compare_branch: str,
     extra_variables: dict[str, str] | None = None,
+    correlation_id: str = "",
 ) -> dict[str, Any]:
     payload = pipeline_request_data(
         ref=ref,
@@ -167,8 +173,15 @@ def trigger_pipeline(
         target_branch=target_branch,
         compare_branch=compare_branch,
         extra_variables=extra_variables,
+        correlation_id=correlation_id,
     )
-    return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
+    response = request_json(
+        "Pipeline trigger",
+        f"{base_url}/projects/{project_id}/pipeline",
+        token,
+        data=payload,
+    )
+    return response
 
 
 def pipeline_request_data(
@@ -179,6 +192,7 @@ def pipeline_request_data(
     target_branch: str,
     compare_branch: str,
     extra_variables: dict[str, str] | None = None,
+    correlation_id: str = "",
 ) -> bytes:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
@@ -189,6 +203,13 @@ def pipeline_request_data(
         ("variables[][key]", "VSS_COMPARE_BRANCH"),
         ("variables[][value]", compare_branch),
     ]
+    if correlation_id:
+        payload_pairs.extend(
+            [
+                ("variables[][key]", CORRELATION_VARIABLE),
+                ("variables[][value]", correlation_id),
+            ]
+        )
     for key, value in (extra_variables or {}).items():
         payload_pairs.extend(
             [
@@ -378,6 +399,66 @@ def write_output(key: str, value: str) -> None:
         return
     with open(output_path, "a", encoding="utf-8") as output_file:
         output_file.write(f"{key}={value}\n")
+        output_file.flush()
+        os.fsync(output_file.fileno())
+
+
+DEFAULT_HANDOFF_PATH = ".ci/downstream-pipeline.json"
+
+
+def new_correlation_id() -> str:
+    """One-off token identifying a single trigger attempt."""
+    run_id = os.environ.get("GITHUB_RUN_ID", "local").strip() or "local"
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1").strip() or "1"
+    return f"gh-{run_id}-{attempt}-{uuid.uuid4().hex}"
+
+
+def handoff_path() -> str:
+    override = os.environ.get("DOWNSTREAM_HANDOFF_PATH", "").strip()
+    if override:
+        return override
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip()
+    if run_id:
+        suffix = f"{run_id}-{attempt}" if attempt else run_id
+        return f".ci/downstream-pipeline-{suffix}.json"
+    return DEFAULT_HANDOFF_PATH
+
+
+def persist_handoff(**fields: object) -> None:
+    """Record GitLab trigger identity on disk for a cancelled cleanup step.
+
+    GitHub only publishes ``GITHUB_OUTPUT`` when the step finishes, so the
+    ids go to disk instead. ``ref`` / ``correlation_id`` /
+    ``trigger_started_at`` are written *before* POST so cleanup can still
+    find the pipeline if cancel lands in the HTTP window; ``pipeline_id``
+    is written the instant GitLab returns it.
+    """
+    path = Path(handoff_path())
+    payload: dict[str, str] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            for key, value in loaded.items():
+                if isinstance(key, str) and isinstance(value, (str, int)) and str(value):
+                    payload[key] = str(value)
+    for key, value in fields.items():
+        if value is None or value == "":
+            continue
+        payload[str(key)] = str(value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, encoded)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
 
 
 def extra_pipeline_variables() -> dict[str, str]:
@@ -401,6 +482,7 @@ def extra_pipeline_variables() -> dict[str, str]:
         ),
         "VSS_TARGET_BRANCH",
         "VSS_COMPARE_BRANCH",
+        CORRELATION_VARIABLE,
     }
     overlap = reserved.intersection(payload)
     if overlap:
@@ -469,6 +551,18 @@ def main() -> int:
             return 0
 
         project_id = fetch_project_id(base_url, token, project_path)
+        # Identifies this trigger attempt alone, so a cancel that races the
+        # POST response cannot match a concurrent run's pipeline on the same
+        # ref and submodule SHA.
+        correlation_id = new_correlation_id()
+        persist_handoff(
+            project_id=project_id,
+            ref=ref,
+            correlation_id=correlation_id,
+            trigger_started_at=datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+        )
         pipeline = trigger_pipeline(
             base_url,
             token,
@@ -479,10 +573,15 @@ def main() -> int:
             target_branch,
             compare_branch,
             extra_variables,
+            correlation_id,
         )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
         pipeline_id = str(pipeline.get("id") or "")
+        persist_handoff(project_id=project_id, pipeline_id=pipeline_id)
+        write_output("pipeline_id", pipeline_id)
+        write_output("project_id", str(project_id))
+        write_output("pipeline_iid", pipeline_iid)
         pipeline_sha = str(pipeline.get("sha") or "")
         pipeline_url = str(pipeline.get("web_url") or "")
         pipeline_created_at = str(pipeline.get("created_at") or "")
@@ -525,14 +624,13 @@ def main() -> int:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))
 
-        # Expose identifiers to the poll step in the same job. Do NOT
-        # write the pipeline URL here - it is a secret and would appear
-        # in any caller that echoes the output.
-        write_output("pipeline_iid", pipeline_iid)
-        write_output("pipeline_id", pipeline_id)
+        # Remaining identifiers for the poll step. Ordering these writes
+        # buys nothing on cancel: GitHub only publishes a step's outputs
+        # once the step completes. What covers a cancel during this summary
+        # is the fsynced handoff file, written right after GitLab created
+        # the pipeline.
         write_output("pipeline_sha", pipeline_sha)
         write_output("pipeline_created_at", pipeline_created_at)
-        write_output("project_id", str(project_id))
         return 0
     except SystemExit:
         raise

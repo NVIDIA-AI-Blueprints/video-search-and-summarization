@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import type { RegisterChatVideoUploadComplete } from '@nemo-agent-toolkit/ui';
+import type { RegisterChatVideoUploadComplete } from '@nv-metropolis-bp-vss-ui/chat';
 
 export interface StreamMetadata {
   bitrate: string;
@@ -65,8 +65,15 @@ export interface UploadProgress {
   id: string;
   fileName: string;
   progress: number;
-  status: 'pending' | 'uploading' | 'processing' | 'success' | 'error' | 'cancelled';
+  /**
+   * `confirming` = VST took the bytes; waiting for its streams listing to
+   * include the new sensor. Kept apart from `processing` so cancelling the
+   * queue does not mark a file VST already holds as cancelled.
+   */
+  status: 'pending' | 'uploading' | 'processing' | 'confirming' | 'success' | 'error' | 'cancelled';
   error?: string;
+  /** Set when the upload succeeded but VST never listed the sensor in time. */
+  unconfirmed?: string;
 }
 
 /** Shape for chat sidebar context chips (aligned with search `QueryDataContext`). */

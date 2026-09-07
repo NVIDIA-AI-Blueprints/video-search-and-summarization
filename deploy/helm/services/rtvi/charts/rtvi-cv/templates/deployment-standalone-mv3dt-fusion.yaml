@@ -61,6 +61,10 @@ spec:
               value: {{ $fusion.maxExpectedSensors | default $mv3dt.maxBatchSize | default "4" | quote }}
             - name: BUFFER_DURATION_S
               value: {{ $fusion.bufferDurationS | default "2.0" | quote }}
+            - name: FUSION_METHOD
+              value: {{ $fusion.fusionMethod | default "gated_weighted" | quote }}
+            - name: VISIBILITY_MIN
+              value: {{ $fusion.visibilityMin | default "0.3" | quote }}
             - name: OTEL_SDK_DISABLED
               value: {{ $.Values.otelSdkDisabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

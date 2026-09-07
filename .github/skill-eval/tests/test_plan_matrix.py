@@ -29,14 +29,14 @@ _SPEC.loader.exec_module(plan_matrix)
 # A fake universe: skill -> list of (spec_path, eval_dir, stem).
 FAKE_SPECS = {
     "vss-summarize-video": [
-        ("skills/vss-summarize-video/evals/a.json", "evals", "a"),
-        ("skills/vss-summarize-video/evals/b.json", "evals", "b"),
+        ("skills/operations/vss-summarize-video/evals/a.json", "evals", "a"),
+        ("skills/operations/vss-summarize-video/evals/b.json", "evals", "b"),
     ],
     "vss-search-archive": [
-        ("skills/vss-search-archive/evals/search.json", "evals", "search"),
+        ("skills/operations/vss-search-archive/evals/search.json", "evals", "search"),
     ],
     "vss-no-adapter": [
-        ("skills/vss-no-adapter/evals/only.json", "evals", "only"),
+        ("skills/operations/vss-no-adapter/evals/only.json", "evals", "only"),
     ],
 }
 SKILLS_WITH_ADAPTERS = {"vss-summarize-video", "vss-search-archive"}
@@ -148,6 +148,65 @@ class RunsOnLabels(unittest.TestCase):
             self.assertTrue(labels[2].startswith("gpu-"), platform)
 
 
+class EvalScope(unittest.TestCase):
+    """Which skills skill-eval covers, asserted against the real tree.
+
+    RealSpecCorpus below derives its corpus from EVAL_SKILL_ROOTS, so it cannot
+    notice a root being typo'd or dropped — the corpus just shrinks and every
+    assertion still holds. These tests pin the roots to the tree instead.
+    """
+
+    def test_every_covered_root_exists_and_contributes_a_skill(self):
+        skills_root = plan_matrix.REPO_ROOT / "skills"
+        discovered = plan_matrix.discover_skills()
+        for root in plan_matrix.EVAL_SKILL_ROOTS:
+            self.assertTrue((skills_root / root).is_dir(),
+                            f"EVAL_SKILL_ROOTS names {root!r}, which is not a dir")
+            owned = [n for n, d in discovered.items()
+                     if root in d.relative_to(skills_root).parts or d.name == root]
+            self.assertTrue(owned, f"covered root {root!r} contributed no skill")
+
+    def test_a_named_root_is_itself_a_skill_dir(self):
+        for name in plan_matrix.EVAL_SKILL_NAMES:
+            self.assertTrue(
+                (plan_matrix.REPO_ROOT / "skills" / name / "SKILL.md").is_file(),
+                f"{name!r} is in EVAL_SKILL_NAMES but is not a skill dir")
+
+    def test_a_category_root_holds_no_skill_md_of_its_own(self):
+        for cat in plan_matrix.EVAL_SKILL_CATEGORIES:
+            self.assertFalse(
+                (plan_matrix.REPO_ROOT / "skills" / cat / "SKILL.md").is_file(),
+                f"{cat!r} is a category but has its own SKILL.md")
+
+    def test_a_nested_file_attributes_to_its_leaf_never_the_category(self):
+        skills = plan_matrix.discover_skills()
+        self.assertEqual(
+            plan_matrix.skill_for_file(
+                "skills/operations/vss-ask-video/references/x.md", skills),
+            "vss-ask-video")
+        self.assertEqual(
+            plan_matrix.skill_for_file("skills/vss-build-vision-ai/SKILL.md", skills),
+            "vss-build-vision-ai")
+
+    def test_uncovered_categories_attribute_to_nothing(self):
+        skills = plan_matrix.discover_skills()
+        for path in ("skills/deployment/vss-deploy-profile/evals/base.json",
+                     "skills/tools/vss-generate-video-calibration/SKILL.md",
+                     "skills/benchmarking/benchmark-video-summarization/scripts/x.py"):
+            self.assertIsNone(plan_matrix.skill_for_file(path, skills), path)
+            self.assertEqual(plan_matrix.build_matrix([path]), [], path)
+
+    def test_an_undiscovered_skill_under_a_category_still_names_the_leaf(self):
+        """The fallback path: a skill dir in the diff but not yet on disk."""
+        skills = plan_matrix.discover_skills()
+        self.assertEqual(
+            plan_matrix.skill_for_file("skills/operations/vss-brand-new/SKILL.md", skills),
+            "vss-brand-new")
+        # ...but a bare category file names no skill, and neither does a bare root.
+        self.assertIsNone(plan_matrix.skill_for_file("skills/operations/README.md", skills))
+        self.assertIsNone(plan_matrix.skill_for_file("skills/deployment/vss-new/SKILL.md", skills))
+
+
 class RealSpecCorpus(unittest.TestCase):
     """Every spec in skills/ must yield a well-formed label set.
 
@@ -156,8 +215,14 @@ class RealSpecCorpus(unittest.TestCase):
     """
 
     def setUp(self):
+        # Glob every covered root, since a root is either a skill dir itself
+        # (skills/<skill>/eval*/) or a category of them (skills/<cat>/<skill>/eval*/).
+        skills_root = plan_matrix.REPO_ROOT / "skills"
         self.specs = sorted(
-            p for p in (plan_matrix.REPO_ROOT / "skills").glob("*/eval*/*.json")
+            p
+            for root in plan_matrix.EVAL_SKILL_ROOTS
+            for pattern in ("eval*/*.json", "*/eval*/*.json")
+            for p in (skills_root / root).glob(pattern)
             if p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
         )
         if not self.specs:
@@ -219,12 +284,12 @@ class BuildMatrix(unittest.TestCase):
         return sorted(leg["spec_stem"] for leg in include)
 
     def test_single_spec_change_dispatches_only_that_spec(self):
-        inc = plan_matrix.build_matrix(["skills/vss-summarize-video/evals/a.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-summarize-video/evals/a.json"])
         self.assertEqual(self._stems(inc), ["a"])
         self.assertEqual(inc[0]["kind"], "eval")
 
     def test_skill_nonspec_change_dispatches_all_specs(self):
-        inc = plan_matrix.build_matrix(["skills/vss-summarize-video/SKILL.md"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-summarize-video/SKILL.md"])
         self.assertEqual(self._stems(inc), ["a", "b"])
 
     def test_adapter_change_dispatches_all_specs(self):
@@ -235,8 +300,8 @@ class BuildMatrix(unittest.TestCase):
 
     def test_spec_plus_skill_file_dedupes(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-summarize-video/evals/a.json",
-            "skills/vss-summarize-video/SKILL.md",
+            "skills/operations/vss-summarize-video/evals/a.json",
+            "skills/operations/vss-summarize-video/SKILL.md",
         ])
         self.assertEqual(self._stems(inc), ["a", "b"])  # a appears once
 
@@ -245,7 +310,7 @@ class BuildMatrix(unittest.TestCase):
         # changed evals.json must not dispatch as its own leg. It falls through
         # to whole-skill scope like any other non-spec file under the skill.
         inc = plan_matrix.build_matrix(
-            ["skills/vss-summarize-video/evals/evals.json"]
+            ["skills/operations/vss-summarize-video/evals/evals.json"]
         )
         self.assertEqual(self._stems(inc), ["a", "b"])
         self.assertNotIn("evals", self._stems(inc))
@@ -262,7 +327,7 @@ class BuildMatrix(unittest.TestCase):
             self.assertEqual(plan_matrix.build_matrix([f]), [], f)
 
     def test_missing_adapter_collapses_to_one_leg(self):
-        inc = plan_matrix.build_matrix(["skills/vss-no-adapter/SKILL.md"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-no-adapter/SKILL.md"])
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["kind"], "missing_adapter")
         self.assertEqual(inc[0]["slug"], "vss-no-adapter__missing-adapter")
@@ -271,8 +336,8 @@ class BuildMatrix(unittest.TestCase):
 
     def test_every_leg_carries_runs_on(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-summarize-video/SKILL.md",
-            "skills/vss-no-adapter/SKILL.md",
+            "skills/operations/vss-summarize-video/SKILL.md",
+            "skills/operations/vss-no-adapter/SKILL.md",
         ])
         self.assertTrue(inc)
         for leg in inc:
@@ -284,7 +349,7 @@ class BuildMatrix(unittest.TestCase):
             "L40S": {"gpu_count": 1},
             "RTXPRO6000BW": {"gpu_count": 2},
         }
-        inc = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(
             {leg["platform"]: leg["runs_on"] for leg in inc},
             {
@@ -296,7 +361,7 @@ class BuildMatrix(unittest.TestCase):
         )
 
     def test_slug_carries_platform(self):
-        inc = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["platform"], "L40S")
         self.assertEqual(inc[0]["slug"], "vss-search-archive__search__L40S")
@@ -306,7 +371,7 @@ class BuildMatrix(unittest.TestCase):
             "L40S": {"gpu_count": 1},
             "RTXPRO6000BW": {"gpu_count": 2},
         }
-        inc = plan_matrix.build_matrix(["skills/vss-search-archive/evals/search.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(
             sorted(leg["slug"] for leg in inc),
             ["vss-search-archive__search__L40S",
@@ -315,14 +380,14 @@ class BuildMatrix(unittest.TestCase):
 
     def test_mixed_skills_sorted_and_scoped(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-search-archive/evals/search.json",
-            "skills/vss-summarize-video/SKILL.md",
+            "skills/operations/vss-search-archive/evals/search.json",
+            "skills/operations/vss-summarize-video/SKILL.md",
             ".github/skill-eval/verifiers/generic_judge.py",  # noise
         ])
         self.assertEqual(self._stems(inc), ["a", "b", "search"])
 
     def test_every_leg_has_a_safe_slug(self):
-        inc = plan_matrix.build_matrix(["skills/vss-summarize-video/SKILL.md"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-summarize-video/SKILL.md"])
         for leg in inc:
             self.assertRegex(leg["slug"], r"^[A-Za-z0-9_-]+$")
 
@@ -331,7 +396,7 @@ class BuildMatrix(unittest.TestCase):
         # process the entire changed-file list. The GitHub compare API caps
         # its .files array at 300; plan_matrix now diffs locally
         # (see list_changed_files), and build_matrix itself has no cap.
-        changed = [f"skills/vss-summarize-video/evals/s{i}.json" for i in range(400)]
+        changed = [f"skills/operations/vss-summarize-video/evals/s{i}.json" for i in range(400)]
         inc = plan_matrix.build_matrix(changed)
         self.assertEqual(len(inc), 400)
         self.assertTrue(all(leg["kind"] == "eval" for leg in inc))
@@ -414,8 +479,8 @@ class ListChangedFiles(unittest.TestCase):
         # Use a real skill dir so the existence guard passes; specs_for_skill
         # is stubbed so the assertion stays stable as the tree changes.
         plan_matrix.specs_for_skill = lambda s: (
-            [("skills/vss-manage-alerts/evals/a.json", "evals", "a"),
-             ("skills/vss-manage-alerts/evals/b.json", "evals", "b")]
+            [("skills/operations/vss-manage-alerts/evals/a.json", "evals", "a"),
+             ("skills/operations/vss-manage-alerts/evals/b.json", "evals", "b")]
             if s == "vss-manage-alerts" else []
         )
         os.environ["MANUAL_SKILLS_FILTER"] = "vss-manage-alerts"
@@ -428,8 +493,8 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
-        self.assertEqual(files, ["skills/vss-manage-alerts/evals/a.json",
-                                 "skills/vss-manage-alerts/evals/b.json"])
+        self.assertEqual(files, ["skills/operations/vss-manage-alerts/evals/a.json",
+                                 "skills/operations/vss-manage-alerts/evals/b.json"])
         self.assertEqual(calls, [])  # manual mode never invokes git
 
     def test_manual_filter_unknown_skill_raises(self):

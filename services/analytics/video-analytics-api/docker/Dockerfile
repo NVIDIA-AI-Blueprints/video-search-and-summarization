@@ -14,6 +14,12 @@
 # limitations under the License.
 FROM node:22.23.2-trixie AS builder
 
+# Container builds use pinned lockfiles; npm's audit API is unrelated and can
+# hang for minutes when registry.npmjs.org/-/npm/v1/security/audits/quick
+# returns 503, which blows the CI BUILD_TIMEOUT of 600s.
+ENV NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false
+
 # Build web-api-core from source
 COPY ./src/web-api-core /web-api-core
 

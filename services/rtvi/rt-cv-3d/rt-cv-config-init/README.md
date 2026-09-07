@@ -58,7 +58,7 @@ docker run --rm \
 | `CALIBRATION_FETCH_PATH` | `/tmp/calibration/calibration.json` | Where API-fetched calibration is written. Must be writable — the shared calibration volume is mounted read-only |
 | `CALIBRATION_POLL_INTERVAL` | `10` | Seconds between retries |
 | `MQTT_HOST` / `MQTT_PORT` | `localhost` / `1883` | MQTT broker hostname and port |
-| `CLASS_SPECS` | `0,1.60,0.3;`<br>`1,1.60,0.3;`<br>`2,1.60,0.3;`<br>`3,0.48,0.3;`<br>`4,0.2,0.52;`<br>`5,2.2,0.9` | Object model dims as `;`-separated `"classID,height,radius"` entries (metres); spaces around tokens are ignored |
+| `CLASS_SPECS` | `0,1.60,0.3;`<br>`1,1.60,0.3;`<br>`2,1.60,0.3;`<br>`3,0.48,0.3;`<br>`4,0.2,0.52;`<br>`5,2.75,1.00` | Object model dims as `;`-separated `"classID,height,radius"` entries (metres); spaces around tokens are ignored |
 | `RANGE_OF_INTEREST` | `""` (empty) | World-plane ROI `x1,y1,x2,y2` (metres). When empty, computed from camera positions with 20 m padding |
 | `NEIGHBOR_CRITERIA` | `overlap_threshold:1e-6` | FOV-overlap rule: `top_N:<N>` or `overlap_threshold:<float>` in `[0, 1]` |
 | `MINIMUM_OBJECT_SIZE` | `50` | Min object height (px) to consider an object visible when rendering FOV |

@@ -28,17 +28,17 @@ Usage from the repository root:
     # Generate every (profile, platform) the specs declare
     python3 .github/skill-eval/adapters/vss-deploy-profile/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-profile \\
-        --skill-dir skills/vss-deploy-profile
+        --skill-dir skills/deployment/vss-deploy-profile
 
     # One profile
     python3 .github/skill-eval/adapters/vss-deploy-profile/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-profile \\
-        --skill-dir skills/vss-deploy-profile --profile base
+        --skill-dir skills/deployment/vss-deploy-profile --profile base
 
     # One platform
     python3 .github/skill-eval/adapters/vss-deploy-profile/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-profile \\
-        --skill-dir skills/vss-deploy-profile --platform RTXPRO6000BW
+        --skill-dir skills/deployment/vss-deploy-profile --platform RTXPRO6000BW
 
 Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
@@ -556,7 +556,7 @@ def generate_task(
     else:
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
-            f"echo 'FAIL: no eval spec at skills/vss-deploy-profile/evals/{profile}.json' >&2\n"
+            f"echo 'FAIL: no eval spec at skills/deployment/vss-deploy-profile/evals/{profile}.json' >&2\n"
             "mkdir -p /logs/verifier\n"
             "echo 0 > /logs/verifier/reward.txt\n"
             "exit 0\n"
@@ -646,7 +646,7 @@ def expand_matrix(
             continue
         spec_matrix = _spec_platforms_for(profile, skill_dir)
         if spec_matrix is None:
-            skipped.append((profile, "-", "no spec at skills/vss-deploy-profile/evals/"
+            skipped.append((profile, "-", "no spec at skills/deployment/vss-deploy-profile/evals/"
                                           f"{profile}.json with resources.platforms"))
             continue
         for platform, spec_gpu_count in spec_matrix.items():
@@ -667,7 +667,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
-    parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-profile")
+    parser.add_argument("--skill-dir", default=None, help="Path to skills/deployment/vss-deploy-profile")
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
     selector.add_argument(

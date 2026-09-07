@@ -15,12 +15,60 @@
 
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 
 # Configure centralized logging from config.yaml
 from utils.logging_config import setup_logging, get_logger
+
+
+def _freeze_headers(headers):
+    """Store the header block as a tuple so the record stays hashable.
+
+    confluent-kafka returns a list, and a list inside a NamedTuple makes the
+    whole record unhashable -- a regression against the 3-tuple this replaced,
+    which could go in a set. Nothing in this service hashes a record today; the
+    point is not to take away something callers used to have.
+    """
+    if headers is None:
+        return None
+    try:
+        return tuple(tuple(h) if isinstance(h, list) else h for h in headers)
+    except TypeError:
+        return headers
+
+
+class KafkaMessage(NamedTuple):
+    """One consumed record, with the header block kept.
+
+    The bare 3-tuple this replaces dropped ``headers`` on the floor, and with it
+    any inbound W3C ``traceparent`` -- Alert MS started a new trace for every
+    record no matter what the producer sent (REQ-007).
+
+    **What compatibility with the old 3-tuple is and is not preserved.** A
+    NamedTuple rather than a dataclass so ``key, value, *rest`` unpacking keeps
+    working, which is what every consumer in this repository does (SG2-017), and
+    so index access is unchanged. Adding a field cannot preserve everything, and
+    an earlier version of this docstring said "tuple-compatible" without saying
+    which parts:
+
+    * ``key, value, *rest`` unpacking, ``record[0..2]``, ``len()``: unchanged.
+    * A fixed three-value unpack now raises ``ValueError``. There is none left in
+      this service; the tests that had one were updated with this change.
+    * ``==`` against a 3-tuple is now ``False``. Compare fields, not shapes.
+    * Hashability *is* preserved, deliberately: ``headers`` is stored as a tuple
+      of pairs rather than the list confluent-kafka hands back, so a record can
+      still go in a ``set`` or serve as a dict key the way the old 3-tuple could.
+
+    ``headers`` is ``None`` when the record carries none, otherwise a tuple of
+    ``(key: str, value: bytes)`` pairs.
+    """
+
+    key: Any
+    value: Any
+    timestamp_ms: Optional[int]
+    headers: Optional[Tuple[Tuple[str, bytes], ...]]
 setup_logging()
 logger = get_logger(__name__)
 
@@ -290,7 +338,7 @@ class KafkaMessageBroker:
             except KafkaException as ke:
                 logger.error(f"Failed to commit batched offset: {ke}")
 
-    def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None) -> Dict[str, List[Tuple[str, str]]]:
+    def get_consumed_messages(self, consumer: Consumer, batch_size: Optional[int] = None) -> Dict[str, List[KafkaMessage]]:
         """
         Consumes a batch of messages from a Kafka topic and manually commits the offsets.
 
@@ -308,8 +356,8 @@ class KafkaMessageBroker:
 
         :param consumer: The Confluent Kafka consumer.
         :param batch_size: The number of messages to consume in a single batch. Defaults to kafka.max_poll_records.
-        :return: A dictionary with partition keys and lists of consumed messages (key, value).
-        :rtype: Dict[str, List[Tuple[str, str]]]
+        :return: A dictionary with partition keys and lists of KafkaMessage records.
+        :rtype: Dict[str, List[KafkaMessage]]
         """
         messages = {}
         pending_commits: Dict[Tuple[str, int], Any] = {}
@@ -349,7 +397,10 @@ class KafkaMessageBroker:
                     if ts_type == 0:
                         logger.debug("Kafka message has no timestamp available")
                         kafka_timestamp_ms = None
-                    messages[partition_key].append((msg.key(), msg.value(), kafka_timestamp_ms))
+                    messages[partition_key].append(
+                        KafkaMessage(msg.key(), msg.value(), kafka_timestamp_ms,
+                                     _freeze_headers(msg.headers()))
+                    )
                     with self._assignment_lock:
                         counts = self._in_batch.setdefault(id(consumer), {})
                         key = (msg.topic(), msg.partition())

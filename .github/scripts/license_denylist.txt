@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Package-name denylist for the license-check-python job
+# Package-name denylist consumed by the OSRB scan's permissive gate
 # (`.github/scripts/check_python_licenses.py`).
 #
 # Purpose: explicitly fail the build for packages whose declared pip

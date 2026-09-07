@@ -72,7 +72,7 @@ The trace begins with the **workflow** span, which orchestrates the entire agent
 
 The workflow includes:
 
-1. **LLM Call (nvidia/nvidia-nemotron-nano-9b-v2)**: The first LLM call processes the user query. Click on this span to view:
+1. **LLM Call (nvidia/nemotron-3.5-lightning-30b-a3b)**: The first LLM call processes the user query. Click on this span to view:
 
    - **Input**: The user's question and system prompt
    - **Output**: The LLM's reasoning and decision to call a tool
@@ -99,13 +99,13 @@ The trace view shows a hierarchical execution pattern typical of agent workflows
 
 ```text
 workflow
-├── LLM Call (nvidia/nvidia-nemotron-nano-9b-v2)  → Reasoning & tool selection
+├── LLM Call (nvidia/nemotron-3.5-lightning-30b-a3b)  → Reasoning & tool selection
 │   ├── Input: User query + system prompt
 │   └── Output: Decision to call vst_video_list
-├── Tool Call (vst_video_list)                    → Tool execution
+├── Tool Call (vst_video_list)                        → Tool execution
 │   ├── Input: Tool parameters
 │   └── Output: List of videos
-└── LLM Call (nvidia/nvidia-nemotron-nano-9b-v2)  → Final response generation
+└── LLM Call (nvidia/nemotron-3.5-lightning-30b-a3b)  → Final response generation
     ├── Input: Tool results + context
     └── Output: User-facing response
 ```

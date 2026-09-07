@@ -114,6 +114,38 @@ spec:
               value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
             - name: ALWAYS_ON_RULES_CONFIG
               value: "/app/configs/realtime-config.yml"
+            {{- /* OpenTelemetry tracing. Off unless tracing.enabled is set, so a
+                   chart that says nothing renders exactly what it renders today.
+                   Without these the tracing block in configs/config.yml is
+                   unreachable tuning: the config knobs exist but nothing can
+                   switch the feature on. */}}
+            - name: ENABLE_OTEL_MONITORING
+              value: {{ (.Values.tracing).enabled | default false | quote }}
+            {{- if (.Values.tracing).enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ (.Values.tracing).otlpEndpoint | default (index ($g) "otelExporterOtlpEndpoint") | default "http://otel-collector:4318" | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ (.Values.tracing).serviceName | default "vss-alert-ms" | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ (.Values.tracing).resourceAttributes | default "" | quote }}
+            {{- /* The same set the compose file enumerates, for the same reason:
+                   what is not rendered here is unreachable in the pod. Metrics
+                   follow the traces setting, mirroring meters.py's own chain --
+                   without it, pointing the exporter at nothing leaves metrics
+                   retrying OTLP and blocking roughly seven seconds at exit. The
+                   attribute cap backstops span attributes lifted from Kafka,
+                   which the SDK otherwise leaves unlimited. */}}
+            - name: OTEL_TRACES_EXPORTER
+              value: {{ (.Values.tracing).tracesExporter | default "otlp" | quote }}
+            - name: OTEL_METRICS_EXPORTER
+              value: {{ (.Values.tracing).metricsExporter | default ((.Values.tracing).tracesExporter | default "otlp") | quote }}
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ (.Values.tracing).metricExportIntervalMillis | default 60000 | quote }}
+            - name: OTEL_METRIC_EXPORT_TIMEOUT
+              value: {{ (.Values.tracing).metricExportTimeoutMillis | default 5000 | quote }}
+            - name: OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT
+              value: {{ (.Values.tracing).attributeValueLengthLimit | default 4096 | quote }}
+            {{- end }}
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime

@@ -1,41 +1,23 @@
-<!-- SPDX-License-Identifier: MIT -->
-# Contributing Guidelines
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: MIT AND Apache-2.0
+-->
+# Contributing to the VSS UI
 
-**Welcome to NeMo Agent Toolkit UI**
+Follow the repository-wide [contributor guide](../../CONTRIBUTING.md) for the
+license, SPDX-header, DCO, and pull-request requirements. In particular, new
+contributions under `services/ui/` are accepted under Apache-2.0 even though
+retained upstream-derived files remain under MIT.
 
-We appreciate your interest in contributing to our project.
-
-Before you get started, please read our guidelines for contributing.
-
-## Types of Contributions
-
-We welcome the following types of contributions:
-
-- Bug fixes
-- New features
-- Documentation improvements
-- Code optimizations
-- Translations
-- Tests
-
-## Get Started
-
-To get started, fork the project on GitHub and clone it locally on your machine. Then, create a new branch to work on your changes.
+Run UI commands from this directory:
 
 ```bash
-git clone git@github.com:NVIDIA/NeMo-Agent-Toolkit-UI.git
-cd NeMo-Agent-Toolkit-UI
-git checkout -b my-branch-name
+npm ci
+npm test
+npm run typecheck
+npx turbo run build bundle --filter=./apps/nv-metropolis-bp-vss-ui
 ```
 
-Before submitting your pull request, please make sure your changes pass our automated tests and adhere to our code style guidelines.
-
-## Pull Request Process
-
-1. Fork the project on GitHub.
-2. Clone your forked repository locally on your machine.
-3. Create a new branch from the main branch.
-4. Make your changes on the new branch.
-5. Ensure that your changes adhere to our code style guidelines and pass our automated tests.
-6. Commit your changes and push them to your forked repository.
-7. Submit a pull request to the main branch of the main repository.
+Do not add or update dependencies without the required license review. The
+workspace-level development and build commands are documented in
+[README.md](README.md).

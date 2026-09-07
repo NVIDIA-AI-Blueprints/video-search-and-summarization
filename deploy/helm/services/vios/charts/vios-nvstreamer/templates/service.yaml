@@ -31,6 +31,15 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+    {{- $rtspBasePort := .Values.rtsp.basePort | default 31554 }}
+    {{- $rtspInstanceCount := .Values.rtsp.instanceCount | default 8 }}
+    {{- range $i := until (int $rtspInstanceCount) }}
+    {{- $rtspPort := add (int $rtspBasePort) $i }}
+    - port: {{ $rtspPort }}
+      targetPort: {{ $rtspPort }}
+      protocol: TCP
+      name: rtsp-{{ $rtspPort }}
+    {{- end }}
   selector:
     app.kubernetes.io/name: vss-vios-nvstreamer
     app.kubernetes.io/instance: {{ .Release.Name }}

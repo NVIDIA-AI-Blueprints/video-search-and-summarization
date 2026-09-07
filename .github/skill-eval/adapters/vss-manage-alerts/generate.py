@@ -34,9 +34,9 @@ Directory layout (one platform × mode per directory):
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
         --output-dir "$SCRATCH/datasets/vss-manage-alerts" \\
-        --skill-dir   skills/vss-manage-alerts \\
-        --deploy-skill-dir skills/vss-deploy-profile \\
-        --spec        skills/vss-manage-alerts/evals/alerts_vlm_real_time.json
+        --skill-dir   skills/operations/vss-manage-alerts \\
+        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --spec        skills/operations/vss-manage-alerts/evals/alerts_vlm_real_time.json
 """
 from __future__ import annotations
 
@@ -99,6 +99,23 @@ DEFAULT_SPEC = "alerts_vlm_real_time.json"
 # ---------------------------------------------------------------------------
 
 _SUBST_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def _peer_skill_dir(skill_dir: Path, name: str) -> Path | None:
+    """Resolve a peer skill by its leaf directory name.
+
+    A skill lives at either skills/<name>/ or skills/<category>/<name>/, and a
+    peer may sit in a different category than the caller — so look beside the
+    caller first, then across the categories one level up.
+    """
+    beside = skill_dir.parent / name
+    if beside.is_dir():
+        return beside
+    for category in sorted(skill_dir.parent.parent.glob("*")):
+        nested = category / name
+        if nested.is_dir():
+            return nested
+    return None
 
 
 def _substitute(value: object, subs: dict[str, str]) -> object:
@@ -346,7 +363,9 @@ def generate_platform_mode(
         for extra_name in spec.get("skills") or []:
             if extra_name in already:
                 continue
-            extra_dir = skill_dir.parent / extra_name
+            # Fall back to the sibling path when unresolvable so the loop below
+            # still reports a miss rather than silently dropping the skill.
+            extra_dir = _peer_skill_dir(skill_dir, extra_name) or skill_dir.parent / extra_name
             skills_to_copy.append((extra_dir, extra_name))
             already.add(extra_name)
 
@@ -381,9 +400,9 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True,
                         help='Dataset output root (e.g. "$SCRATCH/datasets/vss-manage-alerts")')
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/vss-manage-alerts")
+                        help="Path to skills/operations/vss-manage-alerts")
     parser.add_argument("--deploy-skill-dir", default=None,
-                        help="Path to skills/vss-deploy-profile (included so agent can diagnose issues)")
+                        help="Path to skills/deployment/vss-deploy-profile (included so agent can diagnose issues)")
     parser.add_argument("--spec", default=None,
                         help=f"Path to spec JSON (default: <skill-dir>/evals/{DEFAULT_SPEC})")
     parser.add_argument("--platform", default=None,

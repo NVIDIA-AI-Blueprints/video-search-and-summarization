@@ -286,3 +286,67 @@ class TestEnforceLogLevel:
         with patch("utils.config.load_config", side_effect=RuntimeError("bad yaml")):
             enforce_log_level("config.yaml")
         assert logging.getLogger().level == before
+
+
+class TestTraceCorrelation:
+    """Trace ids on log lines (REQ-012).
+
+    The requirement's own guarantee is negative as much as positive: a line
+    logged outside a span must be byte-identical to what this service emits
+    today, because logstash ingests these lines into Elasticsearch.
+    """
+
+    @staticmethod
+    def _emit(correlate):
+        import io
+        import logging
+
+        from utils.logging_config import _install_trace_correlation
+
+        logging.root.handlers.clear()
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
+        logging.root.addHandler(handler)
+        logging.root.setLevel(logging.INFO)
+        if correlate:
+            _install_trace_correlation()
+        logging.getLogger("ab").info("alert processed")
+        result = buf.getvalue()
+        logging.root.handlers.clear()
+        return result
+
+    def test_line_is_byte_identical_when_no_span_is_current(self):
+        assert self._emit(correlate=False) == self._emit(correlate=True)
+
+    def test_single_line_formatter_identity_survives_installation(self):
+        import logging
+
+        from utils.logging_config import _SingleLineFormatter, _install_trace_correlation
+
+        logging.root.handlers.clear()
+        handler = logging.StreamHandler()
+        handler.setFormatter(_SingleLineFormatter("%(message)s", truncate_base64=True))
+        logging.root.addHandler(handler)
+        _install_trace_correlation()
+        # Wrapping instead of mixing in would replace this, and both the code and
+        # the tests above select behaviour by this exact type.
+        assert isinstance(handler.formatter, _SingleLineFormatter)
+        assert handler.formatter.truncate_base64 is True
+        logging.root.handlers.clear()
+
+    def test_installation_is_idempotent(self):
+        import logging
+
+        from utils.logging_config import _install_trace_correlation
+
+        logging.root.handlers.clear()
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logging.root.addHandler(handler)
+        _install_trace_correlation()
+        first = handler.formatter
+        _install_trace_correlation()
+        assert handler.formatter is first, "a second call must not stack another wrapper"
+        assert len(handler.filters) == 1
+        logging.root.handlers.clear()
