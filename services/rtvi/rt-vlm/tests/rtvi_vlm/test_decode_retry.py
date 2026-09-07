@@ -409,6 +409,43 @@ def test_completed_frames_suppress_only_late_qtdemux_not_linked(
 
 
 @pytest.mark.no_gpu
+def test_completed_frames_use_original_count_after_selector_consumption(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import (
+        DefaultFrameSelector,
+        _can_use_completed_frames_after_qtdemux_not_linked,
+    )
+
+    selector = DefaultFrameSelector(20, use_fps_for_chunking=False)
+    selector.set_chunk(ChunkInfo(file="video.mp4", start_pts=0, end_pts=20_000_000_000))
+    expected_frame_count = selector._num_frames
+    error = "qtdemux: streaming stopped, reason not-linked (-1)"
+
+    for pts in range(0, 10_000_000_000, 1_000_000_000):
+        assert selector.choose_frame(None, pts)
+    assert len(selector._selected_pts_array) == 10
+    assert not _can_use_completed_frames_after_qtdemux_not_linked(
+        error,
+        expected_frames=expected_frame_count,
+        actual_frames=10,
+        actual_timestamps=10,
+        audio_enabled=False,
+    )
+
+    for pts in range(10_000_000_000, 20_000_000_000, 1_000_000_000):
+        assert selector.choose_frame(None, pts)
+    assert not selector._selected_pts_array
+    assert _can_use_completed_frames_after_qtdemux_not_linked(
+        error,
+        expected_frames=expected_frame_count,
+        actual_frames=20,
+        actual_timestamps=20,
+        audio_enabled=False,
+    )
+
+
+@pytest.mark.no_gpu
 def test_gst_property_setter_skips_properties_missing_on_jetson(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
 
