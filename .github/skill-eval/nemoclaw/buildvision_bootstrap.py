@@ -73,6 +73,15 @@ case "$status" in
     ;;
   *)
     printf 'NemoClaw sandbox %s gateway is not healthy: %s\\n' "$sandbox" "$output" >&2
+    # The bootstrap runs on the Brev host, so record the host-side OpenShell
+    # view here. This distinguishes a failed notebook/onboard from a gateway
+    # that existed during onboarding but died before Harbor verified it.
+    # These commands expose sandbox metadata only; no token/config dump and no
+    # repair action belongs in the eval harness.
+    printf '%s\\n' 'OpenShell sandbox state:' >&2
+    timeout 15 openshell sandbox get "$sandbox" >&2 || true
+    printf '%s\\n' 'NemoClaw sandbox status:' >&2
+    timeout 15 nemoclaw "$sandbox" status >&2 || true
     printf '0.0\\n' > "$reward_dir/reward.txt"
     ;;
 esac

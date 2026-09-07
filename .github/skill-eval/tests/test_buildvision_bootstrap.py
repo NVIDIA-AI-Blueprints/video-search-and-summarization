@@ -54,6 +54,8 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             verifier = (task / "tests" / "test.sh").read_text()
             self.assertIn('openshell sandbox exec --name "$sandbox" -- sh -lc', verifier)
             self.assertNotIn('NEMOCLAW_GATEWAY_PORT', verifier)
+            self.assertIn('openshell sandbox get "$sandbox"', verifier)
+            self.assertIn('nemoclaw "$sandbox" status', verifier)
             self.assertIn('"$reward_dir/reward.txt"', verifier)
 
     def test_rejects_a_non_object_spec(self):
