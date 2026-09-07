@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:61827dc745881f0f9a1e74049f35e9c7e2b9035004046ed19e0f154e60572ba7"
+content_hash = "sha256:0afba5576009111bae32bdb75ec6482fb3b2ad24408ba91a569957fad119a779"
 
 [[metadata.targets]]
 requires_python = "==3.12.*"
@@ -1070,12 +1070,12 @@ files = [
 
 [[package]]
 name = "kafka-python"
-version = "2.2.15"
+version = "2.3.2"
 summary = "Pure Python client for Apache Kafka"
 groups = ["default"]
 files = [
-    {file = "kafka_python-2.2.15-py2.py3-none-any.whl", hash = "sha256:84c0993cd4f7f2f01e92d8104ea9bdf631aff72fc5e6ea62eb3bdf1d56528fc3"},
-    {file = "kafka_python-2.2.15.tar.gz", hash = "sha256:e0f480a45f3814cb0eb705b8b4f61069e1be61dae0d8c69d0f1f2da33eea1bd5"},
+    {file = "kafka_python-2.3.2-py2.py3-none-any.whl", hash = "sha256:e8a5e6f2c4ce13a8041669337038d5125e0e09e6d6f0911902ae5939e5b9595e"},
+    {file = "kafka_python-2.3.2.tar.gz", hash = "sha256:2d2469bcabc2551be7eaf7fb512e1241484d358800f2665b90e7e24fea84259d"},
 ]
 
 [[package]]
