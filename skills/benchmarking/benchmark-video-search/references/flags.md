@@ -58,7 +58,10 @@ one moves a run further from the baseline everything else is compared against.
 # Use a local dataset instead of DSS
 --data-dir ~/Desktop/vss-eval-datasets --dataset warehouse --skip-download
 
-# Fresh index (destructive)
+# Default: index holds exactly this dataset
+--dataset warehouse --only-dataset
+
+# Fresh index, wipes everyone's data (destructive)
 --dataset warehouse --clear
 
 # Shared box — do not touch others' data
@@ -74,7 +77,11 @@ one moves a run further from the baseline everything else is compared against.
 --dry-run
 ```
 
-Add `--concurrency 3` — the default is 1, and CLI queries take ~8 s each.
+`--concurrency` defaults to 1 and should stay there for any run whose latency
+numbers you intend to read: concurrent queries contend for the same VLM and
+embedding services, so every per-stage figure inflates. Raise it only when you
+want wall-clock and are reporting retrieval quality alone — CLI queries take
+~8 s each, so a 673-query set is hours at 1.
 
 ---
 
