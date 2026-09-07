@@ -265,6 +265,25 @@ def vst_url_for(endpoint: str, vst_port: int = 30888) -> str:
     return f"{parsed.scheme}://{parsed.hostname}:{vst_port}"
 
 
+def sidecar_decompositions_for(data_dir: Path, dataset: str) -> Path | None:
+    """The dataset's own decomposition answer key, when it ships one.
+
+    ``devset_provenance.json`` carries ``expected_decomposition`` for every
+    query. It is deliberately not in the dataset files -- routing is decided at
+    query time, and a stored decomposition would compete with that -- but when
+    the decomposer cannot be reached it is the difference between exercising all
+    four paths and measuring one.
+    """
+    path = data_dir / dataset / "devset_provenance.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except Exception:
+        return None
+    return path if isinstance(payload.get("expected_decomposition"), dict) else None
+
+
 def llm_url_for(endpoint: str, llm_port: int = 30081) -> str:
     """Derive the decomposition LLM origin from the agent endpoint.
 
