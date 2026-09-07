@@ -161,54 +161,48 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     )
     evals_by_id = {case["id"]: case for case in evals}
 
-    assert 'version: "3.3.0"' in ask_video
+    assert 'version: "3.4.0"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
-    assert "Treat that URL as Path A; do not rerun search or resolve a different interval" in normalized
-    assert "The caller owns verdict validation and any fallback" in normalized
-    assert "do not rerun search, resolve a sensor, broaden the clip, or choose another interval" in normalized
-    assert "Hot conversation context -> answer directly" in normalized
-    assert (
-        "Explicit stored summary/result -> `vss memory get`, `vss summarize get`, or `vss memory query`" in normalized
-    )
-    assert "General video question where past memory may exist -> `vss memory introspect`" in normalized
-    assert "Exact sensor/time or explicit fresh visual verification -> `vss vlm run`" in normalized
-    assert "`introspect` returns `no_memory` -> conditional `vss vlm run`" in normalized
-    assert "`introspect` requires grounded, useful scope" in normalized
-    assert '`"no_memory"` and exit code 5' in normalized
-    assert "expected not-found result, not a general command or backend failure" in normalized
-    assert (
-        "Do not automatically run a VLM afterward unless an exact sensor and exact ISO-8601 UTC start/end window"
-        in normalized
-    )
+    assert "Search OpenClaw Markdown memory using the harness-native memory search" in normalized
+    assert "Markdown search is not a `vss` command" in normalized
+    assert "Never send raw Markdown documents to the VSS judge" in normalized
+    assert "If introspection is enabled, call `vss memory introspect`" in normalized
+    assert "If introspection is disabled or unconfigured" in normalized
+    assert "Do not call `vss memory introspect`, enable it automatically" in normalized
+    assert "Do not run `vss memory query` immediately before introspection" in normalized
+    assert "Do not run `vss vlm run` after a completed or partial result" in normalized
+    assert "Never pass `--record-id` alone" in normalized
+    assert "Complete child identity: `--job-id`, `--record-type`, and `--record-id`" in normalized
+    assert "OpenClaw may execute every tool call in a fresh shell" in normalized
+    assert "Capture stdout and the exit code separately" in normalized
+    assert "Only one direct VLM fallback is allowed" in normalized
     assert "Do not call an OpenAI-compatible `/chat/completions` endpoint directly" in normalized
-    assert "Never enter this fallback after `vss memory introspect`" in normalized
-    assert "send the **native MP4 bytes as one video input**" in normalized
-    assert "data:video/mp4;base64,<base64 of the complete MP4 file>" in ask_video
-    assert "Do not run `ffmpeg`, OpenCV, or any frame extractor" in normalized
-    assert "image/jpeg" in json.dumps(direct_vlm_evals)
-    assert "data:video/mp4;base64," in json.dumps(direct_vlm_evals)
     assert "curl " not in ask_video
     assert {
-        "ask-video-hot-context",
-        "ask-video-memory-get",
-        "ask-video-memory-query",
-        "ask-video-introspect",
-        "ask-video-direct-vlm",
-        "ask-video-no-memory-with-window",
-        "ask-video-no-memory-without-window",
+        "hot-context-sufficient",
+        "markdown-sufficient",
+        "markdown-pointer-introspection-enabled",
+        "no-markdown-introspection-enabled",
+        "introspection-disabled",
+        "introspection-unconfigured",
+        "exact-stored-job",
+        "explicit-fresh-window",
+        "introspection-partial",
+        "no-memory-grounded-window",
+        "no-memory-without-scope",
+        "invalid-child-identity",
+        "separate-shell-cli",
     } <= evals_by_id.keys()
     assert any(
-        "Does not invoke vss vlm run" in behavior
-        for behavior in evals_by_id["ask-video-no-memory-without-window"]["expected_behavior"]
+        "Does not call VLM" in behavior for behavior in evals_by_id["no-memory-without-scope"]["expected_behavior"]
     )
     assert any(
-        "Runs one vss vlm run" in behavior
-        for behavior in evals_by_id["ask-video-no-memory-with-window"]["expected_behavior"]
+        "Uses one vss vlm run" in behavior for behavior in evals_by_id["no-memory-grounded-window"]["expected_behavior"]
     )
-    assert any(
-        "vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ" in behavior
-        for behavior in evals_by_id["ask-video-memory-get"]["expected_behavior"]
-    )
+    serialized_direct = json.dumps(direct_vlm_evals)
+    assert "vss vlm run --file" in serialized_direct
+    assert "data:video/mp4;base64" not in serialized_direct
+    assert "call RT-VLM directly" in serialized_direct
 
 
 def test_search_harbor_eval_exercises_cli_verification_contract() -> None:

@@ -27,10 +27,10 @@
       ]
     },
     {
-      "query": "Answer this question about the local video file warehouse_safety_0001.mp4 using a configured VSS deployment and vss-ask-video Path A --file — do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: Is the worker wearing PPE?",
+      "query": "Freshly inspect local video file warehouse_safety_0001.mp4 using the configured VSS deployment and the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: Is the worker wearing PPE?",
       "checks": [
-        "The run used `vss vlm run --file` to send the local video to RT-VLM. The command exited 0 and the output JSON contains a non-empty answer.",
-        "The run did NOT POST to http://<host>:8000/generate."
+        "The run uses the complete project-local `uv run --project ... --no-dev --extra cli vss vlm run --file` invocation in one shell call and returns its answer.",
+        "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
       ]
     }
   ]
