@@ -155,9 +155,14 @@ ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
-# Entrypoint, command and health check are inherited from the managed runtime.
+# Entrypoint and health check are inherited from the managed runtime. The command
+# is not: the runtime's CMD is /bin/bash, which reads EOF and exits as soon as
+# nemoclaw-start hands over when the container has no TTY, so an OpenShell sandbox
+# built from this image went to phase Error before the first exec. The eval
+# harness drives the agent with exec, so the container only has to stay alive.
 USER sandbox
 WORKDIR /sandbox
+CMD ["sleep", "infinity"]
 
 LABEL harness.base="nemoclaw-openclaw-sandbox" \
       harness.contract="harbor-trial-v1" \
