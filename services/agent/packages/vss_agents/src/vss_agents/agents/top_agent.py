@@ -772,6 +772,8 @@ class TopAgent(AsyncMixin):
             "then produce a concise numbered execution plan. Start each step with a tool name and a brief description of the step.\n"
             "Put relevant context (e.g. sensor IDs or time ranges) from the conversation history directly in the plan steps "
             "so the execution agent does not need to re-read the history.\n"
+            "Never answer with sensor names, incidents, counts, media URLs, or other deployment data from memory. "
+            "When an available tool can retrieve the answer, the plan MUST call that tool.\n"
             "If the user's request is too ambiguous to build a reliable plan, respond with EXACTLY:\n"
             "[USER] <your clarifying question>\n"
             "If user's question can be answered directly without any tools, respond with EXACTLY:\n"
@@ -836,6 +838,13 @@ class TopAgent(AsyncMixin):
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
+            if "vst_sensor_list" in self.tools_dict and any(
+                term in question.lower() for term in ("available sensor", "available camera", "sensor id", "camera id")
+            ):
+                state.plan = "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
+                logger.warning("Rejected ungrounded planner answer for sensor-list query: %s", clarification)
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
             logger.info("Plan node requesting clarification: %s", clarification)
             state.final_answer = clarification
             return state
@@ -1249,6 +1258,8 @@ class TopAgent(AsyncMixin):
                 except Exception as ex:
                     logger.exception("Tool execution failed")
                     error_response = f"Tool call failed: {ex!s}"
+                    if not state.final_answer:
+                        state.final_answer = error_response
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],

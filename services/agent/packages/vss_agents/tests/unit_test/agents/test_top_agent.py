@@ -522,6 +522,32 @@ class TestRequestOptionsContext:
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
         assert not str(result.content).startswith("Tool call failed:")
+    @pytest.mark.asyncio
+    async def test_plan_node_rejects_ungrounded_sensor_list_answer(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = self._agent_with_search_tool()
+        sensor_tool = MagicMock()
+        sensor_tool.name = "vst_sensor_list"
+        sensor_tool.description = "Get available sensors from VST."
+        agent.tools_dict["vst_sensor_list"] = sensor_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="[USER] Camera_01, Camera_02"))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="What are the available sensor IDs?"),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert result.plan == "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
+        assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
 
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
@@ -603,6 +629,41 @@ class TestRequestOptionsContext:
         assert search_tool.received_input["request_options"]["search_source_type"] == "rtsp"
         assert search_tool.received_input["request_options"]["use_critic"] is False
         assert "source_type" not in search_tool.received_input
+
+    @pytest.mark.asyncio
+    async def test_tool_node_surfaces_tool_exception_as_final_answer(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class FailingTool:
+            args_schema = None
+
+            async def astream(self, input, config=None):
+                raise RuntimeError("streamId not found for 'Camera_01'. Available: ['gwfix6']")
+                yield
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"vst_picture_url": FailingTool()}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling snapshot",
+                    tool_calls=[
+                        {
+                            "name": "vst_picture_url",
+                            "args": {"sensor_id": "Camera_01", "start_time": "2025-01-01T00:00:00.000Z"},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert result.final_answer == "Tool call failed: streamId not found for 'Camera_01'. Available: ['gwfix6']"
 
     @pytest.mark.asyncio
     async def test_tool_node_forwards_request_options_to_accepting_subagent_trace(self, monkeypatch):
