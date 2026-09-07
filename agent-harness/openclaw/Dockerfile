@@ -153,6 +153,20 @@ RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
+# NemoClaw's shell hooks apply a hard `ulimit -u 512` in every shell
+# (/etc/profile.d/nemoclaw-rlimits.sh and /etc/bash.bashrc, sourcing
+# /usr/local/lib/nemoclaw/sandbox-rlimits.sh). That is harmless when the shell
+# runs as the `sandbox` user, which owns a handful of processes. The OpenShell
+# k8s driver runs the sandbox container as uid 0, and RLIMIT_NPROC for root
+# counts every root-owned process on the node, thousands on a k3s host, so the
+# first fork in the upload's ssh session fails with EAGAIN and the sandbox dies
+# (exit 254) before Harbor's first exec. Process limits for eval sandboxes are
+# the cluster's job (pod pids limits), not the shell's.
+USER root
+RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
+    && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
+    && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
+
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
 # Entrypoint and health check are inherited from the managed runtime. The command
