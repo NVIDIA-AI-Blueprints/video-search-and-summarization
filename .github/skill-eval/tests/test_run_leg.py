@@ -841,6 +841,41 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(bootstrap_env["NEMOCLAW_RECREATE_SANDBOX"], "0")
         self.assertEqual(run.call_args_list[1].args[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
 
+    def test_failed_nemoclaw_bootstrap_reward_fails_leg(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task_dir = root / "dataset" / "target"
+            task_dir.mkdir(parents=True)
+            (task_dir / "task.toml").write_text("[metadata]\ngpu_count = 1\n")
+            spec = root / "alerts.json"
+            spec.write_text(json.dumps({"profile": "alerts", "expects": []}))
+            invocation = run_leg.HarborInvocation(
+                harbor_root=task_dir.parent,
+                include_task_name="target",
+                chain_key="alerts",
+            )
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+                "EVAL_SPEC_PATH": str(spec),
+            }
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+            self.assertEqual(rc, 1)
+            run.assert_called_once()
+            self.assertTrue((root / "results" / "provisioning-failure.txt").is_file())
+
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.
 

@@ -1602,7 +1602,10 @@ def run_invocations(
                 "operational scenarios were not started",
                 file=sys.stderr,
             )
-            return bootstrap_rc
+            # Harbor can exit successfully even when its verifier records a
+            # failed or unreadable readiness reward.  In that case the leg
+            # must still fail instead of returning Harbor's zero exit code.
+            return bootstrap_rc or 1
         env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
         env["VSS_EVAL_DEPLOYMENT_READY"] = "1"
     skipped_after: dict[str, int] = {}
