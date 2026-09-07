@@ -1,0 +1,33 @@
+{
+  "id": "vss",
+  "name": "NVIDIA VSS",
+  "version": "0.1.0",
+  "description": "Drive a live Video Search and Summarization deployment: the vss CLI as an agent tool, plus the VSS skills",
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "vss_cli"
+    ]
+  },
+  "skills": [
+    "./skills"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "vssBin": {
+        "type": "string",
+        "description": "Path to the vss CLI binary.",
+        "default": "/usr/local/bin/vss"
+      },
+      "defaultTimeoutSec": {
+        "type": "integer",
+        "description": "Timeout for a vss CLI call when the tool call does not set one.",
+        "default": 600
+      }
+    },
+    "additionalProperties": false
+  }
+}

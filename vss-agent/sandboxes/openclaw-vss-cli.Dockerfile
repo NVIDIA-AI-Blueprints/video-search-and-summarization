@@ -1,179 +1,159 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Sandbox image — OpenClaw harness + pinned vss CLI + the VSS skills.
-# tags: [nemoclaw-lineage, openclaw, vss-cli]
+# Sandbox image — NemoClaw's managed OpenClaw runtime + the VSS OpenClaw plugin
+# (vss CLI tool + VSS skills) + the pinned vss CLI.
+# tags: [nemoclaw, openclaw, vss-plugin, vss-cli]
 #
-# Self-contained on purpose: this is the one sandbox image the VSS eval harness
-# builds, and it is built from this file alone (the harness's Provision panel
-# hands docker only the Dockerfile text, no repo checkout), so everything the
-# image needs is either in the base or fetched by a pinned RUN layer below.
+# Layout follows NemoClaw's documented custom-image workflow
+# (docs.nvidia.com/nemoclaw → Install OpenClaw Plugins): take the complete
+# managed runtime, name it `nemoclaw-runtime`, build the plugin in a separate
+# stage from its lockfile, then extend the runtime with `openclaw plugins
+# install` as the sandbox user and refresh the managed config hash.
 #
-# It derives from the OpenShell/NemoClaw community sandbox base rather than
-# rebuilding one: that image is what `openshell sandbox create --from base`
-# resolves to, and it already carries the default sandbox policy
-# (/etc/openshell/policy.yaml), the agent-skills layout (/sandbox/.agents/skills),
-# uv-managed python and the node toolchain. Evaluating an agent in the
-# environment it actually runs in is the point — a bespoke base would drift.
-# Pinned by digest, not :latest — a mutable tag with IfNotPresent silently
-# serves whatever the node happened to cache first. Refresh deliberately.
-ARG OPENSHELL_BASE=ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
-FROM ${OPENSHELL_BASE}
+# The doc starts from NemoClaw's stock Dockerfile with a version-matched source
+# checkout as the build context. That Dockerfile COPYs from a dozen places in
+# the NemoClaw tree, so it cannot be vendored here. NemoClaw's managed-images
+# workflow publishes the image that Dockerfile produces, so we `FROM` that
+# image at an immutable digest instead: same layers, no foreign checkout.
+#
+# Build context is this directory (vss-agent/sandboxes): the plugin source is
+# COPYd from ./vss-plugin; the skills and the vss CLI come from a pinned commit
+# of this repo so the two always match.
+#
+#   docker build -f openclaw-vss-cli.Dockerfile -t <registry>/vss-harness-openclaw:<tag> .
 
-USER root
-
-# ── Harbor trial contract ──────────────────────────────────────────────────────
-# The agent works in /task, writes its answer to /output, logs to /logs. These
-# are world-writable because a trial may run as a different uid than this image
-# is built with.
-RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts \
-    && chmod -R 777 /task /output /logs
-# /solution and /tests belong to the ORACLE and VERIFIER planes and are
-# deliberately NOT agent-writable. At 0777 an evaluated agent could read the
-# expected answer and the verifier's own inputs, which does not fail loudly — it
-# silently produces scores that mean nothing. Harbor uploads the real tests
-# during the verifier phase, after the agent has finished.
-RUN mkdir -p /solution /tests && chmod 0755 /solution /tests
-
-# ── VSS source: skills + vss CLI, one pinned checkout ──────────────────────────
-# Pinned to a commit, not a branch: an eval must be able to say which skills and
-# which CLI it measured. Override with --build-arg VSS_REF=<sha>.
-#
-# The `vss` CLI is installed from source because nvidia-vss is published nowhere
-# reachable — public PyPI, pypi.nvidia.com and the NVIDIA artifactory index all
-# 404 it — so a `pip install nvidia-vss[cli]` layer can only work on a machine
-# with an index nobody else has. `vss` lives at services/agent/packages/vss_cli
-# and is pulled in by the nvidia-vss meta package's `cli` extra. Its own venv, so
-# it can never perturb /sandbox/.venv, the interpreter the agent's tooling runs from.
-# The CLI packages are uv workspace members, which uv installs as *editable* links
-# into the checkout, so the checkout stays in the image (git metadata and the rest
-# of the tree stripped) rather than being deleted after the install.
-#
-# The skills (skills/ at the repo root) are what let the agent drive a live VSS
-# deployment — vss-summarize-video, vss-ask-video, vss-deploy-profile and the
-# rest. Baking them in is what makes the image self-contained: a trial must not
-# depend on network access to a skills repo at run time.
-#
-# Everything lands under /usr/local or /usr/share, NOT /opt: the sandbox policy's
-# filesystem_policy grants read on /usr, /lib, /app and /etc but says nothing
-# about /opt, so Landlock denies a read there and the skills (or the venv) would
-# be invisible to the agent. /opt/skills is kept only as a symlink for anything
-# that has it hard-coded.
-# One set of skill files, three names: every directory holding a SKILL.md (the
-# tree may be flat or grouped by category) is linked by name into the two paths
-# the base's agents discover skills under, and the whole tree is /opt/skills.
-# /sandbox is HOME for every user the policy may run as, so these resolve either way.
+# NemoClaw v0.0.99 managed OpenClaw runtime: OpenClaw 2026.7.1, node 22.23.1,
+# python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint.
+# Pinned by digest — a mutable tag with IfNotPresent silently serves whatever
+# the node cached first. Move it deliberately, together with OPENCLAW_VERSION.
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:5a134d92a4f1eba037c125d21aff11ce1d6689dbf211607f5e0bb5552d5e5ba0
+# The OpenClaw the base carries. The plugin's devDependency must match it, so
+# the compiled plugin links against the runtime it will actually load in.
+ARG OPENCLAW_VERSION=2026.7.1
+# Same builder image NemoClaw's Dockerfile uses for its plugin stages.
+ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.10
+# Skills and the vss CLI: one pinned commit of this repo, so an eval can say
+# exactly which it measured. Override with --build-arg VSS_REF=<sha>.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
 ARG VSS_REF=a7cd4bc9d5ad513acfe38bc8724e9c37e64cd2cf
-# The install runs on the intact checkout because the packages take their version
-# from git metadata (setuptools-scm); only afterwards is the tree stripped down to
-# what the editable links point at.
+
+# ── VSS source checkout ────────────────────────────────────────────────────────
+FROM ${BUILDER_IMAGE} AS vss-src
+ARG VSS_REPO
+ARG VSS_REF
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init -q /opt/vss-src \
+    && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+    && git -C /opt/vss-src checkout -q FETCH_HEAD
+
+# ── Plugin build (from its lockfile) ───────────────────────────────────────────
+FROM ${BUILDER_IMAGE} AS vss-plugin-builder
+ARG OPENCLAW_VERSION
+ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
+WORKDIR /opt/vss-plugin
+COPY vss-plugin/package.json vss-plugin/package-lock.json vss-plugin/tsconfig.json ./
+# The lockfile pins the openclaw devDependency; it has to be the base's version.
+RUN node -e 'const l=require("./package-lock.json"); const v=l.packages["node_modules/openclaw"].version; if (v!==process.argv[1]) { console.error(`plugin lockfile pins openclaw ${v}, base image carries ${process.argv[1]}`); process.exit(1); }' "$OPENCLAW_VERSION"
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY vss-plugin/openclaw.plugin.json ./
+COPY vss-plugin/src/ ./src/
+RUN npm run build \
+    && npm prune --omit=dev --omit=peer --ignore-scripts --no-audit --no-fund \
+    && test ! -e node_modules/openclaw
+# The VSS skills, one directory per SKILL.md regardless of how the repo groups
+# them, under the plugin root where the manifest's `skills: ["./skills"]` looks.
+COPY --from=vss-src /opt/vss-src/skills /tmp/vss-skills
+RUN mkdir -p skills \
+    && find /tmp/vss-skills -name SKILL.md -printf '%h\n' \
+       | while read -r d; do cp -r "$d" "skills/$(basename "$d")"; done \
+    && rm -rf /tmp/vss-skills \
+    && test "$(ls skills | wc -l)" -gt 0 \
+    && ls skills
+
+# ── uv, for the vss CLI venv ───────────────────────────────────────────────────
+FROM ${UV_IMAGE} AS uv
+
+# ── Managed runtime + vss CLI ──────────────────────────────────────────────────
+FROM ${BASE_IMAGE} AS nemoclaw-runtime
+USER root
+
+# Harbor trial contract: the agent works in /task, writes to /output, logs to
+# /logs (world-writable: a trial may run as a different uid than we build with).
+# /solution and /tests belong to the oracle and verifier planes and are not
+# agent-writable — at 0777 an evaluated agent could read the expected answer.
+RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts \
+    && chmod -R 777 /task /output /logs \
+    && mkdir -p /solution /tests && chmod 0755 /solution /tests
+
+# The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
+# same pinned checkout the skills came from. Its packages are uv workspace
+# members (installed editable, so the checkout stays) and take their version
+# from git metadata (so the install runs before .git is stripped). Own venv, so
+# it never touches the runtime's python.
+ARG VSS_REPO
+ARG VSS_REF
+COPY --from=uv /uv /usr/local/bin/uv
 RUN set -eux; \
     git init -q /usr/local/src/vss \
     && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
     && git -C /usr/local/src/vss checkout -q FETCH_HEAD \
-    && uv venv /usr/local/vss \
+    && uv venv --python /usr/bin/python3 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
-    && mv /usr/local/src/vss/skills /usr/share/vss-skills \
     && mv /usr/local/src/vss/services/agent /usr/local/src/vss-agent \
     && rm -rf /usr/local/src/vss \
     && mkdir -p /usr/local/src/vss/services \
     && mv /usr/local/src/vss-agent /usr/local/src/vss/services/agent \
-    && chmod -R a+rX /usr/share/vss-skills /usr/local/src/vss \
-    && ln -sfn /usr/share/vss-skills /opt/skills \
-    && for d in /sandbox/.agents/skills /sandbox/.claude/skills; do \
-         mkdir -p "$d"; \
-         find /usr/share/vss-skills -name SKILL.md -printf '%h\n' \
-           | while read -r s; do ln -sfn "$s" "$d/$(basename "$s")"; done; \
-       done \
-    && chown -R sandbox:sandbox /sandbox/.agents /sandbox/.claude \
+    && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
-    && su sandbox -c 'vss --version'
+    && gosu sandbox vss --version
 
-# ── nvm compatibility shim ─────────────────────────────────────────────────────
-# Every harness adapter that drives a node agent opens with some form of
-#     . ~/.nvm/nvm.sh && nvm use 22 && node -v && npm -v
-# because the images they were written against installed node through nvm. This
-# image gets node from the distro (and /usr/local/node below) instead, so that line
-# fails on a file that does not exist and takes the whole `&&` chain — and the
-# trial — with it. The shim makes `nvm use`/`nvm install` succeed when the
-# version asked for is the node already installed, and fail loudly otherwise; it
-# never downloads anything, which matters because the sandbox egress policy
-# would refuse.
-RUN mkdir -p /sandbox/.nvm && cat > /sandbox/.nvm/nvm.sh <<'NVM' \
-    && chown -R sandbox:sandbox /sandbox/.nvm
-# Shim, not nvm. See vss-agent/sandboxes/openclaw-vss-cli.Dockerfile.
-nvm() {
-  case "$1" in
-    use|install)
-      want="${2#v}"; want="${want%%.*}"
-      have="$(node -v 2>/dev/null)"; have="${have#v}"; have="${have%%.*}"
-      if [ -z "$want" ] || [ "$want" = "$have" ] || [ "$want" = "default" ] \
-         || [ "$want" = "node" ] || [ "$want" = "lts" ]; then
-        echo "Now using node $(node -v) (nvm shim)"
-        return 0
-      fi
-      echo "nvm shim: this image ships node $(node -v); it cannot install v$want" >&2
-      return 1 ;;
-    current) node -v ;;
-    which)   command -v node ;;
-    ls|list) node -v ;;
-    *)       return 0 ;;
-  esac
-}
-NVM
+# ── Extend the managed runtime with the VSS plugin ─────────────────────────────
+FROM nemoclaw-runtime AS vss-runtime
+# Re-declared here because build args are stage-scoped and this is the final stage.
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
+    /opt/vss-plugin/package.json \
+    /opt/vss-plugin/package-lock.json \
+    /opt/vss-plugin/openclaw.plugin.json \
+    /opt/vss-plugin/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /opt/vss-plugin/dist/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
 
-# ── OpenClaw ───────────────────────────────────────────────────────────────────
-# The package is `openclaw` on the public npm registry (the scoped name
-# @openclaw/openclaw does not exist). Pinned to an exact version, not a
-# dist-tag, so an eval run's harness does not move under it. 2026.9.1 and not
-# extended-stable (2026.6.34): harbor 0.20.0's adapter opens with
-#   openclaw setup --baseline --workspace .
-# which extended-stable rejects — `OpenClaw does not recognize option
-# "--baseline"` — killing the trial before the agent is asked anything.
-# Override with
-#   --build-arg OPENCLAW_NPM_SPEC='openclaw@<version>'
-#   --build-arg OPENCLAW_NPM_REGISTRY=https://npm.internal.example.com/
-ARG OPENCLAW_NPM_SPEC=openclaw@2026.9.1
-ARG OPENCLAW_NPM_REGISTRY=
-# Every openclaw release from 2026.7.1 on declares
-#   engines.node >=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0
-# and refuses to install otherwise. The community base ships 22.22.1 — three
-# patch versions short — so npm aborts with
-#   [openclaw] error: this OpenClaw release requires Node >=22.22.3 ...
-# Rather than downgrade openclaw, install a satisfying node beside the distro
-# one. `npm install -g node@x` fetches an official prebuilt binary, so this
-# stays a pinned, reproducible layer. Into its own prefix: a plain
-# `npm install -g node` tries to symlink /usr/bin/node and aborts with EEXIST.
-# Under /usr/local, not /opt, for the same Landlock reason as above.
-ARG NODE_NPM_SPEC=node@22.23.2
-RUN npm install -g --prefix /usr/local/node "$NODE_NPM_SPEC" \
-    && /usr/local/node/bin/node -v \
-    && ln -sf /usr/local/node/bin/node /usr/local/bin/node
-# Symlinked into /usr/local/bin rather than prepended to PATH: a login shell
-# (`bash -lc`, which is how the harness adapters invoke everything) re-derives
-# PATH from /etc/profile and drops anything set here, and /usr/local/bin already
-# precedes /usr/bin. Without this, openclaw refuses to start at runtime even
-# though it installed fine at build time.
-# npm has to run ON the new node — the engines check reads process.version — but
-# the `node` npm package ships only the binary, so npm itself still comes from
-# the distro install and is invoked through its cli.js. --prefix is explicit
-# because npm otherwise derives it from the running node and would bury the
-# binary in /usr/local/node/lib/node_modules/node/bin, which is on nobody's PATH.
-RUN if [ -n "$OPENCLAW_NPM_REGISTRY" ]; then npm config set registry "$OPENCLAW_NPM_REGISTRY"; fi \
-    && node /usr/lib/node_modules/npm/bin/npm-cli.js install -g --prefix /usr/local "$OPENCLAW_NPM_SPEC" \
-    && node /usr/lib/node_modules/npm/bin/npm-cli.js cache clean --force \
-    && openclaw --version
+# Staged outside the managed extensions dir and installed (copied) into it, per
+# the NemoClaw doc. The pre-check fails the build if npm kept a private
+# node_modules/openclaw that would stop OpenClaw creating its runtime link; the
+# post-checks prove the link exists and resolves to the image's own runtime.
+USER sandbox
+RUN test ! -e /opt/vss-plugin/node_modules/openclaw \
+    && HOME=/sandbox openclaw plugins install /opt/vss-plugin \
+    && test -L /sandbox/.openclaw/extensions/vss/node_modules/openclaw \
+    && test "$(realpath /sandbox/.openclaw/extensions/vss/node_modules/openclaw)" = "$(realpath /usr/local/lib/node_modules/openclaw)" \
+    && HOME=/sandbox openclaw plugins enable vss \
+    && HOME=/sandbox openclaw plugins inspect vss --json > /dev/null \
+    && test -d /sandbox/.openclaw/extensions/vss/skills
 
+# Enabling the plugin changes openclaw.json after the managed runtime hashed it;
+# nemoclaw-start verifies that hash, so refresh it.
+USER root
+RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
+    && chmod 660 /sandbox/.openclaw/openclaw.json \
+    && sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
+    && chown sandbox:sandbox /sandbox/.openclaw/.config-hash \
+    && chmod 660 /sandbox/.openclaw/.config-hash
+
+# Final USER is the non-root default OpenShell requires. Entrypoint, command
+# and health check are inherited from the managed runtime.
 USER sandbox
 WORKDIR /task
 
-LABEL harness.base="openshell-community" \
+LABEL harness.base="nemoclaw-openclaw-sandbox" \
       harness.contract="harbor-trial-v1" \
       harness.agent="openclaw" \
-      harness.vss-cli="true"
-
-# No entrypoint: the harness supplies the command and runs it non-interactively.
-ENTRYPOINT []
-CMD ["sleep", "infinity"]
+      harness.vss-cli="true" \
+      harness.vss-plugin="true"
