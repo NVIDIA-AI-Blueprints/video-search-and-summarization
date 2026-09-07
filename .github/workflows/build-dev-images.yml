@@ -431,9 +431,13 @@ jobs:
           IMAGE_REF: ${{ steps.meta.outputs.image }}
         run: |
           set -euo pipefail
-          use_registry=$(python3 -c "import json,os; inv=json.load(open('deploy/docker/container-inventory.json')); imgs=inv['images'] if isinstance(inv,dict) else inv; e=next((x for x in imgs if x.get('name')==os.environ['IMAGE_NAME']),{}); print('yes' if e.get('registry_buildcache') else 'no')")
-          if [ "$use_registry" = "yes" ]; then
-            ref="${IMAGE_REF}-buildcache"
+          # registry_buildcache is the shared cache package NAME (e.g. the three
+          # VIOS C++ images all set "vss-vios-buildcache"): their base+grpc layers
+          # are identical, so one per-arch cache stores them once and every image
+          # imports them. The per-MODULE compile layer differs and is not shared.
+          cache_name=$(python3 -c "import json,os; inv=json.load(open('deploy/docker/container-inventory.json')); imgs=inv['images'] if isinstance(inv,dict) else inv; e=next((x for x in imgs if x.get('name')==os.environ['IMAGE_NAME']),{}); v=e.get('registry_buildcache'); print(v if isinstance(v,str) else '')")
+          if [ -n "$cache_name" ]; then
+            ref="${IMAGE_REF%/*}/${cache_name}:${IMAGE_ARCH}"
             echo "from=type=registry,ref=${ref}" >> "$GITHUB_OUTPUT"
             echo "to=type=registry,mode=max,image-manifest=true,oci-mediatypes=true,ref=${ref}" >> "$GITHUB_OUTPUT"
             echo "buildcache backend: registry (${ref})"
