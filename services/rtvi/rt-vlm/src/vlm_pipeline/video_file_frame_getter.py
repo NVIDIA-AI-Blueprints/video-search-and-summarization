@@ -691,6 +691,26 @@ def _can_play_through_after_seek_failure(
     return True
 
 
+def _can_use_completed_frames_after_qtdemux_not_linked(
+    error_message: str | None,
+    *,
+    expected_frames: int,
+    actual_frames: int,
+    actual_timestamps: int,
+    audio_enabled: bool,
+) -> bool:
+    """Accept a completed fixed-frame decode despite a late qtdemux teardown error."""
+    return (
+        not audio_enabled
+        and expected_frames > 0
+        and actual_frames == expected_frames
+        and actual_timestamps == expected_frames
+        and error_message is not None
+        and "qtdemux" in error_message
+        and "reason not-linked" in error_message
+    )
+
+
 class VideoFileFrameGetter:
     """Get frames from a video file as a list of tensors."""
 
@@ -3137,10 +3157,25 @@ class VideoFileFrameGetter:
         except torch.OutOfMemoryError as exc:
             self._handle_cuda_oom(exc, "preprocessing decoded chunk frames")
             preprocessed_frames = []
+        expected_frame_count = len(self._frame_selector._selected_pts_array)
         self._frame_selector = frame_selector_backup
 
         with self._err_msg_lock:
             err_msg = self._err_msg
+        if _can_use_completed_frames_after_qtdemux_not_linked(
+            err_msg,
+            expected_frames=expected_frame_count,
+            actual_frames=len(cached_frames),
+            actual_timestamps=len(cached_frames_pts),
+            audio_enabled=enable_audio,
+        ):
+            logger.warning(
+                "Ignoring late qtdemux not-linked error after extracting all %d requested "
+                "frames for chunk %s",
+                expected_frame_count,
+                chunk,
+            )
+            err_msg = None
         return (
             preprocessed_frames,
             cached_frames_pts,
