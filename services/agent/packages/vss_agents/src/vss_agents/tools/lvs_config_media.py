@@ -199,6 +199,10 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
         default=None,
         description="HITL template for final media configuration confirmation.",
     )
+    hitl_enabled: bool = Field(
+        default=True,
+        description="Collect and confirm media parameters interactively. Disable to use configured defaults.",
+    )
     default_scenario: str = Field(default="", description="Default media scenario.")
     default_events: list[str] = Field(default_factory=list, description="Default media events.")
 
@@ -386,7 +390,8 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
         events: list[str] = []
         objects_of_interest: list[str] = []
 
-        if has_human_prompt_callback():
+        interactive_hitl = config.hitl_enabled and has_human_prompt_callback()
+        if interactive_hitl:
             while True:
                 params = await _collect_hitl_parameters(current_params)
                 if params is None:
@@ -423,12 +428,16 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
                 objects_of_interest = []
             if not scenario or not events:
                 raise ValueError(
-                    "default_scenario and default_events are required when no human prompt callback is available"
+                    "default_scenario and default_events are required when HITL is disabled "
+                    "or no human prompt callback is available"
                 )
-            logger.info(
-                "HITL is enabled but this request has no human prompt callback; "
-                "proceeding noninteractively with configured LVS defaults for this request only"
-            )
+            if config.hitl_enabled:
+                logger.info(
+                    "HITL is enabled but this request has no human prompt callback; "
+                    "proceeding noninteractively with configured LVS defaults for this request only"
+                )
+            else:
+                logger.info("HITL disabled; proceeding with configured LVS defaults")
 
         payload: dict[str, Any] = {
             "id": media_id,
