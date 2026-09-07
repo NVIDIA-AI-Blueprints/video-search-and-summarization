@@ -525,7 +525,7 @@ class TestRequestOptionsContext:
         assert not str(result.content).startswith("Tool call failed:")
 
     @pytest.mark.asyncio
-    async def test_plan_node_uses_structured_sensor_list_tool_call(self, monkeypatch):
+    async def test_plan_node_rejects_ungrounded_sensor_list_answer(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
@@ -536,20 +536,7 @@ class TestRequestOptionsContext:
         agent.tools_dict["vst_sensor_list"] = sensor_tool
         agent.llm = MagicMock()
         agent.llm.model_name = "test-model"
-        agent.llm_with_tools = MagicMock()
-        agent.llm_with_tools.ainvoke = AsyncMock(
-            return_value=AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "vst_sensor_list",
-                        "args": {},
-                        "id": "planner-call-1",
-                        "type": "tool_call",
-                    }
-                ],
-            )
-        )
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="[USER] Camera_01, Camera_02"))
         agent.callbacks = []
         agent.plan_prompt = None
         agent.plan_system_prompt = "System prompt."
@@ -561,10 +548,49 @@ class TestRequestOptionsContext:
         result = await agent._plan_node(state)
 
         assert result.final_answer == ""
-        assert result.plan == "1. Call `vst_sensor_list`."
-        agent.llm_with_tools.ainvoke.assert_awaited_once()
-        agent.llm.ainvoke.assert_not_called()
+        assert result.plan == "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
+
+    @pytest.mark.asyncio
+    async def test_plan_node_keeps_multi_step_plan_instead_of_a_planner_tool_call(self, monkeypatch):
+        """A tool-bound planner returns only the next action, which would drop the report step."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        for tool_name in ("vst_video_list", "report_agent"):
+            tool = MagicMock()
+            tool.name = tool_name
+            tool.description = f"Run {tool_name}."
+            agent.tools_dict[tool_name] = tool
+        multi_step_plan = (
+            "1. Call `vst_video_list` to resolve the media type of `gwfix6`.\n"
+            "2. Call `report_agent` with sensor_id='gwfix6' and the original request as user_query."
+        )
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=multi_step_plan))
+        # A tool-bound planner answers with an empty message plus the first tool call only.
+        agent.llm_with_tools = MagicMock()
+        agent.llm_with_tools.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="",
+                tool_calls=[{"name": "vst_video_list", "args": {}, "id": "planner-call-1", "type": "tool_call"}],
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report for video gwfix6."),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == multi_step_plan
+        assert "report_agent" in result.plan
+        agent.llm.ainvoke.assert_awaited_once()
+        agent.llm_with_tools.ainvoke.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_plan_node_does_not_request_camera_for_unfiltered_incident_report(self, monkeypatch):
@@ -661,6 +687,38 @@ class TestRequestOptionsContext:
         result = await agent._plan_node(state)
 
         assert result.plan == ordinary_plan
+
+    @pytest.mark.asyncio
+    async def test_plan_node_adds_report_agent_to_an_analysis_only_report_plan(self, monkeypatch):
+        """Without `report_agent` the run answers with prose and writes no PDF/Markdown artifacts."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        for tool_name in ("vst_video_list", "lvs_video_understanding", "report_agent"):
+            tool = MagicMock()
+            tool.name = tool_name
+            tool.description = f"Run {tool_name}."
+            agent.tools_dict[tool_name] = tool
+        analysis_only_plan = (
+            "1. Call `vst_video_list` to check the media type of `honest1`. "
+            "2. Route to `lvs_video_understanding` for `honest1` since media_type is 'video'."
+        )
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=analysis_only_plan))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report for video honest1 using long video understanding"),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan.startswith(analysis_only_plan)
+        assert result.plan.index("lvs_video_understanding") < result.plan.index("report_agent")
+        assert "3. Call `report_agent`" in result.plan
 
     @pytest.mark.asyncio
     async def test_plan_node_keeps_camera_clarification_for_uploaded_video_report(self, monkeypatch):
