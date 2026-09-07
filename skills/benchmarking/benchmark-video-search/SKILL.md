@@ -3,7 +3,7 @@ name: benchmark-video-search
 description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.4.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
@@ -32,10 +32,38 @@ ships rather than a REST endpoint that is being retired.
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
-| Media already ingested and indexed | Skip to **Step 5** with `--skip-ingest` |
+| User asks to reuse what is already ingested | Add `--skip-ingest`. Otherwise the default re-ingests |
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
+
+## The default run
+
+Unless the user says otherwise, this is the run. Ask which dataset; do not ask
+about the rest.
+
+```bash
+python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
+    --data-dir /path/to/datasets --dataset DATASET \
+    --only-dataset --llm-url http://HOST:30081 --name RUN_NAME
+```
+
+Three defaults, each load-bearing:
+
+- **`--only-dataset`** deletes every source that is not one of this dataset's
+  videos, then ingests. A foreign source cannot be retrieved by any query in the
+  dataset, so it adds nothing but false-positive surface and ingest time. Report
+  how many sources will be deleted before it runs.
+- **`--llm-url`** decomposes each query live, which is what the deployed agent
+  does. Without it every query takes `--search-path` and routing is never
+  exercised — a run that looks fine and measured one path.
+- **Concurrency stays at 1** (the script's default). Concurrent queries contend
+  for the same VLM and embedding services, so per-stage latencies inflate and
+  stop describing a single query.
+
+Deviate only on request: `--skip-ingest` to reuse what is there, `--clear` to
+wipe the whole deployment, `--subset` to narrow the slice, `--concurrency N` to
+trade latency fidelity for wall-clock.
 
 ## Prerequisites
 
@@ -47,7 +75,7 @@ ships rather than a REST endpoint that is being retired.
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
 | Python 3.10+ | `python3 --version` |
-| LLM reachable, **only if** decomposing | `curl -sf ${LLM_URL}/v1/models` returns 200 |
+| LLM reachable (the default run decomposes) | `curl -sf ${LLM_URL}/v1/models` returns 200 |
 | ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
 
 ## Step 1 — Configure the CLI
@@ -110,9 +138,11 @@ Expect this to be slow and occasionally noisy:
   succeeds is a success — do not report it as a failure.
 - `Duplicate Camera id` from RT-CV does **not** mean the ingest failed;
   embeddings still generate.
-- Use `--skip-existing` so a shared deployment is not re-uploaded.
-- Never pass `--clear` unless the user explicitly asked to wipe the deployment.
-  It deletes every source, including other people's.
+- `--only-dataset` is the default and deletes only foreign sources. On a shared
+  deployment say what it will delete before it runs.
+- `--clear` deletes **every** source including other people's. Only on request.
+- `--skip-existing` is the conservative middle: ingest what is missing, delete
+  nothing.
 
 Then re-run Step 3. Indices are lazy; they appear after `/complete`, not after
 upload.
@@ -122,13 +152,17 @@ upload.
 ```bash
 python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --subset SUBSET \
-    --skip-download --skip-ingest --concurrency 3 --name RUN_NAME
+    --skip-download --skip-ingest --llm-url http://HOST:30081 --name RUN_NAME
 ```
 
-Add `--llm-url http://HOST:30081` to decompose each query live, which is what
-the deployment's agent does: an LLM turns the sentence into
-`{query, attributes, has_action, ...}` and that decides which path runs. Without
-it every query uses `--search-path` and routing is not exercised.
+`--llm-url` is not optional in a default run. An LLM turns the sentence into
+`{query, attributes, has_action, ...}` and that decides which path runs — the
+same call the deployed agent makes. Drop it and every query takes
+`--search-path`, so one path is measured and routing is not exercised at all.
+
+Leave `--concurrency` alone unless asked. It defaults to 1 because concurrent
+queries contend for the same VLM and embedding services, which inflates every
+per-stage latency in the report.
 
 `--name` makes the result file findable; without it the name is
 `<dataset>_<subset>_<timestamp>`.
