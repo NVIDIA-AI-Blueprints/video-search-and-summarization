@@ -49,7 +49,7 @@
 #    CI additionally persists the build layers in a private GHCR registry
 #    buildcache (inventory `registry_buildcache`) so the expensive grpc layer
 #    survives the 10GB GHA-cache eviction between builds. The three C++ images
-#    (sensor/streamprocessing/nvstreamer) share ONE per-arch cache because their
+#    (sensor/streamprocessing/nvstreamer) share one per-arch cache because their
 #    base+grpc layers are identical; only the per-MODULE compile differs.
 # =============================================================================
 
