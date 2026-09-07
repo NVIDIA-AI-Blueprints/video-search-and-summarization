@@ -60,12 +60,13 @@ DATASETS: dict[str, dict[str, str]] = {
         "hard": "vad-r1-v2/dataset_hard.json",
         "benchmark": "vad-r1-v2/dataset_benchmark.json",
     },
-    # Built locally by flows_preprocessing/make_physicalai_devset.py, not on DSS
-    # -- run with --skip-download. One file per retrieval path, so a slice is
-    # chosen by name rather than by flags and two runs share byte-identical
-    # input. `fusion` is absent from the default file on purpose: it carries the
-    # same query strings as `embed`, and this mapping is keyed by query text, so
-    # merging them would silently drop 501 entries.
+    # Built by flows_preprocessing/make_physicalai_devset.py (seed 0, source
+    # balanced) and published to DSS, so it downloads like any other dataset.
+    # One file per retrieval path, so a slice is chosen by name rather than by
+    # flags and two runs share byte-identical input. `fusion` is absent from the
+    # default file on purpose: its 195 queries repeat query strings already in
+    # `embed`, and this mapping is keyed by query text, so merging them would
+    # silently overwrite those 195 entries.
     "physicalai-dev": {
         "": "physicalai-dev/dataset.json",
         "embed": "physicalai-dev/dataset_embed.json",
