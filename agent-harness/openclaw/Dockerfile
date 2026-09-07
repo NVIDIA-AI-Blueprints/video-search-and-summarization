@@ -174,27 +174,8 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
 # and `install` for the pinned major and refuses any other, exactly as the
 # openshell-community image did. Without it every trial fails at agent setup
 # with "/sandbox/.nvm/nvm.sh: No such file or directory".
-RUN mkdir -p /sandbox/.nvm && cat > /sandbox/.nvm/nvm.sh <<'NVM' && chown -R sandbox:sandbox /sandbox/.nvm
-# Shim, not nvm: node is pinned by the image.
-nvm() {
-  case "$1" in
-    use|install)
-      want="${2#v}"; want="${want%%.*}"
-      have="$(node -v 2>/dev/null)"; have="${have#v}"; have="${have%%.*}"
-      if [ -z "$want" ] || [ "$want" = "$have" ] || [ "$want" = "default" ] \
-         || [ "$want" = "node" ] || [ "$want" = "lts" ]; then
-        echo "Now using node $(node -v) (nvm shim)"
-        return 0
-      fi
-      echo "nvm shim: this image ships node $(node -v); it cannot install v$want" >&2
-      return 1 ;;
-    current) node -v ;;
-    which)   command -v node ;;
-    ls|list) node -v ;;
-    *)       return 0 ;;
-  esac
-}
-NVM
+# (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
+COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
 
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
