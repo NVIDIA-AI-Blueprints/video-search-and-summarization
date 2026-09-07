@@ -51,7 +51,7 @@ dependencies = [
     "mistral-common==1.10.0",
     "mcp==1.26.0",
     "numpy==2.1.0",
-    "kafka-python==2.2.15",
+    "kafka-python==2.3.2",
     "nvidia-cutlass-dsl==4.4.2",
     "ray[default]==2.54.0",
     "urllib3==2.7.0",
