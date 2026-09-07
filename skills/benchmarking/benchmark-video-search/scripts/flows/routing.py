@@ -144,10 +144,18 @@ def load_decompositions(path: str | Path) -> dict[str, dict[str, Any]]:
 
         {"<query>": {"query": ..., "attributes": [...], "has_action": true}}
         {"queries": {"<query>": {"decomposition": {...}}}}
+        {"expected_decomposition": {"<query>": {...}}}   # dataset provenance
+
+    The third is a dataset's own answer key. It is kept out of the dataset files
+    on purpose -- a stored decomposition would be a second, silently diverging
+    opinion about routing -- but it is exactly what a run needs when the LLM is
+    unreachable and the alternative is measuring one fixed path.
     """
     data = json.loads(Path(path).read_text())
-    if "queries" in data and isinstance(data["queries"], dict):
-        data = data["queries"]
+    for key in ("queries", "expected_decomposition"):
+        if key in data and isinstance(data[key], dict):
+            data = data[key]
+            break
 
     decompositions: dict[str, dict[str, Any]] = {}
     for query, value in data.items():
