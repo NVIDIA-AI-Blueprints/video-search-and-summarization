@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Create the coding-agent provisioning task used before a NemoClaw eval.
+"""Create the deployment and NemoClaw provisioning task for an eval.
 
 The task is intentionally a tiny Harbor task, not another deployment
-implementation.  Its agent follows ``/vss-build-vision-ai`` on the remote
-worker; that skill owns the Compose build, readiness gate, and host-side
-NemoClaw setup.  Harbor only supplies the normal coding-agent execution and
-the same Brev worker that the subsequent operational scenarios use.
+implementation. Its agent follows ``/vss-build-vision-ai`` on the remote
+worker to deploy and validate the Compose build. Its verifier then uses the
+existing NemoClaw CLI contract to attach the named sandbox to that ready
+deployment. Harbor only supplies the normal coding-agent execution and the
+same Brev worker that the subsequent operational scenarios use.
 """
 
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 from pathlib import Path
 
@@ -38,32 +40,67 @@ def _instruction(*, skill: str, platform: str, profile: str, deploy_mode: str) -
     return f"""You are the provisioning phase of a non-interactive skill evaluation.
 
 Use `/vss-build-vision-ai` from `$HOME/video-search-and-summarization` to deploy
-the `{profile}` VSS profile on `{platform}`{mode}. Select the host-side
-NemoClaw harness (not the in-stack `vss-agent`) and follow the skill's documented
-ordering: deploy the resolved Compose build, pass its readiness gate, resolve
-the VSS origin, then bring up NemoClaw. Ensure the operational skill
-`/{skill}` is selected for that deployment.
+the `{profile}` VSS profile on `{platform}`{mode}. Select no conversational
+harness: do not deploy the in-stack `vss-agent` or bring up NemoClaw. Follow the
+skill's documented ordering through the resolved Compose build and its readiness
+gate. Ensure the operational skill `/{skill}` is selected for that deployment.
 
-The following Harbor task will exercise only that operational skill through the
-NemoClaw sandbox. Do not use individual deployment skills as an alternative to
+The task verifier attaches the host-side NemoClaw sandbox after your deployment
+is ready. Do not use individual deployment skills as an alternative to
 `/vss-build-vision-ai`. Do not stop at a generated `resolved.yml`: complete the
-host-side harness bring-up and verify the sandbox gateway answers before you
-finish. Run autonomously and do not request confirmation.
+deployment and readiness gate before you finish. Run autonomously and do not
+request confirmation.
 """
 
 
-def _health_check_script() -> str:
-    """Verifier for the contract handed from Build Vision AI to NemoClaw."""
+def _nemoclaw_setup_script(skill: str) -> str:
+    """Return the canonical minimal host-side setup for one operational skill."""
 
-    return """#!/bin/sh
-set -eu
-sandbox="${NEMOCLAW_SANDBOX_NAME:-skill-eval}"
-port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+    quoted_skill = shlex.quote(skill)
+    return f"""repo="${{VSS_REPO_DIR:-$HOME/video-search-and-summarization}}"
+sandbox="${{NEMOCLAW_SANDBOX_NAME:-skill-eval}}"
+policy="$repo/assets/vss_nemoclaw_policy.yaml"
+skill_dir="$repo/skills/operations/{quoted_skill}"
+
+command -v nemoclaw >/dev/null 2>&1 || fail "nemoclaw CLI is unavailable"
+command -v openshell >/dev/null 2>&1 || fail "openshell CLI is unavailable"
+[ -f "$policy" ] || fail "VSS NemoClaw policy is missing: $policy"
+[ -f "$skill_dir/SKILL.md" ] || fail "operational skill is missing: $skill_dir"
+
+if ! timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1; then
+  echo "Onboarding NemoClaw sandbox $sandbox" >&2
+  timeout --signal=TERM --kill-after=30 900 \\
+    nemoclaw onboard --non-interactive --agent openclaw \\
+    || fail "NemoClaw onboarding failed"
+fi
+
+timeout --signal=TERM --kill-after=30 180 \\
+  nemoclaw "$sandbox" policy-add --from-file "$policy" --yes \\
+  || fail "VSS NemoClaw policy setup failed"
+timeout --signal=TERM --kill-after=30 180 \\
+  nemoclaw "$sandbox" skill install "$skill_dir" \\
+  || fail "operational skill installation failed"
+"""
+
+
+def _health_check_script(skill: str) -> str:
+    """Provision and verify the direct Build Vision AI -> NemoClaw handoff."""
+
+    return f"""#!/bin/sh
+set -u
+sandbox="${{NEMOCLAW_SANDBOX_NAME:-skill-eval}}"
+port="${{NEMOCLAW_DASHBOARD_PORT:-18789}}"
 reward_dir="/logs/verifier"
 mkdir -p "$reward_dir"
+fail() {{
+  printf '%s\\n' "$1" >&2
+  printf '0.0\\n' > "$reward_dir/reward.txt"
+  exit 0
+}}
+{_nemoclaw_setup_script(skill)}
 set +e
 output="$(timeout 30 openshell sandbox exec --name "$sandbox" -- sh -lc \
-  "code=\\$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:$port/health) && { [ \\"\\$code\\" = 200 ] || [ \\"\\$code\\" = 401 ]; }" 2>&1)"
+  "code=\\$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{{http_code}}' http://127.0.0.1:$port/health) && {{ [ \\"\\$code\\" = 200 ] || [ \\"\\$code\\" = 401 ]; }}" 2>&1)"
 status=$?
 set -e
 case "$status" in
@@ -74,7 +111,7 @@ case "$status" in
   *)
     printf 'NemoClaw sandbox %s gateway is not healthy: %s\\n' "$sandbox" "$output" >&2
     # The bootstrap runs on the Brev host, so record the host-side OpenShell
-    # view here. This distinguishes a failed notebook/onboard from a gateway
+    # view here. This distinguishes a failed direct onboard from a gateway
     # that existed during onboarding but died before Harbor verified it.
     # These commands expose sandbox metadata only; no token/config dump and no
     # repair action belongs in the eval harness.
@@ -128,7 +165,7 @@ def create_bootstrap_task(
     (solution / "solve.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     tests = task_dir / "tests"
     tests.mkdir()
-    (tests / "test.sh").write_text(_health_check_script(), encoding="utf-8")
+    (tests / "test.sh").write_text(_health_check_script(skill), encoding="utf-8")
 
     build_skill = repo_root / "skills" / "vss-build-vision-ai"
     if not (build_skill / "SKILL.md").is_file():

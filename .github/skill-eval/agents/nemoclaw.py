@@ -29,7 +29,7 @@ class NemoClaw(OpenClaw):
         return "nemoclaw"
 
     def version(self) -> str | None:
-        # The checked-in setup notebook owns the NemoClaw version.
+        # The worker-owned NemoClaw CLI owns its installed version.
         return None
 
     async def setup(self, environment: BaseEnvironment) -> None:
@@ -48,8 +48,8 @@ class NemoClaw(OpenClaw):
         if os.environ.get("VSS_EVAL_DEPLOYMENT_READY") == "1":
             instruction = (
                 "The VSS deployment and NemoClaw policy are already ready, provisioned "
-                "by `/vss-build-vision-ai`. Do not run a deployment skill, docker compose, "
-                "or a notebook. Use only the installed operational skill(s).\n\n"
+                "by the Build Vision AI handoff. Do not run a deployment skill or docker "
+                "compose. Use only the installed operational skill(s).\n\n"
                 + instruction
             )
         (self.logs_dir / "instruction.txt").write_text(

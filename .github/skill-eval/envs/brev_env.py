@@ -373,8 +373,8 @@ class BrevEnvironment(BaseEnvironment):
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
             # The Build Vision AI provisioning task owns host-side NemoClaw
-            # setup.  Forward its provider and lifecycle inputs exactly as
-            # supplied by CI; the notebook remains their owner.
+            # setup. Forward its provider and lifecycle inputs exactly as
+            # supplied by CI; the harness invokes the worker's NemoClaw CLI.
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",

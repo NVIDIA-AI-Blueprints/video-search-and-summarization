@@ -1540,17 +1540,17 @@ def run_invocations(
         )
         # Both the Build Vision AI bootstrap and the later operational
         # scenarios must address the same sandbox. This is intentionally a
-        # per-leg name rather than the notebook's interactive ``demo``
+        # per-leg name rather than an interactive shared default
         # default, so a warm worker can never inherit another eval's session.
         env["NEMOCLAW_SANDBOX_NAME"] = sandbox_name
-        # The sandbox is new for this leg. Reusing it once onboarded follows
-        # the notebook contract and preserves its operational sessions.
+        # The sandbox is new for this leg. Reusing it once onboarded preserves
+        # its operational sessions for the subsequent Harbor scenarios.
         env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
         bootstrap_env = env.copy()
         bootstrap_env.update(
             {
                 # Build Vision AI owns the OpenShell gateway name/port. Do not
-                # impose the former notebook harness's 8991 override: its
+                # impose the former harness's 8991 override: its
                 # deployment flow uses NemoClaw's default gateway contract.
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
                 "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),

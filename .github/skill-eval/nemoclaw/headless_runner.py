@@ -272,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if not _gateway_healthy(sandbox):
-            raise RuntimeError("OpenClaw gateway is not healthy after notebook setup")
+            raise RuntimeError("OpenClaw gateway is not healthy after provisioning")
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
