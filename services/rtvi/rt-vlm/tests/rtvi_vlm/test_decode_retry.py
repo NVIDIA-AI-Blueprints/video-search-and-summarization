@@ -453,7 +453,8 @@ def test_pipeline_replacement_removes_bus_watch_and_callbacks(monkeypatch):
     fgetter._pipeline = old_pipeline
     fgetter._vdecodebin = cached_decoder
     fgetter._vdecodebin_cache = {("h264", 320, 320): cached_decoder}
-    fgetter._gst_pad_probe_ids = [(FakePad(), 11)]
+    old_parser_pad = FakePad()
+    fgetter._gst_pad_probe_ids = [(old_parser_pad, 11)]
     fgetter._gst_signal_handler_ids = [(FakeSignalObject(), 22)]
     fgetter._vdecodebin_cache_signal_keys = {("h264", 320, 320)}
     fgetter._bus = old_bus
@@ -475,6 +476,62 @@ def test_pipeline_replacement_removes_bus_watch_and_callbacks(monkeypatch):
     assert fgetter._gst_signal_handler_ids == []
     assert fgetter._vdecodebin_cache_signal_keys == set()
     assert not fgetter._bus_signal_watch_added
+
+
+@pytest.mark.no_gpu
+def test_cached_decoder_restores_existing_parser_probe(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline import video_file_frame_getter as frame_getter_module
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    class FakeFactory:
+        def get_name(self):
+            return "h264parse"
+
+    class FakePad:
+        def __init__(self):
+            self.probes = []
+
+        def add_probe(self, probe_type, callback, *args):
+            self.probes.append((probe_type, callback, args))
+            return len(self.probes)
+
+    class FakeParser:
+        def __init__(self):
+            self.src_pad = FakePad()
+
+        def get_factory(self):
+            return FakeFactory()
+
+        def get_static_pad(self, name):
+            assert name == "src"
+            return self.src_pad
+
+    class FakeIterator:
+        def __init__(self, elem):
+            self.elem = elem
+
+        def next(self):
+            if self.elem is not None:
+                elem, self.elem = self.elem, None
+                return frame_getter_module.Gst.IteratorResult.OK, elem
+            return frame_getter_module.Gst.IteratorResult.DONE, None
+
+        def resync(self):
+            raise AssertionError("unexpected iterator resync")
+
+    parser = FakeParser()
+    cached_decoder = SimpleNamespace(iterate_recurse=lambda: FakeIterator(parser))
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    fgetter._gop_decode_opt_enabled = True
+    fgetter._gst_pad_probe_ids = []
+
+    fgetter._restore_cached_decoder_parser_probes(cached_decoder)
+    fgetter._restore_cached_decoder_parser_probes(cached_decoder)
+
+    assert len(parser.src_pad.probes) == 1
+    assert fgetter._gst_pad_probe_ids == [(parser.src_pad, 1)]
 
 
 @pytest.mark.no_gpu

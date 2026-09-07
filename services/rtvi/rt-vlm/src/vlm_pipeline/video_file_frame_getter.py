@@ -895,6 +895,48 @@ class VideoFileFrameGetter:
         self._gst_pad_probe_ids.append((pad, probe_id))
         return probe_id
 
+    def _attach_parser_gop_probe(self, parser) -> None:
+        factory = parser.get_factory()
+        if factory is None:
+            return
+        parser_name = factory.get_name()
+        if parser_name not in ("h264parse", "h265parse", "mpeg4videoparse"):
+            return
+        if not self._gop_decode_opt_enabled:
+            logger.debug(
+                "GOP decode-opt disabled via RTVI_ENABLE_GOP_DECODE_OPT; "
+                "probe not attached to %s",
+                parser_name,
+            )
+            return
+
+        src_pad = parser.get_static_pad("src")
+        if src_pad is None or any(pad == src_pad for pad, _ in self._gst_pad_probe_ids):
+            return
+        self._add_gst_pad_probe(
+            src_pad,
+            Gst.PadProbeType.BUFFER,
+            lambda pad, info: self._on_parser_src_buffer(pad, info),
+        )
+        logger.debug("GOP decode-opt probe attached to %s", parser_name)
+
+    def _restore_cached_decoder_parser_probes(self, decodebin) -> None:
+        """Restore probes on parser children retained by a cached decodebin."""
+        try:
+            iterator = decodebin.iterate_recurse()
+            while True:
+                result, elem = iterator.next()
+                if result == Gst.IteratorResult.OK:
+                    self._attach_parser_gop_probe(elem)
+                elif result == Gst.IteratorResult.RESYNC:
+                    iterator.resync()
+                else:
+                    if result == Gst.IteratorResult.ERROR:
+                        logger.warning("Failed to iterate cached decoder children")
+                    break
+        except Exception as ex:
+            logger.warning("Failed to restore cached decoder parser probes: %s", ex)
+
     def _disconnect_gst_callbacks(self):
         for pad, probe_id in reversed(self._gst_pad_probe_ids):
             try:
@@ -1496,30 +1538,14 @@ class VideoFileFrameGetter:
         self._frame_duration_ns = 0
 
         def cb_elem_added(elem, username, password, selff):
-            if "nvv4l2decoder" in elem.get_factory().get_name():
+            parser_name = elem.get_factory().get_name()
+            if "nvv4l2decoder" in parser_name:
                 _set_gst_property_if_supported(elem, "gpu-id", self._gpu_id)
                 _set_gst_property_if_supported(elem, "extract-sei-type5-data", True)
                 _set_gst_property_if_supported(elem, "sei-uuid", "NVDS_CUSTOMMETA")
-            if "mpeg4videoparse" in elem.get_factory().get_name():
+            if "mpeg4videoparse" in parser_name:
                 elem.set_property("config-interval", -1)
-            parser_name = elem.get_factory().get_name()
-            if parser_name in ("h264parse", "h265parse", "mpeg4videoparse"):
-                if self._gop_decode_opt_enabled:
-                    src_pad = elem.get_static_pad("src")
-                    if src_pad is not None:
-                        self._add_gst_pad_probe(
-                            src_pad,
-                            Gst.PadProbeType.BUFFER,
-                            lambda pad, info: self._on_parser_src_buffer(pad, info),
-                        )
-                        logger.debug("GOP decode-opt probe attached to %s", parser_name)
-                else:
-                    logger.debug(
-                        "GOP decode-opt disabled via RTVI_ENABLE_GOP_DECODE_OPT; "
-                        "probe not attached to %s",
-                        parser_name,
-                    )
-                    logger.debug("GOP decode-opt probe attached to %s", parser_name)
+            self._attach_parser_gop_probe(elem)
             if parser_name == "rtpjitterbuffer":
                 drop_on_latency = _env_bool("RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY", False)
                 if elem.find_property("drop-on-latency"):
@@ -1696,6 +1722,7 @@ class VideoFileFrameGetter:
                         else:
                             pipeline.add(self._vdecodebin)
                             self._vdecodebin.link(self._q1)
+                            self._restore_cached_decoder_parser_probes(self._vdecodebin)
                             logger.debug(
                                 "Reusing cached %s decoder for %sx%s",
                                 reusable_codec,
