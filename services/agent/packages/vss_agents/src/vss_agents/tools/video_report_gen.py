@@ -69,6 +69,7 @@ from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.tools.vst.video_clip import get_video_url
 from vss_agents.utils.hitl import format_hitl_popup_header
+from vss_agents.utils.hitl import has_human_prompt_callback
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.sanitize import safe_basename
 from vss_agents.utils.time_convert import datetime_to_iso8601
@@ -1384,6 +1385,18 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
     max_conversations = 1000
     vlm_prompt_state: OrderedDict[str, str] = OrderedDict()
 
+    def _interactive_hitl_enabled() -> bool:
+        """Resolve HITL availability without changing deployment-wide configuration."""
+        if not config.hitl_enabled:
+            return False
+        if has_human_prompt_callback():
+            return True
+        logger.info(
+            "HITL is enabled but this request has no human prompt callback; "
+            "proceeding noninteractively with the configured VLM prompt for this request only"
+        )
+        return False
+
     def _store_prompt(thread_id: str, prompt: str) -> None:
         """Store a prompt for a thread, evicting oldest entries if over capacity."""
         # If key exists, remove it first to update insertion order (LRU behavior)
@@ -1748,7 +1761,7 @@ Enter your choice or press Submit to keep current value:"""
 
         # Step 2: Collect base VLM prompt upfront (if any base videos and HITL enabled)
         vlm_prompt_override: str | None = None
-        if base_sensor_ids and config.hitl_enabled:
+        if base_sensor_ids and _interactive_hitl_enabled():
             thread_id = ContextState.get().conversation_id.get()
             current_prompt = _get_prompt(thread_id)
             resolved_prompt = await _collect_hitl_vlm_prompt(
@@ -2153,7 +2166,7 @@ Enter your choice or press Submit to keep current value:"""
             if vlm_prompt_override is not None:
                 logger.info(f"[PROMPT LOADED] Using pre-collected VLM prompt: '{vlm_prompt_override[:100]}...'")
                 clean_prompt = _remove_som_markers(vlm_prompt_override)
-            elif config.hitl_enabled:
+            elif _interactive_hitl_enabled():
                 thread_id = ContextState.get().conversation_id.get()
                 current_prompt = _get_prompt(thread_id)
                 resolved_prompt = await _collect_hitl_vlm_prompt(current_prompt)

@@ -51,6 +51,7 @@ from pydantic import Field
 from pydantic import field_validator
 
 from vss_agents.utils.hitl import format_hitl_popup_header
+from vss_agents.utils.hitl import has_human_prompt_callback
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 logger = logging.getLogger(__name__)
@@ -802,7 +803,8 @@ async def lvs_video_understanding(
         events_list: list[str] = []
         objects_of_interest: list[str] = []
 
-        if config.hitl_enabled:
+        interactive_hitl = config.hitl_enabled and has_human_prompt_callback()
+        if interactive_hitl:
             # HITL workflow with confirmation loop (done once for all videos)
             while True:
                 # Step 1: Collect parameters via HITL
@@ -852,8 +854,17 @@ async def lvs_video_understanding(
             events_list = list(config.default_events)
             objects_of_interest = []
             if not scenario or not events_list:
-                raise ValueError("default_scenario and default_events are required when hitl_enabled is false")
-            logger.info("HITL disabled; proceeding with configured LVS defaults")
+                raise ValueError(
+                    "default_scenario and default_events are required when HITL is disabled "
+                    "or no human prompt callback is available"
+                )
+            if config.hitl_enabled:
+                logger.info(
+                    "HITL is enabled but this request has no human prompt callback; "
+                    "proceeding noninteractively with configured LVS defaults for this request only"
+                )
+            else:
+                logger.info("HITL disabled; proceeding with configured LVS defaults")
 
         # Update state for this thread
         lvs_params_state[thread_id] = (scenario, events_list, objects_of_interest)
