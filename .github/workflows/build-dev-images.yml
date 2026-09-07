@@ -435,7 +435,7 @@ jobs:
           # VIOS C++ images all set "vss-vios-buildcache"): their base+grpc layers
           # are identical, so one per-arch cache stores them once and every image
           # imports them. The per-MODULE compile layer differs and is not shared.
-          cache_name=$(python3 -c "import json,os; inv=json.load(open('deploy/docker/container-inventory.json')); imgs=inv['images'] if isinstance(inv,dict) else inv; e=next((x for x in imgs if x.get('name')==os.environ['IMAGE_NAME']),{}); v=e.get('registry_buildcache'); print(v if isinstance(v,str) else '')")
+          cache_name=$(jq -r --arg n "$IMAGE_NAME" '(.images // [])[] | select(.name==$n) | .registry_buildcache // empty' deploy/docker/container-inventory.json)
           if [ -n "$cache_name" ]; then
             ref="${IMAGE_REF%/*}/${cache_name}:${IMAGE_ARCH}"
             # cache-from import failure is already non-fatal (buildkit warns and
