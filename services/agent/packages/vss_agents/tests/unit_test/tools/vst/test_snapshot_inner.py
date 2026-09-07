@@ -103,7 +103,8 @@ class TestVSTSnapshotInner:
                         assert result.stream_id == "stream-uuid"
 
     @pytest.mark.asyncio
-    async def test_snapshot_success_with_iso_timestamp(self, config_iso, mock_builder):
+    @patch("vss_agents.tools.vst.snapshot.validate_snapshot_time", new_callable=AsyncMock)
+    async def test_snapshot_success_with_iso_timestamp(self, mock_validate, config_iso, mock_builder):
         """Test snapshot with ISO 8601 timestamp start_time."""
         with patch("vss_agents.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
@@ -139,6 +140,11 @@ class TestVSTSnapshotInner:
                     assert isinstance(result, VSTSnapshotOutput)
                     assert "1.2.3.4:30888" in result.image_url
                     assert result.stream_id == "stream-uuid"
+                    mock_validate.assert_awaited_once_with(
+                        "stream-uuid",
+                        "2025-01-01T00:05:00.000Z",
+                        config_iso.vst_internal_url,
+                    )
 
     @pytest.mark.asyncio
     async def test_snapshot_without_timestamp_uses_latest_recorded_frame(self, config_iso, mock_builder):

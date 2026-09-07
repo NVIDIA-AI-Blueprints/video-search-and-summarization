@@ -24,6 +24,7 @@ from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
 from vss_agents.tools.vst.snapshot import VSTSnapshotOffsetInput
 from vss_agents.tools.vst.snapshot import VSTSnapshotOutput
 from vss_agents.tools.vst.snapshot import get_latest_snapshot_time
+from vss_agents.tools.vst.snapshot import validate_snapshot_time
 
 
 class TestVSTSnapshotConfig:
@@ -225,3 +226,20 @@ async def test_latest_snapshot_time_stays_inside_recorded_timeline(monkeypatch):
 
     assert result == "2025-01-01T00:00:40.099Z"
     timeline.assert_awaited_once_with("stream-1", "http://vst")
+
+
+@pytest.mark.asyncio
+async def test_iso_snapshot_time_outside_timeline_reports_bounds(monkeypatch):
+    timeline = AsyncMock(
+        return_value=("2025-01-01T00:00:00.000Z", "2025-01-01T00:00:40.100Z"),
+    )
+    monkeypatch.setattr("vss_agents.tools.vst.snapshot.get_timeline", timeline)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Picture time 2026-09-07T14:00:00Z is out of the video timeline "
+            "2025-01-01T00:00:00.000Z to 2025-01-01T00:00:40.100Z"
+        ),
+    ):
+        await validate_snapshot_time("stream-1", "2026-09-07T14:00:00Z", "http://vst")
