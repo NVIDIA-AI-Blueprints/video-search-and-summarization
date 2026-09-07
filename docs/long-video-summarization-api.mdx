@@ -78,10 +78,17 @@ Both reject a request with HTTP 422 when the media offsets are reversed
 | --- | --- | --- |
 | `DELETE` | `/assets/{asset_id}/index` | Delete the Elasticsearch index for an asset |
 
-Each summarization request creates one `default_<asset_id>` Elasticsearch index.
-Deleting the index for an asset that no longer needs its captions keeps a
-long-running deployment from exhausting the per-node shard cap. The call is
-idempotent, so a missing index is not an error.
+Each summarization request creates one `default_<asset_id>` Elasticsearch index
+with one shard. The default Compose configuration sets
+`LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true`, which retains the index after a
+file summarization request completes. Set the variable to `false` to drop the
+index automatically when file summarization completes. If the variable is not
+set in the service process, the code defaults to `false`.
+
+Live-stream summarization retains its index regardless of this setting because
+consecutive `/v1/stream_summarize` calls reuse the same asset ID. Use this
+endpoint to reclaim a retained index and avoid exhausting the per-node shard
+cap. The call is idempotent, so a missing index is not an error.
 
 ### Recommended Config
 
