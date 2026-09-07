@@ -98,6 +98,22 @@ fail() {{
   exit 0
 }}
 {_nemoclaw_setup_script(skill)}
+# On a warm worker the default dashboard port can be occupied. NemoClaw then
+# selects the next available 1878x/1879x port; detect it once and leave the
+# result where headless_runner reads its runtime contract.
+gateway_ready=0
+for candidate in "$port" 18789 18790 18791 18792 18793 18794 18795 18796 18797 18798 18799; do
+  if timeout 15 openshell sandbox exec --name "$sandbox" -- sh -lc \
+    "code=\\$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{{http_code}}' http://127.0.0.1:$candidate/health) && [ \\"\\$code\\" = 200 -o \\"\\$code\\" = 401 ]" >/dev/null 2>&1; then
+    port="$candidate"
+    gateway_ready=1
+    break
+  fi
+done
+if [ "$gateway_ready" -eq 1 ]; then
+  mkdir -p /tmp/skill-eval/nemoclaw
+  printf 'export NEMOCLAW_DASHBOARD_PORT=%s\\n' "$port" > /tmp/skill-eval/nemoclaw/nemoclaw.env
+fi
 set +e
 output="$(timeout 30 openshell sandbox exec --name "$sandbox" -- sh -lc \
   "code=\\$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 -o /dev/null -w '%{{http_code}}' http://127.0.0.1:$port/health) && {{ [ \\"\\$code\\" = 200 ] || [ \\"\\$code\\" = 401 ]; }}" 2>&1)"
