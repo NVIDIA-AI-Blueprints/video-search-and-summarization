@@ -204,7 +204,12 @@ print(f"[2] Uploaded {len(VIDEO_FILES)} videos")
 if CONFIG_FILE and CONFIG_FILE.exists():
     import json as _json
     _cfg = _json.loads(CONFIG_FILE.read_text())
-    _defaults = s.get(f"{BASE_URL}/config/defaults").json().get("config_params")
+    try:
+        _defaults_response = s.get(f"{BASE_URL}/config/defaults")
+        _defaults_response.raise_for_status()
+        _defaults = _defaults_response.json().get("config_params")
+    except Exception as exc:
+        raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs") from exc
     if not isinstance(_cfg, dict) or not isinstance(_defaults, dict):
         raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs")
     if "skip" in _cfg:
