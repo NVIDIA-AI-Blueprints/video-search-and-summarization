@@ -96,6 +96,12 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "VLM_NAME_SLUG",
 )
 _COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
+# Compose gives the process environment precedence over --env-file, so an
+# exported-but-empty endpoint blanks the profile's value, and the agent's
+# `base_url: ${LLM_BASE_URL}/v1` then collapses to `/v1`. An unset variable
+# falls through to the env files on its own; an empty one has to be removed to
+# do the same. A non-empty shell value is still honoured.
+_COMPOSE_SHELL_ENV_DROP_IF_EMPTY: Final[frozenset[str]] = frozenset({"LLM_BASE_URL", "VLM_BASE_URL"})
 
 
 class ValidationError(ValueError):
@@ -776,6 +782,9 @@ def _compose_subprocess_env(extra_defaults: Mapping[str, str] = MappingProxyType
     env = os.environ.copy()
     for key in _COMPOSE_SHELL_ENV_BLOCKLIST:
         env.pop(key, None)
+    for key in _COMPOSE_SHELL_ENV_DROP_IF_EMPTY:
+        if not env.get(key, "").strip():
+            env.pop(key, None)
     for key, value in extra_defaults.items():
         env.setdefault(key, value)
     return env

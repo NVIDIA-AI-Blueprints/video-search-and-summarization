@@ -1789,6 +1789,22 @@ class TestComposeEnvFileLayering:
 
         assert compose_env["VSS_CONTAINER_TAG"] == "develop-latest"
 
+    def test_empty_shell_endpoint_does_not_shadow_the_env_files(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("LLM_BASE_URL", "")
+        monkeypatch.setenv("VLM_BASE_URL", "   ")
+
+        compose_env = dcu._compose_subprocess_env()
+
+        assert "LLM_BASE_URL" not in compose_env
+        assert "VLM_BASE_URL" not in compose_env
+
+    def test_shell_endpoint_is_honoured_when_set(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("LLM_BASE_URL", "https://integrate.api.nvidia.com")
+
+        compose_env = dcu._compose_subprocess_env()
+
+        assert compose_env["LLM_BASE_URL"] == "https://integrate.api.nvidia.com"
+
     def test_resolve_compose_uses_dev_profile_env_file_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(tmp_path, "MODE=2d")
         commands: list[list[str]] = []

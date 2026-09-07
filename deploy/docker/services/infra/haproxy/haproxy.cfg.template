@@ -129,6 +129,19 @@ backend bk_phoenix_strip
     http-request replace-path ^/phoenix$ /
     server s1 "${PHOENIX_SERVICE_HOST}:${PHOENIX_PORT}" check resolvers docker init-addr none
 
+# One address for the LLM whatever GPU it landed on, so a consumer needs no
+# knowledge of the placement: $VSS_GATEWAY_ORIGIN/llm + /v1/chat/completions
+# reaches the NIM's own /v1/chat/completions. Profiles that place the LLM
+# outside the deployment leave the backend DOWN and keep pointing at it
+# directly; nothing here reaches a hosted endpoint.
+backend bk_llm_strip
+    http-request replace-path ^/llm/(.*) /\1
+    http-request replace-path ^/llm$ /
+    # First token on a cold NIM outlasts the 120s default, and a 504 there reads
+    # to the caller as a model failure.
+    timeout server 600s
+    server s1 "${LLM_SERVICE_HOST}:${LLM_SERVICE_PORT}" check resolvers docker init-addr none
+
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
 
@@ -151,6 +164,10 @@ frontend fe_http
     acl known_host hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl known_host hdr(host) -i 127.0.0.1
     acl known_host hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
+    # The proxy's own service name, so a container on the compose network can
+    # use the same origin the host does (the /llm route below is reached that way).
+    acl known_host hdr(host) -i "${HAPROXY_SERVICE_HOST}"
+    acl known_host hdr(host) -i "${HAPROXY_SERVICE_HOST}:${HAPROXY_PORT}"
     http-request deny deny_status 404 if !known_host
 
     acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}"
@@ -171,6 +188,8 @@ frontend fe_http
     acl h_main hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl h_main hdr(host) -i 127.0.0.1
     acl h_main hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
+    acl h_main hdr(host) -i "${HAPROXY_SERVICE_HOST}"
+    acl h_main hdr(host) -i "${HAPROXY_SERVICE_HOST}:${HAPROXY_PORT}"
 
     acl p_vst_storage path /vst/storage
     acl p_vst_storage path_beg /vst/storage/
@@ -260,6 +279,12 @@ frontend fe_http
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
     use_backend bk_phoenix_strip if h_main p_phoenix
+
+    # Profiles without an in-deployment LLM leave the backend DOWN, so this
+    # answers 503 rather than proxying to nothing.
+    acl p_llm path /llm
+    acl p_llm path_beg /llm/
+    use_backend bk_llm_strip if h_main p_llm
 
     acl p_api_chat path /api/chat
     acl p_api_chat path_beg /api/chat/
