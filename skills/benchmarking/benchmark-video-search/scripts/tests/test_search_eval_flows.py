@@ -850,3 +850,19 @@ def test_flow_reports_false_when_nothing_decomposes() -> None:
     out = rf.describe_query_flow(_Backend(), None)
     assert out["routing"] == "fixed"
     assert out["live_decomposition"] is False
+
+
+def test_llm_origin_is_derived_from_the_agent_endpoint() -> None:
+    """Decomposition must not depend on the caller remembering a flag.
+
+    The NIM is not behind the unified origin, so it is derived the same way VST
+    is: same host, its own port.
+    """
+    assert flows.llm_url_for("http://10.86.12.161:8000") == "http://10.86.12.161:30081"
+    assert flows.llm_url_for("http://host:8000", 31000) == "http://host:31000"
+    assert flows.llm_url_for("https://host:8000/") == "https://host:30081"
+
+
+def test_vst_and_llm_origins_do_not_collide() -> None:
+    endpoint = "http://10.86.12.161:8000"
+    assert flows.vst_url_for(endpoint) != flows.llm_url_for(endpoint)
