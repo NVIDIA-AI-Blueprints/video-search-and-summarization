@@ -207,7 +207,10 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
 
 
 def describe_query_flow(
-    query_backend: Any, decomposer: Any, planned_llm_url: str | None = None
+    query_backend: Any,
+    decomposer: Any,
+    planned_llm_url: str | None = None,
+    fallback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The query backend's own description, corrected for live decomposition.
 
@@ -234,6 +237,10 @@ def describe_query_flow(
             "llm_url": planned_llm_url,
             "model": "(discovered at run time)",
         }
+    elif fallback:
+        # The run went ahead without the LLM. Say so in the artifact, or the
+        # result reads as a deliberate choice of routing rather than a fallback.
+        described["live_decomposition"] = fallback
     else:
         described["live_decomposition"] = False
     return described
@@ -413,7 +420,7 @@ def run_evaluation(  # noqa: PLR0913
     if hasattr(query_backend, "plan_for_query"):
         planned_paths = flows.path_distribution([query_backend.plan_for_query(q) for q in queries])
 
-    described = describe_query_flow(query_backend, decomposer)
+    described = describe_query_flow(query_backend, decomposer, fallback=decompose_fallback)
     if planned_paths:
         described["planned_paths"] = "  ".join(f"{k}={v}" for k, v in planned_paths.items())
 
@@ -1109,6 +1116,7 @@ def main() -> None:
         args.llm_url = flows.llm_url_for(args.endpoint, args.llm_port)
 
     decomposer = None
+    decompose_fallback: dict[str, Any] | None = None
     if args.no_decompose:
         if not args.dry_run:
             print(f"decomposition: OFF (--no-decompose) -- every query uses --search-path {args.search_path}")
@@ -1120,14 +1128,38 @@ def main() -> None:
             decomposer = flows.LiveDecomposer(
                 args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model
             )
+            print(f"decomposition: live via {args.llm_url}  model={decomposer.model}")
         except flows.DecompositionError as e:
-            raise SystemExit(
-                f"ERROR: {e}\n"
-                f"Live decomposition is the default. Point --llm-url at a reachable NIM, "
-                f"set --llm-port if it is not {args.llm_port}, or pass --no-decompose to "
-                f"run every query on --search-path {args.search_path} instead."
-            ) from e
-        print(f"decomposition: live via {args.llm_url}  model={decomposer.model}")
+            # An unreachable NIM must not end the run, but it must not quietly
+            # collapse it to one path either. Fall back to the dataset's own
+            # answer key when it ships one -- that still routes per query, so
+            # every path is exercised -- and only then to --search-path.
+            decompose_fallback = {"attempted": args.llm_url, "error": str(e)}
+            print(f"\n  WARNING: decomposition LLM unreachable at {args.llm_url}")
+            print(f"           {e}")
+            # The dataset may route itself. Check that before the sidecar, and
+            # both before giving up on routing, or the warning claims one path
+            # was measured when the run went on to exercise four.
+            carried = 0
+            try:
+                carried = len(flows.unpack_dataset(
+                    flows.load_dataset_file(args.data_dir, args.dataset, args.subset)
+                )[1])
+            except Exception:
+                pass
+            sidecar = None if carried else flows.sidecar_decompositions_for(args.data_dir, args.dataset)
+            if carried:
+                decompose_fallback["fell_back_to"] = f"{carried} decomposition(s) carried by the dataset"
+                print(f"           the dataset carries {carried} decomposition(s) -- routing still per-query")
+            elif sidecar:
+                args.decompositions = str(sidecar)
+                decompose_fallback["fell_back_to"] = f"dataset answer key ({sidecar.name})"
+                print(f"           falling back to {sidecar.name} -- routing still per-query")
+            else:
+                decompose_fallback["fell_back_to"] = f"--search-path {args.search_path}"
+                print(f"           no answer key for '{args.dataset}'; every query will use")
+                print(f"           --search-path {args.search_path}. ONE PATH IS MEASURED --")
+                print("           this is not a routing eval. Report it alongside the metrics.\n")
 
     ingest_backend = build_ingest_backend(args)
     query_backend = build_query_backend(args)

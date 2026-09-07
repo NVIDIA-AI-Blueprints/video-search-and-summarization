@@ -26,6 +26,7 @@ routing, and VST name matching.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -866,3 +867,53 @@ def test_llm_origin_is_derived_from_the_agent_endpoint() -> None:
 def test_vst_and_llm_origins_do_not_collide() -> None:
     endpoint = "http://10.86.12.161:8000"
     assert flows.vst_url_for(endpoint) != flows.llm_url_for(endpoint)
+
+
+# ---------------------------------------------------------------------------
+# Decomposition fallback when the LLM is unreachable
+# ---------------------------------------------------------------------------
+
+
+def test_load_decompositions_reads_a_provenance_answer_key(tmp_path: Path) -> None:
+    """The sidecar keys its map under `expected_decomposition`, not `queries`."""
+    p = tmp_path / "devset_provenance.json"
+    p.write_text(json.dumps({
+        "n_videos": 32,
+        "expected_decomposition": {
+            "person running": {"query": "person running", "attributes": [], "has_action": True},
+            "person in a red cap running": {
+                "query": "person in a red cap running",
+                "attributes": ["person in a red cap"],
+                "has_action": True,
+            },
+        },
+    }))
+    out = flows.load_decompositions(p)
+    assert set(out) == {"person running", "person in a red cap running"}
+    assert flows.route(out["person running"]) == "embed"
+    assert flows.route(out["person in a red cap running"]) == "fusion"
+
+
+def test_sidecar_is_found_only_when_it_carries_an_answer_key(tmp_path: Path) -> None:
+    (tmp_path / "with-key").mkdir()
+    (tmp_path / "with-key" / "devset_provenance.json").write_text(
+        json.dumps({"expected_decomposition": {"q": {"attributes": []}}})
+    )
+    (tmp_path / "no-key").mkdir()
+    (tmp_path / "no-key" / "devset_provenance.json").write_text(json.dumps({"n_videos": 4}))
+    (tmp_path / "no-file").mkdir()
+
+    assert flows.sidecar_decompositions_for(tmp_path, "with-key") is not None
+    assert flows.sidecar_decompositions_for(tmp_path, "no-key") is None
+    assert flows.sidecar_decompositions_for(tmp_path, "no-file") is None
+
+
+def test_flow_records_that_the_run_fell_back(tmp_path: Path) -> None:
+    """A fallback run must not read as a deliberate fixed-path choice."""
+    import run_eval_flows as rf
+
+    fb = {"attempted": "http://llm:30081", "error": "refused",
+          "fell_back_to": "dataset answer key (devset_provenance.json)"}
+    out = rf.describe_query_flow(_Backend(), None, fallback=fb)
+    assert out["live_decomposition"]["fell_back_to"].startswith("dataset answer key")
+    assert out["live_decomposition"]["error"] == "refused"

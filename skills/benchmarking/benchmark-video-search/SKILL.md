@@ -3,7 +3,7 @@ name: benchmark-video-search
 description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
 license: Apache-2.0
 metadata:
-  version: "3.5.0"
+  version: "3.6.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
@@ -57,9 +57,15 @@ Three defaults, each load-bearing:
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and that choice
-  picks the retrieval path. If the NIM is unreachable the run **stops** rather
-  than quietly falling back to one path. Override with `--llm-url` /
-  `--llm-port`; turn it off only with `--no-decompose`.
+  picks the retrieval path. Override with `--llm-url` / `--llm-port`; turn it
+  off only with `--no-decompose`.
+
+  If the NIM is unreachable the run continues, in this order: decompositions the
+  dataset carries, then its `devset_provenance.json` answer key, then
+  `--search-path`. The first two still route per query, so every path is still
+  exercised. The third measures **one** path — the run warns loudly and the
+  result file records `live_decomposition.fell_back_to`. Read that field before
+  quoting any number.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
@@ -83,7 +89,7 @@ says so.
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
 | Python 3.10+ | `python3 --version` |
-| LLM reachable — **required**; the run aborts without it | `curl -sf http://HOST:30081/v1/models` returns 200 |
+| LLM reachable (else the run falls back and says so) | `curl -sf http://HOST:30081/v1/models` returns 200 |
 | ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
 
 ## Step 1 — Configure the CLI
@@ -166,8 +172,13 @@ python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
 Decomposition needs no flag. An LLM turns the sentence into
 `{query, attributes, has_action, ...}` and that decides which path runs — the
 same call the deployed agent makes. The script derives the NIM origin from
-`--endpoint` and aborts if it cannot reach it, so a run either decomposes or
-tells you why it did not.
+`--endpoint`; if it cannot reach it the run falls back rather than stopping, and
+says which fallback it took.
+
+`fusion` cannot be a fallback. It needs an attribute per query and there is
+nothing to supply one without decomposition — and feeding it the whole query as
+its attribute is the failure this eval already measured: mAP −25%, HIT@1 halved,
+latency +59%.
 
 Leave `--concurrency` alone unless asked. It defaults to 1 because concurrent
 queries contend for the same VLM and embedding services, which inflates every
