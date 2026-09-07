@@ -762,6 +762,16 @@ INGRESS_SERVICES.update(
             describe="/rtvi-vlm/v1/models",
             describes="models",
         ),
+        # The text LLM behind the agent. OpenAI-shaped like RT-VLM and
+        # RT-Embed, so /v1/models is both the proof it is routed and the
+        # description of what it serves. Absent on profiles pointed at a
+        # remote LLM, which run no local NIM to mount.
+        "llm": ServiceRoute(
+            mount="/llm",
+            probe="/llm/v1/models",
+            describe="/llm/v1/models",
+            describes="models",
+        ),
         # Long-video summarization, its own service rather than a route on the
         # agent: it serves POST /v1/summarize on its own port, and the agent
         # exposes no summarize endpoint to proxy it.

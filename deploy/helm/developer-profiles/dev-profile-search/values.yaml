@@ -14,6 +14,11 @@
 # limitations under the License.
 
 global:
+  # Send the agent to the LLM through the HAProxy edge (/llm) instead of
+  # straight to the NIM Service. Requires global.externalHost; with no host
+  # set, the in-cluster Service URL is used, so this never yields a hostless
+  # base_url. Set false to keep agent->LLM traffic off the proxy.
+  llmViaIngress: true
   # Bare node IP, or full main hostname (e.g. vss-search.<ip>.nip.io) for install --set global.externalHost=…
   externalHost: ''
   ngcApiKey: ''
@@ -103,6 +108,11 @@ vssIngress:
   # RT-VLM's cluster Service port. Not 8018 — that is the Compose
   # host-published port and has no meaning in Kubernetes.
   rtviVlmPort: 8000
+  # The text LLM is published at /llm, not at the origin root: /llm/v1/models,
+  # /llm/v1/chat/completions. Mounted only when this profile runs the local NIM
+  # (nims.nemotron35.enabled); a profile using a remote LLM gets no route.
+  llmServiceName: "nemotron-35-lightning-30b-a3b"
+  llmPort: 8000
   hosts:
     main: ''
     streamer: ''
@@ -801,7 +811,7 @@ agent:
       - name: PHOENIX_ENDPOINT
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-35-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.llmServiceName | default "nemotron-35-lightning-30b-a3b") }}{{- $def := ternary (printf "http://%s-%s:8000" .Release.Name $svc) (printf "http://%s:8000" $svc) $pfx }}{{- $edgeHost := ((index $g "externalHost") | default "") | toString | trim }}{{- $viaEdge := and (default false (index $g "llmViaIngress")) $edgeHost }}{{- if $llm }}{{ $llm }}{{- else if $viaEdge }}{{ printf "http://%s/llm" $edgeHost }}{{- else }}{{ $def }}{{- end }}'
       # VLM endpoint (vss-rtvi-vlm) for the critic and video_understanding. Consumed by the rtvi_vlm agent profile.
       - name: RTVI_VLM_BASE_URL
         value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'

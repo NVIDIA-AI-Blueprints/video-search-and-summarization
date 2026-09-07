@@ -116,6 +116,14 @@ backend bk_rtvi_vlm_strip
     http-request replace-path ^/rtvi-vlm$ /
     server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
 
+backend bk_llm_strip
+    http-request replace-path ^/llm/(.*) /\1
+    http-request replace-path ^/llm$ /
+    # A long completion outlasts the 120s default, and a 504 mid-generation
+    # reads as a backend failure. The caller bounds the wait itself.
+    timeout server 3600s
+    server s1 "${LLM_SERVICE_HOST}:${LLM_SERVICE_PORT}" check resolvers docker init-addr none
+
 backend bk_lvs_strip
     http-request replace-path ^/lvs/(.*) /\1
     http-request replace-path ^/lvs$ /
@@ -250,6 +258,13 @@ frontend fe_http
     acl p_rtvi_vlm path /rtvi-vlm
     acl p_rtvi_vlm path_beg /rtvi-vlm/
     use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
+
+    # The text LLM, mounted at its service name like the RTVI services above.
+    # Profiles pointed at a remote LLM run no local NIM, so the backend stays
+    # DOWN and the route answers 503 rather than proxying to nothing.
+    acl p_llm path /llm
+    acl p_llm path_beg /llm/
+    use_backend bk_llm_strip if h_main p_llm
 
     # Profiles without lvs-server leave the backend DOWN, so this answers 503
     # and `vss configure` records the service absent, not present-but-broken.
