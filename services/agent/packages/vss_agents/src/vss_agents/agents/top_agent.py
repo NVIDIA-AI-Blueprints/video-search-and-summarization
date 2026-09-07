@@ -721,10 +721,10 @@ class TopAgent(AsyncMixin):
 
     async def _plan_node(self, state: TopAgentState) -> TopAgentState:
         """
-        Planning node: drafts a step-by-step execution plan using the available tools.
+        Planning node: drafts a step-by-step execution plan using tool names/descriptions only.
 
-        Structured tool calls are converted to the existing textual plan format for the execution agent.
-        Textual plans remain supported for models that do not emit tool calls.
+        Invokes the LLM without tool bindings so it focuses on planning rather than executing.
+        The resulting plan is stored in state.plan and emitted as a THOUGHT chunk.
         """
         writer = get_stream_writer()
         logger.debug("Starting Plan Node")
@@ -823,23 +823,16 @@ class TopAgent(AsyncMixin):
         messages.append(HumanMessage(content="User question: " + question))
 
         llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
-        planner_llm = getattr(self, "llm_with_tools", self.llm)
-        llm_to_use = planner_llm.bind(**llm_kwargs) if llm_kwargs else planner_llm
+        # Plan without tool bindings. A tool-bound model answers a planning prompt with the single
+        # next action and no text at all, so a multi-step plan (e.g. `vst_video_list` to resolve the
+        # media type, then `report_agent` to build the report) collapses to its first step and every
+        # later step — including the one that produces the artifacts — is silently dropped.
+        llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
 
         result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
 
         plan_reasoning, plan_text = parse_reasoning_content(result)
-        planner_tool_calls = result.tool_calls if isinstance(result, AIMessage) else []
-        if planner_tool_calls:
-            plan_steps = []
-            for index, tool_call in enumerate(planner_tool_calls, start=1):
-                arguments = tool_call.get("args") or {}
-                arguments_text = (
-                    f" with arguments {json.dumps(arguments, sort_keys=True, default=str)}" if arguments else ""
-                )
-                plan_steps.append(f"{index}. Call `{tool_call['name']}`{arguments_text}.")
-            plan_text = "\n".join(plan_steps)
-        elif not plan_text:
+        if not plan_text:
             plan_text = str(result.content) if hasattr(result, "content") else ""
 
         logger.debug("Plan node produced plan:\n%s", plan_text)
@@ -863,6 +856,24 @@ class TopAgent(AsyncMixin):
             )
             logger.warning("Corrected LVS report plan that omitted lvs_video_understanding")
 
+        # `report_agent` is the only tool that writes the PDF and Markdown artifacts, so a report
+        # plan that stops at the analysis step answers with prose and no downloads. The profile
+        # prompts already declare that a report request routes to `report_agent`; re-assert it here
+        # rather than trusting the planner to keep the step it was told to plan.
+        if (
+            "report" in lowered_question
+            and "report_agent" in self.tools_dict
+            and "report_agent" not in plan_text
+            and not plan_text.strip().startswith(PLAN_CLARIFY_PREFIX)
+        ):
+            planned_steps = [int(match.group(1)) for match in re.finditer(r"(?:^|\s)(\d+)\.\s", plan_text)]
+            report_step = (
+                f"{max(planned_steps, default=0) + 1}. Call `report_agent` with the media named in the user's "
+                "request and the original request as `user_query`, then present the generated report."
+            )
+            plan_text = f"{plan_text.rstrip()}\n{report_step}" if plan_text.strip() else report_step
+            logger.warning("Added the missing `report_agent` step to a report plan")
+
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
@@ -874,6 +885,13 @@ class TopAgent(AsyncMixin):
                     "and generate its detailed report."
                 )
                 logger.warning("Rejected unnecessary camera clarification for incident report: %s", clarification)
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
+            if "vst_sensor_list" in self.tools_dict and any(
+                term in question.lower() for term in ("available sensor", "available camera", "sensor id", "camera id")
+            ):
+                state.plan = "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
+                logger.warning("Rejected ungrounded planner answer for sensor-list query: %s", clarification)
                 writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
                 return state
             logger.info("Plan node requesting clarification: %s", clarification)
