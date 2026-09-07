@@ -97,6 +97,8 @@ _PROGRESS_CATEGORIES = frozenset(
         "image_activity",
         "image_activity_heartbeat",
         "disk_growth",
+        "agent_activity_heartbeat",
+        "runtime_activity_heartbeat",
     }
 )
 _EVENT_FIELDS = {
@@ -125,6 +127,8 @@ _EVENT_FIELDS = {
     "image_activity": frozenset({"image_count", "delta"}),
     "image_activity_heartbeat": frozenset({"phase"}),
     "disk_growth": frozenset({"bucket", "total_bytes"}),
+    "agent_activity_heartbeat": frozenset({"tool_category"}),
+    "runtime_activity_heartbeat": frozenset({"health"}),
     "timeout": frozenset(
         {
             "reason",
@@ -1087,6 +1091,8 @@ class DirectAgentProgress:
         self.active_tool_id: str | None = None
         self.last_activity_heartbeat = self.tracker.started
         self._phase_heartbeat_count = 0
+        self._agent_heartbeat_count = 0
+        self._runtime_heartbeat_count = 0
         self.compose_file: Path | None = None
         self.compose_sha256: str | None = None
         self._container_snapshot: dict[str, tuple[str, str, int, int]] = {}
@@ -1135,6 +1141,19 @@ class DirectAgentProgress:
                 mutation_kind=tool.lower(),
                 target_kind=target_kind,
             )
+        # Reads, greps, and non-compose Bash (docker ps, curl, skill
+        # probes) never mint a unique progress token. After the first
+        # .env write that is the file_mutation idle cliff: the agent is
+        # alive, the tracker is not. Rate-bounded heartbeats close that
+        # without treating a silent hung SDK session as progress.
+        if tool not in {"Edit", "Write"}:
+            command = str(tool_input.get("command") or "")
+            if tool != "Bash" or not _compose_phase(command):
+                self._maybe_heartbeat(
+                    "agent_activity_heartbeat",
+                    "_agent_heartbeat_count",
+                    tool_category=category,
+                )
         if tool != "Bash":
             return {}
 
@@ -1204,6 +1223,28 @@ class DirectAgentProgress:
                 compose_sha256=digest,
             )
         return {}
+
+    def _maybe_heartbeat(
+        self,
+        category: str,
+        counter_attr: str,
+        **fields: object,
+    ) -> bool:
+        count = getattr(self, counter_attr)
+        now = self._monotonic()
+        if (
+            count >= MAX_PHASE_HEARTBEATS
+            or now - self.last_activity_heartbeat < self.activity_heartbeat_sec
+        ):
+            return False
+        self.last_activity_heartbeat = now
+        setattr(self, counter_attr, count + 1)
+        self._record_progress(
+            category,
+            token=(category, count + 1),
+            **fields,
+        )
+        return True
 
     async def post_tool(self, _input_data, tool_use_id, _context):
         if str(tool_use_id) == self.active_tool_id:
@@ -1425,20 +1466,26 @@ class DirectAgentProgress:
                 )
         self._container_snapshot = current
 
-        now = self._monotonic()
-        if (
-            # `compose up` often embeds long NGC pulls; without heartbeats here
-            # a single new image_id followed by a slow pull looks idle.
-            self.active_phase in {"pull", "build", "up"}
-            and self._phase_heartbeat_count < MAX_PHASE_HEARTBEATS
-            and now - self.last_activity_heartbeat >= self.activity_heartbeat_sec
-        ):
-            self.last_activity_heartbeat = now
-            self._phase_heartbeat_count += 1
-            self._record_progress(
+        if self.active_phase in {"pull", "build", "up"}:
+            # `compose up` often embeds long NGC pulls; without heartbeats
+            # here a single new image_id followed by a slow pull looks idle.
+            self._maybe_heartbeat(
                 "image_activity_heartbeat",
-                token=(self.active_phase, self._phase_heartbeat_count),
+                "_phase_heartbeat_count",
                 phase=self.active_phase,
+            )
+        elif any(
+            value[0] == "running" and value[1] == "starting"
+            for value in current.values()
+        ):
+            # Disk growth stops once weights are on volume; the NIM then
+            # loads onto GPU while health stays `starting`. That is the
+            # disk_growth idle cliff. Heartbeat only while something is
+            # still starting — a frozen healthy/unhealthy stack still idles.
+            self._maybe_heartbeat(
+                "runtime_activity_heartbeat",
+                "_runtime_heartbeat_count",
+                health="starting",
             )
 
     def _sample_inner_journal(self) -> None:

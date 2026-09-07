@@ -735,6 +735,144 @@ def test_unparseable_df_output_is_ignored(tmp_path: Path) -> None:
     assert tracker.expiration() == ("idle", "startup", 1500)
 
 
+def test_read_and_probe_tools_heartbeat_after_file_mutation_saturates(
+    tmp_path: Path,
+) -> None:
+    """file_mutation idle cliff: agent still calling Read/curl after .env write."""
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    monitor.activity_heartbeat_sec = 300
+
+    async def write_env() -> None:
+        await monitor.pre_tool(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "/tmp/override.env"},
+            },
+            "write-1",
+            None,
+        )
+
+    async def probe() -> None:
+        await monitor.pre_tool(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "curl -sf http://127.0.0.1:8000/health"},
+            },
+            "probe-1",
+            None,
+        )
+
+    asyncio.run(write_env())
+    clock.advance(300)
+    asyncio.run(probe())
+    clock.advance(1079)
+    assert tracker.expiration() is None
+    assert tracker.last_progress_category == "agent_activity_heartbeat"
+
+
+def test_starting_health_heartbeats_after_disk_growth_plateaus(
+    tmp_path: Path,
+) -> None:
+    """disk_growth idle cliff: NIM still `starting` after volume growth stops."""
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    monitor.activity_heartbeat_sec = 300
+    rows = [{
+        "service": "vss-agent",
+        "state": "running",
+        "health": "starting",
+        "exit_code": 0,
+        "restart_count": 0,
+    }]
+    _sample_df(monitor, 40 * 1000**3, 0)
+    clock.advance(300)
+    _sample_df(monitor, 40 * 1000**3, 5 * 1000**3)
+    assert tracker.last_progress_category == "disk_growth"
+    with (
+        mock.patch.object(monitor, "_sample_images"),
+        mock.patch.object(monitor, "_safe_service_rows", return_value=rows),
+    ):
+        for _ in range(4):
+            clock.advance(300)
+            monitor.sample()
+    clock.advance(1079)
+    assert tracker.expiration() is None
+    assert tracker.last_progress_category == "runtime_activity_heartbeat"
+
+
+def test_agent_heartbeats_are_rate_bounded(tmp_path: Path) -> None:
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=20000,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+        activity_heartbeat_sec=300,
+    )
+
+    async def read_docs(tool_id: str) -> None:
+        await monitor.pre_tool(
+            {
+                "tool_name": "Read",
+                "tool_input": {"file_path": "/skills/vss-deploy-profile/SKILL.md"},
+            },
+            tool_id,
+            None,
+        )
+
+    for index in range(progress.MAX_PHASE_HEARTBEATS + 4):
+        clock.advance(300)
+        asyncio.run(read_docs(f"read-{index}"))
+    assert monitor._agent_heartbeat_count == progress.MAX_PHASE_HEARTBEATS
+    clock.advance(1080)
+    assert tracker.expiration() == ("idle", "agent_activity_heartbeat", 2280)
+
+
+def test_runtime_heartbeats_are_rate_bounded(tmp_path: Path) -> None:
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=20000,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+        activity_heartbeat_sec=300,
+    )
+    rows = [{
+        "service": "vss-agent",
+        "state": "running",
+        "health": "starting",
+        "exit_code": 0,
+        "restart_count": 0,
+    }]
+    with (
+        mock.patch.object(monitor, "_sample_images"),
+        mock.patch.object(monitor, "_safe_service_rows", return_value=rows),
+    ):
+        for _ in range(progress.MAX_PHASE_HEARTBEATS + 4):
+            clock.advance(300)
+            monitor.sample()
+    assert monitor._runtime_heartbeat_count == progress.MAX_PHASE_HEARTBEATS
+    clock.advance(1080)
+    assert tracker.expiration() == ("idle", "runtime_activity_heartbeat", 2280)
+
+
 def test_repeated_compose_up_and_identical_snapshots_do_not_refresh_idle(
     tmp_path: Path,
 ) -> None:
@@ -757,16 +895,16 @@ def test_repeated_compose_up_and_identical_snapshots_do_not_refresh_idle(
     rows = [{
         "service": "rtvi-embed",
         "state": "running",
-        "health": "starting",
+        "health": "healthy",
         "exit_code": 0,
         "restart_count": 0,
     }]
 
     async def invoke_up(tool_id: str) -> None:
         # `up -d` returns once containers are created, so pair every call
-        # with its post_tool. The phase heartbeat legitimately stops there;
-        # what must not refresh idle is the duplicate `compose_phase` token
-        # or an unchanged container snapshot.
+        # with its post_tool. Duplicate compose_phase and an unchanged
+        # healthy snapshot must not refresh idle. `starting` is the
+        # post-download NIM-load window and heartbeats separately.
         await monitor.pre_tool(
             {
                 "tool_name": "Bash",
