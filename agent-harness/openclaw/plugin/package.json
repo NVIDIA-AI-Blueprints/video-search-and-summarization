@@ -9,6 +9,7 @@
   "files": [
     "dist/",
     "skills/",
+    "workspace/",
     "openclaw.plugin.json"
   ],
   "openclaw": {
@@ -24,7 +25,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "stage": "./stage-assets.sh ../../../skills ../workspace",
+    "prepare-local": "npm run build && npm run stage"
   },
   "dependencies": {
     "typebox": "1.1.38"

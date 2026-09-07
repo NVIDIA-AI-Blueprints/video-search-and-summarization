@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Sandbox image — NemoClaw's managed OpenClaw runtime + the VSS OpenClaw plugin
-# (vss CLI tool + VSS skills) + the pinned vss CLI.
+# OpenClaw harness image — NemoClaw's managed OpenClaw runtime + the VSS OpenClaw
+# plugin (vss CLI tool + VSS skills + workspace instructions) + the pinned vss CLI.
 # tags: [nemoclaw, openclaw, vss-plugin, vss-cli]
 #
 # Layout follows NemoClaw's documented custom-image workflow
@@ -17,11 +17,12 @@
 # workflow publishes the image that Dockerfile produces, so we `FROM` that
 # image at an immutable digest instead: same layers, no foreign checkout.
 #
-# Build context is this directory (vss-agent/sandboxes): the plugin source is
-# COPYd from ./vss-plugin; the skills and the vss CLI come from a pinned commit
-# of this repo so the two always match.
+# Build context is this directory (agent-harness/openclaw): the plugin source is
+# COPYd from ./plugin and the OpenClaw workspace instructions from ./workspace;
+# the skills and the vss CLI come from a pinned commit of this repo so the two
+# always match.
 #
-#   docker build -f openclaw-vss-cli.Dockerfile -t <registry>/vss-harness-openclaw:<tag> .
+#   docker build -t <registry>/vss-harness-openclaw:<tag> agent-harness/openclaw
 
 # NemoClaw v0.0.99 managed OpenClaw runtime: OpenClaw 2026.7.1, node 22.23.1,
 # python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint.
@@ -54,24 +55,23 @@ FROM ${BUILDER_IMAGE} AS vss-plugin-builder
 ARG OPENCLAW_VERSION
 ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
 WORKDIR /opt/vss-plugin
-COPY vss-plugin/package.json vss-plugin/package-lock.json vss-plugin/tsconfig.json ./
+COPY plugin/package.json plugin/package-lock.json plugin/tsconfig.json ./
 # The lockfile pins the openclaw devDependency; it has to be the base's version.
 RUN node -e 'const l=require("./package-lock.json"); const v=l.packages["node_modules/openclaw"].version; if (v!==process.argv[1]) { console.error(`plugin lockfile pins openclaw ${v}, base image carries ${process.argv[1]}`); process.exit(1); }' "$OPENCLAW_VERSION"
 RUN npm ci --ignore-scripts --no-audit --no-fund
-COPY vss-plugin/openclaw.plugin.json ./
-COPY vss-plugin/src/ ./src/
+COPY plugin/openclaw.plugin.json plugin/stage-assets.sh ./
+COPY plugin/src/ ./src/
 RUN npm run build \
     && npm prune --omit=dev --omit=peer --ignore-scripts --no-audit --no-fund \
     && test ! -e node_modules/openclaw
-# The VSS skills, one directory per SKILL.md regardless of how the repo groups
-# them, under the plugin root where the manifest's `skills: ["./skills"]` looks.
+# Content assets: the VSS skills (one directory per SKILL.md regardless of how
+# the repo groups them) from the pinned checkout, and the OpenClaw workspace
+# instructions from this directory, staged under the plugin root where the
+# manifest's `skills: ["./skills"]` and the register-time seeding look.
 COPY --from=vss-src /opt/vss-src/skills /tmp/vss-skills
-RUN mkdir -p skills \
-    && find /tmp/vss-skills -name SKILL.md -printf '%h\n' \
-       | while read -r d; do cp -r "$d" "skills/$(basename "$d")"; done \
-    && rm -rf /tmp/vss-skills \
-    && test "$(ls skills | wc -l)" -gt 0 \
-    && ls skills
+COPY workspace/ /tmp/vss-workspace/
+RUN ./stage-assets.sh /tmp/vss-skills /tmp/vss-workspace \
+    && rm -rf /tmp/vss-skills /tmp/vss-workspace
 
 # ── uv, for the vss CLI venv ───────────────────────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -80,13 +80,13 @@ FROM ${UV_IMAGE} AS uv
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
 
-# Harbor trial contract: the agent works in /task, writes to /output, logs to
-# /logs (world-writable: a trial may run as a different uid than we build with).
-# /solution and /tests belong to the oracle and verifier planes and are not
-# agent-writable — at 0777 an evaluated agent could read the expected answer.
-RUN mkdir -p /task /output /logs/agent /logs/verifier /logs/artifacts \
-    && chmod -R 777 /task /output /logs \
-    && mkdir -p /solution /tests && chmod 0755 /solution /tests
+# Harbor trial paths. Harbor and its agent adapters address /task, /output,
+# /logs, /tests and /solution by name, but everything physically lives under
+# /sandbox — the OpenShell workspace (WORKDIR below), which the sandbox user
+# owns and `openshell sandbox download` serves. Nothing is created here: the
+# harness creates the directories at trial start as the sandbox user; these are
+# only root-level names pointing into the workspace.
+RUN for d in task output logs tests solution; do ln -s "/sandbox/$d" "/$d"; done
 
 # The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
 # same pinned checkout the skills came from. Its packages are uv workspace
@@ -124,6 +124,7 @@ COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /opt/vss-plugin/dist/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/workspace/ /opt/vss-plugin/workspace/
 
 # Staged outside the managed extensions dir and installed (copied) into it, per
 # the NemoClaw doc. The pre-check fails the build if npm kept a private
@@ -136,7 +137,8 @@ RUN test ! -e /opt/vss-plugin/node_modules/openclaw \
     && test "$(realpath /sandbox/.openclaw/extensions/vss/node_modules/openclaw)" = "$(realpath /usr/local/lib/node_modules/openclaw)" \
     && HOME=/sandbox openclaw plugins enable vss \
     && HOME=/sandbox openclaw plugins inspect vss --json > /dev/null \
-    && test -d /sandbox/.openclaw/extensions/vss/skills
+    && test -d /sandbox/.openclaw/extensions/vss/skills \
+    && test -f /sandbox/.openclaw/extensions/vss/workspace/AGENTS.md
 
 # Enabling the plugin changes openclaw.json after the managed runtime hashed it;
 # nemoclaw-start verifies that hash, so refresh it.
@@ -147,13 +149,19 @@ RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
     && chown sandbox:sandbox /sandbox/.openclaw/.config-hash \
     && chmod 660 /sandbox/.openclaw/.config-hash
 
-# Final USER is the non-root default OpenShell requires. Entrypoint, command
-# and health check are inherited from the managed runtime.
+# Workspace-variant selector for the plugin's register-time seeding: apply the
+# _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
+ENV VSS_WORKSPACE_VARIANT=nemoclaw
+
+# Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
+# /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
+# Entrypoint, command and health check are inherited from the managed runtime.
 USER sandbox
-WORKDIR /task
+WORKDIR /sandbox
 
 LABEL harness.base="nemoclaw-openclaw-sandbox" \
       harness.contract="harbor-trial-v1" \
       harness.agent="openclaw" \
       harness.vss-cli="true" \
-      harness.vss-plugin="true"
+      harness.vss-plugin="true" \
+      harness.workspace-root="/sandbox"

@@ -8,8 +8,19 @@
 //   - the VSS skills (`skills/`, copied from the repo's skills/ tree at build),
 //     which OpenClaw loads from the plugin root. The skills teach the agent
 //     which vss subcommands to reach for; the tool is how it invokes them.
+// And one thing done at register time: the OpenClaw workspace instructions
+// (`workspace/` — AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, BOOTSTRAP.md, copied
+// from agent-harness/openclaw/workspace at build) are seeded into the agent's
+// configured workspace when they are not there yet, with the `_<variant>`
+// overlay applied on top (VSS_WORKSPACE_VARIANT, or `nemoclaw` when running in
+// a NemoClaw sandbox). Existing files are never overwritten: the workspace is
+// the agent's memory.
 
 import { execFile } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { Type } from "typebox";
 
@@ -49,7 +60,7 @@ function clip(text: string): { text: string; truncated: boolean } {
   return { text: `${text.slice(0, MAX_CAPTURE)}\n…[truncated]`, truncated: true };
 }
 
-export default defineToolPlugin({
+const vssPlugin = defineToolPlugin({
   id: "vss",
   name: "NVIDIA VSS",
   description:
@@ -96,3 +107,85 @@ export default defineToolPlugin({
     }),
   ],
 });
+
+
+type WorkspaceApi = {
+  config?: { agents?: { defaults?: { workspace?: string } } };
+  logger: { info: (msg: string) => void; warn: (msg: string) => void };
+};
+
+function resolveWorkspaceVariant(): string | undefined {
+  const fromEnv = process.env.VSS_WORKSPACE_VARIANT?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  // NemoClaw's managed runtime always ships this entrypoint.
+  return existsSync("/usr/local/bin/nemoclaw-start") ? "nemoclaw" : undefined;
+}
+
+function expandWorkspacePath(raw: string): string {
+  const expanded = raw === "~" || raw.startsWith("~/") ? join(homedir(), raw.slice(1)) : raw;
+  return isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
+}
+
+function copyMissingMarkdown(fromDir: string, toDir: string): number {
+  if (!existsSync(fromDir)) {
+    return 0;
+  }
+  let copied = 0;
+  for (const file of readdirSync(fromDir).filter((f) => f.endsWith(".md"))) {
+    const target = join(toDir, file);
+    if (existsSync(target)) {
+      continue;
+    }
+    copyFileSync(join(fromDir, file), target);
+    copied += 1;
+  }
+  return copied;
+}
+
+/** Seed the agent workspace with the VSS instruction files, never overwriting. */
+export function seedWorkspace(api: WorkspaceApi): void {
+  const configured = api.config?.agents?.defaults?.workspace;
+  if (!configured) {
+    return;
+  }
+  const workspaceDir = expandWorkspacePath(configured);
+  const templatesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "workspace");
+  if (!existsSync(templatesDir)) {
+    api.logger.warn(`[vss] workspace templates missing at ${templatesDir}; nothing seeded`);
+    return;
+  }
+  const variant = resolveWorkspaceVariant();
+  try {
+    mkdirSync(workspaceDir, { recursive: true });
+    // Overlay first so a variant file wins over the base of the same name.
+    let copied = 0;
+    if (variant) {
+      const overlay = join(templatesDir, `_${variant}`);
+      if (existsSync(overlay)) {
+        copied += copyMissingMarkdown(overlay, workspaceDir);
+      } else {
+        api.logger.warn(`[vss] workspace variant '${variant}' has no ${overlay}; base files only`);
+      }
+    }
+    copied += copyMissingMarkdown(templatesDir, workspaceDir);
+    if (copied > 0) {
+      api.logger.info(
+        `[vss] seeded ${copied} workspace file(s) into ${workspaceDir}${variant ? ` (variant ${variant})` : ""}`,
+      );
+    }
+  } catch (err) {
+    api.logger.warn(`[vss] workspace seeding failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Keep the entry defineToolPlugin produced (its non-enumerable metadata included)
+// and wrap only `register`, so tool registration is untouched.
+const registerTools = vssPlugin.register;
+vssPlugin.register = (api) => {
+  seedWorkspace(api as unknown as WorkspaceApi);
+  return registerTools(api);
+};
+
+export default vssPlugin;
