@@ -460,6 +460,11 @@ vssIngress:
   vstIngressPort: 30888
   lvsBackendPort: 38111
   rtviVlmPort: 8000
+  # /llm is mounted whenever the LLM NIM is deployed in-cluster (nims.enabled
+  # true and llmService set). Points at the NIM's own container port (8000),
+  # not the Docker-published LLM_PORT. Profiles that route the LLM to a hosted
+  # endpoint (global.llmBaseUrl) do not mount this route.
+  llmPort: 8000
   vaMcpPort: 9901
   # /elasticsearch is mounted whenever infra.elasticsearch is deployed. The edge
   # guard is on the Elasticsearch Service (infra.elasticsearch.ingressGuard),

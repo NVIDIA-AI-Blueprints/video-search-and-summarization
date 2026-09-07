@@ -31,6 +31,14 @@
 {{- $rtvi := .Values.rtvi | default dict }}
 {{- $vlm := index $rtvi "vss-rtvi-vlm" | default dict }}
 {{- $summ := index .Values "vss-summarization" | default dict }}
+{{- $nims := .Values.nims | default dict }}
+{{- $g := .Values.global | default dict }}
+{{- /* Remote LLM: global.llmBaseUrl (or vss-summarization.llmBaseUrl) points
+       out of the cluster, so /llm is not mounted. Otherwise the LLM Service
+       name comes from vss-summarization.llmService (nemotron-35-lightning-30b-a3b
+       by default), matching the wiring vss-summarization uses to reach it. */}}
+{{- $llmRemote := ((coalesce ((index $summ "llmBaseUrl") | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}
+{{- $llmService := ((index $summ "llmService") | default "" | toString | trim) }}
 {{- /* Enablement is read with vss.ingress.enabled, not `default true`: sprig
        treats an explicit `false` as empty and would hand back the default,
        mounting a route at a Service that was never created. */}}
@@ -38,6 +46,7 @@
 {{- $infraOn := include $en (dict "vals" $infra "default" true) }}
 {{- $agentUmbrellaOn := include $en (dict "vals" $agentRoot "default" true) }}
 {{- $rtviOn := include $en (dict "vals" $rtvi "default" true) }}
+{{- $nimsOn := include $en (dict "vals" $nims "default" false) }}
 {{- $kibanaOn := and $infraOn (include $en (dict "vals" $fk "default" true)) }}
 {{- /*
   Which of the canonical routes this profile serves. The mounts are the shared
@@ -66,6 +75,16 @@
 {{- end }}
 {{- if and $rtviOn (include $en (dict "vals" $vlm "default" false)) }}
 {{- $_ := set $b "rtvi-vlm" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "vss-rtvi-vlm")) "port" $vi.rtviVlmPort) }}
+{{- end }}
+{{- /* /llm is mounted when the LLM NIM runs in-cluster (nims.enabled) and no
+       remote endpoint is configured. Points at the LLM Service (llmService,
+       default nemotron-35-lightning-30b-a3b) on the NIM's container port
+       (vssIngress.llmPort, default 8000) — the same target vss-summarization
+       and vss-agent already resolve. A remote LLM (global.llmBaseUrl or
+       vss-summarization.llmBaseUrl) opts out: nothing here reaches a hosted
+       endpoint. */}}
+{{- if and (and $nimsOn (eq $llmRemote "")) (ne $llmService "") }}
+{{- $_ := set $b "llm" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" $llmService)) "port" ($vi.llmPort | default 8000)) }}
 {{- end }}
 {{- if and $infraOn (include $en (dict "vals" $fes "default" false)) }}
 {{- $_ := set $b "elasticsearch" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "elasticsearch")) "port" $vi.elasticsearchPort) }}

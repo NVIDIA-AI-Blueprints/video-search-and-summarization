@@ -150,6 +150,18 @@
   path: /lvs
   pathType: Prefix
   rewrite: strip
+# One address for the LLM whatever GPU it landed on, mirroring the Docker edge
+# (deploy/docker/services/infra/haproxy/haproxy.cfg.template bk_llm_strip):
+# ${VSS_PUBLIC_URL}/llm/v1/chat/completions reaches the LLM NIM's own
+# /v1/chat/completions. Profiles that place the LLM outside the deployment
+# omit the "llm" backend and keep pointing at it directly; no in-cluster
+# route is rendered. Long first-token latency (600s on the Docker edge)
+# is set on the LLM Service annotation (haproxy.org/timeout-server), not
+# on the ingress, so it does not raise the ceiling for every other route.
+- key: llm
+  path: /llm
+  pathType: Prefix
+  rewrite: strip
 - key: phoenix
   path: /phoenix
   pathType: Prefix
