@@ -30,6 +30,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 # scripts/tests -> scripts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -698,3 +700,94 @@ def test_default_vss_cmd_uses_the_project_local_cli() -> None:
     assert "/home/me/vss/services/agent" in cmd
     # --extra cli ships the `vss` executable; the base distribution does not.
     assert "--extra" in cmd and "cli" in cmd
+
+
+# ---------------------------------------------------------------------------
+# Selective pruning (--only-dataset)
+# ---------------------------------------------------------------------------
+
+
+def _fake_streams() -> dict[str, str]:
+    return {
+        "id-ours-1": "1219",                 # dataset video, stem spelling
+        "id-ours-2": "video_00570.mp4",      # dataset video, extension retained
+        "id-theirs": "someone_elses_clip",   # foreign
+        "id-theirs2": "warehouse_sample",    # foreign
+    }
+
+
+def _dataset_dir(tmp_path: Path) -> Path:
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    (videos / "1219.mp4").write_bytes(b"")
+    (videos / "video_00570.mp4").write_bytes(b"")
+    return videos
+
+
+def test_prune_deletes_only_foreign_sources(tmp_path: Path, monkeypatch: Any) -> None:
+    """The dataset's own videos survive; everything else goes.
+
+    Both spellings VST uses -- stem and stem.mp4 -- must be recognised as ours,
+    or the prune deletes a fixture that ingest then re-uploads.
+    """
+    import run_eval_flows as rf
+
+    deleted: list[str] = []
+
+    class _Resp:
+        status_code = 200
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
+    monkeypatch.setattr(
+        rf.requests, "delete",
+        lambda url, **_k: (deleted.append(url.rsplit("/", 1)[-1]), _Resp())[1],
+    )
+
+    out = rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", _dataset_dir(tmp_path))
+
+    assert sorted(deleted) == ["id-theirs", "id-theirs2"]
+    assert out["kept"] == 2
+    assert out["deleted"] == 2
+    assert out["found"] == 4
+
+
+def test_prune_refuses_when_the_dataset_has_no_videos(tmp_path: Path, monkeypatch: Any) -> None:
+    """An empty video dir makes every source look foreign.
+
+    Without this guard --only-dataset silently becomes --clear, which is the
+    one thing it exists to avoid.
+    """
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
+    monkeypatch.setattr(
+        rf.requests, "delete",
+        lambda *_a, **_k: pytest.fail("must not delete anything when the dataset is empty"),
+    )
+
+    empty = tmp_path / "videos"
+    empty.mkdir()
+    with pytest.raises(SystemExit, match="no video files"):
+        rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", empty)
+
+
+def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(
+        rf.flows, "list_sensor_streams",
+        lambda *_a, **_k: {"id-ours-1": "1219", "id-ours-2": "video_00570.mp4"},
+    )
+    monkeypatch.setattr(
+        rf.requests, "delete",
+        lambda *_a, **_k: pytest.fail("nothing foreign, so nothing should be deleted"),
+    )
+
+    out = rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", _dataset_dir(tmp_path))
+    assert out == {"found": 2, "kept": 2, "deleted": 0, "names": []}
