@@ -419,6 +419,35 @@ class TestLiveStreamEndpoints:
         data = response.json()
         assert isinstance(data, list)
 
+    def test_list_cv_live_stream_with_non_uuid_id(self, test_client, rtvi_server):
+        """CV camera identifiers remain valid when returned by the legacy list API."""
+        stream_id = rtvi_server._asset_manager.add_live_stream(
+            "rtsp://example.com/live",
+            description="camera-01",
+            stream_id="camera-01",
+            camera_id="camera-01",
+        )
+
+        response = test_client.get(f"{API_PREFIX}/streams/get-stream-info")
+
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "id": stream_id,
+                "liveStreamUrl": "rtsp://example.com/live",
+                "description": "camera-01",
+                "chunk_duration": 0,
+                "chunk_overlap_duration": 0,
+                "place_name": "",
+                "place_type": "",
+                "place_lat": None,
+                "place_lon": None,
+                "place_alt": None,
+                "place_coordinate_x": None,
+                "place_coordinate_y": None,
+            }
+        ]
+
     def test_add_live_stream_missing_url(self, test_client):
         """Test adding live stream without URL"""
         response = test_client.post(
