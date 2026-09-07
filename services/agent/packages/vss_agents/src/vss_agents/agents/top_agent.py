@@ -1141,6 +1141,11 @@ class TopAgent(AsyncMixin):
                                                 if messages_text
                                                 else artifact_note
                                             )
+                                        normalized_messages = messages_text.strip().lower()
+                                        if agent_output.status == "error" or normalized_messages.startswith(
+                                            "no incidents found"
+                                        ):
+                                            state.final_answer = agent_output.error_message or messages_text
                                         tool_response = f"tool: {tool_name} completed. Result: {messages_text}"
                                     except (json.JSONDecodeError, Exception):
                                         # Not AgentOutput JSON, treat as plain text

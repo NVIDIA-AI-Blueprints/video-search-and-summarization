@@ -29,6 +29,7 @@ import pytest
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
@@ -757,6 +758,45 @@ class TestRequestOptionsContext:
             and "'use_critic': False" in chunk.content
             for chunk in chunks
         )
+
+    @pytest.mark.asyncio
+    async def test_tool_node_ends_on_subagent_no_incidents_result(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class ReportFunction:
+            async def astream(self, input):
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.FINAL,
+                    content=AgentOutput(messages=["No incidents found with the specified criteria."]).model_dump_json(),
+                )
+
+        report_tool = MagicMock()
+        report_tool.args_schema = MagicMock()
+        report_tool.args_schema.model_fields = {}
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"report_agent": report_tool}
+        agent.subagent_names = {"report_agent"}
+        agent.subagent_functions = {"report_agent": ReportFunction()}
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling report",
+                    tool_calls=[
+                        {
+                            "name": "report_agent",
+                            "args": {"sensor_id": "Camera"},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert result.final_answer == "No incidents found with the specified criteria."
 
 
 class TestTopAgentRequestUseCritic:
