@@ -838,6 +838,16 @@ class TopAgent(AsyncMixin):
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
+            report_tool = self.tools_dict.get("report_agent")
+            report_fields = getattr(getattr(report_tool, "args_schema", None), "model_fields", {})
+            if "report" in question.lower() and "incident_id" in report_fields and "sensor_id" not in report_fields:
+                state.plan = (
+                    "1. Call `report_agent` without a sensor filter to retrieve the most recent incident "
+                    "and generate its detailed report."
+                )
+                logger.warning("Rejected unnecessary camera clarification for incident report: %s", clarification)
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
             if "vst_sensor_list" in self.tools_dict and any(
                 term in question.lower() for term in ("available sensor", "available camera", "sensor id", "camera id")
             ):
