@@ -15,11 +15,25 @@
  * limitations under the License.
  */
 import React from 'react';
-import { Box, Grid, Typography, FormControlLabel, Switch, TextField, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import {
+    Box,
+    Grid,
+    Typography,
+    FormControlLabel,
+    Switch,
+    Checkbox,
+    TextField,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+} from '@mui/material';
 
 interface BboxSettingsSectionProps {
     overlayBbox: boolean;
     setOverlayBbox: (value: boolean) => void;
+    filterObjects: boolean;
+    setFilterObjects: (value: boolean) => void;
     classType: string[];
     setClassType: (value: string[]) => void;
     objectIds: string;
@@ -49,6 +63,8 @@ const colorOptions = ['white', 'black', 'red', 'green', 'blue', 'yellow'];
 const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
     overlayBbox,
     setOverlayBbox,
+    filterObjects,
+    setFilterObjects,
     classType,
     setClassType,
     objectIds,
@@ -78,10 +94,21 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
                 Bounding Box Configuration
             </Typography>
 
-            <Box sx={{ mb: 2 }}>
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                 <FormControlLabel
                     control={<Switch checked={overlayBbox} onChange={e => setOverlayBbox(e.target.checked)} />}
                     label='Show Bounding Boxes'
+                    sx={{ '& .MuiFormControlLabel-label': { fontWeight: 500 } }}
+                />
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            checked={filterObjects}
+                            disabled={!overlayBbox}
+                            onChange={e => setFilterObjects(e.target.checked)}
+                        />
+                    }
+                    label='Filter Objects'
                     sx={{ '& .MuiFormControlLabel-label': { fontWeight: 500 } }}
                 />
             </Box>
@@ -90,7 +117,7 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
                 <Typography variant='subtitle2' sx={{ mb: 1, fontWeight: 500, color: 'text.primary' }}>
                     Object Classes
                 </Typography>
-                <FormControl fullWidth>
+                <FormControl fullWidth disabled={!overlayBbox || !filterObjects}>
                     <InputLabel sx={{ fontWeight: 500 }}>Class Type</InputLabel>
                     <Select
                         multiple
@@ -111,6 +138,7 @@ const BboxSettingsSection: React.FC<BboxSettingsSectionProps> = ({
             <Box sx={{ mb: 2 }}>
                 <TextField
                     fullWidth
+                    disabled={!overlayBbox || !filterObjects}
                     label='Specific Object IDs'
                     value={objectIds}
                     onChange={e => setObjectIds(e.target.value)}
