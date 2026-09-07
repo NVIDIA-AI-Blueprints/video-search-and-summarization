@@ -654,6 +654,15 @@ export class DashStream {
                         const arm = (): void => {
                             this.autoplayFallbackTimer = setTimeout(() => {
                                 this.autoplayFallbackTimer = null;
+                                /* This closure holds the element and the config
+                                 * of the attachment that armed it.  Teardown
+                                 * cancels the pending timer, so a stale one
+                                 * should be impossible, but the cost of being
+                                 * wrong is play() on a element that now belongs
+                                 * to another session - so say it outright. */
+                                if (generation !== this.startGeneration) {
+                                    return;
+                                }
                                 if (this.autoplayAttempted || !config.videoElement.paused) {
                                     return;
                                 }

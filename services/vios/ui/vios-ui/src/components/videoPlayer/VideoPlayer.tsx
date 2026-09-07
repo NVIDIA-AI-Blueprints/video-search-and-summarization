@@ -616,6 +616,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 streamManagerRef.current.stopStreaming();
                 streamManagerRef.current = null;
             }
+            /* The stream this timer was waiting on is going away.  Left armed
+             * across a switch from DASH to WebRTC it would raise the loader
+             * over the replacement stream, which reports no DASH phase and so
+             * would never lower it again. */
+            if (dashBufferingTimerRef.current) {
+                clearTimeout(dashBufferingTimerRef.current);
+                dashBufferingTimerRef.current = null;
+            }
         };
         // Stream setup intentionally restarts only when the selected live delivery protocol changes.
     }, [deliveryProtocol]);
