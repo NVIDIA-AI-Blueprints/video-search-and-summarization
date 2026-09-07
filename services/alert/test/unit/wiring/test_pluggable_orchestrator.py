@@ -64,7 +64,6 @@ _stub_modules = [
     'utils.schema_util',
     'vlm.warmup',
     'vlm.vlm_client',
-    'vss',
     'metrics', 'metrics.prometheus_metrics',
 ]
 for _mod_name in _stub_modules:
@@ -119,7 +118,6 @@ sys.modules['vlm.warmup'].warmup_vlm = Mock()
 sys.modules['vlm.warmup'].WARMUP_VIDEO = '/tmp/fake.mp4'
 sys.modules['vlm.vlm_client'].VLMClient = Mock
 sys.modules['vlm.vlm_client'].AsyncVLMRuntime = Mock
-sys.modules['vss'].VSSHandler = Mock
 sys.modules['metrics'].PROMETHEUS_ENABLED = False
 
 # ``metrics`` is stubbed as a non-package, so register ``metrics.recorder``
