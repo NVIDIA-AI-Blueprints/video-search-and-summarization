@@ -206,6 +206,39 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     return {"found": len(streams), "deleted": deleted, "failed": failed, "names": list(streams.values())}
 
 
+def describe_query_flow(
+    query_backend: Any, decomposer: Any, planned_llm_url: str | None = None
+) -> dict[str, Any]:
+    """The query backend's own description, corrected for live decomposition.
+
+    ``QueryBackend.describe()`` reports routing from ``self.decompositions``,
+    which a *live* decomposer only fills as queries run. Called before the first
+    query -- which is where both the banner and the saved flow block need it --
+    it therefore says ``routing: fixed, decompositions: 0`` for a run that went
+    on to decompose every query, and a reader of the result file concludes one
+    path was measured. Take the decomposer's presence as the answer instead of
+    inferring it from state that does not exist yet.
+
+    ``planned_llm_url`` covers the dry run, where no decomposer is built at all
+    because constructing one asks the LLM for its model list and a dry run
+    contacts nothing. Reporting the intent keeps the preview from promising a
+    fixed-path run that the real invocation would not perform.
+    """
+    described = query_backend.describe()
+    if decomposer is not None:
+        described["routing"] = "per-query (live decomposition)"
+        described["live_decomposition"] = decomposer.describe()
+    elif planned_llm_url:
+        described["routing"] = "per-query (live decomposition)"
+        described["live_decomposition"] = {
+            "llm_url": planned_llm_url,
+            "model": "(discovered at run time)",
+        }
+    else:
+        described["live_decomposition"] = False
+    return described
+
+
 def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> dict[str, Any]:
     """Delete every registered source that is NOT one of this dataset's videos.
 
@@ -380,7 +413,7 @@ def run_evaluation(  # noqa: PLR0913
     if hasattr(query_backend, "plan_for_query"):
         planned_paths = flows.path_distribution([query_backend.plan_for_query(q) for q in queries])
 
-    described = query_backend.describe()
+    described = describe_query_flow(query_backend, decomposer)
     if planned_paths:
         described["planned_paths"] = "  ".join(f"{k}={v}" for k, v in planned_paths.items())
 
@@ -1072,7 +1105,7 @@ def main() -> None:
         print("Ingest backend:")
         print(json.dumps(ingest_backend.describe(), indent=2))
         print("\nQuery backend:")
-        print(json.dumps(query_backend.describe(), indent=2))
+        print(json.dumps(describe_query_flow(query_backend, decomposer, args.llm_url), indent=2))
         if isinstance(query_backend, flows.CliQueryBackend):
             import shlex
 
