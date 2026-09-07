@@ -97,8 +97,8 @@ functions:
     _type: lvs_video_understanding
     lvs_backend_url: ${LVS_BACKEND_URL}
     model: ${VLM_NAME}
-    # Reports are supported over HTTP chat, where no interactive callback exists.
-    hitl_enabled: false
+    # Interactive requests collect LVS parameters; HTTP requests use defaults for that request only.
+    hitl_enabled: true
     video_url_tool: vst_video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     # Connection and timeout configuration
@@ -229,8 +229,8 @@ functions:
       EXAMPLE:
       [0.0s-4.0s] <description of the first event>
       [4.0s-12.0s] <description of the second event>
-    # HTTP chat has no interactive callback; use the configured report prompt.
-    hitl_enabled: false
+    # Interactive requests confirm/edit the VLM prompt; HTTP requests use it noninteractively.
+    hitl_enabled: true
     hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm  # LLM for AI-assisted prompt generation e.g. nim_llm, openai_llm
     hitl_vlm_prompt_template: |
       **VLM Prompt for Report Generation**
