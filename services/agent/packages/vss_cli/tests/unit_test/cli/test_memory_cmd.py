@@ -425,6 +425,7 @@ def _introspection_result(status: str = "completed") -> IntrospectionResult:
 
 def _introspection_memory_config(
     *,
+    enabled: bool = True,
     model: str = "openclaw/default",
     backend_model: str | None = "ollama/gemma3:12b",
     api_key_env: str | None = "HARNESS_TOKEN",
@@ -433,13 +434,14 @@ def _introspection_memory_config(
     return config_mod.MemoryConfig(
         persist_by_default=persist_by_default,
         introspection=config_mod.IntrospectionMemoryConfig(
+            enabled=enabled,
             judge=config_mod.IntrospectionJudgeConfig(
                 endpoint="https://text-judge.example/v1",
                 model=model,
                 backend_model=backend_model,
                 api_key_env=api_key_env,
                 criteria_prompt="Require direct evidence.",
-            )
+            ),
         ),
     )
 
@@ -460,6 +462,8 @@ def test_introspect_help_exposes_exact_options() -> None:
     ):
         assert option in result.output
     assert "--no-persist" not in result.output
+    assert "--enable-introspection" not in result.output
+    assert "--disable-introspection" not in result.output
 
 
 @pytest.mark.parametrize(
@@ -659,6 +663,47 @@ def test_introspect_requires_configured_text_judge(
 
     assert result.exit_code == int(Exit.CONFIGURATION)
     assert "vss configure memory introspection" in result.output
+    assert injected_memory.service.list_jobs() == []
+
+
+def test_disabled_introspection_fails_before_any_backend_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    injected_memory: Memory,
+) -> None:
+    import vss_cli.memory_cmd as memory_cmd_mod
+    import vss_cli.vlm.runner as runner_mod
+    import vss_core.introspection as introspection_mod
+
+    deployment = config_mod.Deployment(
+        base_url="http://vss.test",
+        services={
+            "elasticsearch": config_mod.Service(url="http://vss.test/elasticsearch"),
+            "rt_vlm": config_mod.Service(url="http://vss.test/rtvi-vlm"),
+        },
+        memory=_introspection_memory_config(enabled=False),
+    )
+    monkeypatch.setattr(config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(
+        memory_cmd_mod,
+        "_memory",
+        lambda *_args, **_kwargs: pytest.fail("disabled introspection must not retrieve memory"),
+    )
+    monkeypatch.setattr(
+        introspection_mod,
+        "OpenAIIntrospectionClient",
+        lambda **_kwargs: pytest.fail("disabled introspection must not construct the judge"),
+    )
+    monkeypatch.setattr(
+        runner_mod,
+        "IntrospectionVLMJobRunner",
+        lambda *_args, **_kwargs: pytest.fail("disabled introspection must not construct the VLM runner"),
+    )
+
+    result = _invoke("introspect", "--query", "What?", "--sensor", "warehouse")
+
+    assert result.exit_code == int(Exit.CONFIGURATION)
+    assert "memory introspection is disabled" in result.output
+    assert "vss configure memory introspection --enable" in result.output
     assert injected_memory.service.list_jobs() == []
 
 

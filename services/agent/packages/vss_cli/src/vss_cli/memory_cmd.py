@@ -135,19 +135,25 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
             return result, Exit.BACKEND_UNREACHABLE
         return result, Exit.NOT_FOUND if result.status == "no_memory" else Exit.SUCCESS
 
-    from vss_cli.memory_policy import effective_persist
-    from vss_cli.vlm.runner import IntrospectionVLMJobRunner
-    from vss_core.introspection import IntrospectionSettings
-    from vss_core.introspection import OpenAIIntrospectionClient
-    from vss_core.introspection import introspect
-
     deployment = config_mod.load()
     memory_config = deployment.memory
     if memory_config is None or memory_config.introspection is None:
         raise config_mod.ConfigError(
             "memory introspection judge is not configured; run `vss configure memory introspection`"
         )
-    judge_config = memory_config.introspection.judge
+    introspection_config = memory_config.introspection
+    if not introspection_config.enabled:
+        raise config_mod.ConfigError(
+            "memory introspection is disabled; run `vss configure memory introspection --enable`"
+        )
+
+    from vss_cli.memory_policy import effective_persist
+    from vss_cli.vlm.runner import IntrospectionVLMJobRunner
+    from vss_core.introspection import IntrospectionSettings
+    from vss_core.introspection import OpenAIIntrospectionClient
+    from vss_core.introspection import introspect
+
+    judge_config = introspection_config.judge
     api_key: str | None = None
     if judge_config.api_key_env is not None:
         api_key = os.environ.get(judge_config.api_key_env, "")
