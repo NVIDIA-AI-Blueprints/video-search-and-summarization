@@ -202,6 +202,16 @@ async def get_latest_snapshot_time(stream_id: str, vst_internal_url: str) -> str
     return latest.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+async def validate_snapshot_time(stream_id: str, start_time: str, vst_internal_url: str) -> None:
+    """Reject ISO timestamps outside the stream's recorded timeline."""
+    timeline_start, timeline_end = await get_timeline(stream_id, vst_internal_url)
+    picture_time = datetime.fromisoformat(start_time)
+    if picture_time < datetime.fromisoformat(timeline_start) or picture_time > datetime.fromisoformat(timeline_end):
+        raise ValueError(
+            f"Picture time {start_time} is out of the video timeline {timeline_start} to {timeline_end}",
+        )
+
+
 @register_function(config_type=VSTSnapshotConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     async def _vst_snapshot(vst_snapshot_input: VSTSnapshotOffsetInput | VSTSnapshotISOInput) -> VSTSnapshotOutput:
@@ -214,6 +224,8 @@ async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGen
         start_time = vst_snapshot_input.start_time
         if start_time is None:
             start_time = await get_latest_snapshot_time(stream_id, config.vst_internal_url)
+        elif isinstance(start_time, str):
+            await validate_snapshot_time(stream_id, start_time, config.vst_internal_url)
 
         image_url = await get_snapshot_url(
             stream_id,
