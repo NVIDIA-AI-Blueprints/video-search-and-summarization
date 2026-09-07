@@ -47,6 +47,12 @@ MAX_SEEN_IMAGE_IDS = 4096
 # legitimate pull/build window. The immutable 7200-second hard ceiling still
 # wins before another idle extension could carry an active phase beyond it.
 MAX_PHASE_HEARTBEATS = 21
+# `docker system df` reports sizes to roughly 0.1 GB, so the bucket has to be
+# far coarser than that resolution to avoid rounding noise reading as growth.
+DISK_GROWTH_BUCKET_BYTES = 2 * 1024**3
+# Bounded like MAX_PHASE_HEARTBEATS, and for the same reason: growth events
+# share the finite MAX_PROGRESS_KEYS budget with every other category.
+MAX_DISK_GROWTH_EVENTS = 64
 MAX_SPEC_BYTES = 1024 * 1024
 MAX_COMPOSE_BYTES = 4 * 1024 * 1024
 MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024
@@ -90,6 +96,7 @@ _PROGRESS_CATEGORIES = frozenset(
         "container_transition",
         "image_activity",
         "image_activity_heartbeat",
+        "disk_growth",
     }
 )
 _EVENT_FIELDS = {
@@ -117,6 +124,7 @@ _EVENT_FIELDS = {
     ),
     "image_activity": frozenset({"image_count", "delta"}),
     "image_activity_heartbeat": frozenset({"phase"}),
+    "disk_growth": frozenset({"bucket", "total_bytes"}),
     "timeout": frozenset(
         {
             "reason",
@@ -934,6 +942,31 @@ def _is_compose_up(command: str) -> bool:
     )
 
 
+_DOCKER_SIZE_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)$")
+_DOCKER_SIZE_UNITS = {
+    "b": 1,
+    "kb": 1000,
+    "mb": 1000**2,
+    "gb": 1000**3,
+    "tb": 1000**4,
+    "kib": 1024,
+    "mib": 1024**2,
+    "gib": 1024**3,
+    "tib": 1024**4,
+}
+
+
+def _parse_docker_size(text: str) -> int | None:
+    """Bytes from a `docker system df` size cell, or None if unparseable."""
+    match = _DOCKER_SIZE_RE.match(text.strip())
+    if match is None:
+        return None
+    unit = _DOCKER_SIZE_UNITS.get(match.group(2).lower())
+    if unit is None:
+        return None
+    return int(float(match.group(1)) * unit)
+
+
 def _compose_phase(command: str) -> str | None:
     if re.search(
         r"\bdocker(?:(?:\s+compose|-compose)\b[^;&|]*\s+|\s+)pull\b",
@@ -1060,6 +1093,8 @@ class DirectAgentProgress:
         self._image_ids: set[str] | None = None
         self._seen_image_ids: set[str] | None = None
         self._image_tracking_saturated = False
+        self._disk_growth_bucket: int | None = None
+        self._disk_growth_events = 0
         self._pseudonym_salt = os.urandom(32)
         self._inner_journal_offset = 0
         self.inner_journal_path = Path("/logs/agent/direct-progress.jsonl")
@@ -1225,6 +1260,55 @@ class DirectAgentProgress:
             self._seen_image_ids.update(new_image_ids)
         self._image_ids = image_ids
 
+    def _sample_disk_growth(self) -> None:
+        """Count bytes landing on disk as progress.
+
+        `image_activity` fires only when a whole image commits, and a
+        container transition needs the state tuple to change, so a NIM
+        downloading weights into a fresh volume after `up -d` has already
+        returned presents as idle: no new image, no state change, and no
+        active phase to heartbeat off. Byte totals are the only live signal
+        left in that window. A stalled fetch crosses no new bucket, so a
+        genuinely hung run still reaches the idle timeout.
+        """
+        if self._disk_growth_events >= MAX_DISK_GROWTH_EVENTS:
+            return
+        proc = _run_bounded(
+            ["docker", "system", "df", "--format", "{{.Type}}\t{{.Size}}"],
+            timeout=15,
+        )
+        if proc.returncode != 0 or proc.truncated:
+            return
+        total = 0
+        parsed_any = False
+        for line in proc.stdout.splitlines():
+            kind, _, size = line.partition("\t")
+            if kind.strip() not in {"Images", "Local Volumes"}:
+                continue
+            parsed = _parse_docker_size(size)
+            if parsed is None:
+                continue
+            total += parsed
+            parsed_any = True
+        if not parsed_any:
+            return
+        bucket = total // DISK_GROWTH_BUCKET_BYTES
+        if self._disk_growth_bucket is None:
+            # First sample is the baseline: images and volumes surviving from
+            # a previous trial must not read as this trial's progress.
+            self._disk_growth_bucket = bucket
+            return
+        if bucket <= self._disk_growth_bucket:
+            return
+        self._disk_growth_bucket = bucket
+        self._disk_growth_events += 1
+        self._record_progress(
+            "disk_growth",
+            token=bucket,
+            bucket=bucket,
+            total_bytes=total,
+        )
+
     def _compose_ps(self) -> list[dict]:
         if self.compose_file is None:
             return []
@@ -1291,6 +1375,8 @@ class DirectAgentProgress:
         self._sample_inner_journal()
         with suppress(OSError, subprocess.SubprocessError):
             self._sample_images()
+        with suppress(OSError, subprocess.SubprocessError):
+            self._sample_disk_growth()
         try:
             rows = self._safe_service_rows()
         except (OSError, subprocess.SubprocessError):

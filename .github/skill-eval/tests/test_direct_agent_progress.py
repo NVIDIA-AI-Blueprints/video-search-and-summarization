@@ -51,6 +51,22 @@ assert _RESOLVED_VALIDATOR_SPEC.loader is not None
 _RESOLVED_VALIDATOR_SPEC.loader.exec_module(resolved_validator)
 
 
+_REAL_SAMPLE_DISK_GROWTH = progress.DirectAgentProgress._sample_disk_growth
+
+
+@pytest.fixture(autouse=True)
+def _stub_disk_growth_sampler():
+    """Keep `sample()` hermetic — the disk sampler shells out to docker.
+
+    Tests that exercise it drive `_REAL_SAMPLE_DISK_GROWTH` directly against
+    a synthetic `docker system df` via `_sample_df`.
+    """
+    with mock.patch.object(
+        progress.DirectAgentProgress, "_sample_disk_growth", autospec=True
+    ):
+        yield
+
+
 class FakeClock:
     def __init__(self) -> None:
         self.now = 0.0
@@ -579,6 +595,146 @@ def test_phase_heartbeats_are_rate_bounded(tmp_path: Path) -> None:
     assert tracker.expiration() == ("idle", "image_activity_heartbeat", 2280)
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("0B", 0),
+        ("512MB", 512 * 1000**2),
+        ("12.3GB", int(12.3 * 1000**3)),
+        ("4GiB", 4 * 1024**3),
+        ("N/A", None),
+        ("", None),
+        ("7 parsecs", None),
+    ],
+)
+def test_parse_docker_size(text: str, expected: int | None) -> None:
+    assert progress._parse_docker_size(text) == expected
+
+
+def _df(images_bytes: int, volumes_bytes: int) -> object:
+    """A `docker system df --format '{{.Type}}\t{{.Size}}'` result."""
+    return progress.BoundedCommandResult(
+        returncode=0,
+        stdout=(
+            f"Images\t{images_bytes / 1000**3:.1f}GB\n"
+            "Containers\t0B\n"
+            f"Local Volumes\t{volumes_bytes / 1000**3:.1f}GB\n"
+            "Build Cache\t0B\n"
+        ),
+        truncated=False,
+    )
+
+
+def _sample_df(monitor, images_bytes: int, volumes_bytes: int) -> None:
+    """Drive the real sampler against a synthetic `docker system df`."""
+    with mock.patch.object(
+        progress, "_run_bounded", return_value=_df(images_bytes, volumes_bytes)
+    ):
+        _REAL_SAMPLE_DISK_GROWTH(monitor)
+
+
+def _disk_growth_monitor(tmp_path: Path, clock: FakeClock):
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+    )
+    return tracker, monitor
+
+
+def test_volume_growth_after_compose_up_returned_is_progress(
+    tmp_path: Path,
+) -> None:
+    """The NVL failure mode: a NIM writing weights with no other signal.
+
+    No new image commits, the container snapshot never changes, and
+    `up -d` has already returned so there is no active phase to heartbeat
+    off. Only the growing volume keeps the run alive.
+    """
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    volumes = 0
+    # Six 600s gaps stay inside the 7200s hard ceiling while each gap
+    # exceeds half the 1080s idle window it has to survive.
+    for _ in range(6):
+        _sample_df(monitor, 40 * 1000**3, volumes)
+        clock.advance(600)
+        volumes += 5 * 1000**3
+    assert monitor.active_phase is None
+    assert tracker.expiration() is None
+    assert tracker.last_progress_category == "disk_growth"
+
+
+def test_first_disk_sample_is_baseline_not_progress(tmp_path: Path) -> None:
+    """Images and volumes left by an earlier trial are not this trial's work."""
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    _sample_df(monitor, 200 * 1000**3, 0)
+    assert monitor._disk_growth_events == 0
+    clock.advance(1500)
+    assert tracker.expiration() == ("idle", "startup", 1500)
+
+
+def test_flat_disk_totals_do_not_extend_idle(tmp_path: Path) -> None:
+    """A stalled download crosses no bucket, so the run still times out."""
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    for _ in range(6):
+        _sample_df(monitor, 40 * 1000**3, 0)
+        clock.advance(300)
+    assert monitor._disk_growth_events == 0
+    assert tracker.expiration() == ("idle", "startup", 1800)
+
+
+def test_sub_bucket_growth_does_not_extend_idle(tmp_path: Path) -> None:
+    """Rounding noise below the bucket must not read as progress."""
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    total = 40 * 1000**3
+    for _ in range(6):
+        _sample_df(monitor, total, 0)
+        clock.advance(300)
+        total += 100 * 1000**2
+    assert monitor._disk_growth_events == 0
+    assert tracker.expiration() == ("idle", "startup", 1800)
+
+
+def test_disk_growth_events_are_bounded(tmp_path: Path) -> None:
+    clock = FakeClock()
+    _, monitor = _disk_growth_monitor(tmp_path, clock)
+    volumes = 0
+    for _ in range(progress.MAX_DISK_GROWTH_EVENTS + 5):
+        _sample_df(monitor, 0, volumes)
+        clock.advance(60)
+        volumes += 4 * 1000**3
+    assert monitor._disk_growth_events == progress.MAX_DISK_GROWTH_EVENTS
+
+
+def test_unparseable_df_output_is_ignored(tmp_path: Path) -> None:
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    with mock.patch.object(
+        progress,
+        "_run_bounded",
+        return_value=progress.BoundedCommandResult(
+            returncode=0, stdout="Images\tN/A\nLocal Volumes\tN/A\n", truncated=False
+        ),
+    ):
+        _REAL_SAMPLE_DISK_GROWTH(monitor)
+    assert monitor._disk_growth_bucket is None
+    clock.advance(1500)
+    assert tracker.expiration() == ("idle", "startup", 1500)
+
+
 def test_repeated_compose_up_and_identical_snapshots_do_not_refresh_idle(
     tmp_path: Path,
 ) -> None:
@@ -607,6 +763,10 @@ def test_repeated_compose_up_and_identical_snapshots_do_not_refresh_idle(
     }]
 
     async def invoke_up(tool_id: str) -> None:
+        # `up -d` returns once containers are created, so pair every call
+        # with its post_tool. The phase heartbeat legitimately stops there;
+        # what must not refresh idle is the duplicate `compose_phase` token
+        # or an unchanged container snapshot.
         await monitor.pre_tool(
             {
                 "tool_name": "Bash",
@@ -615,6 +775,7 @@ def test_repeated_compose_up_and_identical_snapshots_do_not_refresh_idle(
             tool_id,
             None,
         )
+        await monitor.post_tool({}, tool_id, None)
 
     with (
         mock.patch.object(monitor, "_sample_images"),

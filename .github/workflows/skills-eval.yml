@@ -396,6 +396,11 @@ jobs:
           # the skill then writes LLM_MODE=remote and never starts local NIMs.
           if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
             unset LLM_REMOTE_URL LLM_REMOTE_MODEL VLM_REMOTE_URL VLM_REMOTE_MODEL
+            # These guests run local NIMs against wiped model volumes, so a
+            # cold weight download routinely exceeds the 18-minute default
+            # and the run is cancelled mid-deploy. DEFAULT_HARD_CEILING_SEC
+            # (7200s) is not env-driven, so a hung run is still bounded.
+            export DIRECT_AGENT_IDLE_TIMEOUT_SEC="${DIRECT_AGENT_IDLE_TIMEOUT_SEC:-2700}"
           fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
