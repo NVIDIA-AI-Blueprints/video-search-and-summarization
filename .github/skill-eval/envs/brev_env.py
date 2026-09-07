@@ -375,7 +375,8 @@ class BrevEnvironment(BaseEnvironment):
             # The Build Vision AI provisioning task owns host-side NemoClaw
             # setup.  Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the notebook remains their owner.
-            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_GATEWAY_PORT",
+            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
+            "NEMOCLAW_GATEWAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",

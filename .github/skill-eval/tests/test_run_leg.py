@@ -831,6 +831,14 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(command.call_args_list[0].args[4], "claude-code")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
         self.assertEqual(run.call_count, 2)
+        bootstrap_env = run.call_args_list[0].args[1]
+        scenario_env = run.call_args_list[1].args[1]
+        self.assertEqual(
+            bootstrap_env["NEMOCLAW_SANDBOX_NAME"],
+            scenario_env["NEMOCLAW_SANDBOX_NAME"],
+        )
+        self.assertNotEqual(bootstrap_env["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
+        self.assertEqual(bootstrap_env["NEMOCLAW_RECREATE_SANDBOX"], "0")
         self.assertEqual(run.call_args_list[1].args[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
 
     def test_passing_step_lets_the_chain_continue(self):
@@ -1763,6 +1771,21 @@ class BoxRejectedForCapacity(unittest.TestCase):
     def test_unreadable_results_root_is_not_a_refusal(self):
         self.assertIsNone(
             run_leg.box_rejected_for_capacity(Path("/nonexistent-xyz"), 0))
+
+
+class NemoClawSandboxName(unittest.TestCase):
+    def test_is_stable_per_leg_and_isolates_legs(self):
+        first = run_leg.nemoclaw_sandbox_name("34118027479", "base__RTXPRO6000BW")
+        self.assertEqual(
+            first,
+            run_leg.nemoclaw_sandbox_name("34118027479", "base__RTXPRO6000BW"),
+        )
+        self.assertNotEqual(
+            first,
+            run_leg.nemoclaw_sandbox_name("34118027479", "other__RTXPRO6000BW"),
+        )
+        self.assertTrue(first.startswith("skill-eval-34118027479-"))
+        self.assertLessEqual(len(first), 64)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -764,6 +765,21 @@ def pool_candidates(
         return (0 if registered else 1, exact, name.lower())
 
     return [name for name, _ in sorted(candidates, key=sort_key)]
+
+
+def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
+    """Return the short, per-leg sandbox name owned by a CI evaluation.
+
+    Build Vision AI treats a sandbox as part of a build. A shared
+    ``skill-eval`` name lets a later leg reuse a previous leg's gateway and
+    sessions, so CI derives one name from its run and leg instead. Keep it
+    compact because OpenShell backends impose conservative resource-name
+    limits.
+    """
+    safe_run_id = SAFE_PART_RE.sub("-", run_id).strip("-") or "manual"
+    identity = f"{run_id}:{leg_slug}".encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:12]
+    return f"skill-eval-{safe_run_id[:20]}-{digest}"
 
 
 def attempt_lock_timeout(
@@ -1518,10 +1534,20 @@ def run_invocations(
             include_task_name=BOOTSTRAP_TASK,
             chain_key="build-vision-bootstrap",
         )
+        sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or nemoclaw_sandbox_name(
+            run_id, leg_slug
+        )
+        # Both the Build Vision AI bootstrap and the later operational
+        # scenarios must address the same sandbox. This is intentionally a
+        # per-leg name rather than the notebook's interactive ``demo``
+        # default, so a warm worker can never inherit another eval's session.
+        env["NEMOCLAW_SANDBOX_NAME"] = sandbox_name
+        # The sandbox is new for this leg. Reusing it once onboarded follows
+        # the notebook contract and preserves its operational sessions.
+        env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
         bootstrap_env = env.copy()
         bootstrap_env.update(
             {
-                "NEMOCLAW_SANDBOX_NAME": os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval"),
                 # Build Vision AI owns the OpenShell gateway name/port. Do not
                 # impose the former notebook harness's 8991 override: its
                 # deployment flow uses NemoClaw's default gateway contract.
