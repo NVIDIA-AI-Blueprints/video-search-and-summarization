@@ -414,11 +414,11 @@ jobs:
           steps.platform-preflight.outputs.skip != 'true'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
 
-      # Images flagged `registry_buildcache: true` in the inventory (the VIOS
-      # set, whose grpc/toolchain layer is expensive) use a persistent, private
-      # GHCR buildcache package instead of the 10GB-LRU GHA cache, which was
-      # evicting that layer between builds and forcing a ~11min grpc rebuild.
-      # Everything else keeps the GHA cache unchanged.
+      # Images whose inventory entry sets `registry_buildcache` to a cache
+      # package NAME (the VIOS set, whose grpc/toolchain layer is expensive) use
+      # that persistent, private GHCR buildcache package instead of the 10GB-LRU
+      # GHA cache, which was evicting that layer between builds and forcing a
+      # ~11min grpc rebuild. Everything else keeps the GHA cache unchanged.
       - name: Select buildcache backend
         id: cache
         if: >-
