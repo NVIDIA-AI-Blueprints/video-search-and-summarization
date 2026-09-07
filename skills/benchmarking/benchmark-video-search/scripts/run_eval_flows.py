@@ -1066,8 +1066,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--llm-url",
         default=os.environ.get("VSS_LLM_URL"),
-        help="LLM origin for live query decomposition, e.g. http://HOST:30081 "
-        "(env: VSS_LLM_URL). Without it every query uses --search-path.",
+        help="LLM origin for live query decomposition (env: VSS_LLM_URL). "
+        "Derived from --endpoint and --llm-port when unset.",
+    )
+    p.add_argument(
+        "--llm-port",
+        type=int,
+        default=30081,
+        help="NIM port on the --endpoint host, used to derive --llm-url (default: 30081).",
+    )
+    p.add_argument(
+        "--no-decompose",
+        action="store_true",
+        help=(
+            "Do not decompose. Every query then takes --search-path, which "
+            "measures one retrieval path rather than the routing the product "
+            "performs -- correct for a baseline, wrong for an eval."
+        ),
     )
     p.add_argument("--llm-model", help="Decomposition model id (default: ask the endpoint).")
     p.add_argument(
@@ -1086,17 +1101,33 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    # Decomposition is the default, not an opt-in. The deployed agent decomposes
+    # every query and that choice picks the retrieval path, so an eval that
+    # skips it measures a flow the product never runs -- and nothing in the
+    # metrics reveals it. Opting out has to be deliberate.
+    if not args.llm_url and not args.no_decompose and not args.decompositions:
+        args.llm_url = flows.llm_url_for(args.endpoint, args.llm_port)
+
     decomposer = None
-    if args.llm_url and not args.dry_run:
+    if args.no_decompose:
+        if not args.dry_run:
+            print(f"decomposition: OFF (--no-decompose) -- every query uses --search-path {args.search_path}")
+    elif args.decompositions:
+        if not args.dry_run:
+            print(f"decomposition: from {args.decompositions} -- not live")
+    elif args.llm_url and not args.dry_run:
         try:
             decomposer = flows.LiveDecomposer(
                 args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model
             )
         except flows.DecompositionError as e:
-            raise SystemExit(f"ERROR: {e}") from e
+            raise SystemExit(
+                f"ERROR: {e}\n"
+                f"Live decomposition is the default. Point --llm-url at a reachable NIM, "
+                f"set --llm-port if it is not {args.llm_port}, or pass --no-decompose to "
+                f"run every query on --search-path {args.search_path} instead."
+            ) from e
         print(f"decomposition: live via {args.llm_url}  model={decomposer.model}")
-    elif not args.dry_run:
-        print(f"decomposition: none -- every query uses --search-path {args.search_path}")
 
     ingest_backend = build_ingest_backend(args)
     query_backend = build_query_backend(args)
@@ -1105,7 +1136,9 @@ def main() -> None:
         print("Ingest backend:")
         print(json.dumps(ingest_backend.describe(), indent=2))
         print("\nQuery backend:")
-        print(json.dumps(describe_query_flow(query_backend, decomposer, args.llm_url), indent=2))
+        print(json.dumps(describe_query_flow(
+            query_backend, decomposer, None if args.no_decompose else args.llm_url
+        ), indent=2))
         if isinstance(query_backend, flows.CliQueryBackend):
             import shlex
 
