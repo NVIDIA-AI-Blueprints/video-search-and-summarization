@@ -414,6 +414,44 @@ jobs:
           steps.platform-preflight.outputs.skip != 'true'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
 
+      # Images flagged `registry_buildcache: true` in the inventory (the VIOS
+      # set, whose grpc/toolchain layer is expensive) use a persistent, private
+      # GHCR buildcache package instead of the 10GB-LRU GHA cache, which was
+      # evicting that layer between builds and forcing a ~11min grpc rebuild.
+      # Everything else keeps the GHA cache unchanged.
+      - name: Select buildcache backend
+        id: cache
+        if: >-
+          steps.candidate-preflight.outputs.skip != 'true' &&
+          steps.reuse.outputs.reuse != 'true' &&
+          steps.platform-preflight.outputs.skip != 'true'
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+          IMAGE_REF: ${{ steps.meta.outputs.image }}
+        run: |
+          set -euo pipefail
+          # registry_buildcache is the shared cache package NAME (e.g. the three
+          # VIOS C++ images all set "vss-vios-buildcache"): their base+grpc layers
+          # are identical, so one per-arch cache stores them once and every image
+          # imports them. The per-MODULE compile layer differs and is not shared.
+          cache_name=$(python3 -c "import json,os; inv=json.load(open('deploy/docker/container-inventory.json')); imgs=inv['images'] if isinstance(inv,dict) else inv; e=next((x for x in imgs if x.get('name')==os.environ['IMAGE_NAME']),{}); v=e.get('registry_buildcache'); print(v if isinstance(v,str) else '')")
+          if [ -n "$cache_name" ]; then
+            ref="${IMAGE_REF%/*}/${cache_name}:${IMAGE_ARCH}"
+            # cache-from import failure is already non-fatal (buildkit warns and
+            # builds from scratch). ignore-error=true makes a cache-to *export*
+            # failure (registry hiccup) non-fatal too, so the image build never
+            # fails on a cache problem.
+            echo "from=type=registry,ref=${ref}" >> "$GITHUB_OUTPUT"
+            echo "to=type=registry,mode=max,ignore-error=true,image-manifest=true,oci-mediatypes=true,ref=${ref}" >> "$GITHUB_OUTPUT"
+            echo "buildcache backend: registry (${ref})"
+          else
+            scope="${IMAGE_NAME}-${IMAGE_ARCH}"
+            echo "from=type=gha,scope=${scope}" >> "$GITHUB_OUTPUT"
+            echo "to=type=gha,mode=max,scope=${scope}" >> "$GITHUB_OUTPUT"
+            echo "buildcache backend: gha (${scope})"
+          fi
+
       - name: Build and push native platform staging image
         if: >-
           steps.candidate-preflight.outputs.skip != 'true' &&
@@ -426,8 +464,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: ${{ matrix.build_args }}
           push: true
-          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.arch }}
+          cache-from: ${{ steps.cache.outputs.from }}
+          cache-to: ${{ steps.cache.outputs.to }}
           tags: ${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}
           labels: |
             com.nvidia.vss.image_name=${{ matrix.name }}
