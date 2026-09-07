@@ -270,12 +270,13 @@ if CONFIG_FILE and Path(CONFIG_FILE).exists():
     _defaults = s.get(f"{BASE_URL}/config/defaults").json().get("config_params")
     if not isinstance(_cfg, dict) or not isinstance(_defaults, dict):
         raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs")
-    _unsupported = sorted(set(_cfg) - set(_defaults) - {"detector", "detector_type"})
-    if _unsupported:
+    if "skip" in _cfg:
         raise RuntimeError(
-            f"Unsupported AMC config key(s): {_unsupported}. Compare the file with "
-            f"GET {BASE_URL}/config/defaults and {BASE_URL.rsplit('/v1', 1)[0]}/openapi.json"
+            "Unsupported legacy config key 'skip'; use the current AMC schema "
+            "and its 'skip_frame' field instead."
         )
+    # Defaults are reference values, not an exhaustive key allow-list. Preserve
+    # UI-exported sections and let the running API validate its full schema.
     r = s.post(f"{BASE_URL}/config/{project_id}", json=_cfg)
     r.raise_for_status()
     print(f"[6] Applied calibration config from {Path(CONFIG_FILE).name}")

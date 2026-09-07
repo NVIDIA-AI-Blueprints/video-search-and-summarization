@@ -182,13 +182,13 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 
 ## Settings File + Detector Pattern
 
-Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.json` (or `<MS_URL>/docs`) from the running AMC version. Parse the file; reject unsupported keys instead of silently translating them. In particular, do not submit legacy `skip` as a substitute for `skip_frame`. Then POST the validated JSON:
+Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.json` (or `<MS_URL>/docs`) from the running AMC version. Parse the file, reject known-invalid legacy `skip` rather than silently translating it to `skip_frame`, then submit the JSON unchanged in meaning. Do not treat `/config/defaults` as a complete allow-list: the running API is the authoritative schema validator.
 
 ```
 POST /v1/config/<project_id>
 Content-Type: application/json
 
-<file contents, posted as-is>
+<parsed JSON object; submit as application/json>
 ```
 
 The file replaces what the user would otherwise tune in UI Step 3 (parameters, bundle-adjustment, and evaluation knobs). Rectification is UI Step 4 and follows Step A. After a successful POST, **also** parse the file for `"detector"` / `"detector_type"` — if it's `"resnet"` or `"transformer"`, use that value for the `/calibrate` call in Step D (detector is a separate API parameter, not consumed by `/config`).
