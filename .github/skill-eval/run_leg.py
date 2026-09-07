@@ -1516,7 +1516,12 @@ def run_invocations(
             print("FATAL: no operational Harbor invocation to provision", file=sys.stderr)
             return 1
         source_task = invocations[0].harbor_root / invocations[0].include_task_name / "task.toml"
-        bootstrap_root = scratch / f"nemoclaw-bootstrap-{leg_slug}"
+        # Harbor uses ``__`` as the delimiter in its internal eval key.  A
+        # dataset path containing the leg slug (which itself uses ``__``)
+        # makes Harbor 0.20 crash in its post-run summary printer after an
+        # otherwise successful trial.  The scratch directory is already
+        # unique per leg/run, so a fixed child name is both isolated and safe.
+        bootstrap_root = scratch / "nemoclaw-bootstrap"
         shutil.rmtree(bootstrap_root, ignore_errors=True)
         try:
             create_bootstrap_task(

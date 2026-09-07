@@ -830,6 +830,10 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(command.call_args_list[0].args[4], "claude-code")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(
+            command.call_args_list[0].args[0].harbor_root,
+            root / "scratch" / "nemoclaw-bootstrap",
+        )
         self.assertEqual(run.call_count, 2)
         bootstrap_env = run.call_args_list[0].args[1]
         scenario_env = run.call_args_list[1].args[1]
