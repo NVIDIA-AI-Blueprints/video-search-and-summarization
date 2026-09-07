@@ -59,8 +59,6 @@ jest.mock('@nvidia/foundations-react-core', () => {
   };
 });
 
-jest.mock('@nemo-agent-toolkit/ui');
-
 // ---------- Component imports ----------
 import { AlertsViewFilterControls } from '../../lib-src/components/AlertsSidebarControls';
 import { VLM_VERDICT } from '../../lib-src/types';

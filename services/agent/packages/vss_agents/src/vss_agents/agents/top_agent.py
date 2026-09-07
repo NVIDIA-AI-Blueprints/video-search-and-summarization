@@ -93,6 +93,8 @@ NO_INPUT_ERROR_MESSAGE = "No human input received to the agent, Please ask a val
 EMPTY_MESSAGES_ERROR = 'No input received in state: "current_message"'
 EMPTY_SCRATCHPAD_ERROR = 'No tool input received in state: "agent_scratchpad"'
 _TOOL_RESULTS_DELIMITER = "\n\n---\n### Latest Tool Results\n"
+_TOOL_FAILURE_PREFIX = "Tool call failed:"
+_TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
 
@@ -153,6 +155,22 @@ def _get_content_text(msg: BaseMessage) -> str:
         elif isinstance(item, str):
             texts.append(item)
     return " ".join(texts)
+
+
+def _tool_response_failed(response: Any) -> bool:
+    """Return whether a tool response explicitly reports failure."""
+    if isinstance(response, dict):
+        success = response.get("success")
+        status = response.get("status")
+    else:
+        success = getattr(response, "success", None)
+        status = getattr(response, "status", None)
+
+    if success is False:
+        return True
+
+    status_value = getattr(status, "value", status)
+    return isinstance(status_value, str) and status_value.lower() in _TOOL_FAILURE_STATUSES
 
 
 def strip_frontend_tags(content: str) -> str:
@@ -456,22 +474,28 @@ class TopAgent(AsyncMixin):
         # tool_results_lines → exact results appended programmatically
         scratchpad_lines: list[str] = []
         tool_results_lines: list[str] = []
+        has_tool_failure = False
         pending_calls: dict[str, dict[str, Any]] = {}  # tool_call_id -> {name, args}
         for msg in state.agent_scratchpad:
             if isinstance(msg, AIMessage) and msg.tool_calls:
                 for tc in msg.tool_calls:
                     tc_id = tc["id"] or ""
                     pending_calls[tc_id] = {"name": tc["name"], "args": tc["args"]}
-                    scratchpad_lines.append(f"Called tool `{tc['name']}` with args: {tc['args']}")
             elif isinstance(msg, ToolMessage):
                 call_info = pending_calls.pop(msg.tool_call_id, None)
                 tool_name = (call_info["name"] if call_info else None) or getattr(msg, "name", None) or "tool"
                 result_text = _get_content_text(msg)
+                tool_failed = _tool_response_failed(msg) or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
+                has_tool_failure = has_tool_failure or tool_failed
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
-                # Truncated for the LLM prompt
-                truncated = result_text[:500] + "…" if len(result_text) > 500 else result_text
-                scratchpad_lines.append(f"Result from `{tool_name}`: {truncated}")
+                if not tool_failed:
+                    if call_info:
+                        scratchpad_lines.append(f"Called tool `{tool_name}` with args: {call_info['args']}")
+                    # Failed results are deliberately excluded from the plan-tracking
+                    # prompt so they cannot be mistaken for successful evidence.
+                    truncated = result_text[:500] + "…" if len(result_text) > 500 else result_text
+                    scratchpad_lines.append(f"Result from `{tool_name}`: {truncated}")
             else:
                 text = _get_content_text(msg)
                 if text.strip():
@@ -516,11 +540,20 @@ class TopAgent(AsyncMixin):
         llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
         llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
 
-        result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
+        if has_tool_failure:
+            # A plan-updating LLM can mistake an exception message for evidence
+            # that the requested work completed. Keep the existing plan pending
+            # whenever any call in a batch fails, including mixed batches, and
+            # expose every exact result to the next turn. Successful results are
+            # therefore preserved without letting failed work be completed or
+            # discarded by an LLM rewrite.
+            updated_plan = clean_plan
+            logger.warning("Tool failure detected; preserving the current plan without marking steps complete")
+        else:
+            result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
 
-        _, updated_plan = parse_reasoning_content(result)
-        if not updated_plan:
-            updated_plan = str(result.content) if hasattr(result, "content") else clean_plan
+            _, parsed_plan = parse_reasoning_content(result)
+            updated_plan = parsed_plan or (str(result.content) if hasattr(result, "content") else clean_plan)
 
         # Programmatically append exact tool results so the agent has them,
         # combining previous results with new ones from this cycle.
@@ -1210,6 +1243,7 @@ class TopAgent(AsyncMixin):
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
                         content=tool_content,
+                        status="error" if _tool_response_failed(tool_response) else "success",
                     )
 
                 except Exception as ex:
@@ -1219,6 +1253,7 @@ class TopAgent(AsyncMixin):
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
                         content=error_response,
+                        status="error",
                     )
 
             # Execute all tool calls

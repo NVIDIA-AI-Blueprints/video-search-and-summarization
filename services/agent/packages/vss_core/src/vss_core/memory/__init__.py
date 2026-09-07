@@ -18,6 +18,13 @@ from typing import Any
 
 __all__ = [
     "SCHEMA_ID",
+    "ElasticsearchEmbeddingStore",
+    "EmbeddingBackfillFailure",
+    "EmbeddingBackfillResult",
+    "EmbeddingBackfillService",
+    "EmbeddingProvider",
+    "EmbeddingProviderError",
+    "EmbeddingSyncResult",
     "InMemoryStore",
     "JobFilters",
     "JobInfo",
@@ -32,12 +39,18 @@ __all__ = [
     "MemoryService",
     "MemoryStore",
     "NestedCollectionError",
+    "OpenAICompatibleEmbeddingProvider",
     "OpenClawDailyNoteStore",
     "PersistResult",
     "RecordBundle",
+    "SemanticMemorySynchronizer",
     "UnifiedMemoryRecord",
     "build_memory_service",
+    "canonical_searchable_text",
+    "content_hash",
+    "embedding_endpoint_identity",
     "get_adapter",
+    "is_embedding_eligible",
     "register_adapter",
     "render_memory_note",
 ]
@@ -48,6 +61,18 @@ _LAZY_EXPORTS = {
     "MemoryInput": ".models",
     "MemoryOutput": ".models",
     "JobInfo": ".models",
+    "EmbeddingProvider": ".embeddings",
+    "EmbeddingProviderError": ".embeddings",
+    "EmbeddingSyncResult": ".backends.elasticsearch_embeddings",
+    "ElasticsearchEmbeddingStore": ".backends.elasticsearch_embeddings",
+    "EmbeddingBackfillFailure": ".backfill",
+    "EmbeddingBackfillResult": ".backfill",
+    "EmbeddingBackfillService": ".backfill",
+    "OpenAICompatibleEmbeddingProvider": ".embeddings",
+    "canonical_searchable_text": ".embeddings",
+    "content_hash": ".embeddings",
+    "embedding_endpoint_identity": ".embeddings",
+    "is_embedding_eligible": ".embeddings",
     "MemoryStore": ".store",
     "MemoryQuery": ".store",
     "JobFilters": ".store",
@@ -57,6 +82,7 @@ _LAZY_EXPORTS = {
     "MemoryNotFoundError": ".service",
     "NestedCollectionError": ".service",
     "PersistResult": ".service",
+    "SemanticMemorySynchronizer": ".service",
     "build_memory_service": ".service",
     "RecordBundle": ".adapters",
     "LifecycleAdapter": ".adapters",
@@ -74,7 +100,19 @@ if TYPE_CHECKING:
     from .adapters import RecordBundle
     from .adapters import get_adapter
     from .adapters import register_adapter
+    from .backends.elasticsearch_embeddings import ElasticsearchEmbeddingStore
+    from .backends.elasticsearch_embeddings import EmbeddingSyncResult
     from .backends.in_memory import InMemoryStore
+    from .backfill import EmbeddingBackfillFailure
+    from .backfill import EmbeddingBackfillResult
+    from .backfill import EmbeddingBackfillService
+    from .embeddings import EmbeddingProvider
+    from .embeddings import EmbeddingProviderError
+    from .embeddings import OpenAICompatibleEmbeddingProvider
+    from .embeddings import canonical_searchable_text
+    from .embeddings import content_hash
+    from .embeddings import embedding_endpoint_identity
+    from .embeddings import is_embedding_eligible
     from .models import SCHEMA_ID
     from .models import JobInfo
     from .models import MemoryInput
@@ -87,6 +125,7 @@ if TYPE_CHECKING:
     from .service import MemoryService
     from .service import NestedCollectionError
     from .service import PersistResult
+    from .service import SemanticMemorySynchronizer
     from .service import build_memory_service
     from .store import JobFilters
     from .store import MemoryDecodeError

@@ -30,9 +30,7 @@ RUN npx turbo run build bundle
 
 # Set permissions for __ENV.js files to be writable at runtime
 RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
-    chmod -R 755 apps/nemo-agent-toolkit-ui/public && \
-    chown -R ${USER_ID}:${GROUP_ID} apps/nv-metropolis-bp-vss-ui/public && \
-    chown -R ${USER_ID}:${GROUP_ID} apps/nemo-agent-toolkit-ui/public
+    chown -R ${USER_ID}:${GROUP_ID} apps/nv-metropolis-bp-vss-ui/public
 
 
 # Next.js traces Sharp into the standalone runtime. Resolve only that small
@@ -87,11 +85,6 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/.next/static ./apps/nv-metropolis-bp-vss-ui/apps/nv-metropolis-bp-vss-ui/.next/static
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=755 /repo/services/ui/apps/nv-metropolis-bp-vss-ui/public ./apps/nv-metropolis-bp-vss-ui/apps/nv-metropolis-bp-vss-ui/public
 COPY --from=target-native-deps --chmod=555 /target-native-deps/node_modules/@img ./apps/nv-metropolis-bp-vss-ui/node_modules/@img
-
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nemo-agent-toolkit-ui/.next/standalone ./apps/nemo-agent-toolkit-ui/
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/apps/nemo-agent-toolkit-ui/.next/static ./apps/nemo-agent-toolkit-ui/apps/nemo-agent-toolkit-ui/.next/static
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=755 /repo/services/ui/apps/nemo-agent-toolkit-ui/public ./apps/nemo-agent-toolkit-ui/apps/nemo-agent-toolkit-ui/public
-COPY --from=target-native-deps --chmod=555 /target-native-deps/node_modules/@img ./apps/nemo-agent-toolkit-ui/node_modules/@img
 
 # Copy required configuration files with their dependencies for next-runtime-env in custom-server.js (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/node_modules/next-runtime-env ./node_modules/next-runtime-env

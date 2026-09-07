@@ -57,6 +57,8 @@ jobs:
       sdr-mw-l-changed: ${{ steps.managed-image-changes.outputs.sdr-mw-l }}
       vss-configurator-changed: ${{ steps.managed-image-changes.outputs.vss-configurator }}
       vss-rt-config-adaptor-changed: ${{ steps.managed-image-changes.outputs.vss-rt-config-adaptor }}
+      vss-rt-embed-changed: ${{ steps.managed-image-changes.outputs.vss-rt-embed }}
+      vss-rt-vlm-changed: ${{ steps.managed-image-changes.outputs.vss-rt-vlm }}
       unit-test-workflow-changed: ${{ steps.changed-paths.outputs.unit-test-workflow-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
     steps:
@@ -662,6 +664,9 @@ jobs:
     runs-on: ubuntu-latest
     if: needs.prepare-source.outputs.build-video-analytics-api == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
     timeout-minutes: 30
+    env:
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND: "false"
     defaults:
       run:
         working-directory: services/analytics/video-analytics-api
@@ -864,6 +869,85 @@ jobs:
             services/configurators/vss-rt-config-adaptor/coverage.xml
 
   # ---------------------------------------------------------------------------
+  # Job 5g: RTVI vLLM-compatible model unit tests
+  #
+  # rt-vlm and rt-embed each carry their own copy of vllm_compatible_model.py.
+  # Its engine-args builders are env parsing that a CPU-only torch can drive,
+  # so this lane needs no GPU and no vLLM. Because vLLM is absent, rt-vlm
+  # selects the CI-safe subset of its mixed test module by the test_in_ci
+  # marker; rt-embed's file is CI-safe throughout and is selected by path.
+  # ---------------------------------------------------------------------------
+  rtvi-vllm-compatible-test:
+    name: Test (rtvi vllm-compatible)
+    needs: prepare-source
+    if: >-
+      needs.prepare-source.outputs.vss-rt-vlm-changed == 'true'
+      || needs.prepare-source.outputs.vss-rt-embed-changed == 'true'
+      || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          rm -rf .source-artifact
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.24"
+
+      # 3.12 is the interpreter the rt-vlm image ships, so the parsing helpers
+      # are exercised on the same version that runs in production.
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      # The model module imports torch and torchvision at module scope. The
+      # CPU wheel index keeps this near 850 MiB instead of installing the
+      # CUDA runtime, which this lane would never use.
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.12 .venv-rtvi
+          uv pip install --python .venv-rtvi/bin/python \
+            --index-url https://download.pytorch.org/whl/cpu \
+            torch \
+            torchvision
+          uv pip install --python .venv-rtvi/bin/python \
+            filelock \
+            numpy \
+            pillow \
+            pydantic \
+            pytest
+
+      # --noconftest: tests/conftest.py imports prometheus_client,
+      # sse_starlette, requests and sseclient for autouse fixtures that none
+      # of the selected tests need.
+      - name: Run rt-vlm unit tests
+        working-directory: services/rtvi/rt-vlm
+        run: |
+          PYTHONPATH=src "$GITHUB_WORKSPACE/.venv-rtvi/bin/pytest" \
+            -c tests/pytest.ini \
+            --noconftest \
+            -m test_in_ci \
+            tests/model/vllm_compatible/test_input_error_handling.py \
+            -v
+
+      - name: Run rt-embed unit tests
+        working-directory: services/rtvi/rt-embed
+        run: |
+          PYTHONPATH=src "$GITHUB_WORKSPACE/.venv-rtvi/bin/pytest" \
+            tests/model/vllm_compatible/test_mm_processor_cache_engine_args.py \
+            -v
+
+  # ---------------------------------------------------------------------------
   # Job 5f: Behavior analytics Docker Compose integration test
   # ---------------------------------------------------------------------------
   behavior-analytics-integration-test:
@@ -927,6 +1011,8 @@ jobs:
     env:
       COMPOSE_TIMEOUT: "300"
       BUILD_TIMEOUT: "600"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_FUND: "false"
       BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-video-analytics-api }}
       CURRENT_VIDEO_ANALYTICS_API_IMAGE: ${{ needs.prepare-source.outputs.current-video-analytics-api-image }}
     defaults:
@@ -1044,29 +1130,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # UI: only three workspaces define `lint` (all run `eslint` without ESLint 9 flat config in-tree).
-      # Exclude them so CI does not run eslint here; no changes under services/ui required.
+      # The remaining app workspace defines `lint` but runs ESLint without an
+      # ESLint 9 flat config in-tree. Exclude it until that source is fixed.
       # TODO: remove this once the dev source is fixed for linting.
       - name: Lint
-        run: npm run lint -- --filter='!@nemo-agent-toolkit/ui' --filter='!nemo-agent-toolkit-ui' --filter='!nv-metropolis-bp-vss-ui'
+        run: npm run lint -- --filter='!nv-metropolis-bp-vss-ui'
 
-      # Skip nv-metropolis-bp-vss-ui workspaces: `tsc` cannot resolve sibling `@nv-metropolis-bp-vss-ui/*`
-      # without the full local build graph. Skip nemo app + `@nemo-agent-toolkit/ui` lib: workspace path/types
-      # for `common` and other packages do not satisfy `tsc` in CI; lib also has TS errors.
-      # Remaining typecheck: `common` only.
+      # The UI workspaces need the full local build graph before `tsc` can
+      # resolve sibling packages. Keep this check scoped to `common`.
       # TODO: remove these filters once the dev source is fixed for typechecking.
       - name: Typecheck
-        run: |
-          npm run typecheck -- \
-            --filter='!nv-metropolis-bp-vss-ui' \
-            --filter='!nemo-agent-toolkit-ui' \
-            --filter='!@nemo-agent-toolkit/ui' \
-            --filter='!@nv-metropolis-bp-vss-ui/alerts' \
-            --filter='!@nv-metropolis-bp-vss-ui/all' \
-            --filter='!@nv-metropolis-bp-vss-ui/dashboard' \
-            --filter='!@nv-metropolis-bp-vss-ui/map' \
-            --filter='!@nv-metropolis-bp-vss-ui/search' \
-            --filter='!@nv-metropolis-bp-vss-ui/video-management'
+        run: npm run typecheck -- --filter='common'
 
   # ---------------------------------------------------------------------------
   # Job 6: Frontend build

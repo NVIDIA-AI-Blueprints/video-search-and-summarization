@@ -40,14 +40,32 @@
     rewrite  none  -> forwarded with the prefix intact
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
+    anchored prepend ^ to the HAProxy rewrite source when true
 
-  Ordering is the rendered order: /api/chat before /api, and the UI catch-all
-  last. The HAProxy controller matches longest-prefix regardless, but keeping
-  the file readable in match order is worth more than the two lines it costs.
+  Ordering is the rendered order: the UI's /api/* routes before the agent's
+  /api catch-all, and the UI / catch-all last. The HAProxy controller matches
+  longest-prefix regardless, but keeping the file readable in match order is
+  worth more than the few lines it costs.
 */}}
 {{- define "vss.ingress.routeTable" -}}
 - key: ui
   path: /api/chat
+  pathType: Prefix
+  rewrite: none
+# /api/agent is served by the UI's embedded backend-agnostic agent adapter (see
+# deploy/docker/services/ui/compose.yml and haproxy.cfg.template p_api_agent
+# rule). Must precede /api so the longest-prefix match falls to the UI rather
+# than being forwarded to the agent backend.
+- key: ui
+  path: /api/agent
+  pathType: Prefix
+  rewrite: none
+- key: ui
+  path: /api/vss-chat
+  pathType: Prefix
+  rewrite: none
+- key: ui
+  path: /api/proxy
   pathType: Prefix
   rewrite: none
 - key: agent
@@ -93,6 +111,7 @@
   path: /storage
   pathType: Prefix
   rewrite: /vst/storage
+  anchored: true
 - key: va-mcp
   path: /va-mcp
   pathType: Prefix
@@ -211,8 +230,9 @@ true
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $row.path }} {{ $to | default "/" }}
+{{- $anchor := ternary "^" "" ($row.anchored | default false) }}
+{{ $anchor }}{{ $row.path }}/(.*) {{ $to }}/\1
+{{ $anchor }}{{ $row.path }} {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}

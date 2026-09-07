@@ -3,21 +3,25 @@ title: "Camera Placement"
 description: ""
 position: 2
 ---
-Camera placement is a critical step in scene setup, ensuring comprehensive coverage and visibility across the entire environment. This section covers both [manual](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/scene-customization/camera-placement) and [automatic](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/scene-customization/camera-placement) methods.
+Camera placement is a critical step in scene setup, ensuring comprehensive coverage and visibility across the entire environment. This section covers both [manual](#manual-camera-placement) and [automatic](#auto-camera-placement) methods.
 
-- Manual Camera Placement:
+## Manual Camera Placement
 
-  - Load the scene by [Scene Loading](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/synthetic-data-generation/camera-calibration#scene-loading).
+- Load the scene by following [Scene Loading](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/synthetic-data-generation/camera-calibration#scene-loading).
 
-  - Create Xform prim by **Stage** > **World** > **Right Click** > **Create** > **Xform** and then rename it to **Cameras**.
+- Create an Xform prim by going to **Stage** > **World** > **Right Click** > **Create** > **Xform**, and then rename it to **Cameras**.
 
-    ![Camera Folder](/assets/images/simulation/Camera_Folder.png)
+  ![Camera Folder](/assets/images/simulation/Camera_Folder.png)
 
-    ![Create Camera](/assets/images/simulation/Create_Camera.png)
+- Create a new camera under **Cameras** by going to **Right Click** > **Create** > **Camera**.
 
-    ![Adjust Camera](/assets/images/simulation/Adjust_Camera.png)
+  ![Create Camera](/assets/images/simulation/Create_Camera.png)
 
-- Auto Camera Placement:
+- Adjust the camera height, look-down angle, and camera-to-target distance according to your requirements, if applicable.
+
+  ![Adjust Camera](/assets/images/simulation/Adjust_Camera.png)
+
+## Auto Camera Placement
 
   - Tool Activation:
 

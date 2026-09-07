@@ -17,8 +17,8 @@
   },
   "dependencies": {
     "common": "*",
-    "@nemo-agent-toolkit/ui": "0.1.1",
     "@nv-metropolis-bp-vss-ui/all": "*",
+    "@nv-metropolis-bp-vss-ui/chat": "*",
     "@tabler/icons-react": "^3.46.0",
     "@tanstack/react-query": "^5.102.8",
     "jsdom": "27.4.0",

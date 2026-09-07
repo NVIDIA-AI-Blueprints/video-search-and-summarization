@@ -36,6 +36,7 @@ class _WorkflowState:
     unresolved: list[str] = field(default_factory=list)
     pending: list[GroundedGap] = field(default_factory=list)
     sufficient_from_memory: bool = False
+    sufficiency: SufficiencyDecision | None = None
     failure_kind: Literal["backend_unreachable"] | None = None
 
 
@@ -72,6 +73,7 @@ async def introspect(
             sufficient_from_memory=state.sufficient_from_memory,
             answer=None,
             memory_records=state.memory_records,
+            sufficiency=state.sufficiency,
             vlm_evidence=state.vlm_evidence,
             unresolved=state.unresolved,
             failure_kind="timeout",
@@ -137,6 +139,7 @@ async def _run_workflow(
         )
 
     state.sufficient_from_memory = decision.sufficient
+    state.sufficiency = decision
     state.memory_records = _validated_memory_evidence(decision, state.records, state.unresolved)
     if decision.sufficient:
         answer = await _synthesize_best_effort(request, synthesizer, state)
@@ -145,6 +148,7 @@ async def _run_workflow(
             sufficient_from_memory=True,
             answer=answer,
             memory_records=state.memory_records,
+            sufficiency=state.sufficiency,
             unresolved=state.unresolved,
             failure_kind=state.failure_kind,
         )
@@ -182,6 +186,7 @@ async def _run_workflow(
         sufficient_from_memory=False,
         answer=answer,
         memory_records=state.memory_records,
+        sufficiency=state.sufficiency,
         vlm_evidence=state.vlm_evidence,
         unresolved=state.unresolved,
         failure_kind=state.failure_kind,
@@ -354,6 +359,7 @@ def _result(
     sufficient_from_memory: bool,
     answer: str | None,
     memory_records: list[UnifiedMemoryRecord] | None = None,
+    sufficiency: SufficiencyDecision | None = None,
     vlm_evidence: list[VLMEvidence] | None = None,
     unresolved: list[str] | None = None,
     failure_kind: Literal["backend_unreachable", "timeout"] | None = None,
@@ -365,6 +371,7 @@ def _result(
         memory_evidence=[
             MemoryEvidence(record_id=_record_id(record), job_id=record.job.job_id) for record in (memory_records or [])
         ],
+        sufficiency=sufficiency,
         vlm_evidence=vlm_evidence or [],
         unresolved_gaps=unresolved or [],
         failure_kind=failure_kind,

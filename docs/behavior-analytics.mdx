@@ -130,7 +130,7 @@ The configuration file supports multiple message broker types. You can configure
   ],
   "app": [
     {"name": "behaviorWatermarkSec", "value": "30"},
-    {"name": "behaviorStateTimeout", "value": "10"},
+    {"name": "behaviorStateValidInterval", "value": "6"},
     {"name": "behaviorMaxPoints", "value": "200"},
     {"name": "objectConfidenceThreshold", "value": "0.5"},
     {"name": "sourceType", "value": "kafka"},
@@ -139,17 +139,17 @@ The configuration file supports multiple message broker types. You can configure
     {"name": "numWorkersForFrameEnhancement", "value": "2"},
     {"name": "proximityViolationIncidentEnable", "value": "true"},
     {"name": "proximityViolationIncidentThreshold", "value": "1"},
-    {"name": "proximityViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "proximityViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
     {"name": "restrictedAreaViolationIncidentThreshold", "value": "1"},
-    {"name": "restrictedAreaViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "restrictedAreaViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
     {"name": "confinedAreaViolationIncidentThreshold", "value": "1"},
-    {"name": "confinedAreaViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "confinedAreaViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "fovCountViolationIncidentEnable", "value": "true"},
     {"name": "fovCountViolationIncidentObjectThreshold", "value": "3"},
     {"name": "fovCountViolationIncidentThreshold", "value": "1"},
-    {"name": "fovCountViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "fovCountViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "fovCountViolationIncidentObjectType", "value": "Person"}
   ]
 }
@@ -223,20 +223,24 @@ The configuration file supports multiple message broker types. You can configure
 | incidents | `mdx-incidents` | Incident data from the analytics pipeline when violations persist beyond configured thresholds. |
 | behaviorPlus | `mdx-behavior-plus` | Enhanced behavior data (Smart Cities Application). |
 | anomaly | `mdx-alerts` | Anomaly detection alerts (Smart Cities Application). |
-| embed | `mdx-embed` | Raw video-embedding (`VisionLLM`) input stream consumed by the fusion-search application via `BaseApp.read_embed()`. |
-| embedFiltered | `mdx-embed-filtered` | Filtered / downsampled video embeddings produced by the fusion-search application via `BaseApp.write_embed_filtered()`. See [Video Embedding Downsampling](/vss/system-components/analytics-microservices/behavior-analytics#video-embedding-downsampling). |
+| embed | `mdx-embed` | Raw video-embedding (`VisionLLM`) input stream consumed by the search-and-alerts application via `BaseApp.read_embed()`. |
+| embedFiltered | `mdx-embed-filtered` | Filtered / downsampled video embeddings produced by the search-and-alerts application via `BaseApp.write_embed_filtered()`. See [Video Embedding Downsampling](/vss/system-components/analytics-microservices/behavior-analytics#video-embedding-downsampling). |
 
 * **App Pipeline Config**
 
-    - `numWorkersForBehaviorCreation`: Number of workers to run behavior creation. If set to 0, behavior creation will not run. **Required (no default)**
-    - `numWorkersForFrameEnhancement`: Number of workers to run frame enhancement. If set to 0, frame enhancement will not run. **Required (no default)**
-    - `numWorkersForBehaviorClustering`: Number of workers to run trajectory-clustering enrichment for behaviors (Smart Cities Application). **Required (no default; only consumed by the smart-city app)**
-    - `numWorkersForIncidentGeneration`: Number of workers to run incident generation (`DevExampleApp`). **Default: 1**
-    - `in3dMode`: If true, the pipeline runs in 3D mode. **Default: false**
-    - `compactFrame`: If true, the pipeline compacts the frame metadata. **Default: false**
+    - `numWorkersForBehaviorCreation`: Number of workers to run behavior creation. If set to 0, behavior creation will not run. Read with **no default** by the analytics 2D/3D, public-safety and smart-city apps — a config that omits the key crashes those apps at startup. The composite and search/alerts apps default it to **0**.
+    - `numWorkersForFrameEnhancement`: Number of workers to run frame enhancement. If set to 0, frame enhancement will not run. **No default** for the analytics 2D/3D, public-safety and robot-speed-control apps; **0** for the composite app.
+    - `numWorkersForSpaceEstimation`: Number of workers to run the periodic space-utilization estimator. **No default** for the analytics 3D app; **0** for the composite app. Requires cartesian 3D input (it reads `object.bbox3d`).
+    - `numWorkersForEmbedFiltering`: Number of workers to run video-embedding downsampling (search/alerts and composite apps). **Default: 0**
+    - `numWorkersForBehaviorClustering`: Number of workers to run trajectory-clustering enrichment for behaviors (Smart Cities Application). **No default** for the smart-city app; **0** for the composite app. The smart-city app registers the processor only when `inference.enable` is `true`.
+    - `numWorkersForIncidentGeneration`: Number of workers to run incident generation (`SearchAndAlertsApp`). **Default: 0**
+    - `in3dMode`: If true, the pipeline runs in 3D mode. Supports env-var indirection: a value starting with `$` is resolved from the environment. **Default: false**
+    - `compactFrame`: If true, the pipeline compacts the frame metadata. Recommended for 3D / multi-sensor frames. **Default: false**
     - `objectConfidenceThreshold`: Minimum confidence score for object detection. Objects below this threshold are filtered out. **Default: 0.5**
     - `clusterThreshold`: Cosine similarity threshold for per-object embedding clustering (Chinese Restaurant Process) during state management. **Default: 0.9**
     - `imageLocationMode`: (Image calibration only.) Bbox reference point: `bottom_center` or `center`. **Default: bottom_center**
+    - `roiEventDetectionMode`: How ROI ENTRY/EXIT is decided — `coordinate` or `bbox`. See [ROI event detection mode](/vss/system-components/analytics-microservices/behavior-analytics#event-detection). Unrecognized values fall back to `coordinate`. **Default: coordinate**
+    - `advancedOverlay`: If true, the space-utilization visualization draws transparent patches that avoid overlapping existing objects. Costs roughly 0.04 s → 1.7 s per visualization. **Default: false**
 
 * **Tripwire** (Sensor-level config)
 
@@ -251,10 +255,12 @@ The configuration file supports multiple message broker types. You can configure
 
 * **State Management**
 
-    - `behaviorStateTimeout`: If an object is not detected or the frame message arrives late for a configurable period (in seconds), the object state will be deleted from memory and disk. If an object with the same `id` is sent again, a new behavior will be created. The uniqueness of the behavior is based on sensor + id + start timestamp. **Default: 10**
-    - `behaviorStateValidInterval`: Maximum gap (in seconds) between an object's previous state end and next state start before treating them as separate behaviors. **Default: 6**
+    - `behaviorStateValidInterval`: Maximum gap (in seconds) between an object's previous state end and next state start before treating them as separate behaviors. This is also the inactivity gap after which a track's state is reclaimed: if an object with the same `id` reappears after the gap, a new behavior is created. The uniqueness of the behavior is based on sensor + id + start timestamp. The gap is measured on the sensor's own event clock, never the wall clock, so a lagging or replayed pipeline is not mistaken for a quiet camera. **Default: 6**
     - `behaviorWatermarkSec`: The watermark for the behavior in seconds. **Default: 30**
     - `behaviorMaxPoints`: Maximum number of behavior points to store. **Default: 200**
+    - `behaviorEmitOnce`: If true, each behavior is written once — one `behaviorStateValidInterval` after its track goes quiet — instead of on every batch, and tracks still live at shutdown are flushed. Events, anomalies and incidents are always built from the per-batch behaviors and are unaffected. **Default: false**
+    - `behaviorStateEndToleranceSec`: Grace window (in seconds) past a state's end within which late messages are still accepted into that state. **Default: 0.1**
+    - `behaviorTimeThreshold`: ISO-8601 instant; messages at or before it are filtered out. **Default: 1970-01-01T00:00:00.000Z**
     - `stateManagementFilter`: Whitelist of object types to admit into the pipeline; other types are dropped at frame ingest, before state management. If the list is empty, no filter is applied and all types pass through. **Default: []**
 
 * **Incident Detection** (App-level config)
@@ -262,17 +268,17 @@ The configuration file supports multiple message broker types. You can configure
     - `incidentObjectTtl`: TTL (seconds) for retained object presence data used during incident confirmation. **Default: 3600**
     - `proximityViolationIncidentEnable`: Enable proximity violation incident generation. Requires `proximityDetectionEnable` at the sensor level. **Default: false**
     - `proximityViolationIncidentThreshold`: Duration (seconds) the violation must persist before an incident is confirmed. **Default: 1**
-    - `proximityViolationIncidentExpirationWindow`: Gap (seconds) tolerated before a new violation state begins. **Default: 1**
+    - `proximityViolationIncidentExpirationWindow`: Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5**
     - `restrictedAreaViolationIncidentEnable`: Enable restricted area violation incidents. **Default: false**
-    - `restrictedAreaViolationIncidentThreshold`: Duration (seconds) to confirm incident. **Default: 1**
-    - `restrictedAreaViolationIncidentExpirationWindow`: Gap (seconds) before a new violation state begins. **Default: 1**
+    - `restrictedAreaViolationIncidentThreshold`: Minimum violation duration (seconds) before an incident is reported. Accepts fractional values. **Default: 1**
+    - `restrictedAreaViolationIncidentExpirationWindow`: Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5**
     - `confinedAreaViolationIncidentEnable`: Enable confined area violation incidents. **Default: false**
-    - `confinedAreaViolationIncidentThreshold`: Duration (seconds) to confirm incident. **Default: 1**
-    - `confinedAreaViolationIncidentExpirationWindow`: Gap (seconds) before a new violation state begins. **Default: 1**
+    - `confinedAreaViolationIncidentThreshold`: Minimum violation duration (seconds) before an incident is reported. Accepts fractional values. **Default: 1**
+    - `confinedAreaViolationIncidentExpirationWindow`: Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5**
     - `fovCountViolationIncidentEnable`: Enable FOV count violation incidents. **Default: false**
-    - `fovCountViolationIncidentObjectThreshold`: Maximum number of target objects allowed in the FOV before triggering a violation. **Default: 1**
-    - `fovCountViolationIncidentThreshold`: Duration (seconds) to confirm incident. **Default: 1**
-    - `fovCountViolationIncidentExpirationWindow`: Gap (seconds) before a new violation state begins. **Default: 1**
+    - `fovCountViolationIncidentObjectThreshold`: Object count **at which** a violation fires. The comparison is `count >= threshold`, not `>`, so the default of `1` makes a single object a violation. To alert on "more than N", set it to `N + 1`. **Default: 1**
+    - `fovCountViolationIncidentThreshold`: Minimum violation duration (seconds) before an incident is reported. Accepts fractional values. **Default: 1**
+    - `fovCountViolationIncidentExpirationWindow`: Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5**
     - `fovCountViolationIncidentObjectType`: Object type to count for FOV violations. **Default: Person**
 
 * **Frame Management** (Sensor-level config)
@@ -424,7 +430,7 @@ if __name__ == '__main__':
     run(MyApp)
 ```
 
-For a complete example, refer to [apps/analytics/main_analytics_2d_app.py](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/services/analytics/behavior-analytics/apps/analytics/main_analytics_2d_app.py).
+For a complete example, refer to [apps/analytics/main_analytics_2d_app.py](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/services/analytics/behavior-analytics/apps/analytics/main_analytics_2d_app.py).
 
 **Built-in Methods**
 
@@ -717,33 +723,70 @@ The above diagram depicts a few tracks with respect to vehicle and people moveme
 
 **Usage**
 
+State management is driven **one batch at a time**, not one track at a time. `process_batch` takes the
+whole `messages_map` because deciding which tracks have fallen silent is only sound once every message
+in the batch has reached its state and every sensor clock has advanced — looping per key would end tracks
+whose own messages are still sitting later in the same batch.
+
 ```python
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtE, StateMgmtEWithTripwire
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.utils.schema_util import messages_to_map
 
 # Initialize state management with config and calibration
-state_mgmt = StateMgmtEWithTripwire(config, calibration)
+state_mgmt = StateMgmt(config, calibration)
 
 # Convert messages to map: key = sensorId + "#-#" + objectId
 messages_map = messages_to_map(updated_messages)
 
-# Process messages and get behaviors + trip events
-behaviors, events = [], []
-for message_key, msgs in messages_map.items():
-    behavior, trip = state_mgmt.update_behavior(message_key=message_key, messages=msgs)
-    if behavior:
-        behaviors.append(behavior)
-    if trip:
-        # Use trip for tripwire/ROI event detection
-        events.extend(tripwire_event.get_events(trip))
-        events.extend(roi_event.get_events(trip))
+# One call processes the entire batch
+behavior_batch = state_mgmt.process_batch(messages_map)
 
-# For behavior only (no trip events), use StateMgmtE
-state_mgmt_simple = StateMgmtE(config, calibration)
-behavior = state_mgmt_simple.update_behavior(message_key, msgs)  # Returns Behavior | None
+# Write the behaviors the emission policy selected
+app.write_behaviors(behavior_batch.behaviors_to_write)
+
+# Turn trip states into tripwire / ROI events
+events = []
+for trip in behavior_batch.trip_behaviors:
+    events.extend(tripwire_event.get_events(trip))
+    events.extend(roi_event.get_events(trip))
 ```
 
+At shutdown, call `flush_behaviors()` to release anything still held back by
+`behaviorEmitOnce`; otherwise those behaviors are never written:
+
+```python
+def close(self) -> None:
+    pending = self.state_mgmt.flush_behaviors()
+    if pending:
+        self.write_behaviors(pending)
+    super().close()
+```
+
+<Note>
+Use `StateMgmt` for image and Cartesian coordinates. For geographic coordinates use
+`StateMgmtG` from `mdx.analytics.core.stream.state.behavior.state_management_g`;
+it does not track trips, so `trip_behaviors` is always empty there and no tripwire or
+ROI events are produced.
+</Note>
+
 **Definition**
+
+`process_batch` returns a `BehaviorBatch`. The three lists hold live references, so enriching an
+entry in place — adding anomaly info, compacting — is visible to whatever is written:
+
+```python
+@dataclass
+class BehaviorBatch:
+
+  active_behaviors: list[Behavior]     # One per track this batch updated; feed these to detection
+  trip_behaviors: list[Behavior]       # One per track, previous tail + this batch's points; for tripwire/ROI events
+  behaviors_to_write: list[Behavior]   # What to write to the behavior stream; emission policy already resolved
+```
+
+Because `behaviors_to_write` already accounts for `behaviorEmitOnce`, no caller needs to know
+whether emit-once is on.
+
+The per-track state itself:
 
 ```python
 class ObjectState(BaseModel):
@@ -752,10 +795,12 @@ class ObjectState(BaseModel):
   start: datetime  # Start timestamp of the object state
   end: datetime  # End timestamp of the object state
   points: list[Coordinate] = Field(default_factory=list)  # Sequence of points' coordinates
+  bboxes: list[Bbox] = Field(default_factory=list)  # Per-frame bboxes aligned 1:1 with points
   sampling: int = 1  # Sampling stride (1-in-N kept from raw observations)
   sample_phase: int = 0  # Phase for the next incoming raw observation, carried across batches for true 1-in-N sampling
   tail_ts: list[datetime] = Field(default_factory=list)  # Timestamps aligned to points[-len(tail_ts):]; used to bisect-insert tolerance-window messages while sampling == 1
   lastXpoints: list[Coordinate] = Field(default_factory=list)  # Last X points for trajectory analysis
+  lastXbboxes: list[Bbox] = Field(default_factory=list)  # Bboxes aligned to lastXpoints
   object: Object | None = None  # Object metadata
   model: Model | None = None  # Model including clustered embeddings
 ```
@@ -763,36 +808,22 @@ class ObjectState(BaseModel):
 **API**
 
 ```python
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtE, StateMgmtEWithTripwire
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt, BehaviorBatch
 
-class StateMgmtEWithTripwire:
-    """State management with tripwire event support."""
+class StateMgmt:
+    """Object tracking over time. Base class; use StateMgmtG for geographic coordinates."""
 
     def __init__(self, config: AppConfig, calibration: CalibrationBase) -> None:
         """Initialize with config and calibration."""
 
-    def update_behavior(
-        self,
-        message_key: str,
-        messages: list[Message],
-        **kwargs
-    ) -> tuple[Behavior | None, Behavior | None]:
-        """
-        Update behavior state and return (behavior, trip_behavior).
-        - behavior: Full behavior for storage/analysis
-        - trip_behavior: Tracklet for tripwire/ROI event detection
-        """
+    def process_batch(self, messages_map: dict[str, list[Message]]) -> BehaviorBatch:
+        """Process one whole batch of messages grouped by track key. One call is one batch."""
 
-class StateMgmtE(StateMgmtEWithTripwire):
-    """State management without tripwire (simpler API)."""
+    def flush_behaviors(self) -> list[Behavior]:
+        """Release behaviors still held back by emit-once mode. Call at shutdown."""
 
-    def update_behavior(
-        self,
-        message_key: str,
-        messages: list[Message],
-        **kwargs
-    ) -> Behavior | None:
-        """Update behavior state and return behavior only."""
+    def live_object_ids(self) -> list[str]:
+        """IDs of tracks currently held in state."""
 ```
 
 <Note>
@@ -857,12 +888,12 @@ The key attributes of the Behavior are based on object movement + Object appeara
 
 #### Movement Attributes
 
-For Cartesian coordinates, TrajectoryE is used:
+For image and Cartesian coordinates, `Trajectory` is used:
 
 ```python
-from mdx.analytics.core.schema.trajectory.trajectory_e import TrajectoryE
+from mdx.analytics.core.schema.trajectory.trajectory import Trajectory
 
-tr = TrajectoryE(id=state.id, start=state.start, end=state.end, points=state.points)
+tr = Trajectory(id=state.id, start=state.start, end=state.end, points=state.points)
 
 # compute movement behavior or attributes (computed properties on the model)
 tr.bearing
@@ -876,8 +907,10 @@ tr.smooth_trajectory
 ```
 
 <Note>
-- For image coordinates use `TrajectoryI`
-- For Geo coordinates use `Trajectory`
+For geographic coordinates use `TrajectoryG` from
+`mdx.analytics.core.schema.trajectory.trajectory_g`. It subclasses `Trajectory` and overrides
+`bearing`, `direction`, `speed` and `speed_over_time` to use haversine distance, and adds
+`direction_index` and `direction_based_cluster_index`.
 </Note>
 
 ##### Average Speed Computation
@@ -1010,35 +1043,57 @@ The **roiCoordinates** define the vertices of the ROI polygon.
 
 ```python
 from mdx.analytics.core.app.app_base import BaseApp
-from mdx.analytics.core.stream.state.behavior.state_management_e import StateMgmtEWithTripwire
+from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.transform.event.tripwire_event import TripwireEvent
 from mdx.analytics.core.transform.event.roi_event import ROIEvent
+from mdx.analytics.core.utils.schema_util import messages_to_map
 
 class MyApp(BaseApp):
     def __init__(self, config, calibration_path):
         super().__init__(config, calibration_path)
-        self.state_mgmt = StateMgmtEWithTripwire(self.config, self.calibration)
+        self.state_mgmt = StateMgmt(self.config, self.calibration)
         self.tripwire_event = TripwireEvent(self.config, self.calibration)
         self.roi_event = ROIEvent(self.config, self.calibration)
 
     def process(self, frames, stats):
-        # Process messages and get behavior + trip
-        behavior, trip = self.state_mgmt.update_behavior(key, msgs)
+        behavior_batch = self.state_mgmt.process_batch(messages_to_map(messages))
 
-        # Generate events from trip behavior
-        if trip:
-            events = self.tripwire_event.get_events(trip)
+        # Generate events from every trip state the batch produced
+        events = []
+        for trip in behavior_batch.trip_behaviors:
+            events.extend(self.tripwire_event.get_events(trip))
             events.extend(self.roi_event.get_events(trip))
-            self.write_events(events)
+
+        self.write_behaviors(behavior_batch.behaviors_to_write)
+        self.write_events(events)
 ```
 
 **Definition**
 
-The Behavior object (trip behavior from `StateMgmtEWithTripwire`) contains the trajectory information including locations, start and end timestamps for each tracked object. The system processes this trajectory by:
+The Behavior object (an entry of `BehaviorBatch.trip_behaviors`) contains the trajectory information including locations, start and end timestamps for each tracked object. The system processes this trajectory by:
 
-1. Splitting it into overlapping tracklets of length `minTripLength`
+1. Splitting it into overlapping tracklets of length `2 × tripwireMinPoints` (the sensor-level `tripwireMinPoints`, default `5`, so 10 points per tracklet)
 2. For tripwires: Checking if tracklets have sufficient points before and after crossing the wire
 3. For ROIs: Checking if tracklets have sufficient points both inside and outside the ROI boundary
+
+**ROI event detection mode**
+
+The app-level `roiEventDetectionMode` key controls how `ROIEvent` decides whether an object is inside an ROI:
+
+| Value | Description |
+| --- | --- |
+| `coordinate` (default) | Test whether the object's representative coordinate — the bbox reference point selected by `imageLocationMode` — falls inside the ROI polygon. |
+| `bbox` | Test whether the object's per-frame bounding box *overlaps* the ROI polygon. Catches objects that touch an ROI without their reference point entering it. |
+
+<Warning>
+`bbox` is supported only for **image** calibration, where `object.bbox` and the ROI polygon share
+image-pixel coordinates. Under cartesian or geo calibration the ROI and trajectory are in world units
+(metres / lat-lon) while `object.bbox` stays in image pixels, so the pipeline falls back to
+`coordinate` and logs a one-time warning. Any unrecognized value is normalized to `coordinate`.
+
+If you want bbox-overlap ROI events on a camera that has a world-space calibration, convert the ROI
+polygon into image space (via the inverse homography) and supply it in an image calibration.
+</Warning>
 
 **API**
 
@@ -1103,7 +1158,7 @@ The image below shows the restricted area violation. One person is not allowed t
 
 The FOV count violation is triggered when the number of objects of a specific type in the field of view exceeds the configured threshold. This is useful for crowd control and capacity management scenarios.
 
-The violation is configured via `fovCountViolationIncidentObjectThreshold` (maximum allowed count) and `fovCountViolationIncidentObjectType` (object type to count, e.g., "Person").
+The violation is configured via `fovCountViolationIncidentObjectThreshold` (the count at which the violation fires, compared as `count >= threshold`) and `fovCountViolationIncidentObjectType` (object type to count, e.g., "Person"). Because the comparison is inclusive, "no more than N in view" is expressed as a threshold of `N + 1`.
 
 **Violation Detection API**
 
@@ -1171,17 +1226,17 @@ Each violation type has configurable timing parameters:
     {"name": "incidentObjectTtl", "value": "3600"},
     {"name": "proximityViolationIncidentEnable", "value": "true"},
     {"name": "proximityViolationIncidentThreshold", "value": "1"},
-    {"name": "proximityViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "proximityViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
     {"name": "restrictedAreaViolationIncidentThreshold", "value": "1"},
-    {"name": "restrictedAreaViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "restrictedAreaViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
     {"name": "confinedAreaViolationIncidentThreshold", "value": "1"},
-    {"name": "confinedAreaViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "confinedAreaViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "fovCountViolationIncidentEnable", "value": "true"},
     {"name": "fovCountViolationIncidentObjectThreshold", "value": "1"},
     {"name": "fovCountViolationIncidentThreshold", "value": "1"},
-    {"name": "fovCountViolationIncidentExpirationWindow", "value": "1"},
+    {"name": "fovCountViolationIncidentExpirationWindow", "value": "0.5"},
     {"name": "fovCountViolationIncidentObjectType", "value": "Person"}
   ]
 }
@@ -1194,17 +1249,17 @@ Each violation type has configurable timing parameters:
 | `incidentObjectTtl` | TTL (time-to-live) in seconds for object presence data. Objects with no data within the TTL window will be cleaned up. **Default: 3600** |
 | `proximityViolationIncidentEnable` | Enable proximity violation incident detection. **Default: false** |
 | `proximityViolationIncidentThreshold` | Minimum duration (seconds) for proximity violation to become an incident. **Default: 1** |
-| `proximityViolationIncidentExpirationWindow` | Maximum gap (seconds) between detections before creating new violation state. **Default: 1** |
+| `proximityViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5** |
 | `restrictedAreaViolationIncidentEnable` | Enable restricted area violation incident detection. **Default: false** |
 | `restrictedAreaViolationIncidentThreshold` | Minimum duration (seconds) for restricted area violation to become an incident. **Default: 1** |
-| `restrictedAreaViolationIncidentExpirationWindow` | Maximum gap (seconds) between detections before creating new violation state. **Default: 1** |
+| `restrictedAreaViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5** |
 | `confinedAreaViolationIncidentEnable` | Enable confined area violation incident detection. **Default: false** |
 | `confinedAreaViolationIncidentThreshold` | Minimum duration (seconds) for confined area violation to become an incident. **Default: 1** |
-| `confinedAreaViolationIncidentExpirationWindow` | Maximum gap (seconds) between detections before creating new violation state. **Default: 1** |
+| `confinedAreaViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5** |
 | `fovCountViolationIncidentEnable` | Enable FOV count violation incident detection. **Default: false** |
-| `fovCountViolationIncidentObjectThreshold` | Maximum number of objects allowed in FOV before triggering violation. **Default: 1** |
+| `fovCountViolationIncidentObjectThreshold` | Object count at which the violation fires, compared as `count >= threshold`. Set to `N + 1` to alert on "more than N". **Default: 1** |
 | `fovCountViolationIncidentThreshold` | Minimum duration (seconds) for FOV count violation to become an incident. **Default: 1** |
-| `fovCountViolationIncidentExpirationWindow` | Maximum gap (seconds) between detections before creating new violation state. **Default: 1** |
+| `fovCountViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5** |
 | `fovCountViolationIncidentObjectType` | Object type to count for FOV violations. **Default: Person** |
 
 **Usage**
@@ -1363,6 +1418,12 @@ class BaseApp:
 
     # Write behaviors with clustering to behaviorPlus topic
     def write_behaviors_with_clustering(self, behaviors: list[Behavior]) -> None
+
+    # Write filtered/downsampled video embeddings to the embedFiltered destination
+    def write_embed_filtered(self, video_embeddings: list[nvSchema.VisionLLM]) -> None
+
+    # Generic escape hatch: write any protobuf list to any logical destination key
+    def write_proto(self, dest_key: str, msgs: list[Any], key_extractor: Callable | None = None) -> None
 ```
 
 Low-level Sink interface:
@@ -1481,13 +1542,15 @@ Acknowledgement statuses returned by the listener in the `ack` event:
 
 *Mutable* — change takes effect on the next read of the value (typically within milliseconds):
 
-* App-level (`app[*]`): `behaviorMaxPoints`, `behaviorStateEndToleranceSec`, `behaviorStateTimeout`, `behaviorStateValidInterval`, `behaviorTimeThreshold`, `behaviorWatermarkSec`, `clusterThreshold`, `objectConfidenceThreshold`, `compactFrame`, `useObjectLocation`, `incidentObjectTtl`, `stateManagementFilter`, `imageLocationMode`, `in3dMode`, `advancedOverlay`, `inSimulationMode`, all `traj*` and `mapMatching*` keys, and every `*IncidentEnable` / `*IncidentThreshold` / `*IncidentExpirationWindow` / `fovCountViolationIncidentObjectThreshold` / `fovCountViolationIncidentObjectType` key.
+* App-level (`app[*]`): `behaviorEmitOnce`, `behaviorMaxPoints`, `behaviorStateEndToleranceSec`, `behaviorStateValidInterval`, `behaviorTimeThreshold`, `behaviorWatermarkSec`, `clusterThreshold`, `objectConfidenceThreshold`, `compactFrame`, `useObjectLocation`, `incidentObjectTtl`, `stateManagementFilter`, `imageLocationMode`, `roiEventDetectionMode`, `in3dMode`, `advancedOverlay`, all `traj*` and `mapMatching*` keys, and every `*IncidentEnable` / `*IncidentThreshold` / `*IncidentExpirationWindow` / `fovCountViolationIncidentObjectThreshold` / `fovCountViolationIncidentObjectType` key.
 * Sensor-level (`sensors[*].configs[*]`): `tripwireMinPoints`, `sensorMinFrames`, all `proximityDetection*` keys, `anomalyActionThreshold`, `anomalyClasses`, `anomalyIgnoreSensors`, `anomalySpeedViolation`, `anomalyUnexpectedStop`, `anomalyAbnormalMovement`, `anomalyFallRisk`, `anomalyLackMovement`.
 
 *Read-only — restart required.* Update attempts targeting these are rejected by the validator so operators don't silently expect them to land:
 
 * Whole top-level sections: `kafka`, `redisStream`, `mqtt`, `coordinateReferenceSystem`, `inference`.
-* App keys consumed once at startup: `sourceType`, `sinkType`, `numWorkersForBehaviorCreation`, `numWorkersForFrameEnhancement`, `numWorkersForSpaceEstimation`, `numWorkersForBehaviorClustering`, `numWorkersForIncidentGeneration`. * Sub-configs consumed by classes that capture values at `__init__`: all `spaceAnalytics*` keys (held inside `SpaceAnalyzer`), all `embed*` keys (held inside the video-embedding downsamplers), and `anomalyCollisionDetection` (held by the Smart City app).
+* App keys consumed once at startup: `sourceType`, `sinkType`, `numWorkersForBehaviorCreation`, `numWorkersForFrameEnhancement`, `numWorkersForSpaceEstimation`, `numWorkersForEmbedFiltering`, `numWorkersForBehaviorClustering`, `numWorkersForIncidentGeneration`.
+* Sub-configs consumed by classes that capture values at `__init__`: all `spaceAnalytics*` keys (held inside `SpaceAnalyzer`), all `embed*` keys (held inside the video-embedding downsamplers), and `anomalyCollisionDetection` (held by the Smart City app).
+* Dead keys that are rejected on purpose so an operator never believes they landed: `coordinateSystem` (coordinate handling is driven by `in3dMode` plus the calibration type) and `inSimulationMode` (its only reader was removed; use `playbackInSimulationMode` for playback).
 
 To change anything in the read-only set, restart the process.
 
@@ -2530,7 +2593,7 @@ Ask your coding agent (Claude Code or Codex) for any of the following:
 
 * "Deploy behavior analytics" or "run behavior-analytics standalone"
 * "I just want to run analytics, not the full stack"
-* "Change the entrypoint to fusion_search / dev_example / analytics 3D / mv3dt"
+* "Change the entrypoint to search_and_alerts / composite / smart_city / analytics 3D / mv3dt"
 * "Use my own behavior-analytics config / calibration JSON"
 * "Point behavior-analytics at the `warehouse-3d` (or `mv3dt`) config without spinning up the rest of the warehouse profile"
 * "Publish a dynamic config / dynamic calibration update into a running behavior-analytics"
@@ -2543,10 +2606,12 @@ The Skill drives the operator through four decisions, then deploys:
 
 | Entrypoint | What it runs |
 | --- | --- |
-| `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` — 2D spatial pipeline over (X, Y) world-plane coordinates. **Default.** |
-| `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` — full 3D (X, Y, Z) pipeline fed by upstream multi-view 3D tracking (mv3dt), plus periodic space-analyzer processor. |
-| `apps/dev_example/main_dev_example_app.py` | `DevExampleApp` — smaller app focused on FOV-count and restricted-area violations. Good starting point for new incident types. |
-| `apps/fusion_search/main_fusion_search_analytics_app.py` | `FusionSearchAnalyticsApp` — behavior creation plus video-embedding downsampling for the VSS search profile. |
+| `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` — 2D spatial pipeline over (X, Y) world-plane coordinates lifted from the image plane by per-sensor homography. Behavior creation plus frame enhancement. **Default.** |
+| `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` — full 3D (X, Y, Z) pipeline fed by upstream multi-view 3D tracking (mv3dt). Same two processors as 2D, plus a periodic space-analyzer processor. There is no separate `main_mv3dt_app.py`. |
+| `apps/search_and_alerts/main_search_and_alerts_app.py` | `SearchAndAlertsApp` — incident generation, behavior creation and video-embedding downsampling, each registered only if its worker count is non-zero. Zeroing `numWorkersForIncidentGeneration` gives search only; zeroing behavior and embed workers gives alerts only. |
+| `apps/public_safety/main_public_safety_app.py` | `PublicSafetyApp` — behavior creation plus frame enhancement for public-safety scenes. |
+| `apps/smart_city/main_smart_city_app.py` | `SmartCityApp` — geo-oriented street/city pipeline with anomaly detection built in unconditionally. Behavior clustering registers only when `inference.enable` is `true`. |
+| `apps/composite/main_composite_app.py` | `CompositeApp` — every capability in one process, each enabled by its own `numWorkersFor*` count. The heavyweight option: it builds all capability state at startup regardless of what you enable. Pick it only when the combination you want is not a shipped app. The shipped `composite_config.json` sets every count to `0`, so the app logs a FATAL and exits 0 until you set some. |
 
 2. **Config (required)** — either a profile-shipped config (recommended pairings are listed in the Skill reference) or any custom JSON conforming to the shape documented in [Configuration Parameters](/vss/system-components/analytics-microservices/behavior-analytics#configuration-parameters). Mounted into the container at `/resources/vss-behavior-analytics-config.json` and passed via `--config`.
 
@@ -2571,7 +2636,7 @@ After installing the `vss-setup-behavior-analytics` skill, drive it from your
 coding agent.
 
 ```text
-Run behavior-analytics with the dev_example entrypoint and no calibration
+Run behavior-analytics with the search_and_alerts entrypoint and no calibration
 ```
 
 A single prompt drives the skill through the steps below. It only edits the
@@ -2581,7 +2646,7 @@ current state, so a no-op request goes straight to deploy:
 1. **Inspect the compose file.** The skill greps
    `services/analytics/behavior-analytics/compose.yml` for the active
    entrypoint and `--calibration` flag. If it already matches the request
-   (here, the `dev_example` entrypoint with no calibration), no edit is made.
+   (here, the `search_and_alerts` entrypoint with no calibration), no edit is made.
 2. **Check prerequisites.** The skill runs `docker --version` and
    `docker compose version`. The reference targets Docker `28.3.3` /
    Compose `v2.39.1+`; older toolchains (for example `27.2.0` / `v2.29.0`)
@@ -2594,6 +2659,12 @@ current state, so a no-op request goes straight to deploy:
    the config was mounted at `/resources/vss-behavior-analytics-config.json`
    and that no calibration file was provided, so the app waits for the first
    calibration notification on `mdx-notification` kafka topic.
+
+<Note>
+The two screenshots below were captured against an earlier release that shipped a
+`dev_example` entrypoint. That app has since been folded into the entrypoints listed
+above; the skill's flow — inspect, check prerequisites, deploy, verify — is unchanged.
+</Note>
 
 ![Coding agent confirming the compose entrypoint, checking Docker prerequisites, and warning about the version](/assets/images/behavior-analytics/standalone-dev-example-plan.png)
 

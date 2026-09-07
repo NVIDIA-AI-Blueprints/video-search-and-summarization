@@ -309,6 +309,9 @@ class CommandGroup(ABC):
         """
         if ctx.memory is None:
             ctx.memory = memory_mod.build(ctx.deployment)
+            click_context = click.get_current_context(silent=True)
+            if click_context is not None:
+                click_context.call_on_close(ctx.memory.close)
         return ctx.memory
 
     @final

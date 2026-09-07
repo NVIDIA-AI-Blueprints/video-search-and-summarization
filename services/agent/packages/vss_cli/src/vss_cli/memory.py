@@ -16,6 +16,7 @@ Elasticsearch client load on the first call that actually touches memory, so
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import cast
@@ -25,6 +26,9 @@ import click
 from .exits import Exit
 
 if TYPE_CHECKING:
+    from typing import Literal
+
+    from vss_core.memory import EmbeddingBackfillService
     from vss_core.memory import MemoryService
     from vss_core.memory import UnifiedMemoryRecord
     from vss_core.memory.models import MemoryGroup
@@ -64,6 +68,18 @@ class MemoryUnavailable(click.ClickException):
     exit_code = int(Exit.CONFIGURATION)
 
 
+def _close_resources(resources: tuple[Any, ...]) -> None:
+    first_error: Exception | None = None
+    for resource in resources:
+        try:
+            resource.close()
+        except Exception as error:
+            if first_error is None:
+                first_error = error
+    if first_error is not None:
+        raise first_error
+
+
 def group_token(name: str) -> MemoryGroup:
     """The unified-schema group a CLI group writes under.
 
@@ -82,13 +98,32 @@ class Memory:
     ``put`` here would only re-state the adapter's signature.
     """
 
-    def __init__(self, service: MemoryService, *, index: str) -> None:
+    def __init__(
+        self,
+        service: MemoryService,
+        *,
+        index: str,
+        embedding_backfill: EmbeddingBackfillService | None = None,
+        embedding_batch_size: int | None = None,
+        closeables: tuple[Any, ...] = (),
+    ) -> None:
         self._service = service
         self.index = index
+        self.embedding_backfill = embedding_backfill
+        self.embedding_batch_size = embedding_batch_size
+        self._closeables = closeables
+        self._closed = False
 
     @property
     def service(self) -> MemoryService:
         return self._service
+
+    def close(self) -> None:
+        """Close each runtime resource exactly once."""
+        if self._closed:
+            return
+        self._closed = True
+        _close_resources(self._closeables)
 
     def status(self, group: str, job_id: str) -> dict[str, Any]:
         return self._scoped(group, job_id).model_dump_memory()
@@ -160,8 +195,13 @@ class Memory:
         return record
 
 
-def build(deployment: config_mod.Deployment | None) -> Memory:
-    """Open the statically configured authoritative memory store."""
+def build(deployment: config_mod.Deployment | None, *, discover_dimensions: bool = True) -> Memory:
+    """Open the statically configured authoritative memory store.
+
+    ``discover_dimensions=False`` skips the first-use provider probe so a
+    scan-only caller (``vss memory embeddings backfill --dry-run``) can inspect
+    eligibility without contacting the embedding endpoint.
+    """
     if deployment is None:
         raise MemoryUnavailable(
             "cannot reach unified memory: no deployment is configured. Run `vss configure --base-url <origin>` first."
@@ -188,11 +228,78 @@ def build(deployment: config_mod.Deployment | None) -> Memory:
             f"Re-run `vss configure --base-url {deployment.base_url}` if that changed."
         )
 
-    from vss_core.memory import build_memory_service
+    from vss_core.memory import ElasticsearchEmbeddingStore
+    from vss_core.memory import EmbeddingBackfillService
+    from vss_core.memory import MemoryService
+    from vss_core.memory import OpenAICompatibleEmbeddingProvider
+    from vss_core.memory import embedding_endpoint_identity
+    from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
 
+    authoritative = ElasticsearchMemoryStore(endpoint=endpoint, index=memory_config.index)
+    if not memory_config.embeddings.enabled:
+        return Memory(
+            MemoryService(authoritative),
+            index=memory_config.index,
+            closeables=(authoritative,),
+        )
+
+    embedding_config = memory_config.embeddings
+    if embedding_config.dimensions is None and not discover_dimensions:
+        return Memory(
+            MemoryService(authoritative),
+            index=memory_config.index,
+            embedding_backfill=EmbeddingBackfillService(authoritative, None),
+            embedding_batch_size=embedding_config.batch_size,
+            closeables=(authoritative,),
+        )
+
+    provider: OpenAICompatibleEmbeddingProvider | None = None
+    companion: ElasticsearchEmbeddingStore | None = None
+    try:
+        # Normal CLI configuration resolves dimensions before saving. A
+        # hand-written configuration can still discover them on first use.
+        assert embedding_config.endpoint is not None
+        assert embedding_config.model is not None
+        provider = OpenAICompatibleEmbeddingProvider(
+            endpoint=embedding_config.endpoint,
+            model=embedding_config.model,
+            dimensions=embedding_config.dimensions,
+            timeout_seconds=embedding_config.timeout_seconds,
+            batch_size=embedding_config.batch_size,
+            api_key_env=embedding_config.api_key_env,
+            query_input_type=embedding_config.query_input_type,
+            document_input_type=embedding_config.document_input_type,
+        )
+        if embedding_config.dimensions is None:
+            provider.embed_query("VSS memory embedding dimension discovery")
+        companion = ElasticsearchEmbeddingStore(
+            endpoint=endpoint,
+            index=embedding_config.index,
+            provider=provider,
+            authoritative_store=authoritative,
+            provider_name=embedding_config.provider,
+            embedding_endpoint_identity=embedding_endpoint_identity(embedding_config.endpoint),
+        )
+        retrieval = memory_config.retrieval
+        service = MemoryService(
+            authoritative,
+            semantic_memory=companion,
+            embedding_provider=provider,
+            retrieval_mode=cast("Literal['keyword', 'semantic', 'hybrid']", memory_config.effective_retrieval_mode),
+            semantic_candidate_count=retrieval.candidate_count,
+            rrf_rank_constant=retrieval.rrf_rank_constant,
+        )
+    except Exception:
+        resources = tuple(resource for resource in (companion, provider, authoritative) if resource is not None)
+        with suppress(Exception):
+            _close_resources(resources)
+        raise
     return Memory(
-        build_memory_service(es_endpoint=endpoint, memory_index=memory_config.index),
+        service,
         index=memory_config.index,
+        embedding_backfill=EmbeddingBackfillService(authoritative, companion),
+        embedding_batch_size=embedding_config.batch_size,
+        closeables=(companion, provider, authoritative),
     )
 
 

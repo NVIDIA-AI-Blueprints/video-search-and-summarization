@@ -9,11 +9,13 @@ import { APPLICATION_TITLE } from '../constants/constants';
 export const getServerSideProps: GetServerSideProps = async (context) => {
   try {
     // Import server-side functions dynamically
-    const { getNemoAgentToolkitSSProps } = await import('@nemo-agent-toolkit/ui/server');
+    const { serverSideTranslations } = await import('next-i18next/pages/serverSideTranslations');
     const { fetchAlertsData, fetchSearchData, fetchDashboardData, fetchMapData, fetchVideoManagementData } = await import('@nv-metropolis-bp-vss-ui/all/server');
-    
-    // Get base props from NemoAgentToolkit (includes i18n translations)
-    const nemoProps = await getNemoAgentToolkitSSProps(context);
+
+    // Was getNemoAgentToolkitSSProps. Only `common` is requested now: the
+    // toolkit's other namespaces (chat, sidebar, markdown, promptbar,
+    // settings) described its own components and went with them.
+    const i18nProps = await serverSideTranslations(context.locale ?? 'en', ['common']);
     
     // Fetch data for our new components in parallel for better performance
     const [alertsData, searchData, dashboardData, mapData, videoManagementData] = await Promise.all([
@@ -27,7 +29,7 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     // Chain/Merge all props
     return {
       props: {
-        ...nemoProps.props,        // Spread NemoAgentToolkit props (i18n, etc.)
+        ...i18nProps,              // i18n translations
         alertsData,                // Add Alerts data from package
         searchData,                // Add Search data from package
         dashboardData,             // Add Dashboard data from package

@@ -23,10 +23,11 @@ VIOS auto-discovers ONVIF-S compliant IP cameras, and allows use of custom IP st
 8. Video wall feature which provides composite view of multiple webrtc streams.
 9. Provide REST APIs to write client application to control and configure VIOS.
 10. Support Redis/Kafka message bus to publish device add/remove events.
-11. Prometheus/Grafana integration for publishing VIOS statistics.
-12. Derive insights about the current status of VIOS.
-13. Cloud native. Deploy as a container.
-14. Supports milestone adaptor for fetching data from milestone VMS.
+11. Support outbound HTTP webhooks to deliver the same device events to external services (refer to [Notification Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config)).
+12. Prometheus/Grafana integration for publishing VIOS statistics.
+13. Derive insights about the current status of VIOS.
+14. Cloud native. Deploy as a container.
+15. Supports milestone adaptor for fetching data from milestone VMS.
 
 We included binary for a web-based client that allows to view live and recorded content, as well as to modify camera and stream configuration (Web-UI Viewer).
 
@@ -531,6 +532,7 @@ TURN server is not mandatory, this is required only if Client and Server are in 
 
 * VIOS configuration details can be found here: [VIOS Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config).
 * VIOS Storage Config details can be found here: [Storage Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config).
+* VIOS Notification Config details can be found here: [Notification Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config).
 * RTSP streams config file details can be found here: [RTSP Stream Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config).
 
 ### VIOS Config
@@ -605,18 +607,6 @@ Following table describes the parameters in VIOS config file, which should be pr
 | default_file_expiry_minutes | Default file expiry time in minutes (e.g., 10080 = 7 days) | 10080 |
 | download_files_timeout_secs | Timeout in seconds for video download operations | 120 |
 | picture_api_timeout_secs | Timeout in seconds for picture (snapshot) API operations | 20 |
-| **notifications** | **Section to define all Notifications related parameters** |   |
-| enable_notification | Enable notification of device events on message broker | FALSE |
-| use_message_broker | Message Broker to use (Kafka/Redis) | kafka |
-| message_broker_topic | Topic/event used in message broker | vst.event |
-| enable_notification_consumer | Enable/Disable notification consumer | TRUE |
-| use_message_broker_consumer | Message Broker to use (Kafka/Redis) | kafka |
-| message_broker_topic_consumer | Topic/event used in message broker | mdx-bev |
-| message_broker_payload_key | Payload key used in message broker | sensor.id |
-| redis_server_env_var | Redis server address:port | REDIS_SVC_SERVICE_HOST:6379 |
-| kafka_server_address | Kafka server address and port | 10.0.0.1:9092 |
-| message_broker_metadata_topic | Topic used by the message broker for metadata events | mdx-raw |
-| mqtt_broker_address | MQTT broker address used for notifications | tcp://172.17.0.1:1883 |
 | **debug** | **Section to define all Debug related parameters** |   |
 | enable_perf_logging | Enable/Disable perf logging | TRUE |
 | enable_qos_monitoring | Enable/Disable QOS logging | TRUE |
@@ -671,6 +661,109 @@ Following table describes the parameters in VIOS config file, which should be pr
 <Note>
 When the Unified Stream Processing MS is scaled to multiple replicas, set `restore_rtsp_streams_on_startup` to `false`. Otherwise, on container restart or redeploy every replica will independently re-read the previously configured RTSP proxy streams from the central database and re-register them on the RTSP server, resulting in duplicate registrations and conflicts across replicas. Leave it set to `true` only when running a single Stream Processing replica.
 </Note>
+
+### Notification Config
+
+Following table describes the parameters in VIOS notification config file (`configs/notification_config.json`):
+
+**VIOS notification config file**
+
+| Key | Description | Typical Value |
+| --- | --- | --- |
+| **message_broker** | **Section to define all message broker notification parameters** |   |
+| enable_notification | Enable notification of device events on message broker | FALSE |
+| use_message_broker | Message Broker to use (Kafka/Redis) | kafka |
+| message_broker_topic | Topic/event used in message broker | vst.event |
+| enable_notification_consumer | Enable/Disable notification consumer | TRUE |
+| use_message_broker_consumer | Message Broker to use (Kafka/Redis) | kafka |
+| message_broker_topic_consumer | Topic/event used in message broker | mdx-bev |
+| message_broker_payload_key | Payload key used in message broker | sensor.id |
+| redis_server_env_var | Redis server address:port | REDIS_SVC_SERVICE_HOST:6379 |
+| kafka_server_address | Kafka server address and port | 10.0.0.1:9092 |
+| message_broker_metadata_topic | Topic used by the message broker for metadata events | mdx-raw |
+| mqtt_broker_address | MQTT broker address used for notifications | tcp://172.17.0.1:1883 |
+| **webhooks** | **Section to define all outbound HTTP webhook parameters** |   |
+| enabled | Master switch for the webhook notifier. When FALSE, no webhook is loaded or delivered, regardless of the per-webhook `enabled` flags. | FALSE |
+| items | Array of webhook definitions. Each entry is described in the table below. | [] |
+
+#### Webhooks
+
+Webhooks deliver the same device notifications VIOS publishes on the message broker to arbitrary HTTP endpoints, so an external service can react to camera events without subscribing to Redis, Kafka, or MQTT.
+
+The two delivery paths are independent. The message broker is enabled by `message_broker.enable_notification` and webhooks by `webhooks.enabled`, and either, both, or neither may be active. Each path keeps its own queue and worker thread, so a slow or unreachable webhook endpoint does not delay publishing on the broker.
+
+When an event is raised, it is matched against every entry in `webhooks.items[]`. An entry matches when its trigger key names the event's alert type and the configured value matches the corresponding event field: `"camera_status_change": "camera_add"` fires only on camera-add events. Every matching entry then delivers to all of the receivers in its `request[]` array, so one event can reach several endpoints. A receiver's `camera_type` list narrows this further, skipping delivery when the event's camera type is not listed.
+
+Delivery is asynchronous. Each receiver is attempted, retried, and given up on independently, following its own `timeout_ms` and `retry` settings, so one failing endpoint does not hold up or fail the others.
+
+By default the request body is the notification event as JSON, with the entry's `id` added as a `webhook_id` field. Setting `user_defined_metadata` merges extra fields into that body's `event.metadata` object, and setting `body` replaces the whole body with a rendered template. Header and query parameter values may also reference event fields using the `{{event.<field>}}` form.
+
+**`webhooks.items[]` — webhook definition**
+
+| Key | Description | Typical Value |
+| --- | --- | --- |
+| enabled | Enable/Disable this individual webhook | FALSE |
+| id | Unique identifier for the webhook, used in log messages | webhook-camera-add-id |
+| camera_status_change | Camera status event this webhook fires on. One of `camera_add`, `camera_streaming`, or `camera_remove`. | camera_add |
+| request | Array of receivers this webhook delivers to. Each entry is described in the table below. | [] |
+| auth | Authentication block, for example `{"type": "hmac-sha256", "secret": "{{secrets.signing_key}}", "header_name": "X-VIOS-Signature"}`. Reserved for future use; requests are currently sent unsigned and a warning is logged when `type` is set. | `{}` |
+
+**`webhooks.items[].request[]` — receiver definition**
+
+| Key | Description | Typical Value |
+| --- | --- | --- |
+| url | Destination URL for the HTTP request. Required; the receiver is skipped if missing. | `http://127.0.0.1:18088/webhooks/camera/add` |
+| method | HTTP method used for the request. Required; the receiver is skipped if missing. | POST |
+| headers | HTTP headers sent with the request. A value is either literal text or a whole-value `{{event.<field>}}` placeholder that copies a field from the event. Placeholders that cannot be resolved cause the header to be omitted. | `{"Content-Type": "application/json", "x-stream-id": "{{event.camera_id}}"}` |
+| query_params | Query parameters appended to the URL. Uses the same literal-or-`{{event.<field>}}` value form as `headers`. | `{"change": "{{event.change}}"}` |
+| camera_type | Only deliver to this receiver when the event's camera type is in this list. Omit the key to deliver for every camera type. | ["rtsp", "file"] |
+| timeout_ms | Per-request timeout in milliseconds | 10000 |
+| retry.max_attempts | Maximum number of delivery attempts, including the first. Values below 1 are clamped to 1. | 1 |
+| retry.backoff_ms | Delay in milliseconds before each retry. The last entry is reused if there are more retries than entries; an empty list falls back to 1000 ms. | [1000, 5000, 15000] |
+| retry.retry_on_status | HTTP status codes that trigger a retry. An empty or absent list retries on any non-2xx response. | [408, 429, 500, 502, 503, 504] |
+| user_defined_metadata | Arbitrary JSON object whose keys are merged into the `event.metadata` object of the default notification body, not into the body's top level. Receivers must read these fields from `event.metadata`. Ignored when `body` is set. | `{"model": "some_model_name", "chunk": 123}` |
+| body | Optional custom JSON body template. When absent, the default notification body is sent. When present, the rendered template is the complete request body, so default fields and `user_defined_metadata` are not added. Presence, not emptiness, selects custom rendering: `body: {}` sends `{}`. | `{"query": {"term": {"sensor.id.keyword": "{{event.camera_id}}"}}}` |
+
+#### Custom body templates
+
+A `body` value is a JSON template. Any string whose complete value has the form `{{path.to.value}}` is replaced with the value at that path in the notification, for example `{{alert_type}}`, `{{created_at}}`, or `{{event.camera_id}}`. The original JSON type is preserved, so a number stays a number and an object stays an object. A well-formed placeholder whose path is not present in the notification renders as an empty string (`""`).
+
+Braces are reserved. A string containing `{{` or `}}` must be exactly a full-wrap placeholder. An embedded placeholder such as `camera-{{event.camera_id}}`, an unterminated placeholder, or braces in an object property name are configuration errors. Templates nested deeper than 32 levels are also invalid. Invalid receiver entries are skipped at config load with a log line naming the webhook and receiver; valid sibling receivers continue to load and deliver.
+
+**Example**
+
+```json
+{
+  "webhooks": {
+    "enabled": true,
+    "items": [
+      {
+        "enabled": true,
+        "id": "camera-remove-cleanup",
+        "camera_status_change": "camera_remove",
+        "request": [
+          {
+            "url": "http://elasticsearch:9200/mdx-embed/_delete_by_query",
+            "method": "POST",
+            "headers": { "Content-Type": "application/json" },
+            "query_params": { "conflicts": "proceed", "refresh": "true" },
+            "camera_type": ["rtsp", "file"],
+            "timeout_ms": 5000,
+            "retry": {
+              "max_attempts": 3,
+              "backoff_ms": [1000, 5000, 15000],
+              "retry_on_status": [408, 429, 500, 502, 503, 504]
+            },
+            "body": {
+              "query": { "term": { "sensor.id.keyword": "{{event.camera_id}}" } }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ### Adaptor Config
 

@@ -660,6 +660,9 @@ resolve_sparse4d_engine_file() {
 
     local onnx_model_name
     onnx_model_name=$(awk -F: '/^[[:space:]]*onnx_file[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    # YAML permits quoted scalars; normalize them before shell path handling.
+    onnx_model_name="${onnx_model_name#\"}" # remove a leading "
+    onnx_model_name="${onnx_model_name%\"}" # remove a trailing "
     if [[ -z "$onnx_model_name" ]]; then
         echo "WARNING: onnx_file not set in ${config_yaml}; skipping engine_file patch." >&2
         return
@@ -708,6 +711,8 @@ resolve_sparse4d_engine_file() {
     local staged_config_dir="${SPARSE4D_ENGINE_PATH:-/opt/storage/sparse4d/}resolved-config/"
     mkdir -p "$staged_config_dir"
     sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "${staged_config_dir}config.yaml"
+    # Sparse4D setup consumes these as filesystem paths, not YAML syntax.
+    sed -E -i 's@^([[:space:]]*(onnx_file|engine_file|labels_file|anchor):[[:space:]]*)"([^"]*)"([[:space:]]*(#.*)?)$@\1\3\4@' "${staged_config_dir}config.yaml"
 
     # Carry along any sibling files (e.g. calibration.json) config.yaml is
     # normally staged next to, so consumers of SPARSE4D_CONFIG_PATH still find them.

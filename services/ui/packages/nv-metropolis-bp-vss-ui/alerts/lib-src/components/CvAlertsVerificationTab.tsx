@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, TextInput } from '@nvidia/foundations-react-core';
+import { Button } from '@nvidia/foundations-react-core';
 import {
   IconAlertCircle,
   IconCheck,
@@ -81,6 +81,38 @@ const validate = (fields: EditableFields): string | null => {
 const optional = (value: string): string | null => value.trim() || null;
 
 const COLUMN_COUNT = 5;
+
+/** Native control so Playwright `fill()` and E2E test ids hit a real <input>. */
+const fillableFieldClass = (isDark: boolean): string =>
+  `w-full rounded-md px-3 py-1.5 text-sm focus:outline-none transition-colors ${
+    isDark
+      ? 'bg-neutral-900 border border-neutral-700 text-neutral-100 placeholder-neutral-500 focus:border-[#76b900] focus:ring-1 focus:ring-[#76b900]/40 read-only:opacity-70'
+      : 'bg-white border border-gray-300 text-gray-800 placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-200 read-only:opacity-70'
+  }`;
+
+type FillableTextFieldProps = {
+  id?: string;
+  'data-testid': string;
+  'aria-label'?: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  placeholder?: string;
+  readOnly?: boolean;
+  isDark: boolean;
+};
+
+const FillableTextField: React.FC<FillableTextFieldProps> = ({
+  onValueChange,
+  isDark,
+  ...rest
+}) => (
+  <input
+    type="text"
+    {...rest}
+    className={fillableFieldClass(isDark)}
+    onChange={(event) => onValueChange(event.target.value)}
+  />
+);
 
 const verificationAddDraftRef: { current: (() => void) | null } = { current: null };
 
@@ -306,9 +338,10 @@ export const CvAlertsVerificationTab: React.FC<CvAlertsVerificationTabProps> = (
               Enrichment prompt
             </span>
             {update ? (
-              <TextInput
+              <FillableTextField
                 aria-label="Enrichment prompt"
                 data-testid="verification-enrichment-prompt"
+                isDark={isDark}
                 value={fields.enrichment_prompt}
                 onValueChange={(value: string) => update({ enrichment_prompt: value })}
                 placeholder="Ex: Describe what happened in this clip"
@@ -334,9 +367,10 @@ export const CvAlertsVerificationTab: React.FC<CvAlertsVerificationTabProps> = (
   ) => (
     <>
       <td className="py-2 px-3 align-top">
-        <TextInput
+        <FillableTextField
           aria-label="Alert type"
           data-testid="verification-alert-type"
+          isDark={isDark}
           value={fields.alert_type}
           readOnly={immutableAlertType}
           onValueChange={(value: string) => update({ alert_type: value })}
@@ -344,18 +378,20 @@ export const CvAlertsVerificationTab: React.FC<CvAlertsVerificationTabProps> = (
         />
       </td>
       <td className="py-2 px-3 align-top">
-        <TextInput
+        <FillableTextField
           aria-label="Output category"
           data-testid="verification-output-category"
+          isDark={isDark}
           value={fields.output_category}
           onValueChange={(value: string) => update({ output_category: value })}
           placeholder="Ex: Ladder PPE Violation"
         />
       </td>
       <td className="py-2 px-3 align-top">
-        <TextInput
+        <FillableTextField
           aria-label="User prompt"
           data-testid="verification-user-prompt"
+          isDark={isDark}
           value={fields.prompt}
           onValueChange={(value: string) => update({ prompt: value })}
           placeholder="Ex: Is anyone violating this safety rule? Answer yes or no."
@@ -376,9 +412,10 @@ export const CvAlertsVerificationTab: React.FC<CvAlertsVerificationTabProps> = (
             Filter by category
           </label>
           <div className="max-w-sm w-full">
-            <TextInput
+            <FillableTextField
               id="verification-filter"
               data-testid="verification-filter"
+              isDark={isDark}
               value={filter}
               onValueChange={setFilter}
               placeholder="Ex: Alert type or output category"

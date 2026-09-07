@@ -22,9 +22,12 @@ Internal storage IDs (backend document keys) use a shared helper:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
+from typing import Literal
 from typing import Protocol
 
 from vss_core._foundation.errors import LibraryError
@@ -133,6 +136,7 @@ class MemoryQuery:
     until: datetime | str | None = None
     time_field: str = "created_at"
     limit: int = 20
+    mode: Literal["keyword", "semantic", "hybrid"] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "since", coerce_utc_instant(self.since))
@@ -141,6 +145,8 @@ class MemoryQuery:
             raise ValueError("time_field must be 'created_at' or 'window'")
         if self.parents_only and self.record_type is not None:
             raise ValueError("parents_only cannot be combined with record_type")
+        if self.mode not in {None, "keyword", "semantic", "hybrid"}:
+            raise ValueError("mode must be 'keyword', 'semantic', 'hybrid', or None")
 
 
 @dataclass(slots=True)
@@ -180,6 +186,14 @@ class MemoryStore(Protocol):
         record_id: str,
     ) -> UnifiedMemoryRecord | None:
         """Return a child record by public identity, or ``None``."""
+        ...
+
+    def get_many(self, storage_ids: Sequence[str]) -> list[UnifiedMemoryRecord]:
+        """Return existing records in input storage-ID order."""
+        ...
+
+    def scan(self, *, batch_size: int, limit: int | None = None) -> Iterator[UnifiedMemoryRecord]:
+        """Stream records in deterministic ascending storage-ID order."""
         ...
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]: ...

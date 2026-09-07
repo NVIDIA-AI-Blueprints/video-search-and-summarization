@@ -46,7 +46,8 @@ whether a browse origin is wanted, ask rather than silently retaining it.
 | `HARDWARE_PROFILE` | Select current hardware defaults. |
 | `LLM_MODE`, `LLM_NAME`, `LLM_NAME_SLUG`, `LLM_DEVICE_ID`, `LLM_BASE_URL` | Select and place the LLM. |
 | `VLM_MODE`, `VLM_NAME`, `RT_VLM_DEVICE_ID`, `VLM_BASE_URL` | Select and place integrated or remote VLM inference. |
-| `RTVI_VLM_KAFKA_ENABLED` | Keep `false` unless a broker is added. |
+| `RTVI_VLM_MESSAGE_BUS` | Generated-output bus; current Compose defaults to `kafka`. Set it explicitly and pair it with legacy `RTVI_VLM_KAFKA_ENABLED=true`/`false` while VSS Compose still forwards that compatibility field. Current RT-VLM uses `MESSAGE_BUS`, not `KAFKA_ENABLED`. |
+| `STREAM_TYPE` | Already `kafka`; do not repeat it in a delta unless changing broker type. |
 | `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, `EXTERNAL_IP` | Resolve repository, data, and network paths. |
 | `HAPROXY_HOST_PORT`, `VSS_PUBLIC_*`, `VSS_*_HOST_PORT` | Change public ingress or host port bindings. |
 

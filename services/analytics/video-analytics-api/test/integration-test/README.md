@@ -69,6 +69,15 @@ Generated in `docker_compose/infra/.env` by `generate_env.sh`:
 - `DATA_DIR` – `docker_compose/apps_data`
 - `COMPOSE_PROJECT_NAME` – `video-analytics-api-integration`
 
+Exported by `scripts/run_integration_tests.sh` so the controller suites know which
+deployment profile they run against — the stack loads the warehouse 2D dump, so they
+default to that profile and profile-gated cases (such as the VLM verified alert types
+check on `/incidents`) run. Set them beforehand to exercise a different profile:
+
+- `COMPOSE_PROFILE` – `bp_wh_2d`
+- `BP_PROFILE` – `bp_wh`
+- `DEPLOY_PROFILE` – `COMPOSE_PROFILES_WH_2D`
+
 Optional overrides:
 
 - `BUILD_TIMEOUT` – Docker build timeout in seconds (default 600).

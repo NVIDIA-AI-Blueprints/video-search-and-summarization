@@ -966,6 +966,7 @@ max_tokens: 4096
 temperature: 0.0
 ```
 
+<a id="alert-bridge"></a>
 ## Alert Bridge
 
 The **Alert Bridge** is the parsing layer that sits between the VLM and
@@ -992,6 +993,7 @@ key in `config.yaml` (and overridden per call by the same field on a
 The verdict the Alert Bridge stores at `info.verdict` is the same
 across all formats — see [Verdict vocabulary](#verdict-vocabulary).
 
+<a id="format-1-cosmos-reason-think-verdict"></a>
 ### Format 1 — Cosmos Reason (think + verdict)
 
 The Cosmos Reason parser tries **three strategies in order** and
@@ -1087,6 +1089,7 @@ For latency-critical screening you can ask the VLM to emit just the
 bare verdict (strategy C); set `enable_reasoning: false` and tell
 the model to "Reply with exactly one word: YES or NO".
 
+<a id="format-2-json-object"></a>
 ### Format 2 — JSON object
 
 Used by every Real-Time rule shipped with the Warehouse Blueprint
@@ -1187,6 +1190,7 @@ markdown fences automatically before reading the JSON, so you can ask
 for both `<think>…</think>` reasoning *and* a JSON output in the same
 prompt.
 
+<a id="format-3-free-form-description"></a>
 ### Format 3 — Free-form description
 
 Used when the VLM is *not* a Cosmos Reason model and you only want a
@@ -1212,6 +1216,7 @@ explanation (e.g. Elasticsearch full-text search) and the prompt
 itself does not need to drive a confirm / reject decision. For
 verdict-driven flows, use Format 1 or Format 2 instead.
 
+<a id="format-4-custom-parser"></a>
 ### Format 4 — Custom parser
 
 For replies that don't fit any built-in format — XML, key-value pairs,
@@ -1237,6 +1242,7 @@ The custom name **must not collide** with the built-in formats
 (`auto`, `cosmos-reason`, `cr1`, `cr2`, `json`, `other`);
 `register_parser` raises `ValueError` on collision.
 
+<a id="auto-detection"></a>
 ### Auto-detection
 
 When `vlm.response_format` is `auto` (the default), the parser is
@@ -1252,6 +1258,7 @@ opt-in via `response_format: "json"`. This is intentional: the JSON
 parser has a configurable schema, so the deployment must declare which
 schema it is using.
 
+<a id="verdict-vocabulary"></a>
 ### Verdict vocabulary
 
 Whichever output format you choose, the Alert Bridge emits one of the

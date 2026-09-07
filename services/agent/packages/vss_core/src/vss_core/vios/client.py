@@ -568,6 +568,10 @@ class VSTClient:
         """
         return await get_timelines_map(self._internal_url, timeout_seconds=self._timeout_seconds, retries=1)
 
+    async def get_name_to_stream_id_map(self) -> dict[str, str]:
+        """Return the current VST ``{source name: stream id}`` mapping."""
+        return await get_name_to_stream_id_map(self._internal_url, timeout_seconds=self._timeout_seconds)
+
     async def get_video_clip_url(
         self,
         *,

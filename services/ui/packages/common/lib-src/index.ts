@@ -2,7 +2,7 @@
  * common
  *
  * Shared components and utilities for the UI monorepo.
- * Use this package across all apps (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui, etc.)
+ * Use this package across all apps (nv-metropolis-bp-vss-ui, vss-chat, etc.)
  */
 
 // Components
@@ -56,3 +56,11 @@ export { chunkedUpload, CHUNK_SIZE_BYTES, MAX_CHUNK_RETRIES } from './utils/chun
 export type { ChunkedUploadOptions, ChunkedUploadResponse } from './utils/chunkedUpload';
 export { checkVideoUrl, fetchVideoUrlFromVst, replaceVideoUrlBase } from './utils/videoModal';
 export type { FetchVideoUrlParams } from './utils/videoModal';
+export {
+  VSS_UI_ARTIFACT_CLOSE,
+  VSS_UI_ARTIFACT_MAX_LENGTH,
+  VSS_UI_ARTIFACT_OPEN,
+  VSS_UI_ARTIFACT_VERSION,
+  extractVssUiArtifacts,
+} from './utils/vssUiArtifacts';
+export type { VssUiArtifact } from './utils/vssUiArtifacts';

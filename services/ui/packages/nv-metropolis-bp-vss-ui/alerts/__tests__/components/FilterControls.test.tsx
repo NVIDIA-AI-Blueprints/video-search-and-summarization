@@ -4,8 +4,6 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { AlertsViewFilterControls } from '../../lib-src/components/AlertsSidebarControls';
 import { VLM_VERDICT } from '../../lib-src/types';
 
-jest.mock('@nemo-agent-toolkit/ui');
-
 jest.mock('@nvidia/foundations-react-core', () => {
   const React = require('react');
   return {

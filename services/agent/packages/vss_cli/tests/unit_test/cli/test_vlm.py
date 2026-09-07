@@ -153,6 +153,11 @@ def test_introspection_adapter_runs_direct_job_with_normal_persistence() -> None
 
     assert evidence.persisted is True
     assert evidence.answer == analyzer.answer
+    assert evidence.question == "What happened?"
+    assert evidence.model == "test-vlm"
+    assert evidence.intent == "introspection"
+    assert evidence.num_frames is None
+    assert evidence.timeout_seconds == 180
     assert memory.service.list_jobs()[0].input.intent == "introspection"
     assert runner.persistence_errors == []
 

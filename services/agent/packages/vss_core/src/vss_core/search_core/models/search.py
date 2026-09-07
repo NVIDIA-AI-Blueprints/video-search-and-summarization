@@ -55,7 +55,7 @@ class SearchInput(BaseModel):
     # None means use the primitive's configured default; all standalone
     # primitives receive SearchRuntime.default_max_results.
     top_k: int | None = Field(default=None, ge=1, le=1000)
-    search_mode: Literal["embed", "attribute", "fusion", "object"] = "embed"
+    search_mode: Literal["embed", "attribute", "fusion", "object", "tag"] = "embed"
     attributes: list[str] = Field(default_factory=list)
     object_ids: list[int] | None = None
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
@@ -69,7 +69,7 @@ class SearchInput(BaseModel):
         combination; centralizing them keeps the primitive's ``run()``/``stream()``
         thin and gives callers one place to exercise input semantics.
         """
-        if self.search_mode in {"embed", "fusion"} and not self.query.strip():
+        if self.search_mode in {"embed", "fusion", "tag"} and not self.query.strip():
             raise InvalidInputError(f"SearchInput.query must be non-empty for search_mode={self.search_mode!r}")
         if self.timestamp_start and self.timestamp_end and self.timestamp_start > self.timestamp_end:
             raise InvalidInputError(
@@ -82,9 +82,11 @@ class SearchInput(BaseModel):
         if self.top_k is not None and self.top_k < 1:
             raise InvalidInputError(f"top_k must be >= 1 when provided (got {self.top_k})")
         has_attributes = any(attribute.strip() for attribute in self.attributes)
-        if self.search_mode in {"attribute", "fusion"} and not has_attributes:
-            raise InvalidInputError(f"search_mode={self.search_mode!r} requires at least one attribute")
-        if self.search_mode == "embed" and has_attributes:
+        if self.video_sources and not all(source.strip() for source in self.video_sources):
+            raise InvalidInputError("video_sources must contain only non-empty source names or IDs")
+        if self.search_mode == "attribute" and not has_attributes:
+            raise InvalidInputError("search_mode='attribute' requires at least one attribute")
+        if self.search_mode in {"embed", "tag"} and has_attributes:
             raise InvalidInputError("attributes require search_mode='attribute' or search_mode='fusion'")
         if self.search_mode == "object" and not self.object_ids:
             raise InvalidInputError("search_mode='object' requires at least one object_id")

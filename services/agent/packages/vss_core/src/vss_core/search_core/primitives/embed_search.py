@@ -76,7 +76,7 @@ class EmbedSearch:
         *,
         es: ElasticIndex,
         embed: TextEmbedder,
-        vst: VSTSnapshot,
+        vst: VSTSnapshot | None,
         video_embed_index: str = VIDEO_EMBED_INDEX_ANCHOR,
         video_embed_index_wildcard: str = "mdx-embed-filtered-*",
         default_max_results: int = 10,
@@ -240,11 +240,12 @@ class EmbedSearch:
                     f"Stream {scrub_log(parsed.sensor_id)} not in VST timelines; returning hit without screenshot"
                 )
             else:
-                screenshot_url = self._vst.build_screenshot_url(
-                    sensor_id=parsed.sensor_id,
-                    timestamp=screenshot_ts,
-                    internal=False,
-                )
+                if self._vst is not None:
+                    screenshot_url = self._vst.build_screenshot_url(
+                        sensor_id=parsed.sensor_id,
+                        timestamp=screenshot_ts,
+                        internal=False,
+                    )
 
         return EmbedSearchResultItem(
             video_name=parsed.video_name,
@@ -275,18 +276,25 @@ class EmbedSearch:
 
         owns_es = es is None
         owns_embed = embed is None
-        return cls(
-            es=es if es is not None else ElasticClient.from_runtime(rt),
-            embed=embed if embed is not None else CosmosEmbedClient.from_runtime(rt),
-            vst=vst
-            if vst is not None
-            else VSTClient(
+        # VST only mints screenshot URLs; a deployment without it still
+        # serves embedding search and returns hits with an empty
+        # `screenshot_url` instead of failing on a missing service.
+        if vst is not None:
+            vst_obj = vst
+        elif rt.vst_external_url:
+            vst_obj = VSTClient(
                 # Embed search only builds externally consumable screenshot
                 # URLs; the internal VST route is not contacted.
                 internal_url=rt.vst_internal_url or "",
-                external_url=rt.require("vst_external_url"),
+                external_url=rt.vst_external_url,
                 timeout_seconds=rt.request_timeout_seconds,
-            ),
+            )
+        else:
+            vst_obj = None
+        return cls(
+            es=es if es is not None else ElasticClient.from_runtime(rt),
+            embed=embed if embed is not None else CosmosEmbedClient.from_runtime(rt),
+            vst=vst_obj,
             video_embed_index=rt.video_embed_index,
             video_embed_index_wildcard=rt.video_embed_index_wildcard,
             default_max_results=rt.default_max_results,

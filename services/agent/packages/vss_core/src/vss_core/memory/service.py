@@ -6,10 +6,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
+import logging
 from typing import Any
+from typing import Literal
 from typing import Protocol
+from typing import cast
 
 from vss_core._foundation.errors import ConfigurationError
 
@@ -25,6 +29,8 @@ from .store import MemoryStore
 from .store import coerce_utc_instant
 from .store import storage_id_for
 
+logger = logging.getLogger(__name__)
+
 
 class BackendReconciler(Protocol):
     """Optional one-shot poll of a still-pending backend job.
@@ -35,6 +41,29 @@ class BackendReconciler(Protocol):
     """
 
     def reconcile(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord | None: ...
+
+
+class SemanticMemorySynchronizer(Protocol):
+    """Derived-memory boundary invoked only after authoritative persistence."""
+
+    def sync_record(self, record: UnifiedMemoryRecord) -> object: ...
+
+
+class QueryEmbeddingProvider(Protocol):
+    """Provider boundary needed by semantic retrieval."""
+
+    def embed_query(self, text: str) -> list[float]: ...
+
+
+class SemanticMemorySearcher(Protocol):
+    """Companion-index boundary needed by semantic retrieval."""
+
+    def semantic_search(
+        self,
+        query: MemoryQuery,
+        query_vector: list[float],
+        candidate_count: int,
+    ) -> list[str]: ...
 
 
 class MemoryNotFoundError(LookupError):
@@ -163,6 +192,53 @@ def _parent_after_partial_children(
     return parent.model_copy(update=updates)
 
 
+def _deduplicate(storage_ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(storage_ids))
+
+
+def _record_recency(record: UnifiedMemoryRecord) -> datetime:
+    return record.job.updated_at or record.job.created_at
+
+
+def _matches_authoritative_filters(record: UnifiedMemoryRecord, query: MemoryQuery) -> bool:
+    """Defensively reapply non-text selectors after companion-index resolution."""
+    if query.job_id is not None and record.job.job_id != query.job_id:
+        return False
+    if (query.parents_only or not query.include_children) and record.job.is_child:
+        return False
+    if query.record_type is not None and record.job.record_type != query.record_type:
+        return False
+    if query.record_id is not None and record.job.record_id != query.record_id:
+        return False
+    if query.group is not None and record.job.group != query.group:
+        return False
+    if query.status is not None and record.job.status != query.status:
+        return False
+    if query.sensor_id is not None:
+        sensors = (record.input.sensors if record.input is not None else None) or []
+        if not any(
+            sensor.id == query.sensor_id or (sensor.info is not None and sensor.info.get("name") == query.sensor_id)
+            for sensor in sensors
+        ):
+            return False
+    assert query.since is None or isinstance(query.since, datetime)
+    assert query.until is None or isinstance(query.until, datetime)
+    if query.time_field == "window":
+        if query.since is None and query.until is None:
+            return True
+        if record.input is None or record.input.window is None:
+            return False
+        start = record.input.window.start.timestamp
+        end = record.input.window.end.timestamp if record.input.window.end is not None else start
+        return not (
+            (query.until is not None and start > query.until) or (query.since is not None and end < query.since)
+        )
+    created_at = record.job.created_at
+    return not (
+        (query.since is not None and created_at < query.since) or (query.until is not None and created_at > query.until)
+    )
+
+
 class MemoryService:
     """Orchestrates memory writes and memory-first reads.
 
@@ -175,17 +251,42 @@ class MemoryService:
         store: MemoryStore | None = None,
         *,
         reconciler: BackendReconciler | None = None,
+        semantic_memory: SemanticMemorySynchronizer | None = None,
+        embedding_provider: QueryEmbeddingProvider | None = None,
+        retrieval_mode: Literal["keyword", "semantic", "hybrid"] = "keyword",
+        semantic_candidate_count: int = 50,
+        rrf_rank_constant: int = 60,
     ) -> None:
+        if retrieval_mode not in {"keyword", "semantic", "hybrid"}:
+            raise ValueError("retrieval_mode must be 'keyword', 'semantic', or 'hybrid'")
+        if semantic_candidate_count <= 0:
+            raise ValueError("semantic_candidate_count must be positive")
+        if rrf_rank_constant <= 0:
+            raise ValueError("rrf_rank_constant must be positive")
         self._store: MemoryStore = store if store is not None else InMemoryStore()
         self._reconciler = reconciler
+        self._semantic_memory = semantic_memory
+        self._embedding_provider = embedding_provider
+        self._retrieval_mode = retrieval_mode
+        self._semantic_candidate_count = semantic_candidate_count
+        self._rrf_rank_constant = rrf_rank_constant
 
     @property
     def store(self) -> MemoryStore:
         return self._store
 
+    @property
+    def semantic_retrieval_available(self) -> bool:
+        """Whether this service has both semantic retrieval dependencies."""
+        return self._embedding_provider is not None and callable(
+            getattr(self._semantic_memory, "semantic_search", None)
+        )
+
     def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
         _reject_nested_collections(record)
-        return self._store.upsert(record)
+        persisted = self._store.upsert(record)
+        self._sync_nonfatal(persisted)
+        return persisted
 
     def upsert_bundle(self, bundle: RecordBundle) -> PersistResult:
         """Idempotently upsert parent then children; never raises on partial failure.
@@ -222,7 +323,7 @@ class MemoryService:
         written_children_by_id: dict[str, UnifiedMemoryRecord] = {}
 
         try:
-            self._store.upsert(bundle.parent)
+            persisted_parent = self._store.upsert(bundle.parent)
             written_ids.add(storage_id_for(bundle.parent))
         except Exception as error:
             failed.append(
@@ -255,9 +356,9 @@ class MemoryService:
         for child in bundle.children:
             child_storage_id = storage_id_for(child)
             try:
-                self._store.upsert(child)
+                persisted_child = self._store.upsert(child)
                 written_ids.add(child_storage_id)
-                written_children_by_id[child_storage_id] = child
+                written_children_by_id[child_storage_id] = persisted_child
             except Exception as error:
                 failed.append(
                     PersistFailure(
@@ -279,7 +380,7 @@ class MemoryService:
             corrected = _parent_after_partial_children(bundle.parent, written_children)
             if corrected != bundle.parent:
                 try:
-                    self._store.upsert(corrected)
+                    persisted_parent = self._store.upsert(corrected)
                 except Exception as error:
                     failed.append(
                         PersistFailure(
@@ -291,12 +392,46 @@ class MemoryService:
                         )
                     )
 
+        if self._semantic_memory is not None:
+            # Derived synchronization starts only after every authoritative write
+            # (including partial-parent correction) has finished. Read the parent
+            # back so its final corrected status/counts are what gets embedded.
+            try:
+                final_parent = self._store.get(bundle.parent.job.job_id) or persisted_parent
+            except Exception as error:
+                # A post-write read is required only for derived indexing. Preserve
+                # the authoritative persistence result if that read is unavailable.
+                logger.warning(
+                    "semantic memory parent refresh failed for %r (%s)",
+                    storage_id_for(persisted_parent),
+                    type(error).__name__,
+                )
+                final_parent = persisted_parent
+            self._sync_nonfatal(final_parent)
+            for child in written_children_by_id.values():
+                self._sync_nonfatal(child)
+
         return PersistResult(
             requested=requested,
             expected=expected,
             written=len(written_ids),
             failed=failed,
         )
+
+    def _sync_nonfatal(self, record: UnifiedMemoryRecord) -> None:
+        if self._semantic_memory is None:
+            return
+        try:
+            self._semantic_memory.sync_record(record)
+        except Exception as error:
+            # Embedding infrastructure is derived and must never alter the
+            # authoritative result. Do not include backend messages: they may
+            # contain endpoint credentials, payload text, or vector values.
+            logger.warning(
+                "semantic memory synchronization failed for %r (%s)",
+                storage_id_for(record),
+                type(error).__name__,
+            )
 
     def get(
         self,
@@ -342,7 +477,74 @@ class MemoryService:
         return self._store.list_jobs(filters or JobFilters())
 
     def query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
-        return self._store.query(query)
+        if not query.text:
+            return self._store.query(query)
+
+        mode = query.mode or self._retrieval_mode
+        if mode == "keyword" or not self.semantic_retrieval_available:
+            return self._store.query(query)
+        if mode == "semantic":
+            try:
+                storage_ids = self._semantic_ids(query)
+            except Exception as error:
+                self._warn_semantic_fallback(error)
+                return self._store.query(query)
+            return self._resolve_semantic(query, storage_ids)
+        return self._hybrid_query(query)
+
+    def _semantic_ids(self, query: MemoryQuery) -> list[str]:
+        assert query.text is not None
+        assert self._embedding_provider is not None
+        semantic_search = cast("SemanticMemorySearcher", self._semantic_memory).semantic_search
+        vector = self._embedding_provider.embed_query(query.text)
+        return semantic_search(query, vector, self._semantic_candidate_count)
+
+    def _resolve_semantic(self, query: MemoryQuery, storage_ids: list[str]) -> list[UnifiedMemoryRecord]:
+        records = self._store.get_many(_deduplicate(storage_ids))
+        return [record for record in records if _matches_authoritative_filters(record, query)][: max(query.limit, 0)]
+
+    def _hybrid_query(self, query: MemoryQuery) -> list[UnifiedMemoryRecord]:
+        candidate_limit = max(self._semantic_candidate_count, query.limit, 0)
+        keyword_records = self._store.query(replace(query, mode="keyword", limit=candidate_limit))
+        try:
+            semantic_ids = self._semantic_ids(query)
+        except Exception as error:
+            self._warn_semantic_fallback(error)
+            return keyword_records[: max(query.limit, 0)]
+
+        keyword_ids = [storage_id_for(record) for record in keyword_records]
+        ordered_ids = _deduplicate([*keyword_ids, *semantic_ids])
+        authoritative = {
+            storage_id_for(record): record
+            for record in self._store.get_many(ordered_ids)
+            if _matches_authoritative_filters(record, query)
+        }
+        scores: dict[str, float] = {}
+        best_ranks: dict[str, int] = {}
+        for ranking in (keyword_ids, _deduplicate(semantic_ids)):
+            for rank, storage_id in enumerate(ranking, start=1):
+                if storage_id not in authoritative:
+                    continue
+                scores[storage_id] = scores.get(storage_id, 0.0) + 1.0 / (self._rrf_rank_constant + rank)
+                best_ranks[storage_id] = min(best_ranks.get(storage_id, rank), rank)
+
+        ranked_ids = sorted(
+            scores,
+            key=lambda storage_id: (
+                -scores[storage_id],
+                best_ranks[storage_id],
+                -_record_recency(authoritative[storage_id]).timestamp(),
+                storage_id,
+            ),
+        )
+        return [authoritative[storage_id] for storage_id in ranked_ids[: max(query.limit, 0)]]
+
+    @staticmethod
+    def _warn_semantic_fallback(error: Exception) -> None:
+        logger.warning(
+            "semantic memory retrieval failed (%s); falling back to keyword retrieval",
+            type(error).__name__,
+        )
 
     def events(
         self,
@@ -431,10 +633,11 @@ def build_memory_service(
     memory_index: str | None = None,
     store: MemoryStore | None = None,
     reconciler: BackendReconciler | None = None,
+    semantic_memory: SemanticMemorySynchronizer | None = None,
 ) -> MemoryService:
     """Construct a memory service from explicit runtime settings (no process env)."""
     if store is not None:
-        return MemoryService(store, reconciler=reconciler)
+        return MemoryService(store, reconciler=reconciler, semantic_memory=semantic_memory)
     if es_endpoint:
         from .backends.elasticsearch import DEFAULT_MEMORY_INDEX
         from .backends.elasticsearch import ElasticsearchMemoryStore
@@ -443,7 +646,7 @@ def build_memory_service(
             endpoint=es_endpoint,
             index=memory_index or DEFAULT_MEMORY_INDEX,
         )
-        return MemoryService(es_store, reconciler=reconciler)
+        return MemoryService(es_store, reconciler=reconciler, semantic_memory=semantic_memory)
     raise ConfigurationError("memory service requires --es-endpoint (or an injected store); process env is not read")
 
 
@@ -555,5 +758,6 @@ __all__ = [
     "MemoryService",
     "PersistFailure",
     "PersistResult",
+    "SemanticMemorySynchronizer",
     "build_memory_service",
 ]
