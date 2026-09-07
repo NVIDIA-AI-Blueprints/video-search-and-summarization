@@ -246,6 +246,31 @@ class TestFOVCountsWithChartFunction:
         chart_tool.ainvoke.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "response,expected",
+        [
+            ("", "FOV histogram service returned an empty response for sensor 'gwfix6'"),
+            ("not-json", "FOV histogram service returned invalid JSON for sensor 'gwfix6'"),
+        ],
+    )
+    async def test_invalid_histogram_response_names_backend_failure(self, fov_tools, response, expected):
+        config, builder, fov_tool, chart_tool = fov_tools
+        fov_tool.ainvoke.return_value = response
+        inner_fn = await self._get_inner_fn(config, builder)
+
+        with pytest.raises(ValueError, match=expected):
+            await inner_fn(
+                FOVCountsWithChartInput(
+                    sensor_id="gwfix6",
+                    start_time="2025-01-01T00:00:00.000Z",
+                    end_time="2025-01-01T00:00:40.000Z",
+                    object_type="Person",
+                )
+            )
+
+        chart_tool.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_positive_counts_generates_chart(self, fov_tools):
         config, builder, fov_tool, chart_tool = fov_tools
 
