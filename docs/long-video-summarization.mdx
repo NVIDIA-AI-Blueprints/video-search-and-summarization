@@ -344,7 +344,7 @@ Source the values from `.env` for this profile. The diff from the base profile i
 # Enable the Kafka message queue
 KAFKA_ENABLED=true
 KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-KAFKA_TOPIC=mdx-vlm-captions
+MESSAGE_BUS_TOPIC=mdx-vlm-captions
 KAFKA_STRUCTURED_SUMMARY_TOPIC=mdx-structured-events-summary
 
 # Host-side broker ports — the compose defaults are 9092/9094.
@@ -943,11 +943,12 @@ The streaming and message bus profile uses two Kafka topics:
 
 **Configuration:**
 
-Kafka integration is controlled by the following environment variables on the Video Summarization MS server:
+Kafka integration is controlled by the following environment variables across
+the Video Summarization stack:
 
 * **KAFKA_ENABLED**: Enable or disable Kafka integration (`true` / `false`). Default: `false`
 * **KAFKA_BOOTSTRAP_SERVERS**: Comma-separated list of Kafka broker addresses (e.g., `localhost:9092` or `kafka:9092` for the in-stack broker)
-* **KAFKA_TOPIC**: Topic for raw VLM events. Default: `mdx-vlm-captions`
+* **MESSAGE_BUS_TOPIC**: Topic for raw VLM events produced by RTVI-VLM and consumed by Logstash. Default: `mdx-vlm-captions`
 * **KAFKA_STRUCTURED_SUMMARY_TOPIC**: Topic for structured events and aggregated summaries. Default: `mdx-structured-events-summary`
 * **KAFKA_PORT**: Host port mapping for the in-stack Kafka broker's internal listener. Default: `9092`
 * **KAFKA_EXTERNAL_PORT**: Host port mapping for the broker's external listener; also embedded in `KAFKA_ADVERTISED_LISTENERS`. Default: `9094`
@@ -956,7 +957,10 @@ Kafka integration is controlled by the following environment variables on the Vi
 The same `KAFKA_ENABLED=true` and `KAFKA_BOOTSTRAP_SERVERS` values must also be set on the RTVI-VLM service so it publishes raw events to the same broker. See [RTVI-VLM Kafka Integration](/vss/system-components/vision-microservices/real-time-vlm#kafka-integration) for the producer-side configuration.
 
 <Note>
-`KAFKA_TOPIC` and `KAFKA_STRUCTURED_SUMMARY_TOPIC` are forwarded to the Logstash consumer service as well, so all three components (Video Summarization MS, RTVI-VLM, and Logstash) use the same configurable topic names. Override both variables in `.env` when the default topic names conflict with an existing Kafka deployment.
+`MESSAGE_BUS_TOPIC` configures RTVI-VLM and the Logstash consumer service.
+`KAFKA_STRUCTURED_SUMMARY_TOPIC` configures the Video Summarization MS and
+Logstash. Override both variables in `.env` when the default topic names
+conflict with an existing Kafka deployment.
 </Note>
 
 **ctx-rag function configuration:**
@@ -987,7 +991,7 @@ functions:
 
 Under the streaming and message bus profile, the publishing flow depends on the API path:
 
-1. **File path** (`POST /v1/summarize`): RTVI-VLM publishes per-chunk raw events to `KAFKA_TOPIC` as it processes the file. The `LVS_CAPTION_SOURCE` environment variable controls where the Video Summarization microservice reads captions for aggregation: `sse` (default) uses captions received in-process via the RTVI SSE response, while `db` retrieves them from the Elasticsearch index populated by the Kafka → Logstash → ES pipeline. In `db` mode, the Video Summarization microservice waits `kafka_consumer_settle_secs` (default 5 seconds) so the Logstash consumer service can flush the last chunk. In both modes, the Video Summarization microservice aggregates captions via CA-RAG and publishes the structured events and aggregated summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC`.
+1. **File path** (`POST /v1/summarize`): RTVI-VLM publishes per-chunk raw events to `MESSAGE_BUS_TOPIC` as it processes the file. The `LVS_CAPTION_SOURCE` environment variable controls where the Video Summarization microservice reads captions for aggregation: `sse` (default) uses captions received in-process via the RTVI SSE response, while `db` retrieves them from the Elasticsearch index populated by the Kafka → Logstash → ES pipeline. In `db` mode, the Video Summarization microservice waits `kafka_consumer_settle_secs` (default 5 seconds) so the Logstash consumer service can flush the last chunk. In both modes, the Video Summarization microservice aggregates captions via CA-RAG and publishes the structured events and aggregated summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC`.
 2. **Live-stream path** (`POST /v1/generate_captions` + `POST /v1/stream_summarize`): The client first calls `/v1/generate_captions` to start VLM captioning (fire-and-forget). RTVI-VLM publishes raw events to the Kafka topic, and Logstash indexes them into Elasticsearch. The client then calls `/v1/stream_summarize` with an optional `[start_time, end_time]` window. The Video Summarization microservice reads captions from Elasticsearch, aggregates them via CA-RAG, and publishes the structured events and summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC` with a per-call upsert ID so repeated calls overwrite the latest result for that stream.
 3. **Message keys**: All messages are published with the key `{request_id}:{chunk_idx|batch_i|doc_i}` (UTF-8 encoded) for partitioning and ordering.
 4. **Requirement**: Set `KAFKA_ENABLED=true` on both the Video Summarization MS and RTVI-VLM, and configure `KAFKA_BOOTSTRAP_SERVERS` on both services. Without these, `/v1/summarize` silently falls back to the legacy in-process aggregation flow. `POST /v1/summarize` now rejects `source_type=stream` with HTTP 422, directing clients to use the dedicated live-stream APIs instead.
@@ -1288,7 +1292,9 @@ documentation.
 
 * `KAFKA_ENABLED`: `true` enables the streaming profile end to end on the Video Summarization MS server; `false` for the base profile (default: `false`)
 * `KAFKA_BOOTSTRAP_SERVERS`: Kafka broker bootstrap address used by the Video Summarization MS and RTVI-VLM (default: `kafka:9092` inside the docker network)
-* `KAFKA_TOPIC`: Kafka topic for raw VLM events (default: `mdx-vlm-captions`)
+* `MESSAGE_BUS`: Message bus used by RTVI-VLM for raw VLM events (default: `kafka`)
+* `MESSAGE_BUS_TOPIC`: Topic for raw VLM events produced by RTVI-VLM and consumed by Logstash (default: `mdx-vlm-captions`)
+* `ERROR_BUS`: Message bus used by RTVI-VLM for error events (default: `kafka`)
 * `KAFKA_STRUCTURED_SUMMARY_TOPIC`: Kafka topic for structured events and aggregated summaries (default: `mdx-structured-events-summary`)
 * `KAFKA_PORT`: Host port mapping for the in-stack Kafka broker's internal listener (default: `9092`)
 * `KAFKA_EXTERNAL_PORT`: Host port mapping for the broker's external listener; also embedded in `KAFKA_ADVERTISED_LISTENERS` (default: `9094`)
