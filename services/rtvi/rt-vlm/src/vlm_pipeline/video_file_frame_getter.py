@@ -2806,6 +2806,7 @@ class VideoFileFrameGetter:
         if frame_selector:
             self._frame_selector = frame_selector
         self._frame_selector.set_chunk(chunk)
+        expected_frame_count = self._frame_selector._num_frames
 
         if (
             self._pipeline
@@ -3157,7 +3158,6 @@ class VideoFileFrameGetter:
         except torch.OutOfMemoryError as exc:
             self._handle_cuda_oom(exc, "preprocessing decoded chunk frames")
             preprocessed_frames = []
-        expected_frame_count = len(self._frame_selector._selected_pts_array)
         self._frame_selector = frame_selector_backup
 
         with self._err_msg_lock:
