@@ -523,8 +523,9 @@ class TestRequestOptionsContext:
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
         assert not str(result.content).startswith("Tool call failed:")
+
     @pytest.mark.asyncio
-    async def test_plan_node_rejects_ungrounded_sensor_list_answer(self, monkeypatch):
+    async def test_plan_node_uses_structured_sensor_list_tool_call(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
@@ -535,7 +536,20 @@ class TestRequestOptionsContext:
         agent.tools_dict["vst_sensor_list"] = sensor_tool
         agent.llm = MagicMock()
         agent.llm.model_name = "test-model"
-        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="[USER] Camera_01, Camera_02"))
+        agent.llm_with_tools = MagicMock()
+        agent.llm_with_tools.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "vst_sensor_list",
+                        "args": {},
+                        "id": "planner-call-1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        )
         agent.callbacks = []
         agent.plan_prompt = None
         agent.plan_system_prompt = "System prompt."
@@ -547,7 +561,9 @@ class TestRequestOptionsContext:
         result = await agent._plan_node(state)
 
         assert result.final_answer == ""
-        assert result.plan == "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
+        assert result.plan == "1. Call `vst_sensor_list`."
+        agent.llm_with_tools.ainvoke.assert_awaited_once()
+        agent.llm.ainvoke.assert_not_called()
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
 
     @pytest.mark.asyncio
