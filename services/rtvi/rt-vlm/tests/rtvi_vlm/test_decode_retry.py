@@ -377,6 +377,38 @@ def test_failed_seek_playthrough_only_when_pipeline_is_before_target(monkeypatch
 
 
 @pytest.mark.no_gpu
+@pytest.mark.parametrize(
+    ("error", "expected", "frames", "timestamps", "audio", "accepted"),
+    [
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 20, 20, False, True),
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 19, 20, False, False),
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 20, 19, False, False),
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 20, 20, True, False),
+        ("decoder failed", 20, 20, 20, False, False),
+    ],
+)
+def test_completed_frames_suppress_only_late_qtdemux_not_linked(
+    monkeypatch, error, expected, frames, timestamps, audio, accepted
+):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import (
+        _can_use_completed_frames_after_qtdemux_not_linked,
+    )
+
+    assert (
+        _can_use_completed_frames_after_qtdemux_not_linked(
+            error,
+            expected_frames=expected,
+            actual_frames=frames,
+            actual_timestamps=timestamps,
+            audio_enabled=audio,
+        )
+        is accepted
+    )
+
+
+@pytest.mark.no_gpu
 def test_gst_property_setter_skips_properties_missing_on_jetson(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
 
