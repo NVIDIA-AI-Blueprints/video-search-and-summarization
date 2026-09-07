@@ -42,7 +42,6 @@ _stub_modules = [
     'utils.schema_util',
     'vlm.warmup',
     'vlm.vlm_client',
-    'vss',
     'metrics', 'metrics.prometheus_metrics',
 ]
 for mod_name in _stub_modules:
@@ -100,7 +99,6 @@ sys.modules['handlers.event_loop_pipeline_mixin'].EventLoopPipelineMixin = type(
 sys.modules['handlers.async_external_io_mixin'].AsyncExternalIOMixin = _AsyncExternalIOMixinStub
 sys.modules['handlers.async_vlm_mode_mixin'].AsyncVLMModeMixin = _AsyncVLMModeMixinStub
 
-sys.modules['vss'].VSSHandler = Mock
 sys.modules['metrics'].PROMETHEUS_ENABLED = False
 
 from enhance_alert_with_vlm import AnomalyEnhancer
