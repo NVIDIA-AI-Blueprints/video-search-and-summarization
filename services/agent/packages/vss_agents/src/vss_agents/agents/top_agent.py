@@ -721,10 +721,10 @@ class TopAgent(AsyncMixin):
 
     async def _plan_node(self, state: TopAgentState) -> TopAgentState:
         """
-        Planning node: drafts a step-by-step execution plan using tool names/descriptions only.
+        Planning node: drafts a step-by-step execution plan using the available tools.
 
-        Invokes the LLM without tool bindings so it focuses on planning rather than executing.
-        The resulting plan is stored in state.plan and emitted as a THOUGHT chunk.
+        Structured tool calls are converted to the existing textual plan format for the execution agent.
+        Textual plans remain supported for models that do not emit tool calls.
         """
         writer = get_stream_writer()
         logger.debug("Starting Plan Node")
@@ -823,12 +823,23 @@ class TopAgent(AsyncMixin):
         messages.append(HumanMessage(content="User question: " + question))
 
         llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
-        llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
+        planner_llm = getattr(self, "llm_with_tools", self.llm)
+        llm_to_use = planner_llm.bind(**llm_kwargs) if llm_kwargs else planner_llm
 
         result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
 
         plan_reasoning, plan_text = parse_reasoning_content(result)
-        if not plan_text:
+        planner_tool_calls = result.tool_calls if isinstance(result, AIMessage) else []
+        if planner_tool_calls:
+            plan_steps = []
+            for index, tool_call in enumerate(planner_tool_calls, start=1):
+                arguments = tool_call.get("args") or {}
+                arguments_text = (
+                    f" with arguments {json.dumps(arguments, sort_keys=True, default=str)}" if arguments else ""
+                )
+                plan_steps.append(f"{index}. Call `{tool_call['name']}`{arguments_text}.")
+            plan_text = "\n".join(plan_steps)
+        elif not plan_text:
             plan_text = str(result.content) if hasattr(result, "content") else ""
 
         logger.debug("Plan node produced plan:\n%s", plan_text)
@@ -863,13 +874,6 @@ class TopAgent(AsyncMixin):
                     "and generate its detailed report."
                 )
                 logger.warning("Rejected unnecessary camera clarification for incident report: %s", clarification)
-                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
-                return state
-            if "vst_sensor_list" in self.tools_dict and any(
-                term in question.lower() for term in ("available sensor", "available camera", "sensor id", "camera id")
-            ):
-                state.plan = "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
-                logger.warning("Rejected ungrounded planner answer for sensor-list query: %s", clarification)
                 writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
                 return state
             logger.info("Plan node requesting clarification: %s", clarification)
