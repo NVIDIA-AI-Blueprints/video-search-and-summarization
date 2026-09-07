@@ -46,6 +46,8 @@ metadata:
       /rtvi-cv /
       /phoenix/(.*) /\1
       /phoenix /
+      /llm/(.*) /\1
+      /llm /
 spec:
   ingressClassName: haproxy
   rules:
@@ -101,3 +103,13 @@ spec:
             name: <RELEASE_NAME>-phoenix
             port:
               number: 6006
+      # Only present when this profile runs its own LLM NIM (nims.nemotron35).
+      # Point a hosted-LLM deployment at the provider directly and drop this
+      # route rather than mounting it at a Service that does not exist.
+      - path: /llm
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-nemotron-35-lightning-30b-a3b
+            port:
+              number: 8000

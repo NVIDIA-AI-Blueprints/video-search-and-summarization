@@ -77,6 +77,12 @@ DISABLED_CASES = [
     ("dev-profile-base", "vssIngress.vlm.enabled=false", "/rtvi-vlm"),
     ("dev-profile-alerts", "rtvi.vss-rtvi-cv.enabled=false", "/rtvi-cv"),
     ("dev-profile-search", "infra.elasticsearch.enabled=false", "/elasticsearch"),
+    # /llm is the one route whose backend is a subchart of a subchart, so both
+    # gates are worth pinning: the nims umbrella and the LLM NIM leaf. A profile
+    # pointed at a hosted LLM has neither, and must not mount /llm at all.
+    ("dev-profile-lvs", "nims.enabled=false", "/llm"),
+    ("dev-profile-lvs", "nims.nemotron35.enabled=false", "/llm"),
+    ("dev-profile-search", "nims.nemotron35.enabled=false", "/llm"),
 ]
 
 
