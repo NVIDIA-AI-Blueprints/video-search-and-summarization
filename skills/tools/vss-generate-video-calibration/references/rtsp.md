@@ -265,14 +265,21 @@ print("[5] Clips automatically ingested")
 
 # Step 6 — Config + alignment + layout + optional extras
 if CONFIG_FILE and Path(CONFIG_FILE).exists():
-    r = s.post(f"{BASE_URL}/config/{project_id}",
-               data=Path(CONFIG_FILE).read_bytes(),
-               headers={"Content-Type": "application/json"})
+    import json as _json
+    _cfg = _json.loads(Path(CONFIG_FILE).read_text())
+    _defaults = s.get(f"{BASE_URL}/config/defaults").json().get("config_params")
+    if not isinstance(_cfg, dict) or not isinstance(_defaults, dict):
+        raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs")
+    _unsupported = sorted(set(_cfg) - set(_defaults) - {"detector", "detector_type"})
+    if _unsupported:
+        raise RuntimeError(
+            f"Unsupported AMC config key(s): {_unsupported}. Compare the file with "
+            f"GET {BASE_URL}/config/defaults and {BASE_URL.rsplit('/v1', 1)[0]}/openapi.json"
+        )
+    r = s.post(f"{BASE_URL}/config/{project_id}", json=_cfg)
     r.raise_for_status()
     print(f"[6] Applied calibration config from {Path(CONFIG_FILE).name}")
     try:
-        import json as _json
-        _cfg = _json.loads(Path(CONFIG_FILE).read_text())
         _det = _cfg.get("detector") or _cfg.get("detector_type")
         if _det in ("resnet", "transformer"):
             DETECTOR_TYPE = _det
