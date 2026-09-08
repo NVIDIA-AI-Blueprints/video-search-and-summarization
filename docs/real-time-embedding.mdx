@@ -956,10 +956,7 @@ the camera and returns `status: "added"` with an empty `asset_id`; send a later
 
 ### Single Decode Multiple Inference
 
-Single Decode Multiple Inference (SDMI) lets one RTVI-CV process decode each
-live RTSP stream a single time and share the decoded frames with multiple
-inference microservices (RTVI Embed and RTVI VLM), avoiding redundant RTSP
-connections and duplicate GPU video decoding for the same camera.
+Single Decode Multiple Inference enables RTVI-CV to decode each live RTSP stream once and share the decoded frames with multiple downstream inference microservices, such as RTVI-Embed and RTVI-VLM.
 
 Use decoded-frame IPC when RTVI-CV should own the live RTSP connection and
 decode each stream once, then publish decoded frames through `nvunixfd` Unix
