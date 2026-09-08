@@ -30,7 +30,7 @@ the OpenClaw SDK:
   `vss-openclaw-sync`, `src/sync.ts` runs `vss configure check`, which reports
   the command groups the recorded deployment can serve (the CLI joins the routes
   it recorded, such as `lvs`, `rt_vlm`, `elasticsearch` + `rt_embed`, with what
-  each group needs), probes the Alert Bridge at `<base_url>/alert-bridge` or the
+  each group needs), probes the Alert Bridge at `<base_url>/alerts` or the
   Compose port `9080`, and copies exactly the qualifying skills into
   `skills-active/`. With no recorded deployment every shipped skill is active, so
   the agent can still run `vss configure`; `skillSelection: "all"` in the plugin
