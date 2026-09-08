@@ -74,9 +74,39 @@ class _QwenTokenizer:
         assert token_ids == [10, 11]
         return '{"visual_sentinel":"ALPHA"}'
 
+    def encode(self, _prompt, add_special_tokens=False):
+        assert add_special_tokens is False
+        return [1, 2]
+
 
 class _QwenProcessor:
     tokenizer = _QwenTokenizer()
+
+    def apply_chat_template(self, *_args, **_kwargs):
+        return "<|im_start|>assistant\n"
+
+
+class _QwenStreamingLLM:
+    async def generate(self, *_args, **_kwargs):
+        yield SimpleNamespace(
+            outputs=[SimpleNamespace(text='{"visual_sent', token_ids=[10])]
+        )
+        yield SimpleNamespace(
+            outputs=[
+                SimpleNamespace(
+                    text='{"visual_sentinel":"ALPHA"}<|im_end|>',
+                    token_ids=[10, 11, 99],
+                )
+            ]
+        )
+        yield SimpleNamespace(
+            outputs=[
+                SimpleNamespace(
+                    text='{"visual_sentinel":"ALPHA"}<|im_end|>reasoning leak',
+                    token_ids=[10, 11, 99, 20],
+                )
+            ]
+        )
 
 
 class _RequestQueue:
@@ -264,6 +294,32 @@ def test_qwen3vl_non_reasoning_truncates_backend_output_at_first_answer_boundary
     assert result[0].output == '{"visual_sentinel":"ALPHA"}'
     assert result[0].reasoning_description == ""
     assert result[0].output_tokens == 5
+
+
+def test_qwen3vl_non_reasoning_stream_hides_post_boundary_output(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm",
+        SimpleNamespace(SamplingParams=_FakeSamplingParams),
+    )
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _QwenProcessor()
+    model._llm = _QwenStreamingLLM()
+    model._inflight_req_ids = []
+
+    async def collect():
+        config = VlmGenerationConfig(enable_reasoning=False, ignore_eos=True)
+        return [
+            delta
+            async for delta in model.generate_text_only_stream(
+                [{"role": "user", "content": "Describe"}],
+                config,
+            )
+        ]
+
+    assert "".join(asyncio.run(collect())) == '{"visual_sentinel":"ALPHA"}'
+    assert model._inflight_req_ids == []
 
 
 @pytest.mark.parametrize(

@@ -4092,12 +4092,30 @@ class VllmCompatible(BaseVlmModel):
         self._inflight_req_ids.append(request_id)
 
         previous_text = ""
+        enforce_answer_boundary = (
+            self._model_architecture in _QWEN3VL_ARCHS
+            and not config.enable_reasoning
+            and bool(config.ignore_eos)
+        )
+        answer_boundary_seen = False
         try:
             async for output_item in self._llm.generate(
                 llm_inputs, sampling_params=vllm_sampling_params, request_id=request_id
             ):
                 if output_item.outputs:
+                    if answer_boundary_seen:
+                        # Keep consuming the fixed-work generation, but never expose
+                        # tokens produced after the logical answer boundary.
+                        continue
                     current_text = output_item.outputs[0].text
+                    if enforce_answer_boundary:
+                        token_ids = tuple(getattr(output_item.outputs[0], "token_ids", ()))
+                        boundary_ids = self._qwen3vl_answer_boundary_token_ids()
+                        answer_boundary_seen = any(
+                            token_id in boundary_ids for token_id in token_ids
+                        )
+                        if answer_boundary_seen:
+                            current_text = self._truncate_qwen3vl_non_reasoning_output(output_item)
                     delta = current_text[len(previous_text) :]
                     if delta:
                         previous_text = current_text
