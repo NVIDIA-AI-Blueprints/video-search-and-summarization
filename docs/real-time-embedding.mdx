@@ -211,9 +211,9 @@ NVIDIA_VISIBLE_DEVICES=0                    # Use specific GPUs (default: all)
 LOG_LEVEL=INFO                              # DEBUG, INFO, WARNING, ERROR
 
 # Kafka server config
-KAFKA_ENABLED=<true/false>                  # Enable Kafka messages containing generated embeddings
+MESSAGE_BUS=kafka                           # Generated-output bus; 'kafka' publishes embedding messages, empty disables them
 KAFKA_BOOTSTRAP_SERVERS=<ip_address:port>   # Kafka server
-KAFKA_TOPIC=mdx-embed                       # Kafka message topic
+MESSAGE_BUS_TOPIC=mdx-embed                 # Generated embedding message topic
 ERROR_MESSAGE_TOPIC=mdx-embed-errors        # Kafka error topic (or Redis channel when Redis is enabled)
 ```
 
@@ -517,10 +517,10 @@ utilization, and error rates).
 
 | Variable | Description | Default | Required |
 | --- | --- | --- | --- |
-| `KAFKA_ENABLED` | Enable Kafka integration | `false` | No |
+| `MESSAGE_BUS` | Generated-output bus type; set to `kafka` to publish embedding messages or empty to disable publishing | `kafka` | No |
 | `KAFKA_PORT` | Host port to expose Kafka (Docker Compose only) | `9092` | No |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker addresses | `kafka:9092` | No |
-| `KAFKA_TOPIC` | Kafka topic name for embedding messages | `mdx-embed` | No |
+| `MESSAGE_BUS_TOPIC` | Kafka topic name for embedding messages | `mdx-embed` | No |
 | `ERROR_MESSAGE_TOPIC` | Kafka topic name for error messages (or Redis channel when Redis is enabled) | `mdx-embed-errors` | No |
 | `ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT` | Enable streaming text embeddings results to Kafka | `false` | No |
 | `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` | Max queued Kafka producer send jobs before dropping during broker metadata stalls | `1024` | No |
@@ -546,7 +546,7 @@ utilization, and error rates).
 
 ## Kafka Integration
 
-When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.yaml`), **Kafka and Redis containers are started automatically** and `rtvi-server` depends on them. The compose defaults are `KAFKA_ENABLED=true` and `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`. Set `KAFKA_ENABLED=false` and `ENABLE_REDIS_ERROR_MESSAGES=false` in `.env` only when you intentionally run without those dependencies.
+When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.yaml`), **Kafka and Redis containers are started automatically** and `rtvi-server` depends on them. The compose defaults are `MESSAGE_BUS=kafka` and `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`. Set `MESSAGE_BUS=` (empty) and `ENABLE_REDIS_ERROR_MESSAGES=false` in `.env` only when you intentionally run without those dependencies.
 RTVI-Embed sends Kafka messages containing generated embeddings for video input.
 The messages are sent to the `mdx-embed` topic.
 The microservice sends the Kafka messages as Protobuf messages with the `nv.VisionLLM` message type.
@@ -565,11 +565,11 @@ The microservice publishes to the following Kafka topic:
 
 Kafka integration is controlled by the following environment variables:
 
-* **KAFKA_ENABLED**: Enable/disable Kafka integration (`true` /
-  `false`). Default: `false`
+* **MESSAGE_BUS**: Generated-output bus type; set to `kafka` to publish
+  embedding messages or leave empty to disable publishing. Default: `kafka`
 * **KAFKA_BOOTSTRAP_SERVERS**: Comma-separated list of Kafka broker
   addresses (e.g., `localhost:9092` or `kafka:9092` for Docker)
-* **KAFKA_TOPIC**: Topic for VisionLLM messages. Default:
+* **MESSAGE_BUS_TOPIC**: Topic for VisionLLM messages. Default:
   `mdx-embed`
 * **ERROR_MESSAGE_TOPIC**: Topic for error messages (or Redis channel when Redis is enabled). Default:
   `mdx-embed-errors`
@@ -955,6 +955,11 @@ the camera and returns `status: "added"` with an empty `asset_id`; send a later
 `camera_streaming` event with a URL to create the stream asset.
 
 ### Single Decode Multiple Inference
+
+Single Decode Multiple Inference (SDMI) lets one RTVI-CV process decode each
+live RTSP stream a single time and share the decoded frames with multiple
+inference microservices (RTVI Embed and RTVI VLM), avoiding redundant RTSP
+connections and duplicate GPU video decoding for the same camera.
 
 Use decoded-frame IPC when RTVI-CV should own the live RTSP connection and
 decode each stream once, then publish decoded frames through `nvunixfd` Unix
