@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Create the deployment and NemoClaw provisioning task for an eval.
+"""Create the deployment and NemoClaw provisioning tasks for an eval.
 
 The task is intentionally a tiny Harbor task, not another deployment
 implementation. Its agent follows ``/vss-build-vision-ai`` on the remote
-worker to deploy and validate the Compose build. Its verifier then uses the
-existing NemoClaw CLI contract to attach the named sandbox to that ready
-deployment. Harbor only supplies the normal coding-agent execution and the
-same Brev worker that the subsequent operational scenarios use.
+worker twice: first to deploy and validate the Compose build, then to use the
+skill's documented bring-up-only path for NemoClaw. Harbor only supplies normal
+coding-agent execution and the same Brev worker for both phases and the later
+operational scenarios.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import shutil
 from pathlib import Path
 
 
+DEPLOYMENT_TASK = "build-vision-deploy"
 BOOTSTRAP_TASK = "build-vision-bootstrap"
 
 
@@ -34,22 +35,41 @@ def _spec_deployment(spec_path: Path) -> tuple[str, str]:
     return profile, deploy_mode
 
 
-def _instruction(*, skill: str, platform: str, profile: str, deploy_mode: str) -> str:
+def _deployment_instruction(*, platform: str, profile: str, deploy_mode: str) -> str:
     mode = f" in `{deploy_mode}` mode" if deploy_mode else ""
     return f"""You are the provisioning phase of a non-interactive skill evaluation.
 
 Use `/vss-build-vision-ai` from `$HOME/video-search-and-summarization` to deploy
-the `{profile}` VSS profile on `{platform}`{mode}, with NemoClaw as its only
-conversational harness. Follow the skill's documented ordering through the
-resolved Compose build, its readiness gate, and the host-side NemoClaw bring-up.
-Use the sandbox name and model-provider settings supplied in the environment and
-ensure the operational skill `/{skill}` is installed in that sandbox.
+the `{profile}` VSS profile on `{platform}`{mode}. Select no conversational
+harness for this phase. Follow the skill's documented ordering through the
+resolved Compose build and its readiness gate.
 
 Do not use individual deployment skills as an alternative to
-`/vss-build-vision-ai`. Do not stop at a generated `resolved.yml` or a ready VSS
-deployment: complete the Build Vision AI NemoClaw handoff before you finish.
-Run autonomously and do not request confirmation.
+`/vss-build-vision-ai`. Do not stop at a generated `resolved.yml`: complete the
+deployment and readiness gate before you finish. Run autonomously and do not
+request confirmation.
 """
+
+
+def _harness_instruction(*, skill: str, profile: str) -> str:
+    return f"""You are the NemoClaw phase of a non-interactive skill evaluation.
+
+The `{profile}` VSS profile was deployed and passed its readiness gate on this
+same host in the preceding phase. Use `/vss-build-vision-ai` from
+`$HOME/video-search-and-summarization` in its documented bring-up-only mode for
+an already-deployed build: attach NemoClaw as the conversational harness without
+recomposing or redeploying VSS. Use the sandbox name and model-provider settings
+supplied in the environment and ensure the operational skill `/{skill}` is
+installed in that sandbox.
+
+This task is incomplete until `openshell sandbox get
+$NEMOCLAW_SANDBOX_NAME` succeeds. Run autonomously and do not request
+confirmation.
+"""
+
+
+def _phase_complete_script() -> str:
+    return "#!/bin/sh\nmkdir -p /logs/verifier\nprintf '1.0\\n' > /logs/verifier/reward.txt\n"
 
 
 def _health_check_script() -> str:
@@ -128,7 +148,7 @@ def create_bootstrap_task(
     platform: str,
     repo_root: Path,
 ) -> Path:
-    """Create a one-task Harbor project and return its project directory.
+    """Create a two-task Harbor project and return its project directory.
 
     Copying the original task metadata keeps worker requirements authoritative
     in the operational spec.  This helper never interprets GPU policy itself.
@@ -136,35 +156,43 @@ def create_bootstrap_task(
 
     if not source_task_toml.is_file():
         raise FileNotFoundError(f"source task missing: {source_task_toml}")
-    profile, deploy_mode = _spec_deployment(spec_path)
-    task_dir = destination / BOOTSTRAP_TASK
-    task_dir.mkdir(parents=True, exist_ok=False)
-    (task_dir / "task.toml").write_text(
-        source_task_toml.read_text(encoding="utf-8"), encoding="utf-8"
-    )
-    (task_dir / "instruction.md").write_text(
-        _instruction(
-            skill=skill,
-            platform=platform,
-            profile=profile,
-            deploy_mode=deploy_mode,
-        ),
-        encoding="utf-8",
-    )
-    environment = task_dir / "environment"
-    environment.mkdir()
-    (environment / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
-    solution = task_dir / "solution"
-    solution.mkdir()
-    (solution / "solve.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    tests = task_dir / "tests"
-    tests.mkdir()
-    (tests / "test.sh").write_text(_health_check_script(), encoding="utf-8")
-
     build_skill = repo_root / "skills" / "vss-build-vision-ai"
     if not (build_skill / "SKILL.md").is_file():
         raise FileNotFoundError(f"Build Vision AI skill missing: {build_skill}")
-    skills_dir = task_dir / "skills"
-    skills_dir.mkdir()
-    shutil.copytree(build_skill, skills_dir / "vss-build-vision-ai")
+    profile, deploy_mode = _spec_deployment(spec_path)
+    tasks = (
+        (
+            DEPLOYMENT_TASK,
+            _deployment_instruction(
+                platform=platform,
+                profile=profile,
+                deploy_mode=deploy_mode,
+            ),
+            _phase_complete_script(),
+        ),
+        (
+            BOOTSTRAP_TASK,
+            _harness_instruction(skill=skill, profile=profile),
+            _health_check_script(),
+        ),
+    )
+    for task_name, instruction, verifier in tasks:
+        task_dir = destination / task_name
+        task_dir.mkdir(parents=True, exist_ok=False)
+        (task_dir / "task.toml").write_text(
+            source_task_toml.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        (task_dir / "instruction.md").write_text(instruction, encoding="utf-8")
+        environment = task_dir / "environment"
+        environment.mkdir()
+        (environment / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+        solution = task_dir / "solution"
+        solution.mkdir()
+        (solution / "solve.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        tests = task_dir / "tests"
+        tests.mkdir()
+        (tests / "test.sh").write_text(verifier, encoding="utf-8")
+        skills_dir = task_dir / "skills"
+        skills_dir.mkdir()
+        shutil.copytree(build_skill, skills_dir / "vss-build-vision-ai")
     return destination

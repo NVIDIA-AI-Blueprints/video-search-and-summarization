@@ -43,14 +43,26 @@ class BuildVisionBootstrapTest(unittest.TestCase):
                 repo_root=repo,
             )
 
+            deployment = project / bootstrap.DEPLOYMENT_TASK
             task = project / bootstrap.BOOTSTRAP_TASK
+            self.assertEqual(
+                (deployment / "task.toml").read_text(), source_task.read_text()
+            )
             self.assertEqual((task / "task.toml").read_text(), source_task.read_text())
+            deploy_instruction = (deployment / "instruction.md").read_text()
+            self.assertIn("`alerts` VSS profile", deploy_instruction)
+            self.assertIn("`verification` mode", deploy_instruction)
+            self.assertIn("Select no conversational", deploy_instruction)
             instruction = (task / "instruction.md").read_text()
-            self.assertIn("`alerts` VSS profile", instruction)
-            self.assertIn("`verification` mode", instruction)
             self.assertIn("`/vss-manage-alerts`", instruction)
-            self.assertIn("with NemoClaw as its only", instruction)
-            self.assertIn("host-side NemoClaw bring-up", instruction)
+            self.assertIn("documented bring-up-only mode", instruction)
+            self.assertIn("recomposing or redeploying VSS", instruction)
+            self.assertIn(
+                "1.0", (deployment / "tests" / "test.sh").read_text()
+            )
+            self.assertTrue(
+                (deployment / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file()
+            )
             self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
             verifier = (task / "tests" / "test.sh").read_text()
             self.assertIn('openshell sandbox exec --name "$sandbox" -- sh -lc', verifier)

@@ -818,7 +818,7 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
-                mock.patch.object(run_leg, "run_command", side_effect=[0, 0]) as run,
+                mock.patch.object(run_leg, "run_command", side_effect=[0, 0, 0]) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
             ):
@@ -829,7 +829,8 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(command.call_args_list[0].args[4], "claude-code")
-        self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(command.call_args_list[1].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[2].args[4], "nemoclaw")
         self.assertEqual(
             command.call_args_list[0].args[0].harbor_root,
             root
@@ -843,10 +844,19 @@ class RunInvocations(unittest.TestCase):
             command.call_args_list[0].kwargs["agent_timeout_multiplier"],
             run_leg.NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
         )
-        self.assertNotIn("agent_timeout_multiplier", command.call_args_list[1].kwargs)
-        self.assertEqual(run.call_count, 2)
-        bootstrap_env = run.call_args_list[0].args[1]
-        scenario_env = run.call_args_list[1].args[1]
+        self.assertEqual(
+            command.call_args_list[1].kwargs["agent_timeout_multiplier"],
+            run_leg.NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
+        )
+        self.assertNotIn("agent_timeout_multiplier", command.call_args_list[2].kwargs)
+        self.assertEqual(run.call_count, 3)
+        deployment_env = run.call_args_list[0].args[1]
+        bootstrap_env = run.call_args_list[1].args[1]
+        scenario_env = run.call_args_list[2].args[1]
+        self.assertEqual(
+            deployment_env["NEMOCLAW_SANDBOX_NAME"],
+            bootstrap_env["NEMOCLAW_SANDBOX_NAME"],
+        )
         self.assertEqual(
             bootstrap_env["NEMOCLAW_SANDBOX_NAME"],
             scenario_env["NEMOCLAW_SANDBOX_NAME"],
@@ -857,7 +867,8 @@ class RunInvocations(unittest.TestCase):
             bootstrap_env["BREV_EXEC_TIMEOUT"],
             str(run_leg.NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC),
         )
-        self.assertEqual(run.call_args_list[1].args[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
+        self.assertEqual(bootstrap_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
+        self.assertEqual(scenario_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
 
     def test_failed_nemoclaw_bootstrap_reward_fails_leg(self):
         with tempfile.TemporaryDirectory() as td:
@@ -883,7 +894,9 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
-                mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
+                mock.patch.object(
+                    run_leg, "latest_reward", side_effect=["1.0", "0.5"]
+                ),
             ):
                 rc = run_leg.run_invocations(
                     [invocation], "vss-eval-box", root / "results", root / "scratch",
@@ -891,7 +904,7 @@ class RunInvocations(unittest.TestCase):
                 )
 
             self.assertEqual(rc, 1)
-            run.assert_called_once()
+            self.assertEqual(run.call_count, 2)
             self.assertTrue((root / "results" / "provisioning-failure.txt").is_file())
 
     def test_passing_step_lets_the_chain_continue(self):

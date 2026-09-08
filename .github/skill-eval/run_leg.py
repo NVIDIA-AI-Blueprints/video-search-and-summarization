@@ -42,7 +42,11 @@ import threading
 import time
 import urllib.parse
 
-from nemoclaw.buildvision_bootstrap import BOOTSTRAP_TASK, create_bootstrap_task
+from nemoclaw.buildvision_bootstrap import (
+    BOOTSTRAP_TASK,
+    DEPLOYMENT_TASK,
+    create_bootstrap_task,
+)
 
 # Self-contained instrumentation with its own module state. Split out because
 # this file is long enough that a reader looking for the lock or the Harbor
@@ -1548,6 +1552,11 @@ def run_invocations(
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"FATAL: could not create Build Vision AI bootstrap task: {exc}", file=sys.stderr)
             return 1
+        deployment = HarborInvocation(
+            harbor_root=bootstrap_root,
+            include_task_name=DEPLOYMENT_TASK,
+            chain_key="build-vision-deploy",
+        )
         bootstrap = HarborInvocation(
             harbor_root=bootstrap_root,
             include_task_name=BOOTSTRAP_TASK,
@@ -1585,23 +1594,50 @@ def run_invocations(
                 NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC,
             )
         )
-        bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
-        shutil.rmtree(bootstrap_results, ignore_errors=True)
-        bootstrap_cmd = build_harbor_command(
-            bootstrap,
-            bootstrap_results,
+        deployment_results = scratch / f"nemoclaw-deployment-results-{leg_slug}"
+        shutil.rmtree(deployment_results, ignore_errors=True)
+        deployment_cmd = build_harbor_command(
+            deployment,
+            deployment_results,
             model,
             base_url,
             "claude-code",
             agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
         )
-        print("[run-leg] provisioning with Build Vision AI before NemoClaw scenarios", flush=True)
-        bootstrap_started_at = time.time() - 1.0
-        with phase("harbor:build-vision-bootstrap"):
-            bootstrap_rc = run_command(bootstrap_cmd, bootstrap_env, harbor_timeout_sec)
-        bootstrap_reward = latest_reward(
-            bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
+        print("[run-leg] deploying with Build Vision AI before NemoClaw setup", flush=True)
+        deployment_started_at = time.time() - 1.0
+        with phase("harbor:build-vision-deploy"):
+            deployment_rc = run_command(deployment_cmd, bootstrap_env, harbor_timeout_sec)
+        deployment_reward = latest_reward(
+            deployment_results, DEPLOYMENT_TASK, started_at=deployment_started_at
         )
+        if deployment_rc != 0 or _reward_value(deployment_reward) < 1.0:
+            bootstrap_results = deployment_results
+            bootstrap_rc = deployment_rc
+            bootstrap_reward = deployment_reward
+        else:
+            # The second Build Vision task attaches the harness to the live
+            # Compose build produced above. Preserve both Docker and repo state.
+            bootstrap_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+            bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
+            shutil.rmtree(bootstrap_results, ignore_errors=True)
+            bootstrap_cmd = build_harbor_command(
+                bootstrap,
+                bootstrap_results,
+                model,
+                base_url,
+                "claude-code",
+                agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
+            )
+            print("[run-leg] attaching NemoClaw with Build Vision AI", flush=True)
+            bootstrap_started_at = time.time() - 1.0
+            with phase("harbor:build-vision-bootstrap"):
+                bootstrap_rc = run_command(
+                    bootstrap_cmd, bootstrap_env, harbor_timeout_sec
+                )
+            bootstrap_reward = latest_reward(
+                bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
+            )
         if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
             # The bootstrap uses a scratch results root so it cannot appear in
             # the operational report. Preserve its verifier/exception output
