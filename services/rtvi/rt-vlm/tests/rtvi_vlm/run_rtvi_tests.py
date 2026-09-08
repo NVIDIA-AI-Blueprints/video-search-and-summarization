@@ -187,6 +187,7 @@ def main():
             "test_rtvi_stream_handler.py",
             "test_rtvi_client_cli.py",
             "test_frame_sampling.py",
+            "test_cuda_frame_ring.py",
             "test_media_file_info.py",
             "test_vlm_pipeline_live_subscribers.py",
             "test_vllm_qwen3_cache_reuse_patch.py",

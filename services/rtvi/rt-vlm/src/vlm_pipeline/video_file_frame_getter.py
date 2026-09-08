@@ -60,6 +60,7 @@ from torchvision.transforms import InterpolationMode, v2
 from common.chunk_info import ChunkInfo
 from common.logger import TimeMeasure, logger
 from utils.media_file_info import MediaFileInfo
+from vlm_pipeline.cuda_frame_ring import CudaFrameRing
 from vlm_pipeline.errors import format_cuda_oom_error
 from vlm_pipeline.ipc_frame_source import (
     DEFAULT_IPC_META_DESERIALIZATION_LIB,
@@ -862,6 +863,18 @@ class VideoFileFrameGetter:
         self._gop_decode_opt_enabled = os.environ.get(
             "RTVI_ENABLE_GOP_DECODE_OPT", "true"
         ).lower() not in ("false", "0", "no", "off")
+        try:
+            ring_mb = max(
+                1,
+                int(os.environ.get("RTVI_PERSISTENT_CUDA_FRAME_RING_MB", "512")),
+            )
+        except ValueError:
+            ring_mb = 512
+        self._persistent_cuda_frame_ring_enabled = _env_bool(
+            "RTVI_PERSISTENT_CUDA_FRAME_RING", False
+        )
+        self._live_cuda_frame_ring = CudaFrameRing(ring_mb * 1024 * 1024)
+        self._live_stream_epoch = 0
 
         if "gdino_engine" in self._cv_pipeline_configs:
             self._gdino_engine = self._cv_pipeline_configs["gdino_engine"]
@@ -931,6 +944,15 @@ class VideoFileFrameGetter:
             with self._live_stream_frame_selectors_lock:
                 for fs_data in self._live_stream_frame_selectors.values():
                     fs_data.cached_frames = []
+        if (
+            getattr(self, "_persistent_cuda_frame_ring_enabled", False)
+            and getattr(self, "_live_cuda_frame_ring", None) is not None
+        ):
+            source_id = getattr(self, "_ipc_stream_identity", "") or getattr(
+                self, "_current_stream_id", ""
+            )
+            if source_id:
+                self._live_cuda_frame_ring.discard(source_id)
         try:
             torch.cuda.empty_cache()
         except RuntimeError:
@@ -1127,9 +1149,25 @@ class VideoFileFrameGetter:
                 or (len(fs._selected_pts_array) == 0 and not fs.selects_all_frames)
                 or flush
             ):
-                if len(fs_data.cached_pts) == len(fs_data.cached_frames) or flush:
+                ring_frames = None
+                if self._persistent_cuda_frame_ring_enabled and fs_data.cached_pts:
+                    acquired = self._live_cuda_frame_ring.acquire_exact(
+                        self._ipc_stream_identity or self._current_stream_id,
+                        self._live_stream_epoch,
+                        [int(round(pts * 1_000_000_000)) for pts in fs_data.cached_pts],
+                    )
+                    if acquired is not None:
+                        ring_frames = acquired[0]
+                frames_ready = (
+                    ring_frames is not None
+                    or len(fs_data.cached_pts) == len(fs_data.cached_frames)
+                    or flush
+                )
+                if frames_ready:
                     try:
-                        cached_frames = self._preprocess(fs_data.cached_frames)
+                        cached_frames = self._preprocess(
+                            ring_frames if ring_frames is not None else fs_data.cached_frames
+                        )
                     except torch.OutOfMemoryError as exc:
                         self._handle_cuda_oom(
                             exc,
@@ -2167,9 +2205,19 @@ class VideoFileFrameGetter:
                 # Cache the pre-processed frame / jpeg and its timestamp. Convert
                 # the timestamps from nanoseconds to seconds.
                 if self._is_live:
+                    if self._persistent_cuda_frame_ring_enabled:
+                        self._live_cuda_frame_ring.append(
+                            self._ipc_stream_identity or self._current_stream_id,
+                            self._live_stream_epoch,
+                            int(buffer.pts),
+                            image_tensor,
+                        )
                     with self._live_stream_frame_selectors_lock:
                         for _, fs_data in self._live_stream_frame_selectors.items():
                             if buffer.pts / 1e9 in fs_data.cached_pts:
+                                # The selector's reference pins the frame until its
+                                # request completes, even if bounded ring eviction
+                                # removes the stream-owned reference first.
                                 fs_data.cached_frames.append(image_tensor)
                         self._process_finished_chunks(buffer.pts)
                 else:
@@ -3335,6 +3383,12 @@ class VideoFileFrameGetter:
             self._live_stream_ntp_pts = 0
             self._cached_transcripts = []
 
+            if self._persistent_cuda_frame_ring_enabled and self._live_stream_epoch:
+                self._live_cuda_frame_ring.discard(
+                    self._ipc_stream_identity,
+                    self._live_stream_epoch,
+                )
+            self._live_stream_epoch += 1
             self._pipeline = self._create_pipeline(live_stream_url, username, password)
 
             # Start input, output audio ASR in a separate process if audio is enabled,
@@ -3471,6 +3525,8 @@ class VideoFileFrameGetter:
         self._pipeline = None
         self._clear_pipeline_elements()
         self._live_stream_frame_selectors.clear()
+        if self._persistent_cuda_frame_ring_enabled:
+            self._live_cuda_frame_ring.discard(self._ipc_stream_identity)
         self._live_stream_chunk_decoded_callback = None
         self._on_stream_error_callback = None
         if self._copy_stream is not None:
