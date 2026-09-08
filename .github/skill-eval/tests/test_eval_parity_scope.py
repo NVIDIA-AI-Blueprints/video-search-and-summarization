@@ -61,6 +61,46 @@ def test_missing_skills_root_is_loud_not_empty(tmp_path, monkeypatch):
         eps.all_skills()
 
 
+def _write_spec(tmp_path, cells):
+    import json
+
+    (tmp_path / "spec.json").write_text(json.dumps({"expects": cells}), encoding="utf-8")
+
+
+def test_manifest_detects_a_check_moving_between_cells(tmp_path, monkeypatch):
+    """The reason the manifest exists. Reward is per cell (passed / len(checks)),
+    so moving a check between cells changes scores -- while every aggregate the
+    inventory reports stays identical."""
+    monkeypatch.setattr(eps, "REPO_ROOT", tmp_path)
+
+    _write_spec(tmp_path, [{"checks": ["alpha", "beta"]}, {"checks": ["gamma"]}])
+    a = eps.scan_spec("spec.json")
+    _write_spec(tmp_path, [{"checks": ["alpha"]}, {"checks": ["beta", "gamma"]}])
+    b = eps.scan_spec("spec.json")
+
+    # Every aggregate is unchanged...
+    assert (a["cells"], a["checks"], a["scopes"]) == (b["cells"], b["checks"], b["scopes"])
+
+    # ...but the manifest is not.
+    totals = {"specs": 1, "cells": 2, "checks": 3}
+    ma = eps.manifest({**totals, "by_spec": [a]})
+    mb = eps.manifest({**totals, "by_spec": [b]})
+    assert ma != mb
+    assert [c["check_count"] for c in ma["specs"][0]["cells"]] == [2, 1]
+    assert [c["check_count"] for c in mb["specs"][0]["cells"]] == [1, 2]
+
+
+def test_manifest_is_deterministic():
+    assert eps.manifest(eps.scan()) == eps.manifest(eps.scan())
+
+
+def test_manifest_excludes_the_lexical_scope_hint():
+    """Scope is a hint that will change as the classifier improves; pinning it
+    would produce diffs unrelated to the corpus changing."""
+    dumped = str(eps.manifest(eps.scan()))
+    assert "HOST" not in dumped and "PROSE" not in dumped
+
+
 def test_unreadable_spec_raises_spec_error(tmp_path, monkeypatch):
     monkeypatch.setattr(eps, "REPO_ROOT", tmp_path)
     with pytest.raises(eps.SpecError) as exc:
