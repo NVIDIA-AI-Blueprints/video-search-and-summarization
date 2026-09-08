@@ -489,6 +489,20 @@ function mask_external_ip_args() {
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
+  local _profile="${3}"
+
+  if [[ "${_profile}" == "alerts" ]]; then
+    case "${_hardware_profile}" in
+      GB300)
+        echo "0.2"
+        return
+        ;;
+      DGX-SPARK)
+        echo "0.35"
+        return
+        ;;
+    esac
+  fi
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
@@ -1832,7 +1846,7 @@ function state_up() {
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")"
       if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
@@ -1862,8 +1876,11 @@ function state_up() {
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
-      if [[ "${profile}" == "base" ]]; then
+      # Base/alerts Thor default fraction when host env did not override; LVS and
+      # search keep host value as-is. Without a default the empty value reaches
+      # RT-VLM, which then applies its own 0.7 -- ~87 GiB of Thor's shared pool,
+      # which aborts at startup once the LLM is resident.
+      if [[ "${profile}" == "base" ]] || [[ "${profile}" == "alerts" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
       else
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
