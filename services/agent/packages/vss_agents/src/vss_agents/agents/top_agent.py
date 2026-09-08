@@ -286,6 +286,10 @@ class TopAgentState(BaseModel):
     )
     iteration_count: int = Field(default=0, description="Current iteration count")
     final_answer: str = Field(default="", description="Final answer from the agent")
+    tool_failure: str = Field(
+        default="",
+        description="Last unrecovered tool exception, surfaced instead of an answer the agent wrote without it",
+    )
     plan: str = Field(default="", description="Execution plan drafted by the plan node")
     previous_conversation: str = Field(default="", description="Previous conversation summary")
     options: AgentRequestOptions = Field(default_factory=AgentRequestOptions, description="Per-request options")
@@ -988,8 +992,14 @@ class TopAgent(AsyncMixin):
 
             # Check if we have a final answer
             if final_result and not tool_calls:
-                state.final_answer = final_result
-                logger.debug("Agent provided final answer (pending postprocessing validation)")
+                if state.tool_failure:
+                    # The agent stopped calling tools after one raised, so this answer is written from
+                    # memory rather than from the tool. Relay the failure instead of the invention.
+                    state.final_answer = state.tool_failure
+                    logger.warning("Relayed the unrecovered tool failure instead of an ungrounded answer")
+                else:
+                    state.final_answer = final_result
+                    logger.debug("Agent provided final answer (pending postprocessing validation)")
                 # Still add the final answer to the scratchpad for the conversation history summary and postprocessing retries
 
             # Add agent response to scratchpad
@@ -1324,8 +1334,11 @@ class TopAgent(AsyncMixin):
                 except Exception as ex:
                     logger.exception("Tool execution failed")
                     error_response = f"Tool call failed: {ex!s}"
-                    if not state.final_answer:
-                        state.final_answer = error_response
+                    # Record the failure rather than answering with it. Answering ends the graph, and
+                    # a plan whose early step fails (e.g. `lvs_video_understanding` on a media name it
+                    # cannot resolve) then never reaches the step that writes the report. The agent node
+                    # surfaces this instead of an answer it wrote without the tool.
+                    state.tool_failure = error_response
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
@@ -1335,9 +1348,15 @@ class TopAgent(AsyncMixin):
 
             # Execute all tool calls
             tasks = [run_tool(tool, tool_call) for tool, tool_call in zip(requested_tools, tool_calls, strict=False)]
+            any_tool_succeeded = False
             for task in asyncio.as_completed(tasks):
                 tool_response = await task
+                any_tool_succeeded = any_tool_succeeded or getattr(tool_response, "status", None) == "success"
                 state.agent_scratchpad.append(tool_response)
+
+            # A sibling tool that answered grounds this turn, so a failure beside it is not the answer.
+            if any_tool_succeeded:
+                state.tool_failure = ""
 
             # Add final answer to scratchpad for conversation history summary and postprocessing retries
             if state.final_answer:
