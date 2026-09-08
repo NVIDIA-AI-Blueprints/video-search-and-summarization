@@ -1488,6 +1488,15 @@ class TopAgent(AsyncMixin):
                     # cannot resolve) then never reaches the step that writes the report. The agent node
                     # surfaces this instead of an answer it wrote without the tool.
                     state.tool_failure = error_response
+                    question = _get_content_text(state.current_message) if state.current_message is not None else ""
+                    # A named snapshot is the whole request. Continuing after streamId-not-found
+                    # lets the executor substitute a different camera (dupfix1 for Camera).
+                    if (
+                        tool_call["name"] in _SNAPSHOT_TOOL_NAMES
+                        and _names_a_specific_sensor(question)
+                        and any(term in question.lower() for term in _PICTURE_REQUEST_TERMS)
+                    ):
+                        state.final_answer = error_response
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],

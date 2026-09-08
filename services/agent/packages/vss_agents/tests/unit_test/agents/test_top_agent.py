@@ -1070,6 +1070,43 @@ class TestRequestOptionsContext:
         assert await agent._conditional_edge_from_tool(result) == AgentDecision.AGENT.value
 
     @pytest.mark.asyncio
+    async def test_tool_node_ends_a_named_camera_snapshot_when_stream_is_missing(self, monkeypatch):
+        """Continuing after Camera-not-found lets the executor snapshot dupfix1 instead."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class FailingTool:
+            args_schema = MagicMock()
+            args_schema.model_fields = {}
+
+            async def astream(self, input, config=None):
+                raise RuntimeError("streamId not found for 'Camera'. Available: ['dupfix1']")
+                yield
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"vst_snapshot": FailingTool()}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="I want to see a picture of Camera"),
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling snapshot",
+                    tool_calls=[
+                        {"name": "vst_snapshot", "args": {"sensor_id": "Camera"}, "id": "call_1"},
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        expected = "Tool call failed: streamId not found for 'Camera'. Available: ['dupfix1']"
+        assert result.tool_failure == expected
+        assert result.final_answer == expected
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.END.value
+
+    @pytest.mark.asyncio
     async def test_agent_node_relays_an_unrecovered_tool_failure(self, monkeypatch):
         """The agent stopping after a raised tool must relay the failure, not answer from memory."""
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
