@@ -20,9 +20,17 @@ Reporting rules (printed once per job, no duplicates):
 * ``ALLOWED_FAILURE: <job name>`` when a job fails with any other exit
   code while still configured with ``allow_failure: true``.
 * ``FAIL: <job name>`` when any non-``allow_failure`` job reaches status
-  ``failed`` - the script exits 1 immediately.
-* ``CANCELED: <job name>`` when a job is canceled - the script exits 1
-  immediately.
+  ``failed``.
+* ``CANCELED: <job name>`` when a job is canceled.
+
+``FAIL`` / ``CANCELED`` are announcements, not verdicts: polling
+continues until the pipeline itself reaches a terminal state, and the
+exit status is then decided from that final snapshot. A single job
+failing no longer discards the result of every job still running
+alongside it, and because the verdict is re-read at the end, a job that
+failed and was retried into a pass is not held against the pipeline.
+The check still goes red for any job that is genuinely failed or
+canceled once the pipeline is done.
 
 Resolving the exit code is non-trivial: many downstream API versions
 do NOT include ``exit_code`` in either the pipeline-jobs listing or
@@ -34,8 +42,8 @@ cached for the lifetime of the poller.
 Exit codes:
 
 * ``0`` - pipeline finished with no failures.
-* ``1`` - a failing / canceled job was observed, or the poller timed
-  out (see ``MAX_POLL_DURATION_SECONDS``).
+* ``1`` - the finished pipeline had a failing / canceled job, or the
+  poller timed out (see ``MAX_POLL_DURATION_SECONDS``).
 
 Retried jobs are handled by de-duping on ``name`` and keeping only
 the latest attempt (highest ``id``).
@@ -329,6 +337,50 @@ def latest_attempt_per_name(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(by_name.values())
 
 
+def blocking_jobs(
+    jobs: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split ``jobs`` into the failed and canceled ones that must fail
+    the check, ignoring failures the pipeline marked ``allow_failure``.
+
+    Called on the final snapshot rather than accumulated across ticks so
+    the verdict reflects each job's last attempt.
+    """
+    failed: list[dict[str, Any]] = []
+    canceled: list[dict[str, Any]] = []
+    for job in jobs:
+        status = str(job.get("status") or "").lower()
+        if status == "failed" and not bool(job.get("allow_failure")):
+            failed.append(job)
+        elif status == "canceled":
+            canceled.append(job)
+    return failed, canceled
+
+
+def describe_job(job: dict[str, Any]) -> str:
+    """One-line job description for the failure report.
+
+    Carries the stage, duration and failure reason because those are
+    what separate a job that ran the product and failed from one that
+    died in seconds before it started - a distinction the bare job name
+    cannot make.
+    """
+    name = str(job.get("name") or "<unnamed>")
+    details: list[str] = []
+    stage = str(job.get("stage") or "").strip()
+    if stage:
+        details.append(f"stage {stage}")
+    duration = job.get("duration")
+    if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+        details.append(_format_hms(duration))
+    reason = str(job.get("failure_reason") or "").strip()
+    if reason:
+        details.append(reason)
+    if not details:
+        return name
+    return f"{name} ({', '.join(details)})"
+
+
 def write_summary(lines: list[str]) -> None:
     path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
     if not path:
@@ -390,6 +442,78 @@ def _format_status_counts(counts: dict[str, int]) -> str:
     return ", ".join(parts)
 
 
+def report_terminal_pipeline(
+    pipeline_id: int,
+    pipeline_status: str,
+    jobs: list[dict[str, Any]],
+    seen_success: set[str],
+    seen_skipped: set[str],
+    seen_allowed_failure: set[str],
+) -> int:
+    """Decide the check's verdict from a terminal pipeline snapshot."""
+    failed, canceled = blocking_jobs(jobs)
+
+    if failed or canceled:
+        for job in failed:
+            emit_error(f"Downstream job failed: {describe_job(job)}")
+        for job in canceled:
+            emit_error(f"Downstream job canceled: {describe_job(job)}")
+        print(
+            f"Downstream pipeline #{pipeline_id} finished '{pipeline_status}': "
+            f"{len(failed)} failed, {len(canceled)} canceled, "
+            f"{len(seen_success)} succeeded, "
+            f"{len(seen_skipped)} skipped, "
+            f"{len(seen_allowed_failure)} allowed failures"
+        )
+        summary = [
+            "### Downstream pipeline result",
+            "",
+            f"- **Outcome:** {pipeline_status}",
+        ]
+        if failed:
+            summary.append(f"- **Failed jobs:** {len(failed)}")
+            summary.extend(f"  - `{describe_job(job)}`" for job in failed)
+        if canceled:
+            summary.append(f"- **Canceled jobs:** {len(canceled)}")
+            summary.extend(f"  - `{describe_job(job)}`" for job in canceled)
+        summary.append(f"- **Succeeded jobs:** {len(seen_success)}")
+        if seen_skipped:
+            summary.append(f"- **Skipped jobs (exit {GATE_SKIP_EXIT_CODE}):** {len(seen_skipped)}")
+        if seen_allowed_failure:
+            summary.append(f"- **Allowed failures:** {len(seen_allowed_failure)}")
+        write_summary(summary)
+        return 1
+
+    if pipeline_status == "success":
+        print(
+            f"Downstream pipeline #{pipeline_id} finished: "
+            f"{len(seen_success)} succeeded, "
+            f"{len(seen_skipped)} skipped, "
+            f"{len(seen_allowed_failure)} allowed failures"
+        )
+        summary = [
+            "### Downstream pipeline result",
+            "",
+            "- **Outcome:** success",
+            f"- **Succeeded jobs:** {len(seen_success)}",
+        ]
+        if seen_skipped:
+            summary.append(f"- **Skipped jobs (exit {GATE_SKIP_EXIT_CODE}):** {len(seen_skipped)}")
+        if seen_allowed_failure:
+            summary.append(f"- **Allowed failures:** {len(seen_allowed_failure)}")
+        write_summary(summary)
+        return 0
+
+    # Terminal, but nothing in the snapshot explains it. This happens with
+    # pipeline-level configuration errors the downstream API reports on the
+    # pipeline rather than on a job, and with a snapshot truncated by an API
+    # error. Fail closed either way.
+    emit_error(
+        f"Downstream pipeline ended with status '{pipeline_status}' and no failing job was observed"
+    )
+    return 1
+
+
 def main() -> int:
     # GitHub Actions captures stdout via a pipe, which makes Python's
     # default block-buffered stdout look like nothing is happening for
@@ -447,6 +571,11 @@ def main() -> int:
     seen_success: set[str] = set()
     seen_allowed_failure: set[str] = set()
     seen_skipped: set[str] = set()
+    # Announcement bookkeeping only: these keep each transition from being
+    # printed on every tick. The verdict comes from the terminal snapshot,
+    # not from these sets, so a retried job is judged on its last attempt.
+    seen_failed: set[str] = set()
+    seen_canceled: set[str] = set()
     # Per-job exit-code cache (keyed by job id). Populated lazily when
     # we hit a `failed + allow_failure: true` job and the listing
     # payload doesn't carry `exit_code` (the listing endpoint never
@@ -473,26 +602,16 @@ def main() -> int:
             allow_failure = bool(job.get("allow_failure"))
 
             if status == "failed" and not allow_failure:
-                print(f"FAIL: {name}")
-                print("::endgroup::")
-                write_summary([
-                    "### Downstream pipeline result",
-                    "",
-                    f"- Failed job: `{name}`",
-                    f"- Successful jobs so far: {len(seen_success)}",
-                ])
-                return 1
+                if name not in seen_failed:
+                    seen_failed.add(name)
+                    print(f"FAIL: {name}")
+                continue
 
             if status == "canceled":
-                print(f"CANCELED: {name}")
-                print("::endgroup::")
-                write_summary([
-                    "### Downstream pipeline result",
-                    "",
-                    f"- Canceled job: `{name}`",
-                    f"- Successful jobs so far: {len(seen_success)}",
-                ])
-                return 1
+                if name not in seen_canceled:
+                    seen_canceled.add(name)
+                    print(f"CANCELED: {name}")
+                continue
 
             if status == "failed" and allow_failure:
                 # The listing endpoint omits `exit_code`; resolve it
@@ -526,40 +645,28 @@ def main() -> int:
         )
         print("::endgroup::")
 
-        if pipeline_status == "success":
-            print(
-                f"Downstream pipeline #{pipeline_id} finished: "
-                f"{len(seen_success)} succeeded, "
-                f"{len(seen_skipped)} skipped, "
-                f"{len(seen_allowed_failure)} allowed failures"
-            )
-            summary = [
-                "### Downstream pipeline result",
-                "",
-                "- **Outcome:** success",
-                f"- **Succeeded jobs:** {len(seen_success)}",
-            ]
-            if seen_skipped:
-                summary.append(f"- **Skipped jobs (exit {GATE_SKIP_EXIT_CODE}):** {len(seen_skipped)}")
-            if seen_allowed_failure:
-                summary.append(f"- **Allowed failures:** {len(seen_allowed_failure)}")
-            write_summary(summary)
-            return 0
-
         if pipeline_status in TERMINAL_PIPELINE_STATUSES:
-            # Pipeline is terminal but we didn't detect a specific failing
-            # job above. This can happen with pipeline-level configuration
-            # errors (e.g. an invalid pipeline config) that the
-            # downstream API surfaces on the pipeline itself rather
-            # than on a specific job.
-            emit_error(f"Downstream pipeline ended with status '{pipeline_status}' and no failing job was observed")
-            return 1
+            return report_terminal_pipeline(
+                pipeline_id,
+                pipeline_status,
+                latest_jobs,
+                seen_success,
+                seen_skipped,
+                seen_allowed_failure,
+            )
 
         if time.monotonic() - start > max_duration:
             emit_error(
                 f"Polling timed out after {_format_hms(time.monotonic() - start)} "
                 f"(pipeline status: '{pipeline_status}')"
             )
+            # Name whatever had already failed, so a timeout report is not
+            # silent about failures the poller did observe.
+            failed, canceled = blocking_jobs(latest_jobs)
+            for job in failed:
+                emit_error(f"Downstream job failed before the timeout: {describe_job(job)}")
+            for job in canceled:
+                emit_error(f"Downstream job canceled before the timeout: {describe_job(job)}")
             return 1
 
         time.sleep(poll_interval)
