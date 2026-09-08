@@ -151,6 +151,7 @@ def _make_live_decoder():
     decoder._ipc_frame_copy = False
     decoder._ipc_socket_dir = "/run/rtvi-ipc"
     decoder._ipc_socket_template = "nvds_ipc_{camera_id}.sock"
+    decoder._cuda_frame_ring = CudaFrameRing(max_bytes=1024)
     return decoder
 
 
@@ -818,5 +819,6 @@ def test_live_stream_fallback_frame_selector_honors_server_fps_default(monkeypat
     assert created_selectors[0].args == (3,)
     assert created_selectors[0].kwargs["use_fps_for_chunking"] is True
     assert created_getters[0].destroyed == 1
+    assert created_getters[0].kwargs["cuda_frame_ring"] is decoder._cuda_frame_ring
     assert created_getters[0].stream_kwargs["chunk_overlap_duration"] == 2
     assert decoder._final_output_queue.items[-1]["live_stream_ended"] is True

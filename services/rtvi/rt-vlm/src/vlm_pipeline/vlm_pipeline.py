@@ -556,6 +556,7 @@ class DecoderProcess(ProcessBase):
                 enable_jpeg_output=self._enable_jpeg_tensors,
                 data_type_int8=self._data_type_int8,
                 audio_support=self._enable_audio,
+                cuda_frame_ring=self._cuda_frame_ring,
             )
             for _ in range(self._num_decoders_per_gpu)
         ]
@@ -1190,6 +1191,7 @@ class DecoderProcess(ProcessBase):
             enable_jpeg_output=self._enable_jpeg_tensors,
             data_type_int8=self._data_type_int8,
             audio_support=self._enable_audio,
+            cuda_frame_ring=self._cuda_frame_ring,
         )
 
         with self._live_stream_handle_info_lock:

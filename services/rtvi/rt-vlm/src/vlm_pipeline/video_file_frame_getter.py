@@ -713,6 +713,7 @@ class VideoFileFrameGetter:
         data_type_int8=False,
         audio_support=False,
         cv_pipeline_configs={},
+        cuda_frame_ring: Optional[CudaFrameRing] = None,
     ) -> None:
         self._selected_pts_array = deque()
         self._last_gst_buffer = None
@@ -873,7 +874,7 @@ class VideoFileFrameGetter:
         self._persistent_cuda_frame_ring_enabled = _env_bool(
             "RTVI_PERSISTENT_CUDA_FRAME_RING", False
         )
-        self._live_cuda_frame_ring = CudaFrameRing(ring_mb * 1024 * 1024)
+        self._live_cuda_frame_ring = cuda_frame_ring or CudaFrameRing(ring_mb * 1024 * 1024)
         self._live_stream_epoch = 0
 
         if "gdino_engine" in self._cv_pipeline_configs:

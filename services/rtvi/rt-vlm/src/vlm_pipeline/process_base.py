@@ -177,6 +177,10 @@ class ProcessBase(mp_ctx.Process):
         self._disabled = disabled
         self._num_futures_threads = 5
         self._description = description
+        # Decoder result callbacks can run concurrently. Keep the raw CUDA
+        # queue-size check and enqueue atomic so they cannot over-admit the
+        # configured on-device transport window.
+        self._cuda_transport_admission_lock = mp_ctx.Lock()
 
     def start(self) -> None:
         """Start the process"""
@@ -352,6 +356,7 @@ class ProcessBase(mp_ctx.Process):
                     if "error" in ret_item and ret_item["error"]:
                         self._final_output_queue.put(ret_item)
                     else:
+                        enqueued_cuda_frames = False
                         if _USE_CUDA_MM_TENSOR_IPC and _contains_cuda_tensor(
                             ret_item.get("frames")
                         ):
@@ -365,31 +370,36 @@ class ProcessBase(mp_ctx.Process):
                             raw_transport_slots = max(
                                 1, int(getattr(self, "_num_decoders_per_gpu", 8))
                             )
-                            if self._output_queue.qsize() >= raw_transport_slots:
-                                if _parse_bool_env(CUDA_MM_TRANSPORT_BACKPRESSURE_ENV):
-                                    if not _wait_for_cuda_transport_slot(
-                                        self._output_queue,
-                                        raw_transport_slots,
-                                        self._stop,
-                                    ):
-                                        return
-                                else:
-                                    # Preserve the established fallback unless
-                                    # bounded no-spill transport is explicitly
-                                    # enabled and qualified on the target.
-                                    ret_item["frames"] = _spill_cuda_frames_to_cpu(
-                                        ret_item["frames"]
-                                    )
-                                    logger.debug(
-                                        "Spilled decoded CUDA frames to CPU while the "
-                                        "%d-slot decoder-to-VLM queue was full",
-                                        raw_transport_slots,
-                                    )
+                            with self._cuda_transport_admission_lock:
+                                if self._output_queue.qsize() >= raw_transport_slots:
+                                    if _parse_bool_env(CUDA_MM_TRANSPORT_BACKPRESSURE_ENV):
+                                        if not _wait_for_cuda_transport_slot(
+                                            self._output_queue,
+                                            raw_transport_slots,
+                                            self._stop,
+                                        ):
+                                            return
+                                    else:
+                                        # Preserve the established fallback unless
+                                        # bounded no-spill transport is explicitly
+                                        # enabled and qualified on the target.
+                                        ret_item["frames"] = _spill_cuda_frames_to_cpu(
+                                            ret_item["frames"]
+                                        )
+                                        logger.debug(
+                                            "Spilled decoded CUDA frames to CPU while the "
+                                            "%d-slot decoder-to-VLM queue was full",
+                                            raw_transport_slots,
+                                        )
+                                if _contains_cuda_tensor(ret_item.get("frames")):
+                                    self._output_queue.put(ret_item)
+                                    enqueued_cuda_frames = True
                             # The transport retains the global 128-request
                             # capacity while bounding its on-device window.
                             # Overload either waits here or uses the established
                             # host-spill fallback, according to the opt-in mode.
-                        self._output_queue.put(ret_item)
+                        if not enqueued_cuda_frames:
+                            self._output_queue.put(ret_item)
         elif isinstance(result, dict):
             # Empty dict returned by process method, send the chunk to final output queue
             for idx in range(num_items):
