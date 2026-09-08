@@ -14,7 +14,7 @@ instruction files. The VSS eval harness builds its sandbox images from here;
 | Directory | Harness | Status |
 |---|---|---|
 | [`openclaw/`](openclaw/) | OpenClaw, on NemoClaw's managed runtime | image + plugin + workspace |
-| `hermes/` | Hermes | planned |
+| `hermes/` | Hermes | planned — needs NemoClaw to publish its complete Hermes image ([NVIDIA/NemoClaw#11228](https://github.com/NVIDIA/NemoClaw/issues/11228)); until then `deploy_nemoclaw.ipynb` installs skills and docs into the stock Hermes sandbox |
 | `pi/` | PI coding agent | planned |
 
 The `SKILL.md` tree at the repo root (`skills/`) is the portable form of the
