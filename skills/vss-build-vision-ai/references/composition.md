@@ -76,6 +76,9 @@ never because the Foundation happened to ship it.
 When more than one requested capability maps to the same owner, converge on a
 single instance (one service key, one variant, one config), never two variants
 of one owner for the same role (for example, one detector feeding two pipelines).
+Where a shared singleton's behavior lives in a mounted config, that config
+converges too: resolve one file for the build's service set, not whichever one a
+Foundation happened to ship (VIOS's `notification_config.json`, for one).
 If that owner's output feeds another service, align the consumer's config to the
 variant you selected, not to the one its Foundation shipped. Owner contracts
 state which owners are singletons, what output each fixes, and which consumer
@@ -138,8 +141,17 @@ _builds/<name>/
 ├── override.env
 ├── compose.yml
 ├── resolved.yml
+├── configs/               # optional; curated singleton config a service mounts
 └── patches/               # optional; changed or new services only
 ```
+
+Write under `configs/` only when no shipped file expresses a mounted singleton
+config for this build's service set, and the mount is env-selected so no patch
+is needed — the VIOS notification config
+([`services/vios.md`](services/vios.md)) is the case in point. Point the owning
+variable at an absolute `${BUILD_DIR}/configs/<file>` source, as `patches/`
+payloads do. Prefer a shipped file that already matches; copy and prune only
+when none does.
 
 `<name>` is a filesystem label supplied by the user or a neutral description of
 the requested build. It is never a Compose profile. If the user supplies no
