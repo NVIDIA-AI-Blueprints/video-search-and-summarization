@@ -100,8 +100,12 @@ applies (Step 2).
 On a webhook-covered build the tagging leg needs no call from here: the config's
 `rtvi-vlm` receiver carries the tag prompt in `user_defined_metadata`, and
 RT-VLM starts captioning automatically on any `stream/add` bearing a `prompt`,
-so Step 3 verifies it and the `camera_remove` webhook tears it down. Drive it by
-hand only in the fallback, where the teardown caveat below applies.
+so Step 3 verifies it and the `camera_remove` webhook tears it down. Calling it
+by hand there does not merely duplicate the work — the webhook has already
+registered the asset under the `sensorId`, so the upload call returns
+`400 AssetAlreadyExists` and the live registration is rejected as a duplicate
+stream id. Drive it by hand only in the fallback, where the teardown caveat
+below applies.
 
 ## Endpoints are injected by the caller — never hard-code ports
 
@@ -290,7 +294,8 @@ permanent rather than pending.
 | Consumer reports the stream already present, or `409 DuplicateStreamId` / `STREAM_ADD_ALREADY_ACTIVE` | Already provisioned — expected on RTSP reconnect, since VIOS re-fires `camera_streaming` with no dedup | **Treat as success.** Never as a failure or a reason to re-add |
 | Bound elapses; VIOS logs show `Webhook … giving up` (or repeated `retrying in`) for a receiver **in the intersection** | Delivery genuinely failed and was dropped | Report the consumer and the log line. Remediation: fix the receiver, then re-register the source (delete the VIOS sensor, re-add). Do **not** paper over it with a direct consumer call |
 | Same, for a receiver whose service the build did not deploy | Orphaned receiver in an inherited config — not a delivery fault | Report it as the config/build mismatch it is (Step 2), not as a fan-out failure |
-| Bound elapses; **no** webhook attempt in the VIOS logs | The `camera_type` filter excluded the receiver (Step 2), or `camera_streaming` was skipped because no URL could be generated (upload path) | Distinguish the two from the logs, then report |
+| Bound elapses; **no** webhook attempt in the VIOS logs | The `camera_type` filter excluded the receiver (Step 2) | Report the receiver as unreachable by this origin, not as a delivery failure |
+| Receiver answers `400` with `camera_url is required` | VIOS emits `camera_streaming` for every upload, but its URL generation failed, so the event carried an empty URL — only `camera_add` is tolerated URL-less | Report it against VIOS storage URL generation; re-registering will not help until the upload resolves a URL |
 
 There is no webhook introspection API: every "VIOS logs show…" check above is a
 container-log grep, run against **both** VIOS containers (`vss-vios-sensor`,
