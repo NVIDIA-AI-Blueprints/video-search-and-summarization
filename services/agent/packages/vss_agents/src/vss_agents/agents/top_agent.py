@@ -113,6 +113,8 @@ _SENSOR_REFERENCE_STOPWORDS = frozenset(
         "and",
         "are",
         "available",
+        "can",
+        "could",
         "do",
         "does",
         "exist",
@@ -121,13 +123,16 @@ _SENSOR_REFERENCE_STOPWORDS = frozenset(
         "in",
         "is",
         "list",
+        "may",
         "of",
         "or",
         "please",
+        "should",
         "show",
         "that",
         "the",
         "there",
+        "use",
         "was",
         "were",
         "which",
@@ -139,7 +144,11 @@ _SENSOR_REFERENCE_STOPWORDS = frozenset(
 def _names_a_specific_sensor(question: str) -> bool:
     """Return whether the question supplies a sensor identifier instead of asking which exist."""
     for match in _SENSOR_REFERENCE_RE.finditer(question):
-        value = match.group("value").strip("\"'`").strip()
+        raw_value = match.group("value").strip()
+        is_quoted = len(raw_value) >= 2 and raw_value[0] in "\"'`" and raw_value[-1] == raw_value[0]
+        value = raw_value.strip("\"'`").strip()
+        if is_quoted and value:
+            return True
         if value and value.casefold() not in _SENSOR_REFERENCE_STOPWORDS:
             return True
     return False
