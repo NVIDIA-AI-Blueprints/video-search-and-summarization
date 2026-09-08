@@ -974,9 +974,10 @@ socket directory, and receive matching stream events with the same `camera_id`.
 Compose mounts `RTVI_IPC_SOCKET_HOST_DIR` at the fixed container path
 `/run/rtvi-ipc`. RT-Embed always resolves sockets as
 `/run/rtvi-ipc/nvds_ipc_<identity>.sock` (the socket directory and filename
-convention are fixed, not configurable), so camera `camera-1` resolves to
-`/run/rtvi-ipc/nvds_ipc_camera-1.sock` inside RT-Embed and to
-`/tmp/nvds_ipc_camera-1.sock` on the host.
+convention are fixed, not configurable), where `<identity>` is the stream's
+`camera_id`, falling back to its sensor/stream id and then a generated UUID.
+So camera `camera-1` resolves to `/run/rtvi-ipc/nvds_ipc_camera-1.sock` inside
+RT-Embed and to `/tmp/nvds_ipc_camera-1.sock` on the host.
 
 Typical sequence:
 
@@ -996,8 +997,8 @@ Typical sequence:
 Constraints:
 
 * Applies only to live RTSP video.
-* RTVI-CV and RTVI Embed must use a compatible `gst-nvunixfd` plugin and socket
-  template.
+* RTVI-CV and RTVI Embed must use a compatible `gst-nvunixfd` plugin and the
+  fixed `nvds_ipc_<identity>.sock` socket naming convention.
 * The socket directory and socket must be readable by the RT-Embed container
   user, UID/GID `1001`. Prefer matching ownership or a restricted group-writable
   directory over world-writable permissions.
