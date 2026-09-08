@@ -32,6 +32,7 @@ from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.data_models import AgentRequestOptions
+from vss_agents.agents.multi_report_agent import MultiReportAgentInput
 from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
@@ -1263,6 +1264,102 @@ class TestRequestOptionsContext:
         result = await agent.tool_or_subagent_node(state)
 
         assert result.final_answer == "No incidents found with the specified criteria."
+
+    @pytest.mark.asyncio
+    async def test_tool_node_ends_on_successful_empty_multi_report(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class ReportFunction:
+            async def astream(self, input):
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.FINAL,
+                    content=AgentOutput(
+                        messages=[
+                            "Found 0 incidents for sensor Camera",
+                            '<incidents>{"incidents": []}</incidents>',
+                        ],
+                        status="success",
+                        metadata={"incident_count": 0, "report_type": "multi_incident"},
+                    ).model_dump_json(),
+                )
+
+        report_tool = MagicMock()
+        report_tool.args_schema = MultiReportAgentInput
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"multi_report_agent": report_tool}
+        agent.subagent_names = {"multi_report_agent"}
+        agent.subagent_functions = {"multi_report_agent": ReportFunction()}
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling report",
+                    tool_calls=[
+                        {
+                            "name": "multi_report_agent",
+                            "args": {"sensor_id": "Camera", "max_result_size": 3},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert result.final_answer == "Found 0 incidents for sensor Camera"
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.END.value
+
+    @pytest.mark.asyncio
+    async def test_mixed_valid_and_invalid_subagent_calls_end_on_validation_error(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class ReportFunction:
+            async def astream(self, input):
+                validated = MultiReportAgentInput.model_validate(input)
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.FINAL,
+                    content=AgentOutput(
+                        messages=[f"Found 1 incident for sensor {validated.source}"],
+                        status="success",
+                        metadata={"incident_count": 1, "report_type": "multi_incident"},
+                    ).model_dump_json(),
+                )
+
+        report_tool = MagicMock()
+        report_tool.args_schema = MultiReportAgentInput
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"multi_report_agent": report_tool}
+        agent.subagent_names = {"multi_report_agent"}
+        agent.subagent_functions = {"multi_report_agent": ReportFunction()}
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling reports",
+                    tool_calls=[
+                        {
+                            "name": "multi_report_agent",
+                            "args": {"sensor_id": "Camera", "max_result_size": 3},
+                            "id": "call_valid",
+                        },
+                        {
+                            "name": "multi_report_agent",
+                            "args": {"max_result_size": 3},
+                            "id": "call_invalid",
+                        },
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert result.final_answer.startswith("Tool call failed:")
+        assert "MultiReportAgentInput" in result.final_answer
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.END.value
 
 
 class TestTopAgentRequestUseCritic:

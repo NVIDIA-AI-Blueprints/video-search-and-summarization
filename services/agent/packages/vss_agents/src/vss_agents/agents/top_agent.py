@@ -64,6 +64,7 @@ from nat.data_models.intermediate_step import UsageInfo
 from nat.utils.type_converter import GlobalTypeConverter
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationError
 from typing_extensions import override  # noqa: UP035  # mypy targets 3.11
 
 from vss_agents.agents.data_models import AgentDecision
@@ -1357,10 +1358,20 @@ class TopAgent(AsyncMixin):
                                                 else artifact_note
                                             )
                                         normalized_messages = messages_text.strip().lower()
-                                        if agent_output.status == "error" or normalized_messages.startswith(
-                                            "no incidents found"
-                                        ):
+                                        incident_count = agent_output.metadata.get("incident_count")
+                                        is_empty_incident_report = (
+                                            agent_output.metadata.get("report_type") == "multi_incident"
+                                            and incident_count == 0
+                                        )
+                                        if agent_output.status == "error":
                                             state.final_answer = agent_output.error_message or messages_text
+                                        elif is_empty_incident_report:
+                                            state.final_answer = next(
+                                                (message for message in agent_output.messages if message.strip()),
+                                                "Found 0 incidents with the specified criteria.",
+                                            )
+                                        elif normalized_messages.startswith("no incidents found"):
+                                            state.final_answer = messages_text
                                         tool_response = f"tool: {tool_name} completed. Result: {messages_text}"
                                     except (json.JSONDecodeError, Exception):
                                         # Not AgentOutput JSON, treat as plain text
@@ -1488,6 +1499,10 @@ class TopAgent(AsyncMixin):
                     # cannot resolve) then never reaches the step that writes the report. The agent node
                     # surfaces this instead of an answer it wrote without the tool.
                     state.tool_failure = error_response
+                    # Invalid arguments cannot become valid by replaying the same pending
+                    # plan. End this turn instead of consuming the graph recursion budget.
+                    if isinstance(ex, ValidationError):
+                        state.final_answer = error_response
                     question = _get_content_text(state.current_message) if state.current_message is not None else ""
                     # A named snapshot is the whole request. Continuing after streamId-not-found
                     # lets the executor substitute a different camera (dupfix1 for Camera).

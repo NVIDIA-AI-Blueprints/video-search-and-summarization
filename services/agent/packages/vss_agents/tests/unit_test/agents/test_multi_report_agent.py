@@ -35,6 +35,12 @@ class TestMultiReportAgentInput:
         assert input_data.end_time is None
         assert input_data.max_result_size is None
 
+    def test_input_accepts_sensor_id_shorthand(self):
+        input_data = MultiReportAgentInput(sensor_id="Camera")
+
+        assert input_data.source == "Camera"
+        assert input_data.source_type == "sensor"
+
     def test_input_minimal_place(self):
         input_data = MultiReportAgentInput(
             source="Building A",
