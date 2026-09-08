@@ -325,7 +325,7 @@ blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
 **Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.7's `Agent UI:` line and
+`| tail`, `| head`, or a dropped stream loses section 3.6's `Agent UI:` line and
 the `WARNING:` that cell prints — without failing — when the dashboard forward
 does not come up. A clean exit does not mean the link is usable. Read the link
 from the `tee`d log.
@@ -384,7 +384,7 @@ The notebook runs with errors fatal and asserts each step itself, so a clean
 exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
-1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in
+1. **The harness is reachable.** Section 3.6 prints `Agent UI: <url>`. Put it in
    the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
    — not as a bare URL in prose, so the user can click straight through to the
    harness they just deployed. The target is the printed URL character for
@@ -408,7 +408,7 @@ Confirm the two things that exit code cannot cover:
    policy (see Prerequisites), not a deployment fault — the distinction matters
    because the two have opposite fixes.
 
-Section 3.8 is an optional deeper pass over the live sandbox, active policy
+Section 3.7 is an optional deeper pass over the live sandbox, active policy
 metadata, webhooks, and the installed workspace docs. Run it when onboarding
 behaved unexpectedly.
 

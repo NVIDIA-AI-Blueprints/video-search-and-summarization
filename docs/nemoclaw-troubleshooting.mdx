@@ -28,7 +28,7 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
 
 ## Agent UI Not Reachable
 
-**Symptom**: The Agent UI link from `deploy_nemoclaw.ipynb` Section 3.7 fails to load, hangs, or times out.
+**Symptom**: The Agent UI link from `deploy_nemoclaw.ipynb` Section 3.6 fails to load, hangs, or times out.
 
 **Cause**: The OpenShell dashboard forward on `18789` stopped, was never created, or points at the wrong sandbox.
 
@@ -111,13 +111,13 @@ Then re-run Section 3 of `deploy_nemoclaw.ipynb`.
 
 ## VSS Skills Missing
 
-**Symptom**: `list your available skills` does not show VSS skills, the Skills tab is empty, or Section 3.8 reports no non-bundled skills.
+**Symptom**: `list your available skills` does not show VSS skills, the Skills tab is empty, or Section 3.7 reports no non-bundled skills.
 
 **Solution**:
 
 The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or another agent harness, run the equivalent checks for that harness.
 
-1. Run `deploy_nemoclaw.ipynb` Section 3.8 to inspect `openclaw plugins doctor` and `openclaw skills list --json`.
+1. Run `deploy_nemoclaw.ipynb` Section 3.7 to inspect `openclaw plugins doctor` and `openclaw skills list --json`.
 
 2. Check skills from the host:
 
@@ -127,7 +127,7 @@ The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or 
 
 3. Confirm the VSS checkout includes the `skills/` directory and the agent harness directory for the selected harness, such as `agent-harness/openclaw/` (its `Dockerfile`, plugin and `workspace/` docs) or `.hermes/workspace`.
 
-4. For OpenClaw the skills and workspace docs are baked into the sandbox image; re-run Section 3.1 with `NEMOCLAW_RECREATE_SANDBOX` set to rebuild it, or run `vss-openclaw-sync` inside the sandbox to re-select the active skills from `vss configure check`. For other harnesses, re-run Section 3.3 and 3.4 of `deploy_nemoclaw.ipynb` to reinstall the `skills/<name>/` directories and re-upload the workspace docs.
+4. For OpenClaw the skills and workspace docs are baked into the sandbox image; re-run Section 3.1 with `NEMOCLAW_RECREATE_SANDBOX` set to rebuild it, or run `vss-openclaw-sync` inside the sandbox to re-select the active skills from `vss configure check`. For other harnesses, re-run Section 3.3 of `deploy_nemoclaw.ipynb` to reinstall the `skills/<name>/` directories and re-upload the workspace docs.
 
 ## NGC or Model Artifact Downloads Fail
 
@@ -161,7 +161,7 @@ nemoclaw <sandbox> destroy
 nemoclaw gc
 ```
 
-Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, reapplies the VSS policy, reinstalls the VSS skills, re-uploads the workspace docs, and re-registers the `vss_orchestrator` MCP. Run Section 3.7 to generate a fresh Agent UI link.
+Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, reapplies the VSS policy, reinstalls the VSS skills, re-uploads the workspace docs, and re-registers the `vss_orchestrator` MCP. Run Section 3.6 to generate a fresh Agent UI link.
 
 ## Clean Reinstall
 
