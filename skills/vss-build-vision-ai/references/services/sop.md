@@ -22,7 +22,7 @@ recent-activity and incident-adapter variants. There is **no** report service, V
 agent, web UI, or report LLM in this integration.
 
 When a request bundles the compliance report with the SOP deployment, produce it with
-`/vss-generate-video-report` (Mode C) after the stack is verified — **prefer invoking it via
+`/vss-generate-video-report` (Mode C — its steps are `references/report-types/sop-compliance.md` inside that skill's own directory, wherever it is installed) after the stack is verified — **prefer invoking it via
 the Skill tool** over re-implementing its steps inline, so the report follows the Mode C
 contract (exact `# SOP Compliance Report` title + template sections). (The SOP tools are
 already up by then, so Mode C's prerequisite is satisfied and it will not hand back to
@@ -222,7 +222,7 @@ need handling:
   `sop/sop-vlm-captions-json-logstash.conf`. The `get_sop_*` patch + VA-MCP config are
   **downloaded at build time** from the public SOP repo (see § Patch specifics) — **not shipped
   in this repo**.
-- **Report rendering**: `skills/operations/vss-generate-video-report/` (Mode C; `references/report-templates/sop-compliance-report.md`).
+- **Report rendering**: `skills/operations/vss-generate-video-report/` (Mode C — inside that skill's directory, wherever it is installed: steps in `references/report-types/sop-compliance.md`, template `references/report-templates/sop-compliance-report.md`).
 - **Upstream**: `deploy/docker/services/agent/compose.yml` (`vss-va-mcp`), ELK / Kafka / VIOS Compose.
 - **SOP source**: `NVIDIA/sop-monitoring-blueprints` (public, branch `main`, `0dd472f`) —
   DS-SOP image + Kibana dashboard + the VA-MCP report patch (`…/vss-agent/patches/`,

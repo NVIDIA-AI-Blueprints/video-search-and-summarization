@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics. <br>
+Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to generate structured video analysis reports — either per-clip VLM analysis or incident-range narrative reports — from NVIDIA Video Search and Summarization (VSS) deployments. <br>
+Developers and engineers use this skill to generate structured video analysis reports — per-clip VLM analysis, incident-range narrative reports, or SOP compliance reports — from NVIDIA Video Search and Summarization (VSS) deployments. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -23,6 +23,10 @@ Mitigation: Review and scan skill before deployment. <br>
 - [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 - [Video Analysis Report Template](references/report-templates/video-analysis-report.md) <br>
 - [Incident Range Report Template](references/report-templates/incident-range-report.md) <br>
+- [SOP Compliance Report Template](references/report-templates/sop-compliance-report.md) <br>
+- [Mode A steps](references/report-types/video-analysis.md) <br>
+- [Mode B steps](references/report-types/incident-range.md) <br>
+- [Mode C steps](references/report-types/sop-compliance.md) <br>
 - [Default VLM Prompt](references/default-vlm-prompt.md) <br>
 
 
@@ -70,7 +74,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 3 | 26% (-0%) | 28% (-0%) |
 
 ## Skill Version(s): <br>
-3.2.9 (source: frontmatter) <br>
+3.4.0 (source: frontmatter). The evaluation results above were recorded before the steps moved into `references/report-types/` (the card's version line was stale at the time); re-run to refresh them for 3.4.0. <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>
