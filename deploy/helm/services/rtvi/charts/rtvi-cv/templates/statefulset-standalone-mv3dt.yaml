@@ -113,6 +113,35 @@ spec:
           volumeMounts:
             - name: models
               mountPath: /opt/storage
+        {{- if and ($mv3dt.reid | default dict).enabled (($mv3dt.reid | default dict).waitForModels | default true) }}
+        # The tracker loads the CLIP-ReID ONNX from this claim at startup, and
+        # the vss-reid-embed chart's staging Job is what puts it there. Without
+        # this gate DeepStream would come up first and fail on a missing model.
+        - name: wait-for-reid-models
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              marker="/opt/storage/{{ ($mv3dt.reid).modelSubDir | default "reid" }}/.reid-models-ready"
+              echo "Waiting for staged ReID models (${marker}) ..."
+              elapsed=0
+              timeout={{ ($mv3dt.reid).waitSeconds | default 3600 }}
+              until test -f "${marker}"; do
+                if test "${elapsed}" -ge "${timeout}"; then
+                  echo "[ERROR] Timeout waiting for ReID model staging (${timeout}s)."
+                  echo "[ERROR] Is rtvi.vss-reid-embed.enabled set, and did its staging Job succeed?"
+                  exit 1
+                fi
+                echo "... still waiting (${elapsed}s)"
+                sleep 10
+                elapsed=$((elapsed + 10))
+              done
+              echo "ReID models are staged."
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+        {{- end }}
         {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
           image: docker.io/library/busybox:1.37.0
@@ -217,6 +246,8 @@ spec:
               value: {{ $mv3dt.deepstreamEnableSensorIdExtraction | default "0" | quote }}
             - name: MV3DT_DYNAMIC_CAMERA_CONFIG
               value: {{ ($mv3dt.dynamicCameraConfig | default dict).enabled | default false | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ ($mv3dt.reid | default dict).enabled | default false | quote }}
             - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
               value: {{ .Values.gstEnableCustomParserModifications | quote }}
             - name: OTEL_SDK_DISABLED

@@ -139,6 +139,24 @@ camInfo and the pub/sub topology from calibration:
 {{- end -}}
 {{- end }}
 
+{{/* Address the tracker uses to reach the ReID service. Derived rather than
+     hardcoded so it tracks the vss-reid-embed Service under
+     global.useReleaseNamePrefix; an explicit serviceAddress still wins. */}}
+{{- define "vss-rtvi-cv.reidServiceAddress" -}}
+{{- $reid := (.Values.standaloneWarehouse.mv3dt | default dict).reid | default dict -}}
+{{- if $reid.serviceAddress -}}
+{{- $reid.serviceAddress -}}
+{{- else -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
+{{- if $usePrefix -}}
+{{- printf "%s-vss-reid-embed" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- print "vss-reid-embed" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
 {{- define "vss-rtvi-cv.mv3dtRedisHost" -}}
 {{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
 {{- if $mv3dt.redisHost -}}

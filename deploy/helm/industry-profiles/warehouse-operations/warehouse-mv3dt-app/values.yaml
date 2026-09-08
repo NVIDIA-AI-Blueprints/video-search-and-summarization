@@ -232,6 +232,14 @@ infra:
       configMapName: sdrc-config
       key: config.yml
       mountPath: /config.yml
+    # MV3DT starts slowly: the tracker builds a ReID TensorRT engine on first
+    # run, and with appearance ReID enabled it also waits for the model-staging
+    # Job. SDRC would otherwise be up long before it, consume the VST camera
+    # events and ack them, leaving the pipeline at "Active sources : 0".
+    waitForWorkloads:
+      enabled: true
+      targets:
+        - vss-rtvi-cv:9000
   elasticsearch:
     enabled: true
     persistence:
@@ -420,6 +428,18 @@ rtvi:
         maxBatchSize: "4"
         mqttPort: "1883"
         redisPort: "6379"
+        # Appearance-based ReID re-association. Kept in step with the
+        # vss-reid-embed release below: serviceAddress/servicePort must match
+        # that chart's Service, and both must be enabled together.
+        reid:
+          enabled: true
+          # serviceAddress intentionally unset: it is derived from the
+          # vss-reid-embed Service name so it stays correct under
+          # global.useReleaseNamePrefix. Set it only to reach an external
+          # ReID service.
+          serviceAddress: ""
+          servicePort: "8088"
+          extractionInterval: "8"
         dynamicCameraConfig:
           enabled: true
           calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
@@ -445,6 +465,25 @@ rtvi:
       storageClass: ""
       models:
         size: 100Gi
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
+  # ReID embedding service plus its Milvus gallery backends. The staging Job
+  # writes the SigLIP2 and CLIP-ReID assets onto the vss-rtvi-cv models claim,
+  # which is why models.rtviCvClaimName tracks vss-rtvi-cv's fullname and why
+  # both releases must agree on streamType.
+  vss-reid-embed:
+    enabled: true
+    streamType: kafka
+    image:
+      pullPolicy: IfNotPresent
+    models:
+      rtviCvClaimName: vss-rtvi-cv-models
+    kafka:
+      consumerTopic: mdx-raw
+      producerTopic: mdx-compressed-embeddings
     resources:
       limits:
         nvidia.com/gpu: 1

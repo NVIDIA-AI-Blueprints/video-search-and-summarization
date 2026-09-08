@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Compose bind-mounts services/rtvi/reid-embed at /opt/scripts; Helm has no
+# host path to bind, so the same two files ship in the chart and are mounted
+# from this ConfigMap. download-embedding-models.sh looks for the converter
+# next to itself, so both must land in one directory.
+#
+# ../files/ holds verbatim copies of the canonical scripts in
+# deploy/docker/services/rtvi/reid-embed/. Helm cannot package files from
+# outside the chart directory, so the copies are unavoidable -- update both
+# when either changes.
+
+{{- if and .Values.enabled .Values.init.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-reid-embed.scriptsConfigMapName" . }}
+  labels:
+    {{- include "vss-reid-embed.labels" . | nindent 4 }}
+data:
+  download-embedding-models.sh: |
+{{ .Files.Get "files/download-embedding-models.sh" | nindent 4 }}
+  convert_clipreid_to_onnx.py: |
+{{ .Files.Get "files/convert_clipreid_to_onnx.py" | nindent 4 }}
+{{- end }}

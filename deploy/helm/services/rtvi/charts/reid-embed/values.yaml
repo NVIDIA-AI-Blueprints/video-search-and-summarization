@@ -1,0 +1,203 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Off unless a profile turns it on; only warehouse MV3DT uses it today.
+enabled: false
+
+global: {}
+nameOverride: ""
+fullnameOverride: ""
+# Inherited from global.useReleaseNamePrefix when unset.
+useReleaseNamePrefix: null
+imagePullSecrets: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Set when the cluster needs an explicit RuntimeClass for GPU scheduling.
+runtimeClassName: ""
+
+# ── ReID embedding service ────────────────────────────────────────────────────
+# Mirror-only image (container-inventory strategy "mirror"), so it is pinned
+# here rather than routed through the GHCR develop-latest channel.
+image:
+  repository: nvcr.io/nvstaging/vss-core/reid-embed
+  tag: 3.3.0-26.08.2
+  pullPolicy: IfNotPresent
+
+replicas: 1
+port: 8088
+
+# Compose runs this service with `ipc: host` so CUDA/TensorRT get real shared
+# memory; a Memory-backed emptyDir is the Kubernetes equivalent.
+dshm:
+  enabled: true
+  sizeLimit: "8Gi"
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    nvidia.com/gpu: 1
+
+# The service loads the SigLIP2 ONNX and builds a TensorRT engine on first
+# start, so readiness is gated behind a long startup budget rather than a
+# short liveness window. 60 x 10s = 600s ceiling, twice the Compose
+# start_period, because a cold PVC read is slower than a local bind mount.
+startupProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+livenessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+# kafka | redis — selects which broker block the service consumes and produces
+# on. Keep in step with rtvi.vss-rtvi-cv.standaloneWarehouse.streamType.
+streamType: kafka
+
+kafka:
+  # Defaults to the in-cluster kafka Service when empty.
+  bootstrapServers: ""
+  consumerTopic: mdx-raw
+  producerTopic: mdx-compressed-embeddings
+
+redis:
+  # Defaults to the in-cluster redis Service when empty.
+  host: ""
+  port: "6379"
+  consumerTopic: mdx-raw
+  producerTopic: mdx-compressed-embeddings
+  # Must match DeepStream's payloadkey on the consumer side and the logstash
+  # redis pipeline's data_field on the producer side.
+  consumerPayloadKey: value
+  producerPayloadKey: value
+
+# Defaults to the in-cluster VIOS ingress Service when empty.
+viosServer: ""
+viosPort: "30888"
+
+compression:
+  enabled: true
+  intervalSec: 1
+
+# SigLIP2 embeddings over the samples compression retains. Two things make this
+# more load-bearing than it looks: it is the service's only GPU workload (the
+# CUDA context is created lazily in its worker process), and it is the only
+# writer of the compressed-embeddings topic. Disabling it therefore frees the
+# GPU claim entirely but leaves that topic -- and its Elasticsearch index --
+# empty. Re-association is unaffected; it runs on the tracker's own embeddings.
+secondaryEmbedding:
+  enabled: true
+  model: siglip2
+  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v1.0/siglip2_v1.0.onnx
+  onnxModelPath: ""
+
+extraEnv: []
+
+# ── ReID model staging ────────────────────────────────────────────────────────
+# The DeepStream tracker reads reid_model.onnx from its own /opt/storage mount,
+# so the staged assets must land on the RT-CV models claim rather than a claim
+# of our own. Compose achieves the same thing by pointing both services at
+# $VSS_DATA_DIR/models/reid.
+models:
+  existingClaim: ""
+  # Falls back to the RT-CV models claim name when existingClaim is empty.
+  rtviCvClaimName: vss-rtvi-cv-models
+  mountPath: /opt/storage
+  subDir: reid
+  # UID/GID the RT-CV app drops to; staged files are chowned so the perception
+  # container can read them.
+  storageUid: 1001
+  storageGid: 1001
+
+init:
+  # Disabling this means you are staging the models yourself: create the
+  # .reid-models-ready marker in the model directory as well, or the waiters on
+  # both sides have nothing to key off.
+  enabled: true
+  # The CLIP-ReID ONNX export calls .cuda(), so the staging Job needs a GPU --
+  # unlike the RT-CV app-data Job, which is pure download and needs none.
+  #
+  # That has a first-install consequence worth knowing: the DeepStream pod is
+  # scheduled (holding its own GPU) while its init container waits for the
+  # marker this Job writes. On a cluster whose GPUs are all claimed by
+  # steady-state pods, this Job has nothing left to schedule onto and both
+  # sides wait until waitSeconds expires. Either leave one GPU free for the
+  # first install, enable GPU time-slicing/MPS in the GPU Operator, or stage
+  # the models out of band and set enabled=false.
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+    requests:
+      nvidia.com/gpu: 1
+  backoffLimit: 2
+  # Downloading SigLIP2 from NGC plus the CLIP-ReID checkpoint and exporting it
+  # takes a while on a cold claim.
+  waitSeconds: 3600
+  # Left unset so the finished Job stays visible for inspection, matching the
+  # RT-CV app-data Job.
+  ttlSecondsAfterFinished: null
+
+ngcApiSecret:
+  name: ""
+  key: ""
+
+# ── Gallery backends ──────────────────────────────────────────────────────────
+# Deliberately ephemeral (emptyDir): the ReID gallery is rebuilt from the live
+# stream, so it carries no state worth persisting across a redeploy. This
+# matches the MV3DT Compose profile, which declares no volumes for these three.
+etcd:
+  image:
+    repository: quay.io/coreos/etcd
+    tag: v3.5.18
+    pullPolicy: IfNotPresent
+  port: 2379
+  resources: {}
+  autoCompactionMode: revision
+  autoCompactionRetention: "1000"
+  quotaBackendBytes: "4294967296"
+  snapshotCount: "50000"
+
+minio:
+  image:
+    repository: minio/minio
+    tag: RELEASE.2023-03-20T20-16-18Z
+    pullPolicy: IfNotPresent
+  port: 9000
+  consolePort: 9001
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  resources: {}
+
+milvus:
+  image:
+    repository: milvusdb/milvus
+    tag: v2.5.12
+    pullPolicy: IfNotPresent
+  port: 19530
+  metricsPort: 9091
+  resources: {}
+  # Milvus standalone loads its segment index lazily; give it room before the
+  # readiness gate trips.
+  startupProbe:
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30

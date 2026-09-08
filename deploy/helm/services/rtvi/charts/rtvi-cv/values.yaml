@@ -193,6 +193,29 @@ standaloneWarehouse:
       fusionMethod: "gated_weighted"
       visibilityMin: "0.3"
       resources: {}
+    # Appearance-based ReID re-association. When enabled, the tracker config
+    # gains the ReID and ReIDService blocks, the perception app runs with
+    # --tracker-reid, and startup waits for the ReID assets that the
+    # vss-reid-embed chart's staging Job writes onto this chart's models claim.
+    # Enable both sides together: rtvi.vss-reid-embed.enabled must also be true,
+    # and serviceAddress/servicePort must match that chart's Service.
+    reid:
+      enabled: false
+      serviceAddress: "vss-reid-embed"
+      servicePort: "8088"
+      # Directory on the models claim (mounted at /opt/storage) that the
+      # staging Job populates.
+      modelSubDir: reid
+      # CLIP-ReID ONNX the tracker loads, relative to the ReID directory.
+      onnxFileName: reid_model.onnx
+      # DeepStream derives the engine name from the ONNX plus batch/precision.
+      engineFileName: reid_model.onnx_b64_gpu0_fp32.engine
+      extractionInterval: "8"
+      # Hold DeepStream at startup until the ReID assets are staged, which the
+      # vss-reid-embed chart signals with a .reid-models-ready marker. Turn off
+      # only when the models are guaranteed present without that marker.
+      waitForModels: true
+      waitSeconds: 3600
     # Generate camInfo + pub/sub + tracker cameraModelFilepath map from
     # calibration.json at pod start (sensor ids/count come from calibration).
     # DS batch size and fusion MAX_EXPECTED_SENSORS stay value-driven. Off by

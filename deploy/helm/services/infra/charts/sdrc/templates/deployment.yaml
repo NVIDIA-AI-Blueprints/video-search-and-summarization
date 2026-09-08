@@ -35,6 +35,37 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- $wait := .Values.waitForWorkloads | default dict }}
+      {{- if and $wait.enabled $wait.targets }}
+      # Compose parity with wait-for-docker-workloads.sh: SDRC must not consume
+      # the vst.event stream before the workloads it provisions can accept
+      # streams, or the camera events are acked and never redelivered.
+      initContainers:
+        - name: wait-for-workloads
+          image: {{ $wait.image | default "docker.io/library/busybox:1.37.0" | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              timeout={{ $wait.timeoutSeconds | default 1800 }}
+              elapsed=0
+              for target in {{ join " " $wait.targets | quote }}; do
+                host="${target%:*}"; port="${target##*:}"
+                echo "Waiting for workload ${host}:${port} ..."
+                until nc -z "${host}" "${port}"; do
+                  if [ "${elapsed}" -ge "${timeout}" ]; then
+                    echo "[ERROR] Timeout after ${timeout}s waiting for ${host}:${port}."
+                    echo "[ERROR] SDRC provisions this workload; starting without it would"
+                    echo "[ERROR] drop the VST camera events it needs. Check the workload."
+                    exit 1
+                  fi
+                  sleep 5
+                  elapsed=$((elapsed + 5))
+                done
+                echo "  ${host}:${port} is serving."
+              done
+              echo "All workloads are serving; starting SDRC."
+      {{- end }}
       containers:
         - name: sdrc
           image: {{ include "sdrc.image" . | quote }}
