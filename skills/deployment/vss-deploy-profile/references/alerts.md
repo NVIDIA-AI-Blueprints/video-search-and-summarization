@@ -136,14 +136,20 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 
 | Layout | Hardware | Value |
 |---|---|---|
-| RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | DGX-SPARK, H100, RTXPRO6000BW | **0.4** |
+| RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | H100, RTXPRO6000BW | **0.4** |
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | RTXPRO4500BW | **0.8** |
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | OTHER | **0.7** |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | L40S, RTXPRO4500BW | **0.8** (RTX 4500 also needs `RTVI_VLM_MAX_MODEL_LEN=18000` — see [§ RTX 4500](#rtx-4500-32-gb)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100, RTXPRO6000BW, OTHER | **0.7** |
-| RT-VLM on edge (`IGX-THOR` / `AGX-THOR`) | unified memory | passthrough from env (unset → empty; function skipped) |
+| RT-VLM on the shared deployment GPU | DGX-SPARK | **0.35** (alerts-only; `0.4` elsewhere) |
+| RT-VLM on the shared deployment GPU | GB300 | **0.2** (alerts-only; `0.3` elsewhere — the same GPU also carries RT-Embed, which has no fraction knob) |
+| RT-VLM on edge (`IGX-THOR` / `AGX-THOR`) | unified memory | **0.35** default; a host `RTVI_VLLM_GPU_MEMORY_UTILIZATION` overrides it |
 
 > Values mirror `dev-profile.sh`'s `get_rtvi_vllm_gpu_memory_utilization()`.
+> **DGX-SPARK and GB300 take alerts-specific fractions** — lower than the
+> `local_shared` values the other profiles use, because alerts keeps RT-VLM
+> resident next to the LLM and RT-CV for the whole run. Both alerts modes
+> (`verification` and `real-time`) resolve the same value.
 > **DGX-SPARK is always `local_shared`** (single GPU, device 0 reserved).
 > **L40S cannot be `local_shared`** — the script rejects sharing its device ID, so
 > it is `local`-only (RT-VLM on its own GPU @ 0.8) or remote.

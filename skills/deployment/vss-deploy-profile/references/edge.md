@@ -145,7 +145,9 @@ awk -v f="$free" -v t="$total" 'BEGIN{u=f/t-0.2; if(u<0)u=0; printf "max util ~ 
 The conservative per-service defaults already aim for this on a clean box (each
 fraction ≈ 0.4, so two co-resident services sum to ≤ 0.8): the Lightning NIM's
 shared env sets `NIM_GPU_MEM_FRACTION=0.30`, and `dev-profile.sh`
-sets RT-VLM to `0.4` on DGX Spark and `0.35` on AGX/IGX Thor for `base`. If other
+sets RT-VLM to `0.4` on DGX Spark for `base` and `0.35` on both boards for
+`alerts` (AGX/IGX Thor use `0.35` for `base` too, and a host
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION` still overrides it). If other
 tenants are resident (so `free` is lower than the formula's value), **lower the
 fractions to fit** — for the LLM that means lowering `NIM_GPU_MEM_FRACTION` in
 `services/nim/nemotron-3.5-lightning-30b-a3b/hw-<profile>-shared.env` (the FP8
