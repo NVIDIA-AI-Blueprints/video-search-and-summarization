@@ -152,6 +152,79 @@ def test_clip_defaults_to_the_covering_segment_and_echoes_it(
     assert body["name"] == "warehouse_safety_0001"
 
 
+def test_clip_rebases_a_synthetic_interval_onto_the_current_timeline(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--rebase-from/--rebase-from-end map a synthetic file-search interval onto the
+    sensor's current VST timeline, preserving duration -- the piece the CLI
+    did not used to do for the search-result verification handoff."""
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()
+        if len(calls) == 2:
+            # A 30s recording on a different date than the synthetic interval.
+            return [("2026-08-01T12:00:00.000Z", "2026-08-01T12:00:30.000Z")]
+        return "https://vss.test/vst/storage/clip.mp4"
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "clip",
+            "--sensor",
+            "warehouse_safety_0001",
+            "--rebase-from",
+            "2025-01-01T00:00:05Z",
+            "--rebase-from-end",
+            "2025-01-01T00:00:25Z",
+        ],
+    )
+
+    body = json.loads(result.stdout)
+    # 20s duration preserved, rebased from the 2025 synthetic date onto the 2026 timeline.
+    assert body["start_time"] == "2026-08-01T12:00:05.000Z"
+    assert body["end_time"] == "2026-08-01T12:00:25.000Z"
+    assert body["media_url"].endswith("clip.mp4")
+
+
+def test_clip_rebase_flags_are_mutually_exclusive_with_start_end_time(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mixing the rebase flags with --start-time/--end-time is a usage error (exit 2)."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
+    result = CliRunner().invoke(
+        cli,
+        [
+            "clip",
+            "--sensor",
+            "warehouse_safety_0001",
+            "--rebase-from",
+            "2025-01-01T00:00:00Z",
+            "--rebase-from-end",
+            "2025-01-01T00:00:20Z",
+            "--start-time",
+            "2026-08-01T12:00:00Z",
+        ],
+    )
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+
+
+def test_clip_rebase_flags_must_be_given_together(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One rebase flag without the other is a usage error (exit 2)."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
+    result = CliRunner().invoke(
+        cli,
+        ["clip", "--sensor", "warehouse_safety_0001", "--rebase-from", "2025-01-01T00:00:00Z"],
+    )
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+
+
 def test_delete_refuses_a_type_mismatch(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """--type is the caller's belief; a mismatch means one of us is wrong."""
     monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])

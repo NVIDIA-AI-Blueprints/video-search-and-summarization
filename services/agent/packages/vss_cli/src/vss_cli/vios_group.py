@@ -37,6 +37,7 @@ import click
 
 from . import params as params_mod
 from .exits import Exit
+from .group import InvalidInput
 from .group import Result
 from .group import context_from
 from .group import emit
@@ -133,7 +134,24 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
     # VIOS answers a malformed or out-of-range window with a bare HTTP 400 that
     # names neither the offending bound nor the range that was available.
     segments = _run(vios.recorded_segments(origin, ref.stream_id))
-    start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
+    # D4: rebase a synthetic file-search interval onto the current VST
+    # timeline, preserving its duration -- the one piece the CLI did not
+    # used to do for the search-result verification handoff. Mutually
+    # exclusive with --start-time/--end-time.
+    rebase_from = values.get("rebase_from")
+    rebase_from_end = values.get("rebase_from_end")
+    if (rebase_from is None) != (rebase_from_end is None):
+        raise InvalidInput("--rebase-from and --rebase-from-end must be given together")
+    if rebase_from is not None and (values.get("start_time") is not None or values.get("end_time") is not None):
+        raise InvalidInput("--rebase-from/--rebase-from-end are mutually exclusive with --start-time/--end-time")
+    if rebase_from is not None:
+        if not segments:
+            raise InvalidInput("cannot rebase: no recorded timeline for this sensor")
+        timeline_start = segments[0][0]
+        timeline_end = segments[-1][1]
+        start, end = vios.map_interval_to_timeline(rebase_from, rebase_from_end, timeline_start, timeline_end)
+    else:
+        start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
     url = _run(
         vios.get_video_clip_url(
             stream_id=ref.stream_id,
@@ -332,10 +350,13 @@ def _build() -> click.Group:
             "For a recorded file either bound may be omitted, and either may be given as seconds from "
             "the start of the recording. A live stream needs both, as ISO-8601. The window is checked "
             "against what is recorded before VIOS is asked.\n"
+            "Use --rebase-from/--rebase-from-end to map a synthetic file-search interval onto the\n"
+            "current timeline, preserving its duration; mutually exclusive with --start-time/--end-time.\n"
             "\n"
             "\b\n"
             "  vss vios clip --sensor warehouse_safety_0001\n"
-            "  vss vios clip --sensor dock-cam --start-time 2026-08-01T12:00:00Z --end-time 2026-08-01T12:00:10Z\n",
+            "  vss vios clip --sensor dock-cam --start-time 2026-08-01T12:00:00Z --end-time 2026-08-01T12:00:10Z\n"
+            "  vss vios clip --sensor warehouse-ladder --rebase-from 2025-01-01T00:00:00Z --rebase-from-end 2025-01-01T00:00:20Z\n",
             [
                 _sensor_option(),
                 click.Option(
@@ -347,6 +368,16 @@ def _build() -> click.Group:
                     ["--end-time"],
                     default=None,
                     help="ISO-8601, or seconds from the recording start. Defaults to the recording end.",
+                ),
+                click.Option(
+                    ["--rebase-from"],
+                    default=None,
+                    help="Synthetic file-search start to rebase onto the current timeline (with --rebase-from-end). Mutually exclusive with --start-time/--end-time.",
+                ),
+                click.Option(
+                    ["--rebase-from-end"],
+                    default=None,
+                    help="Synthetic file-search end to rebase onto the current timeline (with --rebase-from). Preserves the original duration.",
                 ),
             ],
             _clip,

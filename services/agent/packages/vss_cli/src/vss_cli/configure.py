@@ -699,7 +699,15 @@ def check() -> None:
         if route is None:
             continue
         ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
-        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
+        # CC1: surface the recorded model/index inventory alongside
+        # reachability, so `configure check` is the one readiness probe a
+        # caller needs -- not a separate `curl /v1/models` or `_cat/indices`.
+        extra = ""
+        if service.models:
+            extra += f"  models: {', '.join(service.models)}"
+        if service.indices:
+            extra += f"  indices: {len(service.indices)}"
+        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}{extra}")
         stale = stale or not ok
     rows = _command_availability(deployment)
     if rows:
