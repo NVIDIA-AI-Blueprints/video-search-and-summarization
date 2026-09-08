@@ -55,6 +55,30 @@ class _RecordingLLM:
         yield SimpleNamespace()
 
 
+class _ChatTemplateIgnoringReasoning:
+    def apply_chat_template(self, *args, **kwargs):
+        self.messages = args[0]
+        return "<|im_start|>assistant\n"
+
+
+class _QwenTokenizer:
+    eos_token_id = 99
+    unk_token_id = 0
+
+    def convert_tokens_to_ids(self, token):
+        assert token == "<|im_end|>"
+        return 99
+
+    def decode(self, token_ids, skip_special_tokens=True):
+        assert skip_special_tokens is True
+        assert token_ids == [10, 11]
+        return '{"visual_sentinel":"ALPHA"}'
+
+
+class _QwenProcessor:
+    tokenizer = _QwenTokenizer()
+
+
 class _RequestQueue:
     def __init__(self):
         self.request_id = "req-1"
@@ -175,6 +199,71 @@ def test_reasoning_chat_template_disables_thinking_by_default(architecture):
     assert model._get_apply_chat_template_kwargs(VlmGenerationConfig(enable_reasoning=True)) == {
         "enable_thinking": True
     }
+
+
+def test_qwen3vl_non_reasoning_fallback_closes_empty_think_block():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=False)
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Describe"}]}]
+
+    prompt = model._apply_chat_template(messages, config)
+
+    assert prompt.endswith("<think>\n\n</think>\n\n")
+    assert model._processor.messages[0]["content"][0]["text"] == "Describe /no_think"
+    assert messages[0]["content"][0]["text"] == "Describe"
+
+
+def test_qwen3vl_reasoning_prompt_is_not_modified():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=True)
+
+    assert model._apply_chat_template([], config) == "<|im_start|>assistant\n"
+
+
+def test_qwen3vl_non_reasoning_keeps_fixed_work_generation_with_ignore_eos():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    config = VlmGenerationConfig(enable_reasoning=False, ignore_eos=True)
+    sampling_kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(config)
+
+    model._apply_reasoning_suppression_sampling_params(sampling_kwargs, config)
+
+    assert sampling_kwargs["ignore_eos"] is True
+    assert sampling_kwargs["bad_words"] == ["<think>", "</think>"]
+    assert "stop_token_ids" not in sampling_kwargs
+
+
+def test_qwen3vl_non_reasoning_truncates_backend_output_at_first_answer_boundary():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _QwenProcessor()
+    model._inflight_req_ids = []
+    model._vlm_model_type = "cosmos-reason3"
+    output = SimpleNamespace(
+        prompt_token_ids=[1, 2],
+        outputs=[
+            SimpleNamespace(
+                text='{"visual_sentinel":"ALPHA"}\nStep-by-step analysis',
+                token_ids=[10, 11, 99, 20, 21],
+            )
+        ],
+    )
+
+    result = model._postprocess_vllm(
+        [output],
+        [],
+        ignore_eos=True,
+        preserve_reasoning_tags=False,
+        enable_reasoning=False,
+    )
+
+    assert result[0].output == '{"visual_sentinel":"ALPHA"}'
+    assert result[0].reasoning_description == ""
+    assert result[0].output_tokens == 5
 
 
 @pytest.mark.parametrize(
@@ -1225,7 +1314,7 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
     assert future.result() == ["ok"]
     content = processor.messages[-1]["content"]
     assert [item["type"] for item in content] == ["text", "image", "image", "image"]
-    assert content[0]["text"] == "Describe the time-lapsed video."
+    assert content[0]["text"] == "Describe the time-lapsed video. /no_think"
     assert [item["image"] for item in content[1:]] == [
         "frame_000000.jpg",
         "frame_000001.jpg",
