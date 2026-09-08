@@ -62,6 +62,11 @@ recomposing or redeploying VSS. Use the sandbox name and model-provider settings
 supplied in the environment and ensure the operational skill `/{skill}` is
 installed in that sandbox.
 
+When running the documented `run_setup_notebook.py` command, prefix it with
+`env -u HARBOR_SKILL_EVAL_AGENT_RUN`. That marker identifies disposable coding-
+agent descendants; the host-side OpenShell gateway must not inherit it or the
+eval environment will reap the ready gateway when this coding-agent phase ends.
+
 This task is incomplete until `openshell sandbox get
 $NEMOCLAW_SANDBOX_NAME` succeeds. Run autonomously and do not request
 confirmation.

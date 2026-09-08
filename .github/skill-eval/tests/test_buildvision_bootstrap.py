@@ -57,6 +57,7 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             self.assertIn("`/vss-manage-alerts`", instruction)
             self.assertIn("documented bring-up-only mode", instruction)
             self.assertIn("recomposing or redeploying VSS", instruction)
+            self.assertIn("env -u HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
             self.assertIn(
                 "1.0", (deployment / "tests" / "test.sh").read_text()
             )
