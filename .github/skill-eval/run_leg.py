@@ -1508,7 +1508,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--instance",
-        default=os.environ.get("BREV_INSTANCE") or None,
+        default=None,
         help="Operator override: pin the leg to this Brev instance instead "
              "of pool selection (still lock-guarded; waits if held)",
     )
@@ -1594,11 +1594,32 @@ def main(argv: list[str] | None = None) -> int:
                 "whole-leg deadline cannot fit one complete Harbor invocation"
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
-        # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
-        # > SKILL_EVAL_LOCAL_GPU_INSTANCE (direct OpenShell runner)
-        # > task.toml brev_instance > pool selection.
+        # Pin precedence: CLI/--instance > SKILL_EVAL_LOCAL_GPU_INSTANCE
+        # (direct OpenShell runner) > BREV_INSTANCE env > task.toml
+        # brev_instance > pool selection.
+        #
+        # The local pin outranks the env var deliberately. An OpenShell guest
+        # sources ~/.eval_env, so a BREV_INSTANCE left in that file is
+        # inherited by every leg on the box -- and brev_env rejects the
+        # mismatch with "BREV_INSTANCE does not match
+        # SKILL_EVAL_LOCAL_GPU_INSTANCE" seconds into start(), before the
+        # agent runs. An inherited value is never a deliberate pin; an
+        # operator debugging one box passes --instance.
         local_pin = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
-        pinned = args.instance or local_pin or metadata.get("brev_instance") or None
+        env_instance = os.environ.get("BREV_INSTANCE", "").strip() or None
+        if local_pin and env_instance and env_instance.lower() != local_pin.lower():
+            print(
+                f"[run-leg] ignoring inherited BREV_INSTANCE={env_instance}: "
+                f"this runner is pinned to {local_pin}",
+                flush=True,
+            )
+        pinned = (
+            args.instance
+            or local_pin
+            or env_instance
+            or metadata.get("brev_instance")
+            or None
+        )
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)

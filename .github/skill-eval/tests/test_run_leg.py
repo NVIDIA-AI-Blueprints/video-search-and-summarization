@@ -278,6 +278,28 @@ class PhaseBudgets(unittest.TestCase):
                 )
         self.assertEqual(raised.exception.code, 2)
 
+    def test_brev_instance_env_is_not_the_instance_default(self):
+        """An OpenShell guest sources ~/.eval_env. When a stale BREV_INSTANCE
+        rode in that way it became --instance's default and outranked
+        SKILL_EVAL_LOCAL_GPU_INSTANCE, so brev_env killed the leg seconds in
+        with "BREV_INSTANCE does not match SKILL_EVAL_LOCAL_GPU_INSTANCE"."""
+        with mock.patch.dict(
+            run_leg.os.environ, {"BREV_INSTANCE": "vss-eval-h100"}, clear=True
+        ):
+            args = run_leg.parse_args(
+                ["--dataset-root", "/tmp/data", "--results-root", "/tmp/results"]
+            )
+            self.assertIsNone(args.instance)
+
+            explicit = run_leg.parse_args(
+                [
+                    "--dataset-root", "/tmp/data",
+                    "--results-root", "/tmp/results",
+                    "--instance", "vss-eval-rtx-2g",
+                ]
+            )
+            self.assertEqual(explicit.instance, "vss-eval-rtx-2g")
+
     def test_agent_deadline_is_inherited_and_expired_values_fail_closed(self):
         with (
             mock.patch.dict(

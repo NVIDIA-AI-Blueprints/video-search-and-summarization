@@ -171,11 +171,11 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Total runner capacity is 28. Cohort-specific active + GPU-count labels
+      # Total runner capacity is 30. Cohort-specific active + GPU-count labels
       # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 8 H200-1g,
-      # 2 H200-2g, 4 RTX-2g), so one cohort cannot consume another cohort's
+      # 4 H200-2g, 4 RTX-2g), so one cohort cannot consume another cohort's
       # runners.
-      max-parallel: 28
+      max-parallel: 30
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling
@@ -397,6 +397,11 @@ jobs:
           # the skill then writes LLM_MODE=remote and never starts local NIMs.
           if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
             unset LLM_REMOTE_URL LLM_REMOTE_MODEL VLM_REMOTE_URL VLM_REMOTE_MODEL
+            # Same inheritance trap: a BREV_INSTANCE left in ~/.eval_env names
+            # a coordinator pool box, and brev_env fails the leg in seconds
+            # with "BREV_INSTANCE does not match SKILL_EVAL_LOCAL_GPU_INSTANCE".
+            # Harbor is pinned to this guest; nothing here may name another box.
+            unset BREV_INSTANCE
             # These guests run local NIMs against wiped model volumes, so a
             # cold weight download routinely exceeds the 18-minute default
             # and the run is cancelled mid-deploy. DEFAULT_HARD_CEILING_SEC

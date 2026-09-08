@@ -212,7 +212,7 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertNotIn(
             "openshell-rtxpro6000-active", plan_matrix.OPENSHELL_H200_LABELS
         )
-        self.assertIn("max-parallel: 28", workflow)
+        self.assertIn("max-parallel: 30", workflow)
 
     def test_openshell_matrix_routes_each_demand_once(self):
         os.environ["OPENSHELL_GPU_FLEET"] = "1"
@@ -650,13 +650,13 @@ class OpenshellGpuFleet(unittest.TestCase):
                 "a40-1g": 4,
                 "a40-2g": 2,
                 "h200-1g": 8,
-                "h200-2g": 2,
+                "h200-2g": 4,
                 "rtxpro6000-2g": 4,
             },
         )
         self.assertEqual(
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
-            28,
+            30,
         )
 
     def test_capability_and_per_gpu_vram_boundaries(self):
