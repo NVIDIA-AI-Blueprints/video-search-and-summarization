@@ -43,7 +43,8 @@ import time
 import urllib.parse
 
 from nemoclaw.buildvision_bootstrap import (
-    SETUP_TASK_PREFIX,
+    BOOTSTRAP_TASK,
+    DEPLOYMENT_TASK,
     create_bootstrap_task,
 )
 
@@ -1512,10 +1513,11 @@ def run_invocations(
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
     record_machine(results_root, instance, leg_slug, run_id)
-    # Deployment skills are not NemoClaw tasks. For an operational spec, run
-    # the exact ordered setup queries declared under harness.nemoclaw.setup
-    # with the coding-agent runtime, then send only expects[] to the ready
-    # sandbox. Build Vision AI's own specs are coding-agent evaluations.
+    # Deployment skills are not NemoClaw tasks.  For an operational spec the
+    # first Harbor child is a coding-agent task that follows Build Vision AI;
+    # it owns Compose, readiness and sandbox onboarding.  The normal
+    # invocations then run only operational prompts through that sandbox.
+    # Build Vision AI's own specs are themselves coding-agent evaluations.
     if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
         print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
         agent = "claude-code"
@@ -1543,23 +1545,23 @@ def run_invocations(
                 destination=bootstrap_root,
                 source_task_toml=source_task,
                 spec_path=spec_path,
+                skill=os.environ.get("EVAL_SKILL", "operational-skill"),
                 platform=platform,
                 repo_root=REPO_ROOT,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"FATAL: could not create Build Vision AI bootstrap task: {exc}", file=sys.stderr)
             return 1
-        setup_task_names = sorted(
-            (
-                path.name
-                for path in bootstrap_root.glob(f"{SETUP_TASK_PREFIX}-*")
-                if path.is_dir()
-            ),
-            key=lambda name: int(name.rsplit("-", 1)[1]),
+        deployment = HarborInvocation(
+            harbor_root=bootstrap_root,
+            include_task_name=DEPLOYMENT_TASK,
+            chain_key="build-vision-deploy",
         )
-        if not setup_task_names:
-            print("FATAL: evaluation spec produced no NemoClaw setup tasks", file=sys.stderr)
-            return 1
+        bootstrap = HarborInvocation(
+            harbor_root=bootstrap_root,
+            include_task_name=BOOTSTRAP_TASK,
+            chain_key="build-vision-bootstrap",
+        )
         sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
         # Both the Build Vision AI bootstrap and the later operational
         # scenarios must address the same sandbox. This is intentionally a
@@ -1592,42 +1594,50 @@ def run_invocations(
                 NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC,
             )
         )
-        bootstrap_rc = 1
-        bootstrap_reward: str | None = None
-        bootstrap_results = scratch / f"nemoclaw-setup-results-{leg_slug}-0"
-        for index, task_name in enumerate(setup_task_names, 1):
-            setup = HarborInvocation(
-                harbor_root=bootstrap_root,
-                include_task_name=task_name,
-                chain_key=f"nemoclaw-setup-{index}",
-            )
-            bootstrap_results = scratch / f"nemoclaw-setup-results-{leg_slug}-{index}"
+        deployment_results = scratch / f"nemoclaw-deployment-results-{leg_slug}"
+        shutil.rmtree(deployment_results, ignore_errors=True)
+        deployment_cmd = build_harbor_command(
+            deployment,
+            deployment_results,
+            model,
+            base_url,
+            "claude-code",
+            agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
+        )
+        print("[run-leg] deploying with Build Vision AI before NemoClaw setup", flush=True)
+        deployment_started_at = time.time() - 1.0
+        with phase("harbor:build-vision-deploy"):
+            deployment_rc = run_command(deployment_cmd, bootstrap_env, harbor_timeout_sec)
+        deployment_reward = latest_reward(
+            deployment_results, DEPLOYMENT_TASK, started_at=deployment_started_at
+        )
+        if deployment_rc != 0 or _reward_value(deployment_reward) < 1.0:
+            bootstrap_results = deployment_results
+            bootstrap_rc = deployment_rc
+            bootstrap_reward = deployment_reward
+        else:
+            # The second Build Vision task attaches the harness to the live
+            # Compose build produced above. Preserve both Docker and repo state.
+            bootstrap_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+            bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
             shutil.rmtree(bootstrap_results, ignore_errors=True)
-            setup_cmd = build_harbor_command(
-                setup,
+            bootstrap_cmd = build_harbor_command(
+                bootstrap,
                 bootstrap_results,
                 model,
                 base_url,
                 "claude-code",
                 agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
             )
-            print(
-                f"[run-leg] running spec-declared NemoClaw setup {index}/{len(setup_task_names)}",
-                flush=True,
-            )
-            setup_started_at = time.time() - 1.0
-            with phase(f"harbor:nemoclaw-setup-{index}"):
+            print("[run-leg] attaching NemoClaw with Build Vision AI", flush=True)
+            bootstrap_started_at = time.time() - 1.0
+            with phase("harbor:build-vision-bootstrap"):
                 bootstrap_rc = run_command(
-                    setup_cmd, bootstrap_env, harbor_timeout_sec
+                    bootstrap_cmd, bootstrap_env, harbor_timeout_sec
                 )
             bootstrap_reward = latest_reward(
-                bootstrap_results, task_name, started_at=setup_started_at
+                bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
             )
-            if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
-                break
-            # Preserve the host deployment and repository state between the
-            # spec-declared setup phases and the operational scenarios.
-            bootstrap_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
         if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
             # The bootstrap uses a scratch results root so it cannot appear in
             # the operational report. Preserve its verifier/exception output

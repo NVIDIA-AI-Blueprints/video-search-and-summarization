@@ -802,21 +802,7 @@ class RunInvocations(unittest.TestCase):
             task_dir.mkdir(parents=True)
             (task_dir / "task.toml").write_text("[metadata]\ngpu_count = 1\n")
             spec = root / "alerts.json"
-            spec.write_text(
-                json.dumps(
-                    {
-                        "harness": {
-                            "nemoclaw": {
-                                "setup": [
-                                    {"query": "Deploy alerts."},
-                                    {"query": "Attach NemoClaw."},
-                                ]
-                            }
-                        },
-                        "expects": [],
-                    }
-                )
-            )
+            spec.write_text(json.dumps({"profile": "alerts", "expects": []}))
             invocation = run_leg.HarborInvocation(
                 harbor_root=task_dir.parent,
                 include_task_name="target",
@@ -891,21 +877,7 @@ class RunInvocations(unittest.TestCase):
             task_dir.mkdir(parents=True)
             (task_dir / "task.toml").write_text("[metadata]\ngpu_count = 1\n")
             spec = root / "alerts.json"
-            spec.write_text(
-                json.dumps(
-                    {
-                        "harness": {
-                            "nemoclaw": {
-                                "setup": [
-                                    {"query": "Deploy alerts."},
-                                    {"query": "Attach NemoClaw."},
-                                ]
-                            }
-                        },
-                        "expects": [],
-                    }
-                )
-            )
+            spec.write_text(json.dumps({"profile": "alerts", "expects": []}))
             invocation = run_leg.HarborInvocation(
                 harbor_root=task_dir.parent,
                 include_task_name="target",

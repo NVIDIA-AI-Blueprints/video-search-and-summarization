@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Tests for the Build Vision AI -> NemoClaw provisioning handoff."""
 
 from __future__ import annotations
@@ -32,39 +34,32 @@ class BuildVisionBootstrapTest(unittest.TestCase):
                 "[metadata]\ngpu_type = \"L40S\"\ngpu_count = 1\n"
             )
             spec = root / "alerts.json"
-            spec.write_text(
-                json.dumps(
-                    {
-                        "harness": {
-                            "nemoclaw": {
-                                "setup": [
-                                    {"query": "Deploy alerts on {{platform}}."},
-                                    {"query": "Install /vss-manage-alerts in NemoClaw."},
-                                ]
-                            }
-                        }
-                    }
-                )
-            )
+            spec.write_text(json.dumps({"profile": "alerts", "deploy_mode": "verification"}))
 
             project = bootstrap.create_bootstrap_task(
                 destination=root / "bootstrap",
                 source_task_toml=source_task,
                 spec_path=spec,
+                skill="vss-manage-alerts",
                 platform="L40S",
                 repo_root=repo,
             )
 
-            deployment = project / f"{bootstrap.SETUP_TASK_PREFIX}-1"
-            task = project / f"{bootstrap.SETUP_TASK_PREFIX}-2"
+            deployment = project / bootstrap.DEPLOYMENT_TASK
+            task = project / bootstrap.BOOTSTRAP_TASK
             self.assertEqual(
                 (deployment / "task.toml").read_text(), source_task.read_text()
             )
             self.assertEqual((task / "task.toml").read_text(), source_task.read_text())
             deploy_instruction = (deployment / "instruction.md").read_text()
-            self.assertEqual("Deploy alerts on L40S.", deploy_instruction)
+            self.assertIn("`alerts` VSS profile", deploy_instruction)
+            self.assertIn("`verification` mode", deploy_instruction)
+            self.assertIn("Select no conversational", deploy_instruction)
             instruction = (task / "instruction.md").read_text()
-            self.assertEqual("Install /vss-manage-alerts in NemoClaw.", instruction)
+            self.assertIn("`/vss-manage-alerts`", instruction)
+            self.assertIn("documented bring-up-only mode", instruction)
+            self.assertIn("recomposing or redeploying VSS", instruction)
+            self.assertIn("env -u HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
             self.assertIn(
                 "1.0", (deployment / "tests" / "test.sh").read_text()
             )
@@ -96,14 +91,7 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             path = Path(td) / "bad.json"
             path.write_text("[]")
             with self.assertRaisesRegex(ValueError, "not a JSON object"):
-                bootstrap._spec_setup_queries(path, platform="L40S")
-
-    def test_rejects_a_spec_without_nemoclaw_setup(self):
-        with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "missing.json"
-            path.write_text(json.dumps({"expects": []}))
-            with self.assertRaisesRegex(ValueError, "harness.nemoclaw.setup"):
-                bootstrap._spec_setup_queries(path, platform="L40S")
+                bootstrap._spec_deployment(path)
 
 
 if __name__ == "__main__":
