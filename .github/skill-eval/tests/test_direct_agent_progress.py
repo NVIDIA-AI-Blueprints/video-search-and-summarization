@@ -1656,3 +1656,165 @@ def test_complete_healthy_stack_has_no_nonhealthy_diagnostics(
         (monitor.results_root / "timeout-diagnostics.json").read_text()
     )
     assert artifact["services"] == []
+
+
+def test_saturated_dedupe_window_still_accepts_novel_progress() -> None:
+    """A full key window must not freeze the idle timer for the rest of a run.
+
+    Refusing keys at the cap killed runs that were visibly progressing: the
+    last accepted signal aged past the idle window while new ones were
+    dropped, and the journal showed a stall that never happened.
+    """
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    for index in range(progress.MAX_PROGRESS_KEYS):
+        assert tracker.progress("image_activity", f"digest-{index}") is True
+    clock.advance(2000)
+    assert tracker.progress("image_activity", "digest-past-the-cap") is True
+    assert tracker.expiration() is None
+    assert len(tracker._seen_progress) == progress.MAX_PROGRESS_KEYS
+
+
+def test_repeat_token_is_still_not_progress_at_the_cap() -> None:
+    """Eviction bounds the window; it must not turn a stuck repeat into work."""
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    for index in range(progress.MAX_PROGRESS_KEYS):
+        tracker.progress("disk_growth", index)
+    clock.advance(1500)
+    newest = progress.MAX_PROGRESS_KEYS - 1
+    assert tracker.progress("disk_growth", newest) is False
+    assert tracker.expiration() == ("idle", "disk_growth", 1500)
+
+
+def _df_typed(**sizes: int) -> object:
+    """A `docker system df` result keyed by row type."""
+    rows = {"Images": 0, "Containers": 0, "Local Volumes": 0, "Build Cache": 0}
+    for name, value in sizes.items():
+        key = {
+            "images": "Images",
+            "containers": "Containers",
+            "volumes": "Local Volumes",
+            "build_cache": "Build Cache",
+        }[name]
+        rows[key] = value
+    return progress.BoundedCommandResult(
+        returncode=0,
+        stdout="".join(
+            f"{key}\t{value / 1000**3:.1f}GB\n" for key, value in rows.items()
+        ),
+        truncated=False,
+    )
+
+
+@pytest.mark.parametrize("row", ["containers", "build_cache"])
+def test_writable_layer_and_build_cache_growth_are_progress(
+    tmp_path: Path,
+    row: str,
+) -> None:
+    """A service fetching weights into its own filesystem moves neither
+    `Images` nor `Local Volumes`, and a build moves only the cache. Counting
+    only the first two rows read both as a hung run."""
+    clock = FakeClock()
+    tracker, monitor = _disk_growth_monitor(tmp_path, clock)
+    grown = 0
+    for _ in range(6):
+        with mock.patch.object(
+            progress, "_run_bounded", return_value=_df_typed(**{row: grown})
+        ):
+            _REAL_SAMPLE_DISK_GROWTH(monitor)
+        clock.advance(600)
+        grown += 5 * 1000**3
+    assert monitor.active_phase is None
+    assert tracker.last_progress_category == "disk_growth"
+    assert tracker.expiration() is None
+
+
+def test_inner_agent_tool_calls_heartbeat_without_docker_signal(
+    tmp_path: Path,
+) -> None:
+    """The reported failure: the inner agent works, docker shows nothing.
+
+    Weights landing in a bind mount commit no image and move no
+    `docker system df` row, and the fetch runs inside one inner Bash call,
+    so no compose phase is active either. The inner journal's tool events
+    are the only evidence the session is alive.
+    """
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+        activity_heartbeat_sec=300,
+    )
+    monitor.inner_journal_path = tmp_path / "inner.jsonl"
+    monitor.inner_journal_path.write_text("")
+
+    def append_tool_event() -> None:
+        with monitor.inner_journal_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps({"category": "tool", "tool_category": "shell"}) + "\n"
+            )
+
+    with (
+        mock.patch.object(monitor, "_sample_images"),
+        mock.patch.object(monitor, "_safe_service_rows", return_value=[]),
+        mock.patch.object(progress, "_INNER_STATE", tmp_path / "no-state.json"),
+    ):
+        for _ in range(6):
+            clock.advance(600)
+            append_tool_event()
+            monitor.sample()
+    assert monitor.active_phase is None
+    assert tracker.last_progress_category == "agent_activity_heartbeat"
+    assert tracker.expiration() is None
+
+
+def test_silent_inner_journal_still_times_out(tmp_path: Path) -> None:
+    """No inner tool events means a hung session, which must still expire."""
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=1080,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=_journal(tmp_path, clock),
+        monotonic=clock,
+        activity_heartbeat_sec=300,
+    )
+    monitor.inner_journal_path = tmp_path / "inner.jsonl"
+    monitor.inner_journal_path.write_text("")
+    with (
+        mock.patch.object(monitor, "_sample_images"),
+        mock.patch.object(monitor, "_safe_service_rows", return_value=[]),
+        mock.patch.object(progress, "_INNER_STATE", tmp_path / "no-state.json"),
+    ):
+        for _ in range(6):
+            clock.advance(300)
+            monitor.sample()
+    assert tracker.expiration() == ("idle", "startup", 1800)

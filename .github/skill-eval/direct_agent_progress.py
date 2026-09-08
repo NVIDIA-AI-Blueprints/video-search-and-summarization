@@ -50,9 +50,20 @@ MAX_PHASE_HEARTBEATS = 21
 # `docker system df` reports sizes to roughly 0.1 GB, so the bucket has to be
 # far coarser than that resolution to avoid rounding noise reading as growth.
 DISK_GROWTH_BUCKET_BYTES = 2 * 1024**3
-# Bounded like MAX_PHASE_HEARTBEATS, and for the same reason: growth events
-# share the finite MAX_PROGRESS_KEYS budget with every other category.
-MAX_DISK_GROWTH_EVENTS = 64
+# Every `docker system df` row whose growth means work. `Containers` is the
+# sum of container writable layers: a service that downloads weights into its
+# own filesystem rather than a named volume moves only this row, and skipping
+# it made a live 45-minute fetch indistinguishable from a hung one. `Build
+# Cache` is the same argument for a build. Bind mounts stay invisible to
+# `docker system df` regardless, which is what the activity heartbeats cover.
+_DISK_GROWTH_TYPES = frozenset(
+    {"Images", "Local Volumes", "Containers", "Build Cache"}
+)
+# A cold search/warehouse deploy pulls images and weights well past the 128 GB
+# that 64 buckets covered, and running out of events retires the only signal a
+# long download emits. A stalled fetch crosses no bucket at all, so raising the
+# ceiling costs no idle detection.
+MAX_DISK_GROWTH_EVENTS = 256
 MAX_SPEC_BYTES = 1024 * 1024
 MAX_COMPOSE_BYTES = 4 * 1024 * 1024
 MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024
@@ -357,15 +368,25 @@ class ProgressTracker:
         self.started = monotonic()
         self.last_progress = self.started
         self.last_progress_category = "startup"
-        self._seen_progress: set[tuple[str, object]] = set()
+        # Insertion-ordered so the dedupe window can evict its oldest key.
+        self._seen_progress: dict[tuple[str, object], None] = {}
 
     def progress(self, category: str, token: object | None = None) -> bool:
         if category not in _PROGRESS_CATEGORIES:
             return False
         key = (category, category if token is None else token)
-        if key in self._seen_progress or len(self._seen_progress) >= MAX_PROGRESS_KEYS:
+        if key in self._seen_progress:
             return False
-        self._seen_progress.add(key)
+        # Evict the oldest key instead of refusing new ones. Refusing froze
+        # `last_progress` for the rest of the run once MAX_PROGRESS_KEYS
+        # distinct signals had accrued, so a run that kept producing novel
+        # progress was still killed one idle window later — and nothing in
+        # the journal said the cap, rather than the deployment, went quiet.
+        # A key resurfacing only after MAX_PROGRESS_KEYS other distinct
+        # signals is fresh activity, not the stuck repeat dedupe targets.
+        while len(self._seen_progress) >= MAX_PROGRESS_KEYS:
+            self._seen_progress.pop(next(iter(self._seen_progress)))
+        self._seen_progress[key] = None
         self.last_progress = self._monotonic()
         self.last_progress_category = category
         return True
@@ -1324,7 +1345,7 @@ class DirectAgentProgress:
         parsed_any = False
         for line in proc.stdout.splitlines():
             kind, _, size = line.partition("\t")
-            if kind.strip() not in {"Images", "Local Volumes"}:
+            if kind.strip() not in _DISK_GROWTH_TYPES:
                 continue
             parsed = _parse_docker_size(size)
             if parsed is None:
@@ -1541,6 +1562,21 @@ class DirectAgentProgress:
                 self.active_phase = None if phase == "none" else str(phase)
             elif category in {"expected_services", "compose_validated"}:
                 self.compose_sha256 = str(fields.get("compose_sha256") or "") or None
+            elif category == "tool":
+                # `tool` is not a progress category and must not become one:
+                # its token space is the six tool kinds, so it would dedupe
+                # away after six events. But an inner-agent tool call landing
+                # in this poll window is evidence that agent is alive and
+                # working, and it is the only such evidence while it fetches
+                # weights into a bind mount — where no image commits and
+                # `docker system df` reports no growth. Rate-bounded and
+                # capped exactly like the outer agent's own tool heartbeat,
+                # so a silent hung inner session still reaches the timeout.
+                self._maybe_heartbeat(
+                    "agent_activity_heartbeat",
+                    "_agent_heartbeat_count",
+                    tool_category=str(fields.get("tool_category") or "other"),
+                )
             token = tuple(sorted((name, json.dumps(value, sort_keys=True)) for name, value in fields.items()))
             self.tracker.progress(str(category), token)
 
