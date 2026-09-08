@@ -5,7 +5,7 @@ position: 2
 ---
 # Calibration Workflow (UI)
 
-Once the microservice and UI containers are running, open your browser and navigate to `http://<HOST_IP>:<AUTO_MAGIC_CALIB_UI_PORT>` (default port `5000`).
+Once the microservice and UI containers are running, open your browser and navigate to `http://<HOST_IP>:<VSS_AUTO_CALIBRATION_UI_HOST_PORT>` (default port `5000`).
 
 The UI presents a **7-step stepper workflow**. Each step validates its inputs before allowing you to proceed to the next. Rectification must reach **COMPLETED** before you can advance to Manual Alignment and later steps.
 
@@ -137,7 +137,7 @@ Provide camera inputs using **either** file upload **or** RTSP capture (one came
 *(Shown only when the Auto Calibration service exposes RTSP capture; VIOS is configured on the server side.)*
 
 1. Finish or clear any pending **Video Files** selection or upload before starting RTSP; if the project already has clips from file upload, remove them under **Video Files** first
-2. In the **RTSP capture (VIOS)** card, set **Duration (seconds, min 60)** (minimum **60** seconds, per server requirement)
+2. In the **RTSP capture (VIOS)** card, set **Duration (seconds)** between **60 and 1200 seconds** (1–20 minutes), per server requirements
 3. Under **Streams**, enter **all** **RTSP URLs** for the project before capturing. Use **Add stream** for additional cameras. Optionally set **Camera name** and **Sensor ID**
 4. Click **Capture and add to project** **once** for the full stream list (all cameras record together). Do not add streams to an in-flight session or run separate captures for different camera subsets when you need multi-camera time synchronization
 5. Wait for the status chip and progress bar (**STARTING** → **RECORDING** → **STOPPING** / **INGESTING** as applicable → **INGESTED**)
@@ -477,7 +477,8 @@ At the top, you'll see:
 **Point Selection Tips**
 - Choose points on the **ground plane**
 - Select **distinct features** (corners, markings, poles)
-- Ensure each point is **visible in every panel** for that project (all cameras and the layout map, or camera + layout for single-camera)
+- For multi-camera projects, choose a physical point visible in **Camera 0**, **Camera 1**, and the layout map. Additional cameras are not included in the alignment point set.
+- For single-camera projects, choose a physical point visible in the camera and the layout map.
 - Distribute points across **different depths and locations**
 - Avoid points on **moving objects**
 - Use **zoom controls** for precision
@@ -539,6 +540,8 @@ The **generated / interactively saved** alignment data is a JSON array. Each out
   ...
 ]
 ```
+
+This remains a three-pair format for projects with more than two cameras. Do not append points for additional cameras.
 
 **Single-camera** — two `[x, y]` pairs per set (camera, layout):
 
@@ -614,6 +617,7 @@ The system validates all required files before allowing calibration:
 - ✓ **Videos (minimum 1)**: Shows count of uploaded videos
 - ✓ **Layout Image**: Confirms layout is uploaded
 - ✓ **Alignment Data**: Confirms alignment is uploaded or created
+- ✓ **Linear media / rectification**: Rectification completed in Step 4
 
 If any requirement is not met, you'll see a warning message: "Complete required inputs before verification."
 
@@ -715,7 +719,7 @@ If AMC calibration fails (for example during multi-view **tracklet matching**):
 2. Or re-verify if inputs / rectification changed
 3. Start AMC again
 
-*Option 2: Run VGGT instead (multi-camera)*
+*Option 2: Run VGGT (multi-camera)*
 
 VGGT does **not** require a successful AMC run. After verify + completed rectification, open the **VGGT** tab and start VGGT independently.
 
@@ -729,7 +733,7 @@ VGGT does **not** require a successful AMC run. After verify + completed rectifi
 
 ### VGGT Calibration
 
-VGGT (Vision-Geometry Graph Transformer) is an optional **multi-camera** calibration method. It runs directly from staged linear camera videos and is **not gated on AMC success**.
+VGGT (Vision-Geometry Graph Transformer) is a **multi-camera** calibration method. It runs directly from staged linear camera videos and is **not gated on AMC execution or success**.
 
 > VGGT requires **VGGT support on the backend** (model and dependencies installed). It is **not offered for single-camera** projects.
 
@@ -737,7 +741,7 @@ VGGT (Vision-Geometry Graph Transformer) is an optional **multi-camera** calibra
 - **Multi-camera only** (two or more videos)
 - Backend has VGGT installed
 - Rectification state is **COMPLETED**
-- Project is verified (AMC/E2E is optional and not required)
+- Project is verified; AMC does not have to run
 
 **How to Run VGGT**
 
@@ -765,7 +769,9 @@ When VGGT finishes successfully:
 
 If VGGT is not installed on the backend:
 - **Info Alert**: "VGGT Calibration Not Available"
-- **Action**: Use AMC results, or install VGGT support and retry
+- **VGGT State**: **MODEL_MISSING**
+- **Start control**: Disabled until the required model is installed
+- **Action**: Install VGGT support and restart the server; AMC remains independently available
 
 ### Layout Post-processing (Multi-camera)
 
@@ -824,11 +830,10 @@ At the bottom of the AMC panel, you'll see a summary:
 - Verify alignment data has at least 4 point sets
 - Try re-uploading files
 
-**Calibration Takes Too Long**
-- Normal duration: 5–15 minutes depending on video length
+**Calibration Takes Longer Than Expected**
+- Runtime varies with the calibration method, video duration, camera count, detector, settings, hardware, and available system resources
 - Check server resources (CPU, GPU, memory)
-- Verify network connection is stable
-- Contact administrator if it exceeds 30 minutes
+- Review the live calibration logs for progress or errors
 
 **Calibration Fails**
 - Check video file formats and quality
@@ -889,7 +894,7 @@ The overlay image shows calibration results on the layout map. Switch overlay so
 
 **GT Virtual Objects**
 - Per-camera overlay produced by layout post-processing: a **green** world floor grid (`z = 0`, typically 1 m spacing) and **red** fixed-height poles (current default **1.75 m**) at each grid intersection, both projected with the calibrated camera matrix (AMC or VGGT).
-- Use it as a visual check — if calibration is good, the green grid sits on the real floor and the red poles look upright and correctly scaled; a sliding grid or leaning poles usually means that camera’s pose is off. Requires ground truth / post-processed virtual-GT artifacts; pick a camera to inspect each view, then compare AMC vs VGGT if both exist.
+- Use it as a visual check — if calibration is good, the green grid sits on the real floor and the red poles look upright and correctly scaled; a sliding grid or leaning poles usually means that camera’s pose is off. Requires completed layout post-processing and available virtual-GT artifacts; pick a camera to inspect each view, then compare AMC vs VGGT if both exist.
 
 ![GT Virtual Objects Image](/assets/images/vss-autocalib-ui/GT_virtual_object.jpg)
 
@@ -911,7 +916,7 @@ If ground truth data was uploaded and post-processing ran, evaluation metrics ar
 **Interpreting Metrics**
 - **Lower Average**: Better calibration accuracy
 - **Lower Std Dev**: More consistent calibration
-- **Compare AMC vs VGGT**: VGGT often shows improvement when both are available
+- **Compare AMC vs VGGT**: Use the same evaluation metrics and visual checks for both methods; neither method is assumed to be more accurate
 
 > Evaluation metrics are only available if ground truth data was uploaded in Step 2 and layout post-processing completed.
 
@@ -937,7 +942,6 @@ View detailed calibration parameters for each camera.
 
 The YAML file contains:
 - **Camera Projection Matrix (3×4)**: Camera projection matrix
-- **Additional Metadata**: Project ID, timestamp, etc.
 
 ### ROI & Tripwire Drawing (Optional)
 
@@ -1153,7 +1157,7 @@ Export complete calibration data in various formats.
 
 > This is an advanced user feature. Edit the JSON only if you understand the calibration schema; any changes should be made carefully to avoid invalid or incorrect calibration output.
 
-- **Reset to Original Calibration** (Advanced Export Metadata): In the Full Export dialog, discard Full Control edits and structured metadata changes (including global ROI/tripwire, sensor group, and region metadata) and regenerate the project export from the original calibration results. Confirm in the **Reset to Original Calibration?** dialog — this cannot be undone.
+- **Reset to Original Calibration** (Advanced Export Metadata): In the Full Export dialog, discard Full Control edits and structured metadata changes, including sensor attributes, place hierarchy, and ROI/tripwire metadata, and regenerate the project export from the original calibration results. Confirm in the **Reset to Original Calibration?** dialog — this cannot be undone.
 
 - **Other exports (MV3DT ZIP)**:
 
@@ -1258,5 +1262,3 @@ After completing calibration:
 - Integrate calibration parameters with your tracking system
 - Set up ROIs and tripwires in your production environment
 - Monitor and validate calibration accuracy in real-world scenarios
-
-
