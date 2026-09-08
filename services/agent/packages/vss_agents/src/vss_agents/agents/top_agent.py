@@ -116,6 +116,43 @@ DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE = (
     "This tool failed {attempts} times: {last_error}. Retry limit reached; no successful result is available."
 )
 _TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
+# Phrases that can introduce either a request for the sensor inventory
+# ("what are the available sensor ids?") or a reference to one sensor
+# ('... for sensor id "Camera"'). Only the former may be answered with the
+# VST inventory, so `_names_a_specific_sensor` separates the two.
+_SENSOR_INVENTORY_TERMS = ("available sensor", "available camera", "sensor id", "camera id")
+_SENSOR_REFERENCE_RE = re.compile(
+    r"(?i)\b(?:sensor|camera)\s*ids?\b[\s:=]*(?P<value>\"[^\"]+\"|'[^']+'|`[^`]+`|[\w.\-]+)"
+)
+# What follows "sensor id(s)" when the question is still about the inventory
+# rather than naming one sensor ("which sensor ids are available", "list the
+# sensor ids please"). Anything else in that position is a sensor name.
+_SENSOR_REFERENCE_STOPWORDS = frozenset(
+    {
+        "and",
+        "are",
+        "available",
+        "do",
+        "does",
+        "exist",
+        "for",
+        "from",
+        "in",
+        "is",
+        "list",
+        "of",
+        "or",
+        "please",
+        "show",
+        "that",
+        "the",
+        "there",
+        "was",
+        "were",
+        "which",
+        "with",
+    }
+)
 
 
 def trace_step_title(step_number: int, step_type: str, content: str) -> str:
@@ -125,6 +162,15 @@ def trace_step_title(step_number: int, step_type: str, content: str) -> str:
         return f"{step_number} - {step_type}"
     # This becomes an HTML attribute in the legacy chat response.
     return f"{step_number} - {step_type}: {escape(tool_name.group(1).strip(), quote=True)}"
+
+
+def _names_a_specific_sensor(question: str) -> bool:
+    """Return whether the question supplies a sensor identifier instead of asking which exist."""
+    for match in _SENSOR_REFERENCE_RE.finditer(question):
+        value = match.group("value").strip("\"'`").strip()
+        if value and value.casefold() not in _SENSOR_REFERENCE_STOPWORDS:
+            return True
+    return False
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -1013,6 +1059,7 @@ class TopAgent(AsyncMixin):
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
+            names_a_sensor = _names_a_specific_sensor(question)
             if "report" in question.lower() and "incident_id" in report_fields and "sensor_id" not in report_fields:
                 state.plan = (
                     "1. Call `report_agent` without a sensor filter to retrieve the most recent incident "
@@ -1021,8 +1068,25 @@ class TopAgent(AsyncMixin):
                 logger.warning("Rejected unnecessary camera clarification for incident report: %s", clarification)
                 writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
                 return state
-            if "vst_sensor_list" in self.tools_dict and any(
-                term in question.lower() for term in ("available sensor", "available camera", "sensor id", "camera id")
+            # A report request that already names its sensor is complete. Clarifying it
+            # strands the request with no PDF or Markdown artifact, so plan the report
+            # that was asked for instead of asking which sensor was meant.
+            if "report" in question.lower() and names_a_sensor and "report_agent" in self.tools_dict:
+                state.plan = (
+                    "1. Call `report_agent` with the sensor named in the request and the original "
+                    "request as `user_query`, then present the generated report."
+                )
+                logger.warning(
+                    "Rejected clarification for a report request that already names a sensor: %s", clarification
+                )
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
+            # Only an inventory question may be answered with the sensor list; a request
+            # that names its sensor would otherwise be silently replaced by a listing.
+            if (
+                "vst_sensor_list" in self.tools_dict
+                and any(term in question.lower() for term in _SENSOR_INVENTORY_TERMS)
+                and not names_a_sensor
             ):
                 state.plan = "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
                 logger.warning("Rejected ungrounded planner answer for sensor-list query: %s", clarification)
