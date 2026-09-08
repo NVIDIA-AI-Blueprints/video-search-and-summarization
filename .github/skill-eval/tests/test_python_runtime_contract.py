@@ -33,3 +33,20 @@ def test_ci_executes_harness_contracts_on_production_python() -> None:
     workflow = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
     assert f'SKILL_EVAL_EXPECTED_PYTHON_VERSION: "{PYTHON_VERSION}"' in workflow
     assert f'uvx --python {PYTHON_VERSION} --from "pytest==9.1.1" pytest' in workflow
+
+
+def test_direct_runner_label_dispatch_stays_default_off() -> None:
+    """PR, daily, and scheduled evals retain coordinator routing by default."""
+    gated_runs_on = (
+        "runs-on: ${{ inputs.direct_runner_dispatch && "
+        "fromJSON(toJSON(matrix.runs_on)) || "
+        "fromJSON('[\"self-hosted\",\"vss-skill-eval-runner\"]') }}"
+    )
+    for relative_path in (
+        ".github/workflows/skills-eval.yml",
+        ".github/workflows/skills-eval-daily.yml",
+    ):
+        workflow = (REPO_ROOT / relative_path).read_text()
+        assert "direct_runner_dispatch:" in workflow
+        assert "default: false" in workflow
+        assert gated_runs_on in workflow
