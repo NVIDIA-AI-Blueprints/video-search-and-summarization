@@ -29,7 +29,7 @@ runner-local path is scoped by `<leg-slug>/<run_id>` to keep concurrent
 legs (and concurrent PR runs) from clobbering each other's datasets,
 results, or viewer entries. The `leg-slug` is the unique trial identity
 `<skill>__<spec_stem>__<platform>` (e.g.
-`vss-deploy-profile__base__RTXPRO6000BW`):
+`vss-build-vision-ai__base__RTXPRO6000BW`):
 
 - **Single-spec mode:** it's `$EVAL_SLUG` (exported by the workflow); the
   leg is already pinned to one `(spec, platform)`. Set the roots once.
@@ -112,14 +112,13 @@ The canonical harbor command is in § Harbor invocation.
    `missing_platforms_declaration` blocker comment once for that spec
    and skip it — the others on the same skill still run.
 
-   Optional: `profile` (string — the `/vss-deploy-profile -p <profile>`
-   argument, e.g. `"alerts"`) and `deploy_mode` (string — the
-   `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`).
+   Optional: `profile` (string label for dataset grouping, e.g. `"alerts"`)
+   and `deploy_mode` (string label for mode grouping, e.g. `"verification"`).
    These are **hints for the adapter** (used to pick the dataset
    group / deploy-mode defaults). They are **NOT** harness directives —
    the harness no longer pre-deploys anything.
    Every spec's first `expects[]` query is responsible for invoking
-   `/vss-deploy-profile` (or the appropriate standalone deploy
+   `/vss-build-vision-ai` (or the appropriate standalone deploy
    runbook) when the rest of its queries need VSS up. The agent is
    pre-authorized to deploy autonomously (see the PREAMBLE that every
    adapter renders into the trial prompt).
@@ -152,7 +151,7 @@ The canonical harbor command is in § Harbor invocation.
        from
        `.github/skill-eval/adapters/vss-manage-video-io-storage/generate.py` (single-platform /
        step-chain) or
-       `.github/skill-eval/adapters/vss-deploy-profile/generate.py` (matrix). For
+       `.github/skill-eval/adapters/vss-build-vision-ai/generate.py` (matrix). For
        updates, edit the existing file rather than rewriting it.
 
    3c. **Same-repo PR → commit the adapter to the contributor's branch;
@@ -285,11 +284,11 @@ The canonical harbor command is in § Harbor invocation.
 
    Every `instruction.md` the adapter writes **must begin with the
    `PREAMBLE` constant** defined in `adapters/vss-manage-video-io-storage/generate.py` and
-   `adapters/vss-deploy-profile/generate.py`:
+   `adapters/vss-build-vision-ai/generate.py`:
 
    > You are running inside a non-interactive evaluation harness.
    > You are pre-authorized to deploy prerequisites autonomously —
-   > do not pause to ask for confirmation on `/vss-deploy-profile` or any other
+   > do not pause to ask for confirmation on `/vss-build-vision-ai` or any other
    > setup action the trial requires.
 
    Skills' SKILL.md prereq blocks include a bypass clause that fires
@@ -649,7 +648,7 @@ Notes that have burned prior runs:
     Massedcompute L40S provisioning can exceed 10 min; 600s fires
     `EnvironmentStartTimeoutError` before the box is READY.
   - `--agent-timeout-multiplier 6.0` → 3600s (1 h) per trial. Cold
-    `/vss-deploy-profile` (esp. `lvs` / `alerts_*` pulling local NIMs)
+    `/vss-build-vision-ai` (esp. `lvs` / `alerts_*` pulling local NIMs)
     plus follow-on ingest / multi-step work overran the old 30-min
     ceiling and harbor logged `NonZeroAgentExitCodeError` (exit 124).
     Only this multiplier is 6.0 — it's the trial-work budget.

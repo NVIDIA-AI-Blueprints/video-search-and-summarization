@@ -221,11 +221,11 @@ raise SystemExit("agent session outlived its work deadline")
 # a change that wired only the PR branch, leaving the nightly full sweep to
 # rebuild the table by hand, could look complete.
 
-_SLUG = "vss-deploy-profile__search__RTXPRO6000BW"
+_SLUG = "vss-build-vision-ai__search__RTXPRO6000BW"
 _LEG = {
     "eval_kind": "eval",
-    "eval_skill": "vss-deploy-profile",
-    "eval_spec_path": "skills/deployment/vss-deploy-profile/evals/search.json",
+    "eval_skill": "vss-build-vision-ai",
+    "eval_spec_path": "skills/vss-build-vision-ai/evals/search.json",
     "eval_platform": "RTXPRO6000BW",
     "eval_slug": _SLUG,
     "eval_spec_stem": "search",
@@ -282,11 +282,11 @@ def test_nightly_leg_prompt_delegates_rendering() -> None:
 def test_leg_body_is_keyed_by_slug_not_stem() -> None:
     """Two skills sharing a spec stem must not share an output file.
 
-    `search.json` really is shipped by both vss-deploy-profile and
+    `search.json` really is shipped by both vss-build-vision-ai and
     vss-search-archive, so these two legs run in the same sweep, on hosts
     that share the run scratch dir.
     """
-    a = skills_eval_agent.leg_paths("vss-deploy-profile__search__RTX", "search")
+    a = skills_eval_agent.leg_paths("vss-build-vision-ai__search__RTX", "search")
     b = skills_eval_agent.leg_paths("vss-search-archive__search__RTX", "search")
     assert a[2] != b[2], "distinct legs resolved to the same body path"
 

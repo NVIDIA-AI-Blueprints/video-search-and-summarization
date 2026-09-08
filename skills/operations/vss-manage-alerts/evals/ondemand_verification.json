@@ -1,7 +1,7 @@
 {
   "skills": [
     "vss-manage-alerts",
-    "vss-deploy-profile"
+    "vss-build-vision-ai"
   ],
   "resources": {
     "platforms": {
@@ -16,7 +16,7 @@
   "description": "On-demand verification as a first-class workflow (Workflow F): on a verification (CV) deploy (no sensor onboarding needed - the verifier config ships populated), the agent must (a) submit a one-shot verification of a supplied clip URL via POST /api/v1/verification/ondemand with a category resolved from GET /verification/config (never /verify, never /generate, never a realtime rule - the no-conflict AC), reporting the real 202 correlationId, and (b) check the async result where it actually lands - a minimal {category,info} submission is incident-kind, so the document surfaces via GET /api/v1/realtime/incidents (mdx-vlm-incidents-*); mdx-vlm-alerts-* only receives submissions carrying notification_type:'alert'. Verdict CONTENT is never asserted (stock deploy runs use_verdict:false freestyle; an unreachable-from-VLM URL degrades to the error path which still publishes a document - both outcomes are tolerated).",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (i.e. `/vss-deploy-profile -p alerts -m verification`) using remote LLM and remote VLM endpoints. No sensor onboarding is needed for this scenario. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) responds successfully and the Alert Bridge verifier config is queryable (`curl -sf http://localhost:9080/api/v1/verification/config`) — wait and retry for a few minutes if a service is still starting.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (i.e. the `/vss-build-vision-ai` stock Alerts workflow in verification mode) using remote LLM and remote VLM endpoints. No sensor onboarding is needed for this scenario. Do NOT finish until the VSS Agent REST API (`curl -sf http://localhost:8000/docs`) responds successfully and the Alert Bridge verifier config is queryable (`curl -sf http://localhost:9080/api/v1/verification/config`) — wait and retry for a few minutes if a service is still starting.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (CV perception / Grounding DINO — required and present in verification (CV) mode).",

@@ -66,6 +66,20 @@ metadata:
 
 Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a fast path — it deploys a validated developer profile's authoritative service set unchanged in Stock mode (**no capability delta**), still producing a minimal stock `_builds/<name>/` for the shared validate -> deploy -> readiness -> teardown lifecycle — while **Custom build** is a guided front door onto Delta mode.
 
+### Exception — autonomous mode
+
+If the request already asks you to run autonomously (e.g. "deploy X
+autonomously", "run without confirmation", "non-interactive"), skip **every**
+confirmation gate in this skill — the Q1/Q2 intake questions, [Q3](#harness-selection--q3),
+and the Step 6 architecture-diagram approval — and proceed straight through
+composition, validation, and deployment. Resolve each question you would have
+asked from the request itself; where it is silent, take the documented default
+for that question and state which defaults you took in the final summary.
+
+This path exists so automated eval / CI invocations do not hang waiting for a
+human reply they will never get. In all other cases, a human must approve
+before anything is generated or deployed.
+
 ### Step 0.0 — Entry-mode detection
 
 Classify the request before any other work:
