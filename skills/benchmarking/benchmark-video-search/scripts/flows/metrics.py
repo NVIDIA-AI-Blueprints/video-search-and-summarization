@@ -16,14 +16,25 @@
 """Retrieval metrics.
 
 Vendored from ``run_eval.py`` so this flow owns its scoring and that script can
-be deleted without taking the metrics with it. The definitions are deliberately
-byte-for-byte equivalent, not "improved" -- changing them would silently
-invalidate every baseline captured with the old runner.
+be deleted without taking the metrics with it. It started byte-for-byte
+equivalent and has since diverged once, deliberately:
 
-``tests/test_search_eval_flows.py`` asserts this module and ``run_eval.py``
-produce identical output for the same input, for as long as both exist. When
-``run_eval.py`` goes, that test goes with it and this becomes the only
-definition.
+``match_segment`` matches on half-open **overlap** rather than on equal start
+times. The old rule additionally required the ground truth to sit on the
+5-second grid, because results are snapped to that grid before matching. Datasets
+whose segments *are* chunks satisfy that silently -- vad-r1-v2 is 100% 5s and
+100% aligned -- so the assumption held until physicalai-dev, whose segments are
+event bounds. There, 159 of 673 queries could not score above zero however good
+retrieval was.
+
+**Baselines therefore compare only within a matching rule.** Event-bounded
+datasets captured before that change are NOT comparable with runs after it:
+physicalai-dev moved mAP 0.1782 -> 0.3359 on identical retrieval. Chunk-shaped
+datasets are unaffected, and a test pins that.
+
+``tests/test_search_eval_flows.py`` guards the rest against drift while both
+modules exist -- note it *skips* when ``run_eval.py`` is not importable, which
+is the normal case in this repo, so a green run is not proof of parity.
 """
 
 from __future__ import annotations
