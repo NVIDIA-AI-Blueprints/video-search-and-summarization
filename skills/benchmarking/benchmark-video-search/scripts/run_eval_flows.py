@@ -460,9 +460,15 @@ def run_evaluation(  # noqa: PLR0913
 
         raw_results, latency_s = query_backend.search(query)
         normalized = flows.normalize_results(raw_results)
-        sources_seen.update(flows.verification_sources(normalized))
-        for verdict, count in flows.verdict_counts(normalized).items():
-            verdicts[verdict] = verdicts.get(verdict, 0) + count
+        # Both are read-modify-write on state shared across the pool, and the
+        # verdict tally is what the no-opinion check reads at the end: lose
+        # increments here and a healthy critic is reported as having formed no
+        # opinion. `print_lock` already serialises the per-query output, and
+        # this is the same few microseconds.
+        with print_lock:
+            sources_seen.update(flows.verification_sources(normalized))
+            for verdict, count in flows.verdict_counts(normalized).items():
+                verdicts[verdict] = verdicts.get(verdict, 0) + count
 
         result = flows.evaluate_query(query, flows.for_scoring(normalized), expected, latency_s)
         if decomposer is not None:
