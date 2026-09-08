@@ -40,6 +40,10 @@ LOG_STATUS_LEVEL = 16
 _LOGGED_URL_PATTERN = re.compile(
     r"(?:https?|s3|rtsp|file)://[^\s\"'<>]+", re.IGNORECASE
 )
+_LOGGED_DATA_URL_PATTERN = re.compile(r"(?<![A-Za-z0-9+.-])data:", re.IGNORECASE)
+_NETWORK_URL_SCHEMES = frozenset({"http", "https", "rtsp", "s3"})
+_REDACTED_DATA_URL = "[data URL redacted]"
+_REDACTED_MALFORMED_URL = "[malformed URL redacted]"
 
 
 def sanitize_url_for_logging(url: str) -> str:
@@ -51,10 +55,14 @@ def sanitize_url_for_logging(url: str) -> str:
     """
     try:
         parsed = urlsplit(url)
+        if parsed.scheme.lower() == "data":
+            return _REDACTED_DATA_URL
+        if parsed.scheme.lower() in _NETWORK_URL_SCHEMES and not parsed.netloc:
+            return _REDACTED_MALFORMED_URL
         netloc = parsed.netloc.rsplit("@", 1)[-1]
         return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
     except (TypeError, ValueError):
-        return "[malformed URL redacted]"
+        return _REDACTED_MALFORMED_URL
 
 
 def sanitize_urls_for_logging(message: str) -> str:
@@ -66,8 +74,17 @@ def sanitize_urls_for_logging(message: str) -> str:
     only safe generic boundary is therefore the end of the message.
     """
     message = str(message)
-    match = _LOGGED_URL_PATTERN.search(message)
-    while match:
+    search_start = 0
+    while True:
+        match = _LOGGED_URL_PATTERN.search(message, search_start)
+        data_match = _LOGGED_DATA_URL_PATTERN.search(message, search_start)
+        if data_match is not None and (
+            match is None or data_match.start() < match.start()
+        ):
+            return f"{message[:data_match.start()]}{_REDACTED_DATA_URL}"
+        if match is None:
+            return message
+
         url = match.group(0)
         delimiter_offsets = [
             offset for offset in (url.find("?"), url.find("#")) if offset >= 0
@@ -79,9 +96,7 @@ def sanitize_urls_for_logging(message: str) -> str:
 
         safe_url = sanitize_url_for_logging(url)
         message = f"{message[:match.start()]}{safe_url}{message[match.end():]}"
-        next_start = match.start() + len(safe_url)
-        match = _LOGGED_URL_PATTERN.search(message, next_start)
-    return message
+        search_start = match.start() + len(safe_url)
 
 
 def sanitize_data_for_logging(value: Any) -> Any:
@@ -108,8 +123,20 @@ class _SensitiveURLFilter(logging.Filter):
     """Sanitize the LogRecord itself before any handler or propagation."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = sanitize_urls_for_logging(record.getMessage())
+        message = sanitize_urls_for_logging(record.getMessage())
+        if record.exc_info:
+            exception_text = logging.Formatter().formatException(record.exc_info)
+            message = f"{message}\n{sanitize_urls_for_logging(exception_text)}"
+        elif record.exc_text:
+            message = f"{message}\n{sanitize_urls_for_logging(record.exc_text)}"
+
+        record.msg = message
         record.args = ()
+        # The exception has been rendered and sanitized above. Leaving either
+        # field intact would let a propagating handler format the original
+        # exception message and reintroduce credentials.
+        record.exc_info = None
+        record.exc_text = None
         return True
 
 

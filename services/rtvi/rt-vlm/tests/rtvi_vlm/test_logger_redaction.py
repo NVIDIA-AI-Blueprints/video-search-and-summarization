@@ -15,6 +15,7 @@
 """Tests for sensitive URL data redaction at the logging boundary."""
 
 import logging
+import sys
 
 import pytest
 
@@ -43,6 +44,14 @@ from common.logger import (
         (
             "rtsp://user:CANARY_SECRET@[camera/path",
             "[malformed URL redacted]",
+        ),
+        (
+            "http:////user:CANARY_SECRET@example.com/video.mp4",
+            "[malformed URL redacted]",
+        ),
+        (
+            "data:video/mp4,CANARY_DATA_URL_SECRET",
+            "[data URL redacted]",
         ),
         ("file:///data/video.mp4", "file:///data/video.mp4"),
     ],
@@ -86,6 +95,63 @@ def test_sensitive_url_filter_redacts_malformed_url():
     assert _SensitiveURLFilter().filter(record)
     assert record.getMessage() == "Opening [malformed URL redacted]"
     assert "CANARY_SECRET" not in record.getMessage()
+
+
+def test_sensitive_url_filter_redacts_empty_authority_url():
+    record = logging.LogRecord(
+        name="common.logger",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="Opening %s",
+        args=("http:////user:CANARY_SECRET@example.com/video.mp4",),
+        exc_info=None,
+    )
+
+    assert _SensitiveURLFilter().filter(record)
+    assert record.getMessage() == "Opening [malformed URL redacted]"
+    assert "CANARY_SECRET" not in record.getMessage()
+
+
+def test_sensitive_url_filter_sanitizes_propagated_exception():
+    try:
+        raise RuntimeError(
+            "download failed for "
+            "https://user:password@example.com/video.mp4?token=CANARY_SECRET"
+        )
+    except RuntimeError:
+        record = logging.LogRecord(
+            name="common.logger",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="Download failed",
+            args=(),
+            exc_info=sys.exc_info(),
+        )
+
+    assert _SensitiveURLFilter().filter(record)
+    propagated_output = logging.Formatter().format(record)
+    assert "Traceback (most recent call last)" in propagated_output
+    assert "https://example.com/video.mp4" in propagated_output
+    assert "CANARY_SECRET" not in propagated_output
+    assert "user:password" not in propagated_output
+
+
+def test_sensitive_url_filter_redacts_data_url_payload():
+    record = logging.LogRecord(
+        name="common.logger",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="Processing media: %s (type: video)",
+        args=("data:video/mp4,CANARY_DATA_URL_SECRET",),
+        exc_info=None,
+    )
+
+    assert _SensitiveURLFilter().filter(record)
+    assert record.getMessage() == "Processing media: [data URL redacted]"
+    assert "CANARY_DATA_URL_SECRET" not in record.getMessage()
 
 
 @pytest.mark.parametrize(

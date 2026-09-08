@@ -3147,7 +3147,7 @@ class RTVIServer:
 
                 logger.info(
                     "Processing media for chat completion: %s (type: %s)",
-                    media_url[:100] if len(media_url) > 100 else media_url,
+                    sanitize_url_for_logging(media_url),
                     media_type.value,
                 )
 
