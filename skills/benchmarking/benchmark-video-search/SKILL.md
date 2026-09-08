@@ -3,7 +3,7 @@ name: benchmark-video-search
 description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
 license: Apache-2.0
 metadata:
-  version: "3.6.0"
+  version: "3.7.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
@@ -60,12 +60,16 @@ Three defaults, each load-bearing:
   picks the retrieval path. Override with `--llm-url` / `--llm-port`; turn it
   off only with `--no-decompose`.
 
-  If the NIM is unreachable the run continues, in this order: decompositions the
-  dataset carries, then its `devset_provenance.json` answer key, then
-  `--search-path`. The first two still route per query, so every path is still
-  exercised. The third measures **one** path — the run warns loudly and the
-  result file records `live_decomposition.fell_back_to`. Read that field before
-  quoting any number.
+  If the NIM is unreachable the run continues on `--search-path embed` — the one
+  path that needs nothing but the query text. It warns loudly and records
+  `live_decomposition.fell_back_to` in the result file. **That run measures one
+  path, not routing**; read the field before quoting any number from it.
+
+  A dataset that carries its own decompositions still routes per query, because
+  that is the dataset's stated intent. Nothing else is inferred: a
+  `devset_provenance.json` answer key is used only when you pass
+  `--decompositions` explicitly, since scoring against perfect routing is a
+  different experiment from scoring the live decomposer.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
