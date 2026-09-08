@@ -572,7 +572,14 @@ Following table describes the parameters in VIOS config file, which should be pr
 | enable_websocket_pingpong | Enable/Disable websocket ping pong messages | FALSE |
 | websocket_keep_alive_ms | Timeout for websocket to keep alive | 5000 |
 | ai_bridge_endpoint | AI Bridge endpoint URL | `''http://<ai-bridge-domain>:<port>/api/bridge/graphql''` |
-| dash | MPEG-DASH streaming parameters.<br/>`max_live_sessions`: max number of concurrent DASH sessions, live and replay combined.<br/>`segment_duration_sec`: target media segment length in seconds, which is also the manifest update period, i.e. how often a player re-fetches the MPD.<br/>`playlist_length`: number of entries the muxer keeps in its playlist.<br/>`idle_timeout_sec`: inactivity timeout after which a session is closed and its segments deleted, refreshed by every manifest or segment request.<br/>`output_root`: output directory for manifests and segments, relative to the webroot.<br/>`bitrate_kbps`: encoder target bitrate, 0 derives it from picture height (2000/5000/10000/20000 kbps for below 1080p/1080p/1440p/2160p).<br/>`always_encode`: encode every session instead of republishing the source bitstream, so VIOS controls the segment length rather than inheriting the camera's keyframe interval. | `{"max_live_sessions":8,"segment_duration_sec":2,"playlist_length":8,"idle_timeout_sec":45,"output_root":"dash","bitrate_kbps":0,"always_encode":true}` |
+| dash | Section to define all DASH streaming parameters, nested under `network` |   |
+| max_live_sessions | Maximum number of concurrent DASH sessions, live and replay combined | 8 |
+| segment_duration_sec | Target media segment length in seconds, which is also the manifest update period, i.e. how often a player re-fetches the MPD | 2 |
+| playlist_length | Number of entries the muxer keeps in its playlist | 8 |
+| idle_timeout_sec | Inactivity timeout after which a session is closed and its segments deleted. Refreshed by every manifest or segment request. | 45 |
+| output_root | Output directory for manifests and segments, relative to the webroot | dash |
+| bitrate_kbps | Encoder target bitrate. 0 derives it from picture height (2000/5000/10000/20000 kbps for below 1080p/1080p/1440p/2160p). | 0 |
+| always_encode | Encode every session instead of republishing the source bitstream, so VIOS controls the segment length rather than inheriting the camera's keyframe interval | TRUE |
 | **onvif** | **Section to define all ONVIF related parameters** |   |
 | device_discovery_timeout_secs | Device discovery timeout to receive probe match message from device | 10 |
 | onvif_request_timeout_secs | Timeout to receive ONVIF command response from device | 10 |
