@@ -599,10 +599,15 @@ def test_configure_origin_uses_the_unified_port_not_the_agent_port() -> None:
 # Drift guard against run_eval.py
 #
 # flows/metrics.py was vendored from run_eval.py so this flow can stand alone.
-# While BOTH scripts exist they must score identically, or baselines captured
-# with one cannot be compared against the other. DELETE THIS SECTION when
-# run_eval.py is removed -- at that point flows/metrics.py is the only
-# definition and there is nothing to drift from.
+# What must not drift is everything EXCEPT the one intentional divergence:
+# match_segment moved from equal-start to half-open overlap, so evaluate_query
+# no longer agrees with the legacy runner on event-bounded ground truth. That
+# is asserted here rather than assumed, so the exception stays visible.
+#
+# These tests SKIP when run_eval.py is not importable, which is the normal case
+# in this repo -- it lives in ci-vss-oss. A green run therefore does not prove
+# parity, and pytest.skip says so out loud where a bare `return` did not.
+# DELETE THIS SECTION when run_eval.py is removed.
 # ---------------------------------------------------------------------------
 
 
@@ -629,20 +634,44 @@ GROUND_TRUTH = [
 ]
 
 
-def test_vendored_metrics_match_run_eval_exactly() -> None:
+def test_vendored_metrics_agree_where_the_grid_makes_them_agree() -> None:
+    """Identical scores on chunk-shaped ground truth, which is most of it.
+
+    GROUND_TRUTH here is 5s and grid-aligned, and for that shape overlap and
+    equal-start accept exactly the same results -- so the divergence is
+    invisible and the two runners must still agree exactly.
+    """
     legacy = _legacy()
     if legacy is None:
-        return  # run_eval.py gone; this guard has served its purpose
+        pytest.skip("run_eval.py not importable (lives in ci-vss-oss); parity unverified")
 
     mine = flows.evaluate_query("q", HITS_FOR_SCORING, GROUND_TRUTH, 1.23)
     theirs = legacy.evaluate_query("q", HITS_FOR_SCORING, GROUND_TRUTH, 1.23)
     assert mine == theirs
 
 
+def test_vendored_metrics_diverge_on_event_bounded_ground_truth() -> None:
+    """...and deliberately disagree once the ground truth leaves the grid.
+
+    Pinning the divergence stops someone "restoring parity" later by reverting
+    the fix, and documents which baselines are incomparable.
+    """
+    legacy = _legacy()
+    if legacy is None:
+        pytest.skip("run_eval.py not importable (lives in ci-vss-oss); parity unverified")
+
+    event_gt = [{"video_name": "warehouse_sample",
+                 "start_time": "2025-01-01T00:00:02Z", "end_time": "2025-01-01T00:00:07Z"}]
+    hit = [{"video_name": "warehouse_sample.mp4",
+            "start_time": "2025-01-01T00:00:00Z", "end_time": "2025-01-01T00:00:05Z"}]
+    assert flows.evaluate_query("q", hit, event_gt, 1.0)["recall"] == 1.0
+    assert legacy.evaluate_query("q", hit, event_gt, 1.0)["recall"] == 0.0
+
+
 def test_vendored_segmentation_matches_run_eval() -> None:
     legacy = _legacy()
     if legacy is None:
-        return
+        pytest.skip("run_eval.py not importable (lives in ci-vss-oss); parity unverified")
     assert flows.post_process_api_results(HITS_FOR_SCORING) == legacy.post_process_api_results(
         HITS_FOR_SCORING
     )
@@ -660,7 +689,7 @@ def test_vendored_dataset_registry_matches_run_eval() -> None:
     """
     legacy = _legacy()
     if legacy is None:
-        return
+        pytest.skip("run_eval.py not importable (lives in ci-vss-oss); parity unverified")
     shared = set(flows.DATASETS) & set(legacy.DATASETS)
     assert shared == set(legacy.DATASETS), (
         f"run_eval.py has datasets the new flow lacks: {set(legacy.DATASETS) - shared}"
