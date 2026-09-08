@@ -72,6 +72,8 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             self.assertNotIn('policy-add', verifier)
             self.assertNotIn('skill install', verifier)
             self.assertIn('Build Vision AI did not create the NemoClaw sandbox', verifier)
+            self.assertIn('Build Vision AI final result', verifier)
+            self.assertIn('/logs/agent/claude-code.txt', verifier)
             self.assertIn('Recent Build Vision AI NemoClaw setup errors', verifier)
             self.assertIn('-name nemoclaw-setup.log', verifier)
             self.assertIn('for candidate in "$port" 18789', verifier)

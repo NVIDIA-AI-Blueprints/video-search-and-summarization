@@ -89,6 +89,9 @@ fail() {{
 command -v nemoclaw >/dev/null 2>&1 || fail "Build Vision AI did not install the nemoclaw CLI"
 command -v openshell >/dev/null 2>&1 || fail "Build Vision AI did not install the openshell CLI"
 if ! timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1; then
+  echo "Build Vision AI final result:" >&2
+  jq -r 'select(.type == "result") | .result // .error // empty' \\
+    /logs/agent/claude-code.txt 2>/dev/null | tail -n 40 >&2 || true
   echo "Recent Build Vision AI NemoClaw setup errors:" >&2
   find "${{VSS_REPO_DIR:-$HOME/video-search-and-summarization}}/_builds" \\
     -name nemoclaw-setup.log -type f -mmin -120 -print0 2>/dev/null \\
