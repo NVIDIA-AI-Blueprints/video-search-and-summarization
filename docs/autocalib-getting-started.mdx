@@ -4,373 +4,134 @@ description: ""
 position: 1
 ---
 
-AutoMagicCalib (AMC) is an automated calibration tool that estimates both intrinsic and extrinsic camera parameters for multi-camera and single-camera systems. It provides camera projection matrices and lens distortion coefficients essential for accurate 3D reconstruction and multi-view applications.
+This guide explains how to deploy and access the **AutoMagicCalib Microservice and User Interface as part of VSS**.
 
-AMC eliminates the need for traditional calibration patterns (like checkerboards) by using tracked moving objects in the scene as natural features for calibration. It leverages DeepStream's object detection and tracking capabilities to identify and follow objects (particularly people) across frames, then analyzes these trajectories across camera views to automatically derive camera parameters from regular operational footage. This approach enables calibration without interrupting normal operations, allows retroactive calibration using archived footage, and performs calibration in the actual deployment environment.
+The detailed AMC workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages. These pages follow the canonical [DeepStream AutoMagicCalib README](https://gitlab-master.nvidia.com/DeepStreamSDK/deepstream/-/blob/main/tools/auto-magic-calib/README.md?ref_type=heads), including its screenshots and UI guidance.
 
-The service supports both a geometry-based approach (AMC) using object trajectories and geometric relationships, and a model-based approach (VGGT) that leverages learned models for higher accuracy and robustness.
+## Prerequisites
 
-## Features
-- Estimate camera lens distortion parameter (k1)
-- Estimate 3x4 camera projection matrix (focal length, rotation, translation)
-- Ground truth focal length override: Use known focal lengths while preserving GeoCalib rotation intelligence
-- Output calibration results in YAML format
-- Dedicated rectification workflow (Auto, Manual, or Videos Are Rectified) with frame preview, full-video generation, live logs, and rectified-video download
-- Independent AMC and VGGT calibration choices (VGGT can run without a prior AMC run)
-- Shared layout post-processing for trajectory overlays, optional GT evaluation, MV3DT, and virtual-GT overlays
-- Visualization tools:
-  - Score metrics graphs of parameter estimation
-  - Rectified video generation with estimated lens parameters
-  - Trajectory and virtual-object overlay imagery on Results
-  - Visual overlay video generation (SV3DT) with estimated camera projection matrix
-- Complete end-to-end pipeline for single-camera and multi-camera calibration
-- Bundle adjustment for improved accuracy
-- Evaluation against ground truth data
-- **Web UI workflow**: 7-step guided calibration — project setup → video configuration → parameters → rectification → manual alignment → execute (AMC/VGGT + shared post-process) → results (ROI/tripwire drawing, verification, export)
+Before using the VSS AutoMagicCalib service and UI, ensure you have:
 
-<br /><br />
-# Quick Start
+- x86_64 system
+- Ubuntu 24.04
+- NVIDIA GPU with hardware encoder (NVENC)
+- NVIDIA Driver 590 or newer
+- Docker configured to run without `sudo`
+- NVIDIA Container Toolkit
+- An NGC API key with access to the required VSS images
 
-### Agent Skills
-AutoMagicCalib workflows use the existing DeepStream agent skills under
-[`skills/`](/vss/vision-agent/agent-skills). Select the setup, sample, video, or RTSP
-calibration skill from the DeepStream repository root. Full calibration runs
-require the runtime prerequisites below and are not expected to complete in
-restricted or no-GPU sandboxes; in those environments, agents should limit work
-to planning, configuration review, and command preparation.
+Required calibration inputs and the detailed AMC requirements are documented in [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset).
 
-Quick install:
+## VSS Deployment Steps (Docker Compose)
+
+These steps deploy AMC using the VSS repository's auto-calibration service. They are separate from the standalone DeepStream `tools/auto-magic-calib` deployment.
+
+### 1. Authenticate with NGC
 
 ```bash
-# Claude Code
-mkdir -p ~/.claude/skills
-cp -r /vss/vision-agent/agent-skills/amc-* ~/.claude/skills/
-
-# Codex
-mkdir -p ~/.codex/skills
-cp -r /vss/vision-agent/agent-skills/amc-* ~/.codex/skills/
+export NGC_CLI_API_KEY=<NGC_CLI_API_KEY>
+export NGC_CLI_ORG='nvidia'
+docker login nvcr.io -u '$oauthtoken' -p "${NGC_CLI_API_KEY}"
 ```
 
-Restart or reopen the coding assistant after copying the skills. See
-[`skills/README.md`](/vss/vision-agent/agent-skills) for the full skill catalog and
-example prompts.
+Generate an API key from [NGC Setup](https://org.ngc.nvidia.com/setup) if needed. Do not print or commit the key.
 
-Expected runtime varies by host, image/model downloads, video length, detector choice, and whether you run Auto/Manual rectification plus optional VGGT and layout post-processing. The bundled sample can take several minutes up to about 30 minutes, custom video calibration can take 10-60+ minutes, and optional VGGT refinement usually adds a few minutes.
+### 2. Clone the VSS repository
 
-### System Requirements
-- x86_64 system
-- OS Ubuntu 24.04
-- NVIDIA GPU with hardware encoder (NVENC)
-- NVIDIA driver 590
-- Docker (setup to run without sudo privilege)
-- NVIDIA container toolkit (see [NVIDIA DeepStream Docker Prerequisites](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_docker_containers.html#prerequisites))
-- [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli) (required to
-  download the optional NGC sample dataset)
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git checkout tags/v3.2.1
+```
 
-### NGC Setup
-This step is needed to pull AutoMagicCalib docker images and download resources
-such as `nvidia/amc-nv-warehouse`.
+### 3. Open the VSS AutoMagicCalib deployment directory
 
-1. Install the [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli) for
-   Linux and verify that it is available:
+```bash
+cd deploy/docker/services/auto-calibration
+```
 
-   ```bash
-   ngc --version
-   ```
-
-2. Visit the NGC sign-in page, enter your email address, and click **Next**, or
-   create an account.
-3. Choose your organization/team.
-4. Generate an API key following the instructions.
-5. Configure the NGC CLI with that API key:
-
-   ```bash
-   ngc config set
-   ```
-
-6. Log in to the NGC Docker registry:
-
-   ```bash
-   docker login nvcr.io
-   ```
-
-   When prompted, enter `$oauthtoken` as the username and paste your NGC API
-   key as the password.
-
-### Project Setup
-AutoMagicCalib is distributed as part of the DeepStream monorepo. Clone
-DeepStream, then run the commands below from
-`tools/auto-magic-calib`. This directory contains this README along with
-`compose/`, `assets/`, `models/`, and `projects/`.
-
-All paths in the rest of this guide are relative to the AutoMagicCalib root,
-except for `PROJECT_DIR` and `MODEL_DIR` in `compose/.env`, which Docker Compose
-resolves relative to the `compose/ms/` directory (hence the `../../` prefix in
-their defaults).
-
-#### Download and set up VGGT model
-Optionally you can download VGGT model for model based calibration
-
-Download the VGGT commercial model from [HuggingFace](https://huggingface.co/facebook/VGGT-1B-Commercial). Downloaded model must be copied to appropriate model directory as mentioned below.
-
-> **Note:** You need to sign up for a HuggingFace account and accept the model license agreement before downloading the model.
-
-#### Optional VIOS Setup for RTSP Capture
-RTSP support requires `VIOS_BASE_URL`. If a VIOS server is already reachable from the AMC host, verify it before setting `VIOS_BASE_URL` in `compose/.env`. Without VIOS, the rest of the calibration workflow can run, but RTSP support remains disabled.
-
-If VIOS is not deployed yet, use the VIOS deployment assets from the VSS repository:
+The directory contains:
 
 ```text
-https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/main/services/vios/deployment
+compose.yml
+ms/compose.yml
+ui/compose.yml
 ```
 
-Follow `1click_README.md` in that directory. A typical development deployment command is:
+### 4. Configure the VSS environment
 
-```bash
-python3 oneclick_dc_deployment_for_dev.py --auto
-```
-
-Verify VIOS before enabling it:
-
-```bash
-curl http://<vios-host>:30888/vst/api/v1/sensor/list
-```
-
-#### Configure Environment Variables
-Edit the `compose/.env` file to set the required environment variables.
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `HOST_IP` | **Yes** | — | IP address of the host machine |
-| `AUTO_MAGIC_CALIB_MS_PORT` | No | `8000` | Port for the microservice API |
-| `AUTO_MAGIC_CALIB_UI_PORT` | No | `5000` | Port for the web UI |
-| `PROJECT_DIR` | No | `../../projects` | Path to the projects directory |
-| `MODEL_DIR` | No | `../../models` | Path to the models directory |
-| `VIOS_BASE_URL` | No | — | VIOS server URL for RTSP capture APIs |
-
-If you want to enable VGGT, VGGT model should be copied inside `$MODEL_DIR/vggt/`.
+Create `.env` in the current directory:
 
 ```dotenv
-AUTO_MAGIC_CALIB_MS_PORT=8000
-AUTO_MAGIC_CALIB_UI_PORT=5000
-PROJECT_DIR=../../projects
-MODEL_DIR=../../models
-HOST_IP=<your_host_ip>
-# VIOS_BASE_URL=http://<VIOS_HOST_IP>:30888  # Uncomment and update this to support RTSP Stream
+VSS_AUTO_CALIBRATION_PORT=8000
+VSS_AUTO_CALIBRATION_HOST_PORT=8000
+VSS_AUTO_CALIBRATION_UI_PORT=5000
+VSS_AUTO_CALIBRATION_UI_HOST_PORT=5000
+VSS_APPS_DIR=/path/to/video-search-and-summarization/deploy/docker
+VSS_DATA_DIR=/path/to/your/data_dir
+HOST_IP=<HOST_IP_ADDRESS>
+VSS_AUTO_CALIBRATION_MS_API_URL=http://${HOST_IP}:8000/v1
+# VIOS_BASE_URL=http://<VIOS_HOST_IP>:30888
 ```
 
-`HOST_IP` must not be empty. If it is empty, the UI API URL renders as `http://:<port>/v1`.
+Replace the paths and host address with your values. `HOST_IP` must be reachable from the browser.
 
-Leave `VIOS_BASE_URL` unset to keep RTSP capture disabled.
+### 5. Optional VGGT model setup
 
-#### Set Directory Permissions
-The `projects` and `models` directories must be owned by UID/GID 1000 for the containers to read/write properly.
+AMC works without VGGT. To enable VGGT calibration, download the licensed model from [Hugging Face](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in:
+
 ```bash
-sudo chown 1000:1000 -R projects
-sudo chown 1000:1000 -R models
+mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
+mv vggt_1B_commercial.pt "${VSS_DATA_DIR}/auto-calib/vggt/"
 ```
 
-#### Launch Services
-Start all services using Docker Compose. Container images will be pulled automatically on the first run.
+You must accept the model license before downloading it.
+
+### 6. Prepare the projects directory
+
 ```bash
-cd compose
-docker compose up -d
+mkdir -p "${VSS_APPS_DIR}/services/auto-calibration/projects"
+sudo chown -R 1000:1000 "${VSS_DATA_DIR}/auto-calib"
+sudo chown -R 1000:1000 "${VSS_APPS_DIR}/services/auto-calibration/projects"
 ```
-The microservice will be available at `http://<HOST_IP>:<AUTO_MAGIC_CALIB_MS_PORT>` (default port 8000) and the UI at `http://<HOST_IP>:<AUTO_MAGIC_CALIB_UI_PORT>` (default port 5000).
 
-To stop the running containers,
+AMC stores project data in the projects directory and the containers use UID/GID `1000`.
+
+### 7. Start the VSS AMC service and UI
+
 ```bash
-docker compose down
+docker compose \
+  --profile "vss-auto-calibration" \
+  --profile "vss-auto-calibration-ui" \
+  up -d
 ```
 
-### Sample Data Setup
-From the AutoMagicCalib directory, unzip the compressed sample data file `assets/sdg_08_2_sample_data_010926.zip`. The sample folder includes 4 different types of data to help you run end-to-end calibration and evaluation.
-1. Input video files
-2. Ground truth data
-3. BirdEyeView map image
-4. Pre-calibrated transform for BirdEyeView map
+The microservice is available at:
 
 ```text
-assets/sdg_08_2_sample_data_010926.zip
-├── alignment_data
-│   ├── alignment_data.json     # Pre-calibrated transform from `cam_00` reference frame to BirdEyeView map image 
-│   └── layout.png              # BirdEyeView map image required for visualization
-├── GT.zip                      # Ground truth data (camera info, extrinsics, object trajectories)
-└── videos                      # Input video files
-    ├── cam_00.mp4
-    ├── cam_01.mp4
-    ├── cam_02.mp4
-    └── cam_03.mp4
-
+http://<HOST_IP>:<VSS_AUTO_CALIBRATION_HOST_PORT>
 ```
 
-Now you're ready to start the calibration process.
+The UI is available at:
 
-To try real world case, we have another sample data file [nv_warehouse_071026.zip](https://catalog.ngc.nvidia.com/orgs/nvidia/resources/amc-nv-warehouse). The sample folder includes 4 different files. It does not have ground-truth data. Additionally it has `nv_warehouse_config.json`, which should be uploaded in the [config param step](/vss/system-components/calibration/auto-calibration/workflow-steps#configuring-settings). For AMC calibration in the Execute step set the `Detector Type` as `Transformer`.
+```text
+http://<HOST_IP>:<VSS_AUTO_CALIBRATION_UI_HOST_PORT>
+```
 
-To download the dataset use the following command:
+With the example values, open `http://<HOST_IP>:5000`.
+
+### 8. Stop the service
+
 ```bash
-ngc registry resource download-version "nvidia/amc-nv-warehouse"
-
+docker compose \
+  --profile "vss-auto-calibration" \
+  --profile "vss-auto-calibration-ui" \
+  down
 ```
 
-In case you want to try your own dataset, please verify requirements (files, directories, formats) explained in [Assumptions](#assumptions) section.
+## Next Steps
 
-
-# Assumptions
-
-AutoMagicCalib makes several assumptions about input data structure. Please ensure your data follows these requirements before you deploy the service or record footage.
-
-## Tracklet-Based Calibration: Input Video Requirements
-
-AutoMagicCalib (AMC) estimates camera parameters by detecting and tracking **people** in your footage, then matching those trajectories (**tracklets**) across camera views. Calibration quality depends heavily on input video content.
-
-> **Note:** These requirements apply to the **tracklet-based AMC pipeline** (the default calibration path). This is not applicable to the optional VGGT model-based calibration path.
-
-**Video content (required for AMC)**
-
-- **Moving people**: People must be clearly visible and moving throughout the clip. AMC relies on PeopleNet detection and 3D tracking of people in the scene.
-- **Scene coverage**: Trajectories should span as much of each camera's field of view as possible. More unique walkers and broader coverage produce more usable tracklets.
-- **Recommended headcount**: Plan for **many** moving people in the scene. As a practical guideline, aim for **at least 10 unique individuals** walking through the monitored area during the recording window (more is better for multi-camera overlap).
-
-**Video duration**
-
-- **Recommended**: **five minutes or longer** per camera. There is no strict minimum, but given the size of the space to calibrate and normal walking speed, longer clips let the tracker build stable trajectories across the field of view; short clips often fail during multi-view **tracklet matching**.
-
-**Resolution and format**
-
-- **Resolution**: **1920 × 1080**
-- **Format** (file upload): MP4 . AutoMagicCalib does **not** support video formats that are not supported by DeepStream.
-
-**Multi-camera specifics**
-
-- **Camera count**: Two or more time-synchronized videos or RTSP streams (one stream for single-camera calibration).
-- **Time synchronization**: All cameras must cover the **same time window**. Use clips recorded in sync or post-processed to be in sync. For RTSP, use one combined **Capture and add to project** for every stream—staggered or later-added streams break calibration.
-- **FOV order**: List cameras in **order of overlapping field of view** (`cam_00` overlaps `cam_01`, `cam_01` overlaps `cam_02`, and so on).
-- **FOV overlap**: For the best calibration quality, more overlap between consecutive camera pairs is better. Aim for **at least 30% FOV overlap**; insufficient overlap reduces matched tracklets and often causes multi-view calibration to fail.
-
-**Tracklet thresholds (why the above matters)**
-
-AMC filters and matches tracklets before multi-view calibration. Default pipeline settings include:
-
-- **Minimum tracklet length**: 90 frames (approximately three seconds at 30 fps)—short or jittery tracks are discarded.
-- **Minimum matched tracklets** (multi-camera): six cross-camera tracklet correspondences per camera pair (three in robust two-view fallback).
-
-If your videos lack enough moving people or are too short, calibration may fail at detection, tracking, or **tracklet matching**. You may need to adjust the configuration parameters through the UI or capture better videos. See [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for capture best practices and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) if tracklet matching fails.
-
-## Lens Distortion Output (`distortion.yaml`)
-
-AMC can accept videos that contain **lens distortion**. Distortion handling is a **dedicated Rectification stage (Step 4)** with Auto, Manual, or **Videos Are Rectified** paths. AMC and VGGT consume staged `rectified.mp4` / `rectified.jpg` under each camera's single-view folder; they **do not** perform implicit in-calibration rectification.
-
-When Auto or Manual rectification generates linear media (distortion model `simple_divisional`, `simple_radial`, or `radial`), the pipeline:
-
-1. Estimates or accepts per-camera distortion parameters (`model`, **k1**, and **k2** when model is `radial`)
-2. **Explicitly** writes full rectified videos / stills and canonical `distortion.yaml` under `single_view_results/cam_XX/`
-3. Unlocks alignment and calibration only after rectification state is **COMPLETED**
-
-Use **Videos Are Rectified** when inputs are already linear; that path stages source videos as linear media and clears prior distortion caches.
-
-**Important for downstream applications**
-
-Rectified videos (`rectified.mp4`) are produced under each camera's single-view output folder on the server, but they are **not** automatically substituted for your original camera feeds in downstream applications. Exported calibration JSON and MV3DT ZIP files describe cameras in the **rectified (undistorted) image space**.
-
-To stay consistent with AMC calibration results, downstream applications must either:
-
-- Prefer the per-camera `rectified.mp4` files from the calibration output (downloadable from the Rectification step as a ZIP; not wired automatically by the microservice), **or**
-- Apply `distortion.yaml` using the model-specific remapping in [Distortion model](#distortion-model) before using AMC projection matrices (do **not** assume OpenCV `cv2.undistort()`)
-
-**Output location**
-
-Per camera (example paths on the calibration server):
-
-```text
-<project_output>/single_view_results/cam_00/distortion.yaml
-<project_output>/single_view_results/cam_00/geocalib_distortion.yaml   # when GeoCalib estimates distortion
-<project_output>/single_view_results/cam_00/rectified.mp4
-<project_output>/single_view_results/cam_00/rectified.jpg
-```
-
-**`geocalib_distortion.yaml` format** (when Auto distortion estimation runs)
-
-GeoCalib writes a richer record that includes the distortion model name and both coordinate conventions:
-
-```yaml
-model: simple_divisional    # or simple_radial, radial (must match rectification config)
-k1: -1.2345678e-06          # AMC pixel-centered convention (meaning depends on model)
-k1_geocalib: -4.5678901e-03 # GeoCalib internal normalized coordinates
-focal_length: 1269.0        # focal length used for k1 conversion
-source: geocalib
-k2: ...                     # present only when model is radial
-```
-
-### Distortion model
-
-AMC supports:
-
-- `simple_divisional` — default
-- `simple_radial`
-- `radial`
-
-Each camera’s `distortion.yaml` records the selected model and coefficients:
-
-```yaml
-model: simple_divisional
-k1: ...
-```
-
-The `radial` model also includes `k2`. Coefficient meanings depend on `model`; in particular, `simple_divisional.k1` is not an OpenCV radial coefficient.
-
-Parameters use full-resolution pixel coordinates with:
-
-```text
-cx = width // 2
-cy = height // 2
-```
-
-#### Reproducing AMC rectification
-
-AMC does not pass these coefficients to an OpenCV distortion model. It computes model-specific destination-to-source maps itself and uses `cv2.remap()` only to resample the image.
-
-For each rectified output pixel `(x, y)`:
-
-```text
-dx = x - cx
-dy = y - cy
-r² = dx² + dy²
-
-simple_radial:
-s = 1 + k1*r²
-
-radial:
-s = 1 + k1*r² + k2*r⁴
-
-simple_divisional:
-s = (1 - sqrt(max(0, 1 - 4*k1*r²))) / (2*k1*r²)
-s = 1 when |2*k1*r²| is near zero
-
-source_x = cx + s*dx
-source_y = cy + s*dy
-```
-
-Use `source_x` and `source_y` as the OpenCV remap coordinates:
-
-```python
-rectified = cv2.remap(
-    distorted,
-    map_x.astype(np.float32),
-    map_y.astype(np.float32),
-    interpolation=cv2.INTER_LINEAR,
-    borderMode=cv2.BORDER_CONSTANT,
-)
-```
-
-`cv2.remap()` maps destination pixels to source pixels, so the equations are evaluated on the rectified output grid.
-
-Prefer using AMC’s generated rectified video directly. It already matches AMC calibration space and must not be undistorted again. If processing raw video separately, read `model` and all applicable coefficients from `distortion.yaml`; do not pass `simple_divisional` coefficients to `cv2.undistort()`.
-
-Apply coefficients at their original image resolution—prefer rectifying before resizing. When **Videos Are Rectified** is selected, rectification is bypassed and `distortion.yaml` is not required.
-
-Changing or repeating rectification invalidates downstream calibration and post-processing outputs.
-
-See also [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) (lens distortion guidance) and the AutoMagicCalib `rectification_config.yaml` in the source repository for tuning search ranges and model selection.
-
+- Follow the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for the complete 7-step UI workflow and screenshots.
+- Follow [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for input videos, alignment data, lens distortion, and ground-truth requirements.
+- Follow [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) for common deployment and calibration failures.
+- For agent-driven VSS deployment and calibration, see the [`vss-generate-video-calibration` skill](/vss/vision-agent/agent-skills).
