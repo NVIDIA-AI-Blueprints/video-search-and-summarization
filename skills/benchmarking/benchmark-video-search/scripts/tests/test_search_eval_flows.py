@@ -1003,3 +1003,62 @@ def test_no_function_reads_a_name_it_never_binds() -> None:
 
     visit(tree, module_scope, "")
     assert not unbound, f"names read but never bound: {unbound}"
+
+
+# ---------------------------------------------------------------------------
+# Segment matching: overlap, not equal start times
+# ---------------------------------------------------------------------------
+
+_F = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _window(video: str, start_s: int, length_s: int = 5) -> dict[str, str]:
+    import datetime
+
+    base = datetime.datetime(2025, 1, 1) + datetime.timedelta(seconds=start_s)
+    return {
+        "video_name": video,
+        "start_time": base.strftime(_F),
+        "end_time": (base + datetime.timedelta(seconds=length_s)).strftime(_F),
+    }
+
+
+def test_chunk_aligned_ground_truth_matches_exactly_as_before() -> None:
+    """vad-r1-v2 is 100% 5s and 100% grid-aligned; its scoring must not move."""
+    gt = [_window("vidA", 10)]
+    assert flows.match_segment(_window("vidA", 10), gt)[0] == 0
+    for off_by_one in (0, 5, 15, 20):
+        assert flows.match_segment(_window("vidA", off_by_one), gt)[0] == -1
+
+
+def test_a_result_inside_an_event_matches_it() -> None:
+    """physicalai-dev segments are event bounds, often off the 5s grid.
+
+    Results are snapped to that grid, so equal-start matching made 23.6% of its
+    queries unscoreable and threw away 57% of the time its ground truth covers.
+    """
+    event = [_window("vidA", 7, length_s=27)]  # 00:07 -> 00:34, off-grid start
+    for inside in (5, 10, 20, 30):
+        assert flows.match_segment(_window("vidA", inside), event)[0] == 0, inside
+    for outside in (0, 35, 60):
+        assert flows.match_segment(_window("vidA", outside), event)[0] == -1, outside
+
+
+def test_adjacent_segments_do_not_overlap() -> None:
+    """Half-open intervals: [10,15) and [15,20) touch but do not overlap."""
+    gt = [_window("vidA", 15)]
+    assert flows.match_segment(_window("vidA", 10), gt)[0] == -1
+    assert flows.match_segment(_window("vidA", 15), gt)[0] == 0
+
+
+def test_overlap_does_not_turn_one_event_into_several_hits() -> None:
+    """Each ground-truth segment is still claimed once."""
+    event = [_window("vidA", 7, length_s=27)]
+    out = flows.evaluate_query("q", [_window("vidA", s) for s in (10, 15, 20)], event, 1.0)
+    assert out["true_positives"] == 1
+    assert out["recall"] == 1.0
+
+
+def test_a_different_video_never_matches() -> None:
+    gt = [_window("vidA", 10)]
+    assert flows.match_segment(_window("vidB", 10), gt)[0] == -1
