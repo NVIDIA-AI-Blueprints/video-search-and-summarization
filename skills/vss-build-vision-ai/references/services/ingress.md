@@ -65,8 +65,14 @@ backend rule**; tagging needs no new backend rule. For a build that resolves the
 `generate_captions` tagging leg can be driven from any host that reaches the origin,
 not only the deploy host's loopback. This is a conscious tradeoff: it
 re-exposes RT-VLM's SSE-generation and stream/file-mutation endpoints through
-HAProxy, so the origin's host-allowlist is the only boundary — front RT-VLM only
-when the build needs remote-driven tagging, and never on an unauthenticated origin.
+HAProxy, and the origin's host-allowlist is **not** a credential — any caller
+that can reach the origin can invoke inference and stream/file mutation. Do
+**not** copy `/rtvi-vlm` into the curated ingress unless an explicit
+authentication gate fronts the route; the default is loopback-only (the
+tagging leg is driven from the deploy host's loopback). A build that needs
+remote-driven tagging from other hosts must add an authentication gate
+(e.g. an authenticated reverse proxy or mTLS) before fronting `/rtvi-vlm`
+on the public origin.
 A side effect is that `vss configure` then records `rt_vlm` present, which
 activates the search CLI's fail-open critic (retrieval is unaffected). A build
 that uses RT-VLM only for Critic verification (no tagging leg) keeps it

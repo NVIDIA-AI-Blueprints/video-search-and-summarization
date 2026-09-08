@@ -933,3 +933,90 @@ class TestTagOnlyDeploymentAndFusionWeights:
                 tag_search=tag,
                 config=_config(fusion_method="weighted_rrf", w_tag=0, w_embed=0, w_attribute=1),
             )
+
+    @pytest.mark.asyncio
+    async def test_tag_mode_applies_top_percent_filter(self) -> None:
+        # The tag-only early return must apply `apply_top_percent_filter` like
+        # the embed/attribute path; otherwise `--top-percent-filter` is a no-op for tag.
+        # tag similarity == lexical_score, so a 0.5 threshold keeps >= 0.5*max.
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name="keep",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:00:00Z",
+                        end_time="2025-01-01T00:00:05Z",
+                        lexical_score=1.0,
+                        tags=["red"],
+                    ),
+                    TagSearchResultItem(
+                        video_name="drop",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:10:00Z",
+                        end_time="2025-01-01T00:10:05Z",
+                        lexical_score=0.1,
+                        tags=["red"],
+                    ),
+                ]
+            )
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", top_k=2, search_mode="tag"),
+            embed_search=_FakeEmbed([_embed_output([])]),
+            tag_search=tag,
+            config=_config(top_percent_filter=0.5),
+        )
+        assert [r.video_name for r in out.data] == ["keep"]
+
+    @pytest.mark.asyncio
+    async def test_fusion_applies_top_percent_filter(self) -> None:
+        # The fusion early return must apply `apply_top_percent_filter` before
+        # merging/slicing; otherwise `--top-percent-filter` is a no-op for fusion.
+        # Four same-sensor, non-overlapping embed hits with rrf_k=1 (rrf weights
+        # are 1.0) produce fused scores 1/(1+rank) = 0.5/0.333/0.25/0.2;
+        # a 0.5 threshold (>= 0.25) drops the 4th (e4).
+        embed = _FakeEmbed(
+            [
+                _embed_output(
+                    [
+                        _embed_item(
+                            video_name="e1",
+                            sensor_id="camE",
+                            similarity=1.0,
+                            start="2025-01-01T00:00:00Z",
+                            end="2025-01-01T00:00:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e2",
+                            sensor_id="camE",
+                            similarity=0.8,
+                            start="2025-01-01T00:10:00Z",
+                            end="2025-01-01T00:10:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e3",
+                            sensor_id="camE",
+                            similarity=0.6,
+                            start="2025-01-01T00:20:00Z",
+                            end="2025-01-01T00:20:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e4",
+                            sensor_id="camE",
+                            similarity=0.4,
+                            start="2025-01-01T00:30:00Z",
+                            end="2025-01-01T00:30:05Z",
+                        ),
+                    ]
+                )
+            ]
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", top_k=4, search_mode="fusion"),
+            embed_search=embed,
+            tag_search=_FakeTag(),
+            config=_config(fusion_method="rrf", rrf_k=1, top_percent_filter=0.5),
+        )
+        assert {r.video_name for r in out.data} == {"e1", "e2", "e3"}
+        assert "e4" not in {r.video_name for r in out.data}

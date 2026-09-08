@@ -216,11 +216,34 @@ POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live
 # prompt.
 #   Upload (VOD): one finite call, then delete the temporary asset —
 TAG_PROMPT='Analyze only this video interval. Return JSON only with exactly two fields: "tags", an array of concise visible concepts, actions, objects, and events; and "description", one concise factual sentence. Do not infer facts that are not visible.'
-curl -s -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
+#   Capture the HTTP status and body; fail on >=400. Require at least one
+#   chunk in the response (the VOD body is a JSON object whose
+#   `chunk_responses` array carries the per-chunk tag output) — a 2xx with zero chunks
+#   can never yield tag hits, so it is a provisioning failure, not a silent
+#   success. Release the temporary RT-VLM file asset afterwards either way.
+tag_body=$(mktemp)
+if tag_code=$(curl -sS -o "$tag_body" -w '%{http_code}' \
+  -X POST "http://localhost:<rt-vlm-port>/v1/generate_captions" \
   -H "Content-Type: application/json" \
   --data-binary @- <<EOF
 {"id":"<sensorId>","model":"<resolved-vlm-model>","url":"<vios-storage-url>","creation_time":"<upload-anchor>","prompt":$(printf '%s' "$TAG_PROMPT" | jq -Rs .),"response_format":{"type":"json_object"},"temperature":0,"chunk_duration":5,"stream":false}
 EOF
+); then :; else
+  echo "rt-vlm tagging request failed (curl exit $?)" >&2
+  curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>" >/dev/null 2>&1 || true
+  rm -f "$tag_body"; exit 1
+fi
+case "$tag_code" in 2*|3*) : ;; *)
+  echo "rt-vlm tagging failed (http ${tag_code:-unknown})" >&2
+  curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>" >/dev/null 2>&1 || true
+  rm -f "$tag_body"; exit 1
+;; esac
+if ! jq -e '((.chunk_responses // .chunks // .data // []) | length) > 0' "$tag_body" >/dev/null 2>&1; then
+  echo "rt-vlm tagging produced no chunks (http ${tag_code}); cannot yield tag hits" >&2
+  curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>" >/dev/null 2>&1 || true
+  rm -f "$tag_body"; exit 1
+fi
+rm -f "$tag_body"
 #   then release the temporary RT-VLM file asset:
 curl -s -X DELETE "http://localhost:<rt-vlm-port>/v1/files/<sensorId>"
 #   Live (RTSP): register, then confirm admission (HTTP 200) and intentionally close
