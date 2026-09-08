@@ -13,7 +13,7 @@
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import React, { useState } from 'react';
 
-import { buildStepTree } from './sse';
+import { buildDisplayStepTree, countDisplaySteps } from './sse';
 import type { ChatStep } from './types';
 
 const STATUS_DOT: Record<ChatStep['status'], string> = {
@@ -82,7 +82,8 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
   const open = manual ?? (!!streaming || !!expandByDefault);
   if (!steps.length) return null;
 
-  const tree = buildStepTree(steps);
+  const tree = buildDisplayStepTree(steps);
+  const displayedStepCount = countDisplaySteps(tree);
 
   return (
     <div className="mb-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-900/60">
@@ -94,7 +95,7 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
       >
         {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
         <span>
-          Intermediate steps ({steps.length}){streaming ? ' — running' : ''}
+          Intermediate steps ({displayedStepCount}){streaming ? ' — running' : ''}
         </span>
       </button>
       {open && (
