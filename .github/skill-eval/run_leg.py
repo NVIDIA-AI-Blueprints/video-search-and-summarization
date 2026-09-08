@@ -83,6 +83,9 @@ HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
 # 90 minutes; together with Harbor's other phase and recovery ceilings this
 # remains below DEFAULT_HARBOR_TIMEOUT_SEC.
 NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER = 9.0
+NEMOCLAW_BOOTSTRAP_AGENT_BUDGET_SEC = int(
+    HARBOR_BASE_PHASE_TIMEOUT_SEC * NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER
+)
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
     HARBOR_BASE_PHASE_TIMEOUT_SEC
@@ -125,6 +128,10 @@ DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
 # agent deadline can fire and drive normal artifact/environment cleanup.
 MIN_BREV_EXEC_TIMEOUT_SEC = (
     HARBOR_AGENT_BUDGET_SEC + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+)
+NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC = (
+    NEMOCLAW_BOOTSTRAP_AGENT_BUDGET_SEC
+    + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
 )
 
 # Emergency-only escalation after the outer backstop. SIGINT gives Harbor's
@@ -1522,12 +1529,12 @@ def run_invocations(
             print("FATAL: no operational Harbor invocation to provision", file=sys.stderr)
             return 1
         source_task = invocations[0].harbor_root / invocations[0].include_task_name / "task.toml"
-        # Harbor uses ``__`` as the delimiter in its internal eval key.  A
-        # dataset path containing the leg slug (which itself uses ``__``)
-        # makes Harbor 0.20 crash in its post-run summary printer after an
-        # otherwise successful trial.  The scratch directory is already
-        # unique per leg/run, so a fixed child name is both isolated and safe.
-        bootstrap_root = scratch / "nemoclaw-bootstrap"
+        # Harbor uses ``__`` as the delimiter in its internal eval key, so the
+        # dataset path cannot contain the leg slug directly. Use the already
+        # Harbor-safe per-leg sandbox identity instead: unlike the shared run
+        # scratch root, this remains isolated when matrix legs overlap.
+        derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
+        bootstrap_root = scratch / f"nemoclaw-bootstrap-{derived_sandbox_name}"
         shutil.rmtree(bootstrap_root, ignore_errors=True)
         try:
             create_bootstrap_task(
@@ -1546,9 +1553,7 @@ def run_invocations(
             include_task_name=BOOTSTRAP_TASK,
             chain_key="build-vision-bootstrap",
         )
-        sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or nemoclaw_sandbox_name(
-            run_id, leg_slug
-        )
+        sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
         # Both the Build Vision AI bootstrap and the later operational
         # scenarios must address the same sandbox. This is intentionally a
         # per-leg name rather than an interactive shared default
@@ -1569,6 +1574,16 @@ def run_invocations(
                 "NEMOCLAW_MODEL": os.environ.get("NEMOCLAW_MODEL", model),
                 "COMPATIBLE_API_KEY": os.environ.get("COMPATIBLE_API_KEY", bootstrap_env.get("ANTHROPIC_API_KEY", "")),
             }
+        )
+        # Claude Code's installed Harbor adapter does not pass timeout_sec to
+        # environment.exec(), so brev_env falls back to BREV_EXEC_TIMEOUT. Keep
+        # that remote-command ceiling beyond the bootstrap's 90-minute agent
+        # deadline plus the same recovery-transfer allowance used above.
+        bootstrap_env["BREV_EXEC_TIMEOUT"] = str(
+            max(
+                int(bootstrap_env.get("BREV_EXEC_TIMEOUT", "0")),
+                NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC,
+            )
         )
         bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
         shutil.rmtree(bootstrap_results, ignore_errors=True)

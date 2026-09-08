@@ -832,7 +832,12 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
         self.assertEqual(
             command.call_args_list[0].args[0].harbor_root,
-            root / "scratch" / "nemoclaw-bootstrap",
+            root
+            / "scratch"
+            / (
+                "nemoclaw-bootstrap-"
+                + run_leg.nemoclaw_sandbox_name("results", root.name)
+            ),
         )
         self.assertEqual(
             command.call_args_list[0].kwargs["agent_timeout_multiplier"],
@@ -848,6 +853,10 @@ class RunInvocations(unittest.TestCase):
         )
         self.assertNotEqual(bootstrap_env["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
         self.assertEqual(bootstrap_env["NEMOCLAW_RECREATE_SANDBOX"], "0")
+        self.assertEqual(
+            bootstrap_env["BREV_EXEC_TIMEOUT"],
+            str(run_leg.NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC),
+        )
         self.assertEqual(run.call_args_list[1].args[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
 
     def test_failed_nemoclaw_bootstrap_reward_fails_leg(self):
