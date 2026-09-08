@@ -9,6 +9,7 @@
   "files": [
     "dist/",
     "skills/",
+    "skills.txt",
     "workspace/",
     "openclaw.plugin.json"
   ],

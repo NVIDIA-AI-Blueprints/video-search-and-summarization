@@ -59,13 +59,13 @@ COPY plugin/package.json plugin/package-lock.json plugin/tsconfig.json ./
 # The lockfile pins the openclaw devDependency; it has to be the base's version.
 RUN node -e 'const l=require("./package-lock.json"); const v=l.packages["node_modules/openclaw"].version; if (v!==process.argv[1]) { console.error(`plugin lockfile pins openclaw ${v}, base image carries ${process.argv[1]}`); process.exit(1); }' "$OPENCLAW_VERSION"
 RUN npm ci --ignore-scripts --no-audit --no-fund
-COPY plugin/openclaw.plugin.json plugin/stage-assets.sh ./
+COPY plugin/openclaw.plugin.json plugin/stage-assets.sh plugin/skills.txt ./
 COPY plugin/src/ ./src/
 RUN npm run build \
     && npm prune --omit=dev --omit=peer --ignore-scripts --no-audit --no-fund \
     && test ! -e node_modules/openclaw
-# Content assets: the VSS skills (one directory per SKILL.md regardless of how
-# the repo groups them) from the pinned checkout, and the OpenClaw workspace
+# Content assets: the operation skills listed in plugin/skills.txt (found by
+# name however the repo groups them) from the pinned checkout, and the OpenClaw workspace
 # instructions from this directory, staged under the plugin root where the
 # manifest's `skills: ["./skills"]` and the register-time seeding look.
 COPY --from=vss-src /opt/vss-src/skills /tmp/vss-skills
@@ -81,14 +81,12 @@ FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
 
 # Harbor trial paths. Harbor and its agent adapters address /task, /output,
-# /logs, /tests and /solution by name. They are REAL directories, not symlinks
-# into /sandbox: the OpenShell policy engine chowns every read_write path at
-# sandbox start and refuses a symlink ("read_write path '/task' is a symlink —
-# refusing to chown, potential privilege escalation"), which failed every trial
-# before the agent started. World-writable like the openshell-community image,
-# so the harness can populate them as the sandbox user; the eval harness moves
-# files in and out with exec+tar, so they do not need to live in the workspace.
-RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+# /logs, /tests and /solution by name, but everything physically lives under
+# /sandbox — the OpenShell workspace (WORKDIR below), which the sandbox user
+# owns and `openshell sandbox download` serves. Nothing is created here: the
+# harness creates the directories at trial start as the sandbox user; these are
+# only root-level names pointing into the workspace.
+RUN for d in task output logs tests solution; do ln -s "/sandbox/$d" "/$d"; done
 
 # The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
 # same pinned checkout the skills came from. Its packages are uv workspace
@@ -155,38 +153,11 @@ RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
-# NemoClaw's shell hooks apply a hard `ulimit -u 512` in every shell
-# (/etc/profile.d/nemoclaw-rlimits.sh and /etc/bash.bashrc, sourcing
-# /usr/local/lib/nemoclaw/sandbox-rlimits.sh). That is harmless when the shell
-# runs as the `sandbox` user, which owns a handful of processes. The OpenShell
-# k8s driver runs the sandbox container as uid 0, and RLIMIT_NPROC for root
-# counts every root-owned process on the node, thousands on a k3s host, so the
-# first fork in the upload's ssh session fails with EAGAIN and the sandbox dies
-# (exit 254) before Harbor's first exec. Process limits for eval sandboxes are
-# the cluster's job (pod pids limits), not the shell's.
-USER root
-RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
-    && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
-    && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
-
-# nvm shim. Harbor's openclaw adapter bootstraps node with nvm (`. ~/.nvm/nvm.sh
-# && nvm use 22 && node -v`); this image pins node, so the shim answers `use`
-# and `install` for the pinned major and refuses any other, exactly as the
-# openshell-community image did. Without it every trial fails at agent setup
-# with "/sandbox/.nvm/nvm.sh: No such file or directory".
-# (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
-COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
-
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
-# Entrypoint and health check are inherited from the managed runtime. The command
-# is not: the runtime's CMD is /bin/bash, which reads EOF and exits as soon as
-# nemoclaw-start hands over when the container has no TTY, so an OpenShell sandbox
-# built from this image went to phase Error before the first exec. The eval
-# harness drives the agent with exec, so the container only has to stay alive.
+# Entrypoint, command and health check are inherited from the managed runtime.
 USER sandbox
 WORKDIR /sandbox
-CMD ["sleep", "infinity"]
 
 LABEL harness.base="nemoclaw-openclaw-sandbox" \
       harness.contract="harbor-trial-v1" \

@@ -1,0 +1,10 @@
+# Skills staged into the VSS OpenClaw plugin — one per line, by directory name.
+# Operation skills only: each drives a live deployment through the vss CLI's
+# operation commands (configure, memory, search, summarize, vios, vlm), which
+# is what the vss_cli tool exposes. Deploy, benchmark and build skills stay in
+# the repo's skills/ tree but are not part of this harness image.
+vss-ask-video
+vss-summarize-video
+vss-search-archive
+vss-generate-video-report
+vss-manage-alerts

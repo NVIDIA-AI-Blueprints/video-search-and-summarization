@@ -10,7 +10,7 @@ Everything VSS needs to run on OpenClaw, in one place:
 | Path | What it is |
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's published managed OpenClaw runtime (digest-pinned) + the `vss` CLI + this plugin, installed with `openclaw plugins install` |
-| `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts`, `stage-assets.sh` |
+| `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts`, `stage-assets.sh`, `skills.txt` (the staged skill allowlist) |
 | `workspace/` | The OpenClaw workspace instruction files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `BOOTSTRAP.md`) and the `_nemoclaw/` overlay for the sandbox (`ENV.md`, host alias, proxy notes) |
 
 ## The plugin
@@ -21,11 +21,15 @@ the OpenClaw SDK:
 - **`vss_cli` tool** — runs the pinned `vss` CLI with an argument array and
   returns exit code, stdout and stderr. The agent drives the VSS backends
   through a typed tool call instead of a free-form shell.
-- **Skills** — `skills: ["./skills"]`. `stage-assets.sh` copies every directory
-  holding a `SKILL.md` from the repo's `skills/` tree under the plugin root, so
-  OpenClaw loads them as plugin skills (`openclaw skills list` shows them with
-  source `openclaw-extra`). The skills say which `vss` subcommands to reach for;
-  the tool is how they are invoked.
+- **Skills** — `skills: ["./skills"]`. `stage-assets.sh` copies the skills
+  listed in `plugin/skills.txt` from the repo's `skills/` tree under the plugin
+  root, so OpenClaw loads them as plugin skills (`openclaw skills list` shows
+  them with source `openclaw-extra`). The list is the operation skills only:
+  the ones that drive a live deployment through the `vss` CLI's operation
+  commands (`configure`, `memory`, `search`, `summarize`, `vios`, `vlm`), which
+  is what the tool exposes. Deploy, benchmark and build skills are not in this
+  image. The skills say which `vss` subcommands to reach for; the tool is how
+  they are invoked.
 - **Workspace seeding** — at register time the plugin copies `workspace/*.md`
   into the agent's configured workspace (`agents.defaults.workspace`) when the
   files are not there yet, applying the `_<variant>` overlay first.
