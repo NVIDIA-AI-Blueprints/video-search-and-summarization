@@ -583,8 +583,9 @@ class TestRequestOptionsContext:
 
         result = await agent._plan_node(state)
 
-        assert result.plan == ""
-        assert result.final_answer == "Which sensor are you referring to? I need the full sensor ID."
+        assert result.final_answer == ""
+        assert "Do not ask which camera or for a fuller sensor ID" in result.plan
+        assert result.plan.startswith("1.")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -634,6 +635,40 @@ class TestRequestOptionsContext:
             "request as `user_query`, then present the generated report."
         )
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "planner_reply",
+        [
+            "[USER] I need to clarify which Camera you mean. Could you please specify the camera name?",
+            "I need to clarify which Camera you mean. Could you please specify the camera name or provide more details?",
+        ],
+    )
+    async def test_plan_node_plans_a_picture_for_named_warehouse_camera(self, monkeypatch, planner_reply):
+        """A warehouse VST name is Camera; asking which Camera strands the snapshot."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        picture_tool = MagicMock()
+        picture_tool.name = "vst_picture_url"
+        picture_tool.description = "Get a snapshot URL for a sensor."
+        agent.tools_dict["vst_picture_url"] = picture_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=planner_reply))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="I want to see a picture of Camera"),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert "`vst_picture_url`" in result.plan
+        assert "sensor_id" in result.plan
+
     @pytest.mark.parametrize(
         "question,expected",
         [
@@ -647,6 +682,9 @@ class TestRequestOptionsContext:
             ('List incidents for sensor id "available"', True),
             ("Generate a report for sensor id Camera_01", True),
             ("How busy was camera id dock_3?", True),
+            ("I want to see a picture of Camera", True),
+            ("Show a snapshot from Camera_01", True),
+            ("What are the available cameras?", False),
             ("Summarize gwfix1", False),
         ],
     )

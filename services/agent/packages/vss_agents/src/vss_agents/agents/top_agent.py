@@ -105,6 +105,18 @@ _SENSOR_INVENTORY_TERMS = ("available sensor", "available camera", "sensor id", 
 _SENSOR_REFERENCE_RE = re.compile(
     r"(?i)\b(?:sensor|camera)\s*ids?\b[\s:=]*(?P<value>\"[^\"]+\"|'[^']+'|`[^`]+`|[\w.\-]+)"
 )
+# Warehouse calibration sets ship VST names Camera, Camera_01, ... The lowercase
+# word "camera" in inventory questions must not count as naming one of them.
+_WAREHOUSE_SENSOR_NAME_RE = re.compile(r"\bCamera(?:_\d+)?\b")
+_PICTURE_REQUEST_TERMS = ("picture", "snapshot", "image", "photo")
+_WHICH_SENSOR_CLARIFY_TERMS = (
+    "which camera",
+    "which sensor",
+    "full sensor id",
+    "specify the camera",
+    "specify the sensor",
+    "camera name or provide more details",
+)
 # What follows "sensor id(s)" when the question is still about the inventory
 # rather than naming one sensor ("which sensor ids are available", "list the
 # sensor ids please"). Anything else in that position is a sensor name.
@@ -151,7 +163,25 @@ def _names_a_specific_sensor(question: str) -> bool:
             return True
         if value and value.casefold() not in _SENSOR_REFERENCE_STOPWORDS:
             return True
-    return False
+    return _WAREHOUSE_SENSOR_NAME_RE.search(question) is not None
+
+
+def _planner_output_is_clarification(plan_text: str) -> bool:
+    """True when the planner asked which sensor instead of producing numbered tool steps."""
+    text = plan_text.strip()
+    if text.startswith(PLAN_CLARIFY_PREFIX):
+        return True
+    lowered = text.casefold()
+    if re.match(r"^\s*\d+\.\s", text) or "call `" in lowered:
+        return False
+    return any(term in lowered for term in _WHICH_SENSOR_CLARIFY_TERMS)
+
+
+def _clarification_from_plan(plan_text: str) -> str:
+    text = plan_text.strip()
+    if text.startswith(PLAN_CLARIFY_PREFIX):
+        return text[len(PLAN_CLARIFY_PREFIX) :].strip()
+    return text
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -941,8 +971,8 @@ class TopAgent(AsyncMixin):
             logger.warning("Added the missing `report_agent` step to a report plan")
 
         # Check if the planner wants to ask the user for clarification
-        if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
-            clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
+        if _planner_output_is_clarification(plan_text):
+            clarification = _clarification_from_plan(plan_text)
             report_tool = self.tools_dict.get("report_agent")
             report_fields = getattr(getattr(report_tool, "args_schema", None), "model_fields", {})
             names_a_sensor = _names_a_specific_sensor(question)
@@ -976,6 +1006,32 @@ class TopAgent(AsyncMixin):
             ):
                 state.plan = "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
                 logger.warning("Rejected ungrounded planner answer for sensor-list query: %s", clarification)
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
+            # Warehouse VST names include Camera. Asking "which Camera" after the
+            # user already said "picture of Camera" strands the snapshot request.
+            if names_a_sensor and any(term in question.lower() for term in _PICTURE_REQUEST_TERMS):
+                if "vst_picture_url" in self.tools_dict:
+                    state.plan = (
+                        "1. Call `vst_picture_url` with sensor_id set to the exact sensor name from "
+                        "the user's request. Do not ask which camera or for a fuller sensor ID."
+                    )
+                else:
+                    state.plan = (
+                        "1. Use the sensor named in the user's request as sensor_id. "
+                        "Do not ask which camera or for a fuller sensor ID."
+                    )
+                logger.warning(
+                    "Rejected clarification for a picture request that already names a sensor: %s", clarification
+                )
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
+            if names_a_sensor and any(term in clarification.casefold() for term in _WHICH_SENSOR_CLARIFY_TERMS):
+                state.plan = (
+                    "1. Use the sensor named in the user's request as sensor_id. "
+                    "Do not ask which camera or for a fuller sensor ID."
+                )
+                logger.warning("Rejected clarification for a request that already names a sensor: %s", clarification)
                 writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
                 return state
             logger.info("Plan node requesting clarification: %s", clarification)
