@@ -1469,6 +1469,18 @@ function state_up() {
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
     echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+    # containers.env applies the suffix during compose interpolation only, so a
+    # service that reads a tag as plain configuration never sees it — the
+    # bp-configurator validates VSS_RT_CV_TAG from its env_file and rejects
+    # DGX-SPARK without 'sbsa'. Mirror the same four suffixed keys that
+    # containers.env derives, keeping shell/env-file overrides intact.
+    local _sbsa_base_tag _sbsa_key _sbsa_value
+    _sbsa_base_tag="${VSS_CONTAINER_TAG:-$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_source_env}" "${_generated_env}")}"
+    _sbsa_base_tag="${_sbsa_base_tag:-develop-latest}"
+    for _sbsa_key in VSS_RT_CV_TAG VSS_RT_EMBED_TAG VSS_RT_VLM_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _sbsa_value="${!_sbsa_key:-$(get_env_value_from_files "${_sbsa_key}" "${_source_env}" "${_generated_env}")}"
+      set_env_var "${_sbsa_key}" "${_sbsa_value:-${_sbsa_base_tag}${VSS_CONTAINER_TAG_SUFFIX}}"
+    done
   fi
 
   # Resolve and display the managed container channel before deployment.

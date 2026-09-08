@@ -411,6 +411,21 @@ function get_env_value_from_files() {
   fi
 }
 
+# Value of a commented SBSA alternate, e.g. `#VSS_RT_CV_TAG="develop-latest-sbsa"`.
+# Profiles pin the SBSA build that way when it does not follow the shared
+# VSS_CONTAINER_TAG channel; suffix derivation is the fallback. Later files win.
+function get_commented_sbsa_value() {
+  local _var_name="${1}"
+  shift
+  local _env_file _line _val=""
+  for _env_file in "$@"; do
+    [[ -f "${_env_file}" ]] || continue
+    _line="$(grep -E "^#[[:space:]]*${_var_name}=" "${_env_file}" 2>/dev/null | grep -F 'sbsa' | head -1)"
+    [[ -n "${_line}" ]] && _val="${_line#*=}"
+  done
+  echo "${_val}"
+}
+
 function env_var_defined_in_files() {
   local _var_name="${1}"
   shift
@@ -2012,6 +2027,22 @@ function state_up() {
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
     echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+    # containers.env applies the suffix during compose interpolation only, so a
+    # service that reads a tag as plain configuration never sees it. Write the
+    # same four suffixed keys into generated.env, preferring an explicit tag
+    # (shell, uncommented env-file line, then the profile's commented SBSA pin)
+    # over the derived one.
+    local _sbsa_base_tag _sbsa_key _sbsa_value
+    _sbsa_base_tag="${VSS_CONTAINER_TAG:-$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_source_env}" "${_generated_env}")}"
+    for _sbsa_key in VSS_RT_CV_TAG VSS_RT_EMBED_TAG VSS_RT_VLM_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _sbsa_value="${!_sbsa_key:-$(get_env_value_from_files "${_sbsa_key}" "${_source_env}" "${_generated_env}")}"
+      if [[ -z "${_sbsa_value}" ]] && [[ -z "${_sbsa_base_tag}" ]]; then
+        # No shared channel selected, so the profile's pinned SBSA build is the
+        # only meaningful tag. A selected channel always wins over the pin.
+        _sbsa_value="$(get_commented_sbsa_value "${_sbsa_key}" "${_source_env}" "${_generated_env}")"
+      fi
+      set_env_var "${_sbsa_key}" "${_sbsa_value:-${_sbsa_base_tag:-develop-latest}${VSS_CONTAINER_TAG_SUFFIX}}"
+    done
   fi
 
   # Resolve and display the managed container channel before deployment.
