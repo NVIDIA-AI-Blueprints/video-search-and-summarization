@@ -3,21 +3,21 @@ title: "Auto Calibration"
 description: ""
 position: 1
 ---
-**AutoMagicCalib Microservice** enables automatic calibration of single-camera and multi-camera systems through a web-based, seven-step workflow.
+The **Auto Calibration microservice** enables automatic calibration of single-camera and multi-camera systems through a web-based, seven-step workflow.
 
-It is powered by **AutoMagicCalib (AMC)**, which estimates camera intrinsics and extrinsics to generate accurate projection matrices and lens distortion parameters for 3D and multi-view applications.
+The service estimates camera intrinsics and extrinsics to generate projection matrices and lens distortion parameters for 3D and multi-view applications.
 
-Unlike checkerboard-based methods, AMC uses **naturally moving objects** in the scene. With NVIDIA DeepStream detection and tracking, it follows objects (e.g., people) and derives camera parameters from normal operational footage—no setup, no downtime, and supports calibration from archived videos.
+Unlike checkerboard-based methods, the tracklet-based AMC method uses **naturally moving objects** in the scene. With NVIDIA DeepStream detection and tracking, it follows objects (e.g., people) and derives camera parameters from normal operational footage—no setup, no downtime, and supports calibration from archived videos.
 
 The service supports two calibration methods: a **geometry-based approach (AMC)** that uses object trajectories and geometric relationships, and a **model-based approach (VGGT)** that uses a learned model for multi-camera calibration.
 
 The overall microservice architecture is as shown below:
 
-![AutoMagicCalib Microservice Architecture](/assets/images/vss-autocalib-ui/autocalib_ms_architecture.png)
+![Auto Calibration Microservice Architecture](/assets/images/vss-autocalib-ui/autocalib_ms_architecture.png)
 
 UI launch screen is as shown below:
 
-![AutoMagicCalib User Interface](/assets/images/vss-autocalib-ui/main-ui-2.jpg)
+![Auto Calibration User Interface](/assets/images/vss-autocalib-ui/main-ui-2.jpg)
 
 ## Key Features
 

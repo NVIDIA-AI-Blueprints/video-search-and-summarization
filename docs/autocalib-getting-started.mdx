@@ -4,13 +4,13 @@ description: ""
 position: 1
 ---
 
-This guide explains how to deploy and access the **AutoMagicCalib Microservice and User Interface as part of VSS**.
+This guide explains how to deploy and access the **Auto Calibration microservice and user interface as part of VSS**.
 
-The detailed AMC workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages.
+The detailed Auto Calibration workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages.
 
 ## Prerequisites
 
-Before using the VSS AutoMagicCalib service and UI, ensure you have:
+Before using the VSS Auto Calibration service and UI, ensure you have:
 
 - x86_64 system
 - Ubuntu 24.04
@@ -20,11 +20,11 @@ Before using the VSS AutoMagicCalib service and UI, ensure you have:
 - NVIDIA Container Toolkit
 - An NGC API key with access to the required VSS images
 
-Required calibration inputs and the detailed AMC requirements are documented in [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset).
+Required calibration inputs and detailed method-specific requirements are documented in [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset).
 
 ## VSS Deployment Steps (Docker Compose)
 
-These steps deploy AMC using the VSS repository's auto-calibration service.
+These steps deploy the Auto Calibration service using the VSS repository.
 
 ### 1. Authenticate with NGC
 
@@ -44,7 +44,7 @@ cd video-search-and-summarization
 git checkout tags/v3.3.0
 ```
 
-### 3. Open the VSS AutoMagicCalib deployment directory
+### 3. Open the VSS Auto Calibration deployment directory
 
 ```bash
 cd deploy/docker/services/auto-calibration
@@ -76,8 +76,8 @@ Replace the paths and host address with your values. `HOST_IP` must be reachable
 
 ### 5. Optional VGGT model setup
 
-AMC works without VGGT. To enable VGGT calibration, download the licensed [VGGT model](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in `${VSS_DATA_DIR}/auto-calib/vggt/`:
 
+The Auto Calibration service can run the AMC method without VGGT support. To enable VGGT calibration, download the licensed [VGGT model](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in `${VSS_DATA_DIR}/auto-calib/vggt/`:
 ```bash
 mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
 ```
@@ -92,9 +92,9 @@ sudo chown -R 1000:1000 "${VSS_DATA_DIR}/auto-calib"
 sudo chown -R 1000:1000 "${VSS_APPS_DIR}/services/auto-calibration/projects"
 ```
 
-AMC stores project data in the projects directory and the containers use UID/GID `1000`.
+The Auto Calibration service stores project data in the projects directory and the containers use UID/GID `1000`.
 
-### 7. Start the VSS AMC service and UI
+### 7. Start the VSS Auto Calibration service and UI
 
 ```bash
 docker compose \
@@ -128,6 +128,6 @@ docker compose \
 
 ## Next Steps
 
-- Follow the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for the complete 7-step UI workflow and screenshots.
+- Follow the [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for the complete 7-step UI workflow and screenshots.
 - Follow [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for input videos, alignment data, lens distortion, and ground-truth requirements.
 - Follow [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) for common deployment and calibration failures.
