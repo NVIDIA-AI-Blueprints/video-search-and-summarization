@@ -1137,9 +1137,18 @@ def main() -> None:
             decompose_fallback = {"attempted": args.llm_url, "error": str(e)}
             print(f"\n  WARNING: decomposition LLM unreachable at {args.llm_url}")
             print(f"           {e}")
-            # The dataset may route itself. Check that before the sidecar, and
-            # both before giving up on routing, or the warning claims one path
-            # was measured when the run went on to exercise four.
+            # Fall back to --search-path, which is `embed`: the one path that
+            # needs nothing but the query text. `attribute` and `fusion` both
+            # require a per-query attribute that only decomposition produces,
+            # and handing them the whole query as its attribute is the failure
+            # this eval already measured -- mAP -25%, HIT@1 halved, +59% latency.
+            #
+            # A dataset that carries its own decompositions still routes per
+            # query; that is the dataset's explicit intent and unpack_dataset
+            # applies it further down. Nothing else is inferred -- the answer key
+            # in devset_provenance.json is reachable only via --decompositions,
+            # because a gold-routed run measures retrieval under perfect routing
+            # and should not be mistaken for a live-routing eval.
             carried = 0
             try:
                 carried = len(flows.unpack_dataset(
@@ -1147,19 +1156,19 @@ def main() -> None:
                 )[1])
             except Exception:
                 pass
-            sidecar = None if carried else flows.sidecar_decompositions_for(args.data_dir, args.dataset)
             if carried:
                 decompose_fallback["fell_back_to"] = f"{carried} decomposition(s) carried by the dataset"
                 print(f"           the dataset carries {carried} decomposition(s) -- routing still per-query")
-            elif sidecar:
-                args.decompositions = str(sidecar)
-                decompose_fallback["fell_back_to"] = f"dataset answer key ({sidecar.name})"
-                print(f"           falling back to {sidecar.name} -- routing still per-query")
             else:
                 decompose_fallback["fell_back_to"] = f"--search-path {args.search_path}"
-                print(f"           no answer key for '{args.dataset}'; every query will use")
-                print(f"           --search-path {args.search_path}. ONE PATH IS MEASURED --")
-                print("           this is not a routing eval. Report it alongside the metrics.\n")
+                print(f"           every query will use --search-path {args.search_path}.")
+                print("           ONE PATH IS MEASURED -- this is not a routing eval.")
+                print("           Report it alongside the metrics.")
+                sidecar = flows.sidecar_decompositions_for(args.data_dir, args.dataset)
+                if sidecar:
+                    print(f"           ({args.dataset} ships an answer key; --decompositions {sidecar}")
+                    print("            would route per query, but scores perfect routing, not live.)")
+                print()
 
     ingest_backend = build_ingest_backend(args)
     query_backend = build_query_backend(args)
