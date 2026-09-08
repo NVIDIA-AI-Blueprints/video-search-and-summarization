@@ -17,14 +17,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
+from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
+from typing import Protocol
 from urllib.parse import urlparse
 
 # Timeouts (seconds). Mirror the upstream defaults documented in

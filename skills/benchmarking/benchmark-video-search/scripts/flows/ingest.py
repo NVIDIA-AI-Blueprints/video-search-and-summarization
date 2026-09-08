@@ -25,21 +25,22 @@ from __future__ import annotations
 
 import json
 import time
-import uuid
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
+import uuid
 
 import requests
 
-from .base import (
-    COMPLETE_TIMEOUT,
-    CONTENT_TYPES,
-    DEFAULT_UPLOAD_TIMESTAMP,
-    UPLOAD_TIMEOUT,
-    UPLOAD_URL_TIMEOUT,
-    base_record,
-    finish_record,
-)
+from .base import COMPLETE_TIMEOUT
+from .base import CONTENT_TYPES
+from .base import DEFAULT_UPLOAD_TIMESTAMP
+from .base import UPLOAD_TIMEOUT
+from .base import UPLOAD_URL_TIMEOUT
+from .base import base_record
+from .base import finish_record
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 #: How ``/complete`` failures are classified. Observed on 10.86.12.161:
 #: the call 502s on first attempt and succeeds on retry (Assault036_x264
