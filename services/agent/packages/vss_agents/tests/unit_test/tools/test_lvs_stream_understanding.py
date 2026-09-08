@@ -286,8 +286,8 @@ class TestLVSStreamUnderstandingInner:
                 )
 
         assert result.status == LVSMediaStatus.ACCEPTED
-        assert result.message == "Caption generation started. Please try again later."
-        assert result.summary == "Caption generation started. Please try again later."
+        assert result.message == "Caption generation has started and is in progress. You can wait while it continues."
+        assert result.summary == "Caption generation has started and is in progress. You can wait while it continues."
 
     @pytest.mark.asyncio
     async def test_configured_stream_is_scoped_to_conversation(self):
