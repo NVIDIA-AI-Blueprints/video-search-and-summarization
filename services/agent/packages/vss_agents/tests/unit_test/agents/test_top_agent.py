@@ -667,7 +667,36 @@ class TestRequestOptionsContext:
 
         assert result.final_answer == ""
         assert "`vst_picture_url`" in result.plan
-        assert "sensor_id" in result.plan
+        assert "sensor_id='Camera'" in result.plan
+        assert "Do not retry with a different sensor_id" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_node_plans_warehouse_snapshot_tool_when_picture_url_is_absent(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        snapshot_tool = MagicMock()
+        snapshot_tool.name = "vst_snapshot"
+        snapshot_tool.description = "Get a snapshot for a sensor."
+        agent.tools_dict["vst_snapshot"] = snapshot_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="I need to clarify which Camera you mean. Specify the camera name.")
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="I want to see a picture of Camera"),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert "`vst_snapshot`" in result.plan
+        assert "sensor_id='Camera'" in result.plan
 
     @pytest.mark.parametrize(
         "question,expected",

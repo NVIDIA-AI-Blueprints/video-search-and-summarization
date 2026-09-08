@@ -109,6 +109,7 @@ _SENSOR_REFERENCE_RE = re.compile(
 # word "camera" in inventory questions must not count as naming one of them.
 _WAREHOUSE_SENSOR_NAME_RE = re.compile(r"\bCamera(?:_\d+)?\b")
 _PICTURE_REQUEST_TERMS = ("picture", "snapshot", "image", "photo")
+_SNAPSHOT_TOOL_NAMES = ("vst_picture_url", "vst_snapshot")
 _WHICH_SENSOR_CLARIFY_TERMS = (
     "which camera",
     "which sensor",
@@ -182,6 +183,34 @@ def _clarification_from_plan(plan_text: str) -> str:
     if text.startswith(PLAN_CLARIFY_PREFIX):
         return text[len(PLAN_CLARIFY_PREFIX) :].strip()
     return text
+
+
+def _named_sensor_token(question: str) -> str | None:
+    """Return the sensor identifier the user already supplied, if any."""
+    warehouse = _WAREHOUSE_SENSOR_NAME_RE.search(question)
+    if warehouse:
+        return warehouse.group(0)
+    for match in _SENSOR_REFERENCE_RE.finditer(question):
+        raw_value = match.group("value").strip()
+        value = raw_value.strip("\"'`").strip()
+        if value and value.casefold() not in _SENSOR_REFERENCE_STOPWORDS:
+            return value
+    return None
+
+
+def _picture_plan_for_named_sensor(question: str, tools_dict: dict) -> str:
+    sensor = _named_sensor_token(question) or "the sensor named in the request"
+    sensor_arg = f"'{sensor}'" if " " not in sensor else sensor
+    tool_name = next((name for name in _SNAPSHOT_TOOL_NAMES if name in tools_dict), None)
+    if tool_name is None:
+        return (
+            f"1. Fetch a snapshot with sensor_id={sensor_arg}. "
+            "If that call fails, report the failure. Do not retry with a different sensor_id."
+        )
+    return (
+        f"1. Call `{tool_name}` with sensor_id={sensor_arg}. "
+        "If that call fails, report the failure to the user. Do not retry with a different sensor_id."
+    )
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -1011,16 +1040,7 @@ class TopAgent(AsyncMixin):
             # Warehouse VST names include Camera. Asking "which Camera" after the
             # user already said "picture of Camera" strands the snapshot request.
             if names_a_sensor and any(term in question.lower() for term in _PICTURE_REQUEST_TERMS):
-                if "vst_picture_url" in self.tools_dict:
-                    state.plan = (
-                        "1. Call `vst_picture_url` with sensor_id set to the exact sensor name from "
-                        "the user's request. Do not ask which camera or for a fuller sensor ID."
-                    )
-                else:
-                    state.plan = (
-                        "1. Use the sensor named in the user's request as sensor_id. "
-                        "Do not ask which camera or for a fuller sensor ID."
-                    )
+                state.plan = _picture_plan_for_named_sensor(question, self.tools_dict)
                 logger.warning(
                     "Rejected clarification for a picture request that already names a sensor: %s", clarification
                 )
