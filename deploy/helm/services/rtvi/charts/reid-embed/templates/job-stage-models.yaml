@@ -24,7 +24,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "vss-reid-embed.initFullname" . }}
+  name: {{ include "vss-reid-embed.initJobName" . }}
   labels:
     {{- include "vss-reid-embed.labels" . | nindent 4 }}
 spec:
@@ -68,9 +68,13 @@ spec:
             - -c
             - |
               set -e
+              marker={{ include "vss-reid-embed.readyMarker" . | quote }}
               mkdir -p {{ $reidDir | quote }}
+              # Drop a leftover ready marker before this Job touches models so
+              # waiters cannot treat the previous generation as current.
+              rm -f "${marker}"
               chmod 0777 {{ $reidDir | quote }}
-              echo "[INFO] ReID staging directory ready."
+              echo "[INFO] ReID staging directory ready; previous marker cleared."
           volumeMounts:
             - name: models
               mountPath: {{ .Values.models.mountPath }}
@@ -96,8 +100,13 @@ spec:
             - -c
             - |
               set -euo pipefail
+              marker={{ include "vss-reid-embed.readyMarker" . | quote }}
+              revision={{ include "vss-reid-embed.initJobRevision" . | quote }}
+              # Init already removed this; repeat so an OnFailure retry of this
+              # container cannot restage under a marker it wrote last time.
+              rm -f "${marker}"
               bash /opt/scripts/download-embedding-models.sh --secondary --clipreid
-              touch {{ include "vss-reid-embed.readyMarker" . | quote }}
+              printf '%s\n' "${revision}" > "${marker}"
               echo "[INFO] ReID model staging complete."
           {{- with .Values.init.resources }}
           resources:

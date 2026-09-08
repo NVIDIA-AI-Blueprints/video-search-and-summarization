@@ -131,7 +131,10 @@ models:
 init:
   # Disabling this means you are staging the models yourself: create the
   # .reid-models-ready marker in the model directory as well, or the waiters on
-  # both sides have nothing to key off.
+  # both sides have nothing to key off. While this Job is enabled, the marker
+  # is cleared before restaging and rewritten with the Job generation only
+  # after success; waiters require that generation, not merely that the file
+  # exists.
   enabled: true
   # The CLIP-ReID ONNX export calls .cuda(), so the staging Job needs a GPU --
   # unlike the RT-CV app-data Job, which is pure download and needs none.
@@ -153,7 +156,9 @@ init:
   # takes a while on a cold claim.
   waitSeconds: 3600
   # Left unset so the finished Job stays visible for inspection, matching the
-  # RT-CV app-data Job.
+  # RT-CV app-data Job. The Job name includes a content hash, so changing the
+  # image, resources, scripts, or scheduling creates a new Job instead of
+  # patching the immutable spec.template.
   ttlSecondsAfterFinished: null
 
 ngcApiSecret:

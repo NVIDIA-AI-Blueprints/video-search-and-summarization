@@ -22,8 +22,12 @@ inside the perception container with bind mounts.
 """
 
 import argparse
+import hashlib
 import os
 import sys
+
+# Market-1501 ViT-CLIP-ReID-SIE-OLP (Drive id 1K32xrosw0gPrxYCWXER81mhWObEW5-d4).
+CHECKPOINT_SHA256 = "6e11721abdc91939da69916c2e109302eb400d0b95196286a18c59d459b79bef"
 
 
 def parse_args():
@@ -34,25 +38,46 @@ def parse_args():
     return p.parse_args()
 
 
+def _require_checkpoint_digest(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    got = digest.hexdigest()
+    if got != CHECKPOINT_SHA256:
+        raise RuntimeError(
+            f"CLIP-ReID checkpoint sha256 mismatch: got {got}, expected {CHECKPOINT_SHA256}"
+        )
+
+
+def _install_weights_only_load():
+    """Upstream load_param calls torch.load with no restrictions. Force the
+    weights-only unpickler so a swapped checkpoint cannot run pickle payload."""
+    import torch
+
+    orig_load = torch.load
+
+    def _load(*args, **kwargs):
+        kwargs["map_location"] = kwargs.get("map_location", "cpu")
+        kwargs["weights_only"] = True
+        return orig_load(*args, **kwargs)
+
+    torch.load = _load
+
+
 def convert_to_onnx(repo_dir, checkpoint, output_path):
     repo = os.path.abspath(repo_dir)
     sys.path.insert(0, repo)
     os.chdir(repo)
+
+    _require_checkpoint_digest(checkpoint)
 
     import torch
     from yacs.config import CfgNode
     from model.make_model_clipreid import make_model
     from config import cfg
 
-    # Torch ≥2.6 defaults weights_only=True; the CLIP-ReID checkpoint is a full state dict.
-    _orig_load = torch.load
-
-    def _load(*a, **k):
-        k.setdefault("map_location", "cpu")
-        k.setdefault("weights_only", False)
-        return _orig_load(*a, **k)
-
-    torch.load = _load
+    _install_weights_only_load()
 
     # Load configuration. Upstream ships this file with every key under DATASETS
     # commented out, so it parses as None and merge_from_file rejects it against

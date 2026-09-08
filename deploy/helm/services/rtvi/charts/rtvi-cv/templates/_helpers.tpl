@@ -157,6 +157,12 @@ camInfo and the pub/sub topology from calibration:
 {{- end -}}
 {{- end }}
 
+{{/* ConfigMap the reid-embed chart writes with the current staging generation.
+     Optional at mount time so out-of-band staging (no Job) still works. */}}
+{{- define "vss-rtvi-cv.reidGenerationConfigMapName" -}}
+{{- printf "%s-generation" (include "vss-rtvi-cv.reidServiceAddress" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
 {{- define "vss-rtvi-cv.mv3dtRedisHost" -}}
 {{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
 {{- if $mv3dt.redisHost -}}

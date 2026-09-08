@@ -212,8 +212,11 @@ standaloneWarehouse:
       engineFileName: reid_model.onnx_b64_gpu0_fp32.engine
       extractionInterval: "8"
       # Hold DeepStream at startup until the ReID assets are staged, which the
-      # vss-reid-embed chart signals with a .reid-models-ready marker. Turn off
-      # only when the models are guaranteed present without that marker.
+      # vss-reid-embed chart signals with a .reid-models-ready marker. When the
+      # staging Job is enabled the marker must also carry that Job's generation;
+      # a leftover file from an earlier run is not enough. Turn off only when
+      # the models are guaranteed present without that marker.
+      # Explicit false is honoured (the template uses hasKey, not Sprig default).
       waitForModels: true
       waitSeconds: 3600
     # Generate camInfo + pub/sub + tracker cameraModelFilepath map from

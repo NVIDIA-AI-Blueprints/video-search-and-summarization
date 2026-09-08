@@ -83,10 +83,11 @@ spec:
             - -c
             - |
               marker={{ include "vss-reid-embed.readyMarker" . | quote }}
-              echo "Waiting for staged ReID models (${marker}) ..."
+              expected={{ include "vss-reid-embed.initJobRevision" . | quote }}
+              echo "Waiting for staged ReID models (${marker}, generation ${expected}) ..."
               elapsed=0
               timeout={{ .Values.init.waitSeconds }}
-              until test -f "${marker}"; do
+              until test -f "${marker}" && test "$(tr -d ' \n' < "${marker}")" = "${expected}"; do
                 if test "${elapsed}" -ge "${timeout}"; then
                   echo "[ERROR] Timeout waiting for ReID model staging (${timeout}s)"
                   exit 1

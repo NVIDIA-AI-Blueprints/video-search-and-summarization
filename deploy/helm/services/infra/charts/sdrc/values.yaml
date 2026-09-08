@@ -53,9 +53,13 @@ service:
 # cold TensorRT engine build, or a model-staging Job -- need it.
 waitForWorkloads:
   enabled: false
-  # host:port entries. A ClusterIP Service has endpoints only once its pod is
-  # Ready, so a TCP connect is at least as strict as the Compose check and needs
-  # no API access.
+  # host:port entries, using the unprefixed in-cluster Service name. When
+  # global.useReleaseNamePrefix (or the chart-level override) is true, each
+  # short hostname is rewritten to <release>-<host> at render time. FQDNs,
+  # dotted IPs, and names that already start with the release prefix are not
+  # rewritten. A ClusterIP Service has endpoints only once its pod is Ready,
+  # so a TCP connect is at least as strict as the Compose check and needs no
+  # API access.
   targets: []
   # On expiry the container exits non-zero and the kubelet restarts it, so this
   # bounds one attempt rather than giving up. Matches the Compose script, which

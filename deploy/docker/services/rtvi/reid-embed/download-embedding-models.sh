@@ -68,6 +68,9 @@ CLIPREID_SRC_URL="https://codeload.github.com/Syliz517/CLIP-ReID/tar.gz/refs/hea
 CLIPREID_CKPT_URL="https://drive.google.com/file/d/1K32xrosw0gPrxYCWXER81mhWObEW5-d4/view"
 CLIPREID_CKPT_ID="1K32xrosw0gPrxYCWXER81mhWObEW5-d4"
 CLIPREID_CKPT_NAME="Market1501_clipreid_12x12sie_ViT-B-16_60.pth"
+# SHA-256 of the Drive object above. Verified against the published Market-1501
+# SIE+OLP weights before torch.load; a swapped file is rejected.
+CLIPREID_CKPT_SHA256="6e11721abdc91939da69916c2e109302eb400d0b95196286a18c59d459b79bef"
 CONVERT_SCRIPT_NAME="convert_clipreid_to_onnx.py"
 
 HERE="$(pwd)"
@@ -155,6 +158,31 @@ fi
 
 file_nonempty() {
   [ -f "$1" ] && [ -s "$1" ]
+}
+
+verify_clipreid_checkpoint() {
+  local got
+  file_nonempty "$CLIPREID_CKPT" || {
+    echo "ERROR: checkpoint missing or empty: $CLIPREID_CKPT" >&2
+    exit 1
+  }
+  if command -v sha256sum >/dev/null 2>&1; then
+    got=$(sha256sum "$CLIPREID_CKPT" | awk '{print $1}')
+  else
+    got=$(python3 -c "import hashlib,sys; h=hashlib.sha256();
+f=open(sys.argv[1],'rb')
+for c in iter(lambda: f.read(1024*1024), b''):
+    h.update(c)
+print(h.hexdigest())" "$CLIPREID_CKPT")
+  fi
+  if [ "$got" != "$CLIPREID_CKPT_SHA256" ]; then
+    echo "ERROR: CLIP-ReID checkpoint sha256 mismatch." >&2
+    echo "       got      $got" >&2
+    echo "       expected $CLIPREID_CKPT_SHA256" >&2
+    echo "       Source:  $CLIPREID_CKPT_URL" >&2
+    rm -f "$CLIPREID_CKPT"
+    exit 1
+  fi
 }
 
 # Skip / accept a version dir only when the ReID-configured ONNX is present
@@ -410,6 +438,7 @@ download_clipreid_checkpoint() {
   mkdir -p "$CLIPREID_CKPT_DIR"
   if [ "$FORCE" != 1 ] && file_nonempty "$CLIPREID_CKPT"; then
     echo "── SKIP  checkpoint  →  ${CLIPREID_CKPT##*/} already present"
+    verify_clipreid_checkpoint
     return 0
   fi
 
@@ -430,6 +459,7 @@ download_clipreid_checkpoint() {
     echo "ERROR: checkpoint file missing or empty after download: $CLIPREID_CKPT" >&2
     exit 1
   fi
+  verify_clipreid_checkpoint
 }
 
 convert_clipreid_onnx() {

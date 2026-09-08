@@ -259,7 +259,7 @@ tracking alone would lose, and the service republishes compressed embeddings on
 | `vss-reid-embed` | Embedding service the tracker queries; consumes `mdx-raw`, produces `mdx-compressed-embeddings` |
 | `vss-reid-milvus` | Vector store for the appearance gallery |
 | `vss-reid-etcd`, `vss-reid-minio` | Milvus metadata and object storage |
-| `vss-reid-embed-init` | One-shot Job that stages the SigLIP2 and CLIP-ReID models |
+| `vss-reid-embed-init-<hash>` | One-shot Job that stages the SigLIP2 and CLIP-ReID models. The hash tracks the pod template so a Helm upgrade that changes it creates a new Job rather than patching the immutable spec. |
 
 The three backends use `emptyDir`, matching Compose: the gallery is rebuilt from
 the live stream, so it is intentionally not persisted across restarts.
@@ -302,9 +302,15 @@ Two consequences worth planning for:
   stage the models out of band as described below.
 
 Readiness is signalled by a marker file, `.reid-models-ready`, in the model
-directory. If you pre-stage the models yourself and set
+directory. The staging Job clears that file before it touches models and writes
+its generation into the file only after a successful run. Both waiters require
+that generation when the Job is enabled, so a leftover marker on a retained PVC
+cannot look like the current models are ready.
+
+If you pre-stage the models yourself and set
 `rtvi.vss-reid-embed.init.enabled=false`, create that marker too — otherwise the
-CV pod waits for a file nothing will write and times out. Alternatively set
+CV pod waits for a file nothing will write and times out. With the Job disabled
+the waiters only check that the file exists. Alternatively set
 `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.reid.waitForModels=false` to drop the
 gate, on the understanding that DeepStream will then fail outright if the model
 is missing rather than waiting for it.
@@ -376,7 +382,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
-| **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. |
+| **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. The SDRC `waitForWorkloads` target is rewritten the same way so it still reaches `vss-rtvi-cv`. |
 | **`global.ngcApiSecret.name`** | **`ngc-api`** | Name of the Opaque secret holding the NGC API key (see [Required secrets](#required-secrets)). |
 | **`global.ngcApiSecret.key`** | **`NGC_CLI_API_KEY`** | Key inside the secret that holds the NGC API key value. |
 | **`global.imagePullSecrets`** | **`[{name: ngc-docker-reg-secret}]`** | Image pull credentials for nvcr.io. Must reference the docker-registry secret created in [Required secrets](#required-secrets). |

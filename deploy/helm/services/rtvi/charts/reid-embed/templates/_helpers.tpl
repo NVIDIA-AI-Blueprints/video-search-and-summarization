@@ -62,8 +62,46 @@
 {{- printf "%s-init" (include "vss-reid-embed.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/*
+Job spec.template is immutable. A stable name would make Helm patch the
+existing Job on upgrade and fail. The revision is a short hash of everything
+that lands in the pod template; a change yields a new name, Helm creates that
+Job and deletes the previous one.
+*/}}
+{{- define "vss-reid-embed.initJobRevision" -}}
+{{- $global := .Values.global | default dict -}}
+{{- dict
+  "image" .Values.image
+  "initResources" .Values.init.resources
+  "backoffLimit" .Values.init.backoffLimit
+  "ttl" .Values.init.ttlSecondsAfterFinished
+  "models" .Values.models
+  "nodeSelector" .Values.nodeSelector
+  "tolerations" .Values.tolerations
+  "affinity" .Values.affinity
+  "runtimeClassName" .Values.runtimeClassName
+  "imagePullSecrets" (.Values.imagePullSecrets | default (index $global "imagePullSecrets"))
+  "claim" (include "vss-reid-embed.modelsClaim" .)
+  "ngcSecret" (include "vss-reid-embed.ngcSecretName" .)
+  "download" (.Files.Get "files/download-embedding-models.sh")
+  "convert" (.Files.Get "files/convert_clipreid_to_onnx.py")
+  | toYaml | sha256sum | trunc 8 -}}
+{{- end }}
+
+{{- define "vss-reid-embed.initJobName" -}}
+{{- $rev := include "vss-reid-embed.initJobRevision" . -}}
+{{- $base := include "vss-reid-embed.initFullname" . | trunc 54 | trimSuffix "-" -}}
+{{- printf "%s-%s" $base $rev -}}
+{{- end }}
+
 {{- define "vss-reid-embed.scriptsConfigMapName" -}}
 {{- printf "%s-scripts" (include "vss-reid-embed.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* Expected marker contents. Waiters treat a leftover file from an earlier
+     Job as not-ready until this matches. */}}
+{{- define "vss-reid-embed.generationConfigMapName" -}}
+{{- printf "%s-generation" (include "vss-reid-embed.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{- define "vss-reid-embed.commonLabels" -}}

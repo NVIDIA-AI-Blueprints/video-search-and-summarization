@@ -49,7 +49,9 @@ spec:
             - |
               timeout={{ $wait.timeoutSeconds | default 1800 }}
               elapsed=0
-              for target in {{ join " " $wait.targets | quote }}; do
+              # Quote each host:port on its own. join|quote would make every
+              # target one shell word, so a second entry would never be probed.
+              for target in {{ range $wait.targets }}{{ include "sdrc.waitTarget" (dict "root" $ "target" .) | quote }} {{ end }}; do
                 host="${target%:*}"; port="${target##*:}"
                 echo "Waiting for workload ${host}:${port} ..."
                 until nc -z "${host}" "${port}"; do

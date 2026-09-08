@@ -78,6 +78,41 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "/config.yml" .Values.config.mountPath -}}
 {{- end -}}
 
+{{/*
+Rewrite a waitForWorkloads host:port so it matches in-cluster Service DNS when
+global.useReleaseNamePrefix (or the chart-level override) is true.
+
+Unprefixed short names become <release>-<host>. Already-prefixed names, FQDNs
+and dotted IPs are left alone so an explicit override still works.
+*/}}
+{{- define "sdrc.waitTarget" -}}
+{{- $root := .root -}}
+{{- $target := .target | toString -}}
+{{- $host := $target -}}
+{{- $port := "" -}}
+{{- if contains ":" $target -}}
+{{- $parts := splitList ":" $target -}}
+{{- $host = index $parts 0 -}}
+{{- $port = index $parts 1 -}}
+{{- end -}}
+{{- $global := $root.Values.global | default dict -}}
+{{- $usePrefix := false -}}
+{{- if and (hasKey $root.Values "useReleaseNamePrefix") (kindIs "bool" $root.Values.useReleaseNamePrefix) -}}
+{{- $usePrefix = $root.Values.useReleaseNamePrefix -}}
+{{- else if and (hasKey $global "useReleaseNamePrefix") (kindIs "bool" (index $global "useReleaseNamePrefix")) -}}
+{{- $usePrefix = index $global "useReleaseNamePrefix" -}}
+{{- end -}}
+{{- $relPrefix := printf "%s-" $root.Release.Name -}}
+{{- if and $usePrefix $host (not (hasPrefix $relPrefix $host)) (not (contains "." $host)) -}}
+{{- $host = printf "%s%s" $relPrefix $host | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- if $port -}}
+{{- printf "%s:%s" $host $port -}}
+{{- else -}}
+{{- $host -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "sdrc.controllerServiceName" -}}
 {{- printf "%s-controller" (include "sdrc.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

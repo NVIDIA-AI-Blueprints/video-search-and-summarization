@@ -238,6 +238,8 @@ infra:
     # events and ack them, leaving the pipeline at "Active sources : 0".
     waitForWorkloads:
       enabled: true
+      # Unprefixed Service name. The sdrc chart rewrites this to
+      # <release>-vss-rtvi-cv:9000 when global.useReleaseNamePrefix is true.
       targets:
         - vss-rtvi-cv:9000
   elasticsearch:
