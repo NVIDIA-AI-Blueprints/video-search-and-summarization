@@ -68,8 +68,14 @@ fail() {{
 }}
 command -v nemoclaw >/dev/null 2>&1 || fail "Build Vision AI did not install the nemoclaw CLI"
 command -v openshell >/dev/null 2>&1 || fail "Build Vision AI did not install the openshell CLI"
-timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1 \\
-  || fail "Build Vision AI did not create the NemoClaw sandbox $sandbox"
+if ! timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1; then
+  echo "Recent Build Vision AI NemoClaw setup errors:" >&2
+  find "${{VSS_REPO_DIR:-$HOME/video-search-and-summarization}}/_builds" \\
+    -name nemoclaw-setup.log -type f -mmin -120 -print0 2>/dev/null \\
+    | xargs -0 -r grep -Eai 'error|failed|failure|traceback|exception|assert' \\
+    | tail -n 80 >&2 || true
+  fail "Build Vision AI did not create the NemoClaw sandbox $sandbox"
+fi
 # On a warm worker the default dashboard port can be occupied. NemoClaw then
 # selects the next available 1878x/1879x port; detect it once and leave the
 # result where headless_runner reads its runtime contract.
