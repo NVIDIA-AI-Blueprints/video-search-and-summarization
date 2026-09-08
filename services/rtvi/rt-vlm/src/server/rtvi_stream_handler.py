@@ -50,7 +50,12 @@ from utils.dense_caption_serializer import DenseCaptionSerializer
 from utils.file_splitter import ntp_to_unix_timestamp
 from utils.media_file_info import MediaFileInfo
 from utils.otel_helper import create_historical_span, get_tracer
-from utils.request_profiler import GPUMonitor, RequestMetrics
+from utils.request_profiler import (
+    ProfileExportJob,
+    RequestMetrics,
+    get_process_gpu_sampler,
+    get_request_profile_exporter,
+)
 
 from vlm_pipeline import VlmPipeline, PipelineChunkResult  # isort:skip
 from vlm_pipeline.errors import is_cuda_oom_error  # isort:skip
@@ -206,6 +211,7 @@ class RequestInfo:
     # Metrics and monitoring
     _request_metrics: object | None = None
     _monitor: object | None = None
+    _profile_sample_start_time: float | None = None
 
     # NVTX profiling
     nvtx_vlm_start: object | None = None
@@ -733,6 +739,8 @@ class RTVIStreamHandler:
 
         request_profiling_value = os.environ.get("ENABLE_REQUEST_PROFILING", "").lower()
         self._profile_requests = request_profiling_value in ("true", "1")
+        self._request_profile_sampler = None
+        self._request_profile_exporter = None
         self._live_stream_gpu_memory_guard_enabled = _get_bool_env(
             "RTVI_LIVE_STREAM_GPU_MEMORY_GUARD", True
         )
@@ -3748,24 +3756,25 @@ class RTVIStreamHandler:
         return req_info.request_id
 
     def start_request_profiling(self, req_info):
-        # Start collecting GPU metrics if enabled
         if not self._profile_requests:
             return
 
-        logger.info("Starting GPUMonitor for request %s", req_info.request_id)
-        req_info._monitor = GPUMonitor()
-        req_info._monitor.start_recording_nvdec(
-            interval_in_seconds=0.2,
-            nvdec_plot_file_name="/tmp/rtvi-logs/nvdec_usage_" + str(req_info.request_id) + ".csv",
-        )
-        req_info._monitor.start_recording_gpu_usage(
-            interval_in_seconds=0.2,
-            gpu_plot_file_name="/tmp/rtvi-logs/gpu_usage_" + str(req_info.request_id) + ".csv",
-        )
+        if self._request_profile_sampler is None:
+            self._request_profile_sampler = get_process_gpu_sampler()
+            self._request_profile_exporter = get_request_profile_exporter(
+                self._request_profile_sampler
+            )
+        req_info._monitor = self._request_profile_sampler
+        req_info._profile_sample_start_time = time.time()
         req_info._request_metrics = RequestMetrics()
         req_info._request_metrics.resource_usage_graph_paths = [
-            req_info._monitor.nvdec_plot_file_name,
-            req_info._monitor.gpu_plot_file_name,
+            f"/tmp/rtvi-logs/nvdec_usage_{req_info.request_id}.csv",
+            f"/tmp/rtvi-logs/gpu_usage_{req_info.request_id}.csv",
+        ]
+        req_info._request_metrics.resource_usage_graph_plot_paths = [
+            f"/tmp/rtvi-logs/plot_nvdec_{req_info.request_id}.png",
+            f"/tmp/rtvi-logs/plot_gpu_{req_info.request_id}.png",
+            f"/tmp/rtvi-logs/plot_gpu_mem_{req_info.request_id}.png",
         ]
         req_info._request_metrics.set_gpu_names(req_info._monitor.get_gpu_names())
         req_info._request_metrics.chunk_size = req_info.query.chunk_duration
@@ -3805,21 +3814,6 @@ class RTVIStreamHandler:
         cur_time = time.time()
         e2e_latency = cur_time - req_info.start_time
         self._metrics._e2e_latency_latest_value = e2e_latency
-
-        if req_info._monitor:
-            logger.info("Stopping GPUMonitor for request %s", req_info.request_id)
-            plot_graph_file = "/tmp/rtvi-logs/plot_nvdec_" + str(req_info.request_id) + ".png"
-            plot_graph_files = {
-                "gpu": "/tmp/rtvi-logs/plot_gpu_" + str(req_info.request_id) + ".png",
-                "gpu_mem": "/tmp/rtvi-logs/plot_gpu_mem_" + str(req_info.request_id) + ".png",
-            }
-            req_info._monitor.stop_recording_nvdec(plot_graph_file=plot_graph_file)
-            req_info._monitor.stop_recording_gpu(plot_graph_files=plot_graph_files)
-            req_info._request_metrics.resource_usage_graph_plot_paths = [
-                plot_graph_file,
-                plot_graph_files["gpu"],
-                plot_graph_files["gpu_mem"],
-            ]
 
         if req_info._request_metrics:
             all_times = getattr(req_info._request_metrics, "all_times", None)
@@ -3892,11 +3886,31 @@ class RTVIStreamHandler:
             )
 
             logger.debug("_request_metrics json: %s", str(vars(req_info._request_metrics)))
-            metrics_summary_file_name = (
-                "/tmp/rtvi-logs/request_metrics_" + str(req_info.request_id) + ".json"
-            )
-            req_info._request_metrics.dump_json(file_name=metrics_summary_file_name)
-            logger.info("Request Metrics Summary written to %s", metrics_summary_file_name)
+            if self._request_profile_exporter is not None:
+                export_job = ProfileExportJob(
+                    request_id=str(req_info.request_id),
+                    sample_start_time=(
+                        req_info._profile_sample_start_time
+                        if req_info._profile_sample_start_time is not None
+                        else req_info.start_time or cur_time
+                    ),
+                    sample_end_time=cur_time,
+                    metrics=req_info._request_metrics.to_dict(),
+                )
+                try:
+                    submitted = self._request_profile_exporter.submit(export_job)
+                except Exception:
+                    submitted = False
+                    logger.warning(
+                        "Failed to enqueue request profile %s",
+                        req_info.request_id,
+                        exc_info=True,
+                    )
+                if not submitted:
+                    logger.warning(
+                        "Dropping request profile %s because the export queue is full",
+                        req_info.request_id,
+                    )
 
         # if self._profile_requests:  # disabled for now, to be re-enabled later
 
