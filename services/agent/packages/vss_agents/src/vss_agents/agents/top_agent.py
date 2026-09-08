@@ -18,6 +18,7 @@ from collections.abc import Hashable
 import copy
 from datetime import UTC
 from datetime import datetime
+from html import escape
 import json
 import logging
 import re
@@ -97,6 +98,16 @@ _TOOL_FAILURE_PREFIX = "Tool call failed:"
 _TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
+_TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
+
+
+def trace_step_title(step_number: int, step_type: str, content: str) -> str:
+    """Build a trace heading that exposes the called tool when one is present."""
+    tool_name = _TRACE_TOOL_NAME.match(content.strip())
+    if not tool_name:
+        return f"{step_number} - {step_type}"
+    # This becomes an HTML attribute in the legacy chat response.
+    return f"{step_number} - {step_type}: {escape(tool_name.group(1).strip(), quote=True)}"
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -1732,13 +1743,13 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
                 elif chunk.type == AgentMessageChunkType.TOOL_CALL:
                     step_num += 1
                     clean_content = chunk.content.replace("\\n", " ").replace("\n", " ")
-                    steps.append(f'<agent-think-step title="{step_num} - Tool Call">{clean_content}</agent-think-step>')
+                    title = trace_step_title(step_num, "Tool Call", chunk.content)
+                    steps.append(f'<agent-think-step title="{title}">{clean_content}</agent-think-step>')
                 elif chunk.type == AgentMessageChunkType.SUBAGENT_CALL:
                     step_num += 1
                     clean_content = chunk.content.replace("\\n", " ").replace("\n", " ")
-                    steps.append(
-                        f'<agent-think-step title="{step_num} - Sub-Agent Call">{clean_content}</agent-think-step>'
-                    )
+                    title = trace_step_title(step_num, "Sub-Agent Call", chunk.content)
+                    steps.append(f'<agent-think-step title="{title}">{clean_content}</agent-think-step>')
                 elif chunk.type == AgentMessageChunkType.FINAL:
                     final_content.append(chunk.content)
                 elif chunk.type == AgentMessageChunkType.ERROR:
