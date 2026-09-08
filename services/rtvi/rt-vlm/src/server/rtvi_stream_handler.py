@@ -212,6 +212,7 @@ class RequestInfo:
     _request_metrics: object | None = None
     _monitor: object | None = None
     _profile_sample_start_time: float | None = None
+    _profile_capture_id: int | None = None
 
     # NVTX profiling
     nvtx_vlm_start: object | None = None
@@ -3766,6 +3767,7 @@ class RTVIStreamHandler:
             )
         req_info._monitor = self._request_profile_sampler
         req_info._profile_sample_start_time = time.time()
+        req_info._profile_capture_id = self._request_profile_sampler.begin_capture()
         req_info._request_metrics = RequestMetrics()
         req_info._request_metrics.resource_usage_graph_paths = [
             f"/tmp/rtvi-logs/nvdec_usage_{req_info.request_id}.csv",
@@ -3896,6 +3898,7 @@ class RTVIStreamHandler:
                     ),
                     sample_end_time=cur_time,
                     metrics=req_info._request_metrics.to_dict(),
+                    capture_id=req_info._profile_capture_id,
                 )
                 try:
                     submitted = self._request_profile_exporter.submit(export_job)
@@ -3906,6 +3909,7 @@ class RTVIStreamHandler:
                         req_info.request_id,
                         exc_info=True,
                     )
+                req_info._profile_capture_id = None
                 if not submitted:
                     logger.warning(
                         "Dropping request profile %s because the export queue is full",

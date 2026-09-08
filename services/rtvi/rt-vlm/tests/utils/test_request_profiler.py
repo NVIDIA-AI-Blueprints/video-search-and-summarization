@@ -63,12 +63,13 @@ def test_profile_exporter_uses_one_background_worker():
 
 def test_profile_export_runs_off_thread_and_writes_request_window(monkeypatch, tmp_path):
     sampler = ProcessGPUSampler()
-    sampler._samples.extend(
-        [
+    capture_id = sampler.begin_capture()
+    sampler._captures[capture_id].extend(
+        (
             GPUSample(10.0, (5.0,), (20.0,), (30.0,)),
             GPUSample(11.0, (6.0,), (21.0,), (31.0,)),
             GPUSample(12.0, (7.0,), (22.0,), (32.0,)),
-        ]
+        )
     )
     exporter = RequestProfileExporter(sampler=sampler)
     export_thread_names = []
@@ -82,6 +83,7 @@ def test_profile_export_runs_off_thread_and_writes_request_window(monkeypatch, t
         sample_end_time=11.5,
         metrics={"e2e_latency": 1.0},
         output_dir=str(tmp_path),
+        capture_id=capture_id,
     )
 
     assert exporter.submit(job) is True
@@ -97,7 +99,11 @@ def test_profile_export_runs_off_thread_and_writes_request_window(monkeypatch, t
 
 def test_queued_export_keeps_samples_frozen_at_submission(monkeypatch, tmp_path):
     sampler = ProcessGPUSampler()
-    sampler._samples.append(GPUSample(11.0, (6.0,), (21.0,), (31.0,)))
+    blocker_capture = sampler.begin_capture()
+    queued_capture = sampler.begin_capture()
+    sample = GPUSample(11.0, (6.0,), (21.0,), (31.0,))
+    sampler._captures[blocker_capture].append(sample)
+    sampler._captures[queued_capture].append(sample)
     exporter = RequestProfileExporter(sampler=sampler, max_pending_exports=2)
     release_first_export = threading.Event()
     first_export_started = threading.Event()
@@ -111,14 +117,18 @@ def test_queued_export_keeps_samples_frozen_at_submission(monkeypatch, tmp_path)
         original_export(job)
 
     monkeypatch.setattr(exporter, "_export", gated_export)
-    blocker = ProfileExportJob("blocker", 10.0, 12.0, {}, str(tmp_path))
-    queued = ProfileExportJob("queued", 10.0, 12.0, {}, str(tmp_path))
+    blocker = ProfileExportJob(
+        "blocker", 10.0, 12.0, {}, str(tmp_path), capture_id=blocker_capture
+    )
+    queued = ProfileExportJob(
+        "queued", 10.0, 12.0, {}, str(tmp_path), capture_id=queued_capture
+    )
 
     try:
         assert exporter.submit(blocker) is True
         assert first_export_started.wait(timeout=1)
         assert exporter.submit(queued) is True
-        sampler._samples.clear()
+        assert sampler._captures == {}
     finally:
         release_first_export.set()
         exporter.shutdown()

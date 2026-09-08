@@ -76,7 +76,10 @@ class ProcessGPUSampler:
         if max_samples <= 0:
             raise ValueError("max_samples must be positive")
         self.interval_seconds = interval_seconds
+        self._max_samples = max_samples
         self._samples = deque(maxlen=max_samples)
+        self._captures: dict[int, deque[GPUSample]] = {}
+        self._next_capture_id = 0
         self._samples_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -142,6 +145,21 @@ class ProcessGPUSampler:
         )
         with self._samples_lock:
             self._samples.append(sample)
+            for capture in self._captures.values():
+                capture.append(sample)
+
+    def begin_capture(self) -> int:
+        """Start a bounded request-local view without adding a sampler thread."""
+        with self._samples_lock:
+            capture_id = self._next_capture_id
+            self._next_capture_id += 1
+            self._captures[capture_id] = deque(maxlen=self._max_samples)
+            return capture_id
+
+    def end_capture(self, capture_id: int) -> deque[GPUSample]:
+        """Detach a capture in O(1); the exporter owns it from this point."""
+        with self._samples_lock:
+            return self._captures.pop(capture_id, deque())
 
     def snapshot(self, start_time: float, end_time: float) -> list[GPUSample]:
         with self._samples_lock:
@@ -169,7 +187,8 @@ class ProfileExportJob:
     sample_end_time: float
     metrics: dict[str, Any]
     output_dir: str = "/tmp/rtvi-logs"
-    samples: tuple[GPUSample, ...] | None = None
+    capture_id: int | None = None
+    samples: deque[GPUSample] | tuple[GPUSample, ...] | None = None
 
 
 class RequestProfileExporter:
@@ -191,19 +210,14 @@ class RequestProfileExporter:
         self.max_workers = 1
 
     def submit(self, job: ProfileExportJob) -> bool:
+        if self._sampler is not None and job.capture_id is not None and job.samples is None:
+            # Detaching the request-owned deque is O(1). CSV/plot conversion
+            # remains entirely on the background worker, while queued jobs can
+            # no longer lose samples to process-ring eviction.
+            job = replace(job, samples=self._sampler.end_capture(job.capture_id))
         if not self._slots.acquire(blocking=False):
             return False
         try:
-            if self._sampler is not None and job.samples is None:
-                # Freeze the request window before queueing. Otherwise a slow plot
-                # export can let the bounded process sampler evict early samples
-                # before this job reaches the single background worker.
-                job = replace(
-                    job,
-                    samples=tuple(
-                        self._sampler.snapshot(job.sample_start_time, job.sample_end_time)
-                    ),
-                )
             future = self._executor.submit(self._export, job)
         except Exception:
             self._slots.release()
