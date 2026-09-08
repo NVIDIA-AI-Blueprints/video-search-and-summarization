@@ -351,6 +351,30 @@ class TestFileEndpoints:
         assert data["object"] == "list"
         assert isinstance(data["data"], list)
 
+    def test_list_files_accepts_creation_time_without_milliseconds(
+        self, test_client, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(rtvi_vlm_server, "_SKIP_INPUT_MEDIA_VERIFICATION", False)
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        add_response = test_client.post(
+            f"{API_PREFIX}/files",
+            files={
+                "filename": (None, str(media_path)),
+                "purpose": (None, "vision"),
+                "media_type": (None, "video"),
+                "creation_time": (None, "2025-01-15T10:00:00Z"),
+            },
+        )
+        assert add_response.status_code == 200
+        asset_id = add_response.json()["id"]
+
+        response = test_client.get(f"{API_PREFIX}/files?purpose=vision")
+
+        assert response.status_code == 200
+        assert response.json()["data"][0]["id"] == asset_id
+        assert response.json()["data"][0]["creation_time"] == "2025-01-15T10:00:00Z"
+
     def test_add_file_missing_params(self, test_client):
         """Test adding file with missing parameters"""
         response = test_client.post(f"{API_PREFIX}/files")
