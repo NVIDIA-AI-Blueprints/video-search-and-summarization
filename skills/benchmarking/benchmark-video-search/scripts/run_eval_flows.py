@@ -389,6 +389,7 @@ def run_evaluation(  # noqa: PLR0913
     cleared: dict[str, Any] | None = None,
     vst_url: str | None = None,
     decomposer: Any = None,
+    decompose_fallback: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
 
@@ -1268,6 +1269,7 @@ def main() -> None:
         dataset=args.dataset,
         subset=args.subset,
         decomposer=decomposer,
+        decompose_fallback=decompose_fallback,
         output_file=args.output_file,
         run_name=args.name,
         concurrency=args.concurrency,
