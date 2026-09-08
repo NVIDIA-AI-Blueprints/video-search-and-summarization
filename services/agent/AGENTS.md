@@ -33,7 +33,7 @@ nat serve --config_file ../../deploy/docker/developer-profiles/dev-profile-base/
 
 ## Related guides
 
-- **Driving a deployed stack from the command line** — [`packages/vss_cli/AGENTS.md`](packages/vss_cli/AGENTS.md).
+- **Driving a deployed stack from the command line** — [`libs/vss/cli/AGENTS.md`](../../libs/vss/cli/AGENTS.md).
   That is the agent-facing contract for the `vss` CLI: bootstrap, `vss configure`,
   exit codes, and the rules for addressing media. This file is about developing
   the agent service; that one is about using the deployment.

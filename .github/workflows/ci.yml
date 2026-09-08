@@ -517,7 +517,8 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: services/agent
+        # The library is its own workspace: NAT-free, with its own lock.
+        working-directory: libs/vss
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -543,16 +544,16 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen --no-dev --group cli-dev --extra cli
+          uv sync --frozen
           uv run --no-sync mypy \
-            packages/vss_core/src/vss_core/_foundation \
-            packages/vss_core/src/vss_core/critic \
-            packages/vss_core/src/vss_core/search_core \
-            packages/vss_core/src/vss_core/vlm \
-            packages/vss_core/src/vss_core/vios \
-            packages/vss_cli/src/vss_cli
-          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+            core/src/vss_core/_foundation \
+            core/src/vss_core/critic \
+            core/src/vss_core/search_core \
+            core/src/vss_core/vlm \
+            core/src/vss_core/vios \
+            cli/src/vss_cli
+          uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist

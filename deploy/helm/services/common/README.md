@@ -31,7 +31,7 @@ profiles and missing on a third that deployed it. Callers had to probe. They no 
 Every service is mounted at **its own name** and carries whatever it itself serves —
 `/rtvi-vlm/v1/models`, `/elasticsearch/_cat/indices`, `/vst/api/v1/sensor/list`. These are
 the paths `vss configure` records
-(`services/agent/packages/vss_cli/src/vss_cli/config.py:INGRESS_SERVICES`).
+(`libs/vss/cli/src/vss_cli/config.py:INGRESS_SERVICES`).
 
 | Backend key | Mount | Prefix | Notes |
 |---|---|---|---|

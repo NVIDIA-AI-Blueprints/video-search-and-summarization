@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# ---------------------------------------------------------------------------
+# The VSS library: `core` and `cli`, NAT-free by construction.
+#
+# A virtual workspace root -- it ships no code of its own, it only resolves the
+# two distributions together so they share one lock and release in lockstep.
+# The NAT agent lives in services/agent and consumes these as path sources, so
+# the dependency runs one way: the agent uses the library, never the reverse.
+# ---------------------------------------------------------------------------
+
+[tool.uv.workspace]
+members = ["core", "cli"]
+
+[tool.uv.sources]
+nvidia-vss-core = { workspace = true }
+nvidia-vss-cli = { workspace = true }
+
+# The library's own tooling. NAT-free on purpose: nothing here may pull the
+# agent stack, which is what keeps `import nat` impossible in a cli install.
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.1",
+    "ruff>=0.12.0",
+    "types-pyyaml>=6.0.12.20250915",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "ARG", "SIM", "TCH", "Q", "RUF"]
+ignore = ["E501", "W505", "SIM108", "B024"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"**/tests/**" = ["ARG001", "ARG002", "SIM117", "B017"]
+# Memory helpers keep runtime imports lazy (TC001/TC003) to stay NAT-free.
+"core/src/vss_core/memory/**" = ["TC001", "TC003"]
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 120
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 120
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["vss_core", "vss_cli"]
+split-on-trailing-comma = false
+combine-as-imports = true
+force-wrap-aliases = true
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+order-by-type = true
+force-single-line = true
+default-section = "third-party"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["core/tests/unit_test", "cli/tests/unit_test"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "--strict-markers", "--strict-config"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]
+
+[tool.coverage.run]
+source = ["core/src", "cli/src"]
+omit = ["*/tests/*", "*/test_*.py", "*/sitecustomize.py"]
+
+[tool.coverage.report]
+show_missing = true

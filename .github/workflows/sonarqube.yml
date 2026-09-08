@@ -111,7 +111,7 @@ jobs:
 
           # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**,libs/vss/*/tests/**"
           fi
 
           {
@@ -133,7 +133,7 @@ jobs:
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,services/agent/coverage-lib.xml" >> sonar-project.properties
+            echo "sonar.python.coverage.reportPaths=services/agent/coverage.xml,libs/vss/coverage-lib.xml" >> sonar-project.properties
             # Keep in sync with [tool.coverage.run] omit in
             # services/agent/pyproject.toml. Files omitted there produce no
             # data in coverage.xml, so without a matching exclusion Sonar
@@ -262,17 +262,20 @@ jobs:
 
       - name: Generate lib coverage (NAT-free surface)
         if: matrix.scan == 'true' && matrix.name == 'agent'
-        working-directory: services/agent
+        # The library is a separate workspace with its own lock, so it needs
+        # its own sync -- the step above syncs services/agent.
+        working-directory: libs/vss
         run: |
-          # Both packages, matching the same invocation in ci.yml. The
+          # Both library packages, matching the same invocation in ci.yml. The
           # vss_cli tests already ran here, but without --cov for its source
           # tree none of its lines reached coverage-lib.xml, so Sonar counted
           # every changed vss_cli line as uncovered. That stayed invisible
           # while the package was small and surfaced as "2.9% Coverage on New
           # Code" the first time a PR added substantially to it.
-          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test \
-            --cov=packages/vss_core/src \
-            --cov=packages/vss_cli/src \
+          uv sync --frozen
+          uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test \
+            --cov=core/src \
+            --cov=cli/src \
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"

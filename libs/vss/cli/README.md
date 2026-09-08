@@ -27,7 +27,7 @@ provides the executable — and `--no-dev` keeps it to the CLI's runtime
 ```bash
 cd services/agent
 uv sync --frozen --extra cli
-uv run --no-sync pytest packages/vss_cli/tests packages/vss_core/tests -q
+uv run --no-sync pytest cli/tests core/tests -q
 ```
 
 Development needs the test tooling, so this one keeps the default group.
@@ -42,9 +42,9 @@ CLI imports nothing from the agent stack:
 
 ```bash
 uv sync --frozen --no-dev --group cli-dev --extra cli
-uv run pytest packages/vss_cli/tests packages/vss_core/tests -q
-uv run ruff check packages/vss_cli packages/vss_core
-uv run mypy packages/vss_cli/src/vss_cli packages/vss_core/src/vss_core/vios
+uv run pytest cli/tests core/tests -q
+uv run ruff check cli core
+uv run mypy cli/src/vss_cli core/src/vss_core/vios
 ```
 
 ## Point it at a deployment

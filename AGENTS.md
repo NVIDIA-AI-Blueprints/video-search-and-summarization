@@ -93,7 +93,7 @@ pipefail`, or capture and check before piping.
 
 Per-command detail — sensor addressing, `--type`, window rules, what `vios`
 covers and what it does not — is in
-[`services/agent/packages/vss_cli/AGENTS.md`](services/agent/packages/vss_cli/AGENTS.md).
+[`libs/vss/cli/AGENTS.md`](libs/vss/cli/AGENTS.md).
 
 ## Skills
 
@@ -105,6 +105,6 @@ than carrying its own copy.
 
 | Area | Read when you are… | Guide |
 |------|--------------------|-------|
-| `vss` CLI internals | changing the CLI or its library | [`services/agent/packages/vss_cli/AGENTS.md`](services/agent/packages/vss_cli/AGENTS.md) |
+| `vss` CLI internals | changing the CLI or its library | [`libs/vss/cli/AGENTS.md`](libs/vss/cli/AGENTS.md) |
 | Video Analytics API | working on the analytics service | [`services/analytics/video-analytics-api/AGENTS.md`](services/analytics/video-analytics-api/AGENTS.md) |
 

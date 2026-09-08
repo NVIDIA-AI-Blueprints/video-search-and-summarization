@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 #: unit checks below therefore pin the source file rather than trusting the
 #: import to find ours; otherwise this file tests whatever happens to be
 #: installed, and fails on CI for reasons that have nothing to do with the code.
-_SOURCE_DIR = pathlib.Path(__file__).resolve().parents[4] / "vss_core" / "src"
+_SOURCE_DIR = pathlib.Path(__file__).resolve().parents[4] / "core" / "src"
 _SOURCE = _SOURCE_DIR / "sitecustomize.py"
 
 
