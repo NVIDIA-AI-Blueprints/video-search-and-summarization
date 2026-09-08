@@ -142,12 +142,28 @@ RUN test ! -e /opt/vss-plugin/node_modules/openclaw \
 
 # Enabling the plugin changes openclaw.json after the managed runtime hashed it;
 # nemoclaw-start verifies that hash, so refresh it.
+#
+# Harbor (the eval runner) OWNS ~/.openclaw/openclaw.json at trial time: its
+# openclaw adapter writes a fresh config from its own baseline plus an overlay
+# and copies it over this file. Anything this image needs in that config must
+# therefore be published where the harness can find it, not only baked here.
+# /etc/openclaw-harness/config-overlay.json carries exactly that: the plugins
+# block (nemoclaw + vss enabled) lifted from the config built above. The eval
+# harness deep-merges it into Harbor's config inside the sandbox, so the plugin,
+# its skills and workspace files load under Harbor's config too. The hash below
+# is left unlocked (mutable default) for the same reason: two writers, one file.
 USER root
 RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
     && chmod 660 /sandbox/.openclaw/openclaw.json \
     && sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
     && chown sandbox:sandbox /sandbox/.openclaw/.config-hash \
-    && chmod 660 /sandbox/.openclaw/.config-hash
+    && chmod 660 /sandbox/.openclaw/.config-hash \
+    && mkdir -p /etc/openclaw-harness \
+    && node -e 'const c=JSON.parse(require("fs").readFileSync("/sandbox/.openclaw/openclaw.json","utf8")); \
+                const o={plugins:c.plugins||{}}; \
+                require("fs").writeFileSync("/etc/openclaw-harness/config-overlay.json", JSON.stringify(o,null,2)+"\n");' \
+    && chmod 644 /etc/openclaw-harness/config-overlay.json \
+    && node -e 'const o=JSON.parse(require("fs").readFileSync("/etc/openclaw-harness/config-overlay.json","utf8")); if(!o.plugins.entries.vss.enabled) process.exit(1)'
 
 # Workspace-variant selector for the plugin's register-time seeding: apply the
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
