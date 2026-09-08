@@ -80,15 +80,33 @@ def video_name_matches(api_name: str, gt_name: str) -> bool:
 
 
 def match_segment(api_result: dict, gt_segments: list[dict]) -> tuple[int, dict | None]:
-    """Find the ground-truth segment a result matches, or ``(-1, None)``."""
+    """Find the ground-truth segment a result overlaps, or ``(-1, None)``.
+
+    Overlap, not equal start times. Results are snapped to the 5-second grid by
+    :func:`align_ts_to_segment`, so equality silently required the ground truth
+    to sit on that grid too. It does for datasets whose segments *are* chunks --
+    vad-r1-v2 is 100% 5s and 100% aligned -- and not at all for one whose
+    segments are real event bounds: physicalai-dev is 45% 5s and 73% aligned, so
+    159 of its 673 queries (23.6%) could not be scored above zero however good
+    retrieval was, and 57% of the time it covers could never be credited.
+
+    A window that lands anywhere inside the event found the event. Each
+    ground-truth segment is still claimed once, by the earliest-ranked result
+    that reaches it, so this does not inflate a hit into several.
+    """
     actual_video = api_result.get("video_name", "")
     actual_start = parse_ts(api_result.get("start_time", ""))
+    actual_end = parse_ts(api_result.get("end_time", ""), ceiling=True)
     for idx, gt in enumerate(gt_segments):
         gt_video = gt.get("video_name", "")
         gt_start = parse_ts(gt.get("start_time", ""))
+        gt_end = parse_ts(gt.get("end_time", ""), ceiling=True)
         if not all([actual_video, actual_start, gt_video, gt_start]):
             continue
-        if video_name_matches(actual_video, gt_video) and actual_start == gt_start:
+        if not video_name_matches(actual_video, gt_video):
+            continue
+        # Half-open intervals: [10,15) and [15,20) are adjacent, not overlapping.
+        if actual_start < gt_end and gt_start < actual_end:
             return idx, gt
     return -1, None
 
