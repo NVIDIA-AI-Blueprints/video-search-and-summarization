@@ -6,7 +6,7 @@ position: 1
 
 This guide explains how to deploy and access the **AutoMagicCalib Microservice and User Interface as part of VSS**.
 
-The detailed AMC workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages. These pages follow the canonical [DeepStream AutoMagicCalib README](https://gitlab-master.nvidia.com/DeepStreamSDK/deepstream/-/blob/main/tools/auto-magic-calib/README.md?ref_type=heads), including its screenshots and UI guidance.
+The detailed AMC workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages.
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ Required calibration inputs and the detailed AMC requirements are documented in 
 
 ## VSS Deployment Steps (Docker Compose)
 
-These steps deploy AMC using the VSS repository's auto-calibration service. They are separate from the standalone DeepStream `tools/auto-magic-calib` deployment.
+These steps deploy AMC using the VSS repository's auto-calibration service.
 
 ### 1. Authenticate with NGC
 
@@ -41,7 +41,7 @@ Generate an API key from [NGC Setup](https://org.ngc.nvidia.com/setup) if needed
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.2.1
+git checkout tags/v3.3.0
 ```
 
 ### 3. Open the VSS AutoMagicCalib deployment directory
@@ -63,14 +63,12 @@ ui/compose.yml
 Create `.env` in the current directory:
 
 ```dotenv
-VSS_AUTO_CALIBRATION_PORT=8000
-VSS_AUTO_CALIBRATION_HOST_PORT=8000
-VSS_AUTO_CALIBRATION_UI_PORT=5000
+VSS_AUTO_CALIBRATION_HOST_PORT=8010
 VSS_AUTO_CALIBRATION_UI_HOST_PORT=5000
 VSS_APPS_DIR=/path/to/video-search-and-summarization/deploy/docker
 VSS_DATA_DIR=/path/to/your/data_dir
 HOST_IP=<HOST_IP_ADDRESS>
-VSS_AUTO_CALIBRATION_MS_API_URL=http://${HOST_IP}:8000/v1
+# Optional
 # VIOS_BASE_URL=http://<VIOS_HOST_IP>:30888
 ```
 
@@ -78,11 +76,10 @@ Replace the paths and host address with your values. `HOST_IP` must be reachable
 
 ### 5. Optional VGGT model setup
 
-AMC works without VGGT. To enable VGGT calibration, download the licensed model from [Hugging Face](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in:
+AMC works without VGGT. To enable VGGT calibration, download the licensed [VGGT model](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in `${VSS_DATA_DIR}/auto-calib/vggt/`:
 
 ```bash
 mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
-mv vggt_1B_commercial.pt "${VSS_DATA_DIR}/auto-calib/vggt/"
 ```
 
 You must accept the model license before downloading it.
@@ -134,4 +131,3 @@ docker compose \
 - Follow the [AMC Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for the complete 7-step UI workflow and screenshots.
 - Follow [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset) for input videos, alignment data, lens distortion, and ground-truth requirements.
 - Follow [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) for common deployment and calibration failures.
-- For agent-driven VSS deployment and calibration, see the [`vss-generate-video-calibration` skill](/vss/vision-agent/agent-skills).
