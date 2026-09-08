@@ -46,6 +46,30 @@ class _FailingLLM:
         yield
 
 
+def test_nvtx_stage_is_opt_in_and_balances_ranges(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        vllm_compatible_model.nvtx,
+        "start_range",
+        lambda **kwargs: calls.append(("start", kwargs["message"])) or 7,
+    )
+    monkeypatch.setattr(
+        vllm_compatible_model.nvtx,
+        "end_range",
+        lambda range_id: calls.append(("end", range_id)),
+    )
+
+    monkeypatch.delenv("RTVI_VLM_NVTX_STAGES", raising=False)
+    with vllm_compatible_model._nvtx_stage("disabled"):
+        pass
+    assert calls == []
+
+    monkeypatch.setenv("RTVI_VLM_NVTX_STAGES", "true")
+    with vllm_compatible_model._nvtx_stage("enabled"):
+        pass
+    assert calls == [("start", "enabled"), ("end", 7)]
+
+
 class _RecordingLLM:
     def __init__(self):
         self.llm_inputs = None
@@ -667,6 +691,27 @@ def test_vllm_compilation_config_is_opt_in(monkeypatch, value):
     assert vllm_compatible_model._get_vllm_compilation_config("") is None
 
 
+def test_vllm_compilation_config_enables_multimodal_encoder(monkeypatch):
+    monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
+    monkeypatch.setenv("VLLM_COMPILE_MM_ENCODER", "true")
+
+    assert vllm_compatible_model._get_vllm_compilation_config("") == {
+        "compile_mm_encoder": True,
+    }
+
+
+def test_vllm_compilation_config_combines_encoder_and_cudagraph(monkeypatch):
+    monkeypatch.setenv("VLLM_CUDAGRAPH_MODE", "PIECEWISE")
+    monkeypatch.setenv("VLLM_COMPILE_MM_ENCODER", "true")
+
+    assert vllm_compatible_model._get_vllm_compilation_config("") == {
+        "mode": "VLLM_COMPILE",
+        "cudagraph_mode": "PIECEWISE",
+        "compile_mm_encoder": True,
+    }
+
+
 def test_vllm_compilation_config_defaults_edge_to_compiled_execution(monkeypatch):
     monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
     monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
@@ -957,6 +1002,69 @@ def test_multimodal_preprocess_workload_buckets_prompt_and_output_tokens():
     assert osl_one_key != osl_hundred_key
 
 
+def test_multimodal_encoder_tokens_use_model_processor_capability():
+    class _ProcessorInfo:
+        def get_video_processor(self, **kwargs):
+            return SimpleNamespace()
+
+        def get_num_video_tokens(
+            self,
+            *,
+            image_width,
+            image_height,
+            num_frames,
+            image_processor,
+            mm_kwargs,
+        ):
+            assert image_width == 608
+            assert image_height == 320
+            assert num_frames == 20
+            assert image_processor is not None
+            assert mm_kwargs == {"do_sample_frames": False}
+            return 1980
+
+    tensor = torch.empty((20, 320, 608, 3), dtype=torch.uint8, device="meta")
+    llm_inputs = {
+        "multi_modal_data": {"video": [(tensor, {})]},
+        "mm_processor_kwargs": {"do_sample_frames": False},
+    }
+
+    assert VllmCompatible._multimodal_encoder_tokens(llm_inputs, _ProcessorInfo()) == 1980
+
+
+def test_multimodal_encoder_tokens_fall_back_when_processor_cannot_estimate():
+    tensor = torch.empty((20, 320, 608, 3), dtype=torch.uint8, device="meta")
+    llm_inputs = {"multi_modal_data": {"video": [(tensor, {})]}}
+
+    assert VllmCompatible._multimodal_encoder_tokens(llm_inputs, object()) is None
+
+
+def test_encoder_cache_capacity_uses_vllm_input_processor_budget():
+    llm = SimpleNamespace(
+        input_processor=SimpleNamespace(mm_encoder_cache_size=32768),
+    )
+
+    assert VllmCompatible._get_encoder_cache_capacity_tokens(llm) == 32768
+
+
+def test_encoder_cache_capacity_disables_token_gate_when_budget_is_missing():
+    assert VllmCompatible._get_encoder_cache_capacity_tokens(SimpleNamespace()) is None
+
+
+@pytest.mark.parametrize(
+    ("processor_info", "expected"),
+    [
+        (SimpleNamespace(get_num_video_tokens=lambda: 1), True),
+        (SimpleNamespace(get_num_image_tokens=lambda: 1), True),
+        (SimpleNamespace(get_num_audio_tokens=lambda: 1), False),
+        (object(), False),
+        (None, False),
+    ],
+)
+def test_visual_token_geometry_capability_is_detected(processor_info, expected):
+    assert VllmCompatible._supports_visual_token_geometry(processor_info) is expected
+
+
 def test_cuda_free_memory_uses_lowest_visible_device(monkeypatch):
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 3)
     free_by_device = {
@@ -1018,6 +1126,101 @@ def test_default_path_holds_admission_until_first_engine_output():
         async for _ in stream:
             pass
         assert model._llm.queue.closed is True
+
+    asyncio.run(run())
+
+
+def test_tensor_ipc_releases_preprocess_memory_but_holds_encoder_tokens():
+    async def run():
+        limiter = AdaptivePreprocessLimiter(
+            AdaptivePreprocessConfig(
+                enabled=True,
+                shadow_mode=False,
+                min_workers=1,
+                max_workers=4,
+                gpu_headroom_mb=100,
+                initial_estimated_request_mb=500,
+            ),
+            lambda: 10000,
+            encoder_cache_capacity_tokens=32768,
+        )
+        allow_output = asyncio.Event()
+
+        class _BlockingQueue:
+            request_id = "req-1"
+
+            def get_nowait(self):
+                return None
+
+            async def get(self):
+                await allow_output.wait()
+                return SimpleNamespace(finished=True)
+
+            def close(self):
+                pass
+
+        class _LLM:
+            def __init__(self):
+                self.added = asyncio.Event()
+
+            async def add_request(self, *args, **kwargs):
+                self.added.set()
+                return _BlockingQueue()
+
+            async def abort(self, *args, **kwargs):
+                return None
+
+        class _ProcessorInfo:
+            def get_video_processor(self, **kwargs):
+                return SimpleNamespace()
+
+            def get_num_video_tokens(
+                self,
+                *,
+                image_width,
+                image_height,
+                num_frames,
+                image_processor,
+                mm_kwargs,
+            ):
+                return 1980
+
+        model = VllmCompatible.__new__(VllmCompatible)
+        model._use_cuda_mm_tensor_ipc = True
+        model._multimodal_preprocess_limiter = limiter
+        model._multimodal_processor_info = _ProcessorInfo()
+        model._llm = _LLM()
+        async def add_without_cuda_promotion(request_id, inputs, sampling_params):
+            return await model._llm.add_request(request_id, inputs, sampling_params)
+
+        model._add_multimodal_request = add_without_cuda_promotion
+        model._finish_cuda_mm_submission = lambda request_id: None
+        model._finish_preprocess_submission = lambda request_id: None
+        model._release_cuda_mm_residency = lambda request_id: None
+        llm_inputs = {
+            "multi_modal_data": {
+                "video": [(torch.empty((20, 320, 608, 3), device="meta"), {})]
+            }
+        }
+
+        stream = model._generate_with_preprocess_admission(
+            llm_inputs,
+            SimpleNamespace(),
+            "req-1",
+        )
+        next_output = asyncio.create_task(stream.__anext__())
+        await model._llm.added.wait()
+        while limiter.snapshot().active:
+            await asyncio.sleep(0)
+
+        snapshot = limiter.snapshot()
+        assert snapshot.pending_reserved_mb == 0
+        assert snapshot.pending_encoder_tokens == 1980
+
+        allow_output.set()
+        await next_output
+        assert limiter.snapshot().pending_encoder_tokens == 0
+        await stream.aclose()
 
     asyncio.run(run())
 

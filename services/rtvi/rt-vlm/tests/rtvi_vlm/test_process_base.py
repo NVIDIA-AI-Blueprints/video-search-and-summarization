@@ -16,6 +16,7 @@
 import concurrent.futures
 import queue
 from threading import Lock
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -53,6 +54,37 @@ class _NoBatchProcess(ProcessBase):
 class _BatchProcess(_NoBatchProcess):
     def _supports_batching(self):
         return True
+
+
+def test_cuda_transport_backpressure_waits_without_host_spill():
+    class _DrainingQueue:
+        def __init__(self):
+            self.sizes = iter((1, 1, 0))
+            self.items = []
+
+        def qsize(self):
+            return next(self.sizes)
+
+        def put(self, item):
+            self.items.append(item)
+
+    output_queue = _DrainingQueue()
+    stop = SimpleNamespace(wait_calls=0)
+
+    def wait(timeout):
+        stop.wait_calls += 1
+        return False
+
+    stop.wait = wait
+    admitted = process_base_module._wait_for_cuda_transport_slot(
+        output_queue,
+        slots=1,
+        stop_event=stop,
+        poll_seconds=0.001,
+    )
+
+    assert admitted is True
+    assert stop.wait_calls == 2
 
 
 def test_live_output_handoff_drops_chunk_when_host_backlog_is_full(monkeypatch):

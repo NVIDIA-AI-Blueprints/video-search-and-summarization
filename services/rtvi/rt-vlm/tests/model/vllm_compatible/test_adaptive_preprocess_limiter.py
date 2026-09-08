@@ -88,6 +88,143 @@ def test_atomic_pending_reservations_prevent_snapshot_over_admission():
     asyncio.run(run())
 
 
+def test_encoder_tokens_remain_reserved_after_preprocessing_until_encoder_release():
+    async def run():
+        limiter = AdaptivePreprocessLimiter(
+            _config(min_workers=4, max_workers=4, admission_timeout_seconds=1),
+            _FreeMemory(10000),
+            encoder_cache_capacity_tokens=100,
+        )
+        first = await limiter.acquire(
+            "first",
+            "video-shape-a",
+            payload_mb=100,
+            encoder_tokens=60,
+        )
+
+        await limiter.release_preprocess(first, observed_allocation_mb=500)
+        snapshot = limiter.snapshot()
+        assert snapshot.active == 0
+        assert snapshot.pending_reserved_mb == 0
+        assert snapshot.pending_encoder_tokens == 60
+
+        second_task = asyncio.create_task(
+            limiter.acquire(
+                "second",
+                "video-shape-a",
+                payload_mb=100,
+                encoder_tokens=60,
+            )
+        )
+        while limiter.snapshot().queued == 0:
+            await asyncio.sleep(0)
+        assert second_task.done() is False
+
+        await limiter.release_encoder(first)
+        second = await second_task
+        assert limiter.snapshot().pending_encoder_tokens == 60
+        await limiter.release(second)
+        assert limiter.snapshot().pending_encoder_tokens == 0
+
+    asyncio.run(run())
+
+
+def test_encoder_token_budget_admits_an_exact_fit():
+    async def run():
+        limiter = AdaptivePreprocessLimiter(
+            _config(min_workers=2, max_workers=2),
+            _FreeMemory(10000),
+            encoder_cache_capacity_tokens=100,
+        )
+        await _calibrate(limiter)
+        first = await limiter.acquire(
+            "first",
+            "video-shape-a",
+            payload_mb=100,
+            encoder_tokens=40,
+        )
+        second = await limiter.acquire(
+            "second",
+            "video-shape-a",
+            payload_mb=100,
+            encoder_tokens=60,
+        )
+
+        snapshot = limiter.snapshot()
+        assert snapshot.active == 2
+        assert snapshot.pending_encoder_tokens == 100
+        assert snapshot.encoder_cache_capacity_tokens == 100
+        await limiter.release(first)
+        await limiter.release(second)
+
+    asyncio.run(run())
+
+
+def test_encoder_token_budget_starts_at_executor_ceiling():
+    limiter = AdaptivePreprocessLimiter(
+        _config(min_workers=1, max_workers=16),
+        _FreeMemory(10000),
+        encoder_cache_capacity_tokens=32768,
+    )
+
+    assert limiter.snapshot().effective_limit == 16
+
+
+def test_encoder_overlap_is_not_treated_as_exclusive_memory_calibration():
+    async def run():
+        limiter = AdaptivePreprocessLimiter(
+            _config(min_workers=2, max_workers=2),
+            _FreeMemory(10000),
+            encoder_cache_capacity_tokens=100,
+        )
+        first = await limiter.acquire(
+            "first",
+            "video-shape-a",
+            payload_mb=100,
+            encoder_tokens=60,
+        )
+        await limiter.release_preprocess(first, observed_allocation_mb=500)
+
+        second = await limiter.acquire(
+            "second",
+            "video-shape-a",
+            payload_mb=100,
+            encoder_tokens=40,
+        )
+
+        assert first.exclusive is True
+        assert second.exclusive is False
+        await limiter.release(second, observed_allocation_mb=2000)
+        assert limiter.snapshot().estimated_mb_by_workload == {"video-shape-a": 500}
+        await limiter.release_encoder(first)
+        assert limiter._overlapped_request_ids == set()
+
+    asyncio.run(run())
+
+
+def test_single_request_larger_than_encoder_budget_is_admitted_exclusively():
+    async def run():
+        limiter = AdaptivePreprocessLimiter(
+            _config(min_workers=2, max_workers=2),
+            _FreeMemory(10000),
+            encoder_cache_capacity_tokens=100,
+        )
+
+        admission = await limiter.acquire(
+            "oversized",
+            "video-shape-a",
+            payload_mb=100,
+            encoder_tokens=120,
+        )
+
+        assert admission.encoder_tokens == 120
+        assert admission.exclusive is True
+        assert limiter.snapshot().pending_encoder_tokens == 120
+        await limiter.release(admission)
+
+    asyncio.run(run())
+
+
 def test_duplicate_request_id_does_not_overwrite_reservation():
     async def run():
         limiter = AdaptivePreprocessLimiter(

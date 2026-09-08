@@ -65,6 +65,7 @@ if _USE_CUDA_MM_TENSOR_IPC:
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 _FALSE_ENV_VALUES = {"0", "false", "no", "off", ""}
 QUEUE_DECODED_FRAMES_ON_GPU_ENV = "RTVI_QUEUE_DECODED_FRAMES_ON_GPU"
+CUDA_MM_TRANSPORT_BACKPRESSURE_ENV = "RTVI_CUDA_MM_TRANSPORT_BACKPRESSURE"
 
 
 def _parse_bool_env(name: str, default: bool = False) -> bool:
@@ -117,6 +118,19 @@ def _contains_cuda_tensor(value):
     if isinstance(value, dict):
         return any(_contains_cuda_tensor(item) for item in value.values())
     return False
+
+
+def _wait_for_cuda_transport_slot(
+    output_queue,
+    slots: int,
+    stop_event,
+    poll_seconds: float = 0.001,
+) -> bool:
+    """Bound CUDA frame residency without a device-host-device spill."""
+    while output_queue.qsize() >= slots:
+        if stop_event.wait(poll_seconds):
+            return False
+    return True
 
 
 def _safe_cuda_empty_cache(force=False):
@@ -352,23 +366,29 @@ class ProcessBase(mp_ctx.Process):
                                 1, int(getattr(self, "_num_decoders_per_gpu", 8))
                             )
                             if self._output_queue.qsize() >= raw_transport_slots:
-                                # A blocked live decoder otherwise retains one
-                                # full GPU chunk per stream while waiting for a
-                                # transport slot. At high stream counts that
-                                # backpressure storage, rather than inference,
-                                # exhausts device memory. Preserve direct CUDA
-                                # IPC when a slot is available; spill only the
-                                # overloaded tail to host memory.
-                                ret_item["frames"] = _spill_cuda_frames_to_cpu(ret_item["frames"])
-                                logger.debug(
-                                    "Spilled decoded CUDA frames to CPU while the "
-                                    "%d-slot decoder-to-VLM queue was full",
-                                    raw_transport_slots,
-                                )
-                            # The multiprocessing transport retains the Python
-                            # baseline's global 128-request capacity. Only its
-                            # on-device window is bounded above; host-spilled
-                            # chunks can continue filling that global queue.
+                                if _parse_bool_env(CUDA_MM_TRANSPORT_BACKPRESSURE_ENV):
+                                    if not _wait_for_cuda_transport_slot(
+                                        self._output_queue,
+                                        raw_transport_slots,
+                                        self._stop,
+                                    ):
+                                        return
+                                else:
+                                    # Preserve the established fallback unless
+                                    # bounded no-spill transport is explicitly
+                                    # enabled and qualified on the target.
+                                    ret_item["frames"] = _spill_cuda_frames_to_cpu(
+                                        ret_item["frames"]
+                                    )
+                                    logger.debug(
+                                        "Spilled decoded CUDA frames to CPU while the "
+                                        "%d-slot decoder-to-VLM queue was full",
+                                        raw_transport_slots,
+                                    )
+                            # The transport retains the global 128-request
+                            # capacity while bounding its on-device window.
+                            # Overload either waits here or uses the established
+                            # host-spill fallback, according to the opt-in mode.
                         self._output_queue.put(ret_item)
         elif isinstance(result, dict):
             # Empty dict returned by process method, send the chunk to final output queue

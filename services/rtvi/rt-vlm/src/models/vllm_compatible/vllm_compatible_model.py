@@ -18,6 +18,7 @@ import concurrent.futures
 import contextlib
 import copy
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -32,6 +33,7 @@ import uuid
 from typing import List, Optional
 
 import numpy
+import nvtx
 import torch
 import torchvision.transforms.functional as TF
 from filelock import FileLock
@@ -58,6 +60,7 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_ENABLE_PREFIX_CACHING": "RTVI_VLLM_ENABLE_PREFIX_CACHING",
     "VLLM_ENFORCE_EAGER": "RTVI_VLLM_ENFORCE_EAGER",
     "VLLM_CUDAGRAPH_MODE": "RTVI_VLLM_CUDAGRAPH_MODE",
+    "VLLM_COMPILE_MM_ENCODER": "RTVI_VLLM_COMPILE_MM_ENCODER",
     "VLLM_DISABLE_MM_PREPROCESSOR_CACHE": "RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
     "VLLM_MM_PROCESSOR_CACHE_GB": "RTVI_VLLM_MM_PROCESSOR_CACHE_GB",
     "VLLM_MM_PROCESSOR_CACHE_TYPE": "RTVI_VLLM_MM_PROCESSOR_CACHE_TYPE",
@@ -102,6 +105,19 @@ _BLANK_DEFAULT_VLLM_IMPORT_ENV_VARS = (
     "VLLM_LOGGING_LEVEL",
     "VLLM_NVFP4_GEMM_BACKEND",
 )
+
+
+@contextlib.contextmanager
+def _nvtx_stage(message: str):
+    """Emit opt-in request-stage ranges without changing the production fast path."""
+    if os.environ.get("RTVI_VLM_NVTX_STAGES", "false").lower() not in ("true", "1"):
+        yield
+        return
+    range_id = nvtx.start_range(message=message, color="green")
+    try:
+        yield
+    finally:
+        nvtx.end_range(range_id)
 
 
 def _is_cuda_oom_error(error: object) -> bool:
@@ -260,13 +276,17 @@ def _get_num_preprocess_workers() -> int:
 
 def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] | None:
     raw_mode = (_get_rtvi_vllm_env("VLLM_CUDAGRAPH_MODE", "") or "").strip()
+    compile_mm_encoder = _parse_bool_env("VLLM_COMPILE_MM_ENCODER", False)
     if not raw_mode:
         if _is_cosmos3_edge_arch(model_architecture):
-            return {
+            config = {
                 "mode": "VLLM_COMPILE",
                 "cudagraph_mode": "PIECEWISE",
             }
-        return None
+            if compile_mm_encoder:
+                config["compile_mm_encoder"] = True
+            return config
+        return {"compile_mm_encoder": True} if compile_mm_encoder else None
     cudagraph_mode = raw_mode.upper()
     if cudagraph_mode not in _VLLM_CUDAGRAPH_MODES:
         supported = ", ".join(sorted(_VLLM_CUDAGRAPH_MODES))
@@ -277,6 +297,8 @@ def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] |
         "mode": "VLLM_COMPILE",
         "cudagraph_mode": cudagraph_mode,
     }
+    if compile_mm_encoder:
+        config["compile_mm_encoder"] = True
     return config
 
 
@@ -1336,6 +1358,9 @@ class VllmCompatible(BaseVlmModel):
         self._use_cuda_mm_tensor_ipc = False
         self._cuda_mm_legacy_preprocess_semaphore = None
         self._multimodal_preprocess_limiter = None
+        self._multimodal_processor_info = None
+        self._encoder_cache_capacity_tokens = None
+        self._logged_admission_token_workloads = set()
         self._adaptive_preprocess_pending_submission_ids = set()
         self._cuda_mm_pending_submission_ids = set()
         self._cuda_mm_resident_units_by_request = {}
@@ -1666,6 +1691,12 @@ class VllmCompatible(BaseVlmModel):
 
                 engine_args = AsyncEngineArgs(**engine_args_kwargs)
                 self._llm = AsyncLLMEngine.from_engine_args(engine_args)
+                self._encoder_cache_capacity_tokens = self._get_encoder_cache_capacity_tokens(
+                    self._llm
+                )
+                self._multimodal_processor_info = self._get_multimodal_processor_info(self._llm)
+                if not self._supports_visual_token_geometry(self._multimodal_processor_info):
+                    self._encoder_cache_capacity_tokens = None
                 self._processor = AutoProcessor.from_pretrained(
                     self.model_path, trust_remote_code=vlm_trust_remote_code
                 )
@@ -1700,6 +1731,7 @@ class VllmCompatible(BaseVlmModel):
                     adaptive_config,
                     self._get_cuda_free_memory_mb,
                     self._get_cuda_utilization_percent,
+                    encoder_cache_capacity_tokens=self._encoder_cache_capacity_tokens,
                 )
                 self._multimodal_preprocess_limiter.register_otel_metrics()
                 logger.info(
@@ -1707,7 +1739,7 @@ class VllmCompatible(BaseVlmModel):
                     "shadow_mode=%s, workers=%d..%d, headroom=%d MiB, "
                     "initial_estimate=%d MiB/request, safety_factor=%.2f, timeout=%.1fs, "
                     "scale_up_cooldown=%.1fs, scale_up_gpu_threshold=%.1f%%, "
-                    "calibration_samples=%d, tensor_ipc=%s",
+                    "calibration_samples=%d, encoder_cache=%s tokens, tensor_ipc=%s",
                     adaptive_config.shadow_mode,
                     adaptive_config.min_workers,
                     adaptive_config.max_workers,
@@ -1718,6 +1750,7 @@ class VllmCompatible(BaseVlmModel):
                     adaptive_config.scale_up_cooldown_seconds,
                     adaptive_config.scale_up_gpu_utilization_threshold_percent,
                     adaptive_config.calibration_samples_required,
+                    self._encoder_cache_capacity_tokens,
                     self._use_cuda_mm_tensor_ipc,
                 )
             if self._use_cuda_mm_tensor_ipc:
@@ -1971,6 +2004,127 @@ class VllmCompatible(BaseVlmModel):
         workload_key = hashlib.sha256(signature.encode("utf-8")).hexdigest()[:16]
         return workload_key, max(1, math.ceil(payload_bytes / (1024 * 1024)))
 
+    @staticmethod
+    def _get_encoder_cache_capacity_tokens(llm) -> int | None:
+        """Return vLLM's effective encoder-cache capacity when exposed."""
+        input_processor = getattr(llm, "input_processor", None)
+        value = getattr(input_processor, "mm_encoder_cache_size", None)
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    @staticmethod
+    def _get_multimodal_processor_info(llm):
+        """Return vLLM's model-owned token geometry helper when available."""
+        renderer = getattr(llm, "renderer", None)
+        get_processor = getattr(renderer, "get_mm_processor", None)
+        if not callable(get_processor):
+            return None
+        try:
+            return getattr(get_processor(), "info", None)
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _supports_visual_token_geometry(processor_info) -> bool:
+        """Return whether model-owned image or video token geometry is available."""
+        if processor_info is None:
+            return False
+        return any(
+            callable(getattr(processor_info, estimator, None))
+            for estimator in ("get_num_video_tokens", "get_num_image_tokens")
+        )
+
+    @staticmethod
+    def _multimodal_encoder_tokens(llm_inputs, processor_info) -> int | None:
+        """Estimate encoder-cache tokens from media geometry without processing pixels.
+
+        vLLM processing-info implementations own resize and patch geometry. RTVI
+        capability-detects those helpers so the policy follows the installed
+        model instead of encoding GPU- or architecture-specific constants.
+        """
+        if processor_info is None:
+            return None
+        multi_modal_data = llm_inputs.get("multi_modal_data", {})
+        if not isinstance(multi_modal_data, dict) or not multi_modal_data:
+            return 0
+        mm_kwargs = llm_inputs.get("mm_processor_kwargs", {})
+        if not isinstance(mm_kwargs, dict):
+            mm_kwargs = {}
+
+        total_tokens = 0
+        for modality, value in multi_modal_data.items():
+            estimator = getattr(processor_info, f"get_num_{modality}_tokens", None)
+            if not callable(estimator):
+                return None
+            items = value if isinstance(value, list) else [value]
+            for item in items:
+                media = item[0] if isinstance(item, tuple) and item else item
+                shape = tuple(int(dimension) for dimension in getattr(media, "shape", ()))
+                if modality == "video" and len(shape) == 4:
+                    if shape[-1] in (1, 3, 4):
+                        num_frames, image_height, image_width = shape[:3]
+                    elif shape[1] in (1, 3, 4):
+                        num_frames, image_height, image_width = shape[0], shape[2], shape[3]
+                    else:
+                        return None
+                elif modality == "image" and len(shape) == 3:
+                    num_frames = 1
+                    if shape[-1] in (1, 3, 4):
+                        image_height, image_width = shape[:2]
+                    elif shape[0] in (1, 3, 4):
+                        image_height, image_width = shape[1:]
+                    else:
+                        return None
+                else:
+                    return None
+
+                available = {
+                    "image_width": image_width,
+                    "image_height": image_height,
+                    "num_frames": num_frames,
+                    "mm_kwargs": mm_kwargs,
+                }
+                get_media_processor = getattr(
+                    processor_info,
+                    f"get_{modality}_processor",
+                    None,
+                )
+                if callable(get_media_processor):
+                    try:
+                        available["image_processor"] = get_media_processor(**mm_kwargs)
+                    except TypeError:
+                        available["image_processor"] = get_media_processor()
+
+                try:
+                    parameters = inspect.signature(estimator).parameters
+                except (TypeError, ValueError):
+                    return None
+                required = {
+                    name
+                    for name, parameter in parameters.items()
+                    if parameter.default is inspect.Parameter.empty
+                    and parameter.kind
+                    in (
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        inspect.Parameter.KEYWORD_ONLY,
+                    )
+                }
+                if not required.issubset(available):
+                    return None
+                call_kwargs = {name: available[name] for name in parameters if name in available}
+                try:
+                    item_tokens = int(estimator(**call_kwargs))
+                except (TypeError, ValueError):
+                    return None
+                if item_tokens < 1:
+                    return None
+                total_tokens += item_tokens
+        return total_tokens
+
     def _ensure_legacy_preprocess_semaphore(self):
         if self._cuda_mm_legacy_preprocess_semaphore is None:
             self._cuda_mm_legacy_preprocess_semaphore = asyncio.Semaphore(
@@ -1987,33 +2141,35 @@ class VllmCompatible(BaseVlmModel):
     async def _add_multimodal_request(self, request_id, llm_inputs, vllm_sampling_params):
         # Decoder backpressure may spill raw video frames to CPU. Promote only
         # after admission so concurrent copies cannot recreate a residency burst.
-        multi_modal_data = llm_inputs.get("multi_modal_data")
-        if isinstance(multi_modal_data, dict):
-            video_items = multi_modal_data.get("video")
-            if isinstance(video_items, list) and video_items:
-                video_item = video_items[0]
-                if isinstance(video_item, tuple):
-                    video_tensor, video_metadata = video_item
-                else:
-                    video_tensor, video_metadata = video_item, None
-                if (
-                    self._use_cuda_mm_tensor_ipc
-                    and isinstance(video_tensor, torch.Tensor)
-                    and not video_tensor.is_cuda
-                ):
-                    video_tensor = video_tensor.to(
-                        device=torch.device("cuda", torch.cuda.current_device())
-                    )
-                    video_items[0] = (
-                        (video_tensor, video_metadata)
-                        if isinstance(video_item, tuple)
-                        else video_tensor
-                    )
-        return await self._llm.add_request(
-            request_id,
-            llm_inputs,
-            vllm_sampling_params,
-        )
+        with _nvtx_stage("rtvi.tensor_ipc_input_prepare"):
+            multi_modal_data = llm_inputs.get("multi_modal_data")
+            if isinstance(multi_modal_data, dict):
+                video_items = multi_modal_data.get("video")
+                if isinstance(video_items, list) and video_items:
+                    video_item = video_items[0]
+                    if isinstance(video_item, tuple):
+                        video_tensor, video_metadata = video_item
+                    else:
+                        video_tensor, video_metadata = video_item, None
+                    if (
+                        self._use_cuda_mm_tensor_ipc
+                        and isinstance(video_tensor, torch.Tensor)
+                        and not video_tensor.is_cuda
+                    ):
+                        video_tensor = video_tensor.to(
+                            device=torch.device("cuda", torch.cuda.current_device())
+                        )
+                        video_items[0] = (
+                            (video_tensor, video_metadata)
+                            if isinstance(video_item, tuple)
+                            else video_tensor
+                        )
+        with _nvtx_stage("rtvi.vllm_preprocess_tensor_ipc_engine_submit"):
+            return await self._llm.add_request(
+                request_id,
+                llm_inputs,
+                vllm_sampling_params,
+            )
 
     async def _generate_with_preprocess_admission(
         self,
@@ -2024,7 +2180,8 @@ class VllmCompatible(BaseVlmModel):
         """Submit a multimodal prompt with bounded frontend preprocessing.
 
         AsyncLLM.add_request() returns after its threaded InputProcessor finishes.
-        The default RPC path retains admission until the first EngineCore output,
+        Frontend memory and worker reservations end after input processing. The
+        encoder-token reservation remains until the first EngineCore output,
         which proves the visual encoder has consumed the processed request.
         """
         from vllm.v1.engine.async_llm import STREAM_FINISHED
@@ -2034,15 +2191,16 @@ class VllmCompatible(BaseVlmModel):
         preprocess_success = False
         preprocess_memory_pressure = False
         memory_sampler_task = None
+        preprocess_released = False
 
         async def sample_memory_until_release():
-            while admission is not None:
+            while admission is not None and not preprocess_released:
                 limiter.sample_active_memory(request_id)
                 await asyncio.sleep(limiter.config.poll_interval_seconds)
 
-        async def release_admission():
-            nonlocal admission, memory_sampler_task
-            if admission is None:
+        async def release_preprocess_admission():
+            nonlocal memory_sampler_task, preprocess_released
+            if admission is None or preprocess_released:
                 return
             workload_key = admission.workload_key
             limiter.sample_active_memory(request_id)
@@ -2052,12 +2210,12 @@ class VllmCompatible(BaseVlmModel):
                     await memory_sampler_task
                 memory_sampler_task = None
             previous_snapshot = limiter.snapshot()
-            await limiter.release(
+            await limiter.release_preprocess(
                 admission,
                 success=preprocess_success,
                 memory_pressure=preprocess_memory_pressure,
             )
-            admission = None
+            preprocess_released = True
             snapshot = limiter.snapshot()
             if snapshot.effective_limit != previous_snapshot.effective_limit:
                 logger.info(
@@ -2086,32 +2244,71 @@ class VllmCompatible(BaseVlmModel):
                 snapshot.pending_reserved_mb,
             )
 
+        async def release_encoder_admission():
+            nonlocal admission
+            if admission is None:
+                return
+            await release_preprocess_admission()
+            await limiter.release_encoder(admission)
+            admission = None
+
         try:
             workload_key, payload_mb = self._multimodal_preprocess_workload(
                 llm_inputs,
                 vllm_sampling_params,
             )
+            encoder_tokens = self._multimodal_encoder_tokens(
+                llm_inputs,
+                getattr(self, "_multimodal_processor_info", None),
+            )
             limiter = self._multimodal_preprocess_limiter
             if limiter is not None:
-                try:
-                    admission = await limiter.acquire(
-                        request_id,
-                        workload_key,
-                        payload_mb,
+                logged_workloads = getattr(self, "_logged_admission_token_workloads", set())
+                encoder_capacity = limiter.snapshot().encoder_cache_capacity_tokens
+                if (
+                    encoder_tokens
+                    and encoder_capacity
+                    and workload_key not in logged_workloads
+                ):
+                    token_width = max(
+                        1,
+                        min(limiter.config.max_workers, encoder_capacity // encoder_tokens),
                     )
+                    logger.info(
+                        "Adaptive multimodal token geometry: workload=%s, "
+                        "encoder_tokens=%d, encoder_cache=%d, token_width=%d",
+                        workload_key,
+                        encoder_tokens,
+                        encoder_capacity,
+                        token_width,
+                    )
+                    logged_workloads.add(workload_key)
+                    self._logged_admission_token_workloads = logged_workloads
+                try:
+                    with _nvtx_stage("rtvi.cache_token_admission"):
+                        admission = await limiter.acquire(
+                            request_id,
+                            workload_key,
+                            payload_mb,
+                            encoder_tokens=encoder_tokens or 0,
+                        )
                     memory_sampler_task = asyncio.create_task(sample_memory_until_release())
                 except PreprocessAdmissionTimeout as exc:
                     snapshot = limiter.snapshot()
                     logger.warning(
                         "Adaptive multimodal preprocessing admission timed out: "
                         "request=%s, workload=%s, payload=%d MiB, active=%d, queued=%d, "
-                        "limit=%d, free=%s MiB, reserved=%d MiB",
+                        "limit=%d, encoder_tokens=%s, pending_encoder_tokens=%d/%s, "
+                        "free=%s MiB, reserved=%d MiB",
                         request_id,
                         workload_key,
                         payload_mb,
                         snapshot.active,
                         snapshot.queued,
                         snapshot.effective_limit,
+                        encoder_tokens,
+                        snapshot.pending_encoder_tokens,
+                        snapshot.encoder_cache_capacity_tokens,
                         snapshot.last_free_memory_mb,
                         snapshot.pending_reserved_mb,
                     )
@@ -2123,12 +2320,13 @@ class VllmCompatible(BaseVlmModel):
                     ) from exc
                 logger.debug(
                     "Multimodal preprocessing admission: request=%s, workload=%s, "
-                    "payload=%d MiB, estimate=%d MiB, wait=%.3fs, enforced=%s, "
-                    "would_admit=%s",
+                    "payload=%d MiB, estimate=%d MiB, encoder_tokens=%d, "
+                    "wait=%.3fs, enforced=%s, would_admit=%s",
                     request_id,
                     workload_key,
                     payload_mb,
                     admission.estimated_mb,
+                    admission.encoder_tokens,
                     admission.wait_seconds,
                     admission.enforced,
                     admission.policy_would_admit,
@@ -2157,7 +2355,7 @@ class VllmCompatible(BaseVlmModel):
                 raise
             finally:
                 if self._use_cuda_mm_tensor_ipc:
-                    await release_admission()
+                    await release_preprocess_admission()
             if self._use_cuda_mm_tensor_ipc:
                 self._finish_cuda_mm_submission(request_id)
 
@@ -2170,14 +2368,23 @@ class VllmCompatible(BaseVlmModel):
             llm_inputs.clear()
 
             finished = False
+            first_output = True
             while not finished:
-                output = output_queue.get_nowait() or await output_queue.get()
+                stage = (
+                    _nvtx_stage("rtvi.visual_encoder_to_first_token")
+                    if first_output
+                    else contextlib.nullcontext()
+                )
+                with stage:
+                    output = output_queue.get_nowait() or await output_queue.get()
                 finished = output.finished
                 if output is not STREAM_FINISHED:
-                    await release_admission()
-                    self._finish_preprocess_submission(request_id)
-                    if self._use_cuda_mm_tensor_ipc:
-                        self._release_cuda_mm_residency(request_id)
+                    with _nvtx_stage("rtvi.first_token"):
+                        await release_encoder_admission()
+                        self._finish_preprocess_submission(request_id)
+                        if self._use_cuda_mm_tensor_ipc:
+                            self._release_cuda_mm_residency(request_id)
+                    first_output = False
                     yield output
         except (asyncio.CancelledError, GeneratorExit):
             preprocess_success = False
@@ -2191,7 +2398,7 @@ class VllmCompatible(BaseVlmModel):
                 await self._llm.abort(output_queue.request_id, internal=True)
             raise
         finally:
-            await release_admission()
+            await release_encoder_admission()
             self._finish_preprocess_submission(request_id)
             if self._use_cuda_mm_tensor_ipc:
                 self._finish_cuda_mm_submission(request_id)

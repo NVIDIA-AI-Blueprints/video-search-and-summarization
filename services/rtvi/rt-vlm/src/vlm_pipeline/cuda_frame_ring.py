@@ -6,10 +6,26 @@
 from __future__ import annotations
 
 import bisect
+import os
 import threading
+from contextlib import contextmanager
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Hashable, Optional, Sequence
+
+import nvtx
+
+
+@contextmanager
+def _ring_nvtx_stage(message: str):
+    if os.environ.get("RTVI_VLM_NVTX_STAGES", "false").lower() not in ("true", "1"):
+        yield
+        return
+    range_id = nvtx.start_range(message=message, color="blue")
+    try:
+        yield
+    finally:
+        nvtx.end_range(range_id)
 
 
 @dataclass(frozen=True)
@@ -72,9 +88,13 @@ class CudaFrameRing:
 
     def wait_for_fill(self, source_id: Hashable, epoch: Hashable, timeout: float) -> bool:
         key = (source_id, epoch)
-        with self._condition:
-            completed = self._condition.wait_for(lambda: key not in self._fills, timeout=timeout)
-            return bool(completed and key in self._windows)
+        with _ring_nvtx_stage("rtvi.decode_ring_wait"):
+            with self._condition:
+                completed = self._condition.wait_for(
+                    lambda: key not in self._fills,
+                    timeout=timeout,
+                )
+                return bool(completed and key in self._windows)
 
     def abort_fill(self, source_id: Hashable, epoch: Hashable) -> None:
         key = (source_id, epoch)
@@ -278,16 +298,17 @@ class CudaFrameRing:
         selection_key: Hashable,
     ) -> Optional[tuple[object, list[int]]]:
         key = (source_id, epoch)
-        with self._condition:
-            window = self._windows.get(key)
-            if window is None:
-                return None
-            selections = dict(window.selections)
-            selection = selections.get(selection_key)
-            if selection is None:
-                return None
-            self._windows.move_to_end(key)
-            return selection.frames, list(selection.pts_ns)
+        with _ring_nvtx_stage("rtvi.decode_ring_lookup_packed"):
+            with self._condition:
+                window = self._windows.get(key)
+                if window is None:
+                    return None
+                selections = dict(window.selections)
+                selection = selections.get(selection_key)
+                if selection is None:
+                    return None
+                self._windows.move_to_end(key)
+                return selection.frames, list(selection.pts_ns)
 
     def acquire(
         self,
@@ -300,35 +321,36 @@ class CudaFrameRing:
         select_all: bool = False,
     ) -> Optional[tuple[list[object], list[int]]]:
         key = (source_id, epoch)
-        with self._condition:
-            window = self._windows.get(key)
-            if (
-                window is None
-                or start_ns < window.coverage_start_ns
-                or end_ns > window.coverage_end_ns
-            ):
-                return None
-            self._windows.move_to_end(key)
-
-            if select_all:
-                first = bisect.bisect_left(window.pts_ns, start_ns)
-                last = bisect.bisect_right(window.pts_ns, end_ns)
-                indices = range(first, last)
-            elif target_indices is not None:
-                if any(index < 0 or index >= len(window.frames) for index in target_indices):
+        with _ring_nvtx_stage("rtvi.decode_ring_lookup"):
+            with self._condition:
+                window = self._windows.get(key)
+                if (
+                    window is None
+                    or start_ns < window.coverage_start_ns
+                    or end_ns > window.coverage_end_ns
+                ):
                     return None
-                indices = target_indices
-            else:
-                indices = []
-                for target in target_pts_ns or ():
-                    index = bisect.bisect_left(window.pts_ns, target)
-                    if index >= len(window.pts_ns) or window.pts_ns[index] > end_ns:
-                        return None
-                    indices.append(index)
+                self._windows.move_to_end(key)
 
-            selected_frames = [window.frames[index] for index in indices]
-            selected_pts = [window.pts_ns[index] for index in indices]
-            return selected_frames, selected_pts
+                if select_all:
+                    first = bisect.bisect_left(window.pts_ns, start_ns)
+                    last = bisect.bisect_right(window.pts_ns, end_ns)
+                    indices = range(first, last)
+                elif target_indices is not None:
+                    if any(index < 0 or index >= len(window.frames) for index in target_indices):
+                        return None
+                    indices = target_indices
+                else:
+                    indices = []
+                    for target in target_pts_ns or ():
+                        index = bisect.bisect_left(window.pts_ns, target)
+                        if index >= len(window.pts_ns) or window.pts_ns[index] > end_ns:
+                            return None
+                        indices.append(index)
+
+                selected_frames = [window.frames[index] for index in indices]
+                selected_pts = [window.pts_ns[index] for index in indices]
+                return selected_frames, selected_pts
 
     def acquire_exact(
         self,
