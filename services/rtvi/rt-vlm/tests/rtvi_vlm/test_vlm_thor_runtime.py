@@ -4,9 +4,12 @@
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parents[2]
 
 
+@pytest.mark.test_in_ci
 def test_vlm_image_copies_and_loads_arm_nvjpeg_from_sbsa_target():
     dockerfile = (ROOT / "docker" / "Dockerfile").read_text()
     sbsa_nvjpeg = "/tmp/triton-cuda-targets/sbsa-linux/lib/libnvjpeg.so*"
