@@ -39,9 +39,11 @@ ARG OPENCLAW_VERSION=2026.7.1
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.10
 # Skills and the vss CLI: one pinned commit of this repo, so an eval can say
-# exactly which it measured. Override with --build-arg VSS_REF=<sha>.
+# exactly which it measured. Must be a commit whose operation skills declare
+# `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
+# Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=a7cd4bc9d5ad513acfe38bc8724e9c37e64cd2cf
+ARG VSS_REF=6faf253dde917cd7e6aa71dcc1651654a55299ca
 
 # ── VSS source checkout ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
