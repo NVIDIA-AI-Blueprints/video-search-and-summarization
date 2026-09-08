@@ -492,16 +492,18 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      # GB300 is ~250 GiB, so the 0.4 used on 80-96 GiB cards would hand RT-VLM
-      # ~100 GiB to serve Cosmos3 Nano. vLLM claims the whole fraction whether it
-      # needs it or not, and refuses to start unless free >= fraction x total
-      # (it does not subtract other processes), so on search -- where RT-CV and
-      # RT-Embed also live on that GPU -- the LLM was then left below its own
-      # fraction and never started. 0.3 still gives RT-VLM ~75 GiB, more than
-      # double the 32 GiB it runs on today on an 80 GiB H100, and leaves ~136 GiB
-      # free against the LLM's 0.30 x 250 = ~75 GiB.
-      GB300) echo "0.3" ;;
-      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      # High-memory boards: vLLM claims gpu_memory_utilization x total_memory
+      # whether the model needs it or not, and refuses to start unless free >=
+      # that reservation (it does not subtract co-resident processes).
+      # GB300 (~250 GiB): 0.2 ≈ 50 GiB for Cosmos3 Nano — still above the ~32 GiB
+      # it uses on an 80 GiB H100 — leaving ~200 GiB for LLM (0.30 x 250 ≈ 75 GiB)
+      # plus RT-CV/RT-Embed. Starting point; confirm on a live GB300 search/alerts
+      # stack that RT-VLM still reaches ready.
+      GB300) echo "0.2" ;;
+      # Spark/Thor unified memory: 0.35. Thor is applied in the Thor block
+      # below (alerts and base both need it; the helper is skipped for Thor).
+      DGX-SPARK) echo "0.35" ;;
+      H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -1863,12 +1865,10 @@ function state_up() {
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
-      if [[ "${profile}" == "base" ]]; then
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-      else
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
-      fi
+      # Same 0.35 Spark uses: vLLM reserves gpu_memory_utilization x total, so
+      # the unset/empty profile default would leave RT-VLM at vLLM's ~0.9 and
+      # starve co-resident services. Host env still wins when it is non-empty.
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -z "${vlm}" ]]; then

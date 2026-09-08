@@ -289,10 +289,13 @@ function get_vlm_slug() {
 }
 
 # Hardware-specific RTVI local VLM GPU memory utilization (empty = keep compose/env default).
-# Matches deploy/docker/scripts/dev-profile.sh for RTXPRO4500BW.
+# Warehouse overrides.env ships 0.8; high-memory boards must lower that so vLLM
+# does not reserve most of the card before RT-CV (and, on bp_wh 2d, the LLM) start.
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   case "${_hardware_profile}" in
+    GB300) echo "0.2" ;;
+    DGX-SPARK|IGX-THOR|AGX-THOR) echo "0.35" ;;
     RTXPRO4500BW) echo "0.8" ;;
     *) echo "" ;;
   esac
@@ -554,10 +557,34 @@ function validate_args() {
   fi
 }
 
-# Return whether nvidia-smi can inspect the host GPU inventory. An unavailable
+# Run an nvidia-smi query against the host GPU inventory and echo the result.
+#
+# The driver binary is not always present next to this script: CI drives the
+# deployment from inside a plain container image (docker:27), where nvidia-smi
+# lives on the host and is only reachable through a sidecar started with the
+# NVIDIA runtime. Probe the local binary first, then that sidecar, so hardware
+# resolution behaves the same on a bare host and in a containerized runner.
+# Override the sidecar with NVIDIA_SMI_PROBE_CONTAINER; unset it to disable.
+function nvidia_smi_query() {
+  local _output _probe_container="${NVIDIA_SMI_PROBE_CONTAINER-gpu-monitor}"
+  if command -v nvidia-smi >/dev/null 2>&1 \
+    && _output="$(nvidia-smi "$@" 2>/dev/null)" && [[ -n "${_output}" ]]; then
+    printf '%s\n' "${_output}"
+    return 0
+  fi
+  if [[ -n "${_probe_container}" ]] && command -v docker >/dev/null 2>&1 \
+    && _output="$(docker exec "${_probe_container}" nvidia-smi "$@" 2>/dev/null)" \
+    && [[ -n "${_output}" ]]; then
+    printf '%s\n' "${_output}"
+    return 0
+  fi
+  return 1
+}
+
+# Return whether the host GPU inventory can be inspected at all. An unavailable
 # inventory is distinct from an invalid individual device ID.
 function nvidia_smi_is_available() {
-  command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=index --format=csv,noheader >/dev/null 2>&1
+  nvidia_smi_query --query-gpu=index --format=csv,noheader >/dev/null 2>&1
 }
 
 # Return the selected GB300 index. An explicit GPU/LLM/VLM device ID selects
@@ -597,11 +624,17 @@ function resolve_gb300_device_id() {
       if [[ "${_lower}" == *gb300* || "${_lower}" == *b300* ]]; then
         _gb300_matches+=("${_index}")
       fi
-    done < <(nvidia-smi --query-gpu=index,name --format=csv,noheader 2>/dev/null)
+    done < <(nvidia_smi_query --query-gpu=index,name --format=csv,noheader || true)
     if [[ "${#_gb300_matches[@]}" -eq 1 ]]; then
       _device_id="${_gb300_matches[0]}"
     elif [[ "${#_gb300_matches[@]}" -eq 0 ]]; then
-      echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected. Pass --gpu-device-id <id> when nvidia-smi is unavailable." >&2
+      if nvidia_smi_is_available; then
+        echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected" >&2
+      else
+        echo "[ERROR] Hardware profile 'GB300' was selected, but the GPU inventory could not be read." >&2
+        echo "[ERROR] nvidia-smi is not on PATH and container '${NVIDIA_SMI_PROBE_CONTAINER-gpu-monitor}' could not run it." >&2
+        echo "[ERROR] Start that sidecar, or pass --gpu-device-id <id> to name the GB300 directly." >&2
+      fi
       return 1
     else
       echo "[ERROR] Multiple GB300 GPUs were detected; select the deployment GPU with --llm-device-id or --vlm-device-id" >&2
@@ -609,7 +642,7 @@ function resolve_gb300_device_id() {
     fi
   fi
 
-  _gpu_name="$(nvidia-smi --id="${_device_id}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  _gpu_name="$(nvidia_smi_query --id="${_device_id}" --query-gpu=name --format=csv,noheader | head -n1)"
   _gpu_name="${_gpu_name,,}"
   if [[ -z "${_gpu_name}" ]] && [[ "${_is_explicit}" -eq 1 ]]; then
     if nvidia_smi_is_available; then
@@ -1266,7 +1299,7 @@ function state_up() {
     if [[ "${_vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
-    # RTVI local VLM sizing for RTXPRO4500BW (same as dev-profile.sh).
+    # RTVI local VLM sizing (same high-memory reductions as dev-profile.sh).
     # Remote VLM does not host the model locally.
     if [[ "${_vlm_mode}" != "remote" ]]; then
       local _rtvi_vllm_gpu_memory_utilization _rtvi_vlm_max_model_len
