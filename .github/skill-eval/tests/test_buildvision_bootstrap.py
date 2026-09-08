@@ -56,6 +56,7 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             self.assertIn('openshell sandbox exec --name "$sandbox" -- sh -lc', verifier)
             self.assertNotIn('NEMOCLAW_GATEWAY_PORT', verifier)
             self.assertNotIn('notebook', verifier)
+            self.assertIn('NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1', verifier)
             self.assertIn('nemoclaw onboard --non-interactive --agent openclaw', verifier)
             self.assertIn('policy-add --from-file "$policy" --yes', verifier)
             self.assertIn('skill install "$skill_dir"', verifier)
