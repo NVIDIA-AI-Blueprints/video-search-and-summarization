@@ -41,6 +41,7 @@ from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
+from vss_agents.agents.top_agent import _names_a_specific_sensor
 from vss_agents.agents.top_agent import strip_frontend_tags
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
 
@@ -551,6 +552,103 @@ class TestRequestOptionsContext:
         assert result.final_answer == ""
         assert result.plan == "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "question",
+        [
+            'List the last 3 incidents for sensor id "Camera"',
+            "Show the incidents for sensor id Camera_01",
+            "How busy was camera id dock_3 this morning?",
+        ],
+    )
+    async def test_plan_node_keeps_a_named_sensor_request_out_of_the_sensor_list(self, monkeypatch, question):
+        """`sensor id "Camera"` names a sensor; answering with the inventory answers a different question."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        sensor_tool = MagicMock()
+        sensor_tool.name = "vst_sensor_list"
+        sensor_tool.description = "Get available sensors from VST."
+        agent.tools_dict["vst_sensor_list"] = sensor_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="[USER] Which sensor are you referring to? I need the full sensor ID.")
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(current_message=HumanMessage(content=question), options=AgentRequestOptions())
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ""
+        assert result.final_answer == "Which sensor are you referring to? I need the full sensor ID."
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "question",
+        [
+            'Generate a report for the last incident of sensor id "Camera"',
+            "Generate a report for sensor id Camera_01",
+        ],
+    )
+    async def test_plan_node_plans_a_report_that_already_names_its_sensor(self, monkeypatch, question):
+        """Clarifying a named report request strands it with no PDF or Markdown artifact."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        report_tool = MagicMock()
+        report_tool.name = "report_agent"
+        report_tool.description = "Generate a detailed report for a single incident."
+        # The warehouse profile's report_agent accepts both a sensor and an incident.
+        report_tool.args_schema.model_fields = {
+            "user_query": MagicMock(),
+            "sensor_id": MagicMock(),
+            "incident_id": MagicMock(),
+        }
+        agent.tools_dict["report_agent"] = report_tool
+        sensor_tool = MagicMock()
+        sensor_tool.name = "vst_sensor_list"
+        sensor_tool.description = "Get available sensors from VST."
+        agent.tools_dict["vst_sensor_list"] = sensor_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="[USER] Which sensor are you referring to? The user mentioned 'Camera' "
+                "but I need the full sensor ID."
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(current_message=HumanMessage(content=question), options=AgentRequestOptions())
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert result.plan == (
+            "1. Call `report_agent` with the sensor named in the request and the original "
+            "request as `user_query`, then present the generated report."
+        )
+
+    @pytest.mark.parametrize(
+        "question,expected",
+        [
+            ("What are the available sensor IDs?", False),
+            ("Which camera ids are available?", False),
+            ("list the sensor ids", False),
+            ("List the sensor ids please", False),
+            ('List the last 3 incidents for sensor id "Camera"', True),
+            ("Generate a report for sensor id Camera_01", True),
+            ("How busy was camera id dock_3?", True),
+            ("Summarize gwfix1", False),
+        ],
+    )
+    def test_names_a_specific_sensor(self, question, expected):
+        assert _names_a_specific_sensor(question) is expected
 
     @pytest.mark.asyncio
     async def test_plan_node_keeps_multi_step_plan_instead_of_a_planner_tool_call(self, monkeypatch):
