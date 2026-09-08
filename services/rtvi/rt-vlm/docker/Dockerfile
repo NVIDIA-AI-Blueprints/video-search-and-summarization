@@ -55,7 +55,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     TRITON_NVDISASM_PATH=/usr/local/cuda/bin/nvdisasm \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins \
-    LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/usr/lib/aarch64-linux-gnu/nvidia:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+    LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/usr/lib/aarch64-linux-gnu/nvidia:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/local/cuda/targets/sbsa-linux/lib:${LD_LIBRARY_PATH}
 
 # Install only RTVI runtime dependencies directly on vLLM. Native build
 # dependencies are confined to pyds-builder and native-builder below.
@@ -178,8 +178,8 @@ RUN --mount=from=triton-cuda-runtime,source=/usr/local/cuda/targets,target=/tmp/
         cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnpp*.so* /usr/local/cuda/targets/x86_64-linux/lib/ \
         && cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnvjpeg.so* /usr/local/cuda/targets/x86_64-linux/lib/; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        for library in /tmp/triton-cuda-targets/aarch64-linux/lib/libnpp*.so* /tmp/triton-cuda-targets/aarch64-linux/lib/libnvjpeg.so*; do \
-            if [ -e "$library" ]; then cp -a "$library" /usr/local/cuda/targets/aarch64-linux/lib/; fi; \
+        for library in /tmp/triton-cuda-targets/sbsa-linux/lib/libnpp*.so* /tmp/triton-cuda-targets/sbsa-linux/lib/libnvjpeg.so*; do \
+            if [ -e "$library" ]; then cp -a "$library" /usr/local/cuda/targets/sbsa-linux/lib/; fi; \
         done; \
     fi \
     && ldconfig
