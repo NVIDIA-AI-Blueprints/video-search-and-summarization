@@ -251,9 +251,13 @@ navigation:
                       - page: "License Information"
                         slug: license-information
                         path: ../docs/warehouse-docs/License-Information.mdx
-      - page: "Agent Skills"
+      - section: "Agent Skills"
         slug: agent-skills
         path: ../docs/agent-skills.mdx
+        contents:
+          - page: "Manage Alerts"
+            slug: manage-alerts
+            path: ../docs/agent-skills/vss-manage-alerts.mdx
       - section: "Agent Harnesses"
         slug: agent-harnesses
         path: ../docs/agent-harnesses.mdx

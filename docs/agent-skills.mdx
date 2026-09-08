@@ -77,7 +77,7 @@ on GitHub, and mirrored to the public NVIDIA Skills catalog at
 | `vss-generate-video-calibration` | Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For sample prompts and expected agent steps, see the [Auto Calibration Agent Skills walkthrough](/vss/vision-agent/agent-skills). |
 | `vss-generate-video-report` | Produce video analysis reports through Mode A (clip URL + direct VLM `chat/completions` call) or Mode B (incident-range query via `vss-query-analytics`), then render markdown output. Does **not** route report generation through VSS agent `/generate`. |
 | `vss-generate-video-report-rag` | Generate video summary reports using the `video_search_frag` extension with Video Summarization, Enterprise RAG context, and HITL parameter collection. |
-| `vss-manage-alerts` | Add, manage, and monitor alerts on streamed video in either CV verification mode or VLM real-time mode. |
+| [`vss-manage-alerts`](/vss/vision-agent/agent-skills/manage-alerts) | Add, manage, and monitor alerts on streamed video in either CV verification mode or VLM real-time mode. |
 | `vss-manage-video-io-storage` | Manage video and stream operations, recording timelines, clip extraction, and snapshots using the Video IO and Storage (VIOS) microservices. |
 | `vss-query-analytics` | Query video analytics data and metrics from Elasticsearch via the VA-MCP server. |
 | `vss-search-archive` | Search video archives using natural language with fusion search over Cosmos Embed1 embeddings and computer vision attribute matching. |
