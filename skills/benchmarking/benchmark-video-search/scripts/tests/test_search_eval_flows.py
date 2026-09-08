@@ -917,3 +917,89 @@ def test_flow_records_that_the_run_fell_back(tmp_path: Path) -> None:
     out = rf.describe_query_flow(_Backend(), None, fallback=fb)
     assert out["live_decomposition"]["fell_back_to"].startswith("dataset answer key")
     assert out["live_decomposition"]["error"] == "refused"
+
+
+# ---------------------------------------------------------------------------
+# Names the runner reads but never binds
+# ---------------------------------------------------------------------------
+
+
+def test_no_function_reads_a_name_it_never_binds() -> None:
+    """Catch the NameError class of bug that only a live run would surface.
+
+    `run_evaluation` once read `decompose_fallback`, a local of `main()` that was
+    never passed in. Nothing here called `run_evaluation` -- it needs a
+    deployment -- so the tests stayed green while every real run raised
+    NameError at the flow-description line.
+
+    Walking the AST costs nothing and covers every function in the module. A
+    name loaded inside a function must be bound by that function, by one of its
+    enclosing functions (closures are legitimate and this module uses them), by
+    the module, or by builtins.
+    """
+    import ast
+    import builtins
+
+    source = (Path(__file__).resolve().parents[1] / "run_eval_flows.py").read_text()
+    tree = ast.parse(source)
+
+    def bindings(node: ast.AST) -> set[str]:
+        """Names this scope binds, not descending into nested scopes."""
+        out: set[str] = set()
+        args = getattr(node, "args", None)
+        if isinstance(args, ast.arguments):
+            out |= {a.arg for a in args.args + args.kwonlyargs + args.posonlyargs}
+            if args.vararg:
+                out.add(args.vararg.arg)
+            if args.kwarg:
+                out.add(args.kwarg.arg)
+
+        stack = list(ast.iter_child_nodes(node))
+        while stack:
+            n = stack.pop()
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                out.add(n.name)
+                continue  # its interior is a scope of its own
+            if isinstance(n, ast.Lambda):
+                continue
+            if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+                out.add(n.id)
+            elif isinstance(n, (ast.Import, ast.ImportFrom)):
+                out |= {(a.asname or a.name).split(".")[0] for a in n.names}
+            elif isinstance(n, ast.ExceptHandler) and n.name:
+                out.add(n.name)
+            elif isinstance(n, (ast.Global, ast.Nonlocal)):
+                out |= set(n.names)
+            stack.extend(ast.iter_child_nodes(n))
+        return out
+
+    def loads(node: ast.AST) -> set[str]:
+        """Names this scope reads, not descending into nested scopes."""
+        out: set[str] = set()
+        stack = list(ast.iter_child_nodes(node))
+        while stack:
+            n = stack.pop()
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+                out.add(n.id)
+            stack.extend(ast.iter_child_nodes(n))
+        return out
+
+    module_scope = bindings(tree) | set(dir(builtins))
+    unbound: dict[str, set[str]] = {}
+
+    def visit(node: ast.AST, enclosing: set[str], path: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scope = enclosing | bindings(child)
+                name = f"{path}.{child.name}" if path else child.name
+                missing = loads(child) - scope
+                if missing:
+                    unbound[name] = missing
+                visit(child, scope, name)
+            else:
+                visit(child, enclosing, path)
+
+    visit(tree, module_scope, "")
+    assert not unbound, f"names read but never bound: {unbound}"
