@@ -81,6 +81,49 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
   });
 
+  it('renders and answers NAT interaction prompts', async () => {
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-1',
+      interaction_id: 'interaction-1',
+      prompt: {
+        text: 'Describe the scenario',
+        input_type: 'text',
+        placeholder: 'warehouse monitoring',
+        required: true,
+      },
+      response_url: '/executions/execution-1/interactions/interaction-1/response',
+    };
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`,
+          'data: {"choices":[{"delta":{"content":"started"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      )
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    global.fetch = fetchMock as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('start captioning'));
+
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('hitl-textarea'), {
+      target: { value: 'warehouse monitoring' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+
+    await waitFor(() => expect(screen.getByText('started')).toBeInTheDocument());
+    expect(fetchMock.mock.calls[1][0]).toContain(
+      'interaction=%2Fexecutions%2Fexecution-1%2Finteractions%2Finteraction-1%2Fresponse',
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      response: { type: 'text', text: 'warehouse monitoring' },
+    });
+  });
+
   it('sends the whole thread when chat history is on, and one turn when off', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;

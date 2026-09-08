@@ -50,6 +50,26 @@ describe('SseParser', () => {
     expect(p.feed('ent":"split"}}]}\n\n')).toEqual([{ kind: 'token', text: 'split' }]);
   });
 
+  it('parses NAT interaction_required event frames', () => {
+    const p = new SseParser();
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-1',
+      interaction_id: 'interaction-1',
+      prompt: {
+        text: 'Choose a scenario',
+        input_type: 'text',
+        placeholder: 'warehouse monitoring',
+        required: true,
+      },
+      response_url: '/executions/execution-1/interactions/interaction-1/response',
+    };
+
+    expect(
+      p.feed(`event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`),
+    ).toEqual([{ kind: 'interaction', interaction }]);
+  });
+
   it('parses tool steps and numbers them in order', () => {
     const p = new SseParser();
     const events = p.feed(
