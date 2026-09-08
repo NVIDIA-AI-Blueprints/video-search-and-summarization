@@ -3,7 +3,7 @@ name: vss-manage-alerts
 description: Use this skill when operating VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, incident queries, or camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
-  version: "3.3.3"
+  version: "3.3.4"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -49,7 +49,7 @@ The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p a
 - Start/stop a real-time alert on a sensor ("Start real-time alert for boxes dropped on warehouse_sample")
 - Create/list/stop realtime subscription rules on Alert Bridge
 - Set up or manage Slack incident notifications
-- List or query detected incidents / alerts (Workflow C)
+- List or query detected incidents / alerts, or count events in a stated period (Workflow C)
 - Inspect CV verification results and verdicts (confirmed/rejected/not-confirmed/verification-failed), explain how verification works, customize VLM-verifier prompts (CV mode — Workflow B)
 - Run a one-shot on-demand verification of a specific video/image URL (CV mode — Workflow F)
 - Check whether always-on alerting is active, query its incidents, troubleshoot missing always-on alerts (VLM real-time — Workflow G; operate only, no config authoring)
@@ -187,7 +187,7 @@ fi
 | **CV verification** | always-on operation | Refuse — always-on rides the realtime rule engine; canonical refusal text below |
 | **VLM real-time** | rule CRUD, or start/stop a realtime alert on a sensor (with **or without** a detection condition — no condition → default prompt), or stop/delete a named alert (by `alert_type`/condition or rule ID) | **Workflow D** — `references/alert-subscriptions.md` (incl. two-step stop/confirm) |
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see canonical refusal text below |
-| **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?") | **Workflow C (Query)** — works on both; **always run the query, never answer from memory** |
+| **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?"); on VLM real-time also *how many events / times* something happened **in a stated period** | **Workflow C (Query)** — works on both; **always run the query, never answer from memory**. A period-bounded *how many events* ask uses C's consolidated view (RT-VLM chunks only, so not for CV behaviour alerts); everything else stays raw |
 | **CV** | verification results / verdicts ("was it confirmed?", "show verification results"), *how does verification work*, verifier-prompt customization | **Workflow B (Verification)** — `references/verification.md`. **But** a verdict/result **follow-up to an on-demand verification just run** ("was it confirmed?", "what was the result?") → stay in **Workflow F**: poll `/realtime/incidents` by the `correlationId` (that result is incident-kind, not in `mdx-vlm-alerts-*`) |
 | **CV** | one-shot "verify **this** clip/image" with a media URL, or the literal "on-demand" | **Workflow F (On-demand)** — `references/on-demand-verification.md` |
 | **CV** | static CV alert onboarding | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; VIOS webhook registers it with RT-CV |
@@ -202,9 +202,9 @@ fi
 1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
 2. **Workflow F (On-demand)** — a one-shot "verify / check / analyze **this**" pointing at a **specific media artifact** (video/image URL, clip, file), or the literal `on-demand`. Guard: *continuous monitoring of a sensor/stream* is **never** F — that's D ("watch camera X for PPE" → D; "verify this clip URL for PPE" → F).
 3. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D.
-4. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a media artifact to verify and without a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C.
-5. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete).
-6. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
+4. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a media artifact to verify and without a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C, and so does "confirmed" used as an adjective in an event count ("how many confirmed intrusion events in the last hour").
+5. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete). A *how many / what happened* question about a sensor is never D, even when it names a condition ("how many intrusion events on warehouse_sample…") — that is C.
+6. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D. A period-bounded **"how many events / times"** ask is also C — in its consolidated view on VLM real-time, raw on CV.
 7. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
 > **`alerts` vs `alert rules` (C vs D) — pick exactly one, never both:**
@@ -333,7 +333,7 @@ How a CV alert becomes a verdict: RT-CV (Grounding DINO) detections → Behavior
    not port-forward. Prefer Workflow C (`GET $AB/api/v1/realtime/incidents`)
    for real-time incident-kind results, or redeploy/ask for a Docker path when
    CV verdict inspection via `mdx-vlm-alerts-*` is required.
-   An **empty hit list is a valid answer** — report "no verification results yet" and stop. Never substitute another source for a verdict question: not the rules list, not `/incidents`, and **not the `mdx-vlm-incidents-*` ES index** (that is Workflow C's incident store — its documents carry no verification verdicts; presenting them as "verdicts recorded" is a wrong answer even when `mdx-vlm-alerts-*` is empty). **Exception — on-demand follow-up:** if the ask follows an on-demand verification you just ran (Workflow F) and `mdx-vlm-alerts-*` is empty, do **not** dead-end here — that result is incident-kind. Continue in **Workflow F**: poll `GET $AB/api/v1/realtime/incidents` for the request's `correlationId` and report its `reasoning` / `vlm_response` (a default freestyle deploy carries no `verdict` field).
+   An **empty hit list is a valid answer** — report "no verification results yet" and stop. Never substitute another source for a verdict question: not the rules list, not `/incidents`, and **not the `mdx-vlm-incidents-*` ES index** (that is Workflow C's incident store — its RT-VLM documents carry only the trigger's `info.verdict: "confirmed"`, not a verifier verdict; presenting them as "verdicts recorded" is a wrong answer even when `mdx-vlm-alerts-*` is empty). **Exception — on-demand follow-up:** if the ask follows an on-demand verification you just ran (Workflow F) and `mdx-vlm-alerts-*` is empty, do **not** dead-end here — that result is incident-kind. Continue in **Workflow F**: poll `GET $AB/api/v1/realtime/incidents` for the request's `correlationId` and report its `reasoning` / `vlm_response` (a default freestyle deploy carries no `verdict` field).
 3. **Verifier-prompt config** — REST CRUD on `$AB/api/v1/verification/config[/{alert_type}]` (`GET` list / `GET` one / `POST` / `PUT` / `DELETE`), or the config-file + restart path — rules and payload shapes in `references/verification.md`.
 
 Load `references/verification.md` for the full verdict table, probe recipes, and prompt-customization rules. CV mode only for execution; explain-only asks are answerable in any mode.
@@ -427,20 +427,49 @@ total. Scope only with `--data-urlencode "sensor_id=..."`.
 
 **Every `curl` in this workflow is an assertion, not a fetch.** `curl -sf`'s exit status is
 swallowed by a `| jq` pipe, and `jq` exits `0` on empty input — so an unreachable Alert
-Bridge yields empty/zero output that reads back as a real `count: 0`. Guard each call with
-`jq -e` and `|| { echo "...unreachable..."; exit 2; }` so silent empty output fails loudly
-instead of being reported as an answer.
+Bridge yields empty/zero output that reads back as a real `count: 0`. Guard each call so an
+empty or non-200 body fails loudly instead of being reported as an answer — `jq -e` plus
+`|| { echo "...unreachable..."; exit N; }`, where N is the branch's code: `exit 2` where the
+unfiltered raw fallback applies ((a), (b), step 3), `exit 1` in (c), where no raw fallback can
+answer an events question.
 
 **Keep step 1's resolution and the step 2/3 queries in ONE shell session** so `$NAME`/`$UUID`
 persist and the `${VAR:?}` / `|| exit` guards fire — each fenced block in its own Bash call
 loses the variables. But this is a **decision tree, not a top-to-bottom script**: run only
-ONE query per the prose (unscoped **vs** name-scoped), run step 3 **only** when the scoped
-count is 0, and take the unfiltered fallback **only** when VIOS is unreachable. The exit code
-says which branch: `exit 1` / a failed `${VAR:?}` = stop and tell the user; the VIOS-down
-`exit 2` = switch to the unfiltered `/incidents` fallback (do **not** report it as an error).
-The explicit guards do the failure detection — do NOT wrap the blocks in `set -e`, which
-(with `pipefail`) would abort the `grep`-no-match branch (an unknown sensor) before it can
-tell the user what exists.
+ONE of the step-2 queries per the prose ((a) unscoped, (b) name-scoped, or (c) consolidated),
+run step 3 **only** when the scoped count is 0, and take the unfiltered fallback **only** when
+VIOS is unreachable. The exit code says which branch: `exit 1` / a failed `${VAR:?}` = stop
+and tell the user (in (c) this includes an unreachable Alert Bridge); the VIOS-down `exit 2` =
+switch to the unfiltered `/incidents` fallback (do **not** report it as an error). The no-colon
+`${VAR?}` guards in (c) — and its `${START:?}`/`${END:?}` — are different: they mean *you have
+not decided this yet* — resolve the scope or the period from what the user said (possibly to
+empty, for scope) and run the block again; they are not a message for the user. The explicit guards do the failure detection — do NOT wrap the
+blocks in `set -e`, which (with `pipefail`) would abort the `grep`-no-match branch (an unknown
+sensor) before it can tell the user what exists.
+
+**Chunks are not events — pick the view before you query.** RT-VLM writes one incident
+document (a *chunk*) per positive video chunk, so one intruder who stays in frame for two
+minutes is several chunks. `GET /api/v1/realtime/incidents` reads them two ways:
+
+- **Raw** (default; `consolidate` omitted): one row per document. Use it for lists ("what
+  happened", "show incidents"), for any count with **no period named** (all-time totals), for
+  a period-bounded count the user phrased as *incidents / alerts* rather than *events / times*
+  (raw with the window — then offer, do not run, the event count), for forensics (individual
+  chunks, an event's `chunk_ids`, on-demand results — Workflow F), and for everything on a CV
+  deployment. On VLM real-time a raw count is a count of *chunks*; say so. On CV the raw rows
+  are incident-kind verifier results and on-demand results, not chunks — CV behaviour alerts
+  live in `mdx-vlm-alerts-*` and never appear here (see Scope below).
+- **Consolidated** (`consolidate=true`): consecutive **confirmed** RT-VLM chunks with the same
+  `sensorId` and `category` are folded into one *event* (`info.isConsolidated: "true"`,
+  `info.chunkCount`, `chunk_ids`), and `count`/`total` count **events**. Only documents carrying
+  `info.chunkIdx` take part — verifier-path and on-demand documents never do — and two rules on
+  the same camera with the same category merge into one event. It **requires both
+  `start_time` and `end_time`** (otherwise HTTP 400), so use it only when the user **stated a
+  period** — absolute ("between 10:00 and 10:30") or relative ("today", "the last 24 hours") —
+  and asked *how many events / times / occurrences*. No period → not this view; never invent
+  one. Grouping is tuned by the `rtvi_vlm.consolidation` block of the Alert Bridge config
+  (shipped defaults: 60 s gap, 300 s event cap); it is opt-in per request and API-only —
+  nothing is deduplicated in the store or the UI — and an event is not a persisted record.
 
 **If the ask names a sensor, resolve its exact stored name FIRST.** Never derive the value
 from the user's phrasing: "the warehouse sample sensor" is English, not an identifier, and
@@ -492,17 +521,27 @@ narrow the asked-for window to make the numbers agree — that answers about a d
 report the bound, not the number. This list
 is weaker than VIOS in one way worth stating to the user: it only contains sensors that have
 **produced** incidents. When nothing matches, you cannot tell "this sensor has no incidents"
-from "that is not its stored name" — report that ambiguity instead of reporting `0`.
+from "that is not its stored name" — report that ambiguity instead of reporting `0`. For a
+(c) ask this raw fallback cannot count events: run (c) with `NAME=` (window, category,
+`consolidate=true`), take the `sensorId` strings off the returned events as the candidate list,
+apply the same one-match rule, count only the events carrying it — exact only while
+`truncated` is `false` AND `count == total` (page with `offset` if the page is short; a
+truncated scan makes the figure a lower bound, say so) — and say the name was not confirmed
+against VIOS.
 
 ```bash
 # Each block is its own shell; define what it uses.
 VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
-# 2. query — run ONE of these two, never both: the unscoped call answers a different
-#    question, and its count is the one that gets misreported as a single sensor's.
+# 2. query — run ONE ANSWERING query of these three, never more: the unscoped call answers a
+#    different question, and its count is the one that gets misreported as a single sensor's;
+#    the consolidated call counts events, the raw calls count chunks. ((c)'s category lookup
+#    is a lookup, not an answer.)
 
 # (a) the ask named NO sensor — recent incidents across every sensor
-curl -sf "$AB/api/v1/realtime/incidents?limit=20" | jq -e . \
+curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "limit=20" | jq -e . \
   || { echo "Alert Bridge unreachable — no incidents to report; do NOT read this as empty"; exit 2; }
+# windowed ask with no sensor (a period, phrased as incidents/alerts) → add the same window as (b):
+#   --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"   (never an invented one)
 
 # (b) the ask named a sensor — scope to it, passing the NAME, not a VIOS UUID.
 # Let curl encode it: a name with a space or reserved character breaks a hand-built URL,
@@ -517,6 +556,60 @@ curl -sfG "$AB/api/v1/realtime/incidents" \
   || { echo "Alert Bridge unreachable — no answer; do NOT read this as count 0"; exit 2; }
 # windowed ask → add:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 
+# (c) the ask is HOW MANY EVENTS / TIMES something happened in a STATED period — consolidated
+#     view. No period → not (c) (the endpoint answers 400; do not invent a window). A relative
+#     period IS a stated period: resolve it on the host clock in UTC and say the bounds you used,
+#     e.g. "the last 24 hours" → START=$(date -u -d '-24 hours' +%Y-%m-%dT%H:%M:%SZ); END=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+#     (GNU date; on macOS use `date -u -v-24H +%Y-%m-%dT%H:%M:%SZ`)
+# Set START/END for THIS ask right here — never reuse bounds left in the shell by an earlier ask.
+: "${START:?ISO-8601 start of the period the user named}"
+: "${END:?ISO-8601 end of the period the user named}"
+# limit=1000 is the page cap (le=1000); total is exact at any limit while truncated=false. If
+# count < total the page is incomplete — report total, or page with offset (events never split).
+Q=(--data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
+   --data-urlencode "consolidate=true" --data-urlencode "limit=1000")
+# Both scopes must be DECIDED, never forgotten: `${VAR?}` (no colon) fails when the variable is
+# unset and accepts an explicitly empty one. Ask named a sensor → NAME is the resolved name from
+# step 1 (same trap as (b): an empty value is dropped, not rejected, and the store-wide event
+# count comes back as the sensor's). Ask named NO sensor → set `NAME=` (empty) yourself, so a
+# value left over from an earlier ask cannot scope this one.
+: "${NAME?decide the sensor scope: the resolved name, or NAME= when the ask names no sensor}"
+[ -n "$NAME" ] && Q+=(--data-urlencode "sensor_id=$NAME")
+# Ask named an alert category → it is the stored `category` string (a rule's alert_type),
+# copied verbatim. Read the candidates off a raw page of the SAME window and sensor, never guess
+# them from English — a failed lookup is a stop, not "no categories"; if .count < .total page
+# with offset before deciding:
+#   L=(--data-urlencode "start_time=$START" --data-urlencode "end_time=$END" --data-urlencode "limit=1000")
+#   [ -n "$NAME" ] && L+=(--data-urlencode "sensor_id=$NAME")
+#   RAW=$(curl -sfG "$AB/api/v1/realtime/incidents" "${L[@]}") || { echo "category lookup failed (HTTP error or unreachable) — stop"; exit 1; }
+#   printf '%s' "$RAW" | jq -r '.incidents[].category' | sort -u
+# Exactly one match with the user's wording → CATEGORY. Non-empty page but none or several
+# match → ask the user. EMPTY page (no chunks at all in the window) → the answer is 0 events
+# whatever the category: set CATEGORY= and continue (step 3 still applies). No category in the
+# ask → CATEGORY= (empty).
+: "${CATEGORY?decide the category scope: the stored string, or CATEGORY= when the ask names none}"
+[ -n "$CATEGORY" ] && Q+=(--data-urlencode "category=$CATEGORY")
+# No -f: a non-200 body says WHY and is exit 1 — never the VIOS-down fallback, because an
+# unfiltered raw list cannot answer an events question. 400 validation_failed = the request
+# lacks the window: if the user did state a period the request is wrong, not the deployment —
+# set START/END and run this block again; if not, this was never a (c) ask. 422 = request
+# validation (a bound is not ISO-8601, limit outside 1..1000, offset < 0) — its body ALSO says
+# validation_failed, so branch on $CODE, never on the error token. 5xx = Elasticsearch down.
+RESP=$(curl -sG --max-time 30 -w '\n%{http_code}' "$AB/api/v1/realtime/incidents" "${Q[@]}") \
+  || { echo "Alert Bridge unreachable or timed out (curl exit $?) — cannot answer an event count; do NOT fall back to the raw list. On a timeout, split the window and retry"; exit 1; }
+CODE=${RESP##*$'\n'}; BODY=${RESP%$'\n'*}
+[ "$CODE" = 200 ] || { echo "HTTP $CODE — $BODY"; exit 1; }
+# `truncated` is only ever present in the consolidated view: a 200 without it means an Alert
+# Bridge that does not know `consolidate` dropped the parameter and answered with RAW chunks.
+printf '%s' "$BODY" | jq -e 'select((.total | type) == "number" and (.truncated | type) == "boolean") | {total, count, truncated}' \
+  || { echo "not a consolidated response (raw view or malformed body) — this Alert Bridge cannot answer an event count"; exit 1; }
+# total = events in the window; exact whenever truncated=false. truncated=true → the window
+# held more chunks than the service's scan cap (the 10000 newest were kept, older dropped):
+# report total as "at least", say the window is too dense, offer to split it. Per event: the
+# timestamp..end span, info.chunkCount chunks (info values are STRINGS — `tonumber` before
+# summing), chunk_ids for the raw rows; info.chunkIdx is the representative chunk's,
+# info.chunkIdxRange the span.
+
 # 3. a scoped `count: 0` is not an answer yet: a rule created without `sensor_name` stores the
 #    stream id instead, so the rows exist under the UUID. There are only these two identities
 #    to try — ask about the second one directly. `total` is the full match count, so this is
@@ -529,9 +622,15 @@ UUID=$("${VSS[@]}" vios list --type stream --sensor "$NAME" | jq -r 'first(.sens
 # Same dedup as step 1 (${UUID:?} only tests emptiness): a two-line $UUID goes on the wire as
 # sensor_id=<uuid>%0A<uuid> and matches nothing — collapse it; if two distinct ids remain, ask.
 [ "$(printf '%s\n' "$UUID" | grep -c .)" = 1 ] || { printf '%s\n' "$UUID"; exit 1; }
-# Carry the SAME window choice as (b): omit start_time/end_time for an all-time count, or
-# add the SAME window the user asked for. Mismatching (b) answers a different question — the
-# endpoint applies no range filter without them, so an all-time total comes back for a "today" ask.
+# Carry the SAME view and window as step 2. After (b): omit start_time/end_time for an
+# all-time count, or add the SAME window the user asked for. After (c): do NOT reuse the call
+# below — `unset CATEGORY; NAME=$UUID` and re-run block (c) with the same START/END, INCLUDING
+# its category lookup (the unset makes the `${CATEGORY?}` guard fire again): a CATEGORY= that
+# came from an empty name-scoped page must not be carried over, or every category under the
+# UUID gets reported as the one the user named. Its total is the event count under the UUID
+# identity. Mismatching step 2 answers a different question — the
+# endpoint applies no range filter without the window, so an all-time total comes back for a
+# "today" ask, and a raw retry after (c) counts chunks where the user asked for events.
 TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "sensor_id=$UUID" | jq -e '.total') \
   || { echo "Alert Bridge unreachable — the alternate-identity check did not run; do NOT report a zero"; exit 2; }
@@ -539,10 +638,12 @@ TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
 # jq -e exits non-zero on null/absent output, so an empty body (Alert Bridge down) fails the
 # assignment rather than yielding "" that reads back as a checked zero.
 # $TOTAL > 0 → that is the answer; say it matched the sensor's UUID, not its name. Exactly 10000 is
-#   the one number to distrust: this raw view never asks Elasticsearch for an exact hit count,
-#   and paging cannot go past it either, so 10000 is a floor. Report it as "at least 10000" —
-#   that is the true answer, not a fallback. Only narrow the window if the user asks for a
-#   finer figure, and then say which window the new number belongs to.
+#   the one number to distrust in the RAW view (a/b): it never asks Elasticsearch for an exact
+#   hit count (its 10000 threshold), and paging cannot go past it either, so 10000 is a floor.
+#   Report it as "at least 10000" — that is the true answer, not a fallback. Only narrow the
+#   window if the user asks for a finer figure, and then say which window the new number belongs
+#   to. A consolidated total (c) is exact whenever `truncated` is false; there the flag, not the
+#   number, is what to read.
 # 0 as well → both identities are empty, so "none found" is now a checked answer.
 ```
 
@@ -569,17 +670,19 @@ TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
 > tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }`. `total` here is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and the response does not carry the flag that tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+
+With `consolidate=true` the same envelope carries `truncated`, and the numbers change meaning: `total` is the number of **events** in the window (exact whenever `truncated` is `false`), `count` the events on the page, and each event carries `info.isConsolidated: "true"`, `info.chunkCount` (a string), `chunk_ids`, and a `timestamp`..`end` span. Report it as events and name the window — "2 intrusion events on `warehouse_sample` between 10:00 and 10:30 UTC (4 chunks)" — never as a chunk count, and never mix the two views in one figure. `truncated: true` makes `total` a lower bound; say so.
 
 **Casual phrasings route here too** — "Any alerts so far today?", "What's been triggered?", "Anything detected lately?" are all incident queries. A bare "alerts" question is *always* an incident lookup (C), never a rule listing (D). Incidents produced by **always-on** rules (Workflow G) appear here like any other realtime incident, and so do **on-demand verification results** (incident-kind, `sensorId: "ondemand"` — see Workflow F).
 
 > **Do NOT list subscription rules for an incident query.** The **bare** `GET /api/v1/realtime` (no `/incidents`) lists *rules* (Workflow D) and is wrong for "what happened".
 
-**Scope — real-time incident-kind results only.** CV / Behavior-Analytics verified alerts (PPE, ladder, proximity, restricted-area) are stored in a separate `mdx-vlm-alerts-*` index with **no REST query endpoint**, so this call does **not** surface them — in a CV deployment it typically returns empty for those. For time-range / occupancy / PPE metrics use the **`vss-query-analytics` skill** (VA-MCP :9901).
+**Scope — real-time incident-kind results only.** CV / Behavior-Analytics verified alerts (PPE, ladder, proximity, restricted-area) are stored in a separate `mdx-vlm-alerts-*` index with **no REST query endpoint**, so this call does **not** surface them — in a CV deployment it typically returns empty for those. For occupancy / PPE / CV behaviour-alert metrics use the **`vss-query-analytics` skill** (VA-MCP :9901); a period-bounded real-time event count stays here (query (c)).
 
 ### Verdict interpretation (CV mode)
 
-CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in their `info` block; VLM real-time incidents have no separate verdict (the trigger is itself a Yes/No answer). Verdict table, result inspection, and verifier-prompt rules → **Workflow B** / `references/verification.md`.
+CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in their `info` block. VLM real-time incidents carry only `info.verdict: "confirmed"` — RT-VLM writes it on every positive chunk because the Yes/No trigger *is* the verdict (`rtvi_stream_handler.py`), so there is no rejected / not-confirmed value to look for there; it is also what Workflow C's consolidated view keys on. Verdict table, result inspection, and verifier-prompt rules → **Workflow B** / `references/verification.md`.
 
 ---
 
@@ -589,7 +692,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 |---|---|
 | Deploy, redeploy, or switch alert mode | **`vss-deploy-profile`** — `-p alerts -m {verification,real-time}` |
 | Add an RTSP/IP camera, list sensors, snapshots, clips | **`vss-manage-video-io-storage`** (Section 6 for Add Sensor) |
-| Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** (VA-MCP :9901) |
+| Occupancy / PPE / CV behaviour-alert metrics from Elasticsearch (not real-time incident counts — those are Workflow C) | **`vss-query-analytics`** (VA-MCP :9901) |
 | Detailed incident report from an alert | **`vss-generate-video-report`** |
 | Subscriptions / Slack sub-workflows | `references/alert-subscriptions.md`, `references/alert-notify.md` (code in `scripts/alert-notify/`) |
 | Alert Bridge deployment / integration contracts | `references/deploy-alerts.md`, `references/integrate-alerts.md` |
@@ -629,6 +732,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 - **A mode switch tears down the current deployment** — running VLM streams and un-persisted CV alert state are lost.
 - **Alert ops call Alert Bridge (`:9080`) directly** — the skill does not use the VSS Agent `/generate`, and never calls `rtvi-vlm` directly. The VLM trigger is a `"yes"`/`"true"` token match (case-insensitive); prompts must force a Yes/No answer.
 - **Sensor must already be in VIOS** for either mode (use `vss-manage-video-io-storage` for RTSP-only inputs).
+- **Chunks are not events.** Raw `/incidents` rows are one per VLM chunk; `consolidate=true` (bounded window) folds confirmed RT-VLM chunks into events. Rules, scope and query in Workflow C, *Chunks are not events*. Say *chunks* or *events* when you report a number.
 - **Report only values an API actually returned** — never invent rule IDs, sensor IDs, incident counts, or timestamps, and never claim an action succeeded without its API response (this includes replies that decline or hand off a request).
 - **End your turn by answering the CURRENT request** — the final reply must address what the user just asked (even when handing off out-of-scope work); never close with the status or summary of a different or earlier task.
 - **Never onboard a sensor the user didn't explicitly ask to onboard.** A named-but-missing sensor is a *not-found report* (say so, list what exists, ask) — creating/registering one as a workaround and proceeding is a critical failure.
