@@ -78,6 +78,11 @@ HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
+# Cold base-profile deployments can legitimately outlive the normal one-hour
+# scenario budget while pulling model weights. Keep provisioning bounded at
+# 90 minutes; together with Harbor's other phase and recovery ceilings this
+# remains below DEFAULT_HARBOR_TIMEOUT_SEC.
+NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER = 9.0
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
     HARBOR_BASE_PHASE_TIMEOUT_SEC
@@ -303,6 +308,7 @@ def build_harbor_command(
     model: str,
     anthropic_base_url: str,
     agent: str = "claude-code",
+    agent_timeout_multiplier: float = HARBOR_AGENT_TIMEOUT_MULTIPLIER,
 ) -> list[str]:
     environment_import_path = "envs.brev_env:BrevEnvironment"
     environment_build_timeout_multiplier = (
@@ -360,7 +366,7 @@ def build_harbor_command(
         "--environment-build-timeout-multiplier",
         str(environment_build_timeout_multiplier),
         "--agent-timeout-multiplier",
-        str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
+        str(agent_timeout_multiplier),
         "--verifier-timeout-multiplier",
         str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         "--max-retries",
@@ -1567,7 +1573,12 @@ def run_invocations(
         bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
         shutil.rmtree(bootstrap_results, ignore_errors=True)
         bootstrap_cmd = build_harbor_command(
-            bootstrap, bootstrap_results, model, base_url, "claude-code"
+            bootstrap,
+            bootstrap_results,
+            model,
+            base_url,
+            "claude-code",
+            agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
         )
         print("[run-leg] provisioning with Build Vision AI before NemoClaw scenarios", flush=True)
         bootstrap_started_at = time.time() - 1.0

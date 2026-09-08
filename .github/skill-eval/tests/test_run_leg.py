@@ -834,6 +834,11 @@ class RunInvocations(unittest.TestCase):
             command.call_args_list[0].args[0].harbor_root,
             root / "scratch" / "nemoclaw-bootstrap",
         )
+        self.assertEqual(
+            command.call_args_list[0].kwargs["agent_timeout_multiplier"],
+            run_leg.NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
+        )
+        self.assertNotIn("agent_timeout_multiplier", command.call_args_list[1].kwargs)
         self.assertEqual(run.call_count, 2)
         bootstrap_env = run.call_args_list[0].args[1]
         scenario_env = run.call_args_list[1].args[1]
