@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Create the deployment and NemoClaw provisioning tasks for an eval.
+"""Create spec-declared NemoClaw provisioning tasks for an eval.
 
-The task is intentionally a tiny Harbor task, not another deployment
-implementation. Its agent follows ``/vss-build-vision-ai`` on the remote
-worker twice: first to deploy and validate the Compose build, then to use the
-skill's documented bring-up-only path for NemoClaw. Harbor only supplies normal
-coding-agent execution and the same Brev worker for both phases and the later
-operational scenarios.
+The evaluation spec owns the setup instructions. This module only turns those
+instructions into ordinary coding-agent Harbor tasks and adds a final read-only
+NemoClaw readiness check.
 """
 
 from __future__ import annotations
@@ -18,59 +15,41 @@ import shutil
 from pathlib import Path
 
 
-DEPLOYMENT_TASK = "build-vision-deploy"
-BOOTSTRAP_TASK = "build-vision-bootstrap"
+SETUP_TASK_PREFIX = "nemoclaw-setup"
 
 
-def _spec_deployment(spec_path: Path) -> tuple[str, str]:
-    """Return the declarative profile and deploy mode for an operational spec."""
+def _spec_setup_queries(spec_path: Path, *, skill: str, platform: str) -> list[str]:
+    """Return the exact NemoClaw setup queries declared by an eval spec."""
 
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     if not isinstance(spec, dict):
         raise ValueError(f"spec is not a JSON object: {spec_path}")
-    profile = str(spec.get("profile") or "base").strip()
-    deploy_mode = str(spec.get("deploy_mode") or "").strip()
-    if not profile:
-        raise ValueError(f"spec has an empty profile: {spec_path}")
-    return profile, deploy_mode
-
-
-def _deployment_instruction(*, platform: str, profile: str, deploy_mode: str) -> str:
-    mode = f" in `{deploy_mode}` mode" if deploy_mode else ""
-    return f"""You are the provisioning phase of a non-interactive skill evaluation.
-
-Use `/vss-build-vision-ai` from `$HOME/video-search-and-summarization` to deploy
-the `{profile}` VSS profile on `{platform}`{mode}. Select no conversational
-harness for this phase. Follow the skill's documented ordering through the
-resolved Compose build and its readiness gate.
-
-Do not use individual deployment skills as an alternative to
-`/vss-build-vision-ai`. Do not stop at a generated `resolved.yml`: complete the
-deployment and readiness gate before you finish. Run autonomously and do not
-request confirmation.
-"""
-
-
-def _harness_instruction(*, skill: str, profile: str) -> str:
-    return f"""You are the NemoClaw phase of a non-interactive skill evaluation.
-
-The `{profile}` VSS profile was deployed and passed its readiness gate on this
-same host in the preceding phase. Use `/vss-build-vision-ai` from
-`$HOME/video-search-and-summarization` in its documented bring-up-only mode for
-an already-deployed build: attach NemoClaw as the conversational harness without
-recomposing or redeploying VSS. Use the sandbox name and model-provider settings
-supplied in the environment and ensure the operational skill `/{skill}` is
-installed in that sandbox.
-
-When running the documented `run_setup_notebook.py` command, prefix it with
-`env -u HARBOR_SKILL_EVAL_AGENT_RUN`. That marker identifies disposable coding-
-agent descendants; the host-side OpenShell gateway must not inherit it or the
-eval environment will reap the ready gateway when this coding-agent phase ends.
-
-This task is incomplete until `openshell sandbox get
-$NEMOCLAW_SANDBOX_NAME` succeeds. Run autonomously and do not request
-confirmation.
-"""
+    try:
+        setup = spec["harness"]["nemoclaw"]["setup"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            f"spec must declare harness.nemoclaw.setup: {spec_path}"
+        ) from exc
+    if not isinstance(setup, list) or not setup:
+        raise ValueError(
+            f"spec harness.nemoclaw.setup must be a non-empty list: {spec_path}"
+        )
+    queries: list[str] = []
+    for index, item in enumerate(setup, 1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"spec harness.nemoclaw.setup[{index}] is not an object: {spec_path}"
+            )
+        query = item.get("query")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError(
+                "spec harness.nemoclaw.setup"
+                f"[{index}].query must be a non-empty string: {spec_path}"
+            )
+        queries.append(
+            query.replace("{{platform}}", platform).replace("{{skill}}", skill)
+        )
+    return queries
 
 
 def _phase_complete_script() -> str:
@@ -156,7 +135,7 @@ def create_bootstrap_task(
     platform: str,
     repo_root: Path,
 ) -> Path:
-    """Create a two-task Harbor project and return its project directory.
+    """Create the spec-declared setup project and return its directory.
 
     Copying the original task metadata keeps worker requirements authoritative
     in the operational spec.  This helper never interprets GPU policy itself.
@@ -167,24 +146,14 @@ def create_bootstrap_task(
     build_skill = repo_root / "skills" / "vss-build-vision-ai"
     if not (build_skill / "SKILL.md").is_file():
         raise FileNotFoundError(f"Build Vision AI skill missing: {build_skill}")
-    profile, deploy_mode = _spec_deployment(spec_path)
-    tasks = (
-        (
-            DEPLOYMENT_TASK,
-            _deployment_instruction(
-                platform=platform,
-                profile=profile,
-                deploy_mode=deploy_mode,
-            ),
-            _phase_complete_script(),
-        ),
-        (
-            BOOTSTRAP_TASK,
-            _harness_instruction(skill=skill, profile=profile),
-            _health_check_script(),
-        ),
-    )
-    for task_name, instruction, verifier in tasks:
+    queries = _spec_setup_queries(spec_path, skill=skill, platform=platform)
+    for index, instruction in enumerate(queries, 1):
+        task_name = f"{SETUP_TASK_PREFIX}-{index}"
+        verifier = (
+            _health_check_script()
+            if index == len(queries)
+            else _phase_complete_script()
+        )
         task_dir = destination / task_name
         task_dir.mkdir(parents=True, exist_ok=False)
         (task_dir / "task.toml").write_text(

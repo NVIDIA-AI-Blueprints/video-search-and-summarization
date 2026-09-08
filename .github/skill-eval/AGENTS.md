@@ -124,12 +124,20 @@ The canonical harbor command is in § Harbor invocation.
    pre-authorized to deploy autonomously (see the PREAMBLE that every
    adapter renders into the trial prompt).
 
+   A spec that supports NemoClaw also declares
+   `harness.nemoclaw.setup` as an ordered, non-empty list of objects with a
+   `query` string. Those queries are the single source of truth for the
+   coding-agent setup that deploys VSS and attaches NemoClaw. The harness
+   dispatches them verbatim (substituting only `{{platform}}` and
+   `{{skill}}`) and does not infer a profile, mode, or deployment action.
+
    Skills with no specs at all are runtime libraries — skip them.
 
 3. **For each evaluable skill × spec, ensure an adapter exists under
    `.github/skill-eval/adapters/<skill>/generate.py`** AND that running
-   it against the spec produces a complete dataset. Adapters are the
-   single source of truth for harness behaviour — **you never run a
+   it against the spec produces a complete dataset. Evaluation specs are
+   the single source of truth; adapters only render their declared tasks
+   into Harbor datasets. **You never run a
    trial against a freshly-generated adapter in this leg**. If an adapter
    is missing or needs an update for this spec, commit it to the
    contributor's PR branch so the eval re-runs against the committed
@@ -591,12 +599,13 @@ markers; and releases the lock when it exits.
 
 `EVAL_AGENT` selects the Harbor runtime (`claude-code` by default,
 `codex`, or `nemoclaw`). NemoClaw still uses this exact wrapper and task
-dispatch. For an operational skill, `run_leg.py` first uses the coding-agent
-runtime with `/vss-build-vision-ai`; that skill owns deployment, readiness, and
-host-side NemoClaw setup. Harbor then sends only the operational prompts to the
-ready sandbox. A `vss-build-vision-ai` spec itself stays on the coding-agent
-runtime. Like every other runtime, worker selection and locking stay in
-`run_leg.py`.
+dispatch. For an operational skill, `run_leg.py` first dispatches the ordered
+`harness.nemoclaw.setup[].query` entries declared by that evaluation spec with
+the coding-agent runtime. The harness does not synthesize deployment choices.
+After the declared setup produces a ready sandbox, Harbor sends the operational
+`expects[]` prompts to NemoClaw. A `vss-build-vision-ai` spec itself stays on
+the coding-agent runtime. Like every other runtime, worker selection and
+locking stay in `run_leg.py`.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
