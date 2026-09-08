@@ -21,7 +21,7 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import pynvml
@@ -169,6 +169,7 @@ class ProfileExportJob:
     sample_end_time: float
     metrics: dict[str, Any]
     output_dir: str = "/tmp/rtvi-logs"
+    samples: tuple[GPUSample, ...] | None = None
 
 
 class RequestProfileExporter:
@@ -193,6 +194,16 @@ class RequestProfileExporter:
         if not self._slots.acquire(blocking=False):
             return False
         try:
+            if self._sampler is not None and job.samples is None:
+                # Freeze the request window before queueing. Otherwise a slow plot
+                # export can let the bounded process sampler evict early samples
+                # before this job reaches the single background worker.
+                job = replace(
+                    job,
+                    samples=tuple(
+                        self._sampler.snapshot(job.sample_start_time, job.sample_end_time)
+                    ),
+                )
             future = self._executor.submit(self._export, job)
         except Exception:
             self._slots.release()
@@ -203,11 +214,7 @@ class RequestProfileExporter:
     def _export(self, job: ProfileExportJob) -> None:
         try:
             os.makedirs(job.output_dir, exist_ok=True)
-            samples = (
-                self._sampler.snapshot(job.sample_start_time, job.sample_end_time)
-                if self._sampler is not None
-                else []
-            )
+            samples = list(job.samples) if job.samples is not None else []
             paths = _profile_paths(job.output_dir, job.request_id)
             _write_nvdec_csv(paths["nvdec_csv"], samples, job.sample_start_time)
             _write_gpu_csv(paths["gpu_csv"], samples, job.sample_start_time)

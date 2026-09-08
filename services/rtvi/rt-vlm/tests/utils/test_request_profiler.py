@@ -93,3 +93,37 @@ def test_profile_export_runs_off_thread_and_writes_request_window(monkeypatch, t
         "elapsed_time,GPU0_AvgNVDEC",
         "0.50,6.0",
     ]
+
+
+def test_queued_export_keeps_samples_frozen_at_submission(monkeypatch, tmp_path):
+    sampler = ProcessGPUSampler()
+    sampler._samples.append(GPUSample(11.0, (6.0,), (21.0,), (31.0,)))
+    exporter = RequestProfileExporter(sampler=sampler, max_pending_exports=2)
+    release_first_export = threading.Event()
+    first_export_started = threading.Event()
+    original_export = exporter._export
+
+    def gated_export(job):
+        if job.request_id == "blocker":
+            first_export_started.set()
+            release_first_export.wait(timeout=5)
+            return
+        original_export(job)
+
+    monkeypatch.setattr(exporter, "_export", gated_export)
+    blocker = ProfileExportJob("blocker", 10.0, 12.0, {}, str(tmp_path))
+    queued = ProfileExportJob("queued", 10.0, 12.0, {}, str(tmp_path))
+
+    try:
+        assert exporter.submit(blocker) is True
+        assert first_export_started.wait(timeout=1)
+        assert exporter.submit(queued) is True
+        sampler._samples.clear()
+    finally:
+        release_first_export.set()
+        exporter.shutdown()
+
+    assert (tmp_path / "nvdec_usage_queued.csv").read_text().splitlines() == [
+        "elapsed_time,GPU0_AvgNVDEC",
+        "1.00,6.0",
+    ]
