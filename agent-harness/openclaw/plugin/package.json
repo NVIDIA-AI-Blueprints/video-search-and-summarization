@@ -9,6 +9,7 @@
   "files": [
     "dist/",
     "skills/",
+    "skills-active/",
     "skills.txt",
     "workspace/",
     "openclaw.plugin.json"
@@ -27,7 +28,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "stage": "./stage-assets.sh ../../../skills ../workspace",
+    "stage": "./stage-assets.sh ../../../skills ../workspace && node dist/sync.js --all --plugin-dir .",
     "prepare-local": "npm run build && npm run stage"
   },
   "dependencies": {
@@ -48,5 +49,8 @@
     "openclaw": {
       "fast-uri": "3.1.6"
     }
+  },
+  "bin": {
+    "vss-openclaw-sync": "dist/sync.js"
   }
 }

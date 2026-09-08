@@ -12,7 +12,7 @@
     ]
   },
   "skills": [
-    "./skills"
+    "./skills-active"
   ],
   "configSchema": {
     "type": "object",
@@ -26,6 +26,15 @@
         "type": "integer",
         "description": "Timeout for a vss CLI call when the tool call does not set one.",
         "default": 600
+      },
+      "skillSelection": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "all"
+        ],
+        "description": "auto: activate only the skills the recorded VSS deployment can serve (vss configure check); all: activate every shipped skill.",
+        "default": "auto"
       }
     },
     "additionalProperties": false

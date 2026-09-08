@@ -8,7 +8,12 @@
 //   - the VSS skills (`skills/`, copied from the repo's skills/ tree at build),
 //     which OpenClaw loads from the plugin root. The skills teach the agent
 //     which vss subcommands to reach for; the tool is how it invokes them.
-// And one thing done at register time: the OpenClaw workspace instructions
+// Two things happen at register time. Skills are selected: `skills.txt` maps each
+// shipped skill to the vss command group (or the alerts path) it needs, and
+// src/sync.ts asks `vss configure check` which groups the recorded deployment can
+// serve, then copies exactly those skills into skills-active/, the directory the
+// manifest points OpenClaw at. Unconfigured deployment: all shipped skills.
+// And the OpenClaw workspace instructions
 // (`workspace/` — AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, BOOTSTRAP.md, copied
 // from agent-harness/openclaw/workspace at build) are seeded into the agent's
 // configured workspace when they are not there yet, with the `_<variant>`
@@ -21,6 +26,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { sync as syncSkills } from "./sync.js";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { Type } from "typebox";
 
@@ -184,7 +191,14 @@ export function seedWorkspace(api: WorkspaceApi): void {
 // and wrap only `register`, so tool registration is untouched.
 const registerTools = vssPlugin.register;
 vssPlugin.register = (api) => {
-  seedWorkspace(api as unknown as WorkspaceApi);
+  const a = api as unknown as WorkspaceApi & { pluginConfig?: { skillSelection?: string; vssBin?: string } };
+  try {
+    const all = (process.env.VSS_SKILL_SELECTION ?? a.pluginConfig?.skillSelection) === "all";
+    syncSkills(join(dirname(fileURLToPath(import.meta.url)), ".."), { all, vssBin: a.pluginConfig?.vssBin, logger: a.logger });
+  } catch (err) {
+    a.logger.warn(`[vss] skill selection failed, keeping the current skills-active/: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  seedWorkspace(a);
   return registerTools(api);
 };
 

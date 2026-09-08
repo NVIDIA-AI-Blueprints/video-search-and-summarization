@@ -14,7 +14,7 @@ skills_src=${1:?usage: stage-assets.sh <skills-src> <workspace-src>}
 workspace_src=${2:?usage: stage-assets.sh <skills-src> <workspace-src>}
 here=$(cd "$(dirname "$0")" && pwd)
 
-allow=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$here/skills.txt")
+allow=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$here/skills.txt" | awk '{print $1}')
 test -n "$allow"
 
 rm -rf "$here/skills" "$here/workspace"

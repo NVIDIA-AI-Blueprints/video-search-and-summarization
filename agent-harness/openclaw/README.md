@@ -21,15 +21,21 @@ the OpenClaw SDK:
 - **`vss_cli` tool** — runs the pinned `vss` CLI with an argument array and
   returns exit code, stdout and stderr. The agent drives the VSS backends
   through a typed tool call instead of a free-form shell.
-- **Skills** — `skills: ["./skills"]`. `stage-assets.sh` copies the skills
-  listed in `plugin/skills.txt` from the repo's `skills/` tree under the plugin
-  root, so OpenClaw loads them as plugin skills (`openclaw skills list` shows
-  them with source `openclaw-extra`). The list is the operation skills only:
-  the ones that drive a live deployment through the `vss` CLI's operation
-  commands (`configure`, `memory`, `search`, `summarize`, `vios`, `vlm`), which
-  is what the tool exposes. Deploy, benchmark and build skills are not in this
-  image. The skills say which `vss` subcommands to reach for; the tool is how
-  they are invoked.
+- **Skills, selected from the deployment** — the manifest points OpenClaw at
+  `skills-active/`; `skills/` holds everything shipped. `plugin/skills.txt` lists
+  the shipped skills with what each needs: a `vss` command group (`search`,
+  `summarize`, `vlm`) or `alerts`. At register time, and on demand via
+  `vss-openclaw-sync`, `src/sync.ts` runs `vss configure check`, which reports
+  the command groups the recorded deployment can serve (the CLI joins the routes
+  it recorded, such as `lvs`, `rt_vlm`, `elasticsearch` + `rt_embed`, with what
+  each group needs), probes the Alert Bridge at `<base_url>/alert-bridge` or the
+  Compose port `9080`, and copies exactly the qualifying skills into
+  `skills-active/`. With no recorded deployment every shipped skill is active, so
+  the agent can still run `vss configure`; `skillSelection: "all"` in the plugin
+  config, or `VSS_SKILL_SELECTION=all`, forces that. Only operation skills are
+  shipped: the ones that drive a live deployment through the CLI's operation
+  commands, which is what the tool exposes. Deploy, benchmark and build skills
+  are not in this image.
 - **Workspace seeding** — at register time the plugin copies `workspace/*.md`
   into the agent's configured workspace (`agents.defaults.workspace`) when the
   files are not there yet, applying the `_<variant>` overlay first.
@@ -45,8 +51,8 @@ npm ci && npm run build          # type-check and compile against the pinned Ope
 npm run stage                    # stage skills/ and workspace/ from this checkout
 ```
 
-`dist/`, `node_modules/`, `skills/` and `workspace/` under `plugin/` are build
-products and are not committed. The manifest must list every tool in
+`dist/`, `node_modules/`, `skills/`, `skills-active/` and `workspace/` under
+`plugin/` are build products and are not committed. The manifest must list every tool in
 `contracts.tools`. Keep `openclaw` a devDependency (release-matched) and
 peerDependency, never a dependency: the image build prunes it so the installed
 plugin links to the image's own runtime, and fails if that link is missing.
@@ -88,7 +94,7 @@ Pins are build args:
 
 | Build arg | Default | What it pins |
 |---|---|---|
-| `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:5a13…` (v0.0.99) | the managed runtime |
+| `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:25f4…` (v0.0.114, the release `deploy_nemoclaw.ipynb` installs) | the managed runtime |
 | `OPENCLAW_VERSION` | `2026.7.1` | the OpenClaw the base carries; the build fails if the plugin lockfile pins a different one |
 | `VSS_REPO`, `VSS_REF` | this repo, a commit sha | the skills and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the plugin build stage (same as NemoClaw's) |
@@ -105,13 +111,11 @@ not mix one release's runtime with another's OpenClaw.
 
 `WORKDIR /sandbox` makes `/sandbox` the OpenShell workspace, which the sandbox
 user owns and `openshell sandbox download` serves. Harbor and its agent adapters
-address `/task /output /logs /tests /solution` by name, so the image creates
-those as root-level symlinks into `/sandbox/`; the directories themselves are
-created at trial start by the eval harness, as the sandbox user. Nothing under
-the trial contract is pre-created or root-owned. The oracle and verifier inputs
-(`/tests`, `/solution`) are therefore protected by ordering, not ownership:
-Harbor uploads them only after the agent phase ends, and a sandbox is never
-reused across trials.
+address `/task /output /logs /tests /solution` by name; the image pre-creates
+them as real, world-writable directories. They cannot be symlinks into the
+workspace: OpenShell chowns every `read_write` policy path at sandbox start and
+refuses a symlink. The eval harness moves files in and out with exec + tar, so
+they do not need to live in the workspace.
 
 ## One image, one harness
 

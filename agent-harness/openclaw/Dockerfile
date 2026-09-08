@@ -24,11 +24,14 @@
 #
 #   docker build -t <registry>/vss-harness-openclaw:<tag> agent-harness/openclaw
 
-# NemoClaw v0.0.99 managed OpenClaw runtime: OpenClaw 2026.7.1, node 22.23.1,
-# python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint.
+# NemoClaw v0.0.114 managed OpenClaw runtime: OpenClaw 2026.7.1, node 22.23.2,
+# python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint. v0.0.114 is
+# the NEMOCLAW_INSTALL_REF deploy/docker/scripts/deploy_nemoclaw.ipynb installs,
+# and NemoClaw requires the CLI, base image and plugin OpenClaw to be one release.
 # Pinned by digest — a mutable tag with IfNotPresent silently serves whatever
-# the node cached first. Move it deliberately, together with OPENCLAW_VERSION.
-ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:5a134d92a4f1eba037c125d21aff11ce1d6689dbf211607f5e0bb5552d5e5ba0
+# the node cached first. Move it deliberately, together with OPENCLAW_VERSION
+# and the notebook's NEMOCLAW_INSTALL_REF.
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:25f400dee9bcd6b109aa3ab00dfda93e452159db0338530a4e6858f18fbc579a
 # The OpenClaw the base carries. The plugin's devDependency must match it, so
 # the compiled plugin links against the runtime it will actually load in.
 ARG OPENCLAW_VERSION=2026.7.1
@@ -65,13 +68,18 @@ RUN npm run build \
     && npm prune --omit=dev --omit=peer --ignore-scripts --no-audit --no-fund \
     && test ! -e node_modules/openclaw
 # Content assets: the operation skills listed in plugin/skills.txt (found by
-# name however the repo groups them) from the pinned checkout, and the OpenClaw workspace
-# instructions from this directory, staged under the plugin root where the
-# manifest's `skills: ["./skills"]` and the register-time seeding look.
+# name however the repo groups them) from the pinned checkout, and the OpenClaw
+# workspace instructions from this directory, staged under the plugin root.
+# skills/ is the full set; the manifest points at skills-active/, which the
+# plugin fills from the deployment the vss CLI recorded (see plugin/src/sync.ts).
+# At build every listed skill is active, so a sandbox that has not run
+# `vss configure` yet still has them all.
 COPY --from=vss-src /opt/vss-src/skills /tmp/vss-skills
 COPY workspace/ /tmp/vss-workspace/
 RUN ./stage-assets.sh /tmp/vss-skills /tmp/vss-workspace \
-    && rm -rf /tmp/vss-skills /tmp/vss-workspace
+    && rm -rf /tmp/vss-skills /tmp/vss-workspace \
+    && node dist/sync.js --all --plugin-dir . \
+    && test "$(ls skills-active | wc -l)" = "$(ls skills | wc -l)"
 
 # ── uv, for the vss CLI venv ───────────────────────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -81,12 +89,14 @@ FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
 
 # Harbor trial paths. Harbor and its agent adapters address /task, /output,
-# /logs, /tests and /solution by name, but everything physically lives under
-# /sandbox — the OpenShell workspace (WORKDIR below), which the sandbox user
-# owns and `openshell sandbox download` serves. Nothing is created here: the
-# harness creates the directories at trial start as the sandbox user; these are
-# only root-level names pointing into the workspace.
-RUN for d in task output logs tests solution; do ln -s "/sandbox/$d" "/$d"; done
+# /logs, /tests and /solution by name. They are REAL directories, not symlinks
+# into /sandbox: the OpenShell policy engine chowns every read_write path at
+# sandbox start and refuses a symlink ("read_write path '/task' is a symlink —
+# refusing to chown, potential privilege escalation"), which failed every trial
+# before the agent started. World-writable like the openshell-community image,
+# so the harness can populate them as the sandbox user; the eval harness moves
+# files in and out with exec+tar, so they do not need to live in the workspace.
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
 # The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
 # same pinned checkout the skills came from. Its packages are uv workspace
@@ -109,7 +119,7 @@ RUN set -eux; \
     && mv /usr/local/src/vss-agent /usr/local/src/vss/services/agent \
     && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
-    && gosu sandbox vss --version
+    && su -s /bin/sh sandbox -c "vss --version"
 
 # ── Extend the managed runtime with the VSS plugin ─────────────────────────────
 FROM nemoclaw-runtime AS vss-runtime
@@ -124,6 +134,8 @@ COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /opt/vss-plugin/dist/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills-active/ /opt/vss-plugin/skills-active/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills.txt /opt/vss-plugin/skills.txt
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/workspace/ /opt/vss-plugin/workspace/
 
 # Staged outside the managed extensions dir and installed (copied) into it, per
@@ -137,43 +149,61 @@ RUN test ! -e /opt/vss-plugin/node_modules/openclaw \
     && test "$(realpath /sandbox/.openclaw/extensions/vss/node_modules/openclaw)" = "$(realpath /usr/local/lib/node_modules/openclaw)" \
     && HOME=/sandbox openclaw plugins enable vss \
     && HOME=/sandbox openclaw plugins inspect vss --json > /dev/null \
-    && test -d /sandbox/.openclaw/extensions/vss/skills \
+    && test -d /sandbox/.openclaw/extensions/vss/skills-active \
     && test -f /sandbox/.openclaw/extensions/vss/workspace/AGENTS.md
+
+# `vss-openclaw-sync`: re-select the active skills from what `vss configure`
+# recorded, for operators and harnesses that configure the deployment after the
+# gateway is up. The plugin runs the same selection itself at register time.
+USER root
+RUN printf '%s\n' '#!/bin/sh' 'exec node /sandbox/.openclaw/extensions/vss/dist/sync.js "$@"' > /usr/local/bin/vss-openclaw-sync \
+    && chmod 755 /usr/local/bin/vss-openclaw-sync
 
 # Enabling the plugin changes openclaw.json after the managed runtime hashed it;
 # nemoclaw-start verifies that hash, so refresh it.
-#
-# Harbor (the eval runner) OWNS ~/.openclaw/openclaw.json at trial time: its
-# openclaw adapter writes a fresh config from its own baseline plus an overlay
-# and copies it over this file. Anything this image needs in that config must
-# therefore be published where the harness can find it, not only baked here.
-# /etc/openclaw-harness/config-overlay.json carries exactly that: the plugins
-# block (nemoclaw + vss enabled) lifted from the config built above. The eval
-# harness deep-merges it into Harbor's config inside the sandbox, so the plugin,
-# its skills and workspace files load under Harbor's config too. The hash below
-# is left unlocked (mutable default) for the same reason: two writers, one file.
 USER root
 RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
     && chmod 660 /sandbox/.openclaw/openclaw.json \
     && sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
     && chown sandbox:sandbox /sandbox/.openclaw/.config-hash \
-    && chmod 660 /sandbox/.openclaw/.config-hash \
-    && mkdir -p /etc/openclaw-harness \
-    && node -e 'const c=JSON.parse(require("fs").readFileSync("/sandbox/.openclaw/openclaw.json","utf8")); \
-                const o={plugins:c.plugins||{}}; \
-                require("fs").writeFileSync("/etc/openclaw-harness/config-overlay.json", JSON.stringify(o,null,2)+"\n");' \
-    && chmod 644 /etc/openclaw-harness/config-overlay.json \
-    && node -e 'const o=JSON.parse(require("fs").readFileSync("/etc/openclaw-harness/config-overlay.json","utf8")); if(!o.plugins.entries.vss.enabled) process.exit(1)'
+    && chmod 660 /sandbox/.openclaw/.config-hash
 
 # Workspace-variant selector for the plugin's register-time seeding: apply the
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
+# NemoClaw's shell hooks apply a hard `ulimit -u 512` in every shell
+# (/etc/profile.d/nemoclaw-rlimits.sh and /etc/bash.bashrc, sourcing
+# /usr/local/lib/nemoclaw/sandbox-rlimits.sh). That is harmless when the shell
+# runs as the `sandbox` user, which owns a handful of processes. The OpenShell
+# k8s driver runs the sandbox container as uid 0, and RLIMIT_NPROC for root
+# counts every root-owned process on the node, thousands on a k3s host, so the
+# first fork in the upload's ssh session fails with EAGAIN and the sandbox dies
+# (exit 254) before Harbor's first exec. Process limits for eval sandboxes are
+# the cluster's job (pod pids limits), not the shell's.
+USER root
+RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
+    && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
+    && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
+
+# nvm shim. Harbor's openclaw adapter bootstraps node with nvm (`. ~/.nvm/nvm.sh
+# && nvm use 22 && node -v`); this image pins node, so the shim answers `use`
+# and `install` for the pinned major and refuses any other, exactly as the
+# openshell-community image did. Without it every trial fails at agent setup
+# with "/sandbox/.nvm/nvm.sh: No such file or directory".
+# (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
+COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
+
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
-# Entrypoint, command and health check are inherited from the managed runtime.
+# Entrypoint and health check are inherited from the managed runtime. The command
+# is not: the runtime's CMD is /bin/bash, which reads EOF and exits as soon as
+# nemoclaw-start hands over when the container has no TTY, so an OpenShell sandbox
+# built from this image went to phase Error before the first exec. The eval
+# harness drives the agent with exec, so the container only has to stay alive.
 USER sandbox
 WORKDIR /sandbox
+CMD ["sleep", "infinity"]
 
 LABEL harness.base="nemoclaw-openclaw-sandbox" \
       harness.contract="harbor-trial-v1" \
