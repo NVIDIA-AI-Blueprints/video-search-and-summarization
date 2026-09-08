@@ -574,20 +574,30 @@ Q=(--data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 # count comes back as the sensor's). Ask named NO sensor → set `NAME=` (empty) yourself, so a
 # value left over from an earlier ask cannot scope this one.
 : "${NAME?decide the sensor scope: the resolved name, or NAME= when the ask names no sensor}"
-[ -n "$NAME" ] && Q+=(--data-urlencode "sensor_id=$NAME")
 # Ask named an alert category → it is the stored `category` string (a rule's alert_type),
 # copied verbatim. Read the candidates off a raw page of the SAME window and sensor, never guess
 # them from English — a failed lookup is a stop, not "no categories"; if .count < .total page
 # with offset before deciding:
 #   L=(--data-urlencode "start_time=$START" --data-urlencode "end_time=$END" --data-urlencode "limit=1000")
 #   [ -n "$NAME" ] && L+=(--data-urlencode "sensor_id=$NAME")
-#   RAW=$(curl -sfG "$AB/api/v1/realtime/incidents" "${L[@]}") || { echo "category lookup failed (HTTP error or unreachable) — stop"; exit 1; }
+#   RAW=$(curl -sfG --max-time 30 "$AB/api/v1/realtime/incidents" "${L[@]}") || { echo "category lookup failed (HTTP error or unreachable) — stop"; exit 1; }
 #   printf '%s' "$RAW" | jq -r '.incidents[].category' | sort -u
-# Exactly one match with the user's wording → CATEGORY. Non-empty page but none or several
-# match → ask the user. EMPTY page (no chunks at all in the window) → the answer is 0 events
-# whatever the category: set CATEGORY= and continue (step 3 still applies). No category in the
-# ask → CATEGORY= (empty).
+# Exactly one match with the user's wording → CATEGORY. Non-empty page but NO match, and NAME
+# is the sensor's NAME (a sensor was named and this is the first identity) → the category may
+# live under the sensor's other identity (a rule created without sensor_name stores its chunks
+# under the VIOS UUID): resolve $UUID exactly as step 3 does and repeat this lookup with
+# sensor_id=$UUID; exactly one match there → NAME=$UUID, CATEGORY=<match>, and say the events
+# matched the UUID identity. Still none, or several matches under either identity → ask the
+# user. NAME= (no sensor named, or the VIOS-down fallback) → there is no other identity: ask.
+# NAME already the UUID (step 3 sent you here, or this branch switched) → you are on the second
+# identity: no match → ask; EMPTY page → set CATEGORY= and run the call below, its 0 is the
+# checked answer; never resolve again and do not run step 3 again. EMPTY page under the NAME → the answer is 0 events whatever the
+# category: set CATEGORY= and continue (step 3 still applies). No category in the ask →
+# CATEGORY= (empty).
 : "${CATEGORY?decide the category scope: the stored string, or CATEGORY= when the ask names none}"
+# Scopes go onto Q only now, after both are decided — so a NAME switched to the UUID above is
+# what the request carries.
+[ -n "$NAME" ] && Q+=(--data-urlencode "sensor_id=$NAME")
 [ -n "$CATEGORY" ] && Q+=(--data-urlencode "category=$CATEGORY")
 # No -f: a non-200 body says WHY and is exit 1 — never the VIOS-down fallback, because an
 # unfiltered raw list cannot answer an events question. 400 validation_failed = the request
@@ -612,7 +622,8 @@ printf '%s' "$BODY" | jq -e 'select((.total | type) == "number" and (.truncated 
 
 # 3. a scoped `count: 0` is not an answer yet: a rule created without `sensor_name` stores the
 #    stream id instead, so the rows exist under the UUID. There are only these two identities
-#    to try — ask about the second one directly. `total` is the full match count, so this is
+#    to try — ask about the second one directly. (Skip this step when NAME is already the UUID:
+#    (c)'s category lookup may have switched identities for you, and that zero is checked.) `total` is the full match count, so this is
 #    exact at any `limit`, and needs no paging through the store.
 UUID=$("${VSS[@]}" vios list --type stream --sensor "$NAME" | jq -r 'first(.sensors[] | select(.is_main) | .sensor_id) // empty' | sort -u)
 # same trap as $NAME, and it springs while you are being careful: if VIOS died or dropped the
@@ -670,7 +681,7 @@ TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
 > tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a scoped zero means *not under this identity*, so run step 3 before reporting it. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID step 3 matched — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a zero scoped by the NAME means *not under this identity*, so run step 3 before reporting it; a zero already scoped by the UUID (step 3 or (c)'s category lookup switched you) is the checked answer — do not run step 3 again. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID that step 3 or (c)'s category lookup matched — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
 
 With `consolidate=true` the same envelope carries `truncated`, and the numbers change meaning: `total` is the number of **events** in the window (exact whenever `truncated` is `false`), `count` the events on the page, and each event carries `info.isConsolidated: "true"`, `info.chunkCount` (a string), `chunk_ids`, and a `timestamp`..`end` span. Report it as events and name the window — "2 intrusion events on `warehouse_sample` between 10:00 and 10:30 UTC (4 chunks)" — never as a chunk count, and never mix the two views in one figure. `truncated: true` makes `total` a lower bound; say so.
 
