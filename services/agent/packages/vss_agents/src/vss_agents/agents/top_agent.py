@@ -866,12 +866,19 @@ class TopAgent(AsyncMixin):
             and "report_agent" not in plan_text
             and not plan_text.strip().startswith(PLAN_CLARIFY_PREFIX)
         ):
-            planned_steps = [int(match.group(1)) for match in re.finditer(r"(?:^|\s)(\d+)\.\s", plan_text)]
             report_step = (
-                f"{max(planned_steps, default=0) + 1}. Call `report_agent` with the media named in the user's "
-                "request and the original request as `user_query`, then present the generated report."
+                "Call `report_agent` with every media name from the user's request (as a single list when the "
+                "request names more than one) and the original request as `user_query`, then present the "
+                "generated report."
             )
-            plan_text = f"{plan_text.rstrip()}\n{report_step}" if plan_text.strip() else report_step
+            planned_steps = [int(match.group(1)) for match in re.finditer(r"(?:^|\s)(\d+)\.\s", plan_text)]
+            if planned_steps:
+                plan_text = f"{plan_text.rstrip()}\n{max(planned_steps) + 1}. {report_step}"
+            else:
+                # No numbered step at all means the planner returned prose rather than a plan, and
+                # prose such as "route to the appropriate tools" steers the execution agent into a
+                # summary tool. Replace it instead of appending the report step underneath it.
+                plan_text = f"1. {report_step}"
             logger.warning("Added the missing `report_agent` step to a report plan")
 
         # Check if the planner wants to ask the user for clarification
