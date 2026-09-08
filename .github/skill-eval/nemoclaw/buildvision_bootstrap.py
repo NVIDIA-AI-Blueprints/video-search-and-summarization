@@ -71,7 +71,7 @@ if ! timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1; then
   echo "Onboarding NemoClaw sandbox $sandbox" >&2
   timeout --signal=TERM --kill-after=30 900 \\
     env NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \\
-    nemoclaw onboard --non-interactive --agent openclaw \\
+    nemoclaw onboard --fresh --non-interactive --agent openclaw \\
     || fail "NemoClaw onboarding failed"
 fi
 

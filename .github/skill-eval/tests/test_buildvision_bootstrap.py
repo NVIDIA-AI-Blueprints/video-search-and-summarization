@@ -57,7 +57,9 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             self.assertNotIn('NEMOCLAW_GATEWAY_PORT', verifier)
             self.assertNotIn('notebook', verifier)
             self.assertIn('NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1', verifier)
-            self.assertIn('nemoclaw onboard --non-interactive --agent openclaw', verifier)
+            self.assertIn(
+                'nemoclaw onboard --fresh --non-interactive --agent openclaw', verifier
+            )
             self.assertIn('policy-add --from-file "$policy" --yes', verifier)
             self.assertIn('skill install "$skill_dir"', verifier)
             self.assertIn('skills/operations/vss-manage-alerts', verifier)
