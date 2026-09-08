@@ -12,6 +12,12 @@ a cold NIM start.
   the NGC CLI and build override use `NGC_CLI_API_KEY`; NIM / RT-VLM
   containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for remote NIM endpoints.
+- `VSS_AGENT_BACKEND_TOKEN`: required when Q3 selects NemoClaw or an existing
+  external harness as the chat owner. It is operator-level access to that
+  harness and must stay server-side — write it only into the build's protected
+  env layer per `references/agent-harness.md`, never into a checked-in
+  `overrides.env`, never into `override.env`, and never with a `NEXT_PUBLIC_`
+  prefix. Capture it directly from the sandbox CLI; never echo or paste it.
 - `HF_TOKEN`: required only on edge targets that use the standalone
   RT-VLM / RT-Embed Hugging Face checkpoints; no in-tree edge
   LLM does not need it.
