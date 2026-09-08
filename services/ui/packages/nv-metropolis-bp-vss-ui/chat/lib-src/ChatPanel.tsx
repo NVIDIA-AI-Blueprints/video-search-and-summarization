@@ -406,13 +406,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
             <p
               id="hitl-prompt"
-              data-testid="hitl-prompt"
+              data-testid="hitl-modal-prompt"
               className="mb-4 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100"
             >
               {interaction.prompt.text}
             </p>
             <textarea
-              data-testid="hitl-textarea"
+              data-testid="hitl-modal-textarea"
               className="min-h-28 w-full rounded border border-gray-400 bg-white p-2 text-gray-900 dark:bg-black dark:text-gray-100"
               placeholder={interaction.prompt.placeholder ?? undefined}
               required={interaction.prompt.required}
@@ -422,7 +422,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <div className="mt-4 flex justify-end">
               <button
                 type="button"
-                data-testid="hitl-submit"
+                data-testid="hitl-modal-submit"
                 className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 disabled={interaction.prompt.required && !interactionText.trim()}
                 onClick={submitInteraction}

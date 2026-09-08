@@ -110,10 +110,11 @@ describe('ChatPanel', () => {
     await act(async () => typeAndSend('start captioning'));
 
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
-    fireEvent.change(screen.getByTestId('hitl-textarea'), {
+    expect(screen.getByTestId('hitl-modal-prompt')).toHaveTextContent('Describe the scenario');
+    fireEvent.change(screen.getByTestId('hitl-modal-textarea'), {
       target: { value: 'warehouse monitoring' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    fireEvent.click(screen.getByTestId('hitl-modal-submit'));
 
     await waitFor(() => expect(screen.getByText('started')).toBeInTheDocument());
     expect(fetchMock.mock.calls[1][0]).toContain(
