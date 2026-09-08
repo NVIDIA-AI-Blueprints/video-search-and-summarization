@@ -1075,8 +1075,7 @@ class TestRequestOptionsContext:
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         class FailingTool:
-            args_schema = MagicMock()
-            args_schema.model_fields = {}
+            args_schema = None
 
             async def astream(self, input, config=None):
                 raise RuntimeError("streamId not found for 'Camera'. Available: ['dupfix1']")
