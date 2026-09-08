@@ -971,14 +971,13 @@ Enable the Embed consumer in `.env`:
 ```bash
 RTVI_IPC_FRAME_COPY=true
 RTVI_IPC_SOCKET_HOST_DIR=/tmp
-RTVI_IPC_SOCKET_DIR=/run/rtvi-ipc
-RTVI_IPC_SOCKET_TEMPLATE=nvds_ipc_{camera_id}.sock
 ```
 
 The producer and consumer must run on the same host and GPU, share the producer
 socket directory, and receive matching stream events with the same `camera_id`.
 Compose mounts `RTVI_IPC_SOCKET_HOST_DIR` at `RTVI_IPC_SOCKET_DIR`; with the
-defaults above, camera `camera-1` resolves to
+default `RTVI_IPC_SOCKET_DIR` (`/run/rtvi-ipc`) and `RTVI_IPC_SOCKET_TEMPLATE`
+(`nvds_ipc_{camera_id}.sock`), camera `camera-1` resolves to
 `/run/rtvi-ipc/nvds_ipc_camera-1.sock` inside RT-Embed and to
 `/tmp/nvds_ipc_camera-1.sock` on the host.
 
