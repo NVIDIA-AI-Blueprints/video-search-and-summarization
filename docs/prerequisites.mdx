@@ -10,6 +10,7 @@ This section covers the prerequisites for deploying and using the VSS Blueprint.
 The VSS Blueprint has been validated and tested on the following NVIDIA GPUs:
 
 - NVIDIA H100
+- NVIDIA GB300
 - NVIDIA RTX PRO 6000 Blackwell
 - NVIDIA L40S
 - NVIDIA DGX SPARK
@@ -260,6 +261,21 @@ The following tables show the number of GPUs needed for each development profile
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
 
 </Tab>
+<Tab title="GB300">
+
+All supported profiles use one GB300 GPU. The profile quickstarts assign every
+local service to that GPU; a remote model option offloads the selected model but
+does not remove the GPU required by the profile services.
+
+| **Profile** | **Default / local models** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
+| --- | --- | --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 1 | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 | — | — |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 1 | 1 | 1 | 1 |
+
+</Tab>
 <Tab title="RTXPRO6000BW">
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
@@ -269,6 +285,19 @@ The following tables show the number of GPUs needed for each development profile
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+
+</Tab>
+<Tab title="RTXPRO4500BW">
+
+RTX PRO 4500 Blackwell is supported only for the alerts profile with a remote
+LLM. Set `HARDWARE_PROFILE=RTXPRO4500BW` explicitly when automatic detection
+does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
+580.126.09 or later.
+
+| **Profile** | **Remote LLM** |
+| --- | --- |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 |
 
 </Tab>
 <Tab title="L40S">
