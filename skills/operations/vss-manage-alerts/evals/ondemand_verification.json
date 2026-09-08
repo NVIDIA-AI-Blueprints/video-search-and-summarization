@@ -10,7 +10,7 @@
           "query": "Use /vss-build-vision-ai from $HOME/video-search-and-summarization to deploy the alerts VSS profile on {{platform}} in verification mode. Select no conversational harness in this phase. Complete the resolved Compose deployment and its readiness gate autonomously; do not stop at generated configuration or request confirmation."
         },
         {
-          "query": "The preceding setup phase deployed the VSS profile on this host. Use /vss-build-vision-ai from $HOME/video-search-and-summarization in its documented bring-up-only mode to attach NemoClaw without recomposing or redeploying VSS. Use the sandbox and model-provider settings supplied in the environment and install /{{skill}} in the sandbox. Prefix the documented run_setup_notebook.py command with env -u HARBOR_SKILL_EVAL_AGENT_RUN so the OpenShell gateway survives coding-agent cleanup. Finish only after openshell sandbox get $NEMOCLAW_SANDBOX_NAME succeeds; run autonomously and do not request confirmation."
+          "query": "The preceding setup phase deployed the VSS profile on this host. Use /vss-build-vision-ai from $HOME/video-search-and-summarization in its documented bring-up-only mode to attach NemoClaw without recomposing or redeploying VSS. Use the sandbox and model-provider settings supplied in the environment and install /vss-manage-alerts in the sandbox. Prefix the documented run_setup_notebook.py command with env -u HARBOR_SKILL_EVAL_AGENT_RUN so the OpenShell gateway survives coding-agent cleanup. Finish only after openshell sandbox get $NEMOCLAW_SANDBOX_NAME succeeds; run autonomously and do not request confirmation."
         }
       ]
     }

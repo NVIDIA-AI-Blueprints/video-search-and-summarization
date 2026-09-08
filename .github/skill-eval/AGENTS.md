@@ -128,8 +128,8 @@ The canonical harbor command is in § Harbor invocation.
    `harness.nemoclaw.setup` as an ordered, non-empty list of objects with a
    `query` string. Those queries are the single source of truth for the
    coding-agent setup that deploys VSS and attaches NemoClaw. The harness
-   dispatches them verbatim (substituting only `{{platform}}` and
-   `{{skill}}`) and does not infer a profile, mode, or deployment action.
+   dispatches them verbatim (substituting only `{{platform}}`) and does not
+   infer a profile, mode, skill, or deployment action.
 
    Skills with no specs at all are runtime libraries — skip them.
 

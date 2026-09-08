@@ -1543,7 +1543,6 @@ def run_invocations(
                 destination=bootstrap_root,
                 source_task_toml=source_task,
                 spec_path=spec_path,
-                skill=os.environ.get("EVAL_SKILL", "operational-skill"),
                 platform=platform,
                 repo_root=REPO_ROOT,
             )

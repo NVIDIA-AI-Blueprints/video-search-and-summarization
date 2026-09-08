@@ -18,7 +18,7 @@ from pathlib import Path
 SETUP_TASK_PREFIX = "nemoclaw-setup"
 
 
-def _spec_setup_queries(spec_path: Path, *, skill: str, platform: str) -> list[str]:
+def _spec_setup_queries(spec_path: Path, *, platform: str) -> list[str]:
     """Return the exact NemoClaw setup queries declared by an eval spec."""
 
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
@@ -46,9 +46,7 @@ def _spec_setup_queries(spec_path: Path, *, skill: str, platform: str) -> list[s
                 "spec harness.nemoclaw.setup"
                 f"[{index}].query must be a non-empty string: {spec_path}"
             )
-        queries.append(
-            query.replace("{{platform}}", platform).replace("{{skill}}", skill)
-        )
+        queries.append(query.replace("{{platform}}", platform))
     return queries
 
 
@@ -131,7 +129,6 @@ def create_bootstrap_task(
     destination: Path,
     source_task_toml: Path,
     spec_path: Path,
-    skill: str,
     platform: str,
     repo_root: Path,
 ) -> Path:
@@ -146,7 +143,7 @@ def create_bootstrap_task(
     build_skill = repo_root / "skills" / "vss-build-vision-ai"
     if not (build_skill / "SKILL.md").is_file():
         raise FileNotFoundError(f"Build Vision AI skill missing: {build_skill}")
-    queries = _spec_setup_queries(spec_path, skill=skill, platform=platform)
+    queries = _spec_setup_queries(spec_path, platform=platform)
     for index, instruction in enumerate(queries, 1):
         task_name = f"{SETUP_TASK_PREFIX}-{index}"
         verifier = (

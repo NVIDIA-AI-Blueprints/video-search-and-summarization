@@ -39,7 +39,7 @@ class BuildVisionBootstrapTest(unittest.TestCase):
                             "nemoclaw": {
                                 "setup": [
                                     {"query": "Deploy alerts on {{platform}}."},
-                                    {"query": "Install /{{skill}} in NemoClaw."},
+                                    {"query": "Install /vss-manage-alerts in NemoClaw."},
                                 ]
                             }
                         }
@@ -51,7 +51,6 @@ class BuildVisionBootstrapTest(unittest.TestCase):
                 destination=root / "bootstrap",
                 source_task_toml=source_task,
                 spec_path=spec,
-                skill="vss-manage-alerts",
                 platform="L40S",
                 repo_root=repo,
             )
@@ -97,16 +96,14 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             path = Path(td) / "bad.json"
             path.write_text("[]")
             with self.assertRaisesRegex(ValueError, "not a JSON object"):
-                bootstrap._spec_setup_queries(path, skill="skill", platform="L40S")
+                bootstrap._spec_setup_queries(path, platform="L40S")
 
     def test_rejects_a_spec_without_nemoclaw_setup(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "missing.json"
             path.write_text(json.dumps({"expects": []}))
             with self.assertRaisesRegex(ValueError, "harness.nemoclaw.setup"):
-                bootstrap._spec_setup_queries(
-                    path, skill="vss-manage-alerts", platform="L40S"
-                )
+                bootstrap._spec_setup_queries(path, platform="L40S")
 
 
 if __name__ == "__main__":
