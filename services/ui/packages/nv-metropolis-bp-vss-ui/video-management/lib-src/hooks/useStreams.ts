@@ -131,13 +131,13 @@ export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsRes
     return { remainingSensorIds: Array.from(pending) };
   }, [fetchStreams]);
 
-  const waitUntilStreamAdded = useCallback(async (sensorId: string): Promise<WaitUntilStreamAddedResult> => {
-    if (!sensorId) return { found: false };
+  const waitUntilStreamAdded = useCallback(async (sensorIdentifier: string): Promise<WaitUntilStreamAddedResult> => {
+    if (!sensorIdentifier) return { found: false };
 
     // A poll that failed says nothing about what VST holds, so it counts as
     // "not yet listed" and the next poll decides.
     const isListed = (listed: StreamInfo[] | null) =>
-      listed?.some((s) => s.sensorId === sensorId) ?? false;
+      listed?.some((s) => s.sensorId === sensorIdentifier || s.name === sensorIdentifier) ?? false;
 
     // Immediate check — VST may already list the sensor by the time the
     // add call returned.

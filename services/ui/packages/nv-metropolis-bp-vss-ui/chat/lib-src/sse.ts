@@ -25,8 +25,22 @@ import type { ChatStep } from './types';
 export type SseEvent =
   | { kind: 'token'; text: string }
   | { kind: 'step'; step: ChatStep }
+  | { kind: 'interaction'; interaction: InteractionRequest }
   | { kind: 'error'; message: string }
   | { kind: 'done' };
+
+export interface InteractionRequest {
+  event_type: 'interaction_required';
+  execution_id: string;
+  interaction_id: string;
+  prompt: {
+    text: string;
+    input_type: string;
+    placeholder?: string | null;
+    required?: boolean;
+  };
+  response_url: string;
+}
 
 const CONTENT_PATHS = ['value', 'output', 'answer'] as const;
 
@@ -83,6 +97,7 @@ const PREFIXES = {
 export class SseParser {
   private buffer = '';
   private stepIndex = 0;
+  private eventType = '';
 
   feed(chunk: string): SseEvent[] {
     // Normalise CRLF first: a proxy that rewrites line endings would otherwise
@@ -95,10 +110,24 @@ export class SseParser {
     const events: SseEvent[] = [];
     for (const raw of lines) {
       const line = raw.trimEnd();
-      if (!line || line.startsWith(':')) continue; // blank or keepalive comment
+      if (!line) {
+        this.eventType = '';
+        continue;
+      }
+      if (line.startsWith(':')) continue; // keepalive comment
+
+      if (line.startsWith('event:')) {
+        this.eventType = line.slice('event:'.length).trim();
+        continue;
+      }
 
       if (line.startsWith(PREFIXES.data)) {
         const payload = line.slice(PREFIXES.data.length).trim();
+        if (this.eventType === 'interaction_required') {
+          const interaction = this.parseInteraction(payload);
+          if (interaction) events.push({ kind: 'interaction', interaction });
+          continue;
+        }
         if (payload === '[DONE]') {
           events.push({ kind: 'done' });
           continue;
@@ -166,6 +195,25 @@ export class SseParser {
       return typeof message === 'string' ? message : JSON.stringify(d);
     } catch {
       return payload.trim() || null;
+    }
+  }
+
+  private parseInteraction(payload: string): InteractionRequest | null {
+    try {
+      const interaction = JSON.parse(payload) as Partial<InteractionRequest>;
+      if (
+        interaction.event_type !== 'interaction_required' ||
+        typeof interaction.execution_id !== 'string' ||
+        typeof interaction.interaction_id !== 'string' ||
+        typeof interaction.response_url !== 'string' ||
+        typeof interaction.prompt?.text !== 'string' ||
+        typeof interaction.prompt?.input_type !== 'string'
+      ) {
+        return null;
+      }
+      return interaction as InteractionRequest;
+    } catch {
+      return null;
     }
   }
 

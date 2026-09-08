@@ -131,6 +131,7 @@ const defaultProps = {
   videoManagementData: {
     systemStatus: 'ok',
     vstApiUrl: 'https://vst.example.com/vst',
+    agentApiUrlBase: 'https://agent.example.com/api/v1',
   },
 };
 
@@ -543,8 +544,8 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
       '2025-01-01T01:03:30Z',
     );
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://vst.example.com/vst',
-      rtspStream.sensorId,
+      'https://agent.example.com/api/v1',
+      rtspStream.name,
     );
   });
 
@@ -648,6 +649,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
           videoManagementData={{
             systemStatus: 'ok',
             vstApiUrl: 'https://other-vst.example.com/vst',
+            agentApiUrlBase: 'https://other-agent.example.com/api/v1',
           }}
         />,
       );
@@ -658,8 +660,8 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await reopenDeleteDialogAndConfirm();
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://other-vst.example.com/vst',
-      rtspStream.sensorId,
+      'https://other-agent.example.com/api/v1',
+      rtspStream.name,
     );
   });
 
@@ -687,6 +689,7 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
           videoManagementData={{
             systemStatus: 'ok',
             vstApiUrl: 'https://other-vst.example.com/vst',
+            agentApiUrlBase: 'https://other-agent.example.com/api/v1',
           }}
         />,
       );
@@ -703,8 +706,8 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     });
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://other-vst.example.com/vst',
-      rtspStream.sensorId,
+      'https://other-agent.example.com/api/v1',
+      rtspStream.name,
     );
   });
 
@@ -739,8 +742,8 @@ describe('VideoManagementComponent — Select All delete of mixed RTSP and uploa
     await reopenDeleteDialogAndConfirm();
 
     expect(mockDeleteRtspStream).toHaveBeenCalledWith(
-      'https://vst.example.com/vst',
-      rtspStream.sensorId,
+      'https://agent.example.com/api/v1',
+      rtspStream.name,
     );
   });
 

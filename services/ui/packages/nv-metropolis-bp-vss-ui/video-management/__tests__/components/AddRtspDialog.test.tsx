@@ -23,7 +23,7 @@ function deferred<T>() {
 
 const defaultProps = {
   isOpen: true,
-  vstApiUrl: 'https://vst.example.com/vst/api',
+  agentApiUrl: 'https://agent.example.com/api/v1',
   onClose: jest.fn(),
   onSuccess: jest.fn(),
   onAwaitStream: jest.fn(async () => ({ found: true })),
@@ -178,7 +178,7 @@ describe('AddRtspDialog — waits for VST to list the added stream', () => {
 
     expect(mockAddRtspStream).toHaveBeenCalledTimes(2);
     expect(mockAddRtspStream).toHaveBeenLastCalledWith(
-      props.vstApiUrl,
+      props.agentApiUrl,
       { sensorUrl: 'rtsp://cam.example.com:554/cam02', name: 'cam02' },
     );
     expect(onAwaitStream).toHaveBeenLastCalledWith('sensor-second');

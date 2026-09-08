@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 /**
- * Direct VST RTSP sensor utilities.
+ * Agent-owned RTSP lifecycle utilities.
  *
  * API Endpoints:
- * - Add:    POST   /v1/sensor/add          { sensorUrl, name }
- * - Delete: DELETE /v1/sensor/{sensorId}
+ * - Add:    POST   /api/v1/rtsp-streams/add          { sensorUrl, name }
+ * - Delete: DELETE /api/v1/rtsp-streams/delete/{name}
  */
-import { createApiEndpoints } from './api';
 
 /**
  * Request body for adding RTSP stream
@@ -20,15 +19,22 @@ export interface AddRtspStreamRequest {
  * Response from adding RTSP stream
  */
 export interface AddRtspStreamResult {
-  sensorId: string;
+  status: string;
+  message: string;
+  error?: string | null;
+  sensorId?: string;
 }
 
 /**
  * Response from deleting RTSP stream
  */
-export type DeleteRtspStreamResult = boolean;
+export interface DeleteRtspStreamResult {
+  status: string;
+  message: string;
+  name: string;
+}
 
-async function getVstError(response: Response, fallback: string): Promise<string> {
+async function getAgentError(response: Response, fallback: string): Promise<string> {
   const text = await response.text().catch(() => '');
   if (!text) return fallback;
   try {
@@ -40,10 +46,10 @@ async function getVstError(response: Response, fallback: string): Promise<string
 }
 
 /**
- * Add an RTSP sensor directly to VST.
+ * Add through the agent so profile-specific RTVI registration happens too.
  */
 export async function addRtspStream(
-  vstApiUrl: string,
+  agentApiUrl: string,
   request: AddRtspStreamRequest,
   signal?: AbortSignal
 ): Promise<AddRtspStreamResult> {
@@ -51,7 +57,7 @@ export async function addRtspStream(
     throw new Error('Add RTSP stream was cancelled');
   }
 
-  const response = await fetch(createApiEndpoints(vstApiUrl).ADD_SENSOR, {
+  const response = await fetch(`${agentApiUrl.replace(/\/$/, '')}/rtsp-streams/add`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -64,36 +70,36 @@ export async function addRtspStream(
   });
 
   if (!response.ok) {
-    throw new Error(await getVstError(
+    throw new Error(await getAgentError(
       response,
       `Failed to add RTSP stream: ${response.statusText || response.status}`,
     ));
   }
 
   const result: AddRtspStreamResult = await response.json();
-  if (!result.sensorId) {
-    throw new Error('VST add-sensor response missing sensorId');
+  if (result.status === 'failure') {
+    throw new Error(result.message || result.error || 'Failed to add RTSP stream');
   }
   return result;
 }
 
 /**
- * Delete an RTSP sensor directly from VST.
+ * Delete through the agent so RTVI and VST are cleaned together.
  *
- * @param vstApiUrl - VST API base URL (for example, http://host:7777/vst/api)
- * @param sensorId - VST sensor UUID
+ * @param agentApiUrl - Agent API base URL (for example, http://host:8000/api/v1)
+ * @param sensorName - Sensor name used when the stream was created
  * @param signal - Optional AbortSignal for cancellation
  */
 export async function deleteRtspStream(
-  vstApiUrl: string,
-  sensorId: string,
+  agentApiUrl: string,
+  sensorName: string,
   signal?: AbortSignal
 ): Promise<DeleteRtspStreamResult> {
   if (signal?.aborted) {
     throw new Error('Delete RTSP stream was cancelled');
   }
 
-  const response = await fetch(createApiEndpoints(vstApiUrl).DELETE_SENSOR(sensorId), {
+  const response = await fetch(`${agentApiUrl.replace(/\/$/, '')}/rtsp-streams/delete/${encodeURIComponent(sensorName)}`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
@@ -101,12 +107,16 @@ export async function deleteRtspStream(
     signal,
   });
 
-  if (!response.ok && response.status !== 404) {
-    throw new Error(await getVstError(
+  if (!response.ok) {
+    throw new Error(await getAgentError(
       response,
       `Failed to delete RTSP stream: ${response.statusText || response.status}`,
     ));
   }
 
-  return response.status === 404 ? true : response.json();
+  const result: DeleteRtspStreamResult = await response.json();
+  if (result.status === 'failure') {
+    throw new Error(result.message || 'Failed to delete RTSP stream');
+  }
+  return result;
 }

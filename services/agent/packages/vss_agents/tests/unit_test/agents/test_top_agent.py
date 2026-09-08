@@ -32,6 +32,7 @@ from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.data_models import AgentRequestOptions
+from vss_agents.agents.multi_report_agent import MultiReportAgentInput
 from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
@@ -41,6 +42,7 @@ from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
+from vss_agents.agents.top_agent import _names_a_specific_sensor
 from vss_agents.agents.top_agent import strip_frontend_tags
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
 
@@ -553,6 +555,173 @@ class TestRequestOptionsContext:
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "question",
+        [
+            'List the last 3 incidents for sensor id "Camera"',
+            "Show the incidents for sensor id Camera_01",
+            "How busy was camera id dock_3 this morning?",
+        ],
+    )
+    async def test_plan_node_keeps_a_named_sensor_request_out_of_the_sensor_list(self, monkeypatch, question):
+        """`sensor id "Camera"` names a sensor; answering with the inventory answers a different question."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        sensor_tool = MagicMock()
+        sensor_tool.name = "vst_sensor_list"
+        sensor_tool.description = "Get available sensors from VST."
+        agent.tools_dict["vst_sensor_list"] = sensor_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="[USER] Which sensor are you referring to? I need the full sensor ID.")
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(current_message=HumanMessage(content=question), options=AgentRequestOptions())
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert "Do not ask which camera or for a fuller sensor ID" in result.plan
+        assert result.plan.startswith("1.")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "question",
+        [
+            'Generate a report for the last incident of sensor id "Camera"',
+            "Generate a report for sensor id Camera_01",
+        ],
+    )
+    async def test_plan_node_plans_a_report_that_already_names_its_sensor(self, monkeypatch, question):
+        """Clarifying a named report request strands it with no PDF or Markdown artifact."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        report_tool = MagicMock()
+        report_tool.name = "report_agent"
+        report_tool.description = "Generate a detailed report for a single incident."
+        # The warehouse profile's report_agent accepts both a sensor and an incident.
+        report_tool.args_schema.model_fields = {
+            "user_query": MagicMock(),
+            "sensor_id": MagicMock(),
+            "incident_id": MagicMock(),
+        }
+        agent.tools_dict["report_agent"] = report_tool
+        sensor_tool = MagicMock()
+        sensor_tool.name = "vst_sensor_list"
+        sensor_tool.description = "Get available sensors from VST."
+        agent.tools_dict["vst_sensor_list"] = sensor_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="[USER] Which sensor are you referring to? The user mentioned 'Camera' "
+                "but I need the full sensor ID."
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(current_message=HumanMessage(content=question), options=AgentRequestOptions())
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert result.plan == (
+            "1. Call `report_agent` with the sensor named in the request and the original "
+            "request as `user_query`, then present the generated report."
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "planner_reply",
+        [
+            "[USER] I need to clarify which Camera you mean. Could you please specify the camera name?",
+            "I need to clarify which Camera you mean. Could you please specify the camera name or provide more details?",
+        ],
+    )
+    async def test_plan_node_plans_a_picture_for_named_warehouse_camera(self, monkeypatch, planner_reply):
+        """A warehouse VST name is Camera; asking which Camera strands the snapshot."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        picture_tool = MagicMock()
+        picture_tool.name = "vst_picture_url"
+        picture_tool.description = "Get a snapshot URL for a sensor."
+        agent.tools_dict["vst_picture_url"] = picture_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=planner_reply))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="I want to see a picture of Camera"),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert "`vst_picture_url`" in result.plan
+        assert "sensor_id='Camera'" in result.plan
+        assert "Do not retry with a different sensor_id" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_node_plans_warehouse_snapshot_tool_when_picture_url_is_absent(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        snapshot_tool = MagicMock()
+        snapshot_tool.name = "vst_snapshot"
+        snapshot_tool.description = "Get a snapshot for a sensor."
+        agent.tools_dict["vst_snapshot"] = snapshot_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="I need to clarify which Camera you mean. Specify the camera name.")
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="I want to see a picture of Camera"),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.final_answer == ""
+        assert "`vst_snapshot`" in result.plan
+        assert "sensor_id='Camera'" in result.plan
+
+    @pytest.mark.parametrize(
+        "question,expected",
+        [
+            ("What are the available sensor IDs?", False),
+            ("Which camera ids are available?", False),
+            ("list the sensor ids", False),
+            ("List the sensor ids please", False),
+            ("What sensor IDs can I use?", False),
+            ("Which camera IDs should I use?", False),
+            ('List the last 3 incidents for sensor id "Camera"', True),
+            ('List incidents for sensor id "available"', True),
+            ("Generate a report for sensor id Camera_01", True),
+            ("How busy was camera id dock_3?", True),
+            ("I want to see a picture of Camera", True),
+            ("Show a snapshot from Camera_01", True),
+            ("What are the available cameras?", False),
+            ("Summarize gwfix1", False),
+        ],
+    )
+    def test_names_a_specific_sensor(self, question, expected):
+        assert _names_a_specific_sensor(question) is expected
+
+    @pytest.mark.asyncio
     async def test_plan_node_keeps_multi_step_plan_instead_of_a_planner_tool_call(self, monkeypatch):
         """A tool-bound planner returns only the next action, which would drop the report step."""
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
@@ -902,6 +1071,42 @@ class TestRequestOptionsContext:
         assert await agent._conditional_edge_from_tool(result) == AgentDecision.AGENT.value
 
     @pytest.mark.asyncio
+    async def test_tool_node_ends_a_named_camera_snapshot_when_stream_is_missing(self, monkeypatch):
+        """Continuing after Camera-not-found lets the executor snapshot dupfix1 instead."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class FailingTool:
+            args_schema = None
+
+            async def astream(self, input, config=None):
+                raise RuntimeError("streamId not found for 'Camera'. Available: ['dupfix1']")
+                yield
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"vst_snapshot": FailingTool()}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="I want to see a picture of Camera"),
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling snapshot",
+                    tool_calls=[
+                        {"name": "vst_snapshot", "args": {"sensor_id": "Camera"}, "id": "call_1"},
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        expected = "Tool call failed: streamId not found for 'Camera'. Available: ['dupfix1']"
+        assert result.tool_failure == expected
+        assert result.final_answer == expected
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.END.value
+
+    @pytest.mark.asyncio
     async def test_agent_node_relays_an_unrecovered_tool_failure(self, monkeypatch):
         """The agent stopping after a raised tool must relay the failure, not answer from memory."""
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
@@ -1059,6 +1264,102 @@ class TestRequestOptionsContext:
         result = await agent.tool_or_subagent_node(state)
 
         assert result.final_answer == "No incidents found with the specified criteria."
+
+    @pytest.mark.asyncio
+    async def test_tool_node_ends_on_successful_empty_multi_report(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class ReportFunction:
+            async def astream(self, input):
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.FINAL,
+                    content=AgentOutput(
+                        messages=[
+                            "Found 0 incidents for sensor Camera",
+                            '<incidents>{"incidents": []}</incidents>',
+                        ],
+                        status="success",
+                        metadata={"incident_count": 0, "report_type": "multi_incident"},
+                    ).model_dump_json(),
+                )
+
+        report_tool = MagicMock()
+        report_tool.args_schema = MultiReportAgentInput
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"multi_report_agent": report_tool}
+        agent.subagent_names = {"multi_report_agent"}
+        agent.subagent_functions = {"multi_report_agent": ReportFunction()}
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling report",
+                    tool_calls=[
+                        {
+                            "name": "multi_report_agent",
+                            "args": {"sensor_id": "Camera", "max_result_size": 3},
+                            "id": "call_1",
+                        }
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert result.final_answer == "Found 0 incidents for sensor Camera"
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.END.value
+
+    @pytest.mark.asyncio
+    async def test_mixed_valid_and_invalid_subagent_calls_end_on_validation_error(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class ReportFunction:
+            async def astream(self, input):
+                validated = MultiReportAgentInput.model_validate(input)
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.FINAL,
+                    content=AgentOutput(
+                        messages=[f"Found 1 incident for sensor {validated.source}"],
+                        status="success",
+                        metadata={"incident_count": 1, "report_type": "multi_incident"},
+                    ).model_dump_json(),
+                )
+
+        report_tool = MagicMock()
+        report_tool.args_schema = MultiReportAgentInput
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"multi_report_agent": report_tool}
+        agent.subagent_names = {"multi_report_agent"}
+        agent.subagent_functions = {"multi_report_agent": ReportFunction()}
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling reports",
+                    tool_calls=[
+                        {
+                            "name": "multi_report_agent",
+                            "args": {"sensor_id": "Camera", "max_result_size": 3},
+                            "id": "call_valid",
+                        },
+                        {
+                            "name": "multi_report_agent",
+                            "args": {"max_result_size": 3},
+                            "id": "call_invalid",
+                        },
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert result.final_answer.startswith("Tool call failed:")
+        assert "MultiReportAgentInput" in result.final_answer
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.END.value
 
 
 class TestTopAgentRequestUseCritic:
