@@ -14,7 +14,6 @@ same Brev worker that the subsequent operational scenarios use.
 from __future__ import annotations
 
 import json
-import shlex
 import shutil
 from pathlib import Path
 
@@ -40,52 +39,21 @@ def _instruction(*, skill: str, platform: str, profile: str, deploy_mode: str) -
     return f"""You are the provisioning phase of a non-interactive skill evaluation.
 
 Use `/vss-build-vision-ai` from `$HOME/video-search-and-summarization` to deploy
-the `{profile}` VSS profile on `{platform}`{mode}. Select no conversational
-harness: do not deploy the in-stack `vss-agent` or bring up NemoClaw. Follow the
-skill's documented ordering through the resolved Compose build and its readiness
-gate. Ensure the operational skill `/{skill}` is selected for that deployment.
+the `{profile}` VSS profile on `{platform}`{mode}, with NemoClaw as its only
+conversational harness. Follow the skill's documented ordering through the
+resolved Compose build, its readiness gate, and the host-side NemoClaw bring-up.
+Use the sandbox name and model-provider settings supplied in the environment and
+ensure the operational skill `/{skill}` is installed in that sandbox.
 
-The task verifier attaches the host-side NemoClaw sandbox after your deployment
-is ready. Do not use individual deployment skills as an alternative to
-`/vss-build-vision-ai`. Do not stop at a generated `resolved.yml`: complete the
-deployment and readiness gate before you finish. Run autonomously and do not
-request confirmation.
+Do not use individual deployment skills as an alternative to
+`/vss-build-vision-ai`. Do not stop at a generated `resolved.yml` or a ready VSS
+deployment: complete the Build Vision AI NemoClaw handoff before you finish.
+Run autonomously and do not request confirmation.
 """
 
 
-def _nemoclaw_setup_script(skill: str) -> str:
-    """Return the canonical minimal host-side setup for one operational skill."""
-
-    quoted_skill = shlex.quote(skill)
-    return f"""repo="${{VSS_REPO_DIR:-$HOME/video-search-and-summarization}}"
-sandbox="${{NEMOCLAW_SANDBOX_NAME:-skill-eval}}"
-policy="$repo/assets/vss_nemoclaw_policy.yaml"
-skill_dir="$repo/skills/operations/{quoted_skill}"
-
-command -v nemoclaw >/dev/null 2>&1 || fail "nemoclaw CLI is unavailable"
-command -v openshell >/dev/null 2>&1 || fail "openshell CLI is unavailable"
-[ -f "$policy" ] || fail "VSS NemoClaw policy is missing: $policy"
-[ -f "$skill_dir/SKILL.md" ] || fail "operational skill is missing: $skill_dir"
-
-if ! timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1; then
-  echo "Onboarding NemoClaw sandbox $sandbox" >&2
-  timeout --signal=TERM --kill-after=30 900 \\
-    env NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \\
-    nemoclaw onboard --non-interactive --agent openclaw \\
-    || fail "NemoClaw onboarding failed"
-fi
-
-timeout --signal=TERM --kill-after=30 180 \\
-  nemoclaw "$sandbox" policy-add --from-file "$policy" --yes \\
-  || fail "VSS NemoClaw policy setup failed"
-timeout --signal=TERM --kill-after=30 180 \\
-  nemoclaw "$sandbox" skill install "$skill_dir" \\
-  || fail "operational skill installation failed"
-"""
-
-
-def _health_check_script(skill: str) -> str:
-    """Provision and verify the direct Build Vision AI -> NemoClaw handoff."""
+def _health_check_script() -> str:
+    """Verify the direct Build Vision AI -> NemoClaw handoff."""
 
     return f"""#!/bin/sh
 set -u
@@ -98,7 +66,10 @@ fail() {{
   printf '0.0\\n' > "$reward_dir/reward.txt"
   exit 0
 }}
-{_nemoclaw_setup_script(skill)}
+command -v nemoclaw >/dev/null 2>&1 || fail "Build Vision AI did not install the nemoclaw CLI"
+command -v openshell >/dev/null 2>&1 || fail "Build Vision AI did not install the openshell CLI"
+timeout 30 openshell sandbox get "$sandbox" >/dev/null 2>&1 \\
+  || fail "Build Vision AI did not create the NemoClaw sandbox $sandbox"
 # On a warm worker the default dashboard port can be occupied. NemoClaw then
 # selects the next available 1878x/1879x port; detect it once and leave the
 # result where headless_runner reads its runtime contract.
@@ -182,7 +153,7 @@ def create_bootstrap_task(
     (solution / "solve.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     tests = task_dir / "tests"
     tests.mkdir()
-    (tests / "test.sh").write_text(_health_check_script(skill), encoding="utf-8")
+    (tests / "test.sh").write_text(_health_check_script(), encoding="utf-8")
 
     build_skill = repo_root / "skills" / "vss-build-vision-ai"
     if not (build_skill / "SKILL.md").is_file():
