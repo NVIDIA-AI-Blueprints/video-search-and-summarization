@@ -10,7 +10,6 @@
     "dist/",
     "skills/",
     "skills-active/",
-    "skills.txt",
     "workspace/",
     "openclaw.plugin.json"
   ],

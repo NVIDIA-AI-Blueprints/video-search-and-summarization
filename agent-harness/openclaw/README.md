@@ -10,7 +10,7 @@ Everything VSS needs to run on OpenClaw, in one place:
 | Path | What it is |
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's published managed OpenClaw runtime (digest-pinned) + the `vss` CLI + this plugin, installed with `openclaw plugins install` |
-| `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts`, `stage-assets.sh`, `skills.txt` (the staged skill allowlist) |
+| `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts` (tool, workspace seeding), `src/sync.ts` (skill selection), `stage-assets.sh` |
 | `workspace/` | The OpenClaw workspace instruction files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `BOOTSTRAP.md`) and the `_nemoclaw/` overlay for the sandbox (`ENV.md`, host alias, proxy notes) |
 
 ## The plugin
@@ -22,9 +22,11 @@ the OpenClaw SDK:
   returns exit code, stdout and stderr. The agent drives the VSS backends
   through a typed tool call instead of a free-form shell.
 - **Skills, selected from the deployment** — the manifest points OpenClaw at
-  `skills-active/`; `skills/` holds everything shipped. `plugin/skills.txt` lists
-  the shipped skills with what each needs: a `vss` command group (`search`,
-  `summarize`, `vlm`) or `alerts`. At register time, and on demand via
+  `skills-active/`; `skills/` holds everything shipped. What is shipped, and what
+  each skill needs, comes from the skills themselves: a skill whose `SKILL.md`
+  frontmatter declares `metadata.vss-requires` (a `vss` command group such as
+  `search`, `summarize`, `vlm`, or `alerts`) is an operation skill and is staged.
+  At register time, and on demand via
   `vss-openclaw-sync`, `src/sync.ts` runs `vss configure check`, which reports
   the command groups the recorded deployment can serve (the CLI joins the routes
   it recorded, such as `lvs`, `rt_vlm`, `elasticsearch` + `rt_embed`, with what

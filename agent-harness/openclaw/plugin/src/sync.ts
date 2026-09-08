@@ -7,12 +7,14 @@
 // (skills-active/), so "active" means "copied into that directory". Everything
 // shipped stays in skills/; this only decides what the agent sees.
 //
-// Selection, per skills.txt (<skill> <needs>):
-//   needs = a vss command group  -> active when `vss configure check` lists the
-//                                   group as available (the CLI joins what the
-//                                   deployment exposes with what each group needs)
-//   needs = alerts               -> active when Alert Bridge answers at
-//                                   <base_url>/alert-bridge or <host>:9080
+// Each shipped skill declares what it needs in its own SKILL.md frontmatter,
+// `metadata.vss-requires`, as the vss CLI names it:
+//   a vss command group  -> active when `vss configure check` lists the group as
+//                           available (the CLI joins what the deployment exposes
+//                           with what each group needs)
+//   alerts               -> active when Alert Bridge answers at
+//                           <base_url>/alert-bridge or <host>:9080
+// Several may be listed, space-separated; all must hold.
 // No recorded deployment (vss configure never ran) -> everything active, so the
 // agent can still configure. --all forces that.
 //
@@ -25,23 +27,28 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type SkillSpec = { name: string; needs: string };
+export type SkillSpec = { name: string; needs: string[] };
 export type Selection = { active: string[]; inactive: Record<string, string>; reason: string };
 type Logger = { info: (m: string) => void; warn: (m: string) => void };
 
 const PROBE_TIMEOUT_MS = 5_000;
 const CLI_TIMEOUT_MS = 60_000;
 
+/** `metadata.vss-requires` from a SKILL.md frontmatter; empty when undeclared. */
+export function skillRequires(skillMd: string): string[] {
+  const text = readFileSync(skillMd, "utf8");
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!fm) return [];
+  const m = /^\s*vss-requires:\s*["']?([^"'\n]*)["']?\s*$/m.exec(fm[1]);
+  return m ? m[1].trim().split(/\s+/).filter(Boolean) : [];
+}
+
 export function readSkillSpecs(pluginDir: string): SkillSpec[] {
-  const text = readFileSync(join(pluginDir, "skills.txt"), "utf8");
-  const specs: SkillSpec[] = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/#.*/, "").trim();
-    if (!line) continue;
-    const [name, needs = ""] = line.split(/\s+/);
-    specs.push({ name, needs });
-  }
-  return specs;
+  const root = join(pluginDir, "skills");
+  return readdirSync(root)
+    .filter((name) => existsSync(join(root, name, "SKILL.md")))
+    .sort()
+    .map((name) => ({ name, needs: skillRequires(join(root, name, "SKILL.md")) }));
 }
 
 type Availability = { configured: boolean; available: Set<string>; baseUrl: string; error?: string };
@@ -103,13 +110,13 @@ export function select(specs: SkillSpec[], opts: { all?: boolean; vssBin?: strin
     const why = error ? `vss configure check failed (${error})` : "no deployment recorded by `vss configure`";
     return { active: specs.map((s) => s.name), inactive: {}, reason: `${why}; all shipped skills active` };
   }
-  const alerts = specs.some((s) => s.needs === "alerts") ? alertsAvailable(baseUrl) : false;
+  const alerts = specs.some((s) => s.needs.includes("alerts")) ? alertsAvailable(baseUrl) : false;
   const active: string[] = [];
   const inactive: Record<string, string> = {};
   for (const s of specs) {
-    const ok = s.needs === "" || s.needs === "alerts" ? (s.needs === "" || alerts) : available.has(s.needs);
-    if (ok) active.push(s.name);
-    else inactive[s.name] = s.needs === "alerts" ? "alert-bridge not reachable" : `vss command group '${s.needs}' unavailable`;
+    const missing = s.needs.filter((n) => (n === "alerts" ? !alerts : !available.has(n)));
+    if (missing.length === 0) active.push(s.name);
+    else inactive[s.name] = missing.map((n) => (n === "alerts" ? "alert-bridge not reachable" : `vss command group '${n}' unavailable`)).join("; ");
   }
   return { active, inactive, reason: `deployment ${baseUrl}: commands available = ${[...available].sort().join(", ") || "none"}` };
 }
@@ -125,7 +132,7 @@ export function apply(pluginDir: string, active: string[]): void {
   }
   for (const name of active) {
     const from = join(src, name);
-    if (!existsSync(from)) throw new Error(`skills.txt lists '${name}' but ${from} is missing`);
+    if (!existsSync(from)) throw new Error(`${from} is missing`);
     rmSync(join(dst, name), { recursive: true, force: true });
     cpSync(from, join(dst, name), { recursive: true });
   }

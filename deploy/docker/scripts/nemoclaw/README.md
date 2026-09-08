@@ -16,7 +16,8 @@ document is the equivalent command reference for running it by hand.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
   `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
   endpoint).
-- This repo checked out so the policy, skills, and workspace docs are available.
+- This repo checked out so the policy, the OpenClaw harness image definition
+  (`agent-harness/openclaw/`), skills, and workspace docs are available.
 
 ## Canonical flow
 
@@ -34,23 +35,35 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 # edited afterwards) — set it to the dashboard origin before onboarding.
 # <brev-link-domain>: apps.run.brev.nvidia.com on Skybridge instances,
 # brevlab.com on legacy ones (see orchestrator_mcp_helper.detect_brev_link_domain).
+# OpenClaw: the sandbox image is built from the repo's own Dockerfile
+# (NemoClaw's custom-image workflow, `--from`; the Dockerfile's directory is the
+# build context). It extends NemoClaw's managed OpenClaw runtime with the VSS
+# OpenClaw plugin — the `vss` CLI as a tool, the operation skills, and the
+# workspace docs — so steps 4 and 5 below are not needed for it.
 CHAT_UI_URL="https://18789-${BREV_ENV_ID}.<brev-link-domain>" \
-  nemoclaw onboard --non-interactive --agent "$RUNTIME"
+  nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
+    --from "$REPO/agent-harness/openclaw/Dockerfile"      # OpenClaw only; omit for hermes
 
 # 3. Apply the VSS sandbox policy (merges into the base OpenShell policy)
 nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
 
-# 4. Install VSS skills (one validated SKILL.md directory at a time)
+# 4. Install VSS skills — only for a harness whose image does not bake them
+#    (the OpenClaw image does: its plugin ships the operation skills and
+#    activates the ones the recorded deployment can serve; inside the sandbox
+#    `vss-openclaw-sync` re-selects after `vss configure`).
 for skill in "$REPO"/skills/*/ ; do
   [ -f "$skill/SKILL.md" ] && nemoclaw "$SB" skill install "$skill"
 done
 
-# 5. Push workspace bootstrap docs (base, then the _nemoclaw overlay)
+# 5. Push workspace bootstrap docs (base, then the _nemoclaw overlay) — again
+#    only when the image does not bake them; the OpenClaw plugin seeds these
+#    into the agent workspace on start. Upload a rendered ENV.md alone when
+#    VSS_PUBLIC_URL has to be filled in.
 # NOTE: the destination is a DIRECTORY (OpenShell mkdir + tar-extracts into it)
-for md in "$REPO"/.openclaw/workspace/*.md ; do
+for md in "$REPO"/agent-harness/openclaw/workspace/*.md ; do
   nemoclaw "$SB" upload "$md" /sandbox/.openclaw/workspace/
 done
-for md in "$REPO"/.openclaw/workspace/_nemoclaw/*.md ; do
+for md in "$REPO"/agent-harness/openclaw/workspace/_nemoclaw/*.md ; do
   nemoclaw "$SB" upload "$md" /sandbox/.openclaw/workspace/
 done
 

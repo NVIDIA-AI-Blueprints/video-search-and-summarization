@@ -62,13 +62,13 @@ COPY plugin/package.json plugin/package-lock.json plugin/tsconfig.json ./
 # The lockfile pins the openclaw devDependency; it has to be the base's version.
 RUN node -e 'const l=require("./package-lock.json"); const v=l.packages["node_modules/openclaw"].version; if (v!==process.argv[1]) { console.error(`plugin lockfile pins openclaw ${v}, base image carries ${process.argv[1]}`); process.exit(1); }' "$OPENCLAW_VERSION"
 RUN npm ci --ignore-scripts --no-audit --no-fund
-COPY plugin/openclaw.plugin.json plugin/stage-assets.sh plugin/skills.txt ./
+COPY plugin/openclaw.plugin.json plugin/stage-assets.sh ./
 COPY plugin/src/ ./src/
 RUN npm run build \
     && npm prune --omit=dev --omit=peer --ignore-scripts --no-audit --no-fund \
     && test ! -e node_modules/openclaw
-# Content assets: the operation skills listed in plugin/skills.txt (found by
-# name however the repo groups them) from the pinned checkout, and the OpenClaw
+# Content assets: the operation skills — every skill in the pinned checkout whose
+# SKILL.md frontmatter declares `vss-requires` — and the OpenClaw
 # workspace instructions from this directory, staged under the plugin root.
 # skills/ is the full set; the manifest points at skills-active/, which the
 # plugin fills from the deployment the vss CLI recorded (see plugin/src/sync.ts).
@@ -135,7 +135,6 @@ COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /op
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills-active/ /opt/vss-plugin/skills-active/
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills.txt /opt/vss-plugin/skills.txt
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/workspace/ /opt/vss-plugin/workspace/
 
 # Staged outside the managed extensions dir and installed (copied) into it, per

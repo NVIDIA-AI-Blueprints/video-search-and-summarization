@@ -8,8 +8,9 @@
 //   - the VSS skills (`skills/`, copied from the repo's skills/ tree at build),
 //     which OpenClaw loads from the plugin root. The skills teach the agent
 //     which vss subcommands to reach for; the tool is how it invokes them.
-// Two things happen at register time. Skills are selected: `skills.txt` maps each
-// shipped skill to the vss command group (or the alerts path) it needs, and
+// Two things happen at register time. Skills are selected: each shipped skill
+// declares the vss command group (or the alerts path) it needs in its SKILL.md
+// frontmatter (`metadata.vss-requires`), and
 // src/sync.ts asks `vss configure check` which groups the recorded deployment can
 // serve, then copies exactly those skills into skills-active/, the directory the
 // manifest points OpenClaw at. Unconfigured deployment: all shipped skills.

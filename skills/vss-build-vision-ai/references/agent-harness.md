@@ -216,8 +216,11 @@ with no way to drive it.
   it, which will strand the build's own models. Reconcile that against
   [`sizing.md`](sizing.md) before choosing it, not after.
 - **The checkout's own assets**: `assets/vss_nemoclaw_policy.yaml`, `skills/`,
-  and `.openclaw/workspace/`. The notebook resolves all three from
-  `VSS_REPO_DIR`.
+  and `agent-harness/openclaw/` (the sandbox `Dockerfile`, the VSS OpenClaw
+  plugin and the `workspace/` docs). The notebook resolves them from
+  `VSS_REPO_DIR`; for OpenClaw, onboard builds the sandbox image from that
+  Dockerfile (`--from`), so the skills and docs arrive baked rather than
+  installed. Do not build a sandbox image of your own for this.
 
 Preflight the selected provider's row below and no other — a credential check
 that fires for every build rejects the supported paths that need no key:
@@ -367,10 +370,13 @@ itself — work this skill has already done by the time the harness comes up.
 Add it as a second `--notebook` only when the user explicitly wants the agent to
 own the deployment lifecycle too.
 
-Because the notebook installs every `SKILL.md` under `skills/`, the sandbox receives
-this skill as well, and can compose further builds from chat. It operates the
-build it was given; it is not expected to manage the `_builds/` tree this run
-produced.
+The OpenClaw sandbox image ships only the **operation** skills — the ones whose
+`SKILL.md` declares `vss-requires` — and activates those the recorded deployment
+can serve (`vss-openclaw-sync` inside the sandbox re-selects after
+`vss configure`). It does **not** receive this skill: the sandbox operates the
+build it was given and is not expected to compose further builds or manage the
+`_builds/` tree this run produced. A Hermes sandbox, which installs every
+`SKILL.md` under `skills/`, does receive it.
 
 ## Verification
 
@@ -427,4 +433,4 @@ reports as a skill failure rather than a missing deployment.
 - `deploy/docker/scripts/run_setup_notebook.py`
 - `deploy/docker/scripts/nemoclaw/README.md`
 - `assets/vss_nemoclaw_policy.yaml`
-- `.openclaw/workspace/` (and its `_nemoclaw` overlay)
+- `agent-harness/openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)

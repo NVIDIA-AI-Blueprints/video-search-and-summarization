@@ -6,6 +6,10 @@ metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory) or "alerts"
+  # (Alert Bridge). The OpenClaw harness image ships and activates skills by it.
+  vss-requires: "vlm"
 ---
 
 # Ask a VSS video question

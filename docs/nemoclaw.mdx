@@ -11,7 +11,7 @@ Running VSS through NemoClaw turns a multi-service Docker Compose deployment int
 
 * **Natural-language operations.** Prompts like *"Deploy the VSS alerts profile in verification mode"* or *"Show me the logs from vss-alert-bridge"* are mapped to the right orchestrator tools in the right order, without manual `.env` editing or compose flag juggling.
 * **Guided host setup.** Two bundled Jupyter notebooks walk through the Brev/host prerequisites: credentials, Docker version pinning, NGC CLI setup, `nvcr.io` login, the VSS agent Python environment, and the host-side MCP server.
-* **Policy-controlled skills.** The setup applies NemoClaw's VSS policy specified in a yaml file, installs the repository's VSS skills, and uploads the NemoClaw workspace bootstrap docs into the sandbox.
+* **Policy-controlled skills.** The setup applies NemoClaw's VSS policy specified in a yaml file. For OpenClaw the sandbox image is built from the repository's `agent-harness/openclaw/Dockerfile`, which extends NemoClaw's managed OpenClaw runtime with the VSS OpenClaw plugin: the `vss` CLI as an agent tool, the operation skills (activated per deployment from what `vss configure` records), and the workspace bootstrap docs. Other harnesses get the skills and docs installed into the sandbox.
 * **Safe operations.** The agent asks before destructive actions such as `docker_down` and streams progress, logs, and errors back into chat so you can remediate without leaving the UI.
 
 ## How to run NemoClaw with VSS
