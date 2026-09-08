@@ -32,101 +32,85 @@ Each backend documents the deployment behaviour it was written against.
 
 from __future__ import annotations
 
-from .base import (
-    COMPLETE_TIMEOUT,
-    CONTENT_TYPES,
-    DEFAULT_UPLOAD_TIMESTAMP,
-    DEFAULT_VSS_ORIGIN_PORT,
-    REPO_ROOT,
-    SEARCH_TIMEOUT,
-    SUBMODULE_ROOT,
-    UPLOAD_TIMEOUT,
-    UPLOAD_URL_TIMEOUT,
-    VST_LIST_TIMEOUT,
-    IngestBackend,
-    QueryBackend,
-    configured_base_url,
-    default_vss_cmd,
-    ensure_vss_configured,
-    has_cli_package,
-    preflight_vss_cmd,
-    resolve_vss_cmd,
-    vss_origin_for,
-)
+from .base import COMPLETE_TIMEOUT
+from .base import CONTENT_TYPES
+from .base import DEFAULT_UPLOAD_TIMESTAMP
+from .base import DEFAULT_VSS_ORIGIN_PORT
+from .base import REPO_ROOT
+from .base import SEARCH_TIMEOUT
+from .base import SUBMODULE_ROOT
+from .base import UPLOAD_TIMEOUT
+from .base import UPLOAD_URL_TIMEOUT
+from .base import VST_LIST_TIMEOUT
+from .base import IngestBackend
+from .base import QueryBackend
+from .base import configured_base_url
+from .base import default_vss_cmd
+from .base import ensure_vss_configured
+from .base import has_cli_package
+from .base import preflight_vss_cmd
+from .base import resolve_vss_cmd
+from .base import vss_origin_for
+from .dataset import DATASETS
+from .dataset import DEFAULT_DATA_DIR
+from .dataset import DSS_DATASET_NAME
+from .dataset import aggregate_upload_stats
+from .dataset import download_from_dss
+from .dataset import llm_url_for
+from .dataset import load_dataset_file
+from .dataset import print_upload_summary
+from .dataset import sidecar_decompositions_for
+from .dataset import vst_url_for
 from .decompose import DecompositionError
 from .decompose import LiveDecomposer
 from .decompose import load_prompt as load_decomposition_prompt
-from .dataset import (
-    DATASETS,
-    DEFAULT_DATA_DIR,
-    DSS_DATASET_NAME,
-    aggregate_upload_stats,
-    download_from_dss,
-    load_dataset_file,
-    print_upload_summary,
-    llm_url_for,
-    sidecar_decompositions_for,
-    vst_url_for,
-)
-from .ingest import (
-    COMPLETE_ALREADY_REGISTERED,
-    COMPLETE_FATAL,
-    COMPLETE_RETRY,
-    AgentThreeStepIngest,
-    LegacyPutIngest,
-    classify_complete_failure,
-)
-from .metrics import (
-    HIT_K_VALUES,
-    SEGMENT_SIZE,
-    align_ts_to_segment,
-    evaluate_query,
-    format_inline,
-    match_segment,
-    parse_ts,
-    post_process_api_results,
-    video_name_matches,
-)
-from .normalize import (
-    VERIFICATION_ABSENT,
-    filter_rejected,
-    verdict_counts,
-    for_scoring,
-    has_verification,
-    normalize_result,
-    normalize_results,
-    verification_sources,
-)
-from .query import (
-    CLI_EXIT_MEANINGS,
-    CLI_FATAL_EXITS,
-    SEARCH_PATHS,
-    CliExitError,
-    CliQueryBackend,
-    is_fatal_exit,
-    parse_cli_output,
-)
-from .readiness import (
-    compare_inventory,
-    inventory_snapshot,
-    is_registered,
-    list_sensor_names,
-    list_sensor_streams,
-    name_variants,
-    sensor_list_url,
-    wait_for_sources,
-)
-from .routing import (
-    ATTRIBUTE,
-    EMBED,
-    FUSION,
-    OBJECT,
-    load_decompositions,
-    path_distribution,
-    plan_for,
-    route,
-    unpack_dataset,
-)
+from .ingest import COMPLETE_ALREADY_REGISTERED
+from .ingest import COMPLETE_FATAL
+from .ingest import COMPLETE_RETRY
+from .ingest import AgentThreeStepIngest
+from .ingest import LegacyPutIngest
+from .ingest import classify_complete_failure
+from .metrics import HIT_K_VALUES
+from .metrics import SEGMENT_SIZE
+from .metrics import align_ts_to_segment
+from .metrics import evaluate_query
+from .metrics import format_inline
+from .metrics import match_segment
+from .metrics import parse_ts
+from .metrics import post_process_api_results
+from .metrics import video_name_matches
+from .normalize import VERIFICATION_ABSENT
+from .normalize import filter_rejected
+from .normalize import for_scoring
+from .normalize import has_verification
+from .normalize import normalize_result
+from .normalize import normalize_results
+from .normalize import verdict_counts
+from .normalize import verification_sources
+from .query import CLI_EXIT_MEANINGS
+from .query import CLI_FATAL_EXITS
+from .query import SEARCH_PATHS
+from .query import CliExitError
+from .query import CliQueryBackend
+from .query import is_fatal_exit
+from .query import parse_cli_output
+from .readiness import compare_inventory
+from .readiness import inventory_snapshot
+from .readiness import is_registered
+from .readiness import list_sensor_names
+from .readiness import list_sensor_streams
+from .readiness import name_variants
+from .readiness import sensor_list_url
+from .readiness import wait_for_sources
+from .routing import ATTRIBUTE
+from .routing import EMBED
+from .routing import FUSION
+from .routing import OBJECT
+from .routing import load_decompositions
+from .routing import path_distribution
+from .routing import plan_for
+from .routing import route
+from .routing import unpack_dataset
 
 #: Ingest backends by ``--ingest-flow`` name.
 #:
@@ -171,9 +155,6 @@ __all__ = [
     "CONTENT_TYPES",
     "DATASETS",
     "DEFAULT_DATA_DIR",
-    "DecompositionError",
-    "LiveDecomposer",
-    "load_decomposition_prompt",
     "DEFAULT_UPLOAD_TIMESTAMP",
     "DEFAULT_VSS_ORIGIN_PORT",
     "DSS_DATASET_NAME",
@@ -195,8 +176,10 @@ __all__ = [
     "AgentThreeStepIngest",
     "CliExitError",
     "CliQueryBackend",
+    "DecompositionError",
     "IngestBackend",
     "LegacyPutIngest",
+    "LiveDecomposer",
     "QueryBackend",
     "aggregate_upload_stats",
     "align_ts_to_segment",
@@ -208,7 +191,6 @@ __all__ = [
     "ensure_vss_configured",
     "evaluate_query",
     "filter_rejected",
-    "verdict_counts",
     "for_scoring",
     "format_inline",
     "has_cli_package",
@@ -218,7 +200,9 @@ __all__ = [
     "is_registered",
     "list_sensor_names",
     "list_sensor_streams",
+    "llm_url_for",
     "load_dataset_file",
+    "load_decomposition_prompt",
     "load_decompositions",
     "match_segment",
     "name_variants",
@@ -234,12 +218,12 @@ __all__ = [
     "resolve_vss_cmd",
     "route",
     "sensor_list_url",
+    "sidecar_decompositions_for",
     "unpack_dataset",
+    "verdict_counts",
     "verification_sources",
     "video_name_matches",
     "vss_origin_for",
-    "llm_url_for",
-    "sidecar_decompositions_for",
     "vst_url_for",
     "wait_for_sources",
 ]
