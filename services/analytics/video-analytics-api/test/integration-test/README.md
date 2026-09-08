@@ -71,7 +71,7 @@ Generated in `docker_compose/infra/.env` by `generate_env.sh`:
 
 Exported by `scripts/run_integration_tests.sh` so the controller suites know which
 deployment profile they run against — the stack loads the warehouse 2D dump, so they
-default to that profile and profile-gated cases (such as the VLM verified alert types
+default to that profile and profile-gated cases (such as the VLM verification-coverage
 check on `/incidents`) run. Set them beforehand to exercise a different profile:
 
 - `COMPOSE_PROFILE` – `bp_wh_2d`

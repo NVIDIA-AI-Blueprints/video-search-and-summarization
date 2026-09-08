@@ -1549,7 +1549,7 @@ function run_data_log_cleanup() {
 }
 
 function state_down() {
-  local _deploy_dir_names _deploy_dir_name _deploy_dir _source_env _overrides_env _generated_env
+  local _deploy_dir_names _deploy_dir_name _deploy_dir _source_env _overrides_env _generated_env _deploy_rel
 
   _deploy_dir_names=('industry-profiles/warehouse-operations')
 
@@ -1565,6 +1565,7 @@ function state_down() {
     done
   fi
   _compose_project_name="${_compose_project_name:-vss}"
+  _deploy_rel="industry-profiles/warehouse-operations"
 
   echo "[INFO] Cleaning up generated.env files from warehouse..."
   for _deploy_dir_name in "${_deploy_dir_names[@]}"; do
@@ -1581,9 +1582,17 @@ function state_down() {
 
   echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
+    echo "[DRY-RUN] cd ${deployment_directory} && docker compose -p ${_compose_project_name} -f compose.yml --env-file containers.env --env-file ${_deploy_rel}/.env --env-file ${_deploy_rel}/overrides.env down -v --remove-orphans"
   else
-    docker compose -p "${_compose_project_name}" down -v --remove-orphans
+    (
+      cd "${deployment_directory}" && docker compose \
+        -p "${_compose_project_name}" \
+        -f compose.yml \
+        --env-file containers.env \
+        --env-file "${_deploy_rel}/.env" \
+        --env-file "${_deploy_rel}/overrides.env" \
+        down -v --remove-orphans
+    )
   fi
 
   echo "[INFO] Removing dangling docker volumes..."
@@ -1598,8 +1607,17 @@ function state_down() {
     fi
   fi
 
-  echo "[INFO] Cleaning VSS_DATA_DIR data_log (kafka, elastic, redis, vst, nvstreamer, vss_video_analytics_api, etc.)..."
-  run_data_log_cleanup
+  echo "[INFO] Cleaning VSS_DATA_DIR data_log with cleanup_all_datalog.sh..."
+  if [[ "${dry_run}" == "true" ]]; then
+    echo "[DRY-RUN] VSS_DATA_DIR=${data_directory} VSS_APPS_DIR=${deployment_directory} bash scripts/cleanup_all_datalog.sh -e ${_deploy_rel}/overrides.env"
+  else
+    (
+      cd "${deployment_directory}" && \
+        VSS_DATA_DIR="${data_directory}" \
+        VSS_APPS_DIR="${deployment_directory}" \
+        bash scripts/cleanup_all_datalog.sh -e "${_deploy_rel}/overrides.env"
+    )
+  fi
 
   echo "[INFO] State down completed"
 }
