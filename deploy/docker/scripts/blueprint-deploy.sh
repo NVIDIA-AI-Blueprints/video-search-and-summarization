@@ -108,29 +108,39 @@ function warehouse_num_streams() {
   echo "4"
 }
 
-# The built-in dataset names carry their own media-domain contract. Custom
-# datasets must state it explicitly rather than inheriting overrides.env's
-# profile default, which is synthetic.
+# Built-in dataset names own their media-domain contract. --dataset-type is
+# only for unknown custom datasets; it must not override a built-in mapping
+# (wrong Sparse4D model, anchors, labels, and thresholds).
 function warehouse_dataset_type() {
   local _dataset="${1}"
   local _explicit_type="${2:-}"
+  local _inferred=""
+
+  case "${_dataset}" in
+    nv-warehouse-4cams)
+      _inferred="real"
+      ;;
+    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
+      _inferred="synthetic"
+      ;;
+  esac
+
+  if [[ -n "${_inferred}" ]]; then
+    if [[ -n "${_explicit_type}" ]] && [[ "${_explicit_type}" != "${_inferred}" ]]; then
+      echo "[ERROR] --dataset-type ${_explicit_type} conflicts with built-in SAMPLE_VIDEO_DATASET=${_dataset} (DATASET_TYPE=${_inferred})" >&2
+      return 1
+    fi
+    echo "${_inferred}"
+    return 0
+  fi
+
   if [[ -n "${_explicit_type}" ]]; then
     echo "${_explicit_type}"
     return 0
   fi
 
-  case "${_dataset}" in
-    nv-warehouse-4cams)
-      echo "real"
-      ;;
-    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
-      echo "synthetic"
-      ;;
-    *)
-      echo "[ERROR] Cannot infer DATASET_TYPE for SAMPLE_VIDEO_DATASET=${_dataset}; pass --dataset-type real|synthetic" >&2
-      return 1
-      ;;
-  esac
+  echo "[ERROR] Cannot infer DATASET_TYPE for SAMPLE_VIDEO_DATASET=${_dataset}; pass --dataset-type real|synthetic" >&2
+  return 1
 }
 
 # COMPOSE_PROFILES selector: -p/-m (or --minimal/--playback) override generated.env;
@@ -477,7 +487,7 @@ function usage() {
   echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams)"
   echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
   echo "  --dataset-type real|synthetic   Required with an unknown custom --sample-video-dataset."
-  echo "                                   • Built-in datasets infer their type automatically."
+  echo "                                   • Built-in datasets infer their type automatically; --dataset-type cannot override them."
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
