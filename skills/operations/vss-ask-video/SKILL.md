@@ -25,13 +25,10 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 > - Build VIOS clip URLs by hand (e.g. `/vst/api/v1/storage/file/<id>/url`).
 >   `--sensor` resolves the sensor, recorded window and clip URL internally.
 > - `POST` to `http://<host>:8000/generate` or `/v1/summarize`.
-> - Read or reconstruct records from `~/.vss`, the Elasticsearch index, or any
->   other on-disk store. `vss memory get` and `vss memory query` are the readers.
-> - Inspect media yourself with `ffmpeg`, `ffprobe`, or a frame-extraction skill.
->   `vss vlm run` and introspection own every look at pixels.
 >
 > If a CLI operation fails, report the exit code. Do not retry by hand-rolling
-> the request or by using a globally installed `vss`.
+> the request or by using a globally installed `vss`. Do not separately inspect
+> media or call another verifier after the CLI returns.
 
 ## Prerequisites
 
@@ -117,13 +114,6 @@ Those exact routes remain:
 OpenClaw may execute every tool call in a fresh shell. Never depend on a shell
 function or array defined in an earlier call. Define and invoke the complete
 project-local command in the same shell call.
-
-Every `vss …` named in this document means that bootstrapped invocation, never a
-bare `vss` on `PATH`. This deployment installs no `vss` executable, so
-`vss: command not found` means the bootstrap was skipped rather than that the
-CLI is missing. Re-run the same command in the `uv run --project` form. Do not
-search the checkout for an executable, inspect `~/.vss`, or reconstruct the
-answer from a store.
 
 For a stored parent:
 
@@ -299,9 +289,6 @@ not substitute `vss vios clip` or raw HTTP. Cite the returned `job_id`, sensor,
 and window. Exit 6 means the answer exists but persistence failed; retain the
 answer and report that limitation.
 
-A returned CLI answer is the verification. Do not fetch the clip, extract frames,
-or re-check it locally afterwards; report the answer and its handles.
-
 ## Examples
 
 - **Hot conversation:** The previous turn says, "A forklift crossed the loading
@@ -311,7 +298,7 @@ or re-check it locally afterwards; report the answer and its handles.
 - **Markdown incomplete:** Retain its `job_id`, inspect known/configured state,
   then introspect by that job when enabled.
 - **Explicit stored parent:** "Show me the summary from job `sum-01JXYZ`." ->
-  skip Markdown and run the bootstrapped `vss memory get --job-id sum-01JXYZ`.
+  `vss memory get --job-id sum-01JXYZ`.
 - **Disabled introspection:** Search Markdown, then structured memory. Do not
   introspect, enable it, or escalate automatically to VLM.
 - **Exact fresh verification:** "Freshly verify whether the worker wore a hard
