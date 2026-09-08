@@ -2196,6 +2196,26 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# The shipped joint notification configs address RT-CV by a port that must agree
+# in three places: the webhook URL, RTVI_CV_PORT (container side of the ports
+# mapping), and http-port in the mounted DeepStream run config. Only the
+# checked-in artifacts are guarded here; a build that remaps the port forks the
+# joint file, as documented in the vios owner contract.
+_joint_cv_webhook="${REPO_ROOT}/deploy/docker/services/vios/configs/notification_config_search_alerts_2d_cv.json"
+_joint_vlm_webhook="${REPO_ROOT}/deploy/docker/services/vios/configs/notification_config_search_alerts_2d_vlm.json"
+_search_cv_port="$(sed -n 's/^RTVI_CV_PORT=//p' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" | tr -d "\"'" | tail -n1)"
+_search_ds_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-main-config.txt"
+if [[ -n "${_search_cv_port}" ]] \
+  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/add" "${_joint_cv_webhook}" \
+  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/add" "${_joint_vlm_webhook}" \
+  && grep -q "^http-port=${_search_cv_port}$" "${_search_ds_config}"; then
+  echo "PASS: joint notification configs, RTVI_CV_PORT, and DeepStream http-port agree on ${_search_cv_port}"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: joint notification config RT-CV port must match RTVI_CV_PORT and DeepStream http-port"
+  ((TESTS_FAILED++)) || true
+fi
+
 # Alert Bridge must render the always-on rules config so its model follows the
 # deployment-selected VLM_NAME instead of a hardcoded model id.
 _alert_compose="${REPO_ROOT}/deploy/docker/services/alert/compose.yml"
@@ -2658,6 +2678,107 @@ if [[ -f "${_warehouse_project_overrides}" ]]; then
   rm -f "${out_file}" "${err_file}"
 else
   echo "SKIP: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME (warehouse overrides.env not found)"
+fi
+
+# --- Runtime webhook fan-out (opt-in) ---
+# First runtime assertion for the VIOS webhook fan-out: register one RTSP
+# source and confirm the mounted notification config delivers it to RT-CV.
+# The suites above are static/dry-run; this section needs a live deployment
+# and is skipped unless the caller provides all three inputs:
+#   VSS_TEST_VST_API_BASE   e.g. http://localhost:30888/vst/api/v1
+#   VSS_TEST_RTSP_URL       a live RTSP URL reachable from the VIOS containers
+#   VSS_TEST_RTVI_CV_URL    e.g. http://localhost:9000
+if [[ -n "${VSS_TEST_VST_API_BASE:-}" && -n "${VSS_TEST_RTSP_URL:-}" && -n "${VSS_TEST_RTVI_CV_URL:-}" ]]; then
+  # Both halves of the config are asserted: camera_streaming must add the stream
+  # to RT-CV, and camera_remove must take it back out. The poll bound is computed
+  # from the mounted config's RT-CV receiver rather than quoted:
+  # max_attempts x timeout_ms + backoff_ms clamped to its last element.
+  _wh_cfg="$(docker inspect vss-vios-sensor --format '{{range .Mounts}}{{if eq .Destination "/home/vst/vst_release/configs/notification_config.json"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)"
+  _wh_receiver=""
+  if [[ -n "${_wh_cfg}" && -f "${_wh_cfg}" ]]; then
+    # Prints "<bound-seconds> <receiver-port>" for the RT-CV camera_streaming entry.
+    _wh_receiver="$(python3 - "${_wh_cfg}" <<'EOF' || true
+import json, sys
+from urllib.parse import urlparse
+
+cfg = json.load(open(sys.argv[1]))
+if not cfg.get("webhooks", {}).get("enabled"):
+    sys.exit(1)
+for item in cfg["webhooks"].get("items", []):
+    if not item.get("enabled") or item.get("camera_status_change") != "camera_streaming":
+        continue
+    for req in item.get("request", []):
+        url = req.get("url", "")
+        if "/api/v1/stream/add" not in url:
+            continue
+        retry = req.get("retry", {})
+        attempts = max(int(retry.get("max_attempts", 1)), 1)
+        backoff = [int(b) for b in retry.get("backoff_ms", [])]
+        total_ms = attempts * int(req.get("timeout_ms", 0))
+        for i in range(attempts - 1):
+            total_ms += backoff[min(i, len(backoff) - 1)] if backoff else 0
+        print(max(total_ms // 1000, 1), urlparse(url).port or 80)
+        sys.exit(0)
+sys.exit(1)
+EOF
+)"
+  fi
+  _wh_bound="${_wh_receiver%% *}"
+  _wh_port="${_wh_receiver##* }"
+  _wh_probe_port="$(python3 -c 'import sys;from urllib.parse import urlparse;print(urlparse(sys.argv[1]).port or 80)' "${VSS_TEST_RTVI_CV_URL}" 2>/dev/null || true)"
+  if [[ -z "${_wh_receiver}" ]]; then
+    echo "SKIP: runtime webhook fan-out (no enabled RT-CV camera_streaming receiver in the mounted notification config)"
+  elif [[ "${_wh_port}" != "${_wh_probe_port}" ]]; then
+    # Fail fast instead of burning the whole bound on a receiver we are not watching.
+    echo "SKIP: runtime webhook fan-out (VSS_TEST_RTVI_CV_URL port ${_wh_probe_port} is not the config's RT-CV receiver port ${_wh_port})"
+  else
+    _wh_sensor_id=""
+    _wh_sensor_id="$(curl -sf -X POST "${VSS_TEST_VST_API_BASE%/}/sensor/add" \
+      -H 'Content-Type: application/json' \
+      -d "{\"sensorUrl\":\"${VSS_TEST_RTSP_URL}\",\"name\":\"webhook-fanout-test\",\"username\":\"\",\"password\":\"\"}" \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sensorId",""))' 2>/dev/null || true)"
+    if [[ -z "${_wh_sensor_id}" ]]; then
+      echo "FAIL: runtime webhook fan-out (VIOS sensor/add returned no sensorId)"
+      ((TESTS_FAILED++)) || true
+    else
+      # Returns 0 once RT-CV's stream list matches the wanted presence state.
+      function await_rtvi_cv_stream() {
+        local _want_present="${1}" _deadline=$(( $(date +%s) + _wh_bound ))
+        while :; do
+          if curl -sf "${VSS_TEST_RTVI_CV_URL%/}/api/v1/stream/get-stream-info" 2>/dev/null \
+            | grep -q "${_wh_sensor_id}"; then
+            [[ "${_want_present}" == "present" ]] && return 0
+          else
+            [[ "${_want_present}" == "absent" ]] && return 0
+          fi
+          [[ $(date +%s) -ge ${_deadline} ]] && return 1
+          sleep 10
+        done
+      }
+      if await_rtvi_cv_stream present; then
+        echo "PASS: camera_streaming webhook delivered the registered source to RT-CV within ${_wh_bound}s"
+        ((TESTS_PASSED++)) || true
+      else
+        echo "FAIL: camera_streaming webhook did not deliver the registered source to RT-CV within ${_wh_bound}s"
+        ((TESTS_FAILED++)) || true
+      fi
+      if curl -sf -X DELETE "${VSS_TEST_VST_API_BASE%/}/sensor/${_wh_sensor_id}" >/dev/null 2>&1; then
+        if await_rtvi_cv_stream absent; then
+          echo "PASS: camera_remove webhook withdrew the source from RT-CV within ${_wh_bound}s"
+          ((TESTS_PASSED++)) || true
+        else
+          echo "FAIL: camera_remove webhook left the source registered on RT-CV after ${_wh_bound}s"
+          ((TESTS_FAILED++)) || true
+        fi
+      else
+        # Leaves a live sensor behind, so say so rather than exiting quietly.
+        echo "FAIL: runtime webhook fan-out (VIOS sensor delete failed; sensor ${_wh_sensor_id} still registered)"
+        ((TESTS_FAILED++)) || true
+      fi
+    fi
+  fi
+else
+  echo "SKIP: runtime webhook fan-out (set VSS_TEST_VST_API_BASE, VSS_TEST_RTSP_URL, VSS_TEST_RTVI_CV_URL to enable)"
 fi
 
 # --- Summary ---
