@@ -77,16 +77,9 @@ export function buildDisplayStepTree(steps: ChatStep[]): ChatStep[] {
   const tree = buildStepTree(steps);
   const visible: ChatStep[] = [];
 
-  const appendDescendants = (nodes: ChatStep[]) => {
-    for (const node of nodes) {
-      visible.push({ ...node, children: [] });
-      appendDescendants(node.children ?? []);
-    }
-  };
-
   for (const node of tree) {
-    if (/^Function Start:\s*<workflow>$/i.test(node.name)) {
-      appendDescendants(node.children ?? []);
+    if (/^Function (?:Start|Complete):\s*<workflow>$/i.test(node.name)) {
+      visible.push(...(node.children ?? []));
     } else {
       visible.push(node);
     }

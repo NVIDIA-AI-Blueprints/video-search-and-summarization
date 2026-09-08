@@ -45,8 +45,18 @@ describe('buildStepTree', () => {
     ];
 
     const displayTree = buildDisplayStepTree(steps);
-    expect(displayTree.map((node) => node.name)).toEqual(['model', 'search_agent']);
+    expect(displayTree.map((node) => node.name)).toEqual(['model']);
+    expect(displayTree[0].children?.map((node) => node.name)).toEqual(['search_agent']);
     expect(countDisplaySteps(displayTree)).toBe(2);
+  });
+
+  it('also removes a completed synthetic workflow root', () => {
+    const steps = [
+      { ...step('workflow'), name: 'Function Complete: <workflow>' },
+      step('search_agent', 'workflow'),
+    ];
+
+    expect(buildDisplayStepTree(steps).map((node) => node.name)).toEqual(['search_agent']);
   });
 });
 

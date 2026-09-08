@@ -289,6 +289,26 @@ describe('ChatPanel', () => {
     expect(screen.getByText('vss-search-archive')).toBeInTheDocument();
   });
 
+  it('keeps workflow children visible when a start frame is replaced by completion', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        'intermediate_data: {"id":"workflow","name":"Function Start: <workflow>","parent_id":"root"}\n',
+        'intermediate_data: {"id":"model","name":"nvidia/model","parent_id":"workflow"}\n',
+        'intermediate_data: {"id":"workflow","name":"Function Complete: <workflow>","parent_id":"root","status":"complete"}\n',
+        'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('run'));
+
+    await waitFor(() => expect(screen.getByText(/Intermediate steps \(1\)/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/Intermediate steps \(1\)/));
+    expect(screen.getByText('nvidia/model')).toBeInTheDocument();
+    expect(screen.queryByText(/Function (?:Start|Complete): <workflow>/)).not.toBeInTheDocument();
+  });
+
   it('notifies the embedder when a turn starts and ends', async () => {
     global.fetch = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n'])) as any;
     const onBusyChange = jest.fn();

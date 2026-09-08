@@ -39,14 +39,23 @@ const textFromReactNode = (node: React.ReactNode): string =>
     .join('');
 
 /**
- * Older agent streams label every tool step simply "Tool Call", but put the
- * actual tool name at the start of the step body. Keep those traces useful
+ * Older agent streams use generic tool/sub-agent headings, but put the actual
+ * callable name at the start of the step body. Keep those traces useful
  * without requiring the backend to be upgraded in lockstep with the UI.
  */
 export const stepTitleWithToolName = (title: string | undefined, children: React.ReactNode): string | undefined => {
-  if (!title || !/(?:^| - )Tool Call$/i.test(title)) return title;
-  const tool = textFromReactNode(children).match(/^\s*Tool:\s*([^\r\n]+)/i)?.[1]?.trim();
-  return tool ? `${title}: ${tool}` : title;
+  if (!title) return title;
+
+  const stepType = title.match(/(?:^| - )(Tool Call|Sub-Agent Call)$/i)?.[1]?.toLowerCase();
+  if (!stepType) return title;
+
+  // Legacy markup normalizes body newlines to spaces, so match an identifier
+  // rather than reading to end-of-line and accidentally including Args/Result.
+  const prefix = stepType === 'tool call' ? 'Tool' : 'Calling sub-agent';
+  const callable = textFromReactNode(children).match(
+    new RegExp(`^\\s*${prefix}:\\s*([A-Za-z0-9_.:/-]+)`, 'i'),
+  )?.[1];
+  return callable ? `${title}: ${callable}` : title;
 };
 
 export const AgentThink: React.FC<ThinkProps> = ({

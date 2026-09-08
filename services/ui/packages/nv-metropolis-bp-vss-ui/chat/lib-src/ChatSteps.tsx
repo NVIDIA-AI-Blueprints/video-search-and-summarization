@@ -83,6 +83,7 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
   if (!steps.length) return null;
 
   const tree = buildDisplayStepTree(steps);
+  if (!tree.length) return null;
   const displayedStepCount = countDisplaySteps(tree);
 
   return (
