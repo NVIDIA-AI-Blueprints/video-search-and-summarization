@@ -58,15 +58,17 @@ Examples
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
+import contextlib
+from datetime import datetime
 import json
 import os
+from pathlib import Path
 import statistics
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -83,7 +85,7 @@ RESULTS_DIR = SCRIPT_DIR / "cli_eval_result"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import flows
+import flows  # noqa: E402  (imported after SCRIPT_DIR joins sys.path, above)
 
 # =============================================================================
 # Backend construction
@@ -375,7 +377,7 @@ def ingest_videos(
 # =============================================================================
 
 
-def run_evaluation(  # noqa: PLR0913
+def run_evaluation(
     query_backend: Any,
     data_dir: Path,
     dataset: str,
@@ -625,8 +627,10 @@ def _summarize(
     baselines from either script line up field for field.
     """
     n = len(results)
-    avg = lambda key: sum(r[key] for r in results) / n
-    avg_hit = lambda k: sum(r["hit_at_k"][k] for r in results) / n
+    def avg(key):
+        return sum(r[key] for r in results) / n
+    def avg_hit(k):
+        return sum(r["hit_at_k"][k] for r in results) / n
 
     summary: dict[str, Any] = {
         "dataset": dataset,
@@ -675,8 +679,10 @@ def _summarize(
     elif real_sources:
         summary["critic"] = {"verdicts": dict(verdicts), "status": "ok"}
     if real_sources:
-        favg = lambda key: sum(r["critic_filtered"][key] for r in results) / n
-        favg_hit = lambda k: sum(r["critic_filtered"]["hit_at_k"][k] for r in results) / n
+        def favg(key):
+            return sum(r["critic_filtered"][key] for r in results) / n
+        def favg_hit(k):
+            return sum(r["critic_filtered"]["hit_at_k"][k] for r in results) / n
         critic_filtered: dict[str, Any] = {
             "mAP": round(favg("average_precision"), 4),
             "MRR": round(favg("reciprocal_rank"), 4),
@@ -1157,12 +1163,10 @@ def main() -> None:
             # because a gold-routed run measures retrieval under perfect routing
             # and should not be mistaken for a live-routing eval.
             carried = 0
-            try:
+            with contextlib.suppress(Exception):
                 carried = len(flows.unpack_dataset(
                     flows.load_dataset_file(args.data_dir, args.dataset, args.subset)
                 )[1])
-            except Exception:
-                pass
             if carried:
                 decompose_fallback["fell_back_to"] = f"{carried} decomposition(s) carried by the dataset"
                 print(f"           the dataset carries {carried} decomposition(s) -- routing still per-query")
