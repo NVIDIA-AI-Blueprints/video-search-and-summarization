@@ -123,7 +123,7 @@ while `nvidia-vss-cli` declares the `vss` executable. Configure against the
 ingress origin, never `:38111` — that LVS container port exposes no
 Elasticsearch, so a deployment recorded from it cannot persist.
 
-The `vss-deploy-profile` skill can deploy the profile. A remote fallback VLM
+Deploying the profile is the operator's step, outside this skill. A remote fallback VLM
 must be able to fetch the clip URL; it generally cannot fetch localhost or
 private addresses.
 
@@ -199,19 +199,19 @@ not inspect the body.
 | LVS result | Action |
 |---|---|
 | HTTP 200 | Use LVS for every video duration. |
-| Anything else | Ask to deploy LVS or ask before using VLM fallback. |
+| Anything else | Report that LVS must be deployed, or ask before using VLM fallback. |
 
 If LVS is unavailable, ask:
 
 > The VSS `lvs` profile isn't reachable
-> (`${VSS_PUBLIC_URL:-$HOST_IP:38111}`). Shall I deploy it now using
-> `/vss-deploy-profile -p lvs`? Reply `no` to stop here; I can use the
-> lower-quality VLM-only fallback only if you explicitly ask for it.
+> (`${VSS_PUBLIC_URL:-$HOST_IP:38111}`). It has to be deployed before I can
+> summarize with LVS; I can use the lower-quality VLM-only fallback only if you
+> explicitly ask for it.
 
-- Deployment approved or pre-authorized: invoke `vss-deploy-profile`, re-probe,
-  and continue only after LVS returns 200.
-- Deployment declined: ask separately whether to use VLM fallback. Stop unless
-  the user approves it.
+- Once LVS is deployed (by the operator, outside this skill), re-probe and
+  continue only after LVS returns 200.
+- Otherwise: ask separately whether to use VLM fallback. Stop unless the user
+  approves it.
 - Fallback pre-authorized: use the fallback without another prompt.
 - Non-interactive run: the original task is the only approval source. If it
   pre-authorizes neither deployment nor fallback, report blocked and stop.
@@ -434,13 +434,12 @@ metrics, schemas, or 422 responses, use the API reference instead of the
 recorded-video workflow. `/lvs` is a Prefix mount, so everything LVS serves is
 public under it on Kubernetes — `/lvs/v1/ready`, `/lvs/v1/summarize`,
 `/lvs/models`, `/lvs/metrics` — where the previous Exact-path Ingress published
-only readiness and summarize. For deployment, restart, teardown, backend
-selection, or service logs, prefer `vss-deploy-profile` and use the deployment
-reference.
+only readiness and summarize. Deployment, restart, teardown, backend
+selection, and service logs are the operator's step, outside this skill; the
+deployment reference describes the service.
 
 ## Cross-reference
 
-- `vss-deploy-profile`: deploy the `lvs` profile.
 - `vss-manage-video-io-storage`: general VIOS administration outside this
   ordered workflow.
 - `vss-search-archive`: search archived video.

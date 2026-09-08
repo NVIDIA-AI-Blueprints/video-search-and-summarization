@@ -41,13 +41,13 @@ Requires the matching VSS profile/microservice deployed and reachable. NGC-hoste
 
 ## Troubleshooting
 
-- **Connection refused** → microservice not running: probe `/docs` or `/health`, redeploy via `vss-deploy-profile`.
+- **Connection refused** → microservice not running: probe `/docs` or `/health`; report it — bringing the deployment up or repairing it is the operator's step, outside this skill.
 - **HTTP 401/403 on NGC pulls** → missing/expired `NGC_CLI_API_KEY`: `docker login nvcr.io` and re-export the key.
 - **OOM / model load failure** → insufficient GPU memory: use a smaller variant or `docker compose down` to free GPUs.
 
 # VSS Alert Management
 
-The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p alerts -m {verification,real-time}`) — see **The Two Modes** table below. This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook), driving the **Alert Bridge REST API directly** (no VSS Agent `/generate`).
+The alerts profile runs in one of two modes (chosen at deployment time, `-p alerts -m {verification,real-time}`) — see **The Two Modes** table below. This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook), driving the **Alert Bridge REST API directly** (no VSS Agent `/generate`).
 
 ## When to Use
 
@@ -108,10 +108,10 @@ if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
 fi
 ```
 
-If the Alert Bridge probe fails, ask which mode to deploy and hand off to
-`/vss-deploy-profile -p alerts -m <mode>` (decline → stop; pre-authorized
-autonomous deploy → run directly with `verification` by default). If it
-passes, detect the mode per Step 1.
+If the Alert Bridge probe fails, the alerts profile is not deployed: report
+that, name the mode the request needs (`verification` or `real-time`), and stop.
+Deploying is the operator's step, outside this skill. If it passes, detect the
+mode per Step 1.
 
 ---
 
@@ -122,7 +122,7 @@ passes, detect the mode per Step 1.
 | **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). VIOS webhooks register streams with RT-CV. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
 | **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline. |
 
-**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
+**Switching modes** is a teardown + redeploy of the alerts profile with the other `-m` flag, done by the operator outside this skill. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
 
 **`RTVI_VLM_KAFKA_ENABLED` is mode-specific.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false` for verification (`2d_cv`), where nothing consumes RT-VLM's Kafka output and leaving it on makes RT-VLM publish duplicate incidents that Logstash indexes under `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) alerts depend on RT-VLM publishing to Kafka, so the line must be commented out in that mode — `dev-profile.sh` does this automatically for `-m real-time`. If a real-time deployment produces no alerts, check that this override is not still active in `generated.env`.
 
@@ -167,7 +167,7 @@ fi
 
 If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi-vlm`).
 If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
-If neither matches on Docker, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
+If neither matches on Docker, the alerts profile is not deployed — tell the user it has to be deployed (`-p alerts -m <mode>`) before this skill can proceed.
 
 Alternative Docker signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
 
@@ -197,7 +197,7 @@ fi
 | **CV** | one-shot "verify **this** clip/image" with a media URL, or the literal "on-demand" | **Workflow F (On-demand)** — `references/on-demand-verification.md` |
 | **CV** | static CV alert onboarding | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; VIOS webhook registers it with RT-CV |
 | **VLM** | verification results / verdict inspection, verifier-prompt config, or on-demand verification (CV-only capabilities) | *Explain-only* asks → answer from **Workflow B/F** background, no calls needed. *Execution* asks → VLM-mode refusal text below (redeploy hint `-m verification`) |
-| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `vss-deploy-profile -m verification` |
+| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — tell the user the alerts profile must be redeployed with `-m verification`; that is done outside this skill |
 | **any** | video summarization, highlight reels, reports, non-alert analytics | **Out of scope** — hand off to `vss-generate-video-report` / `vss-query-analytics` (Cross-Skill Links); do **not** answer it via incidents or rules, even when incidents are empty |
 
 **Always confirm before triggering a redeploy.** A mode switch stops all currently-running monitoring and restarts services.
@@ -234,7 +234,7 @@ If a prompt mixes workflows ("start monitoring and send to Slack"), ask one clar
 
 When the deployed mode is CV verification and the user asks for an alert-subscription, always-on, or Slack/notification intent, refuse with this message verbatim:
 
-> "Alert subscriptions, always-on operation, and Slack notifications are only supported in VLM real-time mode. Your current deployment is `<CV verification | not deployed>`. To use these features, redeploy with `/vss-deploy-profile -p alerts -m real-time` (note: switching tears down current CV monitoring)."
+> "Alert subscriptions, always-on operation, and Slack notifications are only supported in VLM real-time mode. Your current deployment is `<CV verification | not deployed>`. To use these features, redeploy the alerts profile with `-m real-time` (note: switching tears down current CV monitoring)."
 
 No auto-redeploy. The user decides whether to switch modes.
 
@@ -242,7 +242,7 @@ No auto-redeploy. The user decides whether to switch modes.
 
 Verification verdicts and on-demand verification exist only on a CV (verification) deployment. On VLM real-time, *explain-only* asks ("how does verification work?") are always answerable from Workflow B/F background — no calls, no refusal. For *execution* asks (inspect verdicts, customize verifier prompts, verify a clip on demand), reply with this message verbatim:
 
-> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with `/vss-deploy-profile -p alerts -m verification` (note: switching stops currently-running realtime monitoring)."
+> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy the alerts profile with `-m verification` (note: switching stops currently-running realtime monitoring)."
 
 No auto-redeploy here either.
 
@@ -592,7 +592,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 
 | Task | Skill |
 |---|---|
-| Deploy, redeploy, or switch alert mode | **`vss-deploy-profile`** — `-p alerts -m {verification,real-time}` |
+| Deploy, redeploy, or switch alert mode | the operator, outside this skill — `-p alerts -m {verification,real-time}` at deployment time |
 | Add an RTSP/IP camera, list sensors, snapshots, clips | **`vss-manage-video-io-storage`** (Section 6 for Add Sensor) |
 | Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** (VA-MCP :9901) |
 | Detailed incident report from an alert | **`vss-generate-video-report`** |
@@ -617,7 +617,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
   registration) per `references/always-on.md`.
 - **To describe how always-on is turned on or off**, say what applies to the
   deployment in front of you. On Docker it is a **deploy-mode choice** —
-  redeploy with `/vss-deploy-profile -p alerts -m real-time` (or
+  redeploy the alerts profile with `-m real-time` (or
   `-m verification` to turn it off); never hand-edit config and restart. On
   **Kubernetes the chart exposes no switch for it**: `services/alert/configs/config.yml`
   pins `always_on: false` as a literal, carrying an explicit "Helm keeps this
