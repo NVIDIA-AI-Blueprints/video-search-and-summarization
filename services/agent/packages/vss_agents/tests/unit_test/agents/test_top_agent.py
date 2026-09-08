@@ -27,6 +27,7 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
 import pytest
 
+from vss_agents.agents.data_models import AgentDecision
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
@@ -862,7 +863,7 @@ class TestRequestOptionsContext:
         assert "source_type" not in search_tool.received_input
 
     @pytest.mark.asyncio
-    async def test_tool_node_surfaces_tool_exception_as_final_answer(self, monkeypatch):
+    async def test_tool_node_records_a_tool_exception_without_ending_the_run(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         class FailingTool:
@@ -894,7 +895,38 @@ class TestRequestOptionsContext:
 
         result = await agent.tool_or_subagent_node(state)
 
-        assert result.final_answer == "Tool call failed: streamId not found for 'Camera_01'. Available: ['gwfix6']"
+        expected = "Tool call failed: streamId not found for 'Camera_01'. Available: ['gwfix6']"
+        assert result.tool_failure == expected
+        # Recorded, not answered: answering here ends the graph and drops the rest of the plan.
+        assert result.final_answer == ""
+        assert await agent._conditional_edge_from_tool(result) == AgentDecision.AGENT.value
+
+    @pytest.mark.asyncio
+    async def test_agent_node_relays_an_unrecovered_tool_failure(self, monkeypatch):
+        """The agent stopping after a raised tool must relay the failure, not answer from memory."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm_with_tools = MagicMock()
+        agent.plan_exec_prompt = None
+        agent.callbacks = []
+        agent.prompt = MagicMock()
+        agent.prompt.__or__.return_value = MagicMock(
+            ainvoke=AsyncMock(return_value=AIMessage(content="The available cameras are Camera_01 and Camera_02."))
+        )
+        failure = "Tool call failed: streamId not found for 'Camera_01'. Available: ['gwfix6']"
+        state = TopAgentState(
+            current_message=HumanMessage(content="What are the available sensor IDs?"),
+            options=AgentRequestOptions(),
+            tool_failure=failure,
+        )
+
+        result = await agent.agent_node(state)
+
+        assert result.final_answer == failure
+        assert "Camera_02" not in result.final_answer
 
     @pytest.mark.asyncio
     async def test_tool_node_omits_llm_rendered_null_sentinels(self, monkeypatch):
