@@ -44,7 +44,7 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572
 # `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
 # Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=2603435e1564e603ab673a0cffd7fe7c513c215f
+ARG VSS_REF=7f080d33ed5b3716a0954f2967bc536bb935c6a5
 
 # ── VSS source checkout ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
