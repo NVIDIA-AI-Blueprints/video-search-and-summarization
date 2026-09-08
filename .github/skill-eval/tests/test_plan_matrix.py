@@ -212,7 +212,7 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertNotIn(
             "openshell-rtxpro6000-active", plan_matrix.OPENSHELL_H200_LABELS
         )
-        self.assertIn("max-parallel: 26", workflow)
+        self.assertIn("max-parallel: 28", workflow)
 
     def test_openshell_matrix_routes_each_demand_once(self):
         os.environ["OPENSHELL_GPU_FLEET"] = "1"
@@ -237,7 +237,11 @@ class RealSpecCorpus(unittest.TestCase):
                 "blocked": 19,
                 "a40-1g": 12,
                 "a40-2g": 5,
-                "h200-1g": 2,
+                # 1-GPU base + lvs for both vss-deploy-profile and
+                # vss-deploy-profile-base-lvs.
+                "h200-1g": 4,
+                # vss-deploy-profile-base-lvs warehouse on 2-GPU H200.
+                "h200-2g": 1,
                 "rtxpro6000-2g": 12,
             },
         )
@@ -258,6 +262,10 @@ class RealSpecCorpus(unittest.TestCase):
                 self.assertIn("gpu-h200", leg["runs_on"])
                 self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
                 self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
+            elif leg["cohort"] == "h200-2g":
+                self.assertIn("openshell-h200-active", leg["runs_on"])
+                self.assertIn("gpus-2", leg["runs_on"])
+                self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
             else:
                 self.assertEqual(leg["cohort"], "rtxpro6000-2g")
                 self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
@@ -625,8 +633,12 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIn("gpu-nvidia-h200", h200)
         self.assertIn("gpus-1", h200)
         self.assertNotIn("gpu-rtxpro6000bw", h200)
+        h200_2g = plan_matrix.runs_on_labels("H200", {"gpu_count": 2})
+        self.assertIn("openshell-h200-active", h200_2g)
+        self.assertIn("gpus-2", h200_2g)
+        self.assertNotIn("gpus-1", h200_2g)
         self.assertEqual(
-            plan_matrix.runs_on_labels("H200", {"gpu_count": 2}),
+            plan_matrix.runs_on_labels("H200", {"gpu_count": 3}),
             list(plan_matrix.SKIP_RUNNER),
         )
 
@@ -638,12 +650,13 @@ class OpenshellGpuFleet(unittest.TestCase):
                 "a40-1g": 4,
                 "a40-2g": 2,
                 "h200-1g": 8,
+                "h200-2g": 2,
                 "rtxpro6000-2g": 4,
             },
         )
         self.assertEqual(
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
-            26,
+            28,
         )
 
     def test_capability_and_per_gpu_vram_boundaries(self):
@@ -680,6 +693,17 @@ class OpenshellGpuFleet(unittest.TestCase):
             )
             self.assertIsNone(error)
             self.assertEqual(cohort.name, "a40-2g")
+
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    gpu_count=2,
+                    min_vram=96,
+                    multi_gpu=True,
+                    profiles=("H200",),
+                )
+            )
+            self.assertIsNone(error)
+            self.assertEqual(cohort.name, "h200-2g")
 
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
@@ -759,8 +783,8 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 50)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 50)
+        self.assertEqual(len(legs), 53)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 53)
         counts = {
             cohort: sum(leg["cohort"] == cohort for leg in legs)
             for cohort in {leg["cohort"] for leg in legs}
@@ -771,7 +795,11 @@ class OpenshellGpuFleet(unittest.TestCase):
                 "blocked": 19,
                 "a40-1g": 12,
                 "a40-2g": 5,
-                "h200-1g": 2,
+                # 1-GPU base + lvs for both vss-deploy-profile and
+                # vss-deploy-profile-base-lvs.
+                "h200-1g": 4,
+                # vss-deploy-profile-base-lvs warehouse on 2-GPU H200.
+                "h200-2g": 1,
                 "rtxpro6000-2g": 12,
             },
         )

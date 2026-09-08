@@ -10,9 +10,10 @@ runtime. Specs declare `gpu_count` per platform; that's the only
 trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs
-    Platforms: H100, L40S, RTXPRO6000BW, H200, DGX-SPARK, IGX-THOR
-               (each spec declares which platforms it runs on)
+    Profiles : base, lvs, warehouse
+    Platforms: H100, L40S, RTXPRO6000BW, H200, A40, DGX-SPARK, IGX-THOR
+               (each spec declares which platforms it runs on; warehouse
+               is a dedicated two-GPU H200 job)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-profile-base-lvs/<profile>/<platform_short>/
@@ -146,6 +147,9 @@ PROFILES: dict[str, dict] = {
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
+    },
+    "warehouse": {
+        "description": "VSS warehouse blueprint — RT-DETR 2D (`bp_wh_2d`) with always-local RTVI VLM, agent, UI, behavior analytics, Kafka",
     },
 }
 

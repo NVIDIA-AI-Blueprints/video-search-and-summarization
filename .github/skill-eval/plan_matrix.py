@@ -223,8 +223,8 @@ class OpenShellCohort(NamedTuple):
 # Order is the placement preference: use the smallest explicitly-supported
 # cohort that satisfies every per-GPU capability. Capacity is runner capacity,
 # not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
-# H200 VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no NVENC; do not give it
-# RTX PRO 6000 labels.
+# H200 VMs, 2 two-GPU H200 VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no
+# NVENC; do not give it RTX PRO 6000 labels.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
         "a16-1g", "A16", "A16", 1, 15, 8,
@@ -241,6 +241,11 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
         "h200-1g", "H200", "H200", 1, 141, 8,
         (*OPENSHELL_H200_LABELS, "gpus-1"),
+        video_codec=False,
+    ),
+    OpenShellCohort(
+        "h200-2g", "H200", "H200", 2, 141, 2,
+        (*OPENSHELL_H200_LABELS, "gpus-2"),
         video_codec=False,
     ),
     OpenShellCohort(
@@ -325,9 +330,9 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
                 return list(SKIP_RUNNER)
             return [*OPENSHELL_A40_LABELS, f"gpus-{count}"]
         if platform == "H200":
-            if count != 1:
+            if count not in (1, 2):
                 return list(SKIP_RUNNER)
-            return [*OPENSHELL_H200_LABELS, "gpus-1"]
+            return [*OPENSHELL_H200_LABELS, f"gpus-{count}"]
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:
