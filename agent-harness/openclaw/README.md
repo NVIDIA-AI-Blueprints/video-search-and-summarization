@@ -25,7 +25,9 @@ the OpenClaw SDK:
   `skills-active/`; `skills/` holds everything shipped. What is shipped, and what
   each skill needs, comes from the skills themselves: a skill whose `SKILL.md`
   frontmatter declares `metadata.vss-requires` (a `vss` command group such as
-  `search`, `summarize`, `vlm`, or `alerts`) is an operation skill and is staged.
+  `search`, `summarize`, `vlm`; `alerts`; or `always` for a skill every
+  deployment gets, such as `vss-manage-video-io-storage`) is an operation skill
+  and is staged.
   At register time, and on demand via
   `vss-openclaw-sync`, `src/sync.ts` runs `vss configure check`, which reports
   the command groups the recorded deployment can serve (the CLI joins the routes
@@ -100,7 +102,7 @@ Pins are build args:
 | `OPENCLAW_VERSION` | `2026.7.1` | the OpenClaw the base carries; the build fails if the plugin lockfile pins a different one |
 | `VSS_REPO`, `VSS_REF` | this repo, a commit sha | the skills and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the plugin build stage (same as NemoClaw's) |
-| `UV_IMAGE` | `ghcr.io/astral-sh/uv:0.12.10` | uv, for the `vss` venv |
+| `UV_IMAGE` | `ghcr.io/astral-sh/uv@sha256:2bb3…` (0.12.10) | uv, for the `vss` venv |
 | `NEMOCLAW_TOOL_DISCLOSURE` | `progressive` | NemoClaw tool disclosure mode |
 
 Moving `BASE_IMAGE` to another NemoClaw release means moving `OPENCLAW_VERSION`

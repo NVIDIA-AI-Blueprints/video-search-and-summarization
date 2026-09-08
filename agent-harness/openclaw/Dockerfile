@@ -37,7 +37,8 @@ ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:25f400dee9bcd6b10
 ARG OPENCLAW_VERSION=2026.7.1
 # Same builder image NemoClaw's Dockerfile uses for its plugin stages.
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.10
+# uv 0.12.10, by index digest (multi-arch).
+ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 # Skills and the vss CLI: one pinned commit of this repo, so an eval can say
 # exactly which it measured. Must be a commit whose operation skills declare
 # `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).

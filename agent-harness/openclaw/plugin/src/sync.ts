@@ -14,6 +14,7 @@
 //                           with what each group needs)
 //   alerts               -> active when Alert Bridge answers at
 //                           <base_url>/alerts (the ingress path) or <host>:9080
+//   always               -> active on every deployment (VIOS ships with all of them)
 // Several may be listed, space-separated; all must hold.
 // No recorded deployment (vss configure never ran) -> everything active, so the
 // agent can still configure. --all forces that.
@@ -40,7 +41,7 @@ export function skillRequires(skillMd: string): string[] {
   const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!fm) return [];
   const m = /^\s*vss-requires:\s*["']?([^"'\n]*)["']?\s*$/m.exec(fm[1]);
-  return m ? m[1].trim().split(/\s+/).filter(Boolean) : [];
+  return m ? m[1].trim().split(/\s+/).filter((n) => n && n !== "always") : [];
 }
 
 export function readSkillSpecs(pluginDir: string): SkillSpec[] {
