@@ -721,6 +721,40 @@ class TestRequestOptionsContext:
         assert "3. Call `report_agent`" in result.plan
 
     @pytest.mark.asyncio
+    async def test_plan_node_replaces_a_prose_report_plan_with_a_report_step(self, monkeypatch):
+        """Prose without numbered steps is not a plan; appending under it leaves the prose in charge."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        report_tool = MagicMock()
+        report_tool.name = "report_agent"
+        report_tool.description = "Run report_agent."
+        agent.tools_dict["report_agent"] = report_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content=(
+                    "The user wants to generate reports for two uploaded videos. I need to first check the "
+                    "available media to confirm their types, then route to the appropriate tools."
+                )
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate reports for video honest1 and honest2."),
+            options=AgentRequestOptions(),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan.startswith("1. Call `report_agent`")
+        assert "route to the appropriate tools" not in result.plan
+        assert "single list" in result.plan
+
+    @pytest.mark.asyncio
     async def test_plan_node_keeps_camera_clarification_for_uploaded_video_report(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
