@@ -103,7 +103,7 @@ To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
-AMC relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
 </Note>
 
 ```bash
@@ -382,7 +382,7 @@ In the VST UI, metadata for live streams is read from Kafka or Redis, while meta
 <Note>
 **Auto-calibration GPU requirement**
 
-The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVENC). See the [AutoMagicCalib system requirements](/vss/system-components/calibration/auto-calibration/getting-started#system-requirements) before selecting `MODE=auto-calibration`.
+The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVENC). See the [Auto Calibration system requirements](/vss/system-components/calibration/auto-calibration/getting-started#system-requirements) before selecting `MODE=auto-calibration`.
 </Note>
 
 <a id="hardware-profile-configuration"></a>

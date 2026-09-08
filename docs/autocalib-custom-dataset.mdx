@@ -7,12 +7,12 @@ position: 3
 
 ## Assumptions
 
-AutoMagicCalib makes several assumptions about input data structure. Ensure that
+Auto Calibration makes several assumptions about input data structure. Ensure that
 these requirements are met before deploying the service or recording footage.
 
 ### Tracklet-Based Calibration: Input Video Requirements
 
-AutoMagicCalib (AMC) estimates camera parameters by detecting and tracking
+The tracklet-based AMC method estimates camera parameters by detecting and tracking
 **people** in the footage, then matching their trajectories (**tracklets**) across
 camera views. Calibration quality depends heavily on the input video content.
 
@@ -39,7 +39,7 @@ camera views. Calibration quality depends heavily on the input video content.
 **Resolution and format**
 
 - **Resolution**: **1920 × 1080**
-- **Format** (file upload): MP4. AMC does not support video formats that are not
+- **Format** (file upload): MP4. Auto Calibration does not support video formats that are not
   supported by DeepStream.
 
 **Multi-camera specifics**
@@ -66,7 +66,7 @@ detection, tracking, or tracklet matching. See [Troubleshooting](/vss/system-com
 
 ## Lens Distortion Output (`distortion.yaml`)
 
-AMC supports input videos with lens distortion. Distortion handling is a
+Auto Calibration supports input videos with lens distortion. Distortion handling is a
 dedicated **Step 4: Rectification** stage with Auto Rectification, Manual
 Rectification, or **Videos Are Rectified** paths. AMC and VGGT consume staged
 `rectified.mp4` and `rectified.jpg` files; they do not perform implicit
@@ -87,8 +87,8 @@ source videos as linear media and clears prior distortion caches.
 
 Rectified videos are not automatically substituted for original camera feeds.
 Exported calibration JSON and MV3DT ZIP files describe cameras in rectified
-(undistorted) image space. Downstream applications must either use AMC's
-generated rectified videos or apply the model-specific remapping below to raw
+(undistorted) image space. Downstream applications must either use Auto Calibration-generated
+rectified videos or apply the model-specific remapping below to raw
 frames. Do not assume that `cv2.undistort()` is valid for every model.
 
 **Output location**
@@ -106,7 +106,7 @@ When Auto Rectification estimates distortion, GeoCalib may write:
 
 ```yaml
 model: simple_divisional    # or simple_radial, radial
-k1: -1.2345678e-06          # AMC pixel-centered convention
+k1: -1.2345678e-06          # Auto Calibration pixel-centered convention
 k1_geocalib: -4.5678901e-03 # GeoCalib normalized-coordinate value
 focal_length: 1269.0
 source: geocalib
@@ -115,7 +115,7 @@ k2: ...                     # present only when model is radial
 
 ### Distortion model
 
-AMC supports:
+Auto Calibration supports:
 
 - `simple_divisional` — default
 - `simple_radial`
@@ -137,9 +137,9 @@ cx = width // 2
 cy = height // 2
 ```
 
-#### Reproducing AMC rectification
+#### Reproducing Auto Calibration rectification
 
-AMC computes model-specific destination-to-source maps and uses
+Auto Calibration computes model-specific destination-to-source maps and uses
 `cv2.remap()` only to resample the image. For each rectified output pixel
 `(x, y)`:
 
@@ -175,7 +175,7 @@ rectified = cv2.remap(
 ```
 
 `cv2.remap()` maps destination pixels to source pixels, so evaluate the
-equations on the rectified output grid. Prefer AMC-generated rectified video
+equations on the rectified output grid. Prefer Auto Calibration-generated rectified video
 directly; do not undistort it again. If processing raw video, read the model and
 all applicable coefficients from `distortion.yaml`, and do not pass
 `simple_divisional` coefficients to `cv2.undistort()`.
@@ -198,7 +198,7 @@ For a custom dataset, you should prepare the following items:
 
 **Video input (file upload or RTSP)**
 
-- **Formats** (file upload): MP4 . AutoMagicCalib does **not** support video formats that are not supported by DeepStream.
+- **Formats** (file upload): MP4. Auto Calibration does **not** support video formats that are not supported by DeepStream.
 - **Resolution**: **1920 × 1080** is required for uploaded videos (matches the workflow and evaluation pipeline)
 - **Camera count**: One video or stream for **single-camera** calibration; **two or more** for multi-camera
 - **Time synchronization**: All multi-camera videos or RTSP streams must cover the **same time window**—use one combined RTSP **Capture and add to project** for every stream, or upload clips that were recorded in sync. Staggered or later-added streams break calibration.
