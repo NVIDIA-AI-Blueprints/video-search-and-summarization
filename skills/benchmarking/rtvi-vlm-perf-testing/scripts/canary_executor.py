@@ -75,6 +75,10 @@ CLEANUP_LONG_TIMEOUT = 60
 CLEANUP_FINALIZE_GRACE = 30
 
 
+def _semantic_signature(label: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[A-Z0-9]+", label.upper()))
+
+
 def _nonempty(manifest: dict[str, Any], fields: set[str]) -> None:
     missing = sorted(key for key in fields if manifest.get(key) in (None, ""))
     if missing:
@@ -174,6 +178,9 @@ def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "semantic_media entries require a safe label, absolute path, and sha256"
                 )
+        signatures = [_semantic_signature(label) for label in semantic_media]
+        if len(set(signatures)) != len(signatures):
+            raise ValueError("semantic_media labels require distinct token signatures")
     qualification_only = manifest.get("qualification_only", False)
     if not isinstance(qualification_only, bool):
         raise TypeError("qualification_only must be a boolean")
@@ -384,9 +391,7 @@ def score_semantic_isolation(
     if samples < 1:
         raise ValueError("semantic isolation samples must be positive")
     failures = []
-    signatures = {
-        label: set(re.findall(r"[A-Z0-9]+", label.upper())) for label in expected
-    }
+    signatures = {label: _semantic_signature(label) for label in expected}
     for label in expected:
         captions = outputs.get(label) or []
         if len(captions) < samples:
@@ -400,7 +405,7 @@ def score_semantic_isolation(
             foreign = [
                 other
                 for other, signature in signatures.items()
-                if other != label and signature <= tokens
+                if other != label and signature <= tokens and not signature < wanted
             ]
             if not wanted <= tokens or foreign:
                 failures.append(f"{label}[{index}]={caption!r}")
