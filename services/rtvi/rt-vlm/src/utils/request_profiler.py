@@ -228,7 +228,15 @@ class RequestProfileExporter:
     def _export(self, job: ProfileExportJob) -> None:
         try:
             os.makedirs(job.output_dir, exist_ok=True)
-            samples = list(job.samples) if job.samples is not None else []
+            samples = (
+                [
+                    sample
+                    for sample in job.samples
+                    if job.sample_start_time <= sample.timestamp <= job.sample_end_time
+                ]
+                if job.samples is not None
+                else []
+            )
             paths = _profile_paths(job.output_dir, job.request_id)
             _write_nvdec_csv(paths["nvdec_csv"], samples, job.sample_start_time)
             _write_gpu_csv(paths["gpu_csv"], samples, job.sample_start_time)
