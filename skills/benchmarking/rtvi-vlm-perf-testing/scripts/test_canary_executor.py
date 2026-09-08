@@ -274,6 +274,34 @@ class CanaryExecutorTests(unittest.TestCase):
         resolved = canary_executor.resolve_manifest(manifest)
         self.assertTrue(resolved["semantic_isolation"])
 
+    def test_rejects_semantic_labels_with_identical_token_signatures(self):
+        manifest = valid_manifest()
+        manifest["semantic_isolation"] = True
+        manifest["plan"]["scenarios"][0]["concurrency_levels"] = [2]
+        manifest["plan"]["workload"]["source_identity_count"] = 2
+        manifest["semantic_media"] = {
+            "red-solid": {"path": "/fixtures/red-solid.jpg", "sha256": "1" * 64},
+            "solid-red": {"path": "/fixtures/solid-red.jpg", "sha256": "2" * 64},
+        }
+
+        with self.assertRaisesRegex(ValueError, "distinct token signatures"):
+            canary_executor.resolve_manifest(manifest)
+
+    def test_semantic_score_supports_nested_label_signatures(self):
+        passed = canary_executor.score_semantic_isolation(
+            {"red": ["RED"], "red-solid": ["RED SOLID"]},
+            samples=1,
+            expected=("red", "red-solid"),
+        )
+        self.assertEqual(passed["status"], "PASS")
+
+        with self.assertRaisesRegex(ValueError, "semantic isolation"):
+            canary_executor.score_semantic_isolation(
+                {"red": ["RED SOLID"], "red-solid": ["RED SOLID"]},
+                samples=1,
+                expected=("red", "red-solid"),
+            )
+
     def test_semantic_score_rejects_swapped_mixed_and_missing_outputs(self):
         passed = canary_executor.score_semantic_isolation(
             {"red": ["RED", "dominant color: red"], "blue": ["BLUE", "blue."]},
