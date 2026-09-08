@@ -463,6 +463,23 @@ class TestLiveStreamEndpoints:
         )
         assert response.status_code in [400, 422]
 
+    def test_add_live_stream_rejects_path_separator_in_id(self, test_client):
+        """Stream IDs must fit in the single-stream delete route."""
+        response = test_client.post(
+            f"{API_PREFIX}/streams/add",
+            json={
+                "streams": [
+                    {
+                        "id": "camera/01",
+                        "liveStreamUrl": "rtsp://example.com/stream",
+                        "description": "test",
+                    }
+                ]
+            },
+        )
+
+        assert response.status_code == 422
+
     def test_delete_live_stream_not_found(self, test_client):
         """Test deleting non-existent live stream"""
         fake_id = str(uuid.uuid4())

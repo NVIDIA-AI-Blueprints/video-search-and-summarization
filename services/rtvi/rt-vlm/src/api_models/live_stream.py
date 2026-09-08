@@ -42,6 +42,7 @@ from .common import (
 )
 
 LIVE_STREAM_URL_PATTERN = r"^rtsp://"
+STREAM_ID_PATTERN = r"^[^/\r\n]+$"
 # CV-compatible URL pattern: accepts rtsp://, file://, http://, https://.
 # Empty VIOS camera_add registration URLs are handled by the VIOS-specific pattern.
 CV_STREAM_URL_PATTERN = r"^(rtsp://|file://|https?://)"
@@ -143,7 +144,7 @@ class AddLiveStream(CommonBaseModel):
             "The identifier of the live stream. If not provided, a new ID will be generated."
         ),
         max_length=256,
-        pattern=ANY_CHAR_PATTERN,
+        pattern=STREAM_ID_PATTERN,
         examples=["camera-01"],
     )
     sensor_name: str = Field(
@@ -161,7 +162,7 @@ class AddLiveStreamResponse(CommonBaseModel):
     id: str = Field(
         description="The stream identifier, which can be referenced in the API endpoints.",
         max_length=256,
-        pattern=ANY_CHAR_PATTERN,
+        pattern=STREAM_ID_PATTERN,
     )
 
 
