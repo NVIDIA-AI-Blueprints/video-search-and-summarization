@@ -32,6 +32,11 @@ on:
         options:
           - claude-code
           - codex
+      direct_runner_dispatch:
+        description: "EXPERIMENTAL: route eval legs by spec-derived runner labels (requires fully prepared local-execution runners)."
+        required: false
+        default: false
+        type: boolean
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -138,7 +143,12 @@ jobs:
     name: ${{ matrix.name }}
     needs: [resolve_ref, plan]
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    # Scheduled runs and ordinary manual runs stay on the coordinator.
+    # matrix.runs_on is already an array after the plan output is parsed;
+    # explicitly round-trip it so both expression branches are label arrays.
+    # Do not enable until labeled runners execute trials locally rather than
+    # invoking run_leg.py's second-hop Brev dispatch.
+    runs-on: ${{ inputs.direct_runner_dispatch && fromJSON(toJSON(matrix.runs_on)) || fromJSON('["self-hosted","vss-skill-eval-runner"]') }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
