@@ -18,10 +18,9 @@ Agent `/generate` endpoint and does not call the RT-VLM microservice, so alert o
 behave the same whether or not the deployment carries the in-stack agent and its Web UI.
 
 <Note>
-Install the Skills into your coding agent first — see
-[Installing Skills](/vss/vision-agent/agent-skills#installing-skills) — and confirm the host
-meets the [Prerequisites](/vss/getting-started/prerequisites). For how each harness loads
-Skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
+Nothing here works against a host with no alerts profile running on it. If you are starting
+from scratch, [Deploy first](#deploy-first) is the four-step path to a deployment this Skill
+can drive.
 </Note>
 
 ## What this Skill does
@@ -38,7 +37,7 @@ non-alert analytics are out of scope — the Skill hands those to `vss-generate-
 or `vss-query-analytics` rather than answering them from alert rules or incidents. It also
 never deploys or redeploys the stack: bringing up the alerts profile, or switching its mode,
 belongs to the deployment Skills — `vss-build-vision-ai`, or `vss-deploy-profile` for a
-profile-level redeploy.
+profile-level redeploy. See [Deploy first](#deploy-first) for that path.
 
 ## The two alert modes
 
@@ -60,12 +59,54 @@ Switching modes is a teardown plus redeploy with the other flag, which stops all
 running monitoring. The Skill always asks for confirmation before triggering one, and never
 redeploys on its own.
 
-To deploy either mode, see [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts)
-or [Alert Verification](/vss/vision-agent/agent-workflows/alert-verification).
+## Deploy first
+
+This Skill operates a deployment; it does not create one. Starting from an empty host, these
+four steps get you to alerts you can query. Steps 1 and 2 are documented elsewhere and linked
+below rather than repeated here.
+
+1. **Install the Skills into your coding agent.** Follow
+   [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) and confirm the host
+   meets the [Prerequisites](/vss/getting-started/prerequisites). For how each harness loads
+   Skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
+
+2. **Deploy the alerts profile in the mode you need.** This belongs to a deployment Skill —
+   `vss-build-vision-ai`, or `vss-deploy-profile` for a profile-level redeploy — not to
+   `vss-manage-alerts`. Each mode has its own walkthrough, with the hardware requirements and
+   the full service list.
+
+   For real-time (VLM), see
+   [Deploy with Agent Skills](/vss/vision-agent/agent-workflows/real-time-alerts#with-agent-skills)
+   in the Real-Time Alerts workflow:
+
+   ```text title="Deploy in real-time mode"
+   Deploy the VSS alerts profile in real-time mode.
+   ```
+
+   For verification (CV), see
+   [Deploy with Agent Skills](/vss/vision-agent/agent-workflows/alert-verification#deploy-with-agent-skills)
+   in the Alert Verification workflow:
+
+   ```text title="Deploy in verification mode"
+   Deploy the VSS alerts verification profile.
+   ```
+
+3. **Register the sensor you want to watch.** Every alert prompt addresses a camera by name,
+   and none of them work until VIOS holds one — see
+   [Get a video and register the sensor](#get-a-video-and-register-the-sensor).
+
+4. **Create and retrieve alerts.** This is where `vss-manage-alerts` takes over; the prompts
+   are in [Sample prompts](#sample-prompts).
+
+Which prompts apply in step 4 follows from the mode you deployed in step 2 — rule create,
+list and stop in real-time mode, verdicts and on-demand verification in verification mode,
+incident queries in either. The table in [The two alert modes](#the-two-alert-modes) is the
+full split.
 
 ## Prerequisites
 
-- An **alerts** profile deployed in one of the two modes above.
+- An **alerts** profile deployed in one of the two modes above — see
+  [Deploy first](#deploy-first).
 - The Alert Microservice reachable from the agent host — `http://<HOST_IP>:9080` on Docker Compose, or
   `${VSS_PUBLIC_URL}/alert-bridge` on Kubernetes. The health path is `/health`, not
   `/api/v1/health`.
