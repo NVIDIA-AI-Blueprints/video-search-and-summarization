@@ -243,7 +243,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
       - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
-      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}}"
+      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:/run/rtvi-ipc}"
       - rtvi-hf-cache:/tmp/huggingface
       - rtvi-triton-model-repo:/tmp/triton_model_repo
 
@@ -277,8 +277,6 @@ services:
       RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
       RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
       RTVI_IPC_FRAME_COPY: "${RTVI_IPC_FRAME_COPY:-false}"
-      RTVI_IPC_SOCKET_DIR: "${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
-      RTVI_IPC_SOCKET_TEMPLATE: "${RTVI_IPC_SOCKET_TEMPLATE:-nvds_ipc_{camera_id}.sock}"
       ENABLE_OTEL_MONITORING: "${ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
       OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-}"
       OTEL_TRACES_EXPORTER: "${OTEL_TRACES_EXPORTER:-otlp}"
@@ -497,9 +495,7 @@ The API is available at `http://localhost:8000/docs`.
 | `RTVI_RTSP_RECONNECTION_WINDOW` | Duration to attempt reconnection after interruption before terminating the session (seconds) | `60.0` | No |
 | `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Max attempts for reconnection after interruption before terminating the session (no.) | `10` | No |
 | `RTVI_IPC_FRAME_COPY` | Enable decoded-frame IPC for live RTSP streams from a compatible co-located RTVI-CV producer. | `false` | No |
-| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at `RTVI_IPC_SOCKET_DIR` when set. | - | No |
-| `RTVI_IPC_SOCKET_DIR` | Container directory for decoded-frame IPC Unix sockets. | `/run/rtvi-ipc` | No |
-| `RTVI_IPC_SOCKET_TEMPLATE` | Socket filename template. Must include `{camera_id}`, `{sensor_id}`, or `{stream_id}`. | `nvds_ipc_{camera_id}.sock` | No |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at the fixed container path `/run/rtvi-ipc` when set. | - | No |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete upper bound (seconds) shared by the pre-delete setup wait and the pipeline drain of in-flight chunks. On timeout each stage logs a warning and proceeds. | `30` | No |
 
 #### OpenTelemetry / Monitoring
@@ -975,9 +971,10 @@ RTVI_IPC_SOCKET_HOST_DIR=/tmp
 
 The producer and consumer must run on the same host and GPU, share the producer
 socket directory, and receive matching stream events with the same `camera_id`.
-Compose mounts `RTVI_IPC_SOCKET_HOST_DIR` at `RTVI_IPC_SOCKET_DIR`; with the
-default `RTVI_IPC_SOCKET_DIR` (`/run/rtvi-ipc`) and `RTVI_IPC_SOCKET_TEMPLATE`
-(`nvds_ipc_{camera_id}.sock`), camera `camera-1` resolves to
+Compose mounts `RTVI_IPC_SOCKET_HOST_DIR` at the fixed container path
+`/run/rtvi-ipc`. RT-Embed always resolves sockets as
+`/run/rtvi-ipc/nvds_ipc_<identity>.sock` (the socket directory and filename
+convention are fixed, not configurable), so camera `camera-1` resolves to
 `/run/rtvi-ipc/nvds_ipc_camera-1.sock` inside RT-Embed and to
 `/tmp/nvds_ipc_camera-1.sock` on the host.
 
@@ -985,9 +982,9 @@ Typical sequence:
 
 1. Start RTVI-CV with `[source-attr-all] ipc-frame-copy=1` so it creates the
    `nvds_ipc_<camera_id>.sock` producer socket.
-2. Start RTVI Embed with `RTVI_IPC_FRAME_COPY=true`, the matching
-   `RTVI_IPC_SOCKET_TEMPLATE`, and the same socket directory mounted at
-   `RTVI_IPC_SOCKET_DIR`.
+2. Start RTVI Embed with `RTVI_IPC_FRAME_COPY=true` and the producer's socket
+   directory set as `RTVI_IPC_SOCKET_HOST_DIR` (Compose mounts it at the fixed
+   `/run/rtvi-ipc` path, where Embed expects `nvds_ipc_<camera_id>.sock`).
 3. Send the same SDR/VIOS `camera_status_change` event to RTVI-CV and RTVI
    Embed, using the same `camera_id` and RTSP `camera_url`.
 4. Include `event.metadata.model`, `chunk_duration`, and optional
