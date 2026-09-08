@@ -35,6 +35,60 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
+def gpu_device_ids() -> tuple[list[str], list[str]]:
+    """Return the GPU indices and every device id ``nvidia-smi -L`` reports here.
+
+    The second list is what a device-id setting is allowed to name: the indices
+    plus every GPU and MIG UUID, because the VSS ``*_DEVICE_ID`` variables and
+    ``nemoclaw onboard --vllm-gpu-device`` each accept either form.
+
+    Raises:
+        RuntimeError: if ``nvidia-smi`` is missing, fails, or lists no GPU — the
+            device ids cannot be checked at all in those cases, and silently
+            skipping the check would defer the failure to a container start.
+    """
+    if shutil.which("nvidia-smi") is None:
+        raise RuntimeError("nvidia-smi is not installed, so the GPU device ids cannot be checked.")
+    result = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"`nvidia-smi -L` failed with exit code {result.returncode}, so the GPU device ids "
+            f"cannot be checked:\n{(result.stderr or result.stdout).strip() or '(no output)'}"
+        )
+    indices = re.findall(r"^GPU (\d+):", result.stdout, re.MULTILINE)
+    if not indices:
+        raise RuntimeError(f"`nvidia-smi -L` listed no GPUs on this host:\n{result.stdout.strip() or '(no output)'}")
+    return indices, indices + re.findall(r"\(UUID: ([^)]+)\)", result.stdout)
+
+
+def require_gpu_device(
+    label: str,
+    device_id: str,
+    *,
+    remedy: str,
+    known_device_ids: list[str] | None = None,
+) -> None:
+    """Raise unless *device_id* names a GPU on this host. A blank value is accepted.
+
+    Args:
+        label: Setting name to quote in the error (e.g. ``LLM_DEVICE_ID``).
+        device_id: Index or GPU/MIG UUID to check. Blank means the caller left the
+            default to whatever consumes the setting, so there is nothing to check.
+        remedy: Sentence appended to the error telling the reader where to fix it.
+        known_device_ids: Second element of a previous :func:`gpu_device_ids` call,
+            to check several settings without re-running ``nvidia-smi`` per setting.
+
+    Raises:
+        RuntimeError: if *device_id* matches no GPU, or if the host inventory
+            cannot be read (see :func:`gpu_device_ids`).
+    """
+    if not device_id:
+        return
+    device_ids = gpu_device_ids()[1] if known_device_ids is None else known_device_ids
+    if device_id not in device_ids:
+        raise RuntimeError(f"{label}={device_id} matches no GPU on this host: {', '.join(device_ids)}. {remedy}")
+
+
 def resolve_openshell_gateway_container(sandbox_name: str) -> str | None:
     """Return the running OpenShell sandbox container name for *sandbox_name*.
 
