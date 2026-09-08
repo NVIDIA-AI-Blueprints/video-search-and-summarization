@@ -235,7 +235,11 @@ class DeleteLiveStreamsResponse(CommonBaseModel):
 class LiveStreamInfo(CommonBaseModel):
     """Live Stream Information."""
 
-    id: UUID = Field(description="Unique identifier for the live stream")
+    id: str = Field(
+        description="Unique identifier for the live stream",
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+    )
     liveStreamUrl: str = Field(
         description="Live stream RTSP URL",
         max_length=256,

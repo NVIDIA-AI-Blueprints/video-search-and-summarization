@@ -71,7 +71,7 @@ class FileInfo(CommonBaseModel):
             "If provided, this offsets the frame times in the response. "
             "If not provided, the frame times will be relative to the start of the file."
         ),
-        min_length=24,
+        min_length=20,
         max_length=24,
         examples=["2024-06-09T18:32:11.123Z"],
         pattern=TIMESTAMP_PATTERN,

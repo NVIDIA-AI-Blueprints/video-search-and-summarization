@@ -127,11 +127,13 @@ function_groups:
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             # Unified alerts value, matching dev-profile.sh
-            # get_rtvi_vllm_gpu_memory_utilization (DGX-SPARK local_shared -> 0.4).
+            # get_rtvi_vllm_gpu_memory_utilization (DGX-SPARK alerts -> 0.35;
+            # the 0.4 local_shared value it uses elsewhere leaves too little of
+            # Spark's 128 GB unified pool once the LLM and RT-CV are resident).
             # The old per-mode 0.25/0.3 split was #477 bring-up tuning with no
             # counterpart in the bash flow.
             alerts:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
           IGX-THOR:
             VLM_NAME_SLUG: none
             VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final

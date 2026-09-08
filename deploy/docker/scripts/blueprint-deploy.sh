@@ -14,6 +14,7 @@ bp_profile=""
 compose_profiles_selector=""
 compose_variant=""
 sample_video_dataset=""
+dataset_type=""
 elasticsearch_mode="cpu"
 deployment_directory="${deploy_docker_dir}"
 data_directory="${deploy_docker_dir}/data-dir"
@@ -92,31 +93,54 @@ function warehouse_default_bp_profile() {
 }
 
 function warehouse_sample_video_dataset() {
-  local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
-    echo "warehouse-loading-dock-3cams-synthetic"
-  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
-    echo "warehouse-4cams-20mx20m-synthetic"
-  elif [[ "${_profile}" == "bp_wh" ]]; then
+  if [[ "${_profile}" == "bp_wh" ]]; then
     echo "nv-warehouse-4cams"
   else
-    echo "warehouse-loading-dock-3cams-synthetic"
+    echo "warehouse-4cams-20mx20m-synthetic"
   fi
 }
 
 function warehouse_num_streams() {
-  local _mode="${1}"
-  local _profile="${2}"
-  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
-    echo "3"
-  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
-    echo "4"
-  elif [[ "${_profile}" == "bp_wh" ]]; then
-    echo "4"
-  else
-    echo "3"
+  # All supported warehouse fixtures now use four cameras. Keep this helper
+  # separate from dataset selection so the generated configuration remains
+  # explicit about its batch and synchronized-playback size.
+  echo "4"
+}
+
+# Built-in dataset names own their media-domain contract. --dataset-type is
+# only for unknown custom datasets; it must not override a built-in mapping
+# (wrong Sparse4D model, anchors, labels, and thresholds).
+function warehouse_dataset_type() {
+  local _dataset="${1}"
+  local _explicit_type="${2:-}"
+  local _inferred=""
+
+  case "${_dataset}" in
+    nv-warehouse-4cams)
+      _inferred="real"
+      ;;
+    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
+      _inferred="synthetic"
+      ;;
+  esac
+
+  if [[ -n "${_inferred}" ]]; then
+    if [[ -n "${_explicit_type}" ]] && [[ "${_explicit_type}" != "${_inferred}" ]]; then
+      echo "[ERROR] --dataset-type ${_explicit_type} conflicts with built-in SAMPLE_VIDEO_DATASET=${_dataset} (DATASET_TYPE=${_inferred})" >&2
+      return 1
+    fi
+    echo "${_inferred}"
+    return 0
   fi
+
+  if [[ -n "${_explicit_type}" ]]; then
+    echo "${_explicit_type}"
+    return 0
+  fi
+
+  echo "[ERROR] Cannot infer DATASET_TYPE for SAMPLE_VIDEO_DATASET=${_dataset}; pass --dataset-type real|synthetic" >&2
+  return 1
 }
 
 # COMPOSE_PROFILES selector: -p/-m (or --minimal/--playback) override generated.env;
@@ -461,10 +485,12 @@ function usage() {
   echo "                                   • Default: cpu"
   echo "  -s, --sample-video-dataset      [Warehouse only] Override sample video dataset."
   echo "                                   • Default by MODE/BP_PROFILE (or COMPOSE_PROFILES in overrides.env):"
-  echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams)"
-  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams, real)"
+  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
   echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams)"
-  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
+  echo "  --dataset-type real|synthetic   Required with an unknown custom --sample-video-dataset."
+  echo "                                   • Built-in datasets infer their type automatically; --dataset-type cannot override them."
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
@@ -523,7 +549,7 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,dataset-type:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -665,7 +691,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,dataset-type:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -789,6 +815,12 @@ function process_args() {
         shift
         sample_video_dataset="${1}"
         options_provided+=("sample-video-dataset")
+        shift
+        ;;
+      --dataset-type)
+        shift
+        dataset_type="${1}"
+        options_provided+=("dataset-type")
         shift
         ;;
       -E | --elasticsearch-mode | --es)
@@ -1046,6 +1078,16 @@ function process_args() {
       fi
     fi
 
+    if [[ -n "${dataset_type}" ]] && ! contains_element "${dataset_type}" "real" "synthetic"; then
+      echo "[ERROR] Invalid --dataset-type: ${dataset_type}. Must be real or synthetic"
+      ((_all_good++))
+    fi
+    if [[ "${desired_state}" == "up" ]] && [[ "${deployment}" == "warehouse" ]] && [[ -n "${sample_video_dataset}" ]]; then
+      if ! warehouse_dataset_type "${sample_video_dataset}" "${dataset_type}" >/dev/null; then
+        ((_all_good++))
+      fi
+    fi
+
     if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
       if contains_element "use-remote-llm" "${options_provided[@]}" && [[ -z "${LLM_ENDPOINT_URL:-}" ]]; then
         echo "[ERROR] LLM_ENDPOINT_URL must be set when --use-remote-llm is passed"
@@ -1108,6 +1150,9 @@ function print_args() {
     echo "elasticsearch-mode:       ${elasticsearch_mode}"
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${sample_video_dataset}" ]]; then
       echo "sample-video-dataset:      ${sample_video_dataset}"
+    fi
+    if [[ "${deployment}" == "warehouse" ]] && [[ -n "${dataset_type}" ]]; then
+      echo "dataset-type:              ${dataset_type}"
     fi
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
       echo "hardware-profile:          ${hardware_profile}"
@@ -1349,8 +1394,10 @@ function state_up() {
     else
       set_env_var "STREAM_TYPE" "kafka"
     fi
-    # SAMPLE_VIDEO_DATASET and NUM_STREAMS per mode+profile (see warehouse .env comments)
-    local _sample_dataset _num_streams
+    # SAMPLE_VIDEO_DATASET, NUM_STREAMS, and DATASET_TYPE per mode/profile.
+    # Custom datasets require --dataset-type; never inherit overrides.env's
+    # shipped synthetic default.
+    local _sample_dataset _num_streams _dataset_type
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
@@ -1359,8 +1406,10 @@ function state_up() {
       _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
       _num_streams="$(warehouse_num_streams "${mode}" "${bp_profile}")"
     fi
+    _dataset_type="$(warehouse_dataset_type "${_sample_dataset}" "${dataset_type}")"
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
+    set_env_var "DATASET_TYPE" "${_dataset_type}"
 
     # -p/-m select the compose list; copy of overrides.env is rewritten here.
     if [[ -z "${compose_profiles_selector}" ]]; then
