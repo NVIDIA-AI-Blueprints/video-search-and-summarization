@@ -30,6 +30,7 @@ const mockResponse = (): MockResponse => {
     response.body = body;
     return response;
   });
+  response.end = jest.fn(() => response);
   return response;
 };
 
@@ -74,4 +75,35 @@ describe("toolkit-free chat proxy", () => {
       });
     },
   );
+
+  it("proxies interaction responses to the agent origin", async () => {
+    process.env.VSS_CHAT_BACKEND_MAIN = "http://vss-agent:8000/v1/chat/stream";
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+    } as Response);
+    global.fetch = fetchMock;
+    const request = {
+      method: "POST",
+      query: {
+        surface: "main",
+        interaction:
+          "/executions/execution-1/interactions/interaction-1/response",
+      },
+      body: { response: { type: "text", text: "warehouse" } },
+      on: jest.fn(),
+    } as unknown as NextApiRequest;
+    const response = mockResponse();
+
+    await handler(request, response);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://vss-agent:8000/executions/execution-1/interactions/interaction-1/response",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(request.body),
+      }),
+    );
+    expect(response.statusCode).toBe(204);
+  });
 });
