@@ -93,6 +93,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   registerChatVideoUploadComplete,
 }) => {
   const vstApiUrl = videoManagementData?.vstApiUrl;
+  const agentApiUrl = videoManagementData?.agentApiUrlBase;
   const chatUploadFileConfigTemplateJson = videoManagementData?.chatUploadFileConfigTemplateJson;
   const enableAddRtspButton = videoManagementData?.enableAddRtspButton ?? true;
   const enableVideoUpload = videoManagementData?.enableVideoUpload ?? true;
@@ -588,7 +589,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   useEffect(() => {
     backendSessionRef.current += 1;
     acceptedDeletesRef.current.clear();
-  }, [vstApiUrl]);
+  }, [vstApiUrl, agentApiUrl]);
 
   // Once VST stops listing a sensor the delete is fully settled, so drop it here.
   // Without this, a stream later recreated under the same sensor id could never be
@@ -657,7 +658,10 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
         // RTSP streams have no uploaded-file storage to remove.
         if (firstStream && isRtspStream(firstStream)) {
-          await deleteRtspStream(vstApiUrl, sensorId);
+          if (!agentApiUrl) {
+            throw new Error('Agent API URL not configured for RTSP deletion');
+          }
+          await deleteRtspStream(agentApiUrl, firstStream.name);
           return sensorId;
         }
 
@@ -751,6 +755,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     streams,
     isDeleting,
     vstApiUrl,
+    agentApiUrl,
     getTimelineRangeForStream,
     waitUntilStreamsRemoved,
     refetchTimelines,
@@ -883,7 +888,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         <AddRtspDialog
           overlay="contained"
           isOpen={isRtspModalOpen}
-          vstApiUrl={vstApiUrl}
+          agentApiUrl={agentApiUrl}
           onClose={handleRtspDialogClose}
           onSuccess={handleRtspSuccess}
           onAwaitStream={handleAwaitRtspStream}

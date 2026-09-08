@@ -13,7 +13,7 @@ const POPUP_OVERLAY_CONTAINED =
 
 interface AddRtspDialogProps {
   isOpen: boolean;
-  vstApiUrl?: string | null;
+  agentApiUrl?: string | null;
   onClose: () => void;
   onSuccess?: () => void;
   /**
@@ -49,7 +49,7 @@ function getSubmitLabel(phase: SubmitPhase, canResumeWait: boolean): string {
 
 export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   isOpen,
-  vstApiUrl,
+  agentApiUrl,
   onClose,
   onSuccess,
   onAwaitStream,
@@ -134,8 +134,8 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
       setError(validationError);
       return;
     }
-    if (!vstApiUrl) {
-      setError('VST API URL not configured.');
+    if (!agentApiUrl) {
+      setError('Agent API URL not configured.');
       return;
     }
 
@@ -148,9 +148,9 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
     try {
       let sensorId = acceptedSensorId;
       if (!sensorId) {
-        const result = await addRtspStream(vstApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
+        const result = await addRtspStream(agentApiUrl, { sensorUrl: trimmedUrl, name: trimmedName });
         if (!isCurrentAttempt()) return;
-        sensorId = result.sensorId;
+        sensorId = result.sensorId ?? trimmedName;
         setAcceptedByUrl((prev) => ({ ...prev, [trimmedUrl]: sensorId }));
         setPhase('confirming');
       }
