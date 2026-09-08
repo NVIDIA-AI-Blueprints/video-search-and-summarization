@@ -47,10 +47,13 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 
 import requests
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 #: Where the agent's decomposition contract lives, relative to the repo root.
 PROMPT_SOURCE = "services/agent/packages/vss_agents/src/vss_agents/tools/search.py"
