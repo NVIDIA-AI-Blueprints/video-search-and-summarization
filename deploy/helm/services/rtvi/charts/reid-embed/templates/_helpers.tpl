@@ -83,6 +83,7 @@ Job and deletes the previous one.
   "imagePullSecrets" (.Values.imagePullSecrets | default (index $global "imagePullSecrets"))
   "claim" (include "vss-reid-embed.modelsClaim" .)
   "ngcSecret" (include "vss-reid-embed.ngcSecretName" .)
+  "ngcSecretKey" (include "vss-reid-embed.ngcSecretKey" .)
   "download" (.Files.Get "files/download-embedding-models.sh")
   "convert" (.Files.Get "files/convert_clipreid_to_onnx.py")
   | toYaml | sha256sum | trunc 8 -}}
