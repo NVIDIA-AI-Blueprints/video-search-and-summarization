@@ -260,7 +260,7 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
         className="fixed z-[100] w-72 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-black"
         style={{ right, overflowY: 'auto', ...position }}
       >
-        <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+        <p className="mb-2 text-center text-sm font-medium text-gray-700 dark:text-gray-200">
           Agent parameters
         </p>
         <div className="flex flex-col gap-3">
