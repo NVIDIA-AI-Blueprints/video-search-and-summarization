@@ -56,7 +56,7 @@ gpuProfiles:
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
       NIM_KVCACHE_PERCENT: "0.8"
       NIM_GPU_MEM_FRACTION: "0.8"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -70,7 +70,7 @@ gpuProfiles:
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
       NIM_KVCACHE_PERCENT: "0.8"
       NIM_GPU_MEM_FRACTION: "0.8"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -83,7 +83,7 @@ gpuProfiles:
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
       NIM_KVCACHE_PERCENT: "0.8"
       NIM_GPU_MEM_FRACTION: "0.8"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.8"
       NIM_MAX_MODEL_LEN: "32768"
@@ -97,7 +97,7 @@ gpuProfiles:
       # Pinned so the container cannot auto-select a profile that does not fit:
       # it advertises the >=66 GB BF16 profile as runnable on cards that cannot hold it.
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3: {}
 
   # Matches live nim-env ConfigMaps when gpuType=RTXPRO6000BW (e.g. vss-summarization namespace).
@@ -108,7 +108,7 @@ gpuProfiles:
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"  # vllm-int4-tp1-pp1-32.0
       NIM_KVCACHE_PERCENT: "0.4"
       NIM_GPU_MEM_FRACTION: "0.4"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -118,7 +118,7 @@ gpuProfiles:
   # arguments are retained, but no GPU memory tuning is imposed.
   OTHER:
     nemotron35:
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":false}'
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"
     cosmos3: {}
 

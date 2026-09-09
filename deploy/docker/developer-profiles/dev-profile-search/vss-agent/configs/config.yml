@@ -209,7 +209,7 @@ llms:
 workflow:
   _type: top_agent
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
-  llm_reasoning: false
+  llm_reasoning: true
   max_iterations: 20
   max_history: 10
   tool_names:
