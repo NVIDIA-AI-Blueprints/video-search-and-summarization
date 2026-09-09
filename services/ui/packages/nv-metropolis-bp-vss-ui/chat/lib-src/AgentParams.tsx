@@ -20,6 +20,11 @@ import type { CustomAgentParamsValues, ParamField, ParamFieldConfig } from './ty
 
 const STORAGE_KEY = 'vss-chat-custom-agent-params';
 
+/** Space kept between the panel and both the trigger and the viewport edge. */
+const GAP = 8;
+/** Below this the panel is too short to be usable and is flipped instead. */
+const MIN_PANEL_HEIGHT = 160;
+
 export const fieldsToParams = (fields: ParamField[]): CustomAgentParamsValues =>
   (fields || []).reduce((acc, field) => {
     if (field.name) acc[field.name] = field.value;
@@ -230,8 +235,21 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
     }
   };
 
-  const top = anchorRect ? anchorRect.bottom + 8 : 80;
-  const right = anchorRect ? Math.max(8, window.innerWidth - anchorRect.right) : 16;
+  const right = anchorRect ? Math.max(GAP, window.innerWidth - anchorRect.right) : 16;
+
+  // The trigger lives in the chat input at the bottom of the panel, so the
+  // space below it is a few pixels of gradient — open upwards, and only flip
+  // down when the room above cannot hold the panel at all.
+  const viewportHeight = window.innerHeight;
+  const spaceAbove = anchorRect ? anchorRect.top - GAP * 2 : 0;
+  const spaceBelow = anchorRect ? viewportHeight - anchorRect.bottom - GAP * 2 : 0;
+  const openDown = !anchorRect || (spaceAbove < MIN_PANEL_HEIGHT && spaceBelow > spaceAbove);
+
+  const position: React.CSSProperties = !anchorRect
+    ? { top: 80, maxHeight: '60vh' }
+    : openDown
+      ? { top: anchorRect.bottom + GAP, maxHeight: spaceBelow }
+      : { bottom: viewportHeight - anchorRect.top + GAP, maxHeight: spaceAbove };
 
   return createPortal(
     <>
@@ -240,7 +258,7 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
         role="dialog"
         aria-label="Agent parameters"
         className="fixed z-[100] w-72 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-black"
-        style={{ top, right, maxHeight: '60vh', overflowY: 'auto' }}
+        style={{ right, overflowY: 'auto', ...position }}
       >
         <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
           Agent parameters
