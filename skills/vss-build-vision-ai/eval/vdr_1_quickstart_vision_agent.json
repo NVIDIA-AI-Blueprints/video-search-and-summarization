@@ -1,0 +1,57 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "vdr-1-quickstart",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Covers VDR row 1, \"Quickstart via vss-build-vision-ai skill\": the two skill-introspection questions a developer asks before committing to a deployment, then the quickstart deploy itself. One GPU is the documented base sizing - LLM and integrated RT-VLM share the card (references/sizing.md). Steps 1 and 2 are read-only and declare `artifact_expected: false`; they must answer from the skill's own references without writing a build or starting a container, so a regression that leaves the skill unable to describe itself is caught before the expensive deploy step runs.",
+  "expects": [
+    {
+      "artifact_expected": false,
+      "query": "Use `/vss-build-vision-ai` and answer: what does this skill do? Answer from the skill's own SKILL.md and references. Do not deploy anything, do not write any build artifacts, and do not run `docker compose`. Run autonomously and non-interactively: this trial has no interactive user, so do not pause for confirmation and do not ask a clarifying question - answer from the skill as written.",
+      "checks": [
+        "The answer states the skill adds agent-ready vision capabilities - such as dense captioning, detection, search, alerting and summarization - as a customizable self-contained stack built on the NVIDIA VSS Blueprint.",
+        "The answer names both ways in: guided intake for an open request, and prompt-driven when a capability or profile is named.",
+        "The answer names the current stock developer profiles `base`, `alerts`, `lvs` and `search`, and identifies `warehouse` as the supported industry profile.",
+        "The answer states what the skill is not for: operating an already-deployed stack (search, video Q&A, summarization, alert management, reports) and deploying a single microservice on its own.",
+        "The answer distinguishes deploying a stock profile from composing a delta overlay on one Foundation, rather than describing the skill as only a profile deployer.",
+        "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container.",
+        "The agent answers from the skill's own files rather than inventing capabilities: the response does not claim support for an unsupported industry profile such as `smartcities`."
+      ]
+    },
+    {
+      "artifact_expected": false,
+      "query": "Use `/vss-build-vision-ai` and answer: what does the base vision agent harness include? Answer from the skill's own profile references. Do not deploy anything, do not write any build artifacts, and do not run `docker compose`. Run autonomously and non-interactively: this trial has no interactive user, so do not pause for confirmation and do not ask a clarifying question - answer from the skill as written.",
+      "checks": [
+        "The answer describes the `base` developer profile's service set and names the in-stack agent (`vss-agent`) together with its Web UI.",
+        "The answer names the supporting peers the base profile ships: `redis`, the VIOS video I/O and storage services, and `phoenix`.",
+        "The answer names the model tier: one LLM for the agent plus integrated RT-VLM (`rtvi-vlm`) serving dense captioning and video Q&A.",
+        "The service list is grounded in the skill's `references/profiles/base.md` rather than invented, and the answer does not claim base ships semantic search, alerting, or video summarization - those belong to the `search`, `alerts` and `lvs` profiles.",
+        "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container."
+      ]
+    },
+    {
+      "query": "Use `/vss-build-vision-ai` to deploy a vision agent on `{{platform}}` from `{{repo_root}}`, following the quickstart path. Deploy the stock `base` pre-built developer workflow with its authoritative service set unchanged, write the build artifacts under `_builds/vdr-1-quickstart/`, validate the resolved Compose file, and leave the deployment running for readiness checks. Bring the stack up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes; do not spend the trial budget on a separate blocking image pull first - let first-boot pulls finish in the background while polling readiness. This build uses the in-stack agent: deploy `vss-agent` and its Web UI as part of the service set and do not substitute a host-side harness, so harness selection does not apply. Run autonomously and non-interactively: this trial has no interactive user, so do not pause for deployment confirmation at any point.",
+      "checks": [
+        "`{{repo_root}}/_builds/vdr-1-quickstart/override.env` exists and declares `FOUNDATION=base` and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set matches the stock base profile and includes `vss-agent`, `vss-ui`, `phoenix`, `redis`, the VIOS services, one LLM profile token, and `rtvi-vlm`, without adding an invented `vdr-1-quickstart` or aggregate profile key.",
+        "`{{repo_root}}/_builds/vdr-1-quickstart/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
+        "The deployment is launched directly from `_builds/vdr-1-quickstart/resolved.yml` after validation, not from a copied Compose project or the Foundation's own env files.",
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive).",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0 (integrated RT-VLM serving the base profile's VLM).",
+        "The final response reports the deployed endpoints - the Agent REST API and the Web UI - rather than only claiming success."
+      ]
+    }
+  ]
+}

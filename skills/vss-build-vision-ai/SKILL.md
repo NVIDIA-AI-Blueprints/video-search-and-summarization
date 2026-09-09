@@ -15,6 +15,20 @@ metadata:
 
 **Two ways in:** **guided intake** (state an open intent like "build a vision agent" / "add vision capabilities" and the skill walks you through capability selection) or **prompt-driven** (name the capability or profile directly). Both land on the same routing and composition flow.
 
+## Do Not Use This Skill For
+
+- Operating an already-running deployment: search, summarize, VIOS, alerts,
+  reports, and video Q&A requests should route to the matching operations skill
+  after `vss configure` has recorded the deployment origin.
+- Deploying a single standalone microservice such as RT-VLM, RT-CV, RT-Embed,
+  VIOS, Video Analytics API, or Alert Bridge by itself. Use the matching
+  `skills/deployment/vss-deploy-*` or setup skill instead.
+- Helm/Kubernetes deployment, notebook-only deployment, model benchmarking, or
+  low-level service development. This skill owns Docker Compose stock profiles,
+  the warehouse industry profile, and delta build artifacts under `_builds/`.
+- Unsupported industry profiles such as `smartcities`; `warehouse` is the only
+  supported industry Foundation.
+
 ## References
 
 - [`references/composition.md`](references/composition.md) — delta-profile rules, Foundation selection, build artifact contract, resolution, and validation.
@@ -51,6 +65,20 @@ metadata:
 ## Entry Mode (Step 0)
 
 Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a fast path — it deploys a validated developer profile's authoritative service set unchanged in Stock mode (**no capability delta**), still producing a minimal stock `_builds/<name>/` for the shared validate -> deploy -> readiness -> teardown lifecycle — while **Custom build** is a guided front door onto Delta mode.
+
+### Exception — autonomous mode
+
+If the request already asks you to run autonomously (e.g. "deploy X
+autonomously", "run without confirmation", "non-interactive"), skip **every**
+confirmation gate in this skill — the Q1/Q2 intake questions, [Q3](#harness-selection--q3),
+and the Step 6 architecture-diagram approval — and proceed straight through
+composition, validation, and deployment. Resolve each question you would have
+asked from the request itself; where it is silent, take the documented default
+for that question and state which defaults you took in the final summary.
+
+This path exists so automated eval / CI invocations do not hang waiting for a
+human reply they will never get. In all other cases, a human must approve
+before anything is generated or deployed.
 
 ### Step 0.0 — Entry-mode detection
 
