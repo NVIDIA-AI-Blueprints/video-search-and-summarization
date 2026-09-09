@@ -292,3 +292,148 @@ class AgentThreeStepIngest:
             record["phases"] = phases
             finish_record(record, time.time() - overall_start)
         return record
+
+
+class VstDirectIngest:
+    """Upload straight to VIOS and let its webhooks drive perception.
+
+    This is what the product UI does. ``ChatUpload.tsx`` POSTs to
+    ``{VST}/vst/api/v1/storage/file`` and stops; there is no
+    ``POST /api/v1/videos`` and no ``/complete`` anywhere in ``services/ui``.
+    VIOS raises ``camera_streaming`` and its webhook notifier fans out to
+    RT-CV, RT-Embed and RT-VLM itself -- the three calls the agent's
+    ``/complete`` makes by hand, plus tagging, which ``/complete`` never does.
+
+    So this backend is :class:`AgentThreeStepIngest` minus phases 1 and 3: the
+    same bytes, the same headers, the same anchor, with the upload URL built
+    rather than fetched.
+
+    Three things are worse here, and they are why this is not the default:
+
+    * **No completion proof.** ``/complete`` runs the embedding leg
+      synchronously and returns ``chunks_processed``; the webhook fan-out is
+      fire-and-forget and VIOS never reports the outcome to the uploader. The
+      readiness poll and the first query are all that confirm anything indexed,
+      so ``chunks_processed`` is ``None`` -- not zero -- and the run records
+      ``ingest_proof: "none"``.
+    * **The anchor is VIOS's to choose.** The webhook request bodies in
+      ``dev-profile-search/vios/configs/notification_config.json`` are empty
+      ``{}``, so nothing passes ``creation_time``; the agent's ``/complete``
+      hard-codes ``2025-01-01T00:00:00.000Z`` (``video_ingest.py``). Ground
+      truth is matched by absolute-timestamp overlap against that anchor, so if
+      VIOS anchors chunks anywhere else EVERY query scores zero and it reads as
+      a retrieval collapse. :meth:`verify_anchor` checks it rather than trusting
+      it.
+    * **Helm has webhooks off.** ``webhooks.enabled`` is true only in the Docker
+      search profile; the Helm chart ships the dummy item and false. On such a
+      deployment this backend uploads successfully and indexes nothing.
+    """
+
+    name = "vst-direct"
+
+    def __init__(
+        self,
+        vst_url: str,
+        upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP,
+    ) -> None:
+        self.vst_url = vst_url.rstrip("/")
+        self.upload_timestamp = upload_timestamp
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "flow": self.name,
+            "vst_url": self.vst_url,
+            "upload_url": self.upload_url,
+            "upload_timestamp": self.upload_timestamp,
+            # Stated in the artifact, not left to be inferred from a null
+            # chunk count: a reader comparing this run against a 3-step one
+            # has to know the success criterion changed.
+            "ingest_proof": "none (webhook fan-out is fire-and-forget)",
+        }
+
+    @property
+    def upload_url(self) -> str:
+        return f"{self.vst_url}/vst/api/v1/storage/file"
+
+    def verify_anchor(self, sensor_id: str, timeout: int = COMPLETE_TIMEOUT) -> dict[str, Any]:
+        """Read back the timeline VIOS recorded for an uploaded video.
+
+        The one check worth making before a whole run is scored. Same endpoint
+        the agent uses (``/vst/api/v1/storage/timelines``, keyed by stream id).
+        Returns what it found; deciding whether the anchor is acceptable is the
+        caller's, because a deliberate live-source run has a different answer
+        from a file-fixture run.
+        """
+        url = f"{self.vst_url}/vst/api/v1/storage/timelines"
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            timelines = (resp.json() or {}).get(sensor_id) or []
+        except Exception as e:
+            return {"checked": False, "error": f"{type(e).__name__}: {e}"}
+        if not timelines:
+            return {"checked": True, "found": False, "sensor_id": sensor_id}
+        start = timelines[0].get("startTime") or ""
+        return {
+            "checked": True,
+            "found": True,
+            "start_time": start,
+            "end_time": timelines[0].get("endTime") or "",
+            # The dataset's ground truth is offsets from this instant.
+            "matches_expected_anchor": start.startswith(self.upload_timestamp[:10]),
+            "expected_anchor": self.upload_timestamp,
+        }
+
+    def upload(self, video_path: Path) -> dict[str, Any]:
+        record = base_record(video_path)
+        filename = video_path.name
+        content_type = CONTENT_TYPES.get(video_path.suffix, "video/mp4")
+        overall_start = time.time()
+
+        try:
+            # Byte-identical to phase 2 of the three-step flow, which is itself
+            # byte-identical to the UI's chunkedUpload -- same five
+            # nvstreamer-* headers, same mediaFile/filename/metadata fields.
+            identifier = str(uuid.uuid4())
+            with open(video_path, "rb") as f:
+                resp = requests.post(
+                    self.upload_url,
+                    headers={
+                        "nvstreamer-chunk-number": "1",
+                        "nvstreamer-total-chunks": "1",
+                        "nvstreamer-is-last-chunk": "true",
+                        "nvstreamer-identifier": identifier,
+                        "nvstreamer-file-name": filename,
+                    },
+                    files={"mediaFile": (filename, f, content_type)},
+                    data={
+                        "filename": filename,
+                        "metadata": json.dumps({"timestamp": self.upload_timestamp}),
+                    },
+                    timeout=UPLOAD_TIMEOUT,
+                )
+            resp.raise_for_status()
+            upload_body = resp.json() or {}
+            sensor_id = upload_body.get("sensorId")
+            if not sensor_id:
+                raise RuntimeError(f"VST upload returned no sensorId: {resp.text[:200]}")
+
+            record["success"] = True
+            record["sensor_id"] = sensor_id
+            record["video_id"] = sensor_id
+            # Deliberately None rather than 0: nothing counted, which is not
+            # the same claim as "counted, and it was zero". The zero-chunk
+            # guard the three-step flow applies has nothing to test here.
+            record["chunks_processed"] = None
+            record["ingest_proof"] = "none"
+            record["phases"] = {"upload_s": round(time.time() - overall_start, 3)}
+            finish_record(record, time.time() - overall_start)
+        except requests.Timeout:
+            record["success"] = False
+            record["error"] = "Request timeout"
+            finish_record(record, time.time() - overall_start)
+        except Exception as e:
+            record["success"] = False
+            record["error"] = f"{type(e).__name__}: {e}"
+            finish_record(record, time.time() - overall_start)
+        return record
