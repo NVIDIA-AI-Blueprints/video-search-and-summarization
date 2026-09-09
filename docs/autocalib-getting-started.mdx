@@ -4,7 +4,7 @@ description: ""
 position: 1
 ---
 
-This guide explains how to deploy and access the **Auto Calibration microservice and user interface as part of VSS**.
+This guide explains how to deploy and access the **Auto Calibration microservice and user interface**.
 
 The detailed Auto Calibration workflow, input requirements, rectification, alignment, results, and troubleshooting content is documented in the [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps), [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset), and [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting) pages.
 
@@ -22,7 +22,7 @@ Before using the VSS Auto Calibration service and UI, ensure you have:
 
 Required calibration inputs and detailed method-specific requirements are documented in [Custom Dataset](/vss/system-components/calibration/auto-calibration/custom-dataset).
 
-## VSS Deployment Steps (Docker Compose)
+## Deployment Steps (Docker Compose)
 
 These steps deploy the Auto Calibration service using the VSS repository.
 
@@ -68,11 +68,13 @@ VSS_AUTO_CALIBRATION_UI_HOST_PORT=5000
 VSS_APPS_DIR=/path/to/video-search-and-summarization/deploy/docker
 VSS_DATA_DIR=/path/to/your/data_dir
 HOST_IP=<HOST_IP_ADDRESS>
-# Optional
+# Optional, uncomment and update this to support RTSP Stream input
 # VIOS_BASE_URL=http://<VIOS_HOST_IP>:30888
 ```
 
 Replace the paths and host address with your values. `HOST_IP` must be reachable from the browser.
+
+This Compose deployment does not start VIOS. To use RTSP capture, deploy VIOS separately and set `VIOS_BASE_URL` to an endpoint reachable from the Auto Calibration container. Otherwise, use file upload.
 
 ### 5. Optional VGGT model setup
 
