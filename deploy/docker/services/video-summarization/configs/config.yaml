@@ -30,7 +30,8 @@ tools:
     params:
       host: !ENV ${ES_HOST}
       port: !ENV ${ES_PORT}
-      kafka_consumer_settle_secs: 5.0
+      kafka_consumer_wait_timeout_secs: 90.0
+      kafka_consumer_poll_interval_secs: 0.5
       collection_name: lvs-events
     tools:
       embedding: nvidia_embedding

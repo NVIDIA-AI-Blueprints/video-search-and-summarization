@@ -1436,7 +1436,7 @@ class TestUpdateCaRagConfigBranches:
 
 @pytest.mark.unit
 class TestGetAggregatedSummary:
-    def test_file_kafka_db_mode_waits_for_logstash_flush_before_aggregation(self):
+    def test_file_kafka_db_mode_waits_for_expected_raw_events(self):
         from via_stream_handler import RequestInfo
 
         handler = _make_mock_stream_handler()
@@ -1450,7 +1450,7 @@ class TestGetAggregatedSummary:
                     "tools": {"db": "elasticsearch_db"},
                 }
             },
-            "tools": {"elasticsearch_db": {"params": {"kafka_consumer_settle_secs": 2.5}}},
+            "tools": {"elasticsearch_db": {"params": {"host": "elasticsearch", "port": 9200}}},
         }
         handler._publish_aggregate_to_kafka = MagicMock()
 
@@ -1485,11 +1485,127 @@ class TestGetAggregatedSummary:
             vlm_stats={},
         )
 
-        with patch("via_stream_handler.time.sleep") as sleep_mock:
+        with patch.object(handler, "_wait_for_kafka_raw_events") as wait_mock:
             handler._get_aggregated_summary(req_info, [chunk_response])
 
-        sleep_mock.assert_called_once_with(2.5)
+        wait_mock.assert_called_once_with("source-1", 1)
         req_info._ctx_mgr.call.assert_called_once_with({"summarization": {"uuids": ["source-1"]}})
+
+
+# ---------------------------------------------------------------------------
+# Kafka -> Logstash -> Elasticsearch readiness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestKafkaRawEventsReadiness:
+    @staticmethod
+    def _handler(timeout=1.0, poll_interval=0.001):
+        handler = _make_mock_stream_handler()
+        handler._ca_rag_config = {
+            "functions": {
+                "summarization": {
+                    "params": {"kafka_enabled": True},
+                    "tools": {"db": "elasticsearch_db"},
+                }
+            },
+            "tools": {
+                "elasticsearch_db": {
+                    "params": {
+                        "host": "elasticsearch",
+                        "port": 9200,
+                        "kafka_consumer_wait_timeout_secs": timeout,
+                        "kafka_consumer_poll_interval_secs": poll_interval,
+                    }
+                }
+            },
+        }
+        return handler
+
+    @staticmethod
+    def _count_response(count, status_code=200):
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = {"count": count}
+        return response
+
+    def test_polls_until_expected_count_is_searchable(self):
+        handler = self._handler()
+        responses = [
+            self._count_response(0, status_code=404),
+            self._count_response(1),
+            self._count_response(3),
+        ]
+
+        with (
+            patch("via_stream_handler.requests.post", side_effect=responses) as post_mock,
+            patch("via_stream_handler.time.sleep") as sleep_mock,
+        ):
+            handler._wait_for_kafka_raw_events("source-1", 3)
+
+        assert post_mock.call_count == 3
+        assert sleep_mock.call_count == 2
+        request = post_mock.call_args
+        assert request.args[0] == "http://elasticsearch:9200/default_source_1/_count"
+        assert request.kwargs["json"] == {
+            "query": {"term": {"metadata.content_metadata.doc_type": "raw_events"}}
+        }
+
+    def test_timeout_has_service_unavailable_status(self):
+        from via_stream_handler import KafkaIngestionTimeout
+
+        handler = self._handler(timeout=0.001, poll_interval=0.001)
+        missing_index = self._count_response(0, status_code=404)
+
+        with patch("via_stream_handler.requests.post", return_value=missing_index):
+            with pytest.raises(KafkaIngestionTimeout) as exc_info:
+                handler._wait_for_kafka_raw_events("source-1", 2)
+
+        assert exc_info.value.status_code == 503
+        assert "0/2 raw_events" in str(exc_info.value)
+
+    def test_timeout_is_returned_as_dependency_failure(self):
+        from via_exception import ViaException
+        from via_stream_handler import KafkaIngestionTimeout, RequestInfo
+
+        handler = self._handler()
+        handler._args.enable_dev_dc_gen = False
+        handler._kafka_enabled = True
+        handler._caption_source = "db"
+
+        req_info = RequestInfo()
+        req_info.file = "/tmp/video.mp4"
+        req_info.source_id = "source-1"
+        req_info.request_id = "request-1"
+        req_info.enable_audio = False
+        req_info.is_live = False
+        req_info.summarize = True
+        req_info.camera_id = "default"
+        req_info._ctx_mgr = MagicMock()
+        chunk = SimpleNamespace(
+            chunkIdx=0,
+            start_pts=0,
+            end_pts=10_000_000_000,
+            start_ntp="1970-01-01T00:00:00.000Z",
+            end_ntp="1970-01-01T00:00:10.000Z",
+        )
+        chunk_response = SimpleNamespace(
+            chunk=chunk,
+            vlm_response='{"events":[]}',
+            vlm_stats={},
+        )
+
+        with patch.object(
+            handler,
+            "_wait_for_kafka_raw_events",
+            side_effect=KafkaIngestionTimeout("ingestion timed out"),
+        ):
+            with pytest.raises(ViaException) as exc_info:
+                handler._get_aggregated_summary(req_info, [chunk_response])
+
+        assert exc_info.value.status_code == 503
+        assert req_info.status == RequestInfo.Status.FAILED
+        req_info._ctx_mgr.call.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

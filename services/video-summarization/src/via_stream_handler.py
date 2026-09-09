@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@ from threading import Event, RLock, Thread
 
 import json_repair
 import prometheus_client as prom
-import requests.exceptions
+import requests
 from pyaml_env import parse_config
 
 from chunk_info import ChunkInfo, RequestSource, get_timestamp_str
@@ -94,6 +94,12 @@ MAX_MILVUS_STRING_LEN = 65535
 # response, which surfaces to the caller as HTTP 200 with total_events=0 and
 # video_summary="". Override with LVS_AGGREGATION_EMPTY_RETRIES; 0 disables.
 DEFAULT_AGGREGATION_EMPTY_RETRIES = 2
+
+
+class KafkaIngestionTimeout(RuntimeError):
+    """Kafka-to-Elasticsearch ingestion did not finish before aggregation."""
+
+    status_code = 503
 
 
 class RequestInfo:
@@ -3488,15 +3494,9 @@ This is very important and you must follow this strictly.
                                 "Elastic DB (LVS_CAPTION_SOURCE=db)",
                                 req_info.source_id,
                             )
-                            settle_secs = self._kafka_settle_secs()
-                            if settle_secs > 0:
-                                logger.info(
-                                    "Waiting %.3fs for Kafka -> Logstash -> ES "
-                                    "raw_events flush before aggregating %s",
-                                    settle_secs,
-                                    req_info.source_id,
-                                )
-                                time.sleep(settle_secs)
+                            self._wait_for_kafka_raw_events(
+                                req_info.source_id, len(chunk_responses)
+                            )
                             sum_state: dict = {"uuids": [str(req_info.source_id)]}
                             _start_ts = getattr(req_info, "start_timestamp", None)
                             _end_ts = getattr(req_info, "end_timestamp", None)
@@ -3972,7 +3972,8 @@ This is very important and you must follow this strictly.
             via SSE (``start_index / end_index``).
           * ``db`` — aggregation retrieves captions from Elastic DB
             populated by the Kafka -> Logstash -> ES pipeline
-            (``uuids``).  Requires a settle delay so Logstash can flush.
+            (``uuids``). The read starts only after all expected raw-event
+            documents become searchable.
 
         Requires both server-level ``KAFKA_ENABLED`` (env) and config-level
         ``functions.summarization.params.kafka_enabled`` (CA-RAG YAML).
@@ -3984,22 +3985,98 @@ This is very important and you must follow this strictly.
         summ = (self._ca_rag_config or {}).get("functions", {}).get("summarization", {})
         return bool(summ.get("params", {}).get("kafka_enabled", False))
 
-    def _kafka_settle_secs(self) -> float:
-        """Seconds to sleep after RTVI SSE ``[DONE]`` in file-path Kafka mode.
-
-        Reads ``tools.<db>.params.kafka_consumer_settle_secs`` from the
-        parsed CA-RAG config; falls back to env override
-        ``LVS_KAFKA_CONSUMER_SETTLE_SECS`` when the YAML key is absent;
-        defaults to ``5.0``. Used so the Kafka -> Logstash -> ES pipeline
-        has time to flush raw_events into the DB before the aggregator
-        (running with ``kafka_enabled=true``) reads them at acall time.
-        """
+    def _kafka_wait_value(self, key: str, env_name: str, default: float) -> float:
+        """Read a positive Kafka-ingestion wait setting."""
         db_name = self._get_db_tool_name(self._ca_rag_config) or "elasticsearch_db"
         tools = (self._ca_rag_config or {}).get("tools", {})
-        val = tools.get(db_name, {}).get("params", {}).get("kafka_consumer_settle_secs")
+        val = tools.get(db_name, {}).get("params", {}).get(key)
         if val is None:
-            val = os.environ.get("LVS_KAFKA_CONSUMER_SETTLE_SECS", "5.0")
+            val = os.environ.get(env_name, str(default))
         try:
-            return float(val)
+            parsed = float(val)
         except (TypeError, ValueError):
-            return 5.0
+            parsed = default
+        if parsed <= 0:
+            logger.warning("Invalid %s=%r; using %.3f", key, val, default)
+            return default
+        return parsed
+
+    def _wait_for_kafka_raw_events(self, source_id, expected_docs: int) -> None:
+        """Wait until Kafka/Logstash makes every video chunk searchable.
+
+        The RTVI SSE ``[DONE]`` marker only means caption generation has
+        finished. It does not guarantee that the independent Kafka consumer
+        has drained its backlog or that Elasticsearch has refreshed the
+        writes. Polling the request's raw-event count closes that race without
+        imposing a fixed delay on requests whose data is already available.
+        """
+        if expected_docs <= 0:
+            return
+
+        db_name = self._get_db_tool_name(self._ca_rag_config) or "elasticsearch_db"
+        params = (self._ca_rag_config or {}).get("tools", {}).get(db_name, {}).get("params", {})
+        host = params.get("host") or os.environ.get("ES_HOST")
+        port = params.get("port") or os.environ.get("ES_PORT", "9200")
+        if not host:
+            raise KafkaIngestionTimeout(
+                "Elasticsearch host is unavailable while waiting for Kafka ingestion"
+            )
+        base_url = str(host).rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"http://{base_url}:{port}"
+
+        timeout = self._kafka_wait_value(
+            "kafka_consumer_wait_timeout_secs",
+            "LVS_KAFKA_CONSUMER_WAIT_TIMEOUT_SECS",
+            90.0,
+        )
+        poll_interval = self._kafka_wait_value(
+            "kafka_consumer_poll_interval_secs",
+            "LVS_KAFKA_CONSUMER_POLL_INTERVAL_SECS",
+            0.5,
+        )
+        index_name = requests.utils.quote(_safe_collection_name(source_id), safe="")
+        count_url = f"{base_url}/{index_name}/_count"
+        count_query = {"query": {"term": {"metadata.content_metadata.doc_type": "raw_events"}}}
+        started = time.monotonic()
+        deadline = started + timeout
+        last_count = 0
+        last_error = None
+
+        while True:
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                response = requests.post(
+                    count_url,
+                    json=count_query,
+                    timeout=min(5.0, max(1.0, remaining)),
+                )
+                if response.status_code == 404:
+                    last_count = 0
+                elif response.status_code >= 500 or response.status_code == 429:
+                    last_error = f"Elasticsearch returned HTTP {response.status_code}"
+                else:
+                    response.raise_for_status()
+                    last_count = int(response.json().get("count", 0))
+                    last_error = None
+                    if last_count >= expected_docs:
+                        logger.info(
+                            "Kafka -> Logstash -> ES ingestion ready for %s: "
+                            "%d/%d raw_events after %.3fs",
+                            source_id,
+                            last_count,
+                            expected_docs,
+                            time.monotonic() - started,
+                        )
+                        return
+            except (requests.exceptions.RequestException, TypeError, ValueError) as ex:
+                last_error = str(ex)
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                detail = f"; last error: {last_error}" if last_error else ""
+                raise KafkaIngestionTimeout(
+                    "Timed out waiting for Kafka ingestion for "
+                    f"{source_id}: {last_count}/{expected_docs} raw_events{detail}"
+                )
+            time.sleep(min(poll_interval, remaining))
