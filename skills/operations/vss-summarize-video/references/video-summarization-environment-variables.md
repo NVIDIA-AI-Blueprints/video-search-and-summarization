@@ -1,7 +1,7 @@
 # Video Summarization Environment Variables
 
 This is the 3.2.0 `lvs` profile env reference for the VSS develop branch. For
-full deployment decisions, use `vss-deploy-profile`; this file is for quick
+full deployment decisions, use `vss-build-vision-ai`; this file is for quick
 video summarization debugging and request construction.
 
 ## Profile Env

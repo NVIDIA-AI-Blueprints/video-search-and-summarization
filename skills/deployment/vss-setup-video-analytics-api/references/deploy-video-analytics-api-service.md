@@ -232,7 +232,7 @@ The API checks once per second until the pipeline exists, then, only with `STREA
 docker compose -f services/analytics/video-analytics-api/compose.yml down
 ```
 
-For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` teardown workflow.
+For a multi-service teardown (broker, ES, etc.), use the `vss-build-vision-ai` teardown workflow.
 
 ---
 
