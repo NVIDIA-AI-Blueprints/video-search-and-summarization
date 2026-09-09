@@ -967,6 +967,34 @@ def _is_compose_up(command: str) -> bool:
     )
 
 
+def _process_list_deploy_phase(command: str) -> str | None:
+    """Classify a `ps` argv line as an in-flight deploy, or None.
+
+    Inner Claude hooks write `compose_phase` from the Bash *tool* string.
+    Harbor's long `compose up` / NGC `docker pull` then blocks in one call,
+    so no further tool events arrive. The outer watchdog only sees host
+    Docker. `ps` argv is the live signal that a pull is still running after
+    the first image ID commits (`image_activity` idle cliff). Never persist
+    the raw argv — it can carry registry credentials.
+    """
+    if re.search(
+        r"\bdocker(?:\s+compose|-compose)\b[^;&|\n]*\bup\b",
+        command,
+    ):
+        return "up"
+    if re.search(
+        r"\bdocker(?:(?:\s+compose|-compose)\b[^;&|\n]*\s+|\s+)pull\b",
+        command,
+    ):
+        return "pull"
+    if re.search(
+        r"\bdocker(?:(?:\s+compose|-compose)\b[^;&|\n]*\s+|\s+)build\b",
+        command,
+    ):
+        return "build"
+    return None
+
+
 _DOCKER_SIZE_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)$")
 _DOCKER_SIZE_UNITS = {
     "b": 1,
@@ -1322,6 +1350,26 @@ class DirectAgentProgress:
             self._seen_image_ids.update(new_image_ids)
         self._image_ids = image_ids
 
+    def _running_host_deploy_phase(self) -> str | None:
+        """Best in-flight pull/build/up on this guest, or None.
+
+        Prefers `up` when both a compose-up and a nested `docker pull` exist.
+        Sampler commands (`docker images`, `system df`, `compose ps`) do not
+        match. Output is discarded after classification.
+        """
+        proc = _run_bounded(["ps", "-eo", "args="], timeout=5)
+        if proc.returncode != 0 or proc.truncated:
+            return None
+        rank = {"up": 3, "pull": 2, "build": 1}
+        best: str | None = None
+        for line in proc.stdout.splitlines():
+            phase = _process_list_deploy_phase(line)
+            if phase is None:
+                continue
+            if best is None or rank[phase] > rank[best]:
+                best = phase
+        return best
+
     def _sample_disk_growth(self) -> None:
         """Count bytes landing on disk as progress.
 
@@ -1487,13 +1535,20 @@ class DirectAgentProgress:
                 )
         self._container_snapshot = current
 
-        if self.active_phase in {"pull", "build", "up"}:
+        deploy_phase = self.active_phase
+        if deploy_phase not in {"pull", "build", "up"}:
+            # Inner journal often has no compose_phase: Harbor is blocked in
+            # one `compose up` after a small image already committed. Host
+            # process list still shows that pull; heartbeat off it.
+            with suppress(OSError, subprocess.SubprocessError):
+                deploy_phase = self._running_host_deploy_phase()
+        if deploy_phase in {"pull", "build", "up"}:
             # `compose up` often embeds long NGC pulls; without heartbeats
             # here a single new image_id followed by a slow pull looks idle.
             self._maybe_heartbeat(
                 "image_activity_heartbeat",
                 "_phase_heartbeat_count",
-                phase=self.active_phase,
+                phase=deploy_phase,
             )
         elif any(
             value[0] == "running" and value[1] == "starting"

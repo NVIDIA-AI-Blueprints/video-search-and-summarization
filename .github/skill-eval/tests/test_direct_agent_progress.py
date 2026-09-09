@@ -42,6 +42,18 @@ def _stub_disk_growth_sampler():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _stub_host_deploy_phase():
+    """Keep `sample()` hermetic — host `ps` is not the trial's compose up."""
+    with mock.patch.object(
+        progress.DirectAgentProgress,
+        "_running_host_deploy_phase",
+        return_value=None,
+        autospec=True,
+    ):
+        yield
+
+
 class FakeClock:
     def __init__(self) -> None:
         self.now = 0.0
@@ -1613,6 +1625,72 @@ def test_inner_agent_tool_calls_heartbeat_without_docker_signal(
     assert monitor.active_phase is None
     assert tracker.last_progress_category == "agent_activity_heartbeat"
     assert tracker.expiration() is None
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ("/usr/bin/docker compose --env-file generated.env -f resolved.yml up -d", "up"),
+        ("docker compose pull", "pull"),
+        ("docker pull nvcr.io/nvidia/example:latest", "pull"),
+        ("docker compose -f resolved.yml build", "build"),
+        ("docker images --no-trunc --format {{.ID}}", None),
+        ("docker system df --format {{.Type}}\\t{{.Size}}", None),
+        ("docker compose -f resolved.yml ps -a --format json", None),
+        ("python3 .github/skill-eval/direct_agent_progress.py hook pre", None),
+    ],
+)
+def test_process_list_deploy_phase(args: str, expected: str | None) -> None:
+    assert progress._process_list_deploy_phase(args) == expected
+
+
+def test_host_compose_up_heartbeats_after_first_image_without_inner_phase(
+    tmp_path: Path,
+) -> None:
+    """Reported OpenShell exit 8: last progress=image_activity ~2700s ago.
+
+    A small image already committed. Harbor is still inside one `compose up`
+    pulling NIM weights. Inner journal has no compose_phase. Host `ps` does.
+    """
+    clock = FakeClock()
+    tracker = progress.ProgressTracker(
+        hard_ceiling_sec=7200,
+        cold_start_grace_sec=1500,
+        idle_timeout_sec=2700,
+        monotonic=clock,
+    )
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path,
+        tracker=tracker,
+        journal=progress.ProgressJournal(
+            tmp_path / "journal.jsonl",
+            monotonic=clock,
+            wall_clock=lambda: datetime.datetime(
+                2026, 8, 24, tzinfo=datetime.timezone.utc
+            ),
+        ),
+        monotonic=clock,
+        activity_heartbeat_sec=300,
+    )
+    tracker.progress("image_activity")
+    with (
+        mock.patch.object(monitor, "_sample_images"),
+        mock.patch.object(monitor, "_safe_service_rows", return_value=[]),
+        mock.patch.object(
+            monitor, "_running_host_deploy_phase", return_value="up"
+        ),
+    ):
+        for _ in range(10):
+            clock.advance(300)
+            monitor.sample()
+    clock.advance(2699)
+    assert tracker.expiration() is None
+    assert tracker.last_progress_category == "image_activity_heartbeat"
+    body = monitor.journal.path.read_text()
+    assert "nvcr.io" not in body
+    assert "generated.env" not in body
 
 
 def test_silent_inner_journal_still_times_out(tmp_path: Path) -> None:
