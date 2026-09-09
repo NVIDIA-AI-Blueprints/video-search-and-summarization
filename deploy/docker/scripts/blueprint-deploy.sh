@@ -1345,12 +1345,16 @@ function state_up() {
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
     # RTVI local VLM sizing (same high-memory reductions as dev-profile.sh).
-    # Remote VLM does not host the model locally.
+    # Warehouse VLM_MODE=none still hosts the model in rtvi-vlm; only remote
+    # VLM skips local vLLM reservation.
     if [[ "${_vlm_mode}" != "remote" ]]; then
       local _rtvi_vllm_gpu_memory_utilization _rtvi_vlm_max_model_len
       _rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
       if [[ -n "${_rtvi_vllm_gpu_memory_utilization}" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_rtvi_vllm_gpu_memory_utilization}"
+      fi
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
       _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
       if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
@@ -1428,6 +1432,16 @@ function state_up() {
     set_env_var "RT_CV_DEVICE_ID" "${hardware_device_id}"
     set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
     set_env_var "RT_EMBED_DEVICE_ID" "${hardware_device_id}"
+    # overrides.env ships RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8. vLLM reserves
+    # that fraction of total memory and will not start unless free >= reservation
+    # (it does not subtract co-resident LLM/RT-CV). Always pin the same 0.2 +
+    # TRITON_ATTN alerts/search use whenever RT-VLM shares this GB300.
+    local _gb300_rtvi_vllm_gpu_memory_utilization
+    _gb300_rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
+    if [[ -n "${_gb300_rtvi_vllm_gpu_memory_utilization}" ]]; then
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_gb300_rtvi_vllm_gpu_memory_utilization}"
+    fi
+    set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
