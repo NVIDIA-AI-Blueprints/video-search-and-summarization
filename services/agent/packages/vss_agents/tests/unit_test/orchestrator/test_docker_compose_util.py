@@ -963,6 +963,102 @@ class TestContainersEnvImageChannel:
         assert resolved["VSS_AGENT_IMAGE"] == "nvcr.io/nvstaging/vss-core/vss-agent"
 
 
+class TestContainerTagSuffix:
+    """SBSA hardware profiles set VSS_CONTAINER_TAG_SUFFIX, which containers.env reads back."""
+
+    _SUFFIXED_CONTAINERS_ENV = _env_text(
+        'VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"',
+        'VSS_CONTAINER_TAG_SUFFIX="${VSS_CONTAINER_TAG_SUFFIX:-}"',
+        'VSS_RT_VLM_TAG="${VSS_RT_VLM_TAG:-${VSS_CONTAINER_TAG:-develop-latest}${VSS_CONTAINER_TAG_SUFFIX:-}}"',
+        'VSS_RT_CV_TAG="${VSS_RT_CV_TAG:-${VSS_CONTAINER_TAG:-develop-latest}${VSS_CONTAINER_TAG_SUFFIX:-}}"',
+    )
+
+    @staticmethod
+    def _clear_shell_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+        for key in ("VSS_CONTAINER_TAG", "VSS_CONTAINER_TAG_SUFFIX", "VSS_RT_VLM_TAG", "VSS_RT_CV_TAG"):
+            monkeypatch.delenv(key, raising=False)
+
+    def test_hardware_profile_suffix_reaches_the_derived_tags(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("spark")),
+            hardware_profile="spark",
+            supported_hardware_profiles=frozenset({"spark"}),
+            hardware_profile_env_overrides={"spark": {"VSS_CONTAINER_TAG_SUFFIX": "-sbsa"}},
+            containers_env_text=self._SUFFIXED_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VSS_RT_VLM_TAG"] == "develop-latest-sbsa"
+        assert resolved["VSS_RT_CV_TAG"] == "develop-latest-sbsa"
+
+    def test_suffix_applies_to_the_selected_release_tag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        self._clear_shell_tags(monkeypatch)
+        monkeypatch.setenv("VSS_CONTAINER_TAG", "3.3.0")
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("spark")),
+            hardware_profile="spark",
+            supported_hardware_profiles=frozenset({"spark"}),
+            hardware_profile_env_overrides={"spark": {"VSS_CONTAINER_TAG_SUFFIX": "-sbsa"}},
+            containers_env_text=self._SUFFIXED_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VSS_RT_VLM_TAG"] == "3.3.0-sbsa"
+
+    def test_explicit_tag_override_still_wins_over_the_suffix(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("spark")),
+            env_overrides={"VSS_RT_VLM_TAG": "pinned-by-caller"},
+            hardware_profile="spark",
+            supported_hardware_profiles=frozenset({"spark"}),
+            hardware_profile_env_overrides={"spark": {"VSS_CONTAINER_TAG_SUFFIX": "-sbsa"}},
+            containers_env_text=self._SUFFIXED_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VSS_RT_VLM_TAG"] == "pinned-by-caller"
+        assert resolved["VSS_RT_CV_TAG"] == "develop-latest-sbsa"
+
+    def test_amd64_hardware_profile_keeps_the_unsuffixed_tags(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            hardware_profile="thor",
+            containers_env_text=self._SUFFIXED_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VSS_RT_VLM_TAG"] == "develop-latest"
+
+    def test_compose_process_env_does_not_shadow_the_generated_tags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(tmp_path, "MODE=2d", containers_env_text=self._SUFFIXED_CONTAINERS_ENV)
+        recipe.output_env_file.write_text(
+            _env_text("VSS_CONTAINER_TAG_SUFFIX=-sbsa", "VSS_RT_VLM_TAG=develop-latest-sbsa") + "\n"
+        )
+
+        compose_env = dcu._compose_subprocess_env_for_config(recipe, recipe.output_env_file)
+
+        assert compose_env["VSS_RT_VLM_TAG"] == "develop-latest-sbsa"
+        assert compose_env["VSS_RT_CV_TAG"] == "develop-latest-sbsa"
+
+
 class TestCreateDryRunRecipeContainersEnv:
     """create_dry_run_recipe resolves containers.env in deployments_dir like overrides.env."""
 
@@ -1785,7 +1881,7 @@ class TestComposeEnvFileLayering:
             containers_env_text='VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-develop-latest}"',
         )
 
-        compose_env = dcu._compose_subprocess_env_for_config(recipe)
+        compose_env = dcu._compose_subprocess_env_for_config(recipe, recipe.output_env_file)
 
         assert compose_env["VSS_CONTAINER_TAG"] == "develop-latest"
 
@@ -1813,7 +1909,7 @@ class TestComposeEnvFileLayering:
             commands.append(command)
             return dcu.subprocess.CompletedProcess(command, 0, stdout="services: {}\n", stderr="")
 
-        monkeypatch.setattr(dcu, "_compose_subprocess_env_for_config", lambda _config: {})
+        monkeypatch.setattr(dcu, "_compose_subprocess_env_for_config", lambda _config, _env_file: {})
         monkeypatch.setattr(dcu.subprocess, "run", fake_run)
 
         dcu.resolve_compose(recipe)
@@ -1845,7 +1941,7 @@ class TestComposeEnvFileLayering:
         monkeypatch.setattr(
             dcu,
             "_compose_subprocess_env_for_config",
-            lambda _config, _defaults: {},
+            lambda _config, _env_file, _defaults: {},
         )
         monkeypatch.setattr(dcu.subprocess, "run", fake_run)
 

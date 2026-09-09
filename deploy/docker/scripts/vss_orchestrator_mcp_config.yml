@@ -126,10 +126,9 @@ function_groups:
             # tags here would not, and would mix an -sbsa develop build into a
             # deployment that asked for a release.
             #
-            # Inert on its own: Compose reads the derived tags from its process
-            # environment, where containers.env was sourced without a suffix,
-            # and that beats the generated env file this lands in. The suffix
-            # has to be exported before that sourcing to take effect.
+            # The orchestrator exports this before it sources containers.env,
+            # for both the generated env file and the Compose process
+            # environment, so the derived tags carry the suffix in both.
             VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
             # vLLM claims the whole fraction whether it needs it or not and
             # refuses to start unless free >= fraction x total, so the 0.4 used
@@ -154,10 +153,10 @@ function_groups:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.2"
           OTHER:
           DGX-SPARK:
-            # SBSA/arm64 like GB300: same suffix, same caveat about when it
-            # takes effect. Covers all four suffixed images rather than the
-            # RT-VLM and RT-CV tags this used to pin, since the suffix is
-            # applied by containers.env per image, not per hardware profile.
+            # SBSA/arm64 like GB300: same suffix, same reasoning. Covers all
+            # four suffixed images rather than the RT-VLM and RT-CV tags this
+            # used to pin, since the suffix is applied by containers.env per
+            # image, not per hardware profile.
             VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
