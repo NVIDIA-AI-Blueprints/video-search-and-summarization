@@ -18,7 +18,7 @@ The spec declares `"resources": {"platforms": {"ANY": {"gpu_count": 0}}}`:
   `nvidia-vss/vss-setup-behavior-analytics-standalone-deploy-any`).
   A bare Brev instance is sufficient — `behavior-analytics` is CPU-only.
 
-No `/vss-deploy-profile` prerequisite: the spec omits `profile`, so
+No `/vss-build-vision-ai` prerequisite: the spec omits `profile`, so
 `BrevEnvironment._ensure_prerequisite_deployed` runs the box-clean path
 (desired = "") and the trial starts on a guaranteed-clean box.
 
@@ -98,7 +98,7 @@ PLATFORMS: dict[str, dict] = {
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -282,7 +282,7 @@ def generate_task(
         "[metadata]",
         'skill = "vss-setup-behavior-analytics"',
         # No `profile` field — this trial runs on a bare Brev instance with
-        # no /vss-deploy-profile prerequisite. behavior-analytics is CPU-only
+        # no /vss-build-vision-ai prerequisite. behavior-analytics is CPU-only
         # and stands up standalone.
         f'platform = "{platform}"',
         f"gpu_count = {gpu_count}",
