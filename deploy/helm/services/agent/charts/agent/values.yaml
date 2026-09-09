@@ -31,9 +31,15 @@ service:
   type: ClusterIP
   nodePort: ""
 
-# Server-side ingress timeout for this backend. Empty leaves the controller
-# default; profiles whose agent runs long operations (search, LVS) raise it.
-ingressTimeoutServer: ""
+# Server-side ingress timeout for this backend. The chart default rather than a
+# per-profile override because /api/v1/videos/<sensor>/complete is served by
+# every profile that installs this chart, and it blocks on RT-Embed generation
+# for the agent's own 600s client timeout plus the VST calls around it; the
+# ingest contract bounds that request at 900s. Matches `timeout server 900s` on
+# the Docker edge's bk_vss_agent -- without it the same call succeeds on Compose
+# and is cut off on Kubernetes by the controller's own 50s default. Profiles
+# whose agent runs longer operations (search, LVS) raise it further.
+ingressTimeoutServer: "900s"
 profile: base
 # Alerts profile only: mount ConfigMap key(s) under /etc/vss-agent/report-templates. Must match keys baked into
 # vss-agent-config (e.g. dev-profile-alerts `configs/vss-agent/incident_report_template.md`). If disabled, omit the

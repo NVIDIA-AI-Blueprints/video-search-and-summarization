@@ -48,16 +48,21 @@ matters, which is a slow route inheriting a short timeout. So:
    counterpart is unset means the same call succeeds on Compose and 504s on
    Kubernetes.
 
-On ``/rtvi-cv`` and ``/rtvi-embed``, which look like omissions and are not:
-both are reached through the gateway by clients that bound themselves at
-``read=120.0`` (``search_core/clients/rtvi_cv_embed.py``,
-``search_core/clients/cosmos_embed.py``) for text-embedding calls, plus RT-CV's
-``/api/v1/stream/add`` control plane. The edge default is 120s, so it cannot
-truncate a request the caller would still be waiting for, and raising it would
-change no observable outcome. Their Helm charts do set 3600s, and that is not a
-contradiction: the HAProxy ingress controller's own default is 50s, well under
-the clients' 120s bound, so Kubernetes has to raise it to reach the ceiling
-Compose already has.
+On ``/rtvi-cv``, which looks like an omission and is not: it is reached through
+the gateway by a client that bounds itself at ``read=120.0``
+(``search_core/clients/rtvi_cv_embed.py``) for text-embedding calls, plus
+RT-CV's ``/api/v1/stream/add`` control plane. The edge default is 120s, so it
+cannot truncate a request the caller would still be waiting for, and raising it
+would change no observable outcome. Its Helm chart does set 3600s, and that is
+not a contradiction: the HAProxy ingress controller's own default is 50s, well
+under the client's 120s bound, so Kubernetes has to raise it to reach the
+ceiling Compose already has.
+
+``/rtvi-embed`` was recorded here for the same reason and it was wrong: text
+embedding is not its only gateway-routed caller. On the search profile the
+agent's ``COSMOS_EMBED_ENDPOINT`` is ``${VSS_GATEWAY_ORIGIN}/rtvi-embed``, and
+``video_ingest`` posts ``/v1/generate_video_embeddings`` there with a 600s
+client timeout. It is in :data:`SLOW_BACKENDS` now.
 """
 
 from __future__ import annotations
@@ -104,6 +109,25 @@ SLOW_BACKENDS = {
         "helm": "services/video-summarization",
         "key": "vss-summarization",
     },
+    "bk_vss_agent": {
+        "why": (
+            "POST /api/v1/videos/<sensor>/complete blocks on RT-Embed generation for the agent's "
+            "own 600s client timeout plus the VST calls around it, and the ingest contract in "
+            "skills/operations/vss-search-archive bounds that request at 900s -- above the "
+            "default, so the edge is what truncates it"
+        ),
+        "helm": "services/agent/charts/agent",
+        "key": "vss-agent",
+    },
+    "bk_rtvi_embed_strip": {
+        "why": (
+            "the agent's COSMOS_EMBED_ENDPOINT is the gateway on the search profile, and "
+            "video_ingest posts /v1/generate_video_embeddings there with a 600s client timeout, "
+            "blocking until generation completes"
+        ),
+        "helm": "services/rtvi/charts/rtvi-embed",
+        "key": "vss-rtvi-embed",
+    },
     "bk_vst_storage_api_direct": {
         "why": "uploads of whole videos outlast the default",
         # VST is published through the VIOS nginx, not a Service annotation, and
@@ -121,10 +145,6 @@ DEFAULT_TIMEOUT_BACKENDS = {
         "gateway-routed traffic is /api/v1/stream/add plus text embedding through "
         "RTVICVEmbedClient, which sets read=120.0 -- the same ceiling the edge default "
         "already gives, so raising it truncates nothing"
-    ),
-    "bk_rtvi_embed_strip": (
-        "gateway-routed traffic is text embedding through CosmosEmbedClient, which sets "
-        "read=120.0; same reasoning as bk_rtvi_cv_strip"
     ),
 }
 

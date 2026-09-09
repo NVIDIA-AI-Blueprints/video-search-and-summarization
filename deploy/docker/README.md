@@ -833,18 +833,19 @@ would apply to every route sharing the origin.
 | Route | `timeout server` | Why |
 |---|---|---|
 | `/llm` | 600s | First token off a cold NIM. |
+| `/api`, `/chat`, `/v1`, `/websocket`, `/static` (the agent) | 900s | `POST /api/v1/videos/<sensor>/complete` blocks on RT-Embed generation for the agent's own 600s client timeout plus the VST timeline and storage calls around it. The ingest contract in `skills/operations/vss-search-archive` bounds that request at 900s, so the value is the caller's own bound. |
+| `/rtvi-embed` | 600s | Text embedding bounds itself at `read=120.0`, but it is not the only gateway-routed caller: on the search profile the agent's `COSMOS_EMBED_ENDPOINT` is `${VSS_GATEWAY_ORIGIN}/rtvi-embed`, and `video_ingest` posts `/v1/generate_video_embeddings` there with a 600s client timeout, blocking until generation completes. Helm reaches the service in-cluster, so only this edge caps it. |
 | `/rtvi-vlm` | 600s | A caption on a cold or loaded RT-VLM. This route now carries the agent, alert-bridge and lvs-server, which previously called `rtvi-vlm:8000` with no proxy timeout at all. |
 | `/lvs`, `/video-summarization` | 3600s | A summarization run; the CLI bounds the wait itself. Both, because an alias that 504s where the original succeeds is worse than no alias. |
 | `/vst/api/v1/storage` | 3600s | Uploads of whole videos. |
 
-`/rtvi-cv` and `/rtvi-embed` are **deliberately left on the default**. What
-reaches them through the gateway is text embedding plus RT-CV's
-`/api/v1/stream/add` control plane, and both clients bound themselves at
-`read=120.0` — the same ceiling the default already gives, so raising it would
-truncate nothing. Their Helm charts do set `3600s`, which is not a
-contradiction: the HAProxy ingress controller's own default is 50s, below the
-clients' bound, so Kubernetes has to raise it to reach the ceiling Compose
-already has.
+`/rtvi-cv` is **deliberately left on the default**. What reaches it through the
+gateway is text embedding plus its `/api/v1/stream/add` control plane, and that
+client bounds itself at `read=120.0` — the same ceiling the default already
+gives, so raising it would truncate nothing. Its Helm chart does set `3600s`,
+which is not a contradiction: the HAProxy ingress controller's own default is
+50s, below the client's bound, so Kubernetes has to raise it to reach the
+ceiling Compose already has.
 
 If you raise one of these, raise it on **both edges**. Kubernetes expresses the
 same thing as `haproxy.org/timeout-server` on the backend's Service, fed by

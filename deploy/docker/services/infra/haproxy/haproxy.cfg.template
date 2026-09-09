@@ -43,6 +43,16 @@ backend bk_vss_ui
     server s1 "${VSS_UI_SERVICE_HOST}:${VSS_UI_PORT}" check resolvers docker init-addr none
 
 backend bk_vss_agent
+    # POST /api/v1/videos/<sensor>/complete blocks on RT-Embed generation for as
+    # long as the agent's own client allows -- 600s by default
+    # (DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS in vss_agents/api/video_ingest.py),
+    # plus the VST timeline and storage calls around it -- and the ingest
+    # contract in skills/operations/vss-search-archive/references/
+    # source_lifecycle.md bounds that request at 900s, well above the 120s
+    # default. Cut off here the caller gets a 504 whose body is not even JSON,
+    # which reads as a failed ingest rather than an edge timeout. 900s is the
+    # caller's own bound, not a new number.
+    timeout server 900s
     server s1 "${VSS_AGENT_SERVICE_HOST}:${VSS_AGENT_PORT}" check resolvers docker init-addr none
 
 backend bk_vst_ingress
@@ -101,6 +111,16 @@ backend bk_elasticsearch_strip
 backend bk_rtvi_embed_strip
     http-request replace-path ^/rtvi-embed/(.*) /\1
     http-request replace-path ^/rtvi-embed$ /
+    # Text embedding through CosmosEmbedClient bounds itself at read=120.0 and
+    # would not notice this, but it is not the only gateway-routed caller: on
+    # the search profile the agent's COSMOS_EMBED_ENDPOINT is
+    # ${VSS_GATEWAY_ORIGIN}/rtvi-embed (deploy/docker/services/agent/
+    # compose.yml), and video_ingest posts /v1/generate_video_embeddings there
+    # with a 600s client timeout, blocking until generation completes. On the
+    # 120s default that call 504s and the agent turns it into a 502 on
+    # /api/v1/videos/<sensor>/complete, which reads as an embedding failure.
+    # Helm reaches the service in-cluster instead, so only this edge caps it.
+    timeout server 600s
     server s1 "${RTVI_EMBED_SERVICE_HOST}:${RTVI_EMBED_SERVICE_PORT}" check resolvers docker init-addr none
 
 backend bk_rtvi_cv_strip
