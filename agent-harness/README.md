@@ -14,14 +14,16 @@ instruction files. The VSS eval harness builds its sandbox images from here;
 | Directory | Harness | Status |
 |---|---|---|
 | [`openclaw/`](openclaw/) | OpenClaw, on NemoClaw's managed runtime | image + plugin + workspace |
-| `hermes/` | Hermes | planned — needs NemoClaw to publish its complete Hermes image ([NVIDIA/NemoClaw#11228](https://github.com/NVIDIA/NemoClaw/issues/11228)); until then `deploy_nemoclaw.ipynb` installs skills and docs into the stock Hermes sandbox |
+| [`hermes/`](hermes/) | Hermes, on NemoClaw's managed runtime | image (skills + docs + `vss` CLI) |
 | `pi/` | PI coding agent | planned |
 
 The `SKILL.md` tree at the repo root (`skills/`) is the portable form of the
 skills and stays harness-neutral. A harness directory packages it the way that
-harness loads skills (OpenClaw: a plugin with `skills: ["./skills"]`) and adds
-the harness-specific pieces (OpenClaw: a `vss_cli` tool and the workspace
-instruction files).
+harness loads skills (OpenClaw: a plugin that selects them per deployment;
+Hermes: its writable skill root) and adds the harness-specific pieces
+(OpenClaw: a `vss_cli` tool and workspace seeding). Which skills ship is decided
+by the skills themselves: a `SKILL.md` that declares `metadata.vss-requires` is
+an operation skill and goes into every harness image.
 
 Each image keeps the same contract with the eval harness: one agent runtime,
 declared with `LABEL harness.agent=<name>`; the OpenShell workspace at
