@@ -87,10 +87,13 @@ def deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
-def build_models_list(v: dict) -> list:
+def build_models_list(v: dict, existing: list) -> list:
+    """Sparse4D entries for the resolved dataset type, plus any non-Sparse4D
+    entries already in ngcModelsToDownload (custom models added via -f)."""
     model = v["sparse4d_model"]
     org = model.split("/", 1)[0]
-    return [
+    kept = [e for e in existing if not e.get("destPath", "").startswith("sparse4d/")]
+    return kept + [
         {
             "model": model,
             "org": org,
@@ -147,6 +150,7 @@ def main() -> None:
             overlay = yaml.safe_load(f) or {}
         chart_values = deep_merge(chart_values, overlay)
 
+    existing_models = chart_values.get("rtvi", {}).get("vss-rtvi-cv", {}).get("ngcModelsToDownload", [])
     output = {
         "warehouse": {"datasetType": args.dataset_type},
         "rtvi": {
@@ -156,7 +160,7 @@ def main() -> None:
                     "onnxFile": v["sparse4d_onnx_file"],
                     "anchorFile": v["sparse4d_anchor_file"],
                 },
-                "ngcModelsToDownload": build_models_list(v),
+                "ngcModelsToDownload": build_models_list(v, existing_models),
             }
         },
     }
