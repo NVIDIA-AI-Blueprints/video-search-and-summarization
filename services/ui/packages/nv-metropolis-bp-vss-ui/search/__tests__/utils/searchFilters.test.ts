@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: MIT
-import {
-  applySearchResultFilters,
-  buildSearchFilterChatContext,
-  prefixMessageWithSearchFilters,
-  SEARCH_FILTER_CONTEXT_ID,
-} from '../../lib-src/utils/searchFilters';
+import { applySearchResultFilters } from '../../lib-src/utils/searchFilters';
 import type { SearchData, StreamInfo } from '../../lib-src/types';
 
 const clip = (overrides: Partial<SearchData> = {}): SearchData => ({
@@ -120,34 +115,5 @@ describe('applySearchResultFilters', () => {
   it('keeps results with unparseable timestamps when no time range is set', () => {
     const results = [clip({ video_name: 'blank.mp4', start_time: '', end_time: '' })];
     expect(applySearchResultFilters(results, {}, streams).map((r) => r.video_name)).toEqual(['blank.mp4']);
-  });
-});
-
-describe('buildSearchFilterChatContext', () => {
-  it('serializes active filters for Chat [Context] payload', () => {
-    const ctx = buildSearchFilterChatContext({
-      sourceType: 'rtsp',
-      topK: 5,
-      videoSources: ['cam-1'],
-      similarity: 0.4,
-      startDate: new Date(2024, 0, 15, 9, 0, 0),
-    });
-    expect(ctx.id).toBe(SEARCH_FILTER_CONTEXT_ID);
-    expect(ctx.data).toEqual({
-      source_type: 'rtsp',
-      top_k: 5,
-      video_sources: ['cam-1'],
-      timestamp_start: '2024-01-15T09:00:00',
-      min_cosine_similarity: 0.4,
-    });
-  });
-});
-
-describe('prefixMessageWithSearchFilters', () => {
-  it('prefixes the user message with Context JSON', () => {
-    const prefixed = prefixMessageWithSearchFilters('find people', { sourceType: 'video_file', topK: 10 });
-    expect(prefixed.startsWith('[Context: ')).toBe(true);
-    expect(prefixed).toContain('find people');
-    expect(prefixed).toContain('"source_type":"video_file"');
   });
 });

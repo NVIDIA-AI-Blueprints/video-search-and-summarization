@@ -143,7 +143,7 @@ describe('SearchComponent sidebar events', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('pushes current Search filters into Chat context before paint', () => {
+  it('does not push Search filters into Chat context', () => {
     const addChatQueryContext = jest.fn();
     render(
       <SearchComponent
@@ -152,23 +152,15 @@ describe('SearchComponent sidebar events', () => {
       />,
     );
 
-    expect(addChatQueryContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'vss-search-filters',
-        data: expect.objectContaining({
-          top_k: 10,
-          min_cosine_similarity: 0.5,
-        }),
-      }),
-    );
+    expect(addChatQueryContext).not.toHaveBeenCalled();
   });
 
-  it('does not re-push filter context when the host rebuilds addChatQueryContext', () => {
+  it('does not re-register controls when the host rebuilds addChatQueryContext', () => {
     const addChatQueryContext = jest.fn();
     const onControlsReady = jest.fn();
     // Home builds a fresh addChatQueryContext on every render; that must not
-    // make Search re-run its sync effect or rebuild its controls, or the two
-    // components drive each other into an infinite render loop.
+    // rebuild Search controls or the two components drive each other into an
+    // infinite render loop.
     const { rerender } = render(
       <SearchComponent
         {...defaultProps}
@@ -178,7 +170,7 @@ describe('SearchComponent sidebar events', () => {
       />,
     );
 
-    expect(addChatQueryContext).toHaveBeenCalledTimes(1);
+    expect(addChatQueryContext).not.toHaveBeenCalled();
     const controlsCallsAfterMount = onControlsReady.mock.calls.length;
 
     for (let i = 0; i < 3; i += 1) {
@@ -192,7 +184,7 @@ describe('SearchComponent sidebar events', () => {
       );
     }
 
-    expect(addChatQueryContext).toHaveBeenCalledTimes(1);
+    expect(addChatQueryContext).not.toHaveBeenCalled();
     expect(onControlsReady).toHaveBeenCalledTimes(controlsCallsAfterMount);
   });
 
