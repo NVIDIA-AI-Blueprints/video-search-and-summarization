@@ -67,7 +67,7 @@ operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
-**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
+**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-build-vision-ai`** to bring up a whole workflow (**`vss-deploy-profile` is deprecated** and is removed next release) (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
 | Profile | Workflow it deploys |
 |---|---|
@@ -85,7 +85,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
-| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) |
+| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) — `vss-deploy-profile` is deprecated |
 | Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
@@ -110,7 +110,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
-- `vss-deploy-profile` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
+- `vss-build-vision-ai` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice). `vss-deploy-profile` is the deprecated predecessor of `vss-build-vision-ai`.
 
 ---
 
@@ -119,7 +119,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 ### Deployment & infrastructure
 | Skill | Description |
 |---|---|
-| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
+| [vss-build-vision-ai](vss-build-vision-ai/SKILL.md) | Compose, configure, deploy, verify, or tear down a whole VSS workflow — the `base`, `search`, `lvs` and `alerts` developer profiles, the `warehouse` industry profile, or a custom delta overlay on one of them. **Start here for a full workflow.** |
+| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | **Deprecated — use [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md).** Still functional this release and removed in the next. Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
 | [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 
@@ -215,3 +216,5 @@ To uninstall skills, paste the following prompt:
 ## Source of truth
 
 This `skills/` directory is the canonical source. Skills published to the public catalog at `github.com/nvidia/skills` are mirrored from here at sync time.
+
+**Deprecated skills are still mirrored.** A skill marked deprecated continues to sync to the public catalog for one release carrying its deprecation notice, so anyone who already installed it sees the redirect before it disappears. It is dropped from the catalog in the release that deletes it from this directory.

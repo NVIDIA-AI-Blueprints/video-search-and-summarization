@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-profile
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill.
+description: "DEPRECATED — superseded by vss-build-vision-ai; still functional in this release and removed in the next. Use when the user asks to select, configure, deploy, verify, debug, or tear down a VSS profile (base, search, lvs, warehouse, edge). Not for standalone microservices — use the vss-deploy-* skill. Prefer vss-build-vision-ai for new work."
 license: Apache-2.0
 metadata:
   version: "3.2.1"
@@ -8,6 +8,23 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
+
+> [!IMPORTANT]
+> **Deprecated — use [`vss-build-vision-ai`](../../vss-build-vision-ai/SKILL.md) instead.**
+>
+> This skill still works and behaves exactly as before in this release; nothing here has changed.
+> It is **removed in the next release**. Start new work on `vss-build-vision-ai`, which deploys the
+> same `base`, `search`, `lvs` and `alerts` developer profiles plus the `warehouse` industry
+> profile, and can additionally extend a running deployment with a delta overlay.
+>
+> | This skill | Successor |
+> | --- | --- |
+> | `-p base` / `-p search` / `-p lvs` | the matching stock developer workflow |
+> | `-p alerts -m verification` / `-m real-time` | the stock Alerts workflow in `2d_cv` / `2d_vlm` mode |
+> | `-p warehouse` | the warehouse industry profile (variant selected during intake) |
+>
+> The successor takes no `-p` / `-m` flags — describe the profile in the request instead.
+
 # VSS Deploy
 
 Do not use this skill for:
