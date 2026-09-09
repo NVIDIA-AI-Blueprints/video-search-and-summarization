@@ -22,7 +22,7 @@ definitions were vendored unchanged rather than rewritten, and a test asserts
 they still agree with ``run_eval.py`` for as long as both exist -- so numbers
 stay comparable with baselines captured by the old runner.
 
-    ingest:  legacy-put | agent-3step      (vst-direct pending -- GAP-1)
+    ingest:  legacy-put | agent-3step | vst-direct
     query:   cli                           (openclaw pending -- GAP-3)
 
 Several defaults here look arbitrary and are load-bearing:
@@ -101,6 +101,13 @@ def build_ingest_backend(args: argparse.Namespace) -> Any:
             upload_timestamp=args.upload_timestamp,
             complete_retries=args.complete_retries,
             complete_backoff_s=args.complete_backoff,
+        )
+    if args.ingest_flow == "vst-direct":
+        # Same VST origin the readiness poll and --only-dataset prune use, so a
+        # run cannot upload to one host and check another.
+        return flows.VstDirectIngest(
+            args.vst_url or flows.vst_url_for(args.endpoint, args.vst_port),
+            upload_timestamp=args.upload_timestamp,
         )
     raise SystemExit(f"Unknown ingest flow: {args.ingest_flow}")
 
@@ -932,7 +939,7 @@ def _print_summary(summary: dict[str, Any]) -> None:
 # =============================================================================
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -944,7 +951,12 @@ def parse_args() -> argparse.Namespace:
         "--ingest-flow",
         default="agent-3step",
         choices=sorted(flows.INGEST_BACKENDS),
-        help="How fixtures are uploaded (default: agent-3step)",
+        help=(
+            "How fixtures are uploaded (default: agent-3step). 'vst-direct' is "
+            "what the UI does -- upload to VIOS and let its webhooks drive "
+            "perception -- but it returns no chunk count and does not pin the "
+            "timestamp anchor, so verify one video before scoring a run."
+        ),
     )
     flow.add_argument(
         "--query-flow",
@@ -1142,7 +1154,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def main() -> None:

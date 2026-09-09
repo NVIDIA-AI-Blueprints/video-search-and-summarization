@@ -70,6 +70,7 @@ from .ingest import COMPLETE_FATAL
 from .ingest import COMPLETE_RETRY
 from .ingest import AgentThreeStepIngest
 from .ingest import LegacyPutIngest
+from .ingest import VstDirectIngest
 from .ingest import classify_complete_failure
 from .metrics import HIT_K_VALUES
 from .metrics import SEGMENT_SIZE
@@ -115,15 +116,16 @@ from .routing import unpack_dataset
 
 #: Ingest backends by ``--ingest-flow`` name.
 #:
-#: "vst-direct" is absent on purpose. The UI has already moved to it -- see
-#: ci-vss-oss commit 0bdfc8d (the eval's previous home), which skipped six UI
-#: E2E specs because "UI video
-#: upload / RTSP add no longer call Agent ingest APIs" -- but its contract is
-#: undocumented, and guessing would produce an eval that indexes differently
-#: from the product.
+#: "vst-direct" is what the UI does -- see ci-vss-oss commit 0bdfc8d (the eval's
+#: previous home), which skipped six UI E2E specs because "UI video upload /
+#: RTSP add no longer call Agent ingest APIs". It is NOT the default, because
+#: the agent's ``/complete`` is the only step that returns a chunk count and
+#: the only step that pins the timestamp anchor the dataset's ground truth is
+#: written against; see :class:`VstDirectIngest`.
 INGEST_BACKENDS = {
     LegacyPutIngest.name: LegacyPutIngest,
     AgentThreeStepIngest.name: AgentThreeStepIngest,
+    VstDirectIngest.name: VstDirectIngest,
 }
 
 #: Query backends by ``--query-flow`` name.
@@ -182,6 +184,7 @@ __all__ = [
     "LegacyPutIngest",
     "LiveDecomposer",
     "QueryBackend",
+    "VstDirectIngest",
     "aggregate_upload_stats",
     "align_ts_to_segment",
     "classify_complete_failure",
