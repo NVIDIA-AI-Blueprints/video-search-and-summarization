@@ -95,6 +95,10 @@ function_groups:
           RTXPRO4500BW:
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
             RTVI_VLM_MAX_MODEL_LEN: "18000"
+            # The board takes the bf16 checkpoint whatever the profile pins.
+            # base/alerts/lvs already default to it; search pins the fp8 build
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+            VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final
           RTXPRO6000BW:
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
           GB300:
