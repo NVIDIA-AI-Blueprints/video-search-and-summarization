@@ -153,6 +153,22 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             decompositions = flows.load_decompositions(args.decompositions)
             print(f"decompositions: {len(decompositions)} loaded from {args.decompositions}")
 
+        # `--original-query` is newer than most deployed CLIs, and an unknown
+        # option exits 2 -- fatal, on query 1. Probe rather than assume: one
+        # --help beats aborting a run that would otherwise have completed with
+        # slightly worse verification.
+        pass_original_query = not args.no_original_query
+        if pass_original_query and not args.dry_run and not flows.cli_supports_flag(vss_cmd, "--original-query"):
+            pass_original_query = False
+            print(
+                "WARNING: this vss CLI has no --original-query, so the critic will "
+                "verify a question\n"
+                "         reconstructed from the retrieval arguments rather than the "
+                "one the dataset asked.\n"
+                "         Critic rejections are not comparable with the REST flow's. "
+                "Update the CLI to fix."
+            )
+
         return flows.CliQueryBackend(
             vss_cmd=vss_cmd,
             search_path=args.search_path,
@@ -163,6 +179,7 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             merge_adjacent=args.merge_adjacent,
             cwd=args.vss_repo_root,
             decompositions=decompositions,
+            pass_original_query=pass_original_query,
         )
     raise SystemExit(f"Unknown query flow: {args.query_flow}")
 
@@ -1102,6 +1119,16 @@ def parse_args() -> argparse.Namespace:
             "Do not decompose. Every query then takes --search-path, which "
             "measures one retrieval path rather than the routing the product "
             "performs -- correct for a baseline, wrong for an eval."
+        ),
+    )
+    p.add_argument(
+        "--no-original-query",
+        action="store_true",
+        help=(
+            "Do not send --original-query. The critic then verifies a question "
+            "the host rebuilds from the retrieval arguments instead of the one "
+            "the dataset asked, which is the pre-fix behaviour and the only "
+            "reason to pass this: A/B against an older result file."
         ),
     )
     p.add_argument("--llm-model", help="Decomposition model id (default: ask the endpoint).")
