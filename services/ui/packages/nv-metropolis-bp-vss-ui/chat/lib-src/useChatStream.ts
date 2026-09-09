@@ -328,7 +328,7 @@ export function useChatStream(
 
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
-          const parser = new SseParser();
+          const parser = new SseParser(endpointRef.current.mediaProxyUrl);
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;

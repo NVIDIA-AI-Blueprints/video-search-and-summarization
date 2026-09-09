@@ -8,6 +8,7 @@
  *   data: {"choices":[{"delta":{"content":"..."}}]}   assistant text
  *   data: [DONE]                                      terminal
  *   intermediate_data: {...}                          tool/skill progress
+ *   artifact_data: {...}                              structured tab payload
  *   error_data: {...}                                 turn-level failure
  *   interaction_data: {...}                           unsupported interaction
  *   : keepalive                                       comment, ignored
@@ -20,11 +21,13 @@
  * the one piece where a silent mistake shows up as "the agent said nothing".
  */
 
+import { artifactEnvelope } from './agentApi';
 import type { ChatStep } from './types';
 
 export type SseEvent =
   | { kind: 'token'; text: string }
   | { kind: 'step'; step: ChatStep }
+  | { kind: 'artifact'; envelope: string }
   | { kind: 'interaction'; interaction: InteractionRequest }
   | { kind: 'error'; message: string }
   | { kind: 'done' };
@@ -85,6 +88,7 @@ const PREFIXES = {
   event: 'event:',
   data: 'data:',
   step: 'intermediate_data: ',
+  artifact: 'artifact_data: ',
   error: 'error_data: ',
   interaction: 'interaction_data: ',
 } as const;
@@ -104,6 +108,12 @@ export class SseParser {
   private stepIndex = 0;
   private eventType = '';
   private dataLines: string[] = [];
+
+  /**
+   * @param mediaProxyUrl Rebases `*_url` fields in artifact payloads, so hits
+   * carrying a container-local VST host stay playable from the browser.
+   */
+  constructor(private readonly mediaProxyUrl?: string) {}
 
   feed(chunk: string): SseEvent[] {
     // Normalise CRLF first: a proxy that rewrites line endings would otherwise
@@ -151,6 +161,12 @@ export class SseParser {
     if (line.startsWith(PREFIXES.step)) {
       const step = this.parseStep(line.slice(PREFIXES.step.length));
       if (step) events.push({ kind: 'step', step });
+      return;
+    }
+
+    if (line.startsWith(PREFIXES.artifact)) {
+      const envelope = this.parseArtifact(line.slice(PREFIXES.artifact.length));
+      if (envelope) events.push({ kind: 'artifact', envelope });
       return;
     }
 
@@ -212,6 +228,22 @@ export class SseParser {
         index: typeof d.index === 'number' ? d.index : this.stepIndex++,
         parentId: parentId == null ? undefined : String(parentId),
       };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Structured payload for a feature tab, kept out of the assistant text.
+   *
+   * The alternative is the agent transcribing every hit into the reply, which
+   * costs a large payload of tokens and invites truncated or invented fields.
+   */
+  private parseArtifact(payload: string): string | null {
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+      return artifactEnvelope(parsed as Record<string, unknown>, this.mediaProxyUrl);
     } catch {
       return null;
     }

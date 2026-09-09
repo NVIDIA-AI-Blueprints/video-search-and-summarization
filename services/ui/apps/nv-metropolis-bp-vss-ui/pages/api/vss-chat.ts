@@ -40,36 +40,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // GET returns the most recent search result from the adapter, so the Search
-  // tab can render hits that never passed through the model's reply text.
-  if (req.method === "GET") {
-    const surface = String(req.query.surface ?? "sidebar");
-    const target = backendFor(surface);
-    if (!target) {
-      res
-        .status(503)
-        .json({ error: `no backend configured for surface: ${surface}` });
-      return;
-    }
-    const base = target.replace(/(?:\/v1)?\/chat\/stream$/, "");
-    // Forward the conversation so the adapter serves only that conversation's
-    // result rather than whatever ran last, process-wide.
-    const conversation = String(req.query.conversation ?? "");
-    const qs = conversation
-      ? `?conversation=${encodeURIComponent(conversation)}`
-      : "";
-    try {
-      const upstream = await fetch(`${base}/v1/search/last${qs}`);
-      res.status(upstream.status).json(await upstream.json());
-    } catch (err) {
-      res.status(502).json({
-        error: "could not read last search result",
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    }
-    return;
-  }
-
   if (req.method !== "POST") {
     res.status(405).json({ error: "method not allowed" });
     return;
