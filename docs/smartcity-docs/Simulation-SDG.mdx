@@ -13,7 +13,7 @@ The SDG workflow can be broken in a series of steps:
 
 Each scenario is processed by a multi-stage pipeline to generate the full dataset, as shown below.
 
-![](/assets/images/SDG_Workflow.png)
+![The multi-stage SDG pipeline: each scenario passes through simulation, ground-truth generation, and Cosmos augmentation to produce the full dataset](/assets/images/SDG_Workflow.png)
 
 ## Simulation for Outdoor Environments
 
@@ -36,7 +36,7 @@ Scenario simulations can be recorded and saved as a CARLA log file (in custom bi
 
 You can create simulations on real world locations using their digital twins. A sample CARLA map for Montague Expressway in Santa Clara, CA, USA (screenshot below) is available from AVES for download and testing.
 
-![](/assets/images/Montague-DT.png)
+![Screenshot of the CARLA digital twin of Montague Expressway in Santa Clara, California](/assets/images/Montague-DT.png)
 
 To create and use your own digital twin, follow these steps:
 
@@ -142,7 +142,7 @@ Although there are multiple types of sensors, they are placed together at the sa
 
 The SDG workflow runs in multiple stages to generate the base ground truths, and the augmented output through Cosmos. The base ground truths include frames and video for RGB, Instance and Semantic segmentation, Depth, Edge, Normals, 2D and 3D Bounding box overlays, ODVG data, and Json files for objects, instances, and detected collisions. The augmented output (only supported for scenario duration of up to 15 secs for Cosmos Transfer) includes multiple iterations with RGB video and bounding box overlays, including collision and non-collision vehicles. The full list of SDG outputs is shown below, with a separate output folder (denoted by SDG-1, SDG-2,...) generated for each input log.
 
-![](/assets/images/SDG_Outputs.png)
+![Full list of SDG outputs per input log, with a separate output folder generated for each log](/assets/images/SDG_Outputs.png)
 
 ## Augmentation
 

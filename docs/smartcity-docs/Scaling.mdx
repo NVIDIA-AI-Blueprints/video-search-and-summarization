@@ -126,7 +126,7 @@ This section covers scaling configurations for Docker Compose deployments, suppo
 
 ## RTVI CV Scaling
 
-By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Hardware Profiles](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#hardware-profiles). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
+By default, Docker Compose configs are tuned for 10fps 1080p streams with 30 streams per RTVI CV instance on the default SmartCity Blueprint Docker Compose [Supported Workload](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#supported-workload). If using different stream specs or different GPUs, RTVI CV may regenerate the engine file each time the RTVI CV container starts, which can take a while (up to 30 minutes in some cases).
 
 ### Scaling Across Additional GPUs
 
@@ -175,7 +175,7 @@ Afterwards restart Docker:
 sudo systemctl restart docker
 ```
 
-It is recommended to also increase the max storage allocation for VST as the default 100GB will not last very long at high stream counts (10-20 minutes total recording at 120 streams). To do so, you can modify the `deployments/vst/smc/vst/configs/vst_storage.json` config and update `total_video_storage_size_MB` to be `1000000` or higher. Default in Docker Compose is 10000 (~1TB).
+It is recommended to also increase the max storage allocation for VST, as the Docker Compose default of `total_video_storage_size_MB: 100000` (100 GB) will not last very long at high stream counts (10-20 minutes of total recording at 120 streams). To raise it, modify `deploy/docker/services/vios/configs/vst_storage.json` and set `total_video_storage_size_MB` to `1000000` (1 TB) or higher, after confirming the disk can hold the new value.
 
 ## ELK Configuration
 
