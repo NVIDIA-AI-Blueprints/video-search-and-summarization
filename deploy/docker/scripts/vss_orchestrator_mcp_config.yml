@@ -117,21 +117,54 @@ function_groups:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
               RTVI_VLM_MAX_MODEL_LEN: "18000"
           RTXPRO6000BW:
+          GB300:
+            # GB300 is SBSA/arm64. RT-VLM, RT-CV, RT-Embed and video
+            # summarization ship their arm64 builds in the same GHCR
+            # repositories as the x86 defaults, under an -sbsa tag suffix.
+            # containers.env appends the suffix to whatever VSS_CONTAINER_TAG
+            # selects, which keeps a release selectable -- pinning the four
+            # tags here would not, and would mix an -sbsa develop build into a
+            # deployment that asked for a release.
+            #
+            # The orchestrator exports this before it sources containers.env,
+            # for both the generated env file and the Compose process
+            # environment, so the derived tags carry the suffix in both.
+            VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
+            # vLLM claims the whole fraction whether it needs it or not and
+            # refuses to start unless free >= fraction x total, so the 0.4 used
+            # on 80-96 GiB cards would hand RT-VLM ~100 GiB of GB300's ~250 GiB
+            # and leave the co-resident LLM below its own fraction. 0.3 still
+            # gives RT-VLM ~75 GiB.
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.3"
+            RTVI_VLLM_ATTENTION_BACKEND: TRITON_ATTN
+            # One GPU shared by every model service. The profile .env files pin
+            # multi-GPU layouts (search puts the LLM on 1, RT-CV on 0 and
+            # RT-Embed on 1), which is a hard startup failure on a single-device
+            # host, and leaving LLM/VLM on separate devices also loses the
+            # local_shared placement that co-locating them implies. A GB300 at a
+            # non-zero index needs these passed as docker_generate env_overrides.
+            LLM_DEVICE_ID: "0"
+            VLM_DEVICE_ID: "0"
+            SHARED_LLM_VLM_DEVICE_ID: "0"
+            FIXED_SHARED_DEVICE_IDS: "0"
+            RT_CV_DEVICE_ID: "0"
+            RT_EMBED_DEVICE_ID: "0"
+            alerts:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.2"
           OTHER:
           DGX-SPARK:
-            VSS_RT_VLM_TAG: "develop-latest-sbsa"
-            # SBSA shares the vss-rt-cv GHCR repository, distinguished only by
-            # an -sbsa tag suffix, so this is a tag-only override -- the image
-            # default already resolves to the managed GHCR channel.
-            VSS_RT_CV_TAG: "develop-latest-sbsa"
+            # SBSA/arm64 like GB300: same suffix, same reasoning. Covers all
+            # four suffixed images rather than the RT-VLM and RT-CV tags this
+            # used to pin, since the suffix is applied by containers.env per
+            # image, not per hardware profile.
+            VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
-            # Unified alerts value, matching dev-profile.sh
-            # get_rtvi_vllm_gpu_memory_utilization (DGX-SPARK alerts -> 0.35;
-            # the 0.4 local_shared value it uses elsewhere leaves too little of
-            # Spark's 128 GB unified pool once the LLM and RT-CV are resident).
-            # The old per-mode 0.25/0.3 split was #477 bring-up tuning with no
-            # counterpart in the bash flow.
+            # One value for every alerts mode: the 0.4 local_shared fraction
+            # used elsewhere leaves too little of Spark's 128 GB unified pool
+            # once the LLM and RT-CV are resident, and 0.35 is the most RT-VLM
+            # can claim there. The old per-mode 0.25/0.3 split was #477
+            # bring-up tuning that nothing else reproduces.
             alerts:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
           IGX-THOR:
