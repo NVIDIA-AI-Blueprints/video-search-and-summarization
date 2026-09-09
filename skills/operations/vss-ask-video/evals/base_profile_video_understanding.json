@@ -18,6 +18,22 @@
       ]
     },
     {
+      "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
+      "checks": [
+        "The response clearly labels this as the explicit non-VSS local-file fallback.",
+        "The complete local MP4 is base64-encoded and sent as one video_url content part whose URI starts with data:video/mp4;base64,. No ffmpeg, OpenCV, frame extraction, image/jpeg, image/png, or image_url inputs are used.",
+        "The trajectory does not run vss memory introspect, vss memory query, vss memory get, vss vlm run, or access VIOS.",
+        "The answer is derived from the standalone VLM response."
+      ]
+    },
+    {
+      "query": "Answer this question about the local video file warehouse_safety_0001.mp4 using a configured VSS deployment and vss-ask-video Path A --file — do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: Is the worker wearing PPE?",
+      "checks": [
+        "The run used `vss vlm run --file` to send the local video to RT-VLM. The command exited 0 and the output JSON contains a non-empty answer.",
+        "The run did NOT POST to http://<host>:8000/generate."
+      ]
+    },
+    {
       "query": "The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
       "checks": [
         "The final answer says 10:14 UTC from hot conversation context.",
