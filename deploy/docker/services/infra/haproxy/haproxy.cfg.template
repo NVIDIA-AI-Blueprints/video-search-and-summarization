@@ -111,6 +111,11 @@ backend bk_rtvi_cv_strip
 backend bk_rtvi_vlm_strip
     http-request replace-path ^/rtvi-vlm/(.*) /\1
     http-request replace-path ^/rtvi-vlm$ /
+    # Same reason as bk_llm_strip: a caption on a cold or loaded RT-VLM outlasts
+    # the 120s default, and a 504 there reads to the caller as a model failure.
+    # This route now carries the agent, alert-bridge and lvs-server, all of
+    # which previously called rtvi-vlm:8000 with no proxy timeout at all.
+    timeout server 600s
     server s1 "${RTVI_VLM_SERVICE_HOST}:${RTVI_VLM_SERVICE_PORT}" check resolvers docker init-addr none
 
 backend bk_lvs_strip

@@ -15,10 +15,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ENV_SUFFIX = ".env"
 YAML_SUFFIXES = {".yaml", ".yml"}
+# One entry per backend the agent reaches through a gateway mount, so the set
+# is derived from the route contract rather than from the hosts that happened
+# to be wrong when this lint was written. The nine gateway-derived agent
+# variables in deploy/docker/README.md -- VIDEO_ANALYSIS_MCP_URL,
+# VST_INTERNAL_URL, ELASTIC_SEARCH_ENDPOINT, COSMOS_EMBED_ENDPOINT,
+# RTVI_CV_ENDPOINT, RTVI_VLM_BASE_URL, ALERT_BRIDGE_URL, LVS_BACKEND_URL and
+# PHOENIX_ENDPOINT -- name these nine Compose service hosts, and the default
+# for each is the *_SERVICE_HOST default in services/infra/haproxy/compose.yml.
+# Adding a gateway mount that the agent calls means adding its host here.
 DOCKER_ONLY_HTTP_HOSTS = {
     "alert-bridge",
     "elasticsearch",
     "lvs-server",
+    "phoenix",
+    "rtvi-embed",
+    "rtvi-vlm",
+    "vss-rtvi-cv",
     "vss-va-mcp",
     "vst-ingress",
 }
@@ -27,6 +40,35 @@ HTTP_URL = re.compile(
     + "|".join(sorted(DOCKER_ONLY_HTTP_HOSTS))
     + r")(?=[:/\"'\s]|$)"
 )
+# `NAME=` in an env file, `NAME:` in YAML. Used only to name the setting a
+# forbidden URL is attached to, so an exemption below can be scoped to one
+# variable in one file instead of blinding the whole file.
+ASSIGNMENT = re.compile(r"^\s*(?:-\s*)?(?:export\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*[:=]")
+
+# Docker-only values that are correct because they are a service's own
+# in-network identity, not an endpoint the agent is handed. Each is a
+# (path relative to the repository root, variable) pair rather than a whole
+# file, so the rest of the file stays guarded.
+#
+#   vst.env / VST_INTERNAL_URL   VST's own address, consumed by alert-bridge
+#                                on the bridge. The agent never sees it:
+#                                services/agent/compose.yml overrides
+#                                VST_INTERNAL_URL with the gateway origin.
+#   overrides.env /              Read only by the rtvi-vlm service itself, as
+#   RTVI_VLM_ENDPOINT            VIA_VLM_ENDPOINT. Sending it through the
+#                                gateway would make RT-VLM call itself through
+#                                HAProxy to reach its own port.
+IN_NETWORK_SELF_ADDRESSES = {
+    ("deploy/docker/services/vios/vst.env", "VST_INTERNAL_URL"),
+    (
+        "deploy/docker/developer-profiles/dev-profile-alerts/overrides.env",
+        "RTVI_VLM_ENDPOINT",
+    ),
+    (
+        "deploy/docker/industry-profiles/warehouse-operations/overrides.env",
+        "RTVI_VLM_ENDPOINT",
+    ),
+}
 
 
 def is_env_file(path: Path) -> bool:
@@ -36,20 +78,26 @@ def is_env_file(path: Path) -> bool:
 
 def default_paths() -> list[Path]:
     """Return the agent-facing files governed by the gateway contract."""
+    # services/ is scanned whole rather than only services/agent: the shared
+    # per-service env files are merged into the agent's Compose environment by
+    # services/compose.yml, so a Docker-only default written in alert.env or
+    # rtvi.env is an agent default no matter which directory it lives in.
     roots = (
-        ROOT / "deploy/docker/services/agent",
+        ROOT / "deploy/docker/services",
         ROOT / "deploy/docker/developer-profiles",
         ROOT / "deploy/docker/industry-profiles",
     )
-    paths: list[Path] = []
+    paths: set[Path] = set()
     for root in roots:
         for path in root.rglob("*"):
             if not (is_env_file(path) or path.suffix in YAML_SUFFIXES):
                 continue
             relative_parts = path.relative_to(root).parts
-            is_profile_env = is_env_file(path) and len(relative_parts) == 2
-            if root.name == "agent" or "vss-agent" in path.parts or is_profile_env:
-                paths.append(path)
+            # services/<name>/<file>.env and <profile>/overrides.env alike.
+            is_shared_env = is_env_file(path) and len(relative_parts) == 2
+            in_agent_service = root.name == "services" and relative_parts[0] == "agent"
+            if in_agent_service or "vss-agent" in path.parts or is_shared_env:
+                paths.add(path)
     return sorted(paths)
 
 
@@ -57,17 +105,26 @@ def scan_paths(paths: Iterable[Path]) -> list[str]:
     """Return actionable diagnostics for forbidden endpoint defaults."""
     failures: list[str] = []
     for path in paths:
+        try:
+            display_path = path.relative_to(ROOT)
+        except ValueError:
+            display_path = path
         for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+            # A comment is prose, not a default, and several of these files
+            # explain the contract by quoting the hostname it forbids.
+            if line.lstrip().startswith("#"):
+                continue
             match = HTTP_URL.search(line)
-            if match:
-                try:
-                    display_path = path.relative_to(ROOT)
-                except ValueError:
-                    display_path = path
-                failures.append(
-                    f"{display_path}:{line_number}: Docker-only HTTP host "
-                    f"{match.group('host')!r}; use a gateway-derived environment variable"
-                )
+            if not match:
+                continue
+            assignment = ASSIGNMENT.match(line)
+            name = assignment.group("name") if assignment else None
+            if name and (display_path.as_posix(), name) in IN_NETWORK_SELF_ADDRESSES:
+                continue
+            failures.append(
+                f"{display_path}:{line_number}: Docker-only HTTP host "
+                f"{match.group('host')!r}; use a gateway-derived environment variable"
+            )
     return failures
 
 
