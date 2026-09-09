@@ -1,4 +1,346 @@
 {
   "bucketSizeInSec": 15,
-  "rois": []
+  "rois": [
+    {
+      "id": "roi-id-1",
+      "histogram": [
+        {
+          "start": "2026-02-14T10:13:51.292Z",
+          "end": "2026-02-14T10:14:00.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:00.000Z",
+          "end": "2026-02-14T10:14:15.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:15.000Z",
+          "end": "2026-02-14T10:14:30.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:30.000Z",
+          "end": "2026-02-14T10:14:45.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:45.000Z",
+          "end": "2026-02-14T10:15:00.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:00.000Z",
+          "end": "2026-02-14T10:15:15.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:15.000Z",
+          "end": "2026-02-14T10:15:30.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:30.000Z",
+          "end": "2026-02-14T10:15:45.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:45.000Z",
+          "end": "2026-02-14T10:16:00.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:00.000Z",
+          "end": "2026-02-14T10:16:15.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:15.000Z",
+          "end": "2026-02-14T10:16:30.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:30.000Z",
+          "end": "2026-02-14T10:16:45.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:45.000Z",
+          "end": "2026-02-14T10:17:00.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:17:00.000Z",
+          "end": "2026-02-14T10:17:15.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:17:15.000Z",
+          "end": "2026-02-14T10:17:30.000Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:17:30.000Z",
+          "end": "2026-02-14T10:17:33.492Z",
+          "objects": [
+            {
+              "type": "Pallet",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Forklift",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

@@ -1,3 +1,39 @@
 {
-  "roiOccupancy": []
+  "roiOccupancy": [
+    {
+      "roiId": "hazard_zone_1",
+      "objects": [
+        {
+          "type": "Person",
+          "averageCount": 1,
+          "uniqueObjectCount": 6
+        },
+        {
+          "type": "Fourier_GR1_T2_Humanoid",
+          "averageCount": 1,
+          "uniqueObjectCount": 13
+        },
+        {
+          "type": "Agility_Digit_Humanoid",
+          "averageCount": 1,
+          "uniqueObjectCount": 3
+        },
+        {
+          "type": "Nova_Carter",
+          "averageCount": 1,
+          "uniqueObjectCount": 1
+        }
+      ]
+    },
+    {
+      "roiId": "buffer_zone_2",
+      "objects": [
+        {
+          "type": "Fourier_GR1_T2_Humanoid",
+          "averageCount": 1,
+          "uniqueObjectCount": 2
+        }
+      ]
+    }
+  ]
 }

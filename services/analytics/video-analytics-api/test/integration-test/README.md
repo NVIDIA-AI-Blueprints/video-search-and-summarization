@@ -2,6 +2,13 @@
 
 Integration tests for video-analytics-api using Docker Compose. The stack runs **Elasticsearch** and the **video-analytics-api** image, then runs HTTP assertions against the API.
 
+Elasticsearch is not defined here. `docker_compose/infra/video-analytics-api-infra.yml` includes the deployment's own
+`deploy/docker/services/infra/compose.yml` and selects the `elasticsearch` and `elasticsearch-init-container` services
+through `COMPOSE_PROFILES`, so the suite exercises the same Elasticsearch version, config, index templates and ingest
+pipeline that a real deployment serves. Everything else that file defines — Kafka, Redis, logstash, Kibana, HAProxy —
+stays defined but unstarted. Because the services come from the deployment, this suite **cannot run alongside a
+deployment stack on the same host**: they collide on the `elasticsearch` container name and on port 9200.
+
 ## Prerequisites
 
 - Docker and Docker Compose
@@ -11,11 +18,11 @@ Integration tests for video-analytics-api using Docker Compose. The stack runs *
 ## Layout
 
 - **`docker_compose/`**
-  - **`infra/`** – Elasticsearch service and `.env` (generated)
+  - **`infra/`** – includes the deployment's infra compose; holds the generated `.env` (gitignored)
   - **`apps/`** – video-analytics-api service and integration config
 - **`scripts/`** – `run_integration_tests.sh` (invokes Node), `run_integration_tests.js` (all HTTP checks and validate-then-upload via Node)
 - **`generate_env.sh`** – generates `docker_compose/infra/.env`
-- **`cleanup.sh`** – brings down Compose and prunes volumes
+- **`cleanup.sh`** – brings down Compose and removes this project's volumes
 - **`test.sh`** – main integration test (build, up, wait, run tests, cleanup)
 - **`test_all.sh`** – runs all integration test profiles (currently single profile)
 
@@ -52,8 +59,11 @@ docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-ap
 ## What the test does
 
 1. **Build** – `docker build -t video-analytics-api:integration-test -f docker/Dockerfile .` from video-analytics-api root, using `docker/Dockerfile.dockerignore`.
-2. **Compose up** – Starts Elasticsearch (host network), then video-analytics-api (host network, config with ES and empty Kafka).
-3. **Wait** – Waits for ES health and for `GET /livez` to return 200.
+2. **Compose up** – Starts the deployment's Elasticsearch on the Compose bridge network, runs
+   `elasticsearch-init-container` to completion (ILM policies, index templates, the `insertion-timestamp-pipeline`
+   ingest pipeline), then starts video-analytics-api. The app reaches ES at `http://elasticsearch:9200`; the harness
+   reaches it on the published port 9200.
+3. **Wait** – Waits for ES health, verifies the ingest pipeline landed, and waits for `GET /livez` to return 200.
 4. **Assert** – Runs `scripts/run_integration_tests.sh`:
    - `GET /livez` → 200
    - **Config uploads (with schema check at request time)** – For each of calibration, road-network, usd-assets: the fixture is validated against the AJV schema in **web-api-core/schemas/ajv/**, then the same payload is immediately POSTed to `POST /config/upload-file/{docType}`. If validation fails, the request is not sent.
