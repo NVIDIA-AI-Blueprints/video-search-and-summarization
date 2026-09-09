@@ -2740,6 +2740,26 @@ class TestClassifyEsError:
         assert status == 503
         assert message == self._SHARD_MESSAGE
 
+    @pytest.mark.parametrize(
+        "detail",
+        [
+            "NoShardAvailableActionException: all shards failed",
+            "no_shard_available_action_exception",
+            "primary shard is not active for index default_video_1",
+        ],
+    )
+    def test_unavailable_shard_text_returns_503(self, detail):
+        from lvs_errors import classify_es_error
+
+        status, message = classify_es_error(Exception(detail))
+
+        assert status == 503
+        assert message == (
+            "Service temporarily unavailable: Elasticsearch dependency error (503). "
+            "See server logs for details."
+        )
+        assert detail not in message
+
     def test_generic_es_4xx_returns_sanitised_message(self):
         from lvs_errors import classify_es_error
 
