@@ -73,10 +73,11 @@ one moves a run further from the baseline everything else is compared against.
 # Ask the critic the reconstructed question, as runs before 3.8.0 did
 --no-original-query
 
-# What the UI does: upload to VIOS, webhooks drive perception.
-# Same timestamp anchor, so scores compare -- but no chunk count comes back,
-# so an unindexed run looks like an unmatched one. Needs webhooks.enabled.
---ingest-flow vst-direct
+# The older agent-mediated ingest, when webhooks are off (e.g. Helm)
+--ingest-flow agent-3step
+
+# Longer wait for webhook-driven perception to populate the index
+--index-probe-attempts 20 --index-probe-backoff 30
 
 # Name the results file, for comparing two runs deliberately
 --dataset warehouse --skip-download --name embed-baseline
