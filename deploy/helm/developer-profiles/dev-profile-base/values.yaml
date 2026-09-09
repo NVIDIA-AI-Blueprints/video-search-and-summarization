@@ -475,6 +475,14 @@ rtvi:
   vss-rtvi-vlm:
     enabled: true
     useSharedNim: false
+    # A caption on a cold or loaded RT-VLM outlasts the controller default, and
+    # the 504 that produces reads to the caller as a model failure. Matches
+    # `timeout server 600s` on the Docker edge's bk_rtvi_vlm_strip: this profile
+    # publishes /rtvi-vlm through its ingress, so without this the same call
+    # succeeds on Compose and is cut off on Kubernetes. Carried on this backend
+    # rather than the Ingress so it does not raise the ceiling for every route
+    # sharing the origin.
+    ingressTimeoutServer: "600s"
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final"
     sharedNimPort: "8000"
     waitForKafka:
