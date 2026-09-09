@@ -219,121 +219,10 @@ ERROR_MESSAGE_TOPIC=mdx-embed-errors        # Kafka error topic (or Redis channe
 
 ### Sample docker-compose.yml file
 
-For the current deployment stack, use the compose file:
+For the current deployment stack, use the checked-in compose file directly:
 [services/rtvi/rt-embed/docker/compose.yaml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/services/rtvi/rt-embed/docker/compose.yaml).
-The excerpt below shows the current single-image `rtvi-server` service. The
-checked-in compose file also defines the Kafka and Redis services used by the
-default message and error buses.
-
-```yaml
-services:
-  rtvi-server:
-    image: ${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed:develop-latest}
-    shm_size: '16gb'
-    runtime: nvidia
-    user: "1001:1001"
-    ports:
-      - "${BACKEND_PORT?}:8000"
-    tmpfs:
-      - /tmp/assets:size=${ASSET_TMPFS_SIZE:-8g},mode=1777
-      - /tmp/rtvi:size=2g,mode=1777
-    volumes:
-      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
-      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
-      - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
-      - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
-      - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
-      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:/run/rtvi-ipc}"
-      - rtvi-hf-cache:/tmp/huggingface
-      - rtvi-triton-model-repo:/tmp/triton_model_repo
-
-    environment:
-      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
-      MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
-      MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
-      REMOTE_EMBED_ENDPOINT: "${REMOTE_EMBED_ENDPOINT:-}"
-      REMOTE_EMBED_ENDPOINT_MODEL_NAME: "${REMOTE_EMBED_ENDPOINT_MODEL_NAME:-nvidia/cosmos-embed1}"
-      REMOTE_EMBED_ENDPOINT_API_KEY: "${REMOTE_EMBED_ENDPOINT_API_KEY:-}"
-      REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC: "${REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC:-300}"
-      REMOTE_EMBED_ENDPOINT_BATCH_SIZE: "${REMOTE_EMBED_ENDPOINT_BATCH_SIZE:-64}"
-      COSMOS_EMBED1_TRT_PRECISION: "${COSMOS_EMBED1_TRT_PRECISION:-fp16}"
-      COSMOS_EMBED1_TRT_EXTRA_ARGS: "${COSMOS_EMBED1_TRT_EXTRA_ARGS:-}"
-      NGC_API_KEY: "${NGC_API_KEY:-}"
-      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
-      HF_TOKEN: "${HF_TOKEN:-}"
-      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
-      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
-      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-custom}"
-      NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
-      NUM_GPUS: "${NUM_GPUS:-}"
-      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
-      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
-      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
-      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
-      RTVI_RTSP_LATENCY: "${RTVI_RTSP_LATENCY:-2000}"
-      RTVI_RTSP_TIMEOUT: "${RTVI_RTSP_TIMEOUT:-2000}"
-      RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_RTSP_RECONNECTION_INTERVAL:-5}"
-      RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_RTSP_RECONNECTION_WINDOW:-60}"
-      RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
-      RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
-      RTVI_IPC_FRAME_COPY: "${RTVI_IPC_FRAME_COPY:-false}"
-      ENABLE_OTEL_MONITORING: "${ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
-      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-}"
-      OTEL_TRACES_EXPORTER: "${OTEL_TRACES_EXPORTER:-otlp}"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
-      OTEL_METRIC_EXPORT_INTERVAL: "${OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
-      MESSAGE_BUS: "${MESSAGE_BUS-kafka}"
-      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-embed}"
-      ERROR_BUS: "${ERROR_BUS-kafka}"
-      ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT: "${ENABLE_KAFKA_MESSAGES_FOR_TEXT_INPUT:-false}"
-      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
-      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
-      KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
-      ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
-      REDIS_HOST: "${REDIS_HOST:-redis}"
-      REDIS_PORT: "${REDIS_PORT:-6379}"
-      REDIS_DB: "${REDIS_DB:-0}"
-      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
-      ASSET_DOWNLOAD_TOTAL_TIMEOUT: "${ASSET_DOWNLOAD_TOTAL_TIMEOUT:-300}"
-      ASSET_DOWNLOAD_CONNECT_TIMEOUT: "${ASSET_DOWNLOAD_CONNECT_TIMEOUT:-10}"
-      FILE_URL_ALLOWED_DIRS: "${FILE_URL_ALLOWED_DIRS:-}"
-      MAX_ASSET_STORAGE_SIZE_GB: "${MAX_ASSET_STORAGE_SIZE_GB:-8}"
-      ASSET_MAX_AGE_HOURS: "${ASSET_MAX_AGE_HOURS:-0}"
-      ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS: "${ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS:-}"
-      ASSET_DOWNLOAD_MAX_REDIRECTS: "${ASSET_DOWNLOAD_MAX_REDIRECTS:-0}"
-      ASSET_DOWNLOAD_MAX_FILE_SIZE_GB: "${ASSET_DOWNLOAD_MAX_FILE_SIZE_GB:-8}"
-      ASSET_DOWNLOAD_AUTH_TOKENS: "${ASSET_DOWNLOAD_AUTH_TOKENS:-}"
-      ENABLE_REQUEST_PROFILING: "${ENABLE_REQUEST_PROFILING:-false}"
-      VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-}"
-      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      stack: 67108864
-      nofile:
-        soft: 65535
-        hard: 65535
-    ipc: host
-    stdin_open: true
-    tty: true
-    extra_hosts:
-      host.docker.internal: host-gateway
-    depends_on:
-      - kafka
-      - redis
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 1200s
-
-volumes:
-  rtvi-hf-cache:
-  rtvi-ngc-model-cache:
-  rtvi-triton-model-repo:
-```
+It defines the single-image `rtvi-server` service together with the Kafka and
+Redis services used by the default message and error buses.
 
 <Note>
 **Platform-specific images:**
@@ -452,8 +341,8 @@ The API is available at `http://localhost:8000/docs`.
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs | `all` | No |
 | `MODEL_PATH` | Model source: `ngc:<org/team/model:ver>`, `git:<hf-url>`, or local path | `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` | No |
 | `MODEL_IMPLEMENTATION_PATH` | Implementation code path for the model | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1` | No |
-| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. This is the name read by current `develop` source and the GHCR `develop-latest` image; `VIA_EMBED_ENDPOINT` is not wired unless a deployment wrapper maps it. | - | No |
-| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | Model deployment name sent to the CE1 NIM backend and used as the RTVI model id. This is the name read by current builds; `VIA_EMBED_NIM_MODEL_DEPLOYMENT_NAME` is not wired unless a deployment wrapper maps it. | `nvidia/cosmos-embed1` | No |
+| `REMOTE_EMBED_ENDPOINT` | Optional CE1 NIM endpoint URL. When set, startup switches to the CE1 NIM backend and uses the remote endpoint instead of the local Cosmos-Embed1 model. | - | No |
+| `REMOTE_EMBED_ENDPOINT_MODEL_NAME` | Model deployment name sent to the CE1 NIM backend and used as the RTVI model id. | `nvidia/cosmos-embed1` | No |
 | `REMOTE_EMBED_ENDPOINT_API_KEY` | Optional bearer token for the CE1 NIM endpoint. | - | No |
 | `REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC` | Request timeout for CE1 NIM calls. | `300` | No |
 | `REMOTE_EMBED_ENDPOINT_BATCH_SIZE` | Maximum batch size used by the CE1 NIM client wrapper. | `64` | No |
@@ -529,7 +418,7 @@ utilization, and error rates).
 
 | Variable | Description | Default | Required |
 | --- | --- | --- | --- |
-| `ENABLE_REDIS_ERROR_MESSAGES` | Enable Redis for error messages instead of Kafka | `false` | No |
+| `ERROR_BUS` | Error-message bus; set to `redis` to publish errors to Redis, `kafka` for Kafka, or empty to disable | `kafka` | No |
 | `ERROR_MESSAGE_TOPIC` | Redis channel name for error messages | `mdx-embed-errors` | No |
 | `REDIS_HOST` | Redis server hostname | `redis` | No |
 | `REDIS_PORT` | Redis container/service port for application connections | `6379` | No |
@@ -546,7 +435,7 @@ utilization, and error rates).
 
 ## Kafka Integration
 
-When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.yaml`), **Kafka and Redis containers are started automatically** and `rtvi-server` depends on them. The compose defaults are `MESSAGE_BUS=kafka` and `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`. Set `MESSAGE_BUS=` (empty) and `ENABLE_REDIS_ERROR_MESSAGES=false` in `.env` only when you intentionally run without those dependencies.
+When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.yaml`), **Kafka and Redis containers are started automatically** and `rtvi-server` depends on them. The compose defaults are `MESSAGE_BUS=kafka` and `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`. Set `MESSAGE_BUS=` (empty) and `ERROR_BUS=` (empty) in `.env` only when you intentionally run without those dependencies.
 RTVI-Embed sends Kafka messages containing generated embeddings for video input.
 The messages are sent to the `mdx-embed` topic.
 The microservice sends the Kafka messages as Protobuf messages with the `nv.VisionLLM` message type.
@@ -662,7 +551,7 @@ Error messages can be sent to Redis instead of Kafka. To use Redis for error
 messages, set the following environment variables in your `.env` file:
 
 ```bash
-ENABLE_REDIS_ERROR_MESSAGES=true         # Enable Redis for error messages instead of Kafka
+ERROR_BUS=redis                          # Route error messages to Redis instead of Kafka
 REDIS_HOST=redis.example.com             # Redis server hostname
 REDIS_PORT=6379                          # Redis server port
 REDIS_DB=0                               # Redis database number
@@ -1009,6 +898,30 @@ Constraints:
 * Audio capture is not supported through the RT-Embed IPC frame-copy path.
 * SEI timestamp propagation requires a source stream with SEI metadata and a
   SEI-aware `libgstnvunixfd.so` in both producer and consumer images.
+
+### Remote CE1 NIM Endpoint
+
+By default, RT-Embed runs the Cosmos-Embed1 (CE1) model locally on the GPU. To
+generate embeddings from a remote CE1 NIM endpoint instead of local inference,
+set `REMOTE_EMBED_ENDPOINT` in your `.env` file. When it is set, startup switches
+to the CE1 NIM backend and RT-Embed sends embedding requests to that endpoint
+instead of loading the local Cosmos-Embed1 model.
+
+```bash
+REMOTE_EMBED_ENDPOINT=https://<ce1-nim-host>/v1        # CE1 NIM endpoint URL (enables remote inference)
+REMOTE_EMBED_ENDPOINT_MODEL_NAME=nvidia/cosmos-embed1  # Model deployment name / RTVI model id
+REMOTE_EMBED_ENDPOINT_API_KEY=<api-key>                # Optional bearer token for the endpoint
+REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC=300                  # Request timeout in seconds
+REMOTE_EMBED_ENDPOINT_BATCH_SIZE=64                    # Max client batch size
+```
+
+See the [Environment Variables Reference](#environment-variables-reference) for
+the full description and defaults of each `REMOTE_EMBED_ENDPOINT*` variable.
+
+When `REMOTE_EMBED_ENDPOINT` is set, RT-Embed does not load the local model, so
+GPU memory for embedding inference is not required on the RT-Embed host (a GPU is
+still used for video decoding). Leave `REMOTE_EMBED_ENDPOINT` unset to run the
+default local Cosmos-Embed1 model.
 
 ### Text Embeddings Example
 
