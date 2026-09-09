@@ -1364,31 +1364,37 @@ class AssetManager:
                 413,
             )
 
-        # Create the asset directory and write the file
+        # Reserve the caller-supplied id before creating files.  This keeps
+        # base64 ingestion consistent with the other ingestion paths: another
+        # request cannot publish the same id while this write is in progress.
+        asset_id = self._reserve_asset_slot(asset_id, None, "Asset")
         asset_dir = os.path.join(self._asset_dir, asset_id)
         try:
-            await aiofiles.os.makedirs(asset_dir)
-        except FileExistsError as err:
-            raise ServiceException(
-                f"Asset directory already exists: {asset_dir}", "BadParameter", 400
-            ) from err
+            try:
+                await aiofiles.os.makedirs(asset_dir)
+            except FileExistsError as err:
+                raise ServiceException(
+                    f"Asset directory already exists: {asset_dir}", "BadParameter", 400
+                ) from err
 
-        file_path = os.path.join(asset_dir, file_name)
-        async with aiofiles.open(file_path, "wb") as f:
-            await f.write(raw_data)
+            file_path = os.path.join(asset_dir, file_name)
+            async with aiofiles.open(file_path, "wb") as f:
+                await f.write(raw_data)
 
-        asset = Asset(
-            asset_id=asset_id,
-            path=file_path,
-            fileName=file_name,
-            purpose="vision",
-            media_type=media_type,
-            asset_dir=asset_dir,
-            creation_time=creation_time,
-        )
+            asset = Asset(
+                asset_id=asset_id,
+                path=file_path,
+                fileName=file_name,
+                purpose="vision",
+                media_type=media_type,
+                asset_dir=asset_dir,
+                creation_time=creation_time,
+            )
 
-        self._asset_map[asset_id] = asset
-        self._storage_usage_cache = None
+            self._publish_asset(asset)
+        except BaseException:
+            self._release_asset_slot(asset_id, None)
+            raise
 
         logger.info(
             "[AssetManager] Saved base64 asset - asset-id: %s name: %s size: %d bytes",
