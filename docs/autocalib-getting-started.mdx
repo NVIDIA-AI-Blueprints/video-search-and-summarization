@@ -24,7 +24,13 @@ Required calibration inputs and detailed method-specific requirements are docume
 
 ## Deployment Steps (Docker Compose)
 
-These steps deploy the Auto Calibration service using the VSS repository.
+These steps deploy the Auto Calibration service using the VSS repository. They are separate from running Auto Calibration as a Warehouse Blueprint profile.
+
+<Note>
+**Running Auto Calibration as a Warehouse Blueprint profile**
+
+Auto Calibration can also be deployed as part of the Warehouse Blueprint with `MODE=auto-calibration` and `BP_PROFILE=bp_wh_auto_calib`. That profile starts the same `vss-auto-calibration` service and UI from the blueprint's Compose stack, alongside the VIOS/VST services, rather than through the steps below. The blueprint profile deploys no `sdr-controller`, so the SDRC routing keys `VST_USE_SDRC`, `STREAM_PROCESSOR_MODULE_ENDPOINT`, and `VST_NGINX_MODE` must be commented out so the direct VST defaults in `services/vios/vst.env` apply. `blueprint-deploy.sh` comments them for you in the generated env file; with the direct `docker compose` command you must comment them yourself in `industry-profiles/warehouse-operations/overrides.env`. For the exact settings, see [Configure Environment settings](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#configure-environment-settings) in the Warehouse Quickstart.
+</Note>
 
 ### 1. Authenticate with NGC
 
