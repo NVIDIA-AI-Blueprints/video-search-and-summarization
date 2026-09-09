@@ -1,5 +1,4 @@
 {
-  "profile": "base",
   "skills": [
     "vss-ask-video"
   ],
@@ -11,6 +10,13 @@
     }
   },
   "expects": [
+    {
+      "query": "Deploy the VSS base profile on `{{platform}}` with the configured video-understanding VLM ready. The following query will deliberately exercise the standalone non-VSS fallback, so do not ingest its local video during setup. Run autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
+        "At least one configured video-understanding VLM endpoint responds successfully to `GET /v1/models`."
+      ]
+    },
     {
       "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
       "checks": [

@@ -45,13 +45,6 @@ class NemoClaw(OpenClaw):
         context: AgentContext,
     ) -> None:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        if os.environ.get("VSS_EVAL_DEPLOYMENT_READY") == "1":
-            instruction = (
-                "The VSS deployment and NemoClaw policy are already ready, provisioned "
-                "by the Build Vision AI handoff. Do not run a deployment skill or docker "
-                "compose. Use only the installed operational skill(s).\n\n"
-                + instruction
-            )
         (self.logs_dir / "instruction.txt").write_text(
             instruction,
             encoding="utf-8",

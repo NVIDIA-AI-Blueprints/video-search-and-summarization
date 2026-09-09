@@ -42,12 +42,6 @@ import threading
 import time
 import urllib.parse
 
-from nemoclaw.buildvision_bootstrap import (
-    BOOTSTRAP_TASK,
-    DEPLOYMENT_TASK,
-    create_bootstrap_task,
-)
-
 # Self-contained instrumentation with its own module state. Split out because
 # this file is long enough that a reader looking for the lock or the Harbor
 # command should not have to scroll past it. Read the phase label through
@@ -86,9 +80,9 @@ HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
 # scenario budget while pulling model weights. Keep provisioning bounded at
 # 90 minutes; together with Harbor's other phase and recovery ceilings this
 # remains below DEFAULT_HARBOR_TIMEOUT_SEC.
-NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER = 9.0
-NEMOCLAW_BOOTSTRAP_AGENT_BUDGET_SEC = int(
-    HARBOR_BASE_PHASE_TIMEOUT_SEC * NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER
+NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER = 9.0
+NEMOCLAW_SETUP_AGENT_BUDGET_SEC = int(
+    HARBOR_BASE_PHASE_TIMEOUT_SEC * NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER
 )
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
@@ -133,8 +127,8 @@ DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
 MIN_BREV_EXEC_TIMEOUT_SEC = (
     HARBOR_AGENT_BUDGET_SEC + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
 )
-NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC = (
-    NEMOCLAW_BOOTSTRAP_AGENT_BUDGET_SEC
+NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC = (
+    NEMOCLAW_SETUP_AGENT_BUDGET_SEC
     + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
 )
 
@@ -798,6 +792,50 @@ def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
     # ``se-`` + six run-id characters + ``-`` + eight digest characters =
     # 18 characters: valid for the 19-character NemoClaw limit.
     return f"se-{safe_run_id[-6:]}-{digest}"
+
+
+def prepare_nemoclaw_setup_task(
+    invocation: HarborInvocation,
+    operational_skill: str,
+) -> None:
+    """Make the spec's first task provision VSS and NemoClaw via Build Vision AI.
+
+    The generated task remains authoritative for the deployment intent and its
+    checks.  This only supplies the orchestration skill and tells the coding
+    agent which harness the current eval requested.
+    """
+    task_dir = invocation.harbor_root / invocation.include_task_name
+    instruction_path = task_dir / "instruction.md"
+    if not instruction_path.is_file():
+        raise FileNotFoundError(f"setup instruction missing: {instruction_path}")
+    build_vision_skill = REPO_ROOT / "skills" / "vss-build-vision-ai"
+    if not (build_vision_skill / "SKILL.md").is_file():
+        raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
+
+    original_instruction = instruction_path.read_text(encoding="utf-8")
+    preamble = f"""## NemoClaw evaluation setup
+
+Treat the evaluation query below verbatim as the deployment/setup intent. Use
+`/vss-build-vision-ai` as the orchestration entry point to complete that intent,
+then attach NemoClaw to the resulting build in the same task. Use the sandbox
+name and model-provider settings from the environment, and ensure
+`/{operational_skill}` is installed in the sandbox. Do not stop after composing
+the build: finish deployment, readiness, and NemoClaw onboarding.
+
+Run non-interactively using the request's stated choices and documented
+defaults. When launching the NemoClaw setup notebook, do not propagate
+`HARBOR_SKILL_EVAL_AGENT_RUN` to the host-side gateway process.
+
+"""
+    instruction_path.write_text(preamble + original_instruction, encoding="utf-8")
+
+    skills_dir = task_dir / "skills"
+    skills_dir.mkdir(exist_ok=True)
+    shutil.copytree(
+        build_vision_skill,
+        skills_dir / "vss-build-vision-ai",
+        dirs_exist_ok=True,
+    )
 
 
 def attempt_lock_timeout(
@@ -1513,168 +1551,49 @@ def run_invocations(
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
     record_machine(results_root, instance, leg_slug, run_id)
-    # Deployment skills are not NemoClaw tasks.  For an operational spec the
-    # first Harbor child is a coding-agent task that follows Build Vision AI;
-    # it owns Compose, readiness and sandbox onboarding.  The normal
-    # invocations then run only operational prompts through that sandbox.
-    # Build Vision AI's own specs are themselves coding-agent evaluations.
+    # Build Vision AI's own specs are coding-agent evaluations. For an
+    # operational spec, its first normal Harbor task is the setup contract:
+    # the coding agent follows Build Vision AI, deploys from expects[0], and
+    # attaches NemoClaw. The remaining normal tasks run through that sandbox.
+    nemoclaw_setup: HarborInvocation | None = None
     if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
         print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
         agent = "claude-code"
     elif agent == "nemoclaw":
-        spec_raw = os.environ.get("EVAL_SPEC_PATH", "")
-        if not spec_raw:
-            print("FATAL: EVAL_SPEC_PATH is required for NemoClaw provisioning", file=sys.stderr)
-            return 1
-        spec_path = Path(spec_raw)
-        if not spec_path.is_absolute():
-            spec_path = REPO_ROOT / spec_path
         if not invocations:
-            print("FATAL: no operational Harbor invocation to provision", file=sys.stderr)
+            print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
             return 1
-        source_task = invocations[0].harbor_root / invocations[0].include_task_name / "task.toml"
-        # Harbor uses ``__`` as the delimiter in its internal eval key, so the
-        # dataset path cannot contain the leg slug directly. Use the already
-        # Harbor-safe per-leg sandbox identity instead: unlike the shared run
-        # scratch root, this remains isolated when matrix legs overlap.
-        derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
-        bootstrap_root = scratch / f"nemoclaw-bootstrap-{derived_sandbox_name}"
-        shutil.rmtree(bootstrap_root, ignore_errors=True)
+        nemoclaw_setup = invocations[0]
+        operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
         try:
-            create_bootstrap_task(
-                destination=bootstrap_root,
-                source_task_toml=source_task,
-                spec_path=spec_path,
-                skill=os.environ.get("EVAL_SKILL", "operational-skill"),
-                platform=platform,
-                repo_root=REPO_ROOT,
-            )
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            print(f"FATAL: could not create Build Vision AI bootstrap task: {exc}", file=sys.stderr)
+            prepare_nemoclaw_setup_task(nemoclaw_setup, operational_skill)
+        except OSError as exc:
+            print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
             return 1
-        deployment = HarborInvocation(
-            harbor_root=bootstrap_root,
-            include_task_name=DEPLOYMENT_TASK,
-            chain_key="build-vision-deploy",
-        )
-        bootstrap = HarborInvocation(
-            harbor_root=bootstrap_root,
-            include_task_name=BOOTSTRAP_TASK,
-            chain_key="build-vision-bootstrap",
-        )
+
+        derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
         sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
-        # Both the Build Vision AI bootstrap and the later operational
-        # scenarios must address the same sandbox. This is intentionally a
-        # per-leg name rather than an interactive shared default
-        # default, so a warm worker can never inherit another eval's session.
+        # Provisioning and later scenarios address one per-leg sandbox, so a
+        # warm worker cannot inherit another evaluation's sessions.
         env["NEMOCLAW_SANDBOX_NAME"] = sandbox_name
-        # The sandbox is new for this leg. Reusing it once onboarded preserves
-        # its operational sessions for the subsequent Harbor scenarios.
         env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
-        bootstrap_env = env.copy()
-        bootstrap_env.update(
+        env.update(
             {
-                # Build Vision AI owns the OpenShell gateway name/port. Do not
-                # impose the former harness's 8991 override: its
-                # deployment flow uses NemoClaw's default gateway contract.
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
                 "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),
                 "NEMOCLAW_ENDPOINT_URL": os.environ.get("NEMOCLAW_ENDPOINT_URL", base_url),
                 "NEMOCLAW_MODEL": os.environ.get("NEMOCLAW_MODEL", model),
-                "COMPATIBLE_API_KEY": os.environ.get("COMPATIBLE_API_KEY", bootstrap_env.get("ANTHROPIC_API_KEY", "")),
+                "COMPATIBLE_API_KEY": os.environ.get(
+                    "COMPATIBLE_API_KEY", env.get("ANTHROPIC_API_KEY", "")
+                ),
             }
         )
-        # Claude Code's installed Harbor adapter does not pass timeout_sec to
-        # environment.exec(), so brev_env falls back to BREV_EXEC_TIMEOUT. Keep
-        # that remote-command ceiling beyond the bootstrap's 90-minute agent
-        # deadline plus the same recovery-transfer allowance used above.
-        bootstrap_env["BREV_EXEC_TIMEOUT"] = str(
+        env["BREV_EXEC_TIMEOUT"] = str(
             max(
-                int(bootstrap_env.get("BREV_EXEC_TIMEOUT", "0")),
-                NEMOCLAW_BOOTSTRAP_BREV_EXEC_TIMEOUT_SEC,
+                int(env.get("BREV_EXEC_TIMEOUT", "0")),
+                NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC,
             )
         )
-        deployment_results = scratch / f"nemoclaw-deployment-results-{leg_slug}"
-        shutil.rmtree(deployment_results, ignore_errors=True)
-        deployment_cmd = build_harbor_command(
-            deployment,
-            deployment_results,
-            model,
-            base_url,
-            "claude-code",
-            agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
-        )
-        print("[run-leg] deploying with Build Vision AI before NemoClaw setup", flush=True)
-        deployment_started_at = time.time() - 1.0
-        with phase("harbor:build-vision-deploy"):
-            deployment_rc = run_command(deployment_cmd, bootstrap_env, harbor_timeout_sec)
-        deployment_reward = latest_reward(
-            deployment_results, DEPLOYMENT_TASK, started_at=deployment_started_at
-        )
-        if deployment_rc != 0 or _reward_value(deployment_reward) < 1.0:
-            bootstrap_results = deployment_results
-            bootstrap_rc = deployment_rc
-            bootstrap_reward = deployment_reward
-        else:
-            # The second Build Vision task attaches the harness to the live
-            # Compose build produced above. Preserve both Docker and repo state.
-            bootstrap_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
-            bootstrap_results = scratch / f"nemoclaw-bootstrap-results-{leg_slug}"
-            shutil.rmtree(bootstrap_results, ignore_errors=True)
-            bootstrap_cmd = build_harbor_command(
-                bootstrap,
-                bootstrap_results,
-                model,
-                base_url,
-                "claude-code",
-                agent_timeout_multiplier=NEMOCLAW_BOOTSTRAP_AGENT_TIMEOUT_MULTIPLIER,
-            )
-            print("[run-leg] attaching NemoClaw with Build Vision AI", flush=True)
-            bootstrap_started_at = time.time() - 1.0
-            with phase("harbor:build-vision-bootstrap"):
-                bootstrap_rc = run_command(
-                    bootstrap_cmd, bootstrap_env, harbor_timeout_sec
-                )
-            bootstrap_reward = latest_reward(
-                bootstrap_results, BOOTSTRAP_TASK, started_at=bootstrap_started_at
-            )
-        if bootstrap_rc != 0 or _reward_value(bootstrap_reward) < 1.0:
-            # The bootstrap uses a scratch results root so it cannot appear in
-            # the operational report. Preserve its verifier/exception output
-            # with this leg's artifact, but never copy its agent trajectory.
-            if bootstrap_results.is_dir():
-                shutil.copytree(
-                    bootstrap_results,
-                    results_root / "bootstrap",
-                    ignore=shutil.ignore_patterns("agent"),
-                    dirs_exist_ok=True,
-                )
-            diagnostic = (
-                "Build Vision AI provisioning failed before operational scenarios. "
-                f"Harbor exit code: {bootstrap_rc}; readiness reward: "
-                f"{bootstrap_reward if bootstrap_reward is not None else 'missing'}.\n"
-            )
-            exceptions = sorted(bootstrap_results.rglob("exception.txt"))
-            if exceptions:
-                diagnostic += "\nBootstrap exception tail:\n" + exceptions[-1].read_text(
-                    encoding="utf-8", errors="replace"
-                )[-4000:]
-            (results_root / "provisioning-failure.txt").write_text(
-                diagnostic,
-                encoding="utf-8",
-            )
-            print(
-                "[run-leg] Build Vision AI provisioning failed "
-                f"(rc={bootstrap_rc}, readiness={bootstrap_reward}); "
-                "operational scenarios were not started",
-                file=sys.stderr,
-            )
-            # Harbor can exit successfully even when its verifier records a
-            # failed or unreadable readiness reward.  In that case the leg
-            # must still fail instead of returning Harbor's zero exit code.
-            return bootstrap_rc or 1
-        env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
-        env["VSS_EVAL_DEPLOYMENT_READY"] = "1"
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
@@ -1711,7 +1630,26 @@ def run_invocations(
                     )
                 return 124
 
-        cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
+        is_nemoclaw_setup = invocation is nemoclaw_setup
+        invocation_agent = "claude-code" if is_nemoclaw_setup else agent
+        command_kwargs = {}
+        if is_nemoclaw_setup:
+            command_kwargs["agent_timeout_multiplier"] = (
+                NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER
+            )
+            print(
+                "[run-leg] running expects[0] with Build Vision AI to deploy "
+                "VSS and NemoClaw",
+                flush=True,
+            )
+        cmd = build_harbor_command(
+            invocation,
+            results_root,
+            model,
+            base_url,
+            invocation_agent,
+            **command_kwargs,
+        )
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
             rc = run_command(cmd, env, harbor_timeout_sec)
@@ -1726,7 +1664,10 @@ def run_invocations(
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
-        if invocation.step_index is not None and invocation.step_count is not None:
+        reward: str | None = None
+        if is_nemoclaw_setup or (
+            invocation.step_index is not None and invocation.step_count is not None
+        ):
             reward = latest_reward(results_root, invocation.include_task_name, started_at)
             reward_value = _reward_value(reward)
             print(
@@ -1734,7 +1675,11 @@ def run_invocations(
                 f"rc={rc} reward={reward if reward is not None else 'missing'}",
                 flush=True,
             )
-            if rc == 124 or rc >= 128 or reward_value < 1.0:
+            if (
+                invocation.step_index is not None
+                and invocation.step_count is not None
+                and (rc == 124 or rc >= 128 or reward_value < 1.0)
+            ):
                 write_skip_markers(
                     scratch,
                     spec_stem,
@@ -1744,6 +1689,18 @@ def run_invocations(
                     invocation.step_count,
                 )
                 skipped_after[invocation.chain_key] = invocation.step_index
+
+        if is_nemoclaw_setup:
+            if rc != 0 or _reward_value(reward) < 1.0:
+                print(
+                    "[run-leg] expects[0] deployment/setup failed; "
+                    "NemoClaw scenarios were not started",
+                    file=sys.stderr,
+                )
+                return rc or 1
+            # Later Harbor tasks must reuse the VSS containers, checked-out
+            # repository, and sandbox created by the first task.
+            env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
 
         # An outer Harbor timeout is terminal for the entire locked leg, not
         # only a multi-step chain. Continuing could wipe/reuse the same Brev

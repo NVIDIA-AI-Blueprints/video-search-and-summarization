@@ -11,7 +11,7 @@ from envs.brev_env import BrevEnvironment
 logger = logging.getLogger(__name__)
 
 class NemoClawBrevEnvironment(BrevEnvironment):
-    """Validate the Build Vision AI-provisioned sandbox without redeploying it."""
+    """Reuse the Build Vision AI-provisioned sandbox without redeploying it."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

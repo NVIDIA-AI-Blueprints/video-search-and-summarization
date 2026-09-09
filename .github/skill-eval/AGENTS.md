@@ -592,13 +592,14 @@ markers; and releases the lock when it exits.
 `EVAL_AGENT` selects the Harbor runtime (`claude-code` by default,
 `codex`, or `nemoclaw`). NemoClaw still uses this exact wrapper and task
 dispatch. For an operational skill, `run_leg.py` first uses the coding-agent
-runtime with `/vss-build-vision-ai`; that skill owns deployment, readiness, and
-host-side NemoClaw setup. Harbor then sends only the operational prompts to the
-ready sandbox. A `vss-build-vision-ai` spec itself stays on the coding-agent
-runtime. Like every other runtime, worker selection and locking stay in
-`run_leg.py`. The shared evaluation spec's top-level `profile` is authoritative
-for this deployment; operational specs must declare it explicitly rather than
-relying on a harness-specific default.
+runtime with `/vss-build-vision-ai` for the spec's first `expects[]` task. That
+query is the deployment/setup intent and its existing checks are the readiness
+contract; Build Vision AI also attaches NemoClaw in the same task. Harbor sends
+the remaining `expects[]` tasks to that sandbox. Specs that do not otherwise
+need deployment add a setup query as their first entry. A `vss-build-vision-ai`
+spec itself stays on the coding-agent runtime. Like every other runtime, worker
+selection and locking stay in `run_leg.py`; the harness does not infer a deploy
+profile from extra spec metadata.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
