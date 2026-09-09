@@ -151,6 +151,38 @@ asserts the distinction actually fired.
   configured in this deployment. That is the documented "this command group's
   backend is not here" and is a SKIP, not a pass.
 
+## `fr35-offhost-dns-2026-09-09`
+
+**26 pass / 1 fail / 5 skip, exit 1.**
+
+| | |
+|---|---|
+| Deployment | `deployment-host`, 10.176.222.x, machine-id `fa1e16e7…`, kernel 6.8.0-136, 2× L40 |
+| Agent | `agent-workstation`, 10.21.84.x, kernel 7.0.0-30 |
+| Profile | `dev-profile-alerts`, Compose project `fr35` |
+| Harness commit | `70be8984e` (PR #1983 head at the time of the run) |
+| Canonical name | `vss-gateway.fr35.corp` → 10.176.222.x, resolved from the agent side **through DNS** (CoreDNS private zone on the test network) |
+| Second origin | `http://10.176.222.x:7777` |
+
+Same two-machine topology as the earlier run: deployment on 10.176.222.x,
+agent-side container on the workstation (10.21.84.x), no shared Docker network.
+The only deliberate change is how the canonical name is served: a small CoreDNS
+instance on a Docker bridge network holds an A record for
+`vss-gateway.fr35.corp` in a private zone (`fr35.corp`). The client container
+was given `--dns` pointing at that server and **no `--add-host` entry**, so
+section 1a reports resolution through DNS with no reserved-suffix warning.
+This is internal DNS on the test network — not a publicly delegated record —
+and it mirrors how a customer with a corporate zone would reach the deployment.
+
+Section 1d still refuses an undeclared origin with `404` and
+`x-vss-gateway-deny: unknown-host`. Section 5 shows the `vss` CLI configuring
+against the canonical hostname and answering through it — ordinary resolution,
+not a per-request pin.
+
+The one failure is the same backend fault as the earlier run:
+`/llm/v1/models → 502` (NIM KV-cache exhaustion on 2× 48GB L40). The harness
+attributes it to the backend on the second origin.
+
 ## Redactions
 
 Both transcripts were captured from live internal machines. What was changed
