@@ -905,10 +905,12 @@ By default, RT-Embed runs the Cosmos-Embed1 (CE1) model locally on the GPU. To
 generate embeddings from a remote CE1 NIM endpoint instead of local inference,
 set `REMOTE_EMBED_ENDPOINT` in your `.env` file. When it is set, startup switches
 to the CE1 NIM backend and RT-Embed sends embedding requests to that endpoint
-instead of loading the local Cosmos-Embed1 model.
+instead of loading the local Cosmos-Embed1 model. Use the host-level base URL
+without a path suffix; the CE1 client appends `/v1/embeddings` when it calls the
+endpoint.
 
 ```bash
-REMOTE_EMBED_ENDPOINT=https://<ce1-nim-host>/v1        # CE1 NIM endpoint URL (enables remote inference)
+REMOTE_EMBED_ENDPOINT=https://<ce1-nim-host>           # CE1 NIM host base URL, no /v1 suffix (enables remote inference)
 REMOTE_EMBED_ENDPOINT_MODEL_NAME=nvidia/cosmos-embed1  # Model deployment name / RTVI model id
 REMOTE_EMBED_ENDPOINT_API_KEY=<api-key>                # Optional bearer token for the endpoint
 REMOTE_EMBED_ENDPOINT_TIMEOUT_SEC=300                  # Request timeout in seconds
