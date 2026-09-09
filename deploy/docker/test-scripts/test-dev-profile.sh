@@ -1229,6 +1229,52 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# Warehouse on GB300 must pin RT-VLM to the shared-GPU fraction (0.2), not
+# the 0.8 in warehouse overrides.env. vLLM reserves utilization x total
+# memory and will not start beside the local LLM/RT-CV otherwise.
+_warehouse_gen_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+_warehouse_gen_backup=""
+if [[ -f "${_warehouse_gen_env}" ]]; then
+  _warehouse_gen_backup="$(mktemp)"
+  cp "${_warehouse_gen_env}" "${_warehouse_gen_backup}"
+  CLEANUP_RESTORES+=("${_warehouse_gen_backup}|${_warehouse_gen_env}")
+fi
+_warehouse_data_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_warehouse_data_dir}")
+_warehouse_out="$(mktemp)"
+_warehouse_err="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" \
+  timeout 60 "${BLUEPRINT_DEPLOY}" up -d warehouse \
+  -D "${_warehouse_data_dir}" -i 127.0.0.1 -H GB300 \
+  -m 2d --bp-profile bp_wh \
+  --gpu-device-id 1 --llm-device-id 1 --vlm-device-id 1 \
+  --dry-run > "${_warehouse_out}" 2> "${_warehouse_err}"
+_warehouse_rc=$?
+set -e
+_warehouse_rtvi_ok=0
+if [[ -f "${_warehouse_gen_env}" ]] \
+  && grep -Eq "^RTVI_VLLM_GPU_MEMORY_UTILIZATION=['\"]?0\.2['\"]?$" "${_warehouse_gen_env}" \
+  && grep -Eq "^RTVI_VLLM_ATTENTION_BACKEND=['\"]?TRITON_ATTN['\"]?$" "${_warehouse_gen_env}" \
+  && grep -Eq "^RT_VLM_DEVICE_ID=['\"]?1['\"]?$" "${_warehouse_gen_env}"; then
+  _warehouse_rtvi_ok=1
+fi
+if [[ -n "${_warehouse_gen_backup}" && -f "${_warehouse_gen_backup}" ]]; then
+  mv "${_warehouse_gen_backup}" "${_warehouse_gen_env}"
+elif [[ -f "${_warehouse_gen_env}" ]]; then
+  rm -f "${_warehouse_gen_env}"
+fi
+if [[ ${_warehouse_rtvi_ok} -eq 1 ]]; then
+  echo "PASS: warehouse GB300 pins RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse GB300 should pin RT-VLM to 0.2 + TRITON_ATTN (rc=${_warehouse_rc})"
+  cat "${_warehouse_out}" "${_warehouse_err}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+fi
+rm -f "${_warehouse_out}" "${_warehouse_err}"
+
 _warehouse_3d_skill="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-3d"
 if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \
   "${_warehouse_3d_skill}/SKILL.md" \
