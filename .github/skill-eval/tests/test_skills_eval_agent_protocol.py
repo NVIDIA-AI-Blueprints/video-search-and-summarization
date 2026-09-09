@@ -282,7 +282,7 @@ def test_nightly_leg_prompt_delegates_rendering() -> None:
 def test_leg_body_is_keyed_by_slug_not_stem() -> None:
     """Two skills sharing a spec stem must not share an output file.
 
-    No two skills ship the same stem today: `vss-deploy-profile` shipped the
+    No two skills ship the same stem today: `vss-build-vision-ai` shipped the
     `search.json` that used to collide with `vss-search-archive`, and its
     specs were retired. This stays as a forward guard, since legs of a run
     share the scratch dir on a self-hosted host and a stem-keyed body would
