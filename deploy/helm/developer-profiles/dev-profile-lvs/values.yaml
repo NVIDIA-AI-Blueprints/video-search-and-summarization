@@ -74,11 +74,26 @@ infra:
       mountPath: /config.yml
   elasticsearch:
     enabled: true
+    # NVBug 6661431: the single 1 GiB node saturates at >=20X VLM scale.
+    # Four 4 GiB-heap data nodes sustain the measured 40X topology. Scale at
+    # one Elasticsearch data node per 10X VLM for larger deployments.
+    replicas: 4
+    env:
+      ES_JAVA_OPTS: "-Xms4g -Xmx4g"
+    resources:
+      requests:
+        cpu: "2"
+        memory: 6Gi
+      limits:
+        memory: 8Gi
     persistence:
       data:
         size: 10Gi
       logs:
         size: 5Gi
+      # Production scale requires fast block storage (>=5K IOPS and
+      # >=30 Mbps writes). Leave empty only when global.storageClass already
+      # selects a class with those characteristics.
       storageClass: ''
     init:
       enabled: true

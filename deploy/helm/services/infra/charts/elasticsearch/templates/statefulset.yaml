@@ -11,6 +11,10 @@ metadata:
 spec:
   replicas: {{ .Values.replicas }}
   serviceName: {{ include "elasticsearch.fullname" . }}-headless
+  # Keep the bootstrap node deterministic. Pod 0 forms the cluster with the
+  # single initial-master entry below, then the remaining pods join through
+  # the headless Service.
+  podManagementPolicy: OrderedReady
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Delete
     whenScaled: Retain
@@ -58,8 +62,19 @@ spec:
           env:
             - name: ES_JAVA_OPTS
               value: {{ index .Values.env "ES_JAVA_OPTS" | default "-Xmx1024m -Xms256m" | quote }}
+            {{- if gt (int .Values.replicas) 1 }}
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: discovery.seed_hosts
+              value: {{ printf "%s-headless" (include "elasticsearch.fullname" .) | quote }}
+            - name: cluster.initial_master_nodes
+              value: {{ printf "%s-0" (include "elasticsearch.fullname" .) | quote }}
+            {{- else }}
             - name: discovery.type
               value: {{ index .Values.env "discovery.type" | default "single-node" | quote }}
+            {{- end }}
             {{- if .Values.gpu.enabled }}
             - name: NVIDIA_VISIBLE_DEVICES
               value: "all"
@@ -98,7 +113,7 @@ spec:
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /_cluster/health
+              path: /_cluster/health?wait_for_status=yellow&timeout=5s
               port: http
             initialDelaySeconds: 30
             periodSeconds: 15
