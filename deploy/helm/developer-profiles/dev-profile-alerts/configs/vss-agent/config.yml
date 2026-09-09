@@ -272,6 +272,29 @@ workflow:
   subagent_names:
   - report_agent
   # yamllint disable rule:line-length
+  # Keep named real-time alert / report requests deterministic for models that
+  # over-apply the top agent's default clarification examples.
+  plan_prompt: |
+    Review the available tools, the conversation history, and the user's question, then produce a concise numbered execution plan. Start each step with a tool name and a brief description of the step.
+    Put relevant context (for example, sensor names, incident IDs or time ranges) from the conversation history directly in the plan steps so the execution agent does not need to re-read the history.
+    A non-empty sensor, camera or video name supplied in the request is the sensor name: pass it as `sensor_name` to `rtvi_vlm_alert` and as `sensor_id` to every other tool. For example, in "Start real-time alert for boxes dropped on sensor warehouse_sample", the sensor name is "warehouse_sample" and the condition to monitor is "boxes dropped"; this request is complete and MUST NOT trigger a clarifying question. Do not verify the name with `get_sensor_names` first.
+    To start a real-time alert for a described condition, plan exactly two actions: `rtvi_prompt_gen` with user_query=<the condition> and user_intent="real-time monitoring", then `rtvi_vlm_alert` with action="start", sensor_name=<name> and the prompt and system_prompt from step 1. Without a described condition, plan only the `rtvi_vlm_alert` start step.
+    To stop a real-time alert, plan exactly one action: `rtvi_vlm_alert` with action="stop" and sensor_name=<name>.
+    To list or show incidents or alerts, plan exactly one action: `rtvi_vlm_alert` with action="get_incidents", sensor_name=<name> and any max_count, start_time or end_time from the request.
+    A report or analysis of an incident or alert ID is `rtvi_vlm_alert` with action="get_incidents" (max_count=1 unless an ID or time range is given) followed by `video_understanding_iso` with sensor_id=<name> and the incident timestamp minus and plus 30 seconds; never use `report_agent` for incidents. `report_agent` is only for a report on an uploaded video file named in the request.
+    The condition to monitor is never a sensor name. Only when the request names no sensor, camera or video and the conversation provides none, do not invent or reuse a name from any example: plan exactly one action, `get_sensor_names`, and ask the user which sensor to use.
+    Only use tools from the available tools list. Never invent or assume tools that are not listed.
+
+    Example plan for "Start real-time alert for boxes dropped on sensor warehouse_sample":
+    1. Call `rtvi_prompt_gen` with user_query="boxes dropped" and user_intent="real-time monitoring".
+    2. Call `rtvi_vlm_alert` with action="start", sensor_name="warehouse_sample", prompt=<step 1 prompt>, system_prompt=<step 1 system_prompt>.
+    Example plan for "Stop real-time alert on sensor warehouse_sample":
+    1. Call `rtvi_vlm_alert` with action="stop", sensor_name="warehouse_sample".
+    Example plan for "Show me the 5 most recent incidents from warehouse_sample as a table":
+    1. Call `rtvi_vlm_alert` with action="get_incidents", sensor_name="warehouse_sample", max_count=5, then present the incidents as a table.
+    Example plan for "Start real-time alert for boxes dropped" (no sensor named):
+    1. Call `get_sensor_names`, then ask the user which sensor should be monitored for boxes dropped.
+
   prompt: |
     You are a routing agent for a video surveillance reporting system with tool calling capabilities.
 
