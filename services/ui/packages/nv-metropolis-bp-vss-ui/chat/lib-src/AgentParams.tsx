@@ -15,15 +15,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { getAgentParamsPosition } from './agentParamsPosition';
 import { createRandomId } from './id';
 import type { CustomAgentParamsValues, ParamField, ParamFieldConfig } from './types';
 
 const STORAGE_KEY = 'vss-chat-custom-agent-params';
-
-/** Space kept between the panel and both the trigger and the viewport edge. */
-const GAP = 8;
-/** Below this the panel is too short to be usable and is flipped instead. */
-const MIN_PANEL_HEIGHT = 160;
 
 export const fieldsToParams = (fields: ParamField[]): CustomAgentParamsValues =>
   (fields || []).reduce((acc, field) => {
@@ -235,21 +231,14 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
     }
   };
 
-  const right = anchorRect ? Math.max(GAP, window.innerWidth - anchorRect.right) : 16;
-
   // The trigger lives in the chat input at the bottom of the panel, so the
   // space below it is a few pixels of gradient — open upwards, and only flip
   // down when the room above cannot hold the panel at all.
-  const viewportHeight = window.innerHeight;
-  const spaceAbove = anchorRect ? anchorRect.top - GAP * 2 : 0;
-  const spaceBelow = anchorRect ? viewportHeight - anchorRect.bottom - GAP * 2 : 0;
-  const openDown = !anchorRect || (spaceAbove < MIN_PANEL_HEIGHT && spaceBelow > spaceAbove);
-
-  const position: React.CSSProperties = !anchorRect
-    ? { top: 80, maxHeight: '60vh' }
-    : openDown
-      ? { top: anchorRect.bottom + GAP, maxHeight: spaceBelow }
-      : { bottom: viewportHeight - anchorRect.top + GAP, maxHeight: spaceAbove };
+  const position = getAgentParamsPosition({
+    anchorRect,
+    viewportHeight: window.innerHeight,
+    viewportWidth: window.innerWidth,
+  });
 
   return createPortal(
     <>
@@ -258,7 +247,7 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
         role="dialog"
         aria-label="Agent parameters"
         className="fixed z-[100] w-72 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-black"
-        style={{ right, overflowY: 'auto', ...position }}
+        style={{ overflowY: 'auto', ...position }}
       >
         <p className="mb-2 text-center text-sm font-medium text-gray-700 dark:text-gray-200">
           Agent parameters
