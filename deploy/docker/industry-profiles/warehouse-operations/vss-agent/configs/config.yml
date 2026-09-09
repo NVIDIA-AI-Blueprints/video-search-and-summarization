@@ -288,20 +288,33 @@ workflow:
     - User wants incident summaries or aggregated view
     - User wants to see incident statistics/charts
 
+    The system message includes "current time: <ISO timestamp>".
+    That value is NOW. Compute every start_time/end_time from it.
+    NEVER copy timestamps from this prompt.
+
     multi_report_agent parameters (pass as DIRECT fields, NOT in additional_context):
     - user_query: The original user question (REQUIRED)
     - sensor_id: The sensor ID (REQUIRED)
-    - start_time: Start of time range (datetime, REQUIRED)
-    - end_time: End of time range (datetime, REQUIRED)
+    - start_time: Start of time range (optional). Omit for "last N incidents"
+      so the tool returns the most recent incidents.
+    - end_time: End of time range (optional). Omit together with start_time
+      for "last N incidents".
+    - max_result_size: Number of incidents to return (use N for "last N")
     - vlm_verified: true only if the current message asks for verified/VLM verified incidents; otherwise omit
 
-    Example tool call:
+    Example tool call for "List the last 3 incidents for Camera_01"
+    (omit times; do NOT invent a historical date):
     {{
-      "user_query": "List the last 5 incidents for Camera_01",
+      "user_query": "List the last 3 incidents for Camera_01",
       "sensor_id": "Camera_01",
-      "start_time": "2025-11-13T16:00:00.000Z",
-      "end_time": "2025-11-13T17:00:00.000Z"
+      "max_result_size": 3
     }}
+
+    If a time window is required (charts, "last hour", pagination with an
+    explicit range), compute it from NOW:
+    - end_time = the current time from this prompt
+    - start_time = NOW minus the requested duration (default 24 hours
+      when the user asks for last N incidents but a window is needed)
 
     Example user queries for multi_report_agent:
     - "List all incidents from sensor X in the last hour"
@@ -344,13 +357,11 @@ workflow:
     - end_time: End of time range (optional, for finding last incident)
     - vlm_verified: true when the current message asks for a verified/VLM verified incident report; otherwise omit
 
-    Example tool call:
+    Example tool call for "last incident" (omit times so the tool
+    finds the most recent; do NOT invent a historical date):
     {{
-      "user_query": "Generate a detailed report for the
-        last incident at Camera_01",
-      "sensor_id": "Camera_01",
-      "start_time": "2025-11-13T16:00:00.000Z",
-      "end_time": "2025-11-13T17:00:00.000Z"
+      "user_query": "Generate a detailed report for the last incident at Camera_01",
+      "sensor_id": "Camera_01"
     }}
 
     Example user queries for report_agent:
@@ -375,10 +386,14 @@ workflow:
     - This allows you to support follow-up queries without asking the user to repeat information
 
     TIME CALCULATION RULES (IMPORTANT - BE CAREFUL WITH MATH):
+    - NOW is the "current time" ISO timestamp in this system message.
+      Use that clock. Never reuse example dates from this prompt.
+    - "last N incidents" (no time range given): OMIT start_time and
+      end_time; set max_result_size = N.
     - "last X minutes" means: end_time = NOW, start_time = NOW - X minutes
-      Example: If NOW is 20:35:00, "last 20 minutes" means 20:15:00 to 20:35:00
     - "last X hours" means: end_time = NOW, start_time = NOW - X hours
-      Example: If NOW is 20:35:00, "last 2 hours" means 18:35:00 to 20:35:00
+    - "today" means: start_time = today 00:00:00.000Z, end_time = NOW
+      (date taken from the current time in this prompt)
     - ALWAYS double-check your time calculations before making tool calls
     - Time format: YYYY-MM-DDTHH:MM:SS.sssZ (ISO 8601 with milliseconds and Z timezone)
 
@@ -387,9 +402,8 @@ workflow:
     (start_time, end_time), you MUST use this exact format:
     YYYY-MM-DDTHH:MM:SS.sssZ
 
-    Examples:
-    - 2020-01-01T00:00:00.000Z
-    - 2025-11-12T14:19:30.000Z
+    Use the current time from this prompt as the template.
+    Do not copy calendar dates from this prompt.
 
     NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
     ALWAYS include milliseconds (.000) and use Z for timezone
