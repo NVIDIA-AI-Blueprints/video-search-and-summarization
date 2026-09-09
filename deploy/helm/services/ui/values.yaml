@@ -54,7 +54,7 @@ vstApiUrl: ""
 # Server-only destination used by /api/proxy. Empty selects the in-cluster
 # vss-vios-ingress Service even when browser URLs use global.externalHost.
 proxyBaseUrl: ""
-# Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/v1/chat/stream
+# Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/chat/stream
 chatCompletionUrl: ""
 websocketChatUrl: ""
 # Server-only destinations used by /api/vss-chat and the /api/chat alias.

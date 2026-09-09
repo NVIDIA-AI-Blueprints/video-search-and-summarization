@@ -146,12 +146,12 @@ spec:
             # instead of hairpinning through the public ingress and its auth.
             - name: VSS_PROXY_BASE_URL
               value: {{ .Values.proxyBaseUrl | default $vstInternal | quote }}
-            {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/v1/chat/stream" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/v1/chat/stream" .Release.Name) "http://vss-agent:8000/v1/chat/stream" $pfx) }}
+            {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/chat/stream" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx) }}
             - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}
             - name: NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL
               value: {{ $httpChat | quote }}
-            {{- $chatInternal := ternary (printf "http://%s-vss-agent:8000/v1/chat/stream" .Release.Name) "http://vss-agent:8000/v1/chat/stream" $pfx }}
+            {{- $chatInternal := ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx }}
             # The replacement UI posts to its same-origin API route; that
             # server-side handler must use the in-cluster agent address.
             - name: VSS_CHAT_BACKEND_MAIN
