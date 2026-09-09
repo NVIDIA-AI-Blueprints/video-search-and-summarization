@@ -3,7 +3,7 @@ name: benchmark-video-search
 description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
 license: Apache-2.0
 metadata:
-  version: "3.8.0"
+  version: "3.9.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
@@ -82,18 +82,24 @@ Three defaults, each load-bearing:
   A `vss` older than the flag is detected by one `--help` probe at startup and
   the run continues without it, with a warning. Do not quote critic-filtered
   metrics from a run that printed that warning.
-- **Ingest goes through the agent** (`--ingest-flow agent-3step`). The UI has
-  moved to `vst-direct` — upload to VIOS, let its webhooks drive perception —
-  and that flow works here too; the timestamp anchor rides in the upload
-  metadata, not in anything `/complete` does, so scores are comparable. It is
-  not the default only because `/complete` is the one step that returns
-  `chunks_processed`, and without it "nothing indexed" and "nothing matched"
-  produce the same result file. On a Docker search profile `vst-direct` is the
-  more faithful flow; prefer it when you want to measure what the UI does, and
-  read the readiness poll rather than a chunk count. Two checks first:
-  `webhooks.enabled` is true in Docker and **false** in the Helm chart, and
-  `VstDirectIngest.verify_anchor()` confirms one video's timeline landed on
-  `2025-01-01`.
+- **Ingest is `vst-direct`**: upload to VIOS, let its webhooks drive
+  perception. That is what the UI does — it stopped calling the agent's ingest
+  API — and it is the only flow that also triggers RT-VLM tagging. The
+  timestamp anchor rides in the upload metadata, not in anything `/complete`
+  does, so scores stay comparable with `agent-3step` baselines.
+
+  What `agent-3step` gave for free was proof: `/complete` returns
+  `chunks_processed`, and a zero failed the upload. `vst-direct` has no such
+  step, so a **post-ingest index probe** replaces it — one embed query, retried,
+  before the real run starts. Registered in VST is not the same as indexed in
+  Elasticsearch, and without this check an unindexed deployment scores 0.0
+  across the board and reads as a retrieval collapse.
+
+  If the probe aborts a run, check `webhooks.enabled` (true in the Docker
+  search profile, **false** in the Helm chart) and that `RTVI_EMBED_MODEL`
+  matches the webhook's model string — RT-Embed answers a mismatch with HTTP
+  200 and `inference: false`. Fall back with `--ingest-flow agent-3step`.
+  Never pass `--skip-index-probe` on a run whose numbers you intend to quote.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
