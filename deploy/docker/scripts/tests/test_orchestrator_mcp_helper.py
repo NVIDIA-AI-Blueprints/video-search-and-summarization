@@ -15,6 +15,177 @@ if MODULE_SPEC is None or MODULE_SPEC.loader is None:
 helper = importlib.util.module_from_spec(MODULE_SPEC)
 MODULE_SPEC.loader.exec_module(helper)
 
+H100_UUIDS = [
+    "GPU-11111111-1111-1111-1111-111111111111",
+    "GPU-22222222-2222-2222-2222-222222222222",
+]
+H100_SMI_OUTPUT = (
+    f"GPU 0: NVIDIA H100 80GB HBM3 (UUID: {H100_UUIDS[0]})\n"
+    f"GPU 1: NVIDIA H100 80GB HBM3 (UUID: {H100_UUIDS[1]})\n"
+)
+
+MIG_UUIDS = [
+    "GPU-33333333-3333-3333-3333-333333333333",
+    "MIG-44444444-4444-4444-4444-444444444444",
+    "MIG-55555555-5555-5555-5555-555555555555",
+]
+MIG_SMI_OUTPUT = (
+    f"GPU 0: NVIDIA A100-SXM4-40GB (UUID: {MIG_UUIDS[0]})\n"
+    f"  MIG 3g.20gb     Device  0: (UUID: {MIG_UUIDS[1]})\n"
+    f"  MIG 1g.5gb      Device  1: (UUID: {MIG_UUIDS[2]})\n"
+)
+
+
+def _nvidia_smi(stdout: str = "", *, returncode: int = 0, stderr: str = ""):
+    """Answer `nvidia-smi -L` with the given result and reject any other command."""
+
+    def run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd != ["nvidia-smi", "-L"]:
+            raise AssertionError(f"unexpected command: {cmd}")
+        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
+
+    return run
+
+
+class GpuDeviceIdsTests(unittest.TestCase):
+    def test_returns_every_index_and_uuid(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(helper.subprocess, "run", side_effect=_nvidia_smi(H100_SMI_OUTPUT)) as run,
+        ):
+            indices, device_ids = helper.gpu_device_ids()
+        self.assertEqual(indices, ["0", "1"])
+        self.assertEqual(device_ids, ["0", "1", *H100_UUIDS])
+        run.assert_called_once()
+
+    def test_accepts_mig_uuids_as_devices_but_not_as_indices(self) -> None:
+        # A *_DEVICE_ID may name a MIG instance, but the indented MIG lines are
+        # not GPU indices — a single physical GPU still reports one index.
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(helper.subprocess, "run", side_effect=_nvidia_smi(MIG_SMI_OUTPUT)),
+        ):
+            indices, device_ids = helper.gpu_device_ids()
+        self.assertEqual(indices, ["0"])
+        self.assertEqual(device_ids, ["0", *MIG_UUIDS])
+
+    def test_raises_when_nvidia_smi_is_missing(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value=None),
+            mock.patch.object(helper.subprocess, "run", side_effect=AssertionError("nvidia-smi must not run")),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            helper.gpu_device_ids()
+        self.assertIn("nvidia-smi is not installed", str(ctx.exception))
+
+    def test_raises_with_the_exit_code_and_stderr_when_the_command_fails(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(
+                helper.subprocess,
+                "run",
+                side_effect=_nvidia_smi(returncode=9, stderr="Failed to initialize NVML: Driver/library mismatch\n"),
+            ),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            helper.gpu_device_ids()
+        self.assertIn("exit code 9", str(ctx.exception))
+        self.assertIn("Driver/library mismatch", str(ctx.exception))
+
+    def test_reports_stdout_when_a_failure_writes_nothing_to_stderr(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(
+                helper.subprocess,
+                "run",
+                side_effect=_nvidia_smi("No devices were found\n", returncode=1),
+            ),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            helper.gpu_device_ids()
+        self.assertIn("No devices were found", str(ctx.exception))
+
+    def test_reports_a_silent_failure_as_no_output(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(helper.subprocess, "run", side_effect=_nvidia_smi(returncode=1)),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            helper.gpu_device_ids()
+        self.assertIn("(no output)", str(ctx.exception))
+
+    def test_raises_when_the_command_succeeds_without_listing_a_gpu(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(helper.subprocess, "run", side_effect=_nvidia_smi("\n")),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            helper.gpu_device_ids()
+        self.assertIn("listed no GPUs", str(ctx.exception))
+
+
+class RequireGpuDeviceTests(unittest.TestCase):
+    KNOWN = ["0", "1", *H100_UUIDS]
+    REMEDY = "Fix it in section 1.2, or leave it blank for the profile default."
+
+    def test_accepts_an_index_or_uuid_from_a_cached_inventory(self) -> None:
+        with mock.patch.object(helper, "gpu_device_ids", side_effect=AssertionError("nvidia-smi must not run")):
+            for device_id in ("0", "1", *H100_UUIDS):
+                with self.subTest(device_id=device_id):
+                    helper.require_gpu_device(
+                        "LLM_DEVICE_ID",
+                        device_id,
+                        remedy=self.REMEDY,
+                        known_device_ids=self.KNOWN,
+                    )
+
+    def test_accepts_a_mig_uuid(self) -> None:
+        with mock.patch.object(helper, "gpu_device_ids", side_effect=AssertionError("nvidia-smi must not run")):
+            helper.require_gpu_device(
+                "NEMOCLAW_VLLM_GPU_DEVICE",
+                MIG_UUIDS[1],
+                remedy=self.REMEDY,
+                known_device_ids=["0", *MIG_UUIDS],
+            )
+
+    def test_accepts_a_blank_value_without_reading_the_host(self) -> None:
+        # Blank leaves the default to whatever consumes the setting, so the
+        # check must not even ask what GPUs the host has.
+        with mock.patch.object(helper, "gpu_device_ids", side_effect=AssertionError("nvidia-smi must not run")):
+            helper.require_gpu_device("VLM_DEVICE_ID", "", remedy=self.REMEDY)
+
+    def test_names_the_setting_the_known_ids_and_the_remedy_when_it_fails(self) -> None:
+        with self.assertRaises(RuntimeError) as ctx:
+            helper.require_gpu_device(
+                "VLM_DEVICE_ID",
+                "3",
+                remedy=self.REMEDY,
+                known_device_ids=self.KNOWN,
+            )
+        message = str(ctx.exception)
+        self.assertIn("VLM_DEVICE_ID=3", message)
+        self.assertIn(", ".join(self.KNOWN), message)
+        self.assertIn(self.REMEDY, message)
+
+    def test_reads_the_host_once_when_no_inventory_is_cached(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value="/usr/bin/nvidia-smi"),
+            mock.patch.object(helper.subprocess, "run", side_effect=_nvidia_smi(H100_SMI_OUTPUT)) as run,
+        ):
+            helper.require_gpu_device("LLM_DEVICE_ID", "1", remedy=self.REMEDY)
+            with self.assertRaises(RuntimeError) as ctx:
+                helper.require_gpu_device("VLM_DEVICE_ID", "2", remedy=self.REMEDY)
+        self.assertIn("VLM_DEVICE_ID=2", str(ctx.exception))
+        self.assertEqual(run.call_count, 2)
+
+    def test_propagates_a_host_inventory_failure(self) -> None:
+        with (
+            mock.patch.object(helper.shutil, "which", return_value=None),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            helper.require_gpu_device("LLM_DEVICE_ID", "0", remedy=self.REMEDY)
+        self.assertIn("nvidia-smi is not installed", str(ctx.exception))
+
 
 class ResolveOpenshellGatewayContainerTests(unittest.TestCase):
     def test_returns_first_matching_container_name(self) -> None:
