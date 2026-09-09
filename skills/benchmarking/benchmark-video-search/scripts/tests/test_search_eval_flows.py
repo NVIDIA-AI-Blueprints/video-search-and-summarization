@@ -976,13 +976,56 @@ def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -
     assert bad["matches_expected_anchor"] is False
 
 
-def test_the_probe_accepts_any_hit_and_ignores_the_run_tuning(monkeypatch: Any) -> None:
-    """One hit is the whole signal: documents exist.
+def test_the_probe_gate_reads_a_flag_not_a_prose_string() -> None:
+    """The regression that made this whole guard dead code.
 
-    It deliberately does NOT reuse the run's backend. Embedding search returns
-    the nearest top_k however badly they match, so an empty answer means an
-    empty index -- but only if a --min-cosine-similarity floor or a non-embed
-    --search-path cannot filter the answer away first.
+    The gate compared ``describe()["ingest_proof"]`` to "none" while describe()
+    returned "none (webhook fan-out is fire-and-forget)". It never fired, the
+    result file recorded ``index_probe: null``, and a run against a half-built
+    index scored recall 0.3534 where the same queries had reached 0.5103. A
+    boolean cannot drift out of sync with its own explanation.
+    """
+    assert flows.VstDirectIngest.proves_indexing is False
+    assert flows.AgentThreeStepIngest.proves_indexing is True
+    assert flows.LegacyPutIngest.proves_indexing is True
+
+
+def test_partial_coverage_is_a_failure_not_a_pass(monkeypatch: Any) -> None:
+    """"Something is indexed" passes on 1 video out of 32.
+
+    That is precisely the state readiness already waves through, so a probe
+    that only asks whether the index is non-empty adds nothing.
+    """
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    def one_video(**kw: Any) -> Any:
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                return [{"video_name": "clip_a.mp4"}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", one_video)
+    monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
+    result = rf.probe_index_coverage(
+        _Backend(), ["clip_a", "clip_b", "clip_c"], attempts=2, backoff_s=0
+    )
+    assert result["covered"] is False
+    assert result["missing_count"] == 2
+    assert set(result["missing"]) == {"clip_b", "clip_c"}
+
+
+def test_full_coverage_passes_and_matches_names_the_way_scoring_does(
+    monkeypatch: Any,
+) -> None:
+    """VST spellings differ from dataset names, so reuse the scorer's matcher.
+
+    Comparing raw strings would report every source missing on a perfectly
+    healthy index.
     """
     import run_eval_flows as rf
 
@@ -994,26 +1037,31 @@ def test_the_probe_accepts_any_hit_and_ignores_the_run_tuning(monkeypatch: Any) 
         search_path = "fusion"
         min_cosine_similarity = 0.99
 
-    def fake_backend(**kw: Any) -> Any:
+    def all_videos(**kw: Any) -> Any:
         built.append(kw)
 
         class _Probe:
             def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
-                return [{"video_name": "anything.mp4"}], 0.1
+                return [
+                    {"video_name": "clip_a_20250101_000000_e0482.mp4"},
+                    {"video_name": "clip_b.mp4"},
+                ], 0.1
 
         return _Probe()
 
-    monkeypatch.setattr(flows, "CliQueryBackend", fake_backend)
-    result = rf.probe_index_populated(_Backend(), attempts=3, backoff_s=0)
+    monkeypatch.setattr(flows, "CliQueryBackend", all_videos)
+    result = rf.probe_index_coverage(_Backend(), ["clip_a", "clip_b"], attempts=2, backoff_s=0)
 
-    assert result == {"populated": True, "attempts": 1}
+    assert result == {"checked": True, "covered": True, "attempts": 1, "sources": 2}
+    # A throwaway backend: the run's own --min-cosine-similarity floor or a
+    # non-embed --search-path must not filter a healthy index into an alarm.
     assert built[0]["search_path"] == "embed"
-    assert built[0]["top_k"] == 1
     assert "min_cosine_similarity" not in built[0]
 
 
-def test_an_empty_index_is_retried_then_reported(monkeypatch: Any) -> None:
-    """Webhook-driven perception is async, so "not yet" is the first answer."""
+def test_coverage_is_retried_because_perception_is_asynchronous(
+    monkeypatch: Any,
+) -> None:
     import run_eval_flows as rf
 
     class _Backend:
@@ -1022,24 +1070,21 @@ def test_an_empty_index_is_retried_then_reported(monkeypatch: Any) -> None:
 
     calls = {"n": 0}
 
-    def fake_backend(**kw: Any) -> Any:
+    def filling_up(**kw: Any) -> Any:
         class _Probe:
             def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
                 calls["n"] += 1
-                return ([{"hit": 1}], 0.1) if calls["n"] >= 3 else ([], 0.1)
+                if calls["n"] < 3:
+                    return [{"video_name": "clip_a.mp4"}], 0.1
+                return [{"video_name": "clip_a.mp4"}, {"video_name": "clip_b.mp4"}], 0.1
 
         return _Probe()
 
-    monkeypatch.setattr(flows, "CliQueryBackend", fake_backend)
+    monkeypatch.setattr(flows, "CliQueryBackend", filling_up)
     monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
-    assert rf.probe_index_populated(_Backend(), attempts=5, backoff_s=0) == {
-        "populated": True,
-        "attempts": 3,
-    }
-
-    calls["n"] = -100  # never reaches the success threshold
-    result = rf.probe_index_populated(_Backend(), attempts=2, backoff_s=0)
-    assert result == {"populated": False, "attempts": 2}
+    result = rf.probe_index_coverage(_Backend(), ["clip_a", "clip_b"], attempts=5, backoff_s=0)
+    assert result["covered"] is True
+    assert result["attempts"] == 3
 
 
 def test_a_broken_cli_is_reported_as_itself_not_as_an_empty_index(
@@ -1053,16 +1098,16 @@ def test_a_broken_cli_is_reported_as_itself_not_as_an_empty_index(
         vss_cmd: ClassVar[list[str]] = ["vss"]
         cwd = None
 
-    def fake_backend(**kw: Any) -> Any:
+    def broken(**kw: Any) -> Any:
         class _Probe:
             def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
                 raise flows.CliExitError("vss exited 4 (configuration)")
 
         return _Probe()
 
-    monkeypatch.setattr(flows, "CliQueryBackend", fake_backend)
-    result = rf.probe_index_populated(_Backend(), attempts=5, backoff_s=0)
-    assert result["populated"] is False
+    monkeypatch.setattr(flows, "CliQueryBackend", broken)
+    result = rf.probe_index_coverage(_Backend(), ["clip_a"], attempts=5, backoff_s=0)
+    assert result["covered"] is False
     assert result["attempts"] == 1  # not retried; it will not fix itself
     assert "CliExitError" in result["error"]
 
