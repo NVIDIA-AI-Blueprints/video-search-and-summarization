@@ -195,5 +195,19 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("export NVDATASET_TENANTID=test-tenant", combined)
         self.assertIn("export NVDATASET_GROUPID=test-group", combined)
 
+    async def test_anthropic_model_is_forwarded_for_worker_setup(self):
+        with mock.patch.dict(
+            os.environ,
+            {"ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-sonnet-5"},
+            clear=False,
+        ):
+            commands = await self._record_start_commands("step-4")
+
+        combined = "\n".join(commands)
+        self.assertIn(
+            "export ANTHROPIC_MODEL=aws/anthropic/bedrock-claude-sonnet-5",
+            combined,
+        )
+
 if __name__ == "__main__":
     unittest.main()

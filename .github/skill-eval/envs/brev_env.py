@@ -421,6 +421,11 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NGC_API_KEY",
             "NVDATASET_TENANTID", "NVDATASET_GROUPID",
             "NVIDIA_API_KEY", "HF_TOKEN",
+            # Benchmark setup scripts need the unprefixed model ID when they
+            # render the shared OpenClaw Gateway configuration. Harbor's
+            # agent receives the model through --model, but that value is not
+            # otherwise available to commands the agent runs on the worker.
+            "ANTHROPIC_MODEL",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
             # Pin the eval's deploy step to the PR's actual head SHA on
