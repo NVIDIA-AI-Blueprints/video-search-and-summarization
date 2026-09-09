@@ -14,6 +14,7 @@ bp_profile=""
 compose_profiles_selector=""
 compose_variant=""
 sample_video_dataset=""
+dataset_type=""
 elasticsearch_mode="cpu"
 deployment_directory="${deploy_docker_dir}"
 data_directory="${deploy_docker_dir}/data-dir"
@@ -92,31 +93,54 @@ function warehouse_default_bp_profile() {
 }
 
 function warehouse_sample_video_dataset() {
-  local _mode="${1}"
   local _profile="${2}"
-  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
-    echo "warehouse-loading-dock-3cams-synthetic"
-  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
-    echo "warehouse-4cams-20mx20m-synthetic"
-  elif [[ "${_profile}" == "bp_wh" ]]; then
+  if [[ "${_profile}" == "bp_wh" ]]; then
     echo "nv-warehouse-4cams"
   else
-    echo "warehouse-loading-dock-3cams-synthetic"
+    echo "warehouse-4cams-20mx20m-synthetic"
   fi
 }
 
 function warehouse_num_streams() {
-  local _mode="${1}"
-  local _profile="${2}"
-  if [[ "${_mode}" == "auto-calibration" ]] || [[ "${_profile}" == "bp_wh_auto_calib" ]]; then
-    echo "3"
-  elif [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
-    echo "4"
-  elif [[ "${_profile}" == "bp_wh" ]]; then
-    echo "4"
-  else
-    echo "3"
+  # All supported warehouse fixtures now use four cameras. Keep this helper
+  # separate from dataset selection so the generated configuration remains
+  # explicit about its batch and synchronized-playback size.
+  echo "4"
+}
+
+# Built-in dataset names own their media-domain contract. --dataset-type is
+# only for unknown custom datasets; it must not override a built-in mapping
+# (wrong Sparse4D model, anchors, labels, and thresholds).
+function warehouse_dataset_type() {
+  local _dataset="${1}"
+  local _explicit_type="${2:-}"
+  local _inferred=""
+
+  case "${_dataset}" in
+    nv-warehouse-4cams)
+      _inferred="real"
+      ;;
+    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
+      _inferred="synthetic"
+      ;;
+  esac
+
+  if [[ -n "${_inferred}" ]]; then
+    if [[ -n "${_explicit_type}" ]] && [[ "${_explicit_type}" != "${_inferred}" ]]; then
+      echo "[ERROR] --dataset-type ${_explicit_type} conflicts with built-in SAMPLE_VIDEO_DATASET=${_dataset} (DATASET_TYPE=${_inferred})" >&2
+      return 1
+    fi
+    echo "${_inferred}"
+    return 0
   fi
+
+  if [[ -n "${_explicit_type}" ]]; then
+    echo "${_explicit_type}"
+    return 0
+  fi
+
+  echo "[ERROR] Cannot infer DATASET_TYPE for SAMPLE_VIDEO_DATASET=${_dataset}; pass --dataset-type real|synthetic" >&2
+  return 1
 }
 
 # COMPOSE_PROFILES selector: -p/-m (or --minimal/--playback) override generated.env;
@@ -289,10 +313,13 @@ function get_vlm_slug() {
 }
 
 # Hardware-specific RTVI local VLM GPU memory utilization (empty = keep compose/env default).
-# Matches deploy/docker/scripts/dev-profile.sh for RTXPRO4500BW.
+# Warehouse overrides.env ships 0.8; high-memory boards must lower that so vLLM
+# does not reserve most of the card before RT-CV (and, on bp_wh 2d, the LLM) start.
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   case "${_hardware_profile}" in
+    GB300) echo "0.2" ;;
+    DGX-SPARK|IGX-THOR|AGX-THOR) echo "0.35" ;;
     RTXPRO4500BW) echo "0.8" ;;
     *) echo "" ;;
   esac
@@ -654,10 +681,12 @@ function usage() {
   echo "                                   • Default: cpu"
   echo "  -s, --sample-video-dataset      [Warehouse only] Override sample video dataset."
   echo "                                   • Default by MODE/BP_PROFILE (or COMPOSE_PROFILES in overrides.env):"
-  echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams)"
-  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams, real)"
+  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
   echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis: warehouse-4cams-20mx20m-synthetic (4 streams)"
-  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     auto-calibration/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams, synthetic)"
+  echo "  --dataset-type real|synthetic   Required with an unknown custom --sample-video-dataset."
+  echo "                                   • Built-in datasets infer their type automatically; --dataset-type cannot override them."
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
@@ -716,7 +745,7 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,dataset-type:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
     echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
@@ -750,10 +779,34 @@ function validate_args() {
   fi
 }
 
-# Return whether nvidia-smi can inspect the host GPU inventory. An unavailable
+# Run an nvidia-smi query against the host GPU inventory and echo the result.
+#
+# The driver binary is not always present next to this script: CI drives the
+# deployment from inside a plain container image (docker:27), where nvidia-smi
+# lives on the host and is only reachable through a sidecar started with the
+# NVIDIA runtime. Probe the local binary first, then that sidecar, so hardware
+# resolution behaves the same on a bare host and in a containerized runner.
+# Override the sidecar with NVIDIA_SMI_PROBE_CONTAINER; unset it to disable.
+function nvidia_smi_query() {
+  local _output _probe_container="${NVIDIA_SMI_PROBE_CONTAINER-gpu-monitor}"
+  if command -v nvidia-smi >/dev/null 2>&1 \
+    && _output="$(nvidia-smi "$@" 2>/dev/null)" && [[ -n "${_output}" ]]; then
+    printf '%s\n' "${_output}"
+    return 0
+  fi
+  if [[ -n "${_probe_container}" ]] && command -v docker >/dev/null 2>&1 \
+    && _output="$(docker exec "${_probe_container}" nvidia-smi "$@" 2>/dev/null)" \
+    && [[ -n "${_output}" ]]; then
+    printf '%s\n' "${_output}"
+    return 0
+  fi
+  return 1
+}
+
+# Return whether the host GPU inventory can be inspected at all. An unavailable
 # inventory is distinct from an invalid individual device ID.
 function nvidia_smi_is_available() {
-  command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=index --format=csv,noheader >/dev/null 2>&1
+  nvidia_smi_query --query-gpu=index --format=csv,noheader >/dev/null 2>&1
 }
 
 # Return the selected GB300 index. An explicit GPU/LLM/VLM device ID selects
@@ -793,11 +846,17 @@ function resolve_gb300_device_id() {
       if [[ "${_lower}" == *gb300* || "${_lower}" == *b300* ]]; then
         _gb300_matches+=("${_index}")
       fi
-    done < <(nvidia-smi --query-gpu=index,name --format=csv,noheader 2>/dev/null)
+    done < <(nvidia_smi_query --query-gpu=index,name --format=csv,noheader || true)
     if [[ "${#_gb300_matches[@]}" -eq 1 ]]; then
       _device_id="${_gb300_matches[0]}"
     elif [[ "${#_gb300_matches[@]}" -eq 0 ]]; then
-      echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected. Pass --gpu-device-id <id> when nvidia-smi is unavailable." >&2
+      if nvidia_smi_is_available; then
+        echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected" >&2
+      else
+        echo "[ERROR] Hardware profile 'GB300' was selected, but the GPU inventory could not be read." >&2
+        echo "[ERROR] nvidia-smi is not on PATH and container '${NVIDIA_SMI_PROBE_CONTAINER-gpu-monitor}' could not run it." >&2
+        echo "[ERROR] Start that sidecar, or pass --gpu-device-id <id> to name the GB300 directly." >&2
+      fi
       return 1
     else
       echo "[ERROR] Multiple GB300 GPUs were detected; select the deployment GPU with --llm-device-id or --vlm-device-id" >&2
@@ -805,7 +864,7 @@ function resolve_gb300_device_id() {
     fi
   fi
 
-  _gpu_name="$(nvidia-smi --id="${_device_id}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  _gpu_name="$(nvidia_smi_query --id="${_device_id}" --query-gpu=name --format=csv,noheader | head -n1)"
   _gpu_name="${_gpu_name,,}"
   if [[ -z "${_gpu_name}" ]] && [[ "${_is_explicit}" -eq 1 ]]; then
     if nvidia_smi_is_available; then
@@ -828,7 +887,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,gpu-device-id:,host-ip:,external-ip:,sample-video-dataset:,dataset-type:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,use-sbsa-images,minimal,playback,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -952,6 +1011,12 @@ function process_args() {
         shift
         sample_video_dataset="${1}"
         options_provided+=("sample-video-dataset")
+        shift
+        ;;
+      --dataset-type)
+        shift
+        dataset_type="${1}"
+        options_provided+=("dataset-type")
         shift
         ;;
       -E | --elasticsearch-mode | --es)
@@ -1220,6 +1285,16 @@ function process_args() {
       fi
     fi
 
+    if [[ -n "${dataset_type}" ]] && ! contains_element "${dataset_type}" "real" "synthetic"; then
+      echo "[ERROR] Invalid --dataset-type: ${dataset_type}. Must be real or synthetic"
+      ((_all_good++))
+    fi
+    if [[ "${desired_state}" == "up" ]] && [[ "${deployment}" == "warehouse" ]] && [[ -n "${sample_video_dataset}" ]]; then
+      if ! warehouse_dataset_type "${sample_video_dataset}" "${dataset_type}" >/dev/null; then
+        ((_all_good++))
+      fi
+    fi
+
     if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
       if contains_element "use-remote-llm" "${options_provided[@]}" && [[ -z "${LLM_ENDPOINT_URL:-}" ]]; then
         echo "[ERROR] LLM_ENDPOINT_URL must be set when --use-remote-llm is passed"
@@ -1282,6 +1357,9 @@ function print_args() {
     echo "elasticsearch-mode:       ${elasticsearch_mode}"
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${sample_video_dataset}" ]]; then
       echo "sample-video-dataset:      ${sample_video_dataset}"
+    fi
+    if [[ "${deployment}" == "warehouse" ]] && [[ -n "${dataset_type}" ]]; then
+      echo "dataset-type:              ${dataset_type}"
     fi
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
       echo "hardware-profile:          ${hardware_profile}"
@@ -1497,13 +1575,17 @@ function state_up() {
     if [[ "${_vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
-    # RTVI local VLM sizing for RTXPRO4500BW (same as dev-profile.sh).
-    # Remote VLM does not host the model locally.
+    # RTVI local VLM sizing (same high-memory reductions as dev-profile.sh).
+    # Warehouse VLM_MODE=none still hosts the model in rtvi-vlm; only remote
+    # VLM skips local vLLM reservation.
     if [[ "${_vlm_mode}" != "remote" ]]; then
       local _rtvi_vllm_gpu_memory_utilization _rtvi_vlm_max_model_len
       _rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
       if [[ -n "${_rtvi_vllm_gpu_memory_utilization}" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_rtvi_vllm_gpu_memory_utilization}"
+      fi
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
       _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
       if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
@@ -1547,8 +1629,10 @@ function state_up() {
     else
       set_env_var "STREAM_TYPE" "kafka"
     fi
-    # SAMPLE_VIDEO_DATASET and NUM_STREAMS per mode+profile (see warehouse .env comments)
-    local _sample_dataset _num_streams
+    # SAMPLE_VIDEO_DATASET, NUM_STREAMS, and DATASET_TYPE per mode/profile.
+    # Custom datasets require --dataset-type; never inherit overrides.env's
+    # shipped synthetic default.
+    local _sample_dataset _num_streams _dataset_type
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
@@ -1557,8 +1641,10 @@ function state_up() {
       _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
       _num_streams="$(warehouse_num_streams "${mode}" "${bp_profile}")"
     fi
+    _dataset_type="$(warehouse_dataset_type "${_sample_dataset}" "${dataset_type}")"
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
+    set_env_var "DATASET_TYPE" "${_dataset_type}"
 
     # -p/-m select the compose list; copy of overrides.env is rewritten here.
     if [[ -z "${compose_profiles_selector}" ]]; then
@@ -1577,6 +1663,16 @@ function state_up() {
     set_env_var "RT_CV_DEVICE_ID" "${hardware_device_id}"
     set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
     set_env_var "RT_EMBED_DEVICE_ID" "${hardware_device_id}"
+    # overrides.env ships RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8. vLLM reserves
+    # that fraction of total memory and will not start unless free >= reservation
+    # (it does not subtract co-resident LLM/RT-CV). Always pin the same 0.2 +
+    # TRITON_ATTN alerts/search use whenever RT-VLM shares this GB300.
+    local _gb300_rtvi_vllm_gpu_memory_utilization
+    _gb300_rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
+    if [[ -n "${_gb300_rtvi_vllm_gpu_memory_utilization}" ]]; then
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_gb300_rtvi_vllm_gpu_memory_utilization}"
+    fi
+    set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
@@ -1618,6 +1714,18 @@ function state_up() {
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
     echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+    # containers.env applies the suffix during compose interpolation only, so a
+    # service that reads a tag as plain configuration never sees it — the
+    # bp-configurator validates VSS_RT_CV_TAG from its env_file and rejects
+    # DGX-SPARK without 'sbsa'. Mirror the same four suffixed keys that
+    # containers.env derives, keeping shell/env-file overrides intact.
+    local _sbsa_base_tag _sbsa_key _sbsa_value
+    _sbsa_base_tag="${VSS_CONTAINER_TAG:-$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_source_env}" "${_generated_env}")}"
+    _sbsa_base_tag="${_sbsa_base_tag:-develop-latest}"
+    for _sbsa_key in VSS_RT_CV_TAG VSS_RT_EMBED_TAG VSS_RT_VLM_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _sbsa_value="${!_sbsa_key:-$(get_env_value_from_files "${_sbsa_key}" "${_source_env}" "${_generated_env}")}"
+      set_env_var "${_sbsa_key}" "${_sbsa_value:-${_sbsa_base_tag}${VSS_CONTAINER_TAG_SUFFIX}}"
+    done
   fi
 
   # Resolve and display the managed container channel before deployment.

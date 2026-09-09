@@ -71,6 +71,8 @@ Real-time alerts follow the process below:
 
 3. **Alert Storage**: The system can be configured to persist alerts from Kafka to a database such as Elasticsearch. Refer to the alerts developer profile for an example.
 
+4. **Alert Retrieval**: Stored incidents are queried with `GET /api/v1/realtime/incidents`. Because RT-VLM can emit one incident per video chunk while a single event stays visible, the same endpoint can group consecutive confirmed chunks into one event on request with `consolidate=true`. This is an API-only option; see [Realtime incident consolidation](/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api#realtime-incident-consolidation).
+
 Always-on alerts are a refinement of the real-time alerts capability: users define VLM prompts and configuration in a file, and the rule is applied automatically to every newly added stream. This saves users from invoking the alert config creation API explicitly.
 
 ## Alert-on-Demand
@@ -780,6 +782,19 @@ Known `mode` values are `sync`, `async`, `sync_fallback`, and `async_submit`. Kn
 | `alert_bridge_incident_query_failures_total` | (none) | Failed Elasticsearch incident queries. |
 
 Known realtime failure `stage` values are `validation`, `es_persist`, `start_stream`, `missing_stream_id`, `generate_captions`, `es_update`, `caption_task_http`, and `caption_task_crash`. Known RTVI `method` values are `start_stream`, `generate_captions`, `stop_stream`, and `stop_captions`. Replay short-circuits such as persistence-disabled or replay-already-in-flight do not increment `alert_bridge_replay_invocations_total`.
+
+### Realtime incident consolidation metrics
+
+These metrics are emitted only when `GET /api/v1/realtime/incidents` is called with `consolidate=true`. They describe the read-time grouping of confirmed RT-VLM chunks into events and are separate from the ingestion-time deduplication metrics above (`alert_bridge_events_after_dedup_total` and `alert_bridge_events_dropped_total{reason="dedup"}`), which count events entering alert verification. See [Realtime incident consolidation](/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api#realtime-incident-consolidation) for the API contract.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `alert_bridge_dedup_chunks_in_total` | (none) | Raw confirmed RT-VLM chunk incidents fed into the consolidator. |
+| `alert_bridge_dedup_events_out_total` | (none) | Consolidated events produced from those chunks. |
+| `alert_bridge_dedup_split_reason_total` | `reason` | Why an event ended and a new one began. |
+| `alert_bridge_dedup_duration_seconds` | (none) | Time spent grouping chunks into events, excluding the Elasticsearch query. |
+
+Known split `reason` values are `gap` (the inter-alert gap was exceeded) and `outer` (the maximum event duration was exceeded). A third value, `malformed`, is defined for a chunk whose `timestamp` or `end` cannot be parsed, but chunks without a parseable `timestamp` are dropped before grouping and a missing `end` falls back to `timestamp`, so it is not expected to occur in practice. The ratio of `alert_bridge_dedup_chunks_in_total` to `alert_bridge_dedup_events_out_total` shows how many chunks each event absorbs on average. The metrics carry no per-sensor labels.
 
 ### Sample PromQL queries
 

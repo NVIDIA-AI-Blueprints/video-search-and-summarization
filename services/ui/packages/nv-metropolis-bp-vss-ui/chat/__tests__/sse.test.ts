@@ -50,6 +50,72 @@ describe('SseParser', () => {
     expect(p.feed('ent":"split"}}]}\n\n')).toEqual([{ kind: 'token', text: 'split' }]);
   });
 
+  it('parses NAT interaction_required event frames', () => {
+    const p = new SseParser();
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-1',
+      interaction_id: 'interaction-1',
+      prompt: {
+        text: 'Choose a scenario',
+        input_type: 'text',
+        placeholder: 'warehouse monitoring',
+        required: true,
+      },
+      response_url: '/executions/execution-1/interactions/interaction-1/response',
+    };
+
+    expect(
+      p.feed(`event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`),
+    ).toEqual([{ kind: 'interaction', interaction }]);
+  });
+
+  it('assembles an interaction whose payload spans several data lines', () => {
+    const p = new SseParser();
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-2',
+      interaction_id: 'interaction-2',
+      prompt: { text: 'Choose a scenario', input_type: 'text' },
+      response_url: '/executions/execution-2/interactions/interaction-2/response',
+    };
+    const body = JSON.stringify(interaction, null, 2)
+      .split('\n')
+      .map((line) => `data: ${line}`)
+      .join('\n');
+
+    expect(p.feed(`event: interaction_required\n${body}\n\n`)).toEqual([
+      { kind: 'interaction', interaction },
+    ]);
+  });
+
+  it('joins multi-line token payloads with newlines', () => {
+    const p = new SseParser();
+    expect(p.feed('data: first\ndata: second\n\n')).toEqual([
+      { kind: 'token', text: 'first\nsecond' },
+    ]);
+  });
+
+  it('holds an event until the blank-line delimiter', () => {
+    const p = new SseParser();
+    expect(p.feed('data: {"choices":[{"delta":{"content":"held"}}]}\n')).toEqual([]);
+    expect(p.feed('\n')).toEqual([{ kind: 'token', text: 'held' }]);
+  });
+
+  it('dispatches an event the stream ended without a blank line', () => {
+    const p = new SseParser();
+    expect(p.feed('data: [DONE]')).toEqual([]);
+    expect(p.finish()).toEqual([{ kind: 'done' }]);
+  });
+
+  it('drops a malformed multi-line interaction without emitting', () => {
+    const p = new SseParser();
+    expect(p.feed('event: interaction_required\ndata: {\ndata:   "prompt":\ndata: \n\n')).toEqual(
+      [],
+    );
+    expect(p.feed('data: [DONE]\n\n')).toEqual([{ kind: 'done' }]);
+  });
+
   it('parses tool steps and numbers them in order', () => {
     const p = new SseParser();
     const events = p.feed(

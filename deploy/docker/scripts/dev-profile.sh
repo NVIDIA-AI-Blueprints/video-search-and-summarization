@@ -708,6 +708,21 @@ function get_env_value_from_files() {
   fi
 }
 
+# Value of a commented SBSA alternate, e.g. `#VSS_RT_CV_TAG="develop-latest-sbsa"`.
+# Profiles pin the SBSA build that way when it does not follow the shared
+# VSS_CONTAINER_TAG channel; suffix derivation is the fallback. Later files win.
+function get_commented_sbsa_value() {
+  local _var_name="${1}"
+  shift
+  local _env_file _line _val=""
+  for _env_file in "$@"; do
+    [[ -f "${_env_file}" ]] || continue
+    _line="$(grep -E "^#[[:space:]]*${_var_name}=" "${_env_file}" 2>/dev/null | grep -F 'sbsa' | head -1)"
+    [[ -n "${_line}" ]] && _val="${_line#*=}"
+  done
+  echo "${_val}"
+}
+
 function env_var_defined_in_files() {
   local _var_name="${1}"
   shift
@@ -786,19 +801,35 @@ function mask_external_ip_args() {
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
+  local _profile="${3}"
+
+  if [[ "${_profile}" == "alerts" ]]; then
+    case "${_hardware_profile}" in
+      GB300)
+        echo "0.2"
+        return
+        ;;
+      DGX-SPARK)
+        echo "0.35"
+        return
+        ;;
+    esac
+  fi
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      # GB300 is ~250 GiB, so the 0.4 used on 80-96 GiB cards would hand RT-VLM
-      # ~100 GiB to serve Cosmos3 Nano. vLLM claims the whole fraction whether it
-      # needs it or not, and refuses to start unless free >= fraction x total
-      # (it does not subtract other processes), so on search -- where RT-CV and
-      # RT-Embed also live on that GPU -- the LLM was then left below its own
-      # fraction and never started. 0.3 still gives RT-VLM ~75 GiB, more than
-      # double the 32 GiB it runs on today on an 80 GiB H100, and leaves ~136 GiB
-      # free against the LLM's 0.30 x 250 = ~75 GiB.
-      GB300) echo "0.3" ;;
-      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      # High-memory boards: vLLM claims gpu_memory_utilization x total_memory
+      # whether the model needs it or not, and refuses to start unless free >=
+      # that reservation (it does not subtract co-resident processes).
+      # GB300 (~250 GiB): 0.2 ≈ 50 GiB for Cosmos3 Nano — still above the ~32 GiB
+      # it uses on an 80 GiB H100 — leaving ~200 GiB for LLM (0.30 x 250 ≈ 75 GiB)
+      # plus RT-CV/RT-Embed. Starting point; confirm on a live GB300 search/alerts
+      # stack that RT-VLM still reaches ready.
+      GB300) echo "0.2" ;;
+      # Spark/Thor unified memory: 0.35. Thor is applied in the Thor block
+      # below (alerts and base both need it; the helper is skipped for Thor).
+      DGX-SPARK) echo "0.35" ;;
+      H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -887,7 +918,6 @@ function usage() {
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
   echo "                                     - H100"
-  echo "                                     - GB300"
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
@@ -2220,7 +2250,7 @@ function state_up() {
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")"
       if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
@@ -2250,12 +2280,10 @@ function state_up() {
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
-      if [[ "${profile}" == "base" ]]; then
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-      else
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
-      fi
+      # Same 0.35 Spark uses: vLLM reserves gpu_memory_utilization x total, so
+      # the unset/empty profile default would leave RT-VLM at vLLM's ~0.9 and
+      # starve co-resident services. Host env still wins when it is non-empty.
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -z "${vlm}" ]]; then
@@ -2386,6 +2414,22 @@ function state_up() {
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
     echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+    # containers.env applies the suffix during compose interpolation only, so a
+    # service that reads a tag as plain configuration never sees it. Write the
+    # same four suffixed keys into generated.env, preferring an explicit tag
+    # (shell, uncommented env-file line, then the profile's commented SBSA pin)
+    # over the derived one.
+    local _sbsa_base_tag _sbsa_key _sbsa_value
+    _sbsa_base_tag="${VSS_CONTAINER_TAG:-$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_source_env}" "${_generated_env}")}"
+    for _sbsa_key in VSS_RT_CV_TAG VSS_RT_EMBED_TAG VSS_RT_VLM_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _sbsa_value="${!_sbsa_key:-$(get_env_value_from_files "${_sbsa_key}" "${_source_env}" "${_generated_env}")}"
+      if [[ -z "${_sbsa_value}" ]] && [[ -z "${_sbsa_base_tag}" ]]; then
+        # No shared channel selected, so the profile's pinned SBSA build is the
+        # only meaningful tag. A selected channel always wins over the pin.
+        _sbsa_value="$(get_commented_sbsa_value "${_sbsa_key}" "${_source_env}" "${_generated_env}")"
+      fi
+      set_env_var "${_sbsa_key}" "${_sbsa_value:-${_sbsa_base_tag:-develop-latest}${VSS_CONTAINER_TAG_SUFFIX}}"
+    done
   fi
 
   # Resolve and display the managed container channel before deployment.

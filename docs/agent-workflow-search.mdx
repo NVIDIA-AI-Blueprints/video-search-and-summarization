@@ -53,7 +53,7 @@ During ingestion, uploaded videos and RTSP streams are registered with VSS Video
 During query execution, the UI can call either the direct search API or the Vision Agent chat interface:
 
 - The Search text box calls `/api/v1/search` and is optimized for direct embedding search with explicit filters.
-- The Vision Agent chat interface calls the streaming `search_agent` through `/chat/stream`. This mode uses an LLM to decompose the user's natural language query and automatically select the best search route.
+- The Vision Agent chat interface calls the streaming `search_agent` through `/v1/chat/stream`. This mode uses an LLM to decompose the user's natural language query and automatically select the best search route.
 
 The Vision Agent chat path can run:
 

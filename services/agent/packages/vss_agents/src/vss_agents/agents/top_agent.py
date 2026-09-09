@@ -286,6 +286,10 @@ class TopAgentState(BaseModel):
     )
     iteration_count: int = Field(default=0, description="Current iteration count")
     final_answer: str = Field(default="", description="Final answer from the agent")
+    tool_failure: str = Field(
+        default="",
+        description="Last unrecovered tool exception, surfaced instead of an answer the agent wrote without it",
+    )
     plan: str = Field(default="", description="Execution plan drafted by the plan node")
     previous_conversation: str = Field(default="", description="Previous conversation summary")
     options: AgentRequestOptions = Field(default_factory=AgentRequestOptions, description="Per-request options")
@@ -772,6 +776,8 @@ class TopAgent(AsyncMixin):
             "then produce a concise numbered execution plan. Start each step with a tool name and a brief description of the step.\n"
             "Put relevant context (e.g. sensor IDs or time ranges) from the conversation history directly in the plan steps "
             "so the execution agent does not need to re-read the history.\n"
+            "Never answer with sensor names, incidents, counts, media URLs, or other deployment data from memory. "
+            "When an available tool can retrieve the answer, the plan MUST call that tool.\n"
             "If the user's request is too ambiguous to build a reliable plan, respond with EXACTLY:\n"
             "[USER] <your clarifying question>\n"
             "If user's question can be answered directly without any tools, respond with EXACTLY:\n"
@@ -821,6 +827,10 @@ class TopAgent(AsyncMixin):
         messages.append(HumanMessage(content="User question: " + question))
 
         llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
+        # Plan without tool bindings. A tool-bound model answers a planning prompt with the single
+        # next action and no text at all, so a multi-step plan (e.g. `vst_video_list` to resolve the
+        # media type, then `report_agent` to build the report) collapses to its first step and every
+        # later step — including the one that produces the artifacts — is silently dropped.
         llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
 
         result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
@@ -833,9 +843,68 @@ class TopAgent(AsyncMixin):
         if plan_reasoning:
             logger.debug("Plan node reasoning:\n%s", plan_reasoning)
 
+        requests_lvs_report = "report" in lowered_question and (
+            "lvs" in lowered_question or re.search(r"\blong[\s-]+video[\s-]+summari[sz]", lowered_question) is not None
+        )
+        if (
+            requests_lvs_report
+            and "lvs_video_understanding" in self.tools_dict
+            and "report_agent" in self.tools_dict
+            and "lvs_video_understanding" not in plan_text
+        ):
+            plan_text = (
+                "1. Call `lvs_video_understanding` using the exact sensor ID and time range from the user's request "
+                "to analyze the video with LVS.\n"
+                "2. Call `report_agent` with the same sensor ID and time range plus the original request as "
+                "`user_query`, then present the generated report."
+            )
+            logger.warning("Corrected LVS report plan that omitted lvs_video_understanding")
+
+        # `report_agent` is the only tool that writes the PDF and Markdown artifacts, so a report
+        # plan that stops at the analysis step answers with prose and no downloads. The profile
+        # prompts already declare that a report request routes to `report_agent`; re-assert it here
+        # rather than trusting the planner to keep the step it was told to plan.
+        if (
+            "report" in lowered_question
+            and "report_agent" in self.tools_dict
+            and "report_agent" not in plan_text
+            and not plan_text.strip().startswith(PLAN_CLARIFY_PREFIX)
+        ):
+            report_step = (
+                "Call `report_agent` with every media name from the user's request (as a single list when the "
+                "request names more than one) and the original request as `user_query`, then present the "
+                "generated report."
+            )
+            planned_steps = [int(match.group(1)) for match in re.finditer(r"(?:^|\s)(\d+)\.\s", plan_text)]
+            if planned_steps:
+                plan_text = f"{plan_text.rstrip()}\n{max(planned_steps) + 1}. {report_step}"
+            else:
+                # No numbered step at all means the planner returned prose rather than a plan, and
+                # prose such as "route to the appropriate tools" steers the execution agent into a
+                # summary tool. Replace it instead of appending the report step underneath it.
+                plan_text = f"1. {report_step}"
+            logger.warning("Added the missing `report_agent` step to a report plan")
+
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
+            report_tool = self.tools_dict.get("report_agent")
+            report_fields = getattr(getattr(report_tool, "args_schema", None), "model_fields", {})
+            if "report" in question.lower() and "incident_id" in report_fields and "sensor_id" not in report_fields:
+                state.plan = (
+                    "1. Call `report_agent` without a sensor filter to retrieve the most recent incident "
+                    "and generate its detailed report."
+                )
+                logger.warning("Rejected unnecessary camera clarification for incident report: %s", clarification)
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
+            if "vst_sensor_list" in self.tools_dict and any(
+                term in question.lower() for term in ("available sensor", "available camera", "sensor id", "camera id")
+            ):
+                state.plan = "1. Call `vst_sensor_list` to retrieve the available sensor names from VST."
+                logger.warning("Rejected ungrounded planner answer for sensor-list query: %s", clarification)
+                writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Plan: \n\n" + state.plan))
+                return state
             logger.info("Plan node requesting clarification: %s", clarification)
             state.final_answer = clarification
             return state
@@ -923,8 +992,14 @@ class TopAgent(AsyncMixin):
 
             # Check if we have a final answer
             if final_result and not tool_calls:
-                state.final_answer = final_result
-                logger.debug("Agent provided final answer (pending postprocessing validation)")
+                if state.tool_failure:
+                    # The agent stopped calling tools after one raised, so this answer is written from
+                    # memory rather than from the tool. Relay the failure instead of the invention.
+                    state.final_answer = state.tool_failure
+                    logger.warning("Relayed the unrecovered tool failure instead of an ungrounded answer")
+                else:
+                    state.final_answer = final_result
+                    logger.debug("Agent provided final answer (pending postprocessing validation)")
                 # Still add the final answer to the scratchpad for the conversation history summary and postprocessing retries
 
             # Add agent response to scratchpad
@@ -1030,8 +1105,13 @@ class TopAgent(AsyncMixin):
 
                     logger.info(f"Executing tool/sub-agent: {tool_name}")
 
-                    # Build tool args once, filtering None values and injecting request options when supported.
-                    tool_args = {k: v for k, v in tool_call["args"].items() if v is not None}
+                    # Build tool args once, filtering actual nulls and common LLM-rendered null sentinels.
+                    tool_args = {
+                        key: value
+                        for key, value in tool_call["args"].items()
+                        if value is not None
+                        and not (isinstance(value, str) and value.strip().lower() in {"none", "null"})
+                    }
                     if self._tool_accepts_param(tool_name, "request_options"):
                         tool_args["request_options"] = state.options.model_dump(mode="json")
                         logger.info("Passing request_options to %s", tool_name)
@@ -1127,6 +1207,11 @@ class TopAgent(AsyncMixin):
                                                 if messages_text
                                                 else artifact_note
                                             )
+                                        normalized_messages = messages_text.strip().lower()
+                                        if agent_output.status == "error" or normalized_messages.startswith(
+                                            "no incidents found"
+                                        ):
+                                            state.final_answer = agent_output.error_message or messages_text
                                         tool_response = f"tool: {tool_name} completed. Result: {messages_text}"
                                     except (json.JSONDecodeError, Exception):
                                         # Not AgentOutput JSON, treat as plain text
@@ -1249,6 +1334,11 @@ class TopAgent(AsyncMixin):
                 except Exception as ex:
                     logger.exception("Tool execution failed")
                     error_response = f"Tool call failed: {ex!s}"
+                    # Record the failure rather than answering with it. Answering ends the graph, and
+                    # a plan whose early step fails (e.g. `lvs_video_understanding` on a media name it
+                    # cannot resolve) then never reaches the step that writes the report. The agent node
+                    # surfaces this instead of an answer it wrote without the tool.
+                    state.tool_failure = error_response
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
@@ -1258,9 +1348,15 @@ class TopAgent(AsyncMixin):
 
             # Execute all tool calls
             tasks = [run_tool(tool, tool_call) for tool, tool_call in zip(requested_tools, tool_calls, strict=False)]
+            any_tool_succeeded = False
             for task in asyncio.as_completed(tasks):
                 tool_response = await task
+                any_tool_succeeded = any_tool_succeeded or getattr(tool_response, "status", None) == "success"
                 state.agent_scratchpad.append(tool_response)
+
+            # A sibling tool that answered grounds this turn, so a failure beside it is not the answer.
+            if any_tool_succeeded:
+                state.tool_failure = ""
 
             # Add final answer to scratchpad for conversation history summary and postprocessing retries
             if state.final_answer:

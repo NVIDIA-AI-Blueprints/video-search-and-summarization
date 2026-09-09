@@ -46,6 +46,18 @@ class TestLVSVideoUnderstandingConfig:
         assert config.read_timeout_ms == 600000
         assert config.model == "gpt-4o"
         assert config.video_url_tool == "vst_video_url"
+        assert config.hitl_enabled is True
+
+    def test_hitl_can_be_disabled_for_http_workflows(self):
+        config = LVSVideoUnderstandingConfig(
+            lvs_backend_url="http://localhost:38111",
+            hitl_scenario_template="Scenario: {scenario}",
+            hitl_events_template="Events: {events}",
+            hitl_objects_template="Objects: {objects}",
+            hitl_enabled=False,
+        )
+
+        assert config.hitl_enabled is False
 
     def test_url_translation_fields_are_not_exposed(self):
         assert "vlm_mode" not in LVSVideoUnderstandingConfig.model_fields
@@ -140,8 +152,9 @@ class TestLVSVideoUnderstandingInner:
         yield
         ContextState.get().conversation_id.reset(token)
 
+    @pytest.mark.parametrize("interactive_callback", [False, True])
     @pytest.mark.asyncio
-    async def test_video_understanding_payload_includes_enable_audio_when_set(self):
+    async def test_hitl_enabled_uses_callback_when_available_and_defaults_when_not(self, interactive_callback: bool):
         config = LVSVideoUnderstandingConfig(
             lvs_backend_url="http://localhost:38111",
             hitl_scenario_template="Scenario",
@@ -183,15 +196,23 @@ class TestLVSVideoUnderstandingInner:
         mock_ctx = MagicMock()
         mock_ctx.user_interaction_manager = mock_uim
 
-        with patch("vss_agents.tools.lvs_video_understanding.Context") as mock_context_class:
-            mock_context_class.get.return_value = mock_ctx
-            with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientSession", return_value=mock_session):
-                with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientTimeout"):
-                    gen = lvs_video_understanding.__wrapped__(config, mock_builder)
-                    function_info = await gen.__anext__()
-                    inner_fn = function_info.single_fn
-                    await inner_fn(LVSVideoUnderstandingInput(sensor_id="sensor-1"))
+        callback_token = None
+        if interactive_callback:
+            callback_token = ContextState.get().user_input_callback.set(AsyncMock())
+        try:
+            with patch("vss_agents.tools.lvs_video_understanding.Context") as mock_context_class:
+                mock_context_class.get.return_value = mock_ctx
+                with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_video_understanding.aiohttp.ClientTimeout"):
+                        gen = lvs_video_understanding.__wrapped__(config, mock_builder)
+                        function_info = await gen.__anext__()
+                        inner_fn = function_info.single_fn
+                        await inner_fn(LVSVideoUnderstandingInput(sensor_id="sensor-1"))
+        finally:
+            if callback_token is not None:
+                ContextState.get().user_input_callback.reset(callback_token)
 
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
         assert kwargs["json"].get("enable_audio") is True
+        assert mock_uim.prompt_user_input.await_count == (4 if interactive_callback else 0)

@@ -41,12 +41,15 @@ from vss_agents.tools.lvs_media_state import LVSConfiguredMedia
 from vss_agents.tools.lvs_media_state import configured_media
 from vss_agents.tools.lvs_media_state import remember_configured_media
 from vss_agents.tools.vst.utils import get_stream_info_by_name
+from vss_agents.utils.hitl import has_human_prompt_callback
 
 logger = logging.getLogger(__name__)
 
 
 GENERATE_CAPTIONS_ENDPOINT = "/v1/generate_captions"
-CAPTION_GENERATION_STARTED_MESSAGE = "Caption generation started. Please try again later."
+CAPTION_GENERATION_STARTED_MESSAGE = (
+    "Caption generation has started and is in progress. Captions will become available shortly."
+)
 LVS_CONFIG_MEDIA_TOOL_NAME = "lvs_config_media"
 LVS_CONFIG_MEDIA_BLOCKED_MESSAGE = (
     "lvs_config_media was not executed. Caption generation starts only after the user "
@@ -197,6 +200,10 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
     hitl_confirmation_template: str | None = Field(
         default=None,
         description="HITL template for final media configuration confirmation.",
+    )
+    hitl_enabled: bool = Field(
+        default=True,
+        description="Collect and confirm media parameters interactively. Disable to use configured defaults.",
     )
     default_scenario: str = Field(default="", description="Default media scenario.")
     default_events: list[str] = Field(default_factory=list, description="Default media events.")
@@ -381,33 +388,58 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
                 list(configured.objects_of_interest),
             )
 
-        while True:
-            params = await _collect_hitl_parameters(current_params)
-            if params is None:
-                return LVSConfigMediaOutput(
-                    status=LVSMediaStatus.ABORTED,
-                    media_type=lvs_input.media_type,
-                    media_name=media_name,
-                    media_id=media_id,
-                    configured=False,
-                    message="Media configuration was cancelled by user.",
-                )
+        scenario: str = ""
+        events: list[str] = []
+        objects_of_interest: list[str] = []
 
-            scenario, events, objects_of_interest = params
-            choice = await _confirm_config(scenario, events, objects_of_interest)
-            if choice == "/redo":
-                current_params = (scenario, events, objects_of_interest)
-                continue
-            if choice == "/cancel":
-                return LVSConfigMediaOutput(
-                    status=LVSMediaStatus.ABORTED,
-                    media_type=lvs_input.media_type,
-                    media_name=media_name,
-                    media_id=media_id,
-                    configured=False,
-                    message="Media configuration was cancelled by user.",
+        interactive_hitl = config.hitl_enabled and has_human_prompt_callback()
+        if interactive_hitl:
+            while True:
+                params = await _collect_hitl_parameters(current_params)
+                if params is None:
+                    return LVSConfigMediaOutput(
+                        status=LVSMediaStatus.ABORTED,
+                        media_type=lvs_input.media_type,
+                        media_name=media_name,
+                        media_id=media_id,
+                        configured=False,
+                        message="Media configuration was cancelled by user.",
+                    )
+
+                scenario, events, objects_of_interest = params
+                choice = await _confirm_config(scenario, events, objects_of_interest)
+                if choice == "/redo":
+                    current_params = (scenario, events, objects_of_interest)
+                    continue
+                if choice == "/cancel":
+                    return LVSConfigMediaOutput(
+                        status=LVSMediaStatus.ABORTED,
+                        media_type=lvs_input.media_type,
+                        media_name=media_name,
+                        media_id=media_id,
+                        configured=False,
+                        message="Media configuration was cancelled by user.",
+                    )
+                break
+        else:
+            if current_params is not None:
+                scenario, events, objects_of_interest = current_params
+            else:
+                scenario = config.default_scenario
+                events = list(config.default_events)
+                objects_of_interest = []
+            if not scenario or not events:
+                raise ValueError(
+                    "default_scenario and default_events are required when HITL is disabled "
+                    "or no human prompt callback is available"
                 )
-            break
+            if config.hitl_enabled:
+                logger.info(
+                    "HITL is enabled but this request has no human prompt callback; "
+                    "proceeding noninteractively with configured LVS defaults for this request only"
+                )
+            else:
+                logger.info("HITL disabled; proceeding with configured LVS defaults")
 
         payload: dict[str, Any] = {
             "id": media_id,

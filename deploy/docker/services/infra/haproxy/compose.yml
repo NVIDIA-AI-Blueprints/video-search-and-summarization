@@ -44,9 +44,15 @@ services:
       # BACKEND_PORT is lvs-server's container port, not BACKEND_HOST_PORT.
       LVS_SERVICE_HOST: ${LVS_SERVICE_HOST:-lvs-server}
       LVS_SERVICE_PORT: ${BACKEND_PORT:-38111}
+      # vss-llm-nim is the network alias every LLM NIM service registers, so the
+      # /llm route resolves the same whether the model got a dedicated GPU or a
+      # shared one. 8000 is the NIM's container port, not the published LLM_PORT.
+      LLM_SERVICE_HOST: ${LLM_SERVICE_HOST:-vss-llm-nim}
+      LLM_SERVICE_PORT: ${LLM_SERVICE_PORT:-8000}
       HAPROXY_PORT: ${HAPROXY_PORT:-7777}
       HAPROXY_HOST_PORT: ${HAPROXY_HOST_PORT:-7777}
       HAPROXY_BIND_ADDR: ${HAPROXY_BIND_ADDR:-*}
+      HAPROXY_SERVICE_HOST: ${HAPROXY_SERVICE_HOST:-vss-haproxy-ingress}
       HOST_IP: ${HOST_IP}
       HOST_INTERNAL_ALIAS: ${HOST_INTERNAL_ALIAS:-host.openshell.internal}
       EXTERNAL_IP: ${EXTERNAL_IP}

@@ -53,6 +53,7 @@ the paths `vss configure` records
 | `lvs` | `/lvs` | stripped | |
 | `lvs` | `/video-summarization` | stripped | alias for `/lvs`; the canonical prefix stays |
 | `phoenix` | `/phoenix` | stripped | keep `PHOENIX_HOST_ROOT_PATH` in step |
+| `llm` | `/llm` | stripped | the in-deployment LLM NIM; resolved by `vss.ingress.llmBackend`, not by the profile |
 
 Kibana and NVStreamer are **not** in the table. Both are served on their own host
 (`kibana.<host>`, `streamer.<host>`): Kibana needs `server.basePath` to live under a
@@ -95,6 +96,25 @@ spec:
 | `vss.ingress.hasPathRewrites` | non-empty when any mounted route rewrites |
 | `vss.ingress.assertBackends` | fails the render on an unknown key or a missing service/port |
 | `vss.ingress.enabled` | `"true"` when a component is deployed, honouring an explicit `false` |
+| `vss.ingress.llmBackend` | the `llm` entry (`fromYaml` it), empty when no LLM NIM is deployed |
+
+`llm` is the one key a profile does not assemble itself. Every other backend is a
+profile-level dependency the profile already names; the LLM NIM is `nims.nemotron35`, a
+subchart of a subchart whose Service the NIM Operator creates from the NIMService CR, so
+its name comes from that chart's fullname rule rather than the profile's `serviceShort`.
+Resolving it once here is what keeps `/llm` identical on all four profiles:
+
+```gotemplate
+{{- $llm := include "vss.ingress.llmBackend" (dict "root" .) | fromYaml }}
+{{- if $llm.service }}
+{{- $_ := set $b "llm" $llm }}
+{{- end }}
+```
+
+It is deliberately not gated on `llmBaseUrl`: that says where *consumers* were pointed, not
+whether a NIM is deployed. A profile using a hosted LLM mounts no `/llm` and the request
+falls through to the UI catch-all, which is the same shape as the Docker edge, where
+`bk_llm_strip` is DOWN and answers 503 when the LLM NIM container is not running.
 
 `assertBackends` is what keeps the profiles from drifting apart again: a new route has to be
 added to the table, where every profile picks it up, rather than to one chart's template.

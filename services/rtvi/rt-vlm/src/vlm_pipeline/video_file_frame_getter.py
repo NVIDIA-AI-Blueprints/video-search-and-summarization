@@ -691,6 +691,26 @@ def _can_play_through_after_seek_failure(
     return True
 
 
+def _can_use_completed_frames_after_qtdemux_not_linked(
+    error_message: str | None,
+    *,
+    expected_frames: int,
+    actual_frames: int,
+    actual_timestamps: int,
+    audio_enabled: bool,
+) -> bool:
+    """Accept a completed fixed-frame decode despite a late qtdemux teardown error."""
+    return (
+        not audio_enabled
+        and expected_frames > 0
+        and actual_frames == expected_frames
+        and actual_timestamps == expected_frames
+        and error_message is not None
+        and "qtdemux" in error_message
+        and "reason not-linked" in error_message
+    )
+
+
 class VideoFileFrameGetter:
     """Get frames from a video file as a list of tensors."""
 
@@ -895,6 +915,48 @@ class VideoFileFrameGetter:
         self._gst_pad_probe_ids.append((pad, probe_id))
         return probe_id
 
+    def _attach_parser_gop_probe(self, parser) -> None:
+        factory = parser.get_factory()
+        if factory is None:
+            return
+        parser_name = factory.get_name()
+        if parser_name not in ("h264parse", "h265parse", "mpeg4videoparse"):
+            return
+        if not self._gop_decode_opt_enabled:
+            logger.debug(
+                "GOP decode-opt disabled via RTVI_ENABLE_GOP_DECODE_OPT; "
+                "probe not attached to %s",
+                parser_name,
+            )
+            return
+
+        src_pad = parser.get_static_pad("src")
+        if src_pad is None or any(pad == src_pad for pad, _ in self._gst_pad_probe_ids):
+            return
+        self._add_gst_pad_probe(
+            src_pad,
+            Gst.PadProbeType.BUFFER,
+            lambda pad, info: self._on_parser_src_buffer(pad, info),
+        )
+        logger.debug("GOP decode-opt probe attached to %s", parser_name)
+
+    def _restore_cached_decoder_parser_probes(self, decodebin) -> None:
+        """Restore probes on parser children retained by a cached decodebin."""
+        try:
+            iterator = decodebin.iterate_recurse()
+            while True:
+                result, elem = iterator.next()
+                if result == Gst.IteratorResult.OK:
+                    self._attach_parser_gop_probe(elem)
+                elif result == Gst.IteratorResult.RESYNC:
+                    iterator.resync()
+                else:
+                    if result == Gst.IteratorResult.ERROR:
+                        logger.warning("Failed to iterate cached decoder children")
+                    break
+        except Exception as ex:
+            logger.warning("Failed to restore cached decoder parser probes: %s", ex)
+
     def _disconnect_gst_callbacks(self):
         for pad, probe_id in reversed(self._gst_pad_probe_ids):
             try:
@@ -976,6 +1038,25 @@ class VideoFileFrameGetter:
 
     def _cache_decodebin(self, key, decodebin) -> None:
         self._vdecodebin_cache[key] = decodebin
+
+    def _detach_pipeline_for_replacement(self):
+        """Detach a pipeline while retaining any reusable decoder."""
+        old_pipeline = self._pipeline
+        if old_pipeline is None:
+            return None
+
+        if self._vdecodebin:
+            old_pipeline.remove(self._vdecodebin)
+            if not self._is_cached_decodebin(self._vdecodebin):
+                self._vdecodebin.set_state(Gst.State.NULL)
+
+        self._vdecodebin = None
+        # The bus must still be referenced when callbacks are disconnected so
+        # remove_signal_watch() can release its GLib source and file descriptors.
+        self._disconnect_gst_callbacks()
+        self._bus = None
+        self._pipeline = None
+        return old_pipeline
 
     def _disconnect_cached_decodebin_from_pipeline(self) -> None:
         if (
@@ -1477,30 +1558,14 @@ class VideoFileFrameGetter:
         self._frame_duration_ns = 0
 
         def cb_elem_added(elem, username, password, selff):
-            if "nvv4l2decoder" in elem.get_factory().get_name():
+            parser_name = elem.get_factory().get_name()
+            if "nvv4l2decoder" in parser_name:
                 _set_gst_property_if_supported(elem, "gpu-id", self._gpu_id)
                 _set_gst_property_if_supported(elem, "extract-sei-type5-data", True)
                 _set_gst_property_if_supported(elem, "sei-uuid", "NVDS_CUSTOMMETA")
-            if "mpeg4videoparse" in elem.get_factory().get_name():
+            if "mpeg4videoparse" in parser_name:
                 elem.set_property("config-interval", -1)
-            parser_name = elem.get_factory().get_name()
-            if parser_name in ("h264parse", "h265parse", "mpeg4videoparse"):
-                if self._gop_decode_opt_enabled:
-                    src_pad = elem.get_static_pad("src")
-                    if src_pad is not None:
-                        self._add_gst_pad_probe(
-                            src_pad,
-                            Gst.PadProbeType.BUFFER,
-                            lambda pad, info: self._on_parser_src_buffer(pad, info),
-                        )
-                        logger.debug("GOP decode-opt probe attached to %s", parser_name)
-                else:
-                    logger.debug(
-                        "GOP decode-opt disabled via RTVI_ENABLE_GOP_DECODE_OPT; "
-                        "probe not attached to %s",
-                        parser_name,
-                    )
-                    logger.debug("GOP decode-opt probe attached to %s", parser_name)
+            self._attach_parser_gop_probe(elem)
             if parser_name == "rtpjitterbuffer":
                 drop_on_latency = _env_bool("RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY", False)
                 if elem.find_property("drop-on-latency"):
@@ -1677,6 +1742,7 @@ class VideoFileFrameGetter:
                         else:
                             pipeline.add(self._vdecodebin)
                             self._vdecodebin.link(self._q1)
+                            self._restore_cached_decoder_parser_probes(self._vdecodebin)
                             logger.debug(
                                 "Reusing cached %s decoder for %sx%s",
                                 reusable_codec,
@@ -2786,6 +2852,7 @@ class VideoFileFrameGetter:
         if frame_selector:
             self._frame_selector = frame_selector
         self._frame_selector.set_chunk(chunk)
+        expected_frame_count = self._frame_selector._num_frames
 
         if (
             self._pipeline
@@ -2820,22 +2887,8 @@ class VideoFileFrameGetter:
             # filesrc/parsebin for the same file under file-burst load.
             is_file_changed = self._last_stream_id != file
 
-            def backup_decodebin():
-                # If codec or resolution has changed, remove the decodebin from the pipeline
-                # and keep reusable decoders backed up under their codec/resolution key.
-                if self._pipeline:
-
-                    if self._vdecodebin:
-                        self._pipeline.remove(self._vdecodebin)
-                        if not self._is_cached_decodebin(self._vdecodebin):
-                            self._vdecodebin.set_state(Gst.State.NULL)
-                self._vdecodebin = None
-
             if (is_codec_changed or is_resolution_changed) and self._pipeline:
-                backup_decodebin()
-                old_pipeline = self._pipeline
-                self._pipeline = None
-                self._vdecodebin = None
+                old_pipeline = self._detach_pipeline_for_replacement()
                 if not (self._frame_width and self._frame_height):
                     # Next pipeline should use same resolution as first
                     # to allow all frames in the chunk have same resolution
@@ -3141,6 +3194,20 @@ class VideoFileFrameGetter:
 
         with self._err_msg_lock:
             err_msg = self._err_msg
+        if _can_use_completed_frames_after_qtdemux_not_linked(
+            err_msg,
+            expected_frames=expected_frame_count,
+            actual_frames=len(cached_frames),
+            actual_timestamps=len(cached_frames_pts),
+            audio_enabled=enable_audio,
+        ):
+            logger.warning(
+                "Ignoring late qtdemux not-linked error after extracting all %d requested "
+                "frames for chunk %s",
+                expected_frame_count,
+                chunk,
+            )
+            err_msg = None
         return (
             preprocessed_frames,
             cached_frames_pts,

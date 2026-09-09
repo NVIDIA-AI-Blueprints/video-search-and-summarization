@@ -215,7 +215,7 @@ To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
-AMC relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
 </Info>
 
 #### Step 1: Prepare video sources
@@ -350,13 +350,12 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
 
 <Note>
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For 2D profile use cases, ROIs and Tripwires are drawn for each camera view.
-- The calibration file exported from the AMC UI may include `group` and `region` blocks under each entry in `sensors[]`. These are used only by the 3D and MV3DT profiles and are not needed by the 2D profile with Agents. Remove the `group` and `region` blocks from each sensor entry before importing the file.
 - Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.

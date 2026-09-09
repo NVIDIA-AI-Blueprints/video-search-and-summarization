@@ -48,6 +48,25 @@ class TestLVSConfigMediaModels:
         assert config.lvs_backend_url == "http://localhost:38111"
         assert config.vst_internal_url == "http://localhost:30888"
         assert config.chunk_duration == 10
+        # Interactive by default, so the shipped profiles keep prompting without
+        # having to name the key; the HTTP path opts out per request instead.
+        assert config.hitl_enabled is True
+
+    def test_hitl_can_be_disabled_in_configuration(self):
+        """`extra="forbid"` means the key has to exist for a profile to set it.
+
+        The other two LVS tools take `hitl_enabled`; without it here, turning HITL
+        off for this tool alone is a hard config error rather than a setting.
+        """
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            vst_internal_url="http://localhost:30888",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            hitl_enabled=False,
+        )
+        assert config.hitl_enabled is False
 
     def test_missing_required_fields_raises(self):
         with pytest.raises(ValidationError):
@@ -74,10 +93,13 @@ class TestLVSConfigMediaModels:
             media_name="CAM_1",
             media_id="stream-uuid",
             configured=True,
-            message="Caption generation started. Please try again later.",
+            message="Caption generation has started and is in progress. Captions will become available shortly.",
         )
 
-        assert output.summary == "Caption generation started. Please try again later."
+        assert (
+            output.summary
+            == "Caption generation has started and is in progress. Captions will become available shortly."
+        )
 
 
 class TestUserRequestedCaptionGeneration:
@@ -187,7 +209,10 @@ class TestLVSConfigMediaInner:
         assert result.status == LVSMediaStatus.ACCEPTED
         assert result.configured is True
         assert result.media_id == "stream-uuid"
-        assert result.message == "Caption generation started. Please try again later."
+        assert (
+            result.message
+            == "Caption generation has started and is in progress. Captions will become available shortly."
+        )
         remembered_media = configured_media("stream", "cam_1")
         assert remembered_media is not None
         assert remembered_media.media_id == "stream-uuid"
@@ -365,6 +390,77 @@ class TestLVSConfigMediaInner:
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
         assert kwargs["json"]["use_fps_for_chunking"] is True
+
+    @pytest.mark.parametrize(
+        ("hitl_enabled", "interactive_callback", "expected_prompts"),
+        [
+            # The confirmation loop still runs whenever the request can answer it.
+            (True, True, 4),
+            # No callback on this request (the HTTP path): documented defaults, and
+            # HITL stays enabled for the next request that can deliver a prompt.
+            (True, False, 0),
+            # The deployment turned HITL off for this tool, so a registered callback
+            # is not consulted either.
+            (False, True, 0),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_hitl_uses_callback_when_available_and_defaults_when_not(
+        self, hitl_enabled: bool, interactive_callback: bool, expected_prompts: int
+    ):
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            vst_internal_url="http://localhost:30888",
+            model="nvidia/cosmos-reason2-8b",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            hitl_enabled=hitl_enabled,
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status = 202
+        mock_resp.text = AsyncMock(return_value="")
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.return_value = mock_resp
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        callback_token = None
+        if interactive_callback:
+            callback_token = ContextState.get().user_input_callback.set(AsyncMock())
+        try:
+            with patch(
+                "vss_agents.tools.lvs_config_media.get_stream_info_by_name",
+                new_callable=AsyncMock,
+            ) as mock_stream:
+                mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
+                with patch(
+                    "vss_agents.tools.lvs_config_media._prompt_user_input",
+                    new_callable=AsyncMock,
+                ) as mock_prompt:
+                    mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                        with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                            inner_fn = await self._get_inner_fn(config)
+                            result = await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+        finally:
+            if callback_token is not None:
+                ContextState.get().user_input_callback.reset(callback_token)
+
+        assert result.status == LVSMediaStatus.ACCEPTED
+        assert result.scenario == "warehouse monitoring"
+        assert result.events == ["accident"]
+        assert mock_prompt.await_count == expected_prompts
+        mock_session.post.assert_called_once()
+        _, kwargs = mock_session.post.call_args
+        assert kwargs["json"]["scenario"] == "warehouse monitoring"
+        assert kwargs["json"]["events"] == ["accident"]
 
     @pytest.mark.asyncio
     async def test_config_media_stream_not_found(self):

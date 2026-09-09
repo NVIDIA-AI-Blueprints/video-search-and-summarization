@@ -34,7 +34,8 @@ function getTests(c) {
         'Load Quality Violation',
         'Near Miss Violation',
         'Pathway Obstruction Violation',
-        'PPE Violation'
+        'PPE Violation',
+        'Spillover Violation'
     ]);
 
     const tests = [

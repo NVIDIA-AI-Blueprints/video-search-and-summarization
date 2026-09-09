@@ -265,14 +265,27 @@ print("[5] Clips automatically ingested")
 
 # Step 6 — Config + alignment + layout + optional extras
 if CONFIG_FILE and Path(CONFIG_FILE).exists():
-    r = s.post(f"{BASE_URL}/config/{project_id}",
-               data=Path(CONFIG_FILE).read_bytes(),
-               headers={"Content-Type": "application/json"})
+    import json as _json
+    _cfg = _json.loads(Path(CONFIG_FILE).read_text())
+    try:
+        _defaults_response = s.get(f"{BASE_URL}/config/defaults")
+        _defaults_response.raise_for_status()
+        _defaults = _defaults_response.json().get("config_params")
+    except Exception as exc:
+        raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs") from exc
+    if not isinstance(_cfg, dict) or not isinstance(_defaults, dict):
+        raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs")
+    if "skip" in _cfg:
+        raise RuntimeError(
+            "Unsupported legacy config key 'skip'; use the current AMC schema "
+            "and its 'skip_frame' field instead."
+        )
+    # Defaults are reference values, not an exhaustive key allow-list. Preserve
+    # UI-exported sections and let the running API validate its full schema.
+    r = s.post(f"{BASE_URL}/config/{project_id}", json=_cfg)
     r.raise_for_status()
     print(f"[6] Applied calibration config from {Path(CONFIG_FILE).name}")
     try:
-        import json as _json
-        _cfg = _json.loads(Path(CONFIG_FILE).read_text())
         _det = _cfg.get("detector") or _cfg.get("detector_type")
         if _det in ("resnet", "transformer"):
             DETECTOR_TYPE = _det
