@@ -232,6 +232,63 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
     return {"found": len(streams), "deleted": deleted, "failed": failed, "names": list(streams.values())}
 
 
+#: What the probe asks. Any text works -- embedding search returns the nearest
+#: `top_k` regardless of how poorly they match, so a non-empty answer means
+#: documents exist and an empty one means they do not. Deliberately generic so
+#: it carries no assumption about which dataset was ingested.
+PROBE_QUERY = "a person"
+
+
+def probe_index_populated(
+    query_backend: Any,
+    attempts: int = 10,
+    backoff_s: float = 15.0,
+) -> dict[str, Any]:
+    """Confirm something is actually searchable before scoring a whole run.
+
+    The three-step ingest flow proves this for free: ``/complete`` runs the
+    embedding leg synchronously and returns ``chunks_processed``, and a zero
+    fails the upload. ``vst-direct`` has no such step -- VIOS fans out to the
+    perception services by webhook and never reports the outcome to the
+    uploader -- so an upload can succeed, the source can register in VST, the
+    readiness poll can pass, and Elasticsearch can still be empty.
+
+    That state is indistinguishable from broken retrieval: every query returns
+    nothing and the run reports mAP 0.0000 after half an hour. It is the same
+    failure the CLI exit-code handling exists to prevent, arriving by a
+    different route -- ``webhooks.enabled: false`` (the Helm default), or
+    RT-Embed rejecting the model name, which it answers with HTTP 200 and
+    ``inference: false``.
+
+    So: one cheap embed query, retried, because webhook-driven perception is
+    asynchronous and "not yet" is the expected first answer. Uses a throwaway
+    backend rather than the run's own so a low ``--min-cosine-similarity`` or a
+    non-embed ``--search-path`` cannot turn a populated index into a false
+    alarm.
+    """
+    probe_backend = flows.CliQueryBackend(
+        vss_cmd=query_backend.vss_cmd,
+        search_path="embed",
+        top_k=1,
+        cwd=query_backend.cwd,
+        pass_original_query=False,
+    )
+    for attempt in range(1, attempts + 1):
+        try:
+            hits, _latency = probe_backend.search(PROBE_QUERY)
+        except Exception as e:
+            # An environment fault is worth reporting as itself rather than as
+            # an empty index -- exit 4 means misconfigured, not unindexed.
+            return {"populated": False, "attempts": attempt, "error": f"{type(e).__name__}: {e}"}
+        if hits:
+            print(f"  Index is populated (probe returned {len(hits)} hit after {attempt} attempt(s)).")
+            return {"populated": True, "attempts": attempt}
+        if attempt < attempts:
+            print(f"  Probe {attempt}/{attempts}: index still empty, retrying in {backoff_s:.0f}s")
+            time.sleep(backoff_s)
+    return {"populated": False, "attempts": attempts}
+
+
 def describe_query_flow(
     query_backend: Any,
     decomposer: Any,
@@ -412,6 +469,7 @@ def run_evaluation(
     upload_stats: dict[str, Any] | None = None,
     ingest_description: dict[str, Any] | None = None,
     readiness: dict[str, Any] | None = None,
+    index_probe: dict[str, Any] | None = None,
     cleared: dict[str, Any] | None = None,
     vst_url: str | None = None,
     decomposer: Any = None,
@@ -610,6 +668,9 @@ def run_evaluation(
             "query": described,
             "ingest": ingest_description,
             "readiness": readiness,
+            # None when the ingest flow proved indexing itself (a chunk count),
+            # so a reader can tell "not checked here" from "checked, and empty".
+            "index_probe": index_probe,
             "cleared": cleared,
             "inventory": inventory,
             # Phoenix is absent by construction on the CLI query path:
@@ -949,13 +1010,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     flow = p.add_argument_group("flow selection")
     flow.add_argument(
         "--ingest-flow",
-        default="agent-3step",
+        default="vst-direct",
         choices=sorted(flows.INGEST_BACKENDS),
         help=(
-            "How fixtures are uploaded (default: agent-3step). 'vst-direct' is "
-            "what the UI does -- upload to VIOS and let its webhooks drive "
-            "perception -- but it returns no chunk count and does not pin the "
-            "timestamp anchor, so verify one video before scoring a run."
+            "How fixtures are uploaded (default: vst-direct, what the UI does "
+            "-- upload to VIOS and let its webhooks drive perception). "
+            "'agent-3step' is the older agent-mediated flow; it returns a chunk "
+            "count, which vst-direct replaces with a post-ingest index probe."
         ),
     )
     flow.add_argument(
@@ -1090,6 +1151,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Seconds to wait for VST to register every source after ingest (default: 1200)",
     )
     ingest.add_argument("--skip-readiness-wait", action="store_true")
+    ingest.add_argument(
+        "--skip-index-probe",
+        action="store_true",
+        help=(
+            "Do not check that anything is searchable before scoring. Only the "
+            "ingest flows that report no chunk count are probed at all, and "
+            "skipping it means an unindexed deployment scores 0.0 across the "
+            "board and reads as a retrieval collapse."
+        ),
+    )
+    ingest.add_argument("--index-probe-attempts", type=int, default=10)
+    ingest.add_argument(
+        "--index-probe-backoff",
+        type=float,
+        default=15.0,
+        help="Seconds between index probes (default: 15). Webhook-driven perception is async.",
+    )
     ingest.add_argument(
         "--only-dataset",
         action="store_true",
@@ -1274,6 +1352,7 @@ def main() -> None:
 
     upload_stats: dict[str, Any] | None = None
     readiness: dict[str, Any] | None = None
+    index_probe: dict[str, Any] | None = None
 
     if args.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
@@ -1312,6 +1391,29 @@ def main() -> None:
                     "  Querying now would score an indexing delay as a retrieval regression."
                 )
 
+        # Registered in VST is not the same as indexed in Elasticsearch. The
+        # three-step flow already proved the difference with a chunk count; a
+        # flow that reports no proof has to be asked.
+        if ingest_backend.describe().get("ingest_proof") == "none" and not args.skip_index_probe:
+            print("\nProbing the index (ingest flow reports no chunk count)...")
+            index_probe = probe_index_populated(
+                query_backend,
+                attempts=args.index_probe_attempts,
+                backoff_s=args.index_probe_backoff,
+            )
+            if not index_probe["populated"]:
+                raise SystemExit(
+                    "ABORTED: uploads succeeded and every source registered in VST, but a "
+                    "probe query returned nothing"
+                    + (f" ({index_probe['error']})" if index_probe.get("error") else "")
+                    + f" after {index_probe['attempts']} attempt(s).\n"
+                    "  Nothing is indexed, so every query would score 0.0 and the result "
+                    "would read as a retrieval collapse.\n"
+                    "  Check webhooks.enabled in the VIOS notification config (false in the "
+                    "Helm chart), and that RTVI_EMBED_MODEL matches the webhook's model "
+                    "string -- RT-Embed answers a mismatch with 200 and inference=false."
+                )
+
     run_evaluation(
         query_backend=query_backend,
         data_dir=args.data_dir,
@@ -1325,6 +1427,7 @@ def main() -> None:
         upload_stats=upload_stats,
         ingest_description=ingest_backend.describe(),
         readiness=readiness,
+        index_probe=index_probe,
         cleared=cleared,
         vst_url=vst_url,
     )
