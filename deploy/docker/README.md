@@ -357,8 +357,8 @@ curl -fsS "${VSS_GATEWAY_ORIGIN}/elasticsearch/"
 
 The Host ACLs are an allowlist, so the gateway answers only for origins the
 deployment was told about: `VSS_PUBLIC_HOST`, `VSS_GATEWAY_HOST`, `HOST_IP`,
-`EXTERNAL_IP`, `HOST_INTERNAL_ALIAS`, `localhost` and `127.0.0.1`, each with and
-without the port.
+`EXTERNAL_IP`, `HOST_INTERNAL_ALIAS`, `HAPROXY_SERVICE_HOST`, `localhost` and
+`127.0.0.1`, each with and without the port.
 **Reaching a deployment by any other name returns 404 on every path**, however
 correct the route is — the common cases being a public DNS record, a client-side
 `/etc/hosts` alias, and a Brev secure link.
@@ -366,8 +366,8 @@ correct the route is — the common cases being a public DNS record, a client-si
 The match is exact, and the port is part of the identity rather than an
 afterthought. Each host value is paired with one specific port: `VSS_PUBLIC_HOST`
 with `VSS_PUBLIC_PORT`, `VSS_GATEWAY_HOST` with `VSS_GATEWAY_PORT`, and
-`HOST_IP` / `EXTERNAL_IP` / `HOST_INTERNAL_ALIAS` / `localhost` / `127.0.0.1`
-with `HAPROXY_PORT`. So a name declared for a TLS terminator on 443 is *not*
+`HOST_IP` / `EXTERNAL_IP` / `HOST_INTERNAL_ALIAS` / `HAPROXY_SERVICE_HOST` /
+`localhost` / `127.0.0.1` with `HAPROXY_PORT`. So a name declared for a TLS terminator on 443 is *not*
 admitted on 7777, and neither a suffix nor a prefix of a declared name is
 admitted at all — `example.com.evil`, `evil-example.com` and `example.com:9999`
 are each refused alongside any other undeclared origin.
@@ -378,6 +378,12 @@ environments address the deployment that way rather than by its address. It
 defaults to `host.openshell.internal` in
 `services/infra/haproxy/compose.yml`, so it is already declared on every
 deployment; set it only when the sandbox uses a different alias.
+
+`HAPROXY_SERVICE_HOST` is the gateway's own Compose service name, so a container
+on the deployment's network can use the same origin the host does — the `/llm`
+route is reached that way. It defaults to `vss-haproxy-ingress` in
+`services/infra/haproxy/compose.yml`, which the ACLs also declare literally for
+the UI's media proxy; set the variable only if the service is renamed.
 
 Set `VSS_PUBLIC_HOST` to the hostname callers use and recreate
 `vss-haproxy-ingress`. The IP entries stay valid alongside it, so declaring a
