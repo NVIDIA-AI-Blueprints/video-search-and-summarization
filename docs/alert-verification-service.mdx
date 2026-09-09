@@ -845,17 +845,23 @@ Spans need a collector and a backend to reach. The Docker Compose deployment shi
 - Jaeger, with its UI at `http://<HOST_IP>:16686` when the `jaeger` profile is enabled.
 - Phoenix, through the trace ingestion and UI service already deployed with the alert profiles.
 
-The collector's published ports, including the Prometheus scrape port, are bound to `127.0.0.1` on the host; services reach the collector over the Compose network. Set `OTEL_COLLECTOR_HTTP_HOST_PORT`, `OTEL_COLLECTOR_GRPC_HOST_PORT`, or `OTEL_COLLECTOR_METRICS_HOST_PORT` to `0.0.0.0:<port>` to widen a binding. Workflow endpoints are listed in [Alert Verification](/vss/vision-agent/agent-workflows/alert-verification#service-endpoints) and [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts#service-endpoints).
+The collector's published ports are bound to `127.0.0.1` on the host; services reach the collector over the Compose network.
+
+<Warning>
+The OTLP receivers on ports `4317` and `4318` are unauthenticated. Any client that can reach them can inject forged telemetry into Jaeger and Phoenix. Keep them on the loopback binding unless the host is on a trusted network, or the ports are protected by a firewall, an ACL, or an authenticated gateway. `OTEL_COLLECTOR_GRPC_HOST_PORT` and `OTEL_COLLECTOR_HTTP_HOST_PORT` change these bindings.
+</Warning>
+
+The Prometheus scrape port `8889` is read-only and is also bound to `127.0.0.1`. Set `OTEL_COLLECTOR_METRICS_HOST_PORT` to `0.0.0.0:8889` when a Prometheus server outside the host needs to scrape it. Workflow endpoints are listed in [Alert Verification](/vss/vision-agent/agent-workflows/alert-verification#service-endpoints) and [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts#service-endpoints).
 
 ### Enabling tracing
 
-In the `dev-profile-alerts` developer profile, edit `overrides.env`:
+In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, the file the workflow pages create from the `overrides.env` template:
 
 1. Set `ALERT_ENABLE_OTEL_MONITORING=true`.
 2. Append `otel-collector,jaeger` to both `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM`.
-3. Deploy, or redeploy, the profile.
+3. Run the `docker compose ... up -d` command from the workflow page again.
 
-Add the two profiles to the list definitions rather than to `COMPOSE_PROFILES`. The deploy script rewrites `COMPOSE_PROFILES` for `--mode real-time`, so anything appended there is dropped. Then open the Jaeger UI and select the `vss-alert-ms` service.
+Add the two profiles to the list definitions rather than to `COMPOSE_PROFILES`, which is derived from them. Then open the Jaeger UI and select the `vss-alert-ms` service.
 
 ### Span hierarchy
 
@@ -917,7 +923,7 @@ Tracing is switched on with an environment variable. The values below are the on
 | `OTEL_RESOURCE_ATTRIBUTES` | (empty) | Additional resource attributes, as `key=value` pairs. |
 | `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `4096` | SDK-level ceiling on attribute value length; unlimited when unset. Applies after the `max_content_chars` limit below. |
 
-In the Docker Compose deployment, each option is set through the matching `ALERT_`-prefixed variable in `overrides.env`. `ALERT_ENABLE_OTEL_MONITORING` sets `ENABLE_OTEL_MONITORING`, `ALERT_OTEL_EXPORTER_OTLP_ENDPOINT` sets `OTEL_EXPORTER_OTLP_ENDPOINT`, and so on. The container receives the unprefixed name.
+In the Docker Compose deployment, each option is set through the matching `ALERT_`-prefixed variable in `user-overrides.env`. `ALERT_ENABLE_OTEL_MONITORING` sets `ENABLE_OTEL_MONITORING`, `ALERT_OTEL_EXPORTER_OTLP_ENDPOINT` sets `OTEL_EXPORTER_OTLP_ENDPOINT`, and so on. The container receives the unprefixed name.
 
 Tracing behavior is tuned with these `config.yml` keys:
 
@@ -933,7 +939,7 @@ Tracing behavior is tuned with these `config.yml` keys:
 
 ### Performance
 
-In a recorded test on a single host, the microservice processed 39.24 events/s with tracing disabled and 35.31 events/s with tracing enabled at the shipped `sampling_ratio` of `0.1`, about 10% lower. The test measured the cost of producing telemetry; the exporters were set to `none`, so network and collector cost were not included. Results on other hardware and workloads will differ. Choose the sampling ratio by the trace volume and backend storage you need. To remove the overhead, disable tracing.
+In a recorded test, the microservice processed 39.24 events/s with tracing disabled and 35.31 events/s with tracing enabled at the shipped `sampling_ratio` of `0.1`, about 10% lower. The test ran one pipeline process against the simulator rig under `services/alert/test/functional/capability/`, with no GPU, a simulated VLM, an offered rate of 120 events/s, and three 45-second repeats per arm. It measured the cost of producing telemetry; the exporters were set to `none`, so network and collector cost were not included. Results on other hardware and workloads will differ. Choose the sampling ratio by the trace volume and backend storage you need. To remove the overhead, disable tracing.
 
 ## Configuration
 
