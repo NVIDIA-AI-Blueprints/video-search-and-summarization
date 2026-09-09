@@ -12,7 +12,6 @@ import re
 import shlex
 import subprocess
 import sys
-import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,13 +31,6 @@ def _load_env_file(path: Path) -> None:
         key, value = line[7:].split("=", 1)
         parsed = shlex.split(value) if value else [""]
         os.environ.setdefault(key, parsed[0] if parsed else "")
-
-
-def _dashboard_port() -> int:
-    raw = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
-    if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
-        raise ValueError("invalid NEMOCLAW_DASHBOARD_PORT")
-    return int(raw)
 
 
 def _sandbox_exec(
@@ -82,50 +74,6 @@ def _nemoclaw_exec(
         "unset OPENCLAW_GATEWAY_TOKEN; " + script
     )
     return _sandbox_exec(sandbox, wrapped, timeout=timeout)
-
-
-def _gateway_healthy(sandbox: str) -> bool:
-    port = _dashboard_port()
-    result = _sandbox_exec(
-        sandbox,
-        (
-            "code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 "
-            f"-o /dev/null -w '%{{http_code}}' http://127.0.0.1:{port}/health) "
-            '&& { [ "$code" = 200 ] || [ "$code" = 401 ]; }'
-        ),
-        timeout=30,
-    )
-    return result.returncode == 0
-
-
-def _wait_for_gateway(sandbox: str, timeout: int = 90) -> bool:
-    """Allow the notebook-started gateway its documented startup window."""
-    deadline = time.monotonic() + timeout
-    while True:
-        if _gateway_healthy(sandbox):
-            return True
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return False
-        time.sleep(min(3, remaining))
-
-
-def _sandbox_status(sandbox: str) -> str:
-    """Return a bounded, credential-free OpenShell description for failures."""
-    try:
-        result = subprocess.run(
-            ["openshell", "sandbox", "get", sandbox],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"unavailable ({type(exc).__name__})"
-    detail = (result.stdout or result.stderr or "no output").strip()
-    detail = re.sub(r"\x1b\[[0-9;]*m", "", detail)
-    return f"exit {result.returncode}: {detail[-1000:]}"
 
 
 def _json_object(raw: str) -> dict[str, Any]:
@@ -258,7 +206,7 @@ def _run_openclaw(
         f"export no_proxy={shlex.quote(no_proxy)}; "
         "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
         "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
-        "openclaw agent --agent main --thinking off --json "
+        "openclaw agent --local --agent main --thinking off --json "
         f"--timeout {int(timeout)} "
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
@@ -302,11 +250,6 @@ def main(argv: list[str] | None = None) -> int:
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
 
     try:
-        if not _wait_for_gateway(sandbox):
-            raise RuntimeError(
-                "OpenClaw gateway is not healthy after the 90-second startup "
-                f"window; sandbox status: {_sandbox_status(sandbox)}"
-            )
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
