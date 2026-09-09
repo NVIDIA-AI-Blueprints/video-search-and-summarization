@@ -77,6 +77,10 @@
   pathType: Prefix
   rewrite: none
 - key: agent
+  path: /v1
+  pathType: Prefix
+  rewrite: none
+- key: agent
   path: /websocket
   pathType: Prefix
   rewrite: none

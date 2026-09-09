@@ -203,7 +203,12 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                         f"{profile}: mounts {path} as {entry['pathType']}, "
                         f"table says {row['pathType']}"
                     )
-                if re.fullmatch(r"/v\d+(/.*)?", path):
+                # A versioned mount is profile-dependent only when it exposes
+                # a profile-specific backend (the original failure was /v1
+                # pointing directly at whichever VLM that profile used).
+                # The agent's own /v1 API is canonical across every profile
+                # and carries interactive chat/HITL endpoints.
+                if row["key"] != "agent" and re.fullmatch(r"/v\d+(/.*)?", path):
                     fails.append(
                         f"{profile}: mounts {path} at the origin root -- the mount a "
                         f"caller cannot resolve without knowing the profile"
