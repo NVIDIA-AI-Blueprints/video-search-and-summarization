@@ -1640,10 +1640,6 @@ def run_invocations(
             command_kwargs["agent_timeout_multiplier"] = (
                 NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER
             )
-            # Build Vision AI intentionally launches the host-side gateway
-            # that later expectations reuse. The generic Brev agent reaper
-            # must not tag that gateway as a disposable coding-agent child.
-            env["SKILL_EVAL_PERSIST_AGENT_SERVICES"] = "1"
             print(
                 "[run-leg] running expects[0] with Build Vision AI to deploy "
                 "VSS and NemoClaw",
@@ -1660,8 +1656,6 @@ def run_invocations(
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
             rc = run_command(cmd, env, harbor_timeout_sec)
-        if is_nemoclaw_setup:
-            env.pop("SKILL_EVAL_PERSIST_AGENT_SERVICES", None)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:

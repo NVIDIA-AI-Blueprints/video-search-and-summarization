@@ -854,8 +854,6 @@ class RunInvocations(unittest.TestCase):
             str(run_leg.NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC),
         )
         self.assertNotIn("SKILL_EVAL_PRESERVE_DEPLOYMENT", seen_env[0])
-        self.assertEqual(seen_env[0]["SKILL_EVAL_PERSIST_AGENT_SERVICES"], "1")
-        self.assertNotIn("SKILL_EVAL_PERSIST_AGENT_SERVICES", seen_env[1])
         self.assertEqual(seen_env[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
 
     def test_failed_nemoclaw_setup_reward_stops_before_scenarios(self):

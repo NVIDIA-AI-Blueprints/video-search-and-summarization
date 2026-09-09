@@ -1204,12 +1204,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             "claude --verbose --output-format=stream-json" in command
             or "codex exec " in command
         )
-        persist_agent_services = (
-            os.environ.get("SKILL_EVAL_PERSIST_AGENT_SERVICES") == "1"
-        )
         agent_run_marker = (
             f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
-            if is_trial_agent and not persist_agent_services
+            if is_trial_agent
             else None
         )
 
