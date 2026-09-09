@@ -22,6 +22,17 @@ data:
     {{- if not (hasKey $parsed "sensors") }}
     {{- fail "global.cameraInfo.sensorsFile must be a JSON object with a top-level \"sensors\" key" }}
     {{- end }}
+    {{- if not (kindIs "slice" $parsed.sensors) }}
+    {{- fail "global.cameraInfo.sensorsFile: \"sensors\" must be a JSON array" }}
+    {{- end }}
+    {{- range $i, $s := $parsed.sensors }}
+    {{- if not (kindIs "map" $s) }}
+    {{- fail (printf "global.cameraInfo.sensorsFile: sensors[%d] must be an object" $i) }}
+    {{- end }}
+    {{- if not (and (hasKey $s "camera_name") (hasKey $s "rtsp_url")) }}
+    {{- fail (printf "global.cameraInfo.sensorsFile: sensors[%d] missing camera_name or rtsp_url" $i) }}
+    {{- end }}
+    {{- end }}
 {{ $parsed | toPrettyJson | indent 4 }}
     {{- else }}
 {{ toPrettyJson (dict "sensors" ($cams.sensors | default list)) | indent 4 }}
