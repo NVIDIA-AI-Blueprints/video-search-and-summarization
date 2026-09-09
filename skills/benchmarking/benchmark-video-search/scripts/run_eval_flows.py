@@ -1107,10 +1107,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     cli.add_argument(
         "--decompositions",
         help=(
-            "JSON file mapping each query to the decomposition the agent would "
-            "produce (query/attributes/has_action/...). When given, the retrieval "
-            "path and arguments are derived PER QUERY instead of --search-path "
-            "and --attribute applying to the whole run."
+            "Replay stored decompositions instead of calling the LLM. This does "
+            "NOT enable decomposition -- that is the default -- it REPLACES the "
+            "live decomposer, so no LLM runs and routing is fixed by the file. "
+            "Use it to pin routing across two runs whose retrieval you are "
+            "comparing: the decomposer is an LLM and its path split moves "
+            "between model versions even at temperature 0, which would show up "
+            "as a retrieval difference. The result file records "
+            "live_decomposition: false so a reader can tell which ran."
         ),
     )
     cli.add_argument(
