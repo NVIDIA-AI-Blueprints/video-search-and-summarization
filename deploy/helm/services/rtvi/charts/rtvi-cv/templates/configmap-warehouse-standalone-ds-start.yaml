@@ -28,6 +28,9 @@ data:
           "sourcePath": {{ $m.sourcePath | quote }},
           "destPath": {{ $m.destPath | quote }},
           "org": {{ $m.org | default $.Values.ngcOrg | quote }}
+          {{- if $m.artifact }},
+          "artifact": {{ $m.artifact | quote }}
+          {{- end }}
         }{{ if lt (add $i 1) (len $.Values.ngcModelsToDownload) }},{{ end }}
 {{- end }}
       ]
