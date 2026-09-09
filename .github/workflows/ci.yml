@@ -482,9 +482,11 @@ jobs:
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_direct_agent_progress.py \
             .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
+            .github/skill-eval/tests/test_plan_matrix.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \

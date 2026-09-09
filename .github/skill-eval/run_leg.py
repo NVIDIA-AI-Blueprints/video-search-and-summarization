@@ -51,6 +51,9 @@ from leg_timing import HEARTBEAT_SEC, leg_log, phase
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
 HARBOR_REQUIREMENT = "harbor==0.20.0"
+# Harbor's uvx env is isolated from SKILL_EVAL_VENV. The generic verifier
+# imports claude-agent-sdk (and cannot `pip install` into a uvx runtime).
+CLAUDE_AGENT_SDK_REQUIREMENT = "claude-agent-sdk==0.2.128"
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
@@ -75,7 +78,16 @@ HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
+# Local OpenShell NIMs need a second hour after image pull to load
+# weights into VRAM. The Brev remote-endpoint path stays at 6.0.
+LOCAL_GPU_AGENT_TIMEOUT_MULTIPLIER = 12.0
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
+_REMOTE_PLACEMENT_KEYS = frozenset({
+    "LLM_REMOTE_URL",
+    "LLM_REMOTE_MODEL",
+    "VLM_REMOTE_URL",
+    "VLM_REMOTE_MODEL",
+})
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
     HARBOR_BASE_PHASE_TIMEOUT_SEC
     * HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
@@ -112,6 +124,9 @@ MIN_HARBOR_BACKSTOP_SEC = (
 # itself the default.  The round 200-minute backstop leaves another 32 minutes
 # for scheduling jitter and bounded teardown that does not transfer files.
 DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
+# 12× agent budget (7200s) + other phases + 4 transfer windows is 13680s.
+# Stay above that floor the same way the Brev default stays above 10080s.
+LOCAL_GPU_HARBOR_TIMEOUT_SEC = 15_000
 
 # A single remote agent command must not be killed by Brev before Harbor's own
 # agent deadline can fire and drive normal artifact/environment cleanup.
@@ -248,15 +263,54 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def _local_gpu_eval() -> bool:
+    """True on OpenShell GPU runners pinned by SKILL_EVAL_LOCAL_GPU_INSTANCE."""
+    return bool(os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip())
+
+
+def harbor_agent_timeout_multiplier() -> float:
+    if _local_gpu_eval():
+        return LOCAL_GPU_AGENT_TIMEOUT_MULTIPLIER
+    return HARBOR_AGENT_TIMEOUT_MULTIPLIER
+
+
+def harbor_agent_budget_sec() -> int:
+    return int(HARBOR_BASE_PHASE_TIMEOUT_SEC * harbor_agent_timeout_multiplier())
+
+
+def harbor_phase_budget_sec() -> int:
+    return (
+        HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC
+        + HARBOR_AGENT_SETUP_BUDGET_SEC
+        + harbor_agent_budget_sec()
+        + HARBOR_VERIFIER_BUDGET_SEC
+    )
+
+
+def min_harbor_backstop_sec() -> int:
+    return harbor_phase_budget_sec() + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
+
+
+def min_brev_exec_timeout_sec() -> int:
+    return harbor_agent_budget_sec() + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+
+
+def default_harbor_timeout_sec() -> int:
+    if _local_gpu_eval():
+        return LOCAL_GPU_HARBOR_TIMEOUT_SEC
+    return DEFAULT_HARBOR_TIMEOUT_SEC
+
+
 def validate_harbor_timeout_sec(timeout_sec: int) -> int:
     """Require the outer backstop to leave every Harbor phase recovery room."""
-    if timeout_sec <= MIN_HARBOR_BACKSTOP_SEC:
+    min_backstop = min_harbor_backstop_sec()
+    if timeout_sec <= min_backstop:
         raise ValueError(
             "harbor timeout must be greater than "
-            f"{MIN_HARBOR_BACKSTOP_SEC}s: environment "
+            f"{min_backstop}s: environment "
             f"{HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC}s + agent setup "
             f"{HARBOR_AGENT_SETUP_BUDGET_SEC}s + agent "
-            f"{HARBOR_AGENT_BUDGET_SEC}s + verifier "
+            f"{harbor_agent_budget_sec()}s + verifier "
             f"{HARBOR_VERIFIER_BUDGET_SEC}s + cleanup/recovery "
             f"{HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC}s"
         )
@@ -345,6 +399,8 @@ def build_harbor_command(
         sys.executable,
         "--from",
         HARBOR_REQUIREMENT,
+        "--with",
+        CLAUDE_AGENT_SDK_REQUIREMENT,
         "harbor",
         "run",
         "--environment-import-path",
@@ -357,7 +413,7 @@ def build_harbor_command(
         "--environment-build-timeout-multiplier",
         str(environment_build_timeout_multiplier),
         "--agent-timeout-multiplier",
-        str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
+        str(harbor_agent_timeout_multiplier()),
         "--verifier-timeout-multiplier",
         str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         "--max-retries",
@@ -372,6 +428,29 @@ def build_harbor_command(
 
 def harbor_env(instance: str) -> dict[str, str]:
     env = os.environ.copy()
+    if env.get("SKILL_EVAL_LOCAL_GPU_INSTANCE"):
+        for key in list(env):
+            if (
+                key in {
+                    "GH_TOKEN",
+                    "GITHUB_TOKEN",
+                    "SYSTEM_ACCESSTOKEN",
+                }
+                or key.startswith("ACTIONS_")
+                or (
+                    key.startswith("RUNNER_")
+                    and key != "RUNNER_TRACKING_ID"
+                )
+                or (
+                    key.startswith("GITHUB_")
+                    and key not in {"GITHUB_RUN_ID", "GITHUB_WORKSPACE"}
+                )
+            ):
+                env.pop(key, None)
+        env.pop("SSH_AGENT_PID", None)
+        env.pop("SSH_AUTH_SOCK", None)
+        for key in _REMOTE_PLACEMENT_KEYS:
+            env.pop(key, None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")
@@ -388,7 +467,7 @@ def harbor_env(instance: str) -> dict[str, str]:
             "BREV_EXEC_TIMEOUT must be an integer number of seconds"
         ) from exc
     env["BREV_EXEC_TIMEOUT"] = str(
-        max(configured_brev_timeout, MIN_BREV_EXEC_TIMEOUT_SEC)
+        max(configured_brev_timeout, min_brev_exec_timeout_sec())
     )
     # The outer backstop's recovery budget is derived from this exact per-call
     # cap. Do not let a larger inherited runner value invalidate that bound.
@@ -619,77 +698,6 @@ def _loose_gpu_match(want: str, have: str) -> bool:
     return want_tokens.issubset(have_tokens) or want in have
 
 
-# How many refusals a leg absorbs before reporting the last one. The pool is
-# small and `remaining_candidates()` already ends the loop when every eligible
-# box has refused; this only bounds a fleet that refuses indefinitely.
-_MAX_BOX_REJECTIONS = 4
-
-_CATALOG_GPU_COUNTS: dict[str, int] | None = None
-
-
-def _catalog_gpu_counts() -> dict[str, int]:
-    """`{instance_type: gpu_count}` from `brev search gpu --json`, cached.
-
-    `brev ls --json` carries no gpu_count -- only {name, gpu, instance_type,
-    status} -- which is why fleet naming became the stand-in. The catalog is
-    the same source `envs/brev_env.py` consults before it falls back to a live
-    nvidia-smi count, so filtering on it here rejects an undersized box while
-    it is still a candidate rather than after it has been locked.
-
-    Returns `{}` when the catalog is unavailable. Callers MUST treat an absent
-    SKU as "not disqualifying": a catalog outage that filtered everything out
-    would turn a slow schedule into a hard blocker.
-    """
-    global _CATALOG_GPU_COUNTS
-    if _CATALOG_GPU_COUNTS is not None:
-        return _CATALOG_GPU_COUNTS
-    counts: dict[str, int] = {}
-    try:
-        proc = subprocess.run(
-            ["brev", "search", "gpu", "--json"],
-            capture_output=True, text=True, timeout=60,
-        )
-        if proc.returncode == 0:
-            for row in _parse_brev_json(proc.stdout):
-                sku = row.get("type")
-                try:
-                    count = int(row.get("gpu_count", 0) or 0)
-                except (TypeError, ValueError):
-                    continue
-                if sku:
-                    counts[sku] = count
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        print(f"[run-leg] brev search gpu failed: {exc}", flush=True)
-    if not counts:
-        # Do not cache an outage: this process can live for hours, and a
-        # single transient `brev search` failure would otherwise blind
-        # scheduling for the rest of the leg.
-        print("[run-leg] gpu catalog unavailable; managed box sizes unknown "
-              "this round (brev_env still validates the pick)", flush=True)
-        return {}
-    _CATALOG_GPU_COUNTS = counts
-    return counts
-
-
-def _instance_gpu_count(inst: dict) -> int | None:
-    """Best available gpu_count for a pool box, or None when unknown.
-
-    Registered nodes are named by the operator to the fleet convention, so the
-    name is what there is. Managed instances carry a catalog SKU, which is
-    authoritative; their names are only a convention and can go stale when a
-    box is resized.
-    """
-    if inst.get("_registered"):
-        # Operator-controlled names, and the only signal these nodes carry.
-        return _name_gpu_count_hint(inst.get("name") or "")
-    # Managed: the catalog SKU is authoritative and the name is not -- a
-    # resized box keeps its old name. An unlisted SKU stays unknown rather
-    # than falling back to the name, so a catalog gap can never filter the
-    # fleet down to nothing; brev_env validates the pick, and a refusal is
-    # now recoverable.
-    return _catalog_gpu_counts().get(inst.get("instance_type") or "")
-
-
 def _name_gpu_count_hint(name: str) -> int | None:
     """Fleet-naming gpu_count hint: `*-1g*` → 1, `*-2g*` → 2 (AGENTS.md
     pool convention). None when the name encodes nothing."""
@@ -729,13 +737,9 @@ def pool_candidates(
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
             continue
-        if required_count > 0:
-            # Applies to managed instances too, not just registered nodes.
-            # Skipping them here is what let a `*-1g-*` box be locked for a
-            # 2-GPU spec and then rejected by brev_env, killing the leg
-            # before it ran a trial. An unknown count never disqualifies.
-            known_count = _instance_gpu_count(inst)
-            if known_count is not None and known_count < required_count:
+        if inst.get("_registered") and required_count > 0:
+            count_hint = _name_gpu_count_hint(name)
+            if count_hint is not None and count_hint < required_count:
                 continue
         if required_count > 0 and required_type:
             gpu = (inst.get("gpu") or "").upper()
@@ -762,74 +766,6 @@ def pool_candidates(
         return (0 if registered else 1, exact, name.lower())
 
     return [name for name, _ in sorted(candidates, key=sort_key)]
-
-
-def attempt_lock_timeout(
-    base: int, work_deadline: float | None, reserve: int
-) -> int:
-    """Lock budget for one attempt: `base`, capped by what the leg has left.
-
-    Reads the clock itself rather than taking `now`: `work_deadline` is on the
-    monotonic clock, and a caller that passed `time.time()` instead would
-    silently collapse every attempt to the floor -- the first one too, not
-    just retries. `reserve` keeps room for one complete Harbor invocation.
-    """
-    if work_deadline is None:
-        return base
-    remaining = int(work_deadline - time.monotonic() - reserve)
-    return max(1, min(base, remaining))
-
-
-# brev_env refuses a box it considers unsuitable for the task's hardware.
-# Matched against Harbor's structured `exception_info`, never against log or
-# transcript text: eval agents quote these very sentences while diagnosing a
-# failure, and a transcript match would discard a healthy box and hide the
-# real result behind a retry.
-_BOX_REFUSAL_MARKERS = (
-    "GPU(s) (live nvidia-smi); task requires at least",
-    "does not meet task",
-)
-
-
-def box_rejected_for_capacity(results_root: Path, since: float) -> str | None:
-    """The refusal message if this leg's box was refused, else None.
-
-    Three conditions, all required, so an ordinary failed trial can never be
-    mistaken for a refusal:
-
-    * the finding comes from `result.json`'s `exception_info` -- structured
-      output Harbor writes, not something an agent can print;
-    * the trial recorded no `agent_execution`, i.e. nothing ever ran;
-    * the file was written since `since`, so a refusal from an earlier
-      attempt in the same results tree cannot re-trigger a retry.
-    """
-    import json as _json
-
-    try:
-        paths = [
-            q for q in results_root.rglob("result.json")
-            if q.is_file() and q.stat().st_mtime >= since
-        ]
-    except OSError:
-        return None
-    for q in paths:
-        try:
-            payload = _json.loads(q.read_text(encoding="utf-8", errors="replace"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        info = payload.get("exception_info")
-        if not info:
-            continue
-        # A trial that reached the agent is a real result, whatever it says.
-        if payload.get("agent_execution") or payload.get("agent_result"):
-            continue
-        text = info if isinstance(info, str) else _json.dumps(info)
-        for marker in _BOX_REFUSAL_MARKERS:
-            if marker in text:
-                return " ".join(text.split())[:240]
-    return None
 
 
 @contextlib.contextmanager
@@ -1106,7 +1042,6 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
     proc: subprocess.Popen | None = None
     pgid: int | None = None
     pending_signal: int | None = None
-    harbor_rc: int | None = None
     cleanup_started = False
     previous_handlers: dict[signal.Signals, object] = {}
 
@@ -1171,12 +1106,34 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                     if not detached:
                         cleanup_started = True
                         return rc
+                    if rc == 0:
+                        # Harbor finished the trial. Leftover Brev/SSH
+                        # transport PGIDs are teardown residue on OpenShell
+                        # (observed: reward 1.0 then outcome=124 skipped the
+                        # rest of a multi-step chain). Reap them and keep
+                        # Harbor's success so later steps still run.
+                        print(
+                            "[run-leg] Harbor exited 0 with leftover "
+                            "transport groups "
+                            + ", ".join(map(str, detached))
+                            + "; reaping and keeping rc=0",
+                            flush=True,
+                        )
+                        _signal_registered_transport_groups(
+                            registry_path, signal.SIGTERM
+                        )
+                        _wait_for_process_group_exit(
+                            proc,
+                            pgid,
+                            HARBOR_SIGTERM_GRACE_SEC,
+                            registry_path,
+                        )
+                        _signal_registered_transport_groups(
+                            registry_path, signal.SIGKILL
+                        )
+                        cleanup_started = True
+                        return 0
                     cleanup_started = True
-                    # Harbor finished on its own; only its transports linger.
-                    # Remember the real result: if the bounded cleanup below
-                    # reaps them, the trial stands and this is housekeeping,
-                    # not a timeout.
-                    harbor_rc = rc
                     outcome = 124
                     reason = (
                         "Harbor exited while detached transport groups remained: "
@@ -1207,18 +1164,6 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                 "preserving primary outcome",
                 flush=True,
             )
-        elif harbor_rc is not None:
-            # Harbor completed and the strays are now gone. Reporting 124
-            # here discards a finished trial -- and because rc == 124 also
-            # writes skip markers, it takes every later step of a multi-step
-            # spec with it. A step that scored 1.0 was recorded as a timeout
-            # and its successors never ran.
-            print(
-                f"[run-leg] detached transports reaped; keeping Harbor's "
-                f"result rc={harbor_rc}",
-                flush=True,
-            )
-            return harbor_rc
         return outcome
     finally:
         for sig, previous in previous_handlers.items():
@@ -1563,7 +1508,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--instance",
-        default=os.environ.get("BREV_INSTANCE") or None,
+        default=None,
         help="Operator override: pin the leg to this Brev instance instead "
              "of pool selection (still lock-guarded; waits if held)",
     )
@@ -1581,7 +1526,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--lock-timeout-sec", default=21000, type=int)
     parser.add_argument(
         "--harbor-timeout-sec",
-        default=DEFAULT_HARBOR_TIMEOUT_SEC,
+        default=default_harbor_timeout_sec(),
         type=int,
     )
     args = parser.parse_args(argv)
@@ -1649,9 +1594,32 @@ def main(argv: list[str] | None = None) -> int:
                 "whole-leg deadline cannot fit one complete Harbor invocation"
             )
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
-        # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
-        # > task.toml brev_instance > pool selection.
-        pinned = args.instance or metadata.get("brev_instance") or None
+        # Pin precedence: CLI/--instance > SKILL_EVAL_LOCAL_GPU_INSTANCE
+        # (direct OpenShell runner) > BREV_INSTANCE env > task.toml
+        # brev_instance > pool selection.
+        #
+        # The local pin outranks the env var deliberately. An OpenShell guest
+        # sources ~/.eval_env, so a BREV_INSTANCE left in that file is
+        # inherited by every leg on the box -- and brev_env rejects the
+        # mismatch with "BREV_INSTANCE does not match
+        # SKILL_EVAL_LOCAL_GPU_INSTANCE" seconds into start(), before the
+        # agent runs. An inherited value is never a deliberate pin; an
+        # operator debugging one box passes --instance.
+        local_pin = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+        env_instance = os.environ.get("BREV_INSTANCE", "").strip() or None
+        if local_pin and env_instance and env_instance.lower() != local_pin.lower():
+            print(
+                f"[run-leg] ignoring inherited BREV_INSTANCE={env_instance}: "
+                f"this runner is pinned to {local_pin}",
+                flush=True,
+            )
+        pinned = (
+            args.instance
+            or local_pin
+            or env_instance
+            or metadata.get("brev_instance")
+            or None
+        )
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
@@ -1672,86 +1640,32 @@ def main(argv: list[str] | None = None) -> int:
         # phase the log most needed to name reported the wrong thing.
         outer_phase = leg_timing.current_phase()
         leg_timing.set_phase("lock-wait")
-        # A box refused by brev_env is not a failed trial -- nothing ran. Drop
-        # it and take the next candidate instead of reporting the leg dead,
-        # which is what turned one mis-sized box into a red leg. Bounded:
-        # each attempt costs a lock wait, and a fleet that refuses every box
-        # is an operator problem the log should name rather than a loop.
-        rejected: set[str] = set()
-        attempt_timeout = effective_lock_timeout
         try:
-            for attempt in range(_MAX_BOX_REJECTIONS + 1):
-                def remaining_candidates() -> list[str]:
-                    return [n for n in candidates_fn() if n not in rejected]
-
-                # Nothing left to try: say so now. Handing an empty list to
-                # hold_pool_lock would burn the whole lock timeout waiting for
-                # a box that has already been ruled out -- and with a pinned
-                # instance, one refusal always lands here.
-                if rejected and not remaining_candidates():
-                    raise LegDeadlineError(
-                        "every eligible box refused this task's hardware "
-                        f"requirement: {', '.join(sorted(rejected))}"
-                    )
-                # Each retry costs another lock wait, so spend only what is
-                # left of the leg rather than the full timeout again.
-                attempt_timeout = attempt_lock_timeout(
-                    effective_lock_timeout, work_deadline, required
+            with hold_pool_lock(
+                candidates_fn, args.lock_dir, effective_lock_timeout
+            ) as instance:
+                lock_acquired = True
+                leg_timing.record_phase(
+                    "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
                 )
-                with hold_pool_lock(
-                    remaining_candidates, args.lock_dir, attempt_timeout
-                ) as instance:
-                    lock_acquired = True
-                    leg_timing.record_phase(
-                        "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
-                    )
-                    # The wait is over the moment the lock is held; the Harbor
-                    # phases below set their own labels.
-                    leg_timing.set_phase(outer_phase)
-                    dispatch_started = time.time()
-                    rc = run_invocations(
-                        invocations,
-                        instance,
-                        args.results_root,
-                        args.scratch,
-                        args.spec_stem,
-                        args.platform,
-                        args.harbor_timeout_sec,
-                        work_deadline,
-                    )
-                    if rc == 0:
-                        return rc
-                    refusal = box_rejected_for_capacity(
-                        args.results_root, dispatch_started
-                    )
-                    if not refusal:
-                        # A real result. Report it.
-                        return rc
-                    rejected.add(instance)
-                    print(
-                        f"[run-leg] {instance} refused this task and ran no "
-                        f"trial ({refusal})",
-                        flush=True,
-                    )
-                    if attempt == _MAX_BOX_REJECTIONS:
-                        # Out of attempts; the refusal is the honest outcome.
-                        return rc
-                    print(
-                        f"[run-leg] trying another box "
-                        f"({attempt + 1}/{_MAX_BOX_REJECTIONS})", flush=True,
-                    )
-                # Re-enter the lock wait for the next candidate.
-                lock_wait_started = leg_timing.leg_elapsed()
-                lock_acquired = False
-                leg_timing.set_phase("lock-wait")
+                # The wait is over the moment the lock is held; the Harbor
+                # phases below set their own labels.
+                leg_timing.set_phase(outer_phase)
+                return run_invocations(
+                    invocations,
+                    instance,
+                    args.results_root,
+                    args.scratch,
+                    args.spec_stem,
+                    args.platform,
+                    args.harbor_timeout_sec,
+                    work_deadline,
+                )
         except LockTimeoutError:
             leg_timing.record_phase(
                 "lock-wait-timeout", lock_wait_started, leg_timing.leg_elapsed()
             )
-            # The budget that actually expired, which a retry may have
-            # shortened -- comparing the original would report a trimmed
-            # retry wait as whole-leg deadline exhaustion.
-            if attempt_timeout < args.lock_timeout_sec:
+            if effective_lock_timeout < args.lock_timeout_sec:
                 raise LegDeadlineError(
                     "whole-leg deadline expired while reserving room for Harbor"
                 )
