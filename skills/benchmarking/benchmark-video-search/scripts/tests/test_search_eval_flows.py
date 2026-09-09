@@ -30,6 +30,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
+from typing import ClassVar
 
 import pytest
 
@@ -865,17 +866,19 @@ def test_registries_expose_the_implemented_backends() -> None:
     assert set(flows.QUERY_BACKENDS) == {"cli"}
 
 
-def test_the_default_ingest_flow_is_the_one_that_proves_it_indexed() -> None:
-    """vst-direct is available but must not become the default by accident.
+def test_the_default_ingest_flow_is_the_one_the_product_uses() -> None:
+    """vst-direct, because that is what the UI does.
 
-    Only `agent-3step` returns a chunk count and pins the timestamp anchor the
-    ground truth is written against. A silent switch would turn "nothing
-    indexed" and "nothing matched" into the same result.
+    It reports no chunk count, so the guard that made `agent-3step` safe is
+    replaced by the post-ingest index probe -- which must therefore be on by
+    default too, or "nothing indexed" and "nothing matched" become the same
+    result file.
     """
     import run_eval_flows as rf
 
     parsed = rf.parse_args(["--endpoint", "http://host:8000"])
-    assert parsed.ingest_flow == "agent-3step"
+    assert parsed.ingest_flow == "vst-direct"
+    assert parsed.skip_index_probe is False
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +974,97 @@ def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -
     bad = backend.verify_anchor("abc-123")
     assert bad["found"] is True
     assert bad["matches_expected_anchor"] is False
+
+
+def test_the_probe_accepts_any_hit_and_ignores_the_run_tuning(monkeypatch: Any) -> None:
+    """One hit is the whole signal: documents exist.
+
+    It deliberately does NOT reuse the run's backend. Embedding search returns
+    the nearest top_k however badly they match, so an empty answer means an
+    empty index -- but only if a --min-cosine-similarity floor or a non-embed
+    --search-path cannot filter the answer away first.
+    """
+    import run_eval_flows as rf
+
+    built: list[Any] = []
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+        search_path = "fusion"
+        min_cosine_similarity = 0.99
+
+    def fake_backend(**kw: Any) -> Any:
+        built.append(kw)
+
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                return [{"video_name": "anything.mp4"}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", fake_backend)
+    result = rf.probe_index_populated(_Backend(), attempts=3, backoff_s=0)
+
+    assert result == {"populated": True, "attempts": 1}
+    assert built[0]["search_path"] == "embed"
+    assert built[0]["top_k"] == 1
+    assert "min_cosine_similarity" not in built[0]
+
+
+def test_an_empty_index_is_retried_then_reported(monkeypatch: Any) -> None:
+    """Webhook-driven perception is async, so "not yet" is the first answer."""
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    calls = {"n": 0}
+
+    def fake_backend(**kw: Any) -> Any:
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                calls["n"] += 1
+                return ([{"hit": 1}], 0.1) if calls["n"] >= 3 else ([], 0.1)
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", fake_backend)
+    monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
+    assert rf.probe_index_populated(_Backend(), attempts=5, backoff_s=0) == {
+        "populated": True,
+        "attempts": 3,
+    }
+
+    calls["n"] = -100  # never reaches the success threshold
+    result = rf.probe_index_populated(_Backend(), attempts=2, backoff_s=0)
+    assert result == {"populated": False, "attempts": 2}
+
+
+def test_a_broken_cli_is_reported_as_itself_not_as_an_empty_index(
+    monkeypatch: Any,
+) -> None:
+    """Exit 4 means misconfigured. Calling that "nothing indexed" sends the
+    reader to the wrong service."""
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    def fake_backend(**kw: Any) -> Any:
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                raise flows.CliExitError("vss exited 4 (configuration)")
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", fake_backend)
+    result = rf.probe_index_populated(_Backend(), attempts=5, backoff_s=0)
+    assert result["populated"] is False
+    assert result["attempts"] == 1  # not retried; it will not fix itself
+    assert "CliExitError" in result["error"]
 
 
 def test_an_unreachable_vst_is_unchecked_not_a_passing_anchor(monkeypatch: Any) -> None:
