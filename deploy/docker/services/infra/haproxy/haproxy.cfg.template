@@ -614,6 +614,7 @@ frontend fe_http
     http-request set-var(txn.gw_absent) str(behavior-analytics) if h_main p_behavior { nbsrv(bk_behavior_analytics) eq 0 }
     http-request set-var(txn.gw_absent) str(perception-sdr) if h_main p_perception_sdr { nbsrv(bk_perception_sdr) eq 0 }
     http-request set-var(txn.gw_absent) str(va-mcp) if h_main p_va_mcp { nbsrv(bk_va_mcp_strip) eq 0 }
+    http-request set-var(txn.gw_absent) str(llm) if h_main p_llm { nbsrv(bk_llm_strip) eq 0 }
 
     # The header value names the route so one log line explains itself; the
     # CONTRACT is the header's presence, so a caller never has to keep a list of
