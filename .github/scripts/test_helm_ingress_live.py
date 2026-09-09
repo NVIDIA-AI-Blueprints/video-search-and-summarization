@@ -550,6 +550,9 @@ CANONICAL_EXPECTATIONS = {
     "/behavior-analytics/api/v1/x": ("vss-behavior-analytics", "/behavior-analytics/api/v1/x"),
     # Longest-prefix wins: /api/chat is the UI, /api is the agent.
     "/api/chat": ("vss-agent-ui", "/api/chat"),
+    # The interactive stream must reach the agent; the legacy /chat stream
+    # cannot carry HITL interaction responses.
+    "/v1/chat/stream": ("vss-agent", "/v1/chat/stream"),
     "/openapi.json": ("vss-agent", "/openapi.json"),
 }
 
