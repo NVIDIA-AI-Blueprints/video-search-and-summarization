@@ -25,6 +25,9 @@ data:
     {{- if not (kindIs "slice" $parsed.sensors) }}
     {{- fail "global.cameraInfo.sensorsFile: \"sensors\" must be a JSON array" }}
     {{- end }}
+    {{- if eq (len $parsed.sensors) 0 }}
+    {{- fail "global.cameraInfo.sensorsFile: \"sensors\" must not be empty" }}
+    {{- end }}
     {{- range $i, $s := $parsed.sensors }}
     {{- if not (kindIs "map" $s) }}
     {{- fail (printf "global.cameraInfo.sensorsFile: sensors[%d] must be an object" $i) }}
