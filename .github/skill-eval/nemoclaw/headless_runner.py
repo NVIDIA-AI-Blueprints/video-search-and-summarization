@@ -12,6 +12,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,44 @@ def _sandbox_exec(
         text=True,
         timeout=timeout,
         check=False,
+    )
+
+
+def _gateway_healthy(sandbox: str) -> bool:
+    result = _sandbox_exec(
+        sandbox,
+        (
+            "code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 5 "
+            "-o /dev/null -w '%{http_code}' http://127.0.0.1:18789/health) "
+            '&& { [ "$code" = 200 ] || [ "$code" = 401 ] || '
+            '[ "$code" = 403 ]; }'
+        ),
+        timeout=20,
+    )
+    return result.returncode == 0
+
+
+def _ensure_gateway(sandbox: str) -> None:
+    """Restore the sandbox's managed gateway if it stopped between tasks."""
+    if _gateway_healthy(sandbox):
+        return
+    recovered = subprocess.run(
+        ["nemoclaw", sandbox, "recover"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=360,
+        check=False,
+    )
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if _gateway_healthy(sandbox):
+            return
+        time.sleep(3)
+    detail = (recovered.stderr or recovered.stdout or "no output").strip()[-1000:]
+    raise RuntimeError(
+        "OpenClaw gateway is not healthy after bounded NemoClaw recovery "
+        f"(recover exit {recovered.returncode}): {detail}"
     )
 
 
@@ -206,7 +245,7 @@ def _run_openclaw(
         f"export no_proxy={shlex.quote(no_proxy)}; "
         "export NODE_EXTRA_CA_CERTS=/etc/openshell-tls/ca-bundle.pem; "
         "export OPENCLAW_DISABLE_STREAMING_TOOL_CALLS=1; "
-        "openclaw agent --local --agent main --thinking off --json "
+        "openclaw agent --agent main --thinking off --json "
         f"--timeout {int(timeout)} "
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
@@ -250,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
 
     try:
+        _ensure_gateway(sandbox)
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
