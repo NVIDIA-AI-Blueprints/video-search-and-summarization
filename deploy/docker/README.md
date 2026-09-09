@@ -419,6 +419,61 @@ curl -fsS "${VSS_GATEWAY_ORIGIN}/vst/api/v1/sensor/streams"
 curl -fsS "${VSS_GATEWAY_ORIGIN}/elasticsearch/"
 ```
 
+#### The remote-agent default is plaintext HTTP, and that is not an approved configuration
+
+SRD §5 requires:
+
+> **TLS** — Remote-agent deployments shall use TLS unless the network is
+> explicitly trusted and approved for plaintext HTTP.
+
+What ships is the exception, not the rule. `remote-agent.env.example` sets
+`VSS_GATEWAY_ORIGIN=http://<VSS_HOST_IP_OR_DNS>:7777`, and the gateway listener
+is plain HTTP on `HAPROXY_PORT` with no TLS material anywhere in the Compose
+path. So every request a remote agent makes — including the `PUT` into the
+unified-memory Elasticsearch index and every caption and alert payload — crosses
+the network in the clear.
+
+**The "explicitly trusted and approved" half of §5 has not happened.** There is
+no approval record in this repository, and this note is not one: a statement
+that a particular network is trusted enough to carry this traffic in plaintext
+is a decision for the deployment's owner and its security reviewer, not
+something a default can assert on their behalf. Recorded here so the gap is
+visible rather than implied by silence.
+
+**The assumption the default encodes**, so it can be accepted or rejected
+deliberately: the remote agent and the deployment sit on the same trusted
+private network — a lab subnet, a VPC, or a VPN — where the operator accepts
+plaintext between them. That assumption holds for the single-host and lab
+topologies this path was built for. It does **not** hold across the public
+internet or any shared or untrusted network, and the default must not be used
+there.
+
+**To satisfy §5, an operator does one of two things.** Both are supported today
+and neither needs a code change:
+
+1. **Terminate TLS in front of the gateway** and point the remote agent at the
+   HTTPS origin — set `VSS_GATEWAY_ORIGIN=https://<name>`, with
+   `VSS_GATEWAY_HOST`/`VSS_GATEWAY_PORT` matching, and declare that name on the
+   deployment side as `VSS_PUBLIC_HOST` so the Host allowlist admits it. This is
+   how the Brev secure link already works. FR-31 permits termination at HAProxy
+   *or* an upstream load balancer provided the point is documented, and for this
+   deployment the point is **outside the stack**: see "Gateway identity" above
+   for why the gateway origin stays plain HTTP on `HAPROXY_PORT` while
+   `VSS_PUBLIC_*` carries the terminated scheme, the `VSS_PUBLIC_PORT` row in
+   the port table for the `443` case, and "The scheme the caller used" for how
+   the terminator's `X-Forwarded-Proto` is honoured.
+2. **Get the plaintext exception approved** — record the network as explicitly
+   trusted, with the approver and date, in the deployment's own security
+   documentation. §5 permits plaintext on that basis and only on that basis.
+
+Until one of those is done, a remote-agent deployment is **outside** §5 rather
+than compliant with it. Two related §5 items are in the same position and are
+not solved by TLS: source IP allowlisting ("Production remote-agent deployments
+should support source IP allowlisting or private network access") and
+route-level authentication, which FR-32 defers. The gateway performs no
+authentication of any kind — any caller that can reach the origin and send a
+declared `Host` reaches every route not classified `internal-only`.
+
 ### The origin callers use has to be declared
 
 The Host ACLs are an allowlist, so the gateway answers only for origins the
