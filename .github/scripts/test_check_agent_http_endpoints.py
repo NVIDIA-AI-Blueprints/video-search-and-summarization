@@ -50,6 +50,49 @@ class AgentHttpEndpointsTest(unittest.TestCase):
         self.assertEqual(1, len(failures))
         self.assertIn("Docker-only HTTP host 'rtvi-vlm'", failures[0])
 
+    def test_the_gateways_own_bridge_identities_are_forbidden(self) -> None:
+        # The host set was nine backends *behind* the gateway, so an endpoint
+        # pointed at the gateway itself by a bridge-only name passed the lint.
+        # That is the worst regression for this lint to miss: both spellings
+        # work from a colocated agent and resolve nowhere from a remote one, so
+        # they survive every single-host test and break only FR-35's case.
+        for url, host in (
+            ("http://vss-haproxy-ingress:7777/elasticsearch", "vss-haproxy-ingress"),
+            ("http://vss.local:7777/elasticsearch", "vss.local"),
+        ):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as directory:
+                config = Path(directory) / "fake-agent.yml"
+                config.write_text(f"elasticsearch_url: {url}\n")
+
+                failures = LINT.scan_paths([config])
+
+                self.assertEqual(1, len(failures))
+                self.assertIn(f"Docker-only HTTP host {host!r}", failures[0])
+
+    def test_the_gateway_origin_expansion_is_not_flagged(self) -> None:
+        # The forbidden literal is `http://vss.local`; the *default* inside
+        # VSS_GATEWAY_ORIGIN spells the same alias as an expansion, and that is
+        # the correct form the tree uses in ~30 places. Flagging it would make
+        # the lint unusable and the previous test's host unaddable.
+        with tempfile.TemporaryDirectory() as directory:
+            env = Path(directory) / "overrides.env"
+            env.write_text(
+                "ELASTIC_SEARCH_ENDPOINT=${VSS_GATEWAY_ORIGIN:-http://"
+                "${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}"
+                "/elasticsearch\n"
+            )
+
+            self.assertEqual([], LINT.scan_paths([env]))
+
+    def test_host_patterns_are_regex_escaped(self) -> None:
+        # `vss.local` carries a dot. Unescaped it is a wildcard, so the lint
+        # would report `vss-local` -- a host nobody wrote -- as a violation.
+        with tempfile.TemporaryDirectory() as directory:
+            env = Path(directory) / "overrides.env"
+            env.write_text("SOME_URL=http://vss-local:7777/elasticsearch\n")
+
+            self.assertEqual([], LINT.scan_paths([env]))
+
     def test_shared_service_env_files_are_scanned(self) -> None:
         # services/compose.yml merges these into the agent's environment, so a
         # Docker-only default here is an agent default. Scanning only

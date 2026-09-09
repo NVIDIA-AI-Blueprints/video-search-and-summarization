@@ -24,6 +24,17 @@ YAML_SUFFIXES = {".yaml", ".yml"}
 # PHOENIX_ENDPOINT -- name these nine Compose service hosts, and the default
 # for each is the *_SERVICE_HOST default in services/infra/haproxy/compose.yml.
 # Adding a gateway mount that the agent calls means adding its host here.
+#
+# The last two are the gateway's own bridge-only identities rather than
+# backends behind it, and they are here because they are the regression this
+# lint would otherwise miss entirely: `http://vss-haproxy-ingress:7777` and
+# `http://vss.local:7777` reach the right place from a colocated agent and
+# resolve nowhere from a remote one, so they pass every single-host test and
+# break exactly the deployment FR-03 and FR-35 exist for. The agent must reach
+# the gateway through VSS_GATEWAY_ORIGIN, whose own default spells the alias as
+# `${VSS_GATEWAY_HOST:-vss.local}` -- an expansion, which this regex does not
+# match, and not the literal these two forbid. remote-agent.env.example:11-28
+# says the same thing to the operator: vss.local "must never be used here".
 DOCKER_ONLY_HTTP_HOSTS = {
     "alert-bridge",
     "elasticsearch",
@@ -34,10 +45,14 @@ DOCKER_ONLY_HTTP_HOSTS = {
     "vss-rtvi-cv",
     "vss-va-mcp",
     "vst-ingress",
+    "vss-haproxy-ingress",
+    "vss.local",
 }
+# Escaped: `vss.local` carries a dot, and an unescaped dot is a wildcard that
+# would also match `vss-local` and report a host nobody wrote.
 HTTP_URL = re.compile(
     r"https?://(?P<host>"
-    + "|".join(sorted(DOCKER_ONLY_HTTP_HOSTS))
+    + "|".join(re.escape(host) for host in sorted(DOCKER_ONLY_HTTP_HOSTS))
     + r")(?=[:/\"'\s]|$)"
 )
 # `NAME=` in an env file, `NAME:` in YAML. Used only to name the setting a

@@ -285,9 +285,14 @@ functions:
     top_k: 5
     backend_config:
       # Compose supplies ELASTIC_SEARCH_ENDPOINT as the gateway's /elasticsearch
-      # mount; the fallback matches it rather than naming a Compose service, so
-      # this config resolves the same way wherever the agent runs.
-      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://vss.local:7777/elasticsearch}
+      # mount, already derived from VSS_GATEWAY_ORIGIN
+      # (services/agent/compose.yml:36,181), so this takes it unconditionally
+      # the way dev-profile-search and dev-profile-alerts do. It previously
+      # carried a `:-http://vss.local:7777/elasticsearch` fallback described as
+      # resolving "the same way wherever the agent runs", which is the one thing
+      # it does not do: vss.local is a bridge-only Compose alias, so that
+      # fallback works colocated and resolves nowhere from a remote agent.
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       index: default_*                                  # per-stream `default_<stream_id>` indices
       default_doc_type: raw_events
       api_key: ""
