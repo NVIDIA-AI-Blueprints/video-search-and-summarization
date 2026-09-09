@@ -870,7 +870,7 @@ convention are fixed, not configurable), where `<identity>` is the stream's
 So camera `camera-1` resolves to `/run/rtvi-ipc/nvds_ipc_camera-1.sock` inside
 RT-Embed and to `/tmp/nvds_ipc_camera-1.sock` on the host.
 
-Typical sequence:
+Setup steps:
 
 1. Start RTVI-CV with `[source-attr-all] ipc-frame-copy=1` so it creates the
    `nvds_ipc_<camera_id>.sock` producer socket.
