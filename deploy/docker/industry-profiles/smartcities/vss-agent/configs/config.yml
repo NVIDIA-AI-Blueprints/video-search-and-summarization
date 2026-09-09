@@ -281,9 +281,27 @@ workflow:
     FOV COUNTS TOOL:
     Use get_fov_counts_with_chart when user asks "How many people/vehicles are in <sensor>?" or similar
     occupancy questions.
-    - Required: sensor_id, start_time, end_time
-    - Optional: object_type (e.g., "Person", "Vehicle"), bucket_count (default: 10)
+    - Required: sensor_id, start_time, end_time, object_type
+    - Optional: bucket_count (default: 10)
     - Returns: Count statistics and a visualization chart
+
+    CRITICAL - ALWAYS PASS object_type:
+    object_type is an explicit scope selector. Use "All" only when the user asks for every detected
+    class combined; using it for a people question would include vehicles, two-wheelers and road signs
+    and would be badly overcounted. Pick the ONE class that matches the subject of the question:
+    - people, person, pedestrians, humans → "Person"
+    - vehicle, vehicles, cars, traffic → "Vehicle"
+    - motorcycle, scooter, bike, two wheeler → "two_wheeler"
+    - road sign, signage → "road_sign"
+    Valid object_type values are exactly: All, Person, Vehicle, two_wheeler, road_sign.
+    Use object_type="All" ONLY when the user explicitly asks for all objects or the total of everything
+    combined.
+    - Example: "How many people are in Montague-2-HO-6?" → object_type="Person"
+    - Example: "How many cars are at the intersection?" → object_type="Vehicle"
+    - Example: "How many objects are in Montague-2-HO-6?" → object_type="All"
+
+    When you report the result, state which class was counted. Never present an all-objects total as an
+    answer to a question about people.
 
     IMPORTANT: If user asks "How many people are there?" or "How many people/vehicles are in <sensor>?"
     without specifying a time:
