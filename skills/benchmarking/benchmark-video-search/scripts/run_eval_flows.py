@@ -1344,10 +1344,17 @@ def main() -> None:
                 print(f"           every query will use --search-path {args.search_path}.")
                 print("           ONE PATH IS MEASURED -- this is not a routing eval.")
                 print("           Report it alongside the metrics.")
+                # Record that an answer key exists; do NOT suggest using it.
+                # This used to print `--decompositions <path>` as a ready-to-run
+                # line, which is a suggestion shaped like an instruction: an
+                # agent driving this skill copies it, and the run silently
+                # becomes a gold-routing experiment scored under a live-routing
+                # label. Only physicalai-dev ships one, so following it also
+                # makes that dataset incomparable with every other.
                 sidecar = flows.sidecar_decompositions_for(args.data_dir, args.dataset)
                 if sidecar:
-                    print(f"           ({args.dataset} ships an answer key; --decompositions {sidecar}")
-                    print("            would route per query, but scores perfect routing, not live.)")
+                    decompose_fallback["answer_key_available"] = str(sidecar)
+                    decompose_fallback["answer_key_used"] = False
                 print()
 
     ingest_backend = build_ingest_backend(args)
