@@ -186,6 +186,21 @@ DEFAULT_PROMPT="$(cat "$PROMPT_FILE")"
   exit 1
 }
 
+# Fresh shell: HITL state never arrives on its own. Set BOTH at the top of THIS block
+# (values from SKILL.md § HITL prompt mode); the block refuses to run without them:
+#   HITL_RESOLVED=true|false
+#   HITL_PROMPT_FILE — required when HITL_RESOLVED=true: never paste prompt text into the shell.
+#   Write the approved / edited / new text to a file with the Write tool (e.g. /tmp/vss-hitl-prompt.txt)
+#   and set HITL_PROMPT_FILE=<that path>; the block reads it with cat, so nothing in the prompt is
+#   ever interpreted by the shell.
+: "${HITL_RESOLVED:?set HITL_RESOLVED=true|false at the top of this block (SKILL.md § HITL prompt mode)}"
+case "$HITL_RESOLVED" in
+  true)  [ -f "${HITL_PROMPT_FILE:-}" ] && FINAL_PROMPT=$(cat "$HITL_PROMPT_FILE") && [ -n "$(printf '%s' "$FINAL_PROMPT" | tr -d '[:space:]')" ] \
+           || { echo "ERROR: HITL resolved true but HITL_PROMPT_FILE is unset, unreadable or blank — write the approved prompt to a file with the Write tool and set HITL_PROMPT_FILE" >&2; exit 1; } ;;
+  false) FINAL_PROMPT="$DEFAULT_PROMPT" ;;
+  *)     echo "ERROR: HITL_RESOLVED must be exactly true or false, got '$HITL_RESOLVED'" >&2; exit 1 ;;
+esac
+
 # FINAL_PROMPT must come from the resolved HITL mode gate (SKILL.md § HITL prompt mode).
 # Resolution order:
 #   1) video_report_gen.hitl_enabled
@@ -256,6 +271,10 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
   esac
 fi
 
+# A1 sends the VST clip URL; A2 (Step 1) sends inline bytes — this one block serves both paths.
+VIDEO_SRC="${VIDEO_DATA_URL:-${VIDEO_URL:?set VIDEO_URL (A1) or VIDEO_DATA_URL (A2) at the top of this block}}"
+case "$VIDEO_SRC" in data:*,) echo "ERROR: VIDEO_DATA_URL carries no base64 payload (empty or unreadable VIDEO_FILE / VIDEO_BASE64)" >&2; exit 1 ;; esac
+
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
   -d @- <<EOF | jq -r '.choices[0].message.content'
@@ -266,7 +285,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
       "role": "user",
       "content": [
         {"type": "text", "text": $(printf '%s' "${PROMPT}" | jq -Rs .)},
-        {"type": "video_url", "video_url": {"url": $(printf '%s' "${VIDEO_URL}" | jq -Rs .)}}
+        {"type": "video_url", "video_url": {"url": $(printf '%s' "${VIDEO_SRC}" | jq -Rs .)}}
       ]
     }
   ],
@@ -276,28 +295,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
 EOF
 ```
 
-For Mode A path A2 when using inline bytes, run the same Step 3 preamble above (prompt resolution, `CFG_JSON`, `MM_KWARGS`), then send `VIDEO_DATA_URL` instead of `VIDEO_URL`:
-
-```bash
-curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d @- <<EOF | jq -r '.choices[0].message.content'
-{
-  "model": $(printf '%s' "${VLM_MODEL}" | jq -Rs .),
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        {"type": "text", "text": $(printf '%s' "${PROMPT}" | jq -Rs .)},
-        {"type": "video_url", "video_url": {"url": $(printf '%s' "${VIDEO_DATA_URL}" | jq -Rs .)}}
-      ]
-    }
-  ],
-  "max_tokens": 1024,
-  "temperature": 0.0${MM_KWARGS}
-}
-EOF
-```
+For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64, `VIDEO_DATA_URL="data:${VIDEO_MIME};base64,${VIDEO_BASE64}"`.
 
 > The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
 

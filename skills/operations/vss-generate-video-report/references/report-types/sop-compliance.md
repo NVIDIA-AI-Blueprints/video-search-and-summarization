@@ -64,9 +64,22 @@ SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
 [ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
-curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
-  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
+# Keep the raw response: classify transport / JSON-RPC / tool failures BEFORE extracting the text.
+BODY_FILE=$(mktemp) || exit 1
+trap 'rm -f "$BODY_FILE"' EXIT
+CODE=$(curl -sS --max-time 30 -o "$BODY_FILE" -w '%{http_code}' -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}') \
+  || { echo "get_sop_report: curl failed (transport error above)" >&2; cat "$BODY_FILE" >&2; exit 1; }
+[ "$CODE" = "200" ] || { echo "get_sop_report tools/call failed: HTTP $CODE" >&2; cat "$BODY_FILE" >&2; exit 1; }
+# Pick the JSON-RPC response to OUR request (id 2) — not merely the last SSE event; accept a plain-JSON body too.
+ENVELOPE=$(grep '^data: *{' "$BODY_FILE" | sed 's/^data: *//' | jq -c 'select(type=="object" and .id==2)' 2>/dev/null | tail -n 1)
+[ -n "$ENVELOPE" ] || ENVELOPE=$(jq -c 'select(type=="object" and .id==2)' "$BODY_FILE" 2>/dev/null)
+[ -n "$ENVELOPE" ] || { echo "get_sop_report: no JSON-RPC response with id 2 in the body (empty, non-SSE, or unparseable)" >&2; cat "$BODY_FILE" >&2; exit 1; }
+printf '%s' "$ENVELOPE" | jq -e 'has("error") | not' >/dev/null || { echo "get_sop_report: JSON-RPC error" >&2; printf '%s\n' "$ENVELOPE" >&2; exit 1; }
+printf '%s' "$ENVELOPE" | jq -e '(.result | type) == "object" and .result.isError != true' >/dev/null || { echo "get_sop_report: missing result or tool returned isError" >&2; printf '%s\n' "$ENVELOPE" >&2; exit 1; }
+# The text may be the empty-range sentinel {"error": "No VisionLLM messages found for the given filters."} — Step 3 handles it.
+printf '%s' "$ENVELOPE" | jq -er '.result.content[0].text | select(type=="string" and length>0)' \
+  || { echo "get_sop_report: result carries no text content" >&2; printf '%s\n' "$ENVELOPE" >&2; exit 1; }
 ```
 
 Returns `report_summary` (total messages, current / completed cycle, compliance status), `sop_violations` (missing / mis-ordered steps per cycle with timestamps), `actions_observed` (`total_action_entries`, `unique_actions`, `latest_action` — `total_action_entries` counts the action entries actually recorded, NOT the message count: a chunk whose VLM response is null/empty yields no action entry, so it can be far below total messages), and a `formatted_report` markdown string.
