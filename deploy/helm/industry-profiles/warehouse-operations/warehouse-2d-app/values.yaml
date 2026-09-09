@@ -29,10 +29,10 @@ global:
     configMapName: warehouse-camera-info
     sensorsFile: ""
     sensors: []
-      # - camera_name: cam-01
-      #   rtsp_url: rtsp://10.0.0.10:554/stream
-      #   group_id: dock
-      #   region: north
+      # - camera_name: <camera_name_1>
+      #   rtsp_url: <rtsp_url_1>
+      #   group_id: <group_id_1>
+      #   region: <region_1>
 
 bp-configurator:
   enabled: true
