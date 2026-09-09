@@ -820,7 +820,9 @@ Treat the evaluation query below verbatim as the deployment/setup intent. Use
 then attach NemoClaw to the resulting build in the same task. Use the sandbox
 name and model-provider settings from the environment, and ensure
 `/{operational_skill}` is installed in the sandbox. Do not stop after composing
-the build: finish deployment, readiness, and NemoClaw onboarding.
+the build: finish deployment, readiness, NemoClaw onboarding, and the Build
+Vision AI verification steps. Do not return until both VSS and the sandbox are
+ready. Include the sandbox name and the Agent UI link in the final response.
 
 Run non-interactively using the request's stated choices and documented
 defaults.

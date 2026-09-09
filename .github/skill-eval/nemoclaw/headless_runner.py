@@ -12,6 +12,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,36 @@ def _gateway_healthy(sandbox: str) -> bool:
         timeout=30,
     )
     return result.returncode == 0
+
+
+def _wait_for_gateway(sandbox: str, timeout: int = 90) -> bool:
+    """Allow the notebook-started gateway its documented startup window."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if _gateway_healthy(sandbox):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(3, remaining))
+
+
+def _sandbox_status(sandbox: str) -> str:
+    """Return a bounded, credential-free OpenShell description for failures."""
+    try:
+        result = subprocess.run(
+            ["openshell", "sandbox", "get", sandbox],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"unavailable ({type(exc).__name__})"
+    detail = (result.stdout or result.stderr or "no output").strip()
+    detail = re.sub(r"\x1b\[[0-9;]*m", "", detail)
+    return f"exit {result.returncode}: {detail[-1000:]}"
 
 
 def _json_object(raw: str) -> dict[str, Any]:
@@ -271,8 +302,11 @@ def main(argv: list[str] | None = None) -> int:
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
 
     try:
-        if not _gateway_healthy(sandbox):
-            raise RuntimeError("OpenClaw gateway is not healthy after provisioning")
+        if not _wait_for_gateway(sandbox):
+            raise RuntimeError(
+                "OpenClaw gateway is not healthy after the 90-second startup "
+                f"window; sandbox status: {_sandbox_status(sandbox)}"
+            )
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
