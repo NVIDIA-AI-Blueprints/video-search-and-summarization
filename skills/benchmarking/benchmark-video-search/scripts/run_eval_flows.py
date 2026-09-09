@@ -233,60 +233,96 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
 
 
 #: What the probe asks. Any text works -- embedding search returns the nearest
-#: `top_k` regardless of how poorly they match, so a non-empty answer means
-#: documents exist and an empty one means they do not. Deliberately generic so
+#: `top_k` regardless of how poorly they match, so what comes back is a sample
+#: of what is indexed, not a judgement about relevance. Deliberately generic so
 #: it carries no assumption about which dataset was ingested.
 PROBE_QUERY = "a person"
 
 
-def probe_index_populated(
+def probe_index_coverage(
     query_backend: Any,
+    expected_sources: list[str],
     attempts: int = 10,
     backoff_s: float = 15.0,
+    top_k_per_source: int = 20,
 ) -> dict[str, Any]:
-    """Confirm something is actually searchable before scoring a whole run.
+    """Confirm every ingested video is searchable before scoring a whole run.
 
     The three-step ingest flow proves this for free: ``/complete`` runs the
-    embedding leg synchronously and returns ``chunks_processed``, and a zero
-    fails the upload. ``vst-direct`` has no such step -- VIOS fans out to the
-    perception services by webhook and never reports the outcome to the
-    uploader -- so an upload can succeed, the source can register in VST, the
-    readiness poll can pass, and Elasticsearch can still be empty.
+    embedding leg synchronously per video and returns ``chunks_processed``, so
+    a zero fails that upload. ``vst-direct`` has no such step -- VIOS fans out
+    to the perception services by webhook and never reports the outcome -- and
+    the readiness poll does not close the gap, because it asks VST which
+    sources are *registered*. A source registered by an earlier run answers yes
+    while this run's re-ingest is still being embedded, so readiness returns in
+    0.0s against an index that is half rebuilt.
 
-    That state is indistinguishable from broken retrieval: every query returns
-    nothing and the run reports mAP 0.0000 after half an hour. It is the same
-    failure the CLI exit-code handling exists to prevent, arriving by a
-    different route -- ``webhooks.enabled: false`` (the Helm default), or
-    RT-Embed rejecting the model name, which it answers with HTTP 200 and
-    ``inference: false``.
+    That is not a hypothetical: it scored physicalai-dev at recall 0.3534
+    against the 0.5103 the same queries had reached, with routing unchanged,
+    and read as a retrieval regression.
 
-    So: one cheap embed query, retried, because webhook-driven perception is
-    asynchronous and "not yet" is the expected first answer. Uses a throwaway
-    backend rather than the run's own so a low ``--min-cosine-similarity`` or a
-    non-embed ``--search-path`` cannot turn a populated index into a false
-    alarm.
+    So this asks the index itself, and asks about coverage rather than
+    existence -- "is anything indexed" passes on 1 video out of 32. One broad
+    embed query, matched back to the expected videos with the same name matcher
+    the scorer uses, retried because webhook perception is asynchronous.
+
+    Returns the sources still missing. On a dataset large enough that ``top_k``
+    cannot reach every video, full coverage is unreachable by construction;
+    raise ``--index-probe-top-k``, or skip the probe and accept the risk.
     """
+    if not expected_sources:
+        return {"checked": False, "reason": "no expected sources"}
+
     probe_backend = flows.CliQueryBackend(
         vss_cmd=query_backend.vss_cmd,
         search_path="embed",
-        top_k=1,
+        top_k=min(1000, max(50, top_k_per_source * len(expected_sources))),
         cwd=query_backend.cwd,
         pass_original_query=False,
     )
+    missing = list(expected_sources)
     for attempt in range(1, attempts + 1):
         try:
             hits, _latency = probe_backend.search(PROBE_QUERY)
         except Exception as e:
             # An environment fault is worth reporting as itself rather than as
             # an empty index -- exit 4 means misconfigured, not unindexed.
-            return {"populated": False, "attempts": attempt, "error": f"{type(e).__name__}: {e}"}
-        if hits:
-            print(f"  Index is populated (probe returned {len(hits)} hit after {attempt} attempt(s)).")
-            return {"populated": True, "attempts": attempt}
+            return {
+                "checked": True,
+                "covered": False,
+                "attempts": attempt,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+        seen = {h.get("video_name", "") for h in hits if h.get("video_name")}
+        missing = [
+            source
+            for source in expected_sources
+            if not any(flows.video_name_matches(name, source) for name in seen)
+        ]
+        found = len(expected_sources) - len(missing)
+        if not missing:
+            print(
+                f"  Index covers all {len(expected_sources)} source(s) "
+                f"after {attempt} attempt(s)."
+            )
+            return {"checked": True, "covered": True, "attempts": attempt,
+                    "sources": len(expected_sources)}
         if attempt < attempts:
-            print(f"  Probe {attempt}/{attempts}: index still empty, retrying in {backoff_s:.0f}s")
+            print(
+                f"  Probe {attempt}/{attempts}: {found}/{len(expected_sources)} "
+                f"source(s) indexed, retrying in {backoff_s:.0f}s"
+            )
             time.sleep(backoff_s)
-    return {"populated": False, "attempts": attempts}
+
+    return {
+        "checked": True,
+        "covered": False,
+        "attempts": attempts,
+        "sources": len(expected_sources),
+        "missing": missing[:20],
+        "missing_count": len(missing),
+    }
 
 
 def describe_query_flow(
@@ -1163,6 +1199,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ingest.add_argument("--index-probe-attempts", type=int, default=10)
     ingest.add_argument(
+        "--index-probe-top-k",
+        type=int,
+        default=20,
+        help=(
+            "Results requested per expected source when probing coverage "
+            "(default: 20, capped at the CLI's 1000). Embedding search returns "
+            "the nearest top_k, so on a large dataset one query cannot reach "
+            "every video and full coverage becomes unreachable -- raise this, "
+            "or use --skip-index-probe."
+        ),
+    )
+    ingest.add_argument(
         "--index-probe-backoff",
         type=float,
         default=15.0,
@@ -1394,24 +1442,37 @@ def main() -> None:
         # Registered in VST is not the same as indexed in Elasticsearch. The
         # three-step flow already proved the difference with a chunk count; a
         # flow that reports no proof has to be asked.
-        if ingest_backend.describe().get("ingest_proof") == "none" and not args.skip_index_probe:
-            print("\nProbing the index (ingest flow reports no chunk count)...")
-            index_probe = probe_index_populated(
+        if not ingest_backend.proves_indexing and not args.skip_index_probe:
+            print(f"\nProbing index coverage for {len(expected)} source(s)...")
+            index_probe = probe_index_coverage(
                 query_backend,
+                expected,
                 attempts=args.index_probe_attempts,
                 backoff_s=args.index_probe_backoff,
+                top_k_per_source=args.index_probe_top_k,
             )
-            if not index_probe["populated"]:
+            if index_probe.get("checked") and not index_probe.get("covered"):
+                detail = (
+                    f" ({index_probe['error']})"
+                    if index_probe.get("error")
+                    else f"; {index_probe.get('missing_count')} still missing, e.g. "
+                    f"{index_probe.get('missing', [])[:5]}"
+                )
                 raise SystemExit(
-                    "ABORTED: uploads succeeded and every source registered in VST, but a "
-                    "probe query returned nothing"
-                    + (f" ({index_probe['error']})" if index_probe.get("error") else "")
-                    + f" after {index_probe['attempts']} attempt(s).\n"
-                    "  Nothing is indexed, so every query would score 0.0 and the result "
-                    "would read as a retrieval collapse.\n"
-                    "  Check webhooks.enabled in the VIOS notification config (false in the "
-                    "Helm chart), and that RTVI_EMBED_MODEL matches the webhook's model "
-                    "string -- RT-Embed answers a mismatch with 200 and inference=false."
+                    "ABORTED: uploads succeeded and every source registered in VST, but the "
+                    f"index does not cover them after {index_probe['attempts']} attempt(s)"
+                    + detail
+                    + ".\n"
+                    "  Registered is not indexed: a source registered by an EARLIER run "
+                    "satisfies the readiness poll\n"
+                    "  while this run's re-ingest is still being embedded, and querying now "
+                    "scores that as a retrieval regression.\n"
+                    "  Raise --index-probe-attempts if perception is merely slow. Otherwise "
+                    "check webhooks.enabled in\n"
+                    "  the VIOS notification config (false in the Helm chart), and that "
+                    "RTVI_EMBED_MODEL matches the webhook's\n"
+                    "  model string -- RT-Embed answers a mismatch with 200 and "
+                    "inference=false."
                 )
 
     run_evaluation(
