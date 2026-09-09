@@ -83,6 +83,9 @@ class LegacyPutIngest:
 
     name = "legacy-put"
 
+    #: The single PUT is synchronous and indexes before it returns.
+    proves_indexing = True
+
     def __init__(self, endpoint: str, timeout: int = UPLOAD_TIMEOUT) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
@@ -140,6 +143,10 @@ class AgentThreeStepIngest:
     """
 
     name = "agent-3step"
+
+    #: ``/complete`` runs the embedding leg synchronously and returns
+    #: ``chunks_processed``; a zero fails the upload. That IS the check.
+    proves_indexing = True
 
     def __init__(
         self,
@@ -338,6 +345,14 @@ class VstDirectIngest:
     """
 
     name = "vst-direct"
+
+    #: Whether a successful upload is itself evidence that the media is
+    #: searchable. False here: the webhook fan-out is fire-and-forget, so the
+    #: caller has to check. A string in ``describe()`` was the wrong home for
+    #: this -- the gate compared it to "none" while describe() returned
+    #: "none (webhook fan-out is fire-and-forget)", so the check silently never
+    #: ran and a run against a half-built index scored as a retrieval collapse.
+    proves_indexing = False
 
     def __init__(
         self,
