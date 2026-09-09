@@ -603,6 +603,67 @@ but a large share of legacy traffic during the window will be self-generated,
 and that has to be subtracted before the totals are read as evidence about
 third-party callers.
 
+### Who each route is exposed to
+
+Every gateway route carries an **exposure tier**, recorded next to the route on
+both edges — an `exposure:` field on the row of the canonical table
+(`deploy/helm/services/common/templates/_ingress-routes.tpl`) and an
+`# exposure:` marker in `haproxy.cfg.template`. SRD FR-29 requires the
+classification and makes `internal-only` the default "unless a route is required
+by browser clients or remote agents", so a tier is a statement about who
+demonstrably calls the mount:
+
+| Tier | Means | Routes |
+|---|---|---|
+| `public-user-accessible` | A browser dereferences it. | `/`, `/api`, `/api/chat`, `/api/agent`, `/api/vss-chat`, `/api/proxy`, `/chat`, `/v1`, `/websocket`, `/static`, `/docs`, `/redoc`, `/generate`, `/openapi.json`, `/vst`, `/vios`, `/storage`, `/vios/storage`, `/video-analytics-api`, `/kibana`, `/phoenix` |
+| `remote-agent-accessible` | An off-host agent or the host-side `vss` CLI calls it; no browser does. | `/va-mcp`, `/alert-bridge`, `/alerts`, `/elasticsearch`, `/rtvi-vlm`, `/rtvi-cv`, `/rtvi-embed`, `/lvs`, `/video-summarization`, `/llm` |
+| `internal-only` | Neither. Only callers already inside the deployment network. | `/behavior-analytics`, `/perception-sdr` |
+
+**Only `internal-only` is enforced.** The other two tiers arrive over the same
+origin with no authentication, so the line between them is a review record
+rather than a control — route-level auth is what SRD FR-32 defers to a future
+iteration, and implementing half of it here would be worse than recording the
+intent. `/elasticsearch` is the case that shows why the tier is not a
+sensitivity ranking: it is reachable by the CLI on purpose, and what keeps that
+defensible is the method/path allowlist below (FR-30), not its tier.
+
+An `internal-only` route is served only to a caller that satisfies **both** of:
+
+- **an internal Host** — the gateway's own Compose service name
+  (`vss-haproxy-ingress`, or `HAPROXY_SERVICE_HOST`) or loopback. Never one of
+  the deployment's published origins, so a browser or remote agent following
+  this runbook does not send one.
+- **a private source address** — `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`
+  or `192.168.0.0/16`, which is what a Docker bridge is drawn from.
+
+Anything else gets **403 with `x-vss-gateway-deny: internal-only`**. Both gates
+are required because each is insufficient alone: `Host` is client-controlled, so
+anyone can type an internal one, and RFC 1918 covers a remote agent on a
+corporate network. Together, an off-network caller fails the source test
+whatever `Host` it invents, and an on-network caller addressing the deployment
+by its published name fails the Host test.
+
+**Residual, stated rather than left to be found:** a caller that is both on a
+private network with the deployment *and* knows to send an internal `Host` is
+admitted. Narrowing that needs the source allowlisting SRD §5 calls for
+("Production remote-agent deployments should support source IP allowlisting or
+private network access") or the auth of FR-32. What the tier buys today is that
+no internal-only mount is reachable on the origin the deployment publishes,
+which is the claim FR-29 makes.
+
+On Kubernetes there is nothing to gate — an Ingress rule under the public host
+*is* the exposure — so enforcement there is not rendering the path at all.
+`/behavior-analytics` is published anyway, under a `publicMountException` that
+names the reason: whether that mount should exist at all is an open product
+question about a service that serves no HTTP on the image both chart families
+render, and answering it as a side effect of classifying the route would be the
+wrong way to decide it. Nothing observable rides on it meanwhile — the mount
+answers 503 either way.
+
+`.github/scripts/check_gateway_route_exposure.py` fails CI if a route on either
+edge has no tier, if the two edges classify a mount differently, or if an
+internal-only route is not actually gated and denied.
+
 ### A 503 from the gateway is not the same as a 503 from a service
 
 No profile deploys everything. Before the gateway, a caller learned that for
