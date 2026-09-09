@@ -165,6 +165,10 @@ before committing, and nothing else:
 | a GitLab runner's container name | `runner-<redacted>-build` | it embeds a runner token and a project id, and the runner is unrelated to the profile |
 | the MCP session id | first 8 hex + `…` | credential-shaped, though it expired with the run |
 
+One further edit, not a redaction: the deployment-side header pointed at the
+agent-side file by its original `.log` name, which is not the name it has here.
+Nothing in either file's recorded output was changed.
+
 The `/24`s are deliberately left legible: that the two hosts were on different
 subnets is part of what the run demonstrates, so masking the host octet removes
 the address without removing the topology. Docker bridge addresses

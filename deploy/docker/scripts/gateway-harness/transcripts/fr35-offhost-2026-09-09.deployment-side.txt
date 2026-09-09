@@ -1,6 +1,7 @@
 # Deployment-side evidence for the FR-35 off-host proof
 # Captured 2026-09-09T16:30:50Z from the DEPLOYMENT host by ssh.
-# The agent side of this pair is fr35-offhost-2026-09-09.log.
+# The agent side of this pair is fr35-offhost-2026-09-09.agent-side.txt
+# (named .log when it was produced; *.log is gitignored repo-wide).
 
 ## identity
 deployment-host
