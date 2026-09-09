@@ -1254,7 +1254,8 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" \
 _warehouse_rc=$?
 set -e
 _warehouse_rtvi_ok=0
-if [[ -f "${_warehouse_gen_env}" ]] \
+if [[ ${_warehouse_rc} -eq 0 ]] \
+  && [[ -f "${_warehouse_gen_env}" ]] \
   && grep -Eq "^RTVI_VLLM_GPU_MEMORY_UTILIZATION=['\"]?0\.2['\"]?$" "${_warehouse_gen_env}" \
   && grep -Eq "^RTVI_VLLM_ATTENTION_BACKEND=['\"]?TRITON_ATTN['\"]?$" "${_warehouse_gen_env}" \
   && grep -Eq "^RT_VLM_DEVICE_ID=['\"]?1['\"]?$" "${_warehouse_gen_env}"; then
