@@ -1,13 +1,46 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useVideoModal } from 'common';
 
 import { SearchComponent } from '../../lib-src/SearchComponent';
 import { useFilter } from '../../lib-src/hooks/useFilter';
+import { useSearchByImage } from '../../lib-src/hooks/useSearchByImage';
 
 jest.mock('../../lib-src/hooks/useFilter');
+jest.mock('../../lib-src/hooks/useSearchByImage');
+jest.mock('common', () => ({
+  ...jest.requireActual('common'),
+  useVideoModal: jest.fn(),
+}));
+jest.mock('next/dynamic', () => () => {
+  const DynamicOverlay = ({ onSelectObject }: { onSelectObject: (id: string) => void }) =>
+    React.createElement('button', {
+      type: 'button',
+      'data-testid': 'select-search-by-image-object',
+      onClick: () => onSelectObject('42'),
+    });
+  return DynamicOverlay;
+});
 
 const mockUseFilter = useFilter as jest.MockedFunction<typeof useFilter>;
+const mockUseSearchByImage = useSearchByImage as jest.MockedFunction<typeof useSearchByImage>;
+const mockUseVideoModal = useVideoModal as jest.MockedFunction<typeof useVideoModal>;
+
+const inactiveSearchByImage = {
+  searchByImageActive: false,
+  searchByImageLoading: false,
+  searchByImageError: null,
+  searchByImageFrameData: null,
+  startSearchByImage: jest.fn(),
+  cancelSearchByImage: jest.fn(),
+};
+
+const closedVideoModal = {
+  videoModal: { isOpen: false, videoUrl: '', title: '' },
+  openVideoModal: jest.fn(),
+  closeVideoModal: jest.fn(),
+};
 
 describe('SearchComponent sidebar events', () => {
   const defaultProps = {
@@ -32,6 +65,8 @@ describe('SearchComponent sidebar events', () => {
       filterTags: [],
       refetch: jest.fn(),
     });
+    mockUseSearchByImage.mockReturnValue({ ...inactiveSearchByImage });
+    mockUseVideoModal.mockReturnValue({ ...closedVideoModal });
   });
 
   it('clears search results on sidebar messageSubmitted even when Search tab is not focused', () => {
@@ -231,5 +266,50 @@ describe('SearchComponent sidebar events', () => {
 
     expect(screen.queryByText('low.mp4')).not.toBeInTheDocument();
     expect(screen.getByText('high.mp4')).toBeInTheDocument();
+  });
+
+  it('submits an unprefixed Search-by-Image object_id prompt', async () => {
+    const submitChatMessage = jest.fn();
+    const cancelSearchByImage = jest.fn();
+    const closeVideoModal = jest.fn();
+
+    mockUseVideoModal.mockReturnValue({
+      videoModal: { isOpen: true, videoUrl: 'http://vst.test/clip.mp4', title: 'clip' },
+      openVideoModal: jest.fn(),
+      closeVideoModal,
+    });
+    mockUseSearchByImage.mockReturnValue({
+      searchByImageActive: true,
+      searchByImageLoading: false,
+      searchByImageError: null,
+      searchByImageFrameData: {
+        frameImage: {} as HTMLImageElement,
+        objects: [{ id: '42', bbox: { leftX: 0, topY: 0, rightX: 1, bottomY: 1 }, type: 'Person' }],
+        sensorId: 's1',
+        sensorName: 'cam',
+        timestamp: '2024-01-01T00:00:00',
+      },
+      startSearchByImage: jest.fn(),
+      cancelSearchByImage,
+    });
+
+    render(
+      <SearchComponent
+        {...defaultProps}
+        submitChatMessage={submitChatMessage}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('select-search-by-image-object')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('select-search-by-image-object'));
+    fireEvent.click(screen.getByTestId('search-by-image-search-button'));
+
+    expect(submitChatMessage).toHaveBeenCalledTimes(1);
+    expect(submitChatMessage).toHaveBeenCalledWith('Find similar objects matching object_id=42');
+    expect(submitChatMessage.mock.calls[0][0]).not.toContain('[Context:');
+    expect(cancelSearchByImage).toHaveBeenCalledTimes(1);
+    expect(closeVideoModal).toHaveBeenCalledTimes(1);
   });
 });
