@@ -106,9 +106,47 @@ latest release tag, `v3.2.1`, does not contain `deploy/docker/containers.env` or
 the per-profile `overrides.env` templates used by these commands.
 </Note>
 
+## Prepare your coding agent
+
+Run the coding agent in an environment that can access the VSS Blueprint checkout
+and run deployment commands on the target host. For the Docker Compose
+quickstart, the deployment host must meet the supported Linux platform,
+GPU, Docker, and NVIDIA Container Toolkit requirements in
+[Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use Ubuntu
+22.04 or Ubuntu 24.04.
+
+You can use a remote development environment such as a Brev or Omnistation
+sandbox when that environment exposes the required GPU, Docker Engine, network
+ports, NGC access, and repository checkout to the coding agent. A Windows or Mac
+machine can be used as the browser or coding-agent client, but it is not the
+validated Docker Compose deployment host for this quickstart; point the agent at
+a supported Linux deployment host instead.
+
+Install the Build Vision AI Skill before asking the agent to deploy VSS. From the
+VSS Blueprint checkout, ask your coding agent:
+
+```text title="Install the Build Vision AI Skill"
+Install only skills/vss-build-vision-ai for this host. Use the host's standard
+skills directory. Symlink the skills/vss-build-vision-ai folder rather than
+copying it so a git pull here keeps the Skill up to date. If it is already
+installed and points at this checkout, leave it unchanged. When done, report the
+registered path.
+```
+
+The standard Skill locations are:
+
+| Host | Skill path |
+| --- | --- |
+| Codex | `~/.codex/skills/vss-build-vision-ai` |
+| Claude Code | `~/.claude/skills/vss-build-vision-ai` |
+| Other `agentskills.io`-compatible hosts | `~/.agents/skills/vss-build-vision-ai` |
+
+After installation, start a new coding-agent session from this checkout so the
+agent discovers `vss-build-vision-ai`.
+
 ## Deploy the base profile
 
-Use a coding agent with the [Build Vision Agent skill](/vss/vision-agent/agent-skills) to deploy
+Use a coding agent with the [Build Vision AI Skill](/vss/vision-agent/build-vision-ai) to deploy
 the validated `base` developer profile. This is the default quickstart path.
 
 ```text title="Example prompt"
@@ -830,7 +868,7 @@ Once deployed, the following services are available:
 ## Agent Skills walkthrough
 
 The default quickstart deploys the base profile with a coding agent and the
-Build Vision Agent skill. This section expands that same agent-driven journey —
+Build Vision AI Skill. This section expands that same agent-driven journey —
 deploy, upload, ask, report, tear down — and documents the **example prompt** you
 give the agent and **what the agent does** in response.
 
@@ -838,9 +876,10 @@ This walkthrough is written for developers and users who want to operate VSS
 from natural language.
 
 <Note>
-Install the skills into your coding agent first (see [Agent Skills](/vss/vision-agent/agent-skills) for the install flow) and confirm your host meets the
-[Prerequisites](/vss/getting-started/prerequisites). For how each harness loads skills, see
-[Agent Harnesses](/vss/vision-agent/agent-harnesses).
+Install `vss-build-vision-ai` first using
+[Prepare your coding agent](#prepare-your-coding-agent), and confirm your host
+meets the [Prerequisites](/vss/getting-started/prerequisites). For how each
+harness loads skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
 </Note>
 
 The base profile journey exercises four skills:
@@ -853,7 +892,7 @@ The base profile journey exercises four skills:
 | Generate a report | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
 | Tear down | `vss-build-vision-ai` | Tears down the deployed build and cleans up profile-specific runtime state when needed. |
 
-### Deploy with Build Vision Agent
+### Deploy with Build Vision AI
 
 **Example prompts**
 
