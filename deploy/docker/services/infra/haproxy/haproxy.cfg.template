@@ -293,9 +293,95 @@ frontend fe_http
     acl h_main hdr(host) -i "${HAPROXY_SERVICE_HOST}"
     acl h_main hdr(host) -i "${HAPROXY_SERVICE_HOST}:${HAPROXY_PORT}"
 
+    # --- Route exposure tiers (FR-29) ---
+    #
+    # Every `use_backend` in this frontend carries an `# exposure:` marker naming
+    # one of the SRD's three tiers -- internal-only, remote-agent-accessible,
+    # public-user-accessible. `.github/scripts/check_gateway_route_exposure.py`
+    # requires the marker, and holds it to the `exposure:` field on the matching
+    # row of the canonical table
+    # (deploy/helm/services/common/templates/_ingress-routes.tpl), so the two
+    # edges cannot classify the same mount differently.
+    #
+    # Only internal-only is ENFORCED, here. The other two tiers arrive over the
+    # same origin with no authentication, so the difference between them is a
+    # review record rather than a control -- route-level auth is what FR-32
+    # defers, and inventing half of it here would be worse than recording the
+    # intent honestly.
+    #
+    # An internal-only route is served only to a caller that satisfies BOTH
+    # predicates below. Both, because either alone is insufficient:
+    #
+    #   h_internal   the Host is one of the origins that only exist inside the
+    #                deployment -- the gateway's own Compose service name, or
+    #                loopback. These are not the deployment's published identity,
+    #                so a browser or a remote agent following the runbook never
+    #                sends one. On its own this is not a boundary: Host is
+    #                client-controlled, so anyone can type it.
+    #   gw_internal_src  the packet came from a private range -- the Docker
+    #                bridge, or the host itself through the bridge gateway
+    #                address. This is the part a remote caller cannot forge; it
+    #                is also, on its own, too broad, because a remote agent on a
+    #                corporate 10.0.0.0/8 network is in one of these ranges.
+    #
+    # Together the gap in each closes the other: an off-network caller fails
+    # gw_internal_src whatever Host it invents, and an on-network caller
+    # addressing the deployment by its published name fails h_internal.
+    #
+    # RESIDUAL, stated rather than discovered later: a caller that is both on a
+    # private network with the deployment and knows to send an internal Host is
+    # admitted. Narrowing that needs the source allowlist FR-29's neighbours in
+    # §5 call for ("Production remote-agent deployments should support source IP
+    # allowlisting or private network access") or the auth of FR-32. What this
+    # buys today is that no internal-only mount is reachable on the origin the
+    # deployment publishes, which is the claim FR-29 actually makes.
+    #
+    # Written longhand, one `acl` line per range, exactly like the Host
+    # allowlists above -- and for a harder reason than symmetry. A single
+    # `src "${VAR}"` holding space-separated ranges would be ONE quoted argument
+    # containing spaces rather than several patterns, and an unset or empty
+    # variable aborts the parse outright ("argument is empty and marks the end of
+    # the argument list"), taking the whole gateway down. No new environment
+    # variable is introduced here for that reason: these four ranges are RFC 1918
+    # plus loopback, which is what a Docker bridge is drawn from on every
+    # deployment, and there is nothing for an operator to set wrongly.
+    acl gw_internal_src src 127.0.0.0/8
+    acl gw_internal_src src 10.0.0.0/8
+    acl gw_internal_src src 172.16.0.0/12
+    acl gw_internal_src src 192.168.0.0/16
+
+    # The gateway's own Compose service name is the canonical internal origin:
+    # it resolves on Docker embedded DNS and nowhere else, and it is already how
+    # a container on the network addresses this proxy (see HAPROXY_SERVICE_HOST
+    # in the known_host block above). Loopback is included because the host
+    # itself is inside the trust boundary and an operator's `curl` from the
+    # Docker host is neither a browser client nor a remote agent.
+    #
+    # Deliberately NOT here: VSS_PUBLIC_HOST, EXTERNAL_IP, HOST_IP,
+    # HOST_INTERNAL_ALIAS and VSS_GATEWAY_HOST. The first four are the
+    # deployment's published identity -- the whole point is that an internal-only
+    # mount is not served on them. VSS_GATEWAY_HOST is excluded because it is
+    # operator-settable to a public DNS name; `vss.local` would be safe and the
+    # variable is not, and a tier must not depend on how a variable happens to be
+    # filled in.
+    acl h_internal hdr(host) -i vss-haproxy-ingress
+    acl h_internal hdr(host) -i "vss-haproxy-ingress:${HAPROXY_PORT}"
+    acl h_internal hdr(host) -i "${HAPROXY_SERVICE_HOST}"
+    acl h_internal hdr(host) -i "${HAPROXY_SERVICE_HOST}:${HAPROXY_PORT}"
+    acl h_internal hdr(host) -i localhost
+    acl h_internal hdr(host) -i "localhost:${HAPROXY_PORT}"
+    acl h_internal hdr(host) -i 127.0.0.1
+    acl h_internal hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
+
+    # Composed in the `if` clauses below rather than into a named ACL: an `acl`
+    # line declares a single test against a sample, it cannot AND two other
+    # ACLs, so `h_internal gw_internal_src` has to appear on the condition
+    # itself. Space-separated conditions are an AND in HAProxy.
+
     acl p_vst_storage path /vst/storage
     acl p_vst_storage path_beg /vst/storage/
     acl p_vst_prefixed_storage path_reg ^/[^/]+:[0-9]+/vst/storage(/|$)
+    # exposure: public-user-accessible
     acl p_storage path /storage
     acl p_storage path_beg /storage/
     # /vios/storage is the same media surface under the alias, so it gets the
@@ -315,14 +401,17 @@ frontend fe_http
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vios_storage
     use_backend bk_vst_storage_compat if h_main p_storage
 
+    # exposure: public-user-accessible
     acl p_video_analytics path /video-analytics-api
     acl p_video_analytics path_beg /video-analytics-api/
     use_backend bk_video_analytics_api_strip if h_main p_video_analytics
 
+    # exposure: remote-agent-accessible
     acl p_alert_bridge path /alert-bridge
     acl p_alert_bridge path_beg /alert-bridge/
     use_backend bk_alert_bridge_strip if h_main p_alert_bridge
 
+    # exposure: remote-agent-accessible
     # Alias for /alert-bridge. Disjoint from the agent's /api route below --
     # path_beg /api/ does not match /alerts -- so ordering between them is
     # immaterial.
@@ -330,10 +419,12 @@ frontend fe_http
     acl p_alerts path_beg /alerts/
     use_backend bk_alerts_strip if h_main p_alerts
 
+    # exposure: public-user-accessible
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
 
+    # exposure: remote-agent-accessible
     # Elasticsearch, restricted at the edge to an ALLOWLIST of (method, path)
     # pairs. The CLI and the agent need query access to resolve searches
     # through one origin; they do not need to administer the cluster or write
@@ -430,16 +521,19 @@ frontend fe_http
     http-request deny status 403 if h_main p_elasticsearch !es_allowed
     use_backend bk_elasticsearch_strip if h_main p_elasticsearch
 
+    # exposure: remote-agent-accessible
     # RT-Embed, mounted at the service name so it matches its sibling
     # /rtvi-cv and the Helm chart, which already calls it rtvi-embed.
     acl p_rtvi_embed path /rtvi-embed
     acl p_rtvi_embed path_beg /rtvi-embed/
     use_backend bk_rtvi_embed_strip if h_main p_rtvi_embed
 
+    # exposure: remote-agent-accessible
     acl p_rtvi_cv path /rtvi-cv
     acl p_rtvi_cv path_beg /rtvi-cv/
     use_backend bk_rtvi_cv_strip if h_main p_rtvi_cv
 
+    # exposure: remote-agent-accessible
     # RT-VLM, mounted at its service name like its two siblings. Profiles that
     # do not run rtvi-vlm leave the backend DOWN, so the route answers 503 and
     # `vss configure` records it absent rather than present-but-broken.
@@ -447,50 +541,61 @@ frontend fe_http
     acl p_rtvi_vlm path_beg /rtvi-vlm/
     use_backend bk_rtvi_vlm_strip if h_main p_rtvi_vlm
 
+    # exposure: remote-agent-accessible
     # Profiles without lvs-server leave the backend DOWN, so this answers 503
     # and `vss configure` records the service absent, not present-but-broken.
     acl p_lvs path /lvs
     acl p_lvs path_beg /lvs/
     use_backend bk_lvs_strip if h_main p_lvs
 
+    # exposure: remote-agent-accessible
     # Alias for /lvs.
     acl p_video_summarization path /video-summarization
     acl p_video_summarization path_beg /video-summarization/
     use_backend bk_video_summarization_strip if h_main p_video_summarization
 
+    # exposure: public-user-accessible
     acl p_phoenix path /phoenix
     acl p_phoenix path_beg /phoenix/
     use_backend bk_phoenix_strip if h_main p_phoenix
 
+    # exposure: remote-agent-accessible
     # Profiles without an in-deployment LLM leave the backend DOWN, so this
     # answers 503 rather than proxying to nothing.
     acl p_llm path /llm
     acl p_llm path_beg /llm/
     use_backend bk_llm_strip if h_main p_llm
 
+    # exposure: public-user-accessible
     acl p_api_chat path /api/chat
     acl p_api_chat path_beg /api/chat/
     use_backend bk_vss_ui if h_main p_api_chat
 
+    # exposure: public-user-accessible
     acl p_api_agent path /api/agent
     acl p_api_agent path_beg /api/agent/
     use_backend bk_vss_ui if h_main p_api_agent
 
+    # exposure: public-user-accessible
     acl p_api_vss_chat path /api/vss-chat
     acl p_api_vss_chat path_beg /api/vss-chat/
     use_backend bk_vss_ui if h_main p_api_vss_chat
 
+    # exposure: public-user-accessible
     acl p_api_proxy path_beg /api/proxy/
     use_backend bk_vss_ui if h_main p_api_proxy
 
+    # exposure: public-user-accessible
     acl p_api path /api
     acl p_api path_beg /api/
     use_backend bk_vss_agent if h_main p_api
 
+    # exposure: public-user-accessible
     acl p_chat path /chat
     acl p_chat path_beg /chat/
     use_backend bk_vss_agent if h_main p_chat
 
+    # exposure: public-user-accessible
     # Interactive chat and execution APIs. Unlike the legacy /chat stream,
     # /v1/chat/stream carries HITL interaction_required events and accepts the
     # corresponding execution response.
@@ -498,14 +603,17 @@ frontend fe_http
     acl p_v1 path_beg /v1/
     use_backend bk_vss_agent if h_main p_v1
 
+    # exposure: public-user-accessible
     acl p_ws path /websocket
     acl p_ws path_beg /websocket/
     use_backend bk_vss_agent if h_main p_ws
 
+    # exposure: public-user-accessible
     acl p_static path /static
     acl p_static path_beg /static/
     use_backend bk_vss_agent if h_main p_static
 
+    # exposure: public-user-accessible
     # Must precede p_vst, which would otherwise send these to the VST ingress.
     acl p_vst_storage_api path_beg /vst/api/v1/storage/
     acl p_vst_storage_api path /vst/api/v1/storage
@@ -515,12 +623,16 @@ frontend fe_http
     http-request return status 204 hdr Access-Control-Allow-Origin "%[req.hdr(Origin)]" hdr Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH" hdr Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Origin,streamid,nvstreamer-identifier,nvstreamer-file-name,nvstreamer-chunk-number,nvstreamer-total-chunks,nvstreamer-is-last-chunk,nvstreamer-enable-transcode,nvstreamer-transcode-framerate,nvstreamer-transcode-bitrate" hdr Access-Control-Max-Age "3600" if h_main m_options p_vst_storage_api
     use_backend bk_vst_storage_api_direct if h_main p_vst_storage_api
 
-    acl p_vst path /vst
-    acl p_vst path_beg /vst/
+    # exposure: public-user-accessible
     acl p_vst_prefixed path_reg ^/[^/]+:[0-9]+/vst(/|$)
     use_backend bk_vst_prefixed_compat if h_main p_vst_prefixed
+
+    # exposure: public-user-accessible
+    acl p_vst path /vst
+    acl p_vst path_beg /vst/
     use_backend bk_vst_ingress if h_main p_vst
 
+    # exposure: public-user-accessible
     # Alias for /vst, rewritten rather than stripped (see bk_vios_rewrite).
     # No /vios counterpart to bk_vst_prefixed_compat: that backend exists to
     # repair legacy media URLs that embed host:port ahead of /vst, and nothing
@@ -550,18 +662,41 @@ frontend fe_http
     http-request set-var(txn.alias_vios) int(1) if h_main p_vios
     http-response replace-header Location ^/vst(/.*)?$ /vios\1 if { var(txn.alias_vios) -m found }
 
+    # The two internal-only mounts. Both are gated on h_internal AND
+    # gw_internal_src, and both carry an explicit deny for the case that fails
+    # either, so a request from the published origin is refused here rather than
+    # falling through to the UI catch-all and collecting a 200 with an HTML page
+    # -- which is what "no use_backend matched" would otherwise produce, and is
+    # indistinguishable from a route that does not exist.
+    #
+    # 403 rather than 404: the path IS a mount on this deployment, and saying so
+    # is not a leak to a caller already inside the Host allowlist. The
+    # x-vss-gateway-deny header names the reason, matching the unknown-host deny
+    # above, so an operator gets the cause instead of a bare status.
+    #
+    # exposure: internal-only
     acl p_behavior path /behavior-analytics
     acl p_behavior path_beg /behavior-analytics/
-    use_backend bk_behavior_analytics if h_main p_behavior
+    http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /behavior-analytics is classified internal-only (FR-29) and is served only to callers inside the deployment network. See deploy/docker/README.md." if h_main p_behavior !h_internal
+    http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /behavior-analytics is classified internal-only (FR-29) and is served only to callers inside the deployment network. See deploy/docker/README.md." if h_main p_behavior !gw_internal_src
+    use_backend bk_behavior_analytics if h_main p_behavior h_internal gw_internal_src
 
+    # exposure: internal-only
     acl p_perception_sdr path /perception-sdr
     acl p_perception_sdr path_beg /perception-sdr/
-    use_backend bk_perception_sdr if h_main p_perception_sdr
+    http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /perception-sdr is classified internal-only (FR-29) and is served only to callers inside the deployment network. See deploy/docker/README.md." if h_main p_perception_sdr !h_internal
+    http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /perception-sdr is classified internal-only (FR-29) and is served only to callers inside the deployment network. See deploy/docker/README.md." if h_main p_perception_sdr !gw_internal_src
+    use_backend bk_perception_sdr if h_main p_perception_sdr h_internal gw_internal_src
 
+    # exposure: remote-agent-accessible
     acl p_va_mcp path /va-mcp
     acl p_va_mcp path_beg /va-mcp/
     use_backend bk_va_mcp_strip if h_main p_va_mcp
 
+    # The browser front door. No path ACL at all -- this is the origin root and
+    # everything the more specific rules above did not claim, which is the `/`
+    # row of the canonical table.
+    # exposure: public-user-accessible
     use_backend bk_vss_ui if h_main
 
     # --- "This service is not part of this deployment" vs "it is, and it is unwell" ---

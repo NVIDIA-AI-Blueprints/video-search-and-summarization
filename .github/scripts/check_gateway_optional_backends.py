@@ -90,6 +90,15 @@ UNMARKED_BACKENDS = {
     "bk_vios_rewrite": "media plane; `/vios` is the `/vst` alias and rewrites into it",
 }
 
+#: Conditions on a `use_backend` that gate the route rather than select a path.
+#: `h_main` is the Host allowlist every route carries; `h_internal` and
+#: `gw_internal_src` are the pair that restrict an internal-only route (FR-29,
+#: see check_gateway_route_exposure.py). Without this set they read as path ACLs,
+#: and an internal-only route is then reported as needing an absent-backend
+#: marker keyed on its own Host and source gates -- markers that could never
+#: fire, for mounts that already have a correct one.
+GATE_ACLS = frozenset({"h_main", "h_internal", "gw_internal_src"})
+
 FRONTEND = re.compile(r"^frontend\s+\S+")
 USE_BACKEND = re.compile(r"^\s*use_backend\s+(?P<backend>\S+)\s+if\s+(?P<conds>.+?)\s*$")
 MARKER = re.compile(
@@ -166,7 +175,10 @@ def parse_template(path: Path) -> dict[str, object]:
         use_match = USE_BACKEND.match(line)
         if use_match:
             conds = use_match.group("conds").split()
-            others = [name for name in conds if name != "h_main" and not name.startswith("!")]
+            others = [
+                name for name in conds
+                if name not in GATE_ACLS and not name.startswith("!")
+            ]
             if others:
                 for acl in others:
                     routes.append((number, use_match.group("backend"), acl))
