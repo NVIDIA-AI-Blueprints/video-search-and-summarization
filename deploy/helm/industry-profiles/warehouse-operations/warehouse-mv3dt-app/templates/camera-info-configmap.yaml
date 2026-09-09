@@ -3,7 +3,7 @@
 
 # Live RTSP cameras for the sensor configurator. Used when the bp-configurator
 # env sets SENSOR_INFO_SOURCE=file and points SENSOR_FILE_PATH here.
-{{- $cams := .Values.cameraInfo | default dict }}
+{{- $cams := (.Values.global | default dict).cameraInfo | default dict }}
 {{- if $cams.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -14,5 +14,16 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
   camera_info.json: |
+    {{- if $cams.sensorsFile }}
+    {{- $parsed := $cams.sensorsFile | fromJson }}
+    {{- if $parsed.Error }}
+    {{- fail (printf "global.cameraInfo.sensorsFile is not valid JSON: %s" $parsed.Error) }}
+    {{- end }}
+    {{- if not (hasKey $parsed "sensors") }}
+    {{- fail "global.cameraInfo.sensorsFile must be a JSON object with a top-level \"sensors\" key" }}
+    {{- end }}
+{{ $parsed | toPrettyJson | indent 4 }}
+    {{- else }}
 {{ toPrettyJson (dict "sensors" ($cams.sensors | default list)) | indent 4 }}
+    {{- end }}
 {{- end }}

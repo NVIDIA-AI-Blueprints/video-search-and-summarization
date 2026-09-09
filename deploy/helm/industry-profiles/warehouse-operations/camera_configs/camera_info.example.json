@@ -1,0 +1,14 @@
+{
+  "sensors": [
+    {
+      "camera_name": "cam-01",
+      "rtsp_url": "rtsp://10.0.0.10:554/stream",
+      "group_id": "dock",
+      "region": "north"
+    },
+    {
+      "camera_name": "cam-02",
+      "rtsp_url": "rtsp://10.0.0.11:554/stream"
+    }
+  ]
+}
