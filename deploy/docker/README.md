@@ -204,11 +204,17 @@ Agent Compose derives the agent's HTTP backends from the origin —
 RTSP, raw media — are out of scope and keep their own addressing.
 
 Some process-local and bootstrap HTTP settings also remain on Docker DNS by
-design. `services/alert/alert.env` addresses the alert-bridge process itself;
-`services/vios/vst.env` is VST's own internal identity; Logstash, Kibana,
+design. `services/vios/vst.env`'s `VST_INTERNAL_URL` is VST's own internal
+identity; `RTVI_VLM_ENDPOINT` in the profile override files is read only by the
+`rtvi-vlm` container, as its own `VIA_VLM_ENDPOINT`; Logstash, Kibana,
 `elasticsearch-init`, and analytics writers use Elasticsearch operations that
 the gateway ACL intentionally rejects. These are backend/service definitions,
-not agent defaults, and the endpoint lint excludes them.
+not agent defaults. The endpoint lint exempts them one variable in one file at
+a time — `IN_NETWORK_SELF_ADDRESSES` in
+`.github/scripts/check_agent_http_endpoints.py` — rather than skipping the
+files, which is how `alert.env`'s `ALERT_BRIDGE_URL` and `rtvi.env`'s
+`RTVI_VLM_BASE_URL` stayed on Docker names after the agent stopped being able
+to resolve them. Both are gateway-derived now, and both files are scanned.
 
 ### The scheme the caller used
 
