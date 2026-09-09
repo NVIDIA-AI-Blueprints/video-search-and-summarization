@@ -39,10 +39,24 @@
     ]
   },
   {
+    "id": "warehouse-agents-h200-compose-generate",
+    "question": "Deploy the VSS warehouse agents variant on a two-GPU H200 OpenShell host using a remote LLM.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell and routes to references/warehouse.md. Selects BP_PROFILE=bp_wh and MODE=2d, places RT-CV on GPU 0 and the always-local RTVI VLM on GPU 1, and configures LLM_MODE=remote with LLM_NAME_SLUG=none so no local LLM NIM starts. Acquires the harness-provided warehouse app-data resource, copies warehouse overrides.env to generated.env, selects COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}, resolves the service list, and deploys with containers.env plus the warehouse .env and generated.env using compose.yml and the no-TURN-TCP-relay overlay.",
+    "expected_behavior": [
+      "Loads references/warehouse.md instead of rejecting warehouse as out of scope.",
+      "Uses BP_PROFILE=bp_wh, MODE=2d, RT_CV_DEVICE_ID=0, and RT_VLM_DEVICE_ID=1 on the two-GPU host.",
+      "Uses a remote LLM with LLM_MODE=remote and LLM_NAME_SLUG=none, and does not start a local LLM NIM.",
+      "Downloads WAREHOUSE_APP_DATA_NGC when WAREHOUSE_APP_DATA_DIR is unavailable and never prints NGC_CLI_API_KEY.",
+      "Writes COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D} to warehouse generated.env, resolves and exports it, and uses the full warehouse compose/env-file set for config and up.",
+      "Waits for the agent, UI, Video Analytics API, RT-CV, RTVI VLM, alert bridge, behavior analytics, VIOS nvstreamer, Kafka, Redis, and Phoenix readiness checks."
+    ]
+  },
+  {
     "id": "deploy-profile-negative-standalone-microservice",
     "question": "Stand up just the RT-VLM microservice on this host, outside of any compose profile.",
     "expected_skill": null,
-    "ground_truth": "This is a standalone microservice deployment, explicitly out of scope for vss-deploy-test-openshell (which only deploys the compose-based VSS profiles base and lvs). The agent routes to the matching vss-deploy-* standalone-microservice skill instead.",
+    "ground_truth": "This is a standalone microservice deployment, explicitly out of scope for vss-deploy-test-openshell (which deploys the compose-based VSS base and lvs profiles plus the two-GPU warehouse agents variant). The agent routes to the matching vss-deploy-* standalone-microservice skill instead.",
     "expected_behavior": [
       "Does not load vss-deploy-test-openshell for a standalone microservice request.",
       "Does not run the profile-routing table or the generated.env dry-run flow.",

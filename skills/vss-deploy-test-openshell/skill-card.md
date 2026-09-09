@@ -1,5 +1,8 @@
 ## Description: <br>
-Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS **base** or **lvs** profiles only. For search, alerts, warehouse, or the full catalog, use vss-deploy-profile. <br>
+Use when the user asks to select, configure, deploy, verify, debug, or tear
+down the VSS **base**, **lvs**, or two-GPU **warehouse agents** profile on
+OpenShell. For search, alerts, other warehouse variants, or the full catalog,
+use vss-deploy-profile. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +12,10 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers deploying NVIDIA Video Search and Summarization (VSS) **base** (quickstart) or **lvs** (long-video summarization) profiles on GPU-equipped hosts. <br>
+Developers and engineers deploying NVIDIA Video Search and Summarization
+(VSS) **base** (quickstart), **lvs** (long-video summarization), or the
+two-GPU warehouse agents variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM)
+on OpenShell GPU hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
