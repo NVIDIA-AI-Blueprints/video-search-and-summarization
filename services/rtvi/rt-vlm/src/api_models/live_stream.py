@@ -42,7 +42,7 @@ from .common import (
 )
 
 LIVE_STREAM_URL_PATTERN = r"^rtsp://"
-STREAM_ID_PATTERN = r"^[^/\r\n]+$"
+STREAM_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
 # CV-compatible URL pattern: accepts rtsp://, file://, http://, https://.
 # Empty VIOS camera_add registration URLs are handled by the VIOS-specific pattern.
 CV_STREAM_URL_PATTERN = r"^(rtsp://|file://|https?://)"

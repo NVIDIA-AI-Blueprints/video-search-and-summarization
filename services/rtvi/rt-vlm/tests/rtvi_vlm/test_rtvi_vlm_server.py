@@ -463,14 +463,18 @@ class TestLiveStreamEndpoints:
         )
         assert response.status_code in [400, 422]
 
-    def test_add_live_stream_rejects_path_separator_in_id(self, test_client):
-        """Stream IDs must fit in the single-stream delete route."""
+    @pytest.mark.parametrize(
+        "stream_id",
+        ["camera/01", ".", "..", "camera 01", "camera?01", "camera#01", "camera\t01"],
+    )
+    def test_add_live_stream_rejects_unsafe_id(self, test_client, stream_id):
+        """Stream IDs must be safe as URL and filesystem path segments."""
         response = test_client.post(
             f"{API_PREFIX}/streams/add",
             json={
                 "streams": [
                     {
-                        "id": "camera/01",
+                        "id": stream_id,
                         "liveStreamUrl": "rtsp://example.com/stream",
                         "description": "test",
                     }
