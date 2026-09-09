@@ -1225,7 +1225,14 @@ class PoolCandidates(unittest.TestCase):
             ["vss-eval-rtx-2g-VM1b"],
         )
 
-    def test_4090_pool_is_limited_to_approved_skills(self):
+    def test_4090_pool_is_not_added_by_the_legacy_skill_tables(self):
+        """The allowlist never grows by skill/stem: the tables are empty.
+
+        RTX 4090 routing moved to spec-level `gpu_type` opt-in, so
+        `_registered_pool_allowlist` returns the full-capability pool alone
+        no matter which leg asks. A non-empty `BREV_RTX4090_POOL` must not
+        leak in through the legacy path.
+        """
         env = {
             "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
             "BREV_RTX4090_POOL": (
@@ -1234,45 +1241,49 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist(
-                "vss-ask-video", "base_profile_video_understanding"
-            )
-            unapproved = run_leg._registered_pool_allowlist(
-                "vss-build-vision-ai", "search"
-            )
-
-        self.assertEqual(
-            approved,
-            {
-                "vss-eval-rtx-2g-vm1b",
-                "vss-eval-geforce-rtx4090-vm1",
-                "vss-eval-geforce-rtx4090-vm2",
-            },
-        )
-        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+            for skill, stem in (
+                ("vss-ask-video", "base_profile_video_understanding"),
+                ("vss-manage-alerts", "subscriptions_lifecycle"),
+                ("vss-build-vision-ai", "profile_stock_search_runtime_harbor"),
+            ):
+                self.assertEqual(
+                    run_leg._registered_pool_allowlist(skill, stem),
+                    {"vss-eval-rtx-2g-vm1b"},
+                    f"{skill}/{stem} pulled in the 4090 pool",
+                )
 
     def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-build-vision-ai", "alerts_cv"
-        ))
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-manage-alerts", "subscriptions_lifecycle"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-build-vision-ai", "search"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-build-vision-ai", "warehouse"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-dense-captioning", "alerts_profile_api"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-detection-tracking-3d", "deploy"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+        """No skill/stem pair opts into RTX 4090 through the legacy tables.
 
-    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
+        `RTX4090_ALL_TESTS` and `RTX4090_TESTS` are intentionally empty, so
+        this helper fails closed for every input and a 24 GB card is reached
+        only by a spec that declares `gpu_type` (see the pool_candidates
+        tests below).
+        """
+        self.assertEqual(run_leg.RTX4090_ALL_TESTS, frozenset())
+        self.assertEqual(run_leg.RTX4090_TESTS, {})
+        for skill, stem in (
+            ("vss-build-vision-ai", "profile_stock_alerts_cv_runtime_harbor"),
+            ("vss-manage-alerts", "subscriptions_lifecycle"),
+            ("vss-build-vision-ai", "profile_stock_search_runtime_harbor"),
+            ("vss-deploy-dense-captioning", "alerts_profile_api"),
+            ("vss-deploy-detection-tracking-3d", "deploy"),
+            ("vss-ask-video", None),
+            (None, "base_profile_video_understanding"),
+        ):
+            self.assertFalse(
+                run_leg._rtx4090_supports(skill, stem),
+                f"{skill}/{stem} opted into RTX 4090 via the legacy tables",
+            )
+
+    def test_4090_is_reached_by_gpu_type_not_by_skill(self):
+        """A 4090 box serves a leg only when the spec asks for that GPU.
+
+        With the legacy tables empty, `_rtx4090_capability_routed` can no
+        longer bypass the `gpu_type` check: a spec requiring RTX PRO 6000 is
+        refused whichever skill it belongs to, and the box is reached only
+        by a spec that declares `GEFORCE RTX 4090` itself.
+        """
         fleet = [{
             "name": "vss-eval-geforce-rtx4090-vm1",
             "status": "RUNNING",
@@ -1283,19 +1294,26 @@ class PoolCandidates(unittest.TestCase):
         run_leg._list_pool_instances = (
             lambda _skill=None, _spec_stem=None: fleet
         )
-        requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
 
-        approved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-ask-video",
-        }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-deploy-dense-captioning",
-        }, "alerts_profile_api")
+        rtx_pro = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
+        for skill, stem in (
+            ("vss-ask-video", "base_profile_video_understanding"),
+            ("vss-deploy-dense-captioning", "alerts_profile_api"),
+        ):
+            self.assertEqual(
+                run_leg.pool_candidates({**rtx_pro, "skill": skill}, stem),
+                [],
+                f"{skill} reached a 4090 box for an RTX PRO 6000 spec",
+            )
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
-        self.assertEqual(unapproved, [])
+        self.assertEqual(
+            run_leg.pool_candidates({
+                "gpu_type": "GEFORCE RTX 4090",
+                "gpu_count": 1,
+                "skill": "vss-deploy-dense-captioning",
+            }, "alerts_profile_api"),
+            ["vss-eval-geforce-rtx4090-vm1"],
+        )
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [

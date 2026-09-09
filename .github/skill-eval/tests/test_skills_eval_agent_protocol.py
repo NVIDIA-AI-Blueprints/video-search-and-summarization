@@ -221,14 +221,15 @@ raise SystemExit("agent session outlived its work deadline")
 # a change that wired only the PR branch, leaving the nightly full sweep to
 # rebuild the table by hand, could look complete.
 
-_SLUG = "vss-build-vision-ai__search__RTXPRO6000BW"
+_STEM = "profile_stock_search_runtime_harbor"
+_SLUG = f"vss-build-vision-ai__{_STEM}__RTXPRO6000BW"
 _LEG = {
     "eval_kind": "eval",
     "eval_skill": "vss-build-vision-ai",
-    "eval_spec_path": "skills/vss-build-vision-ai/evals/search.json",
+    "eval_spec_path": f"skills/vss-build-vision-ai/eval/{_STEM}.json",
     "eval_platform": "RTXPRO6000BW",
     "eval_slug": _SLUG,
-    "eval_spec_stem": "search",
+    "eval_spec_stem": _STEM,
     "pr_repo": "NVIDIA-AI-Blueprints/video-search-and-summarization",
     "pr_base": "develop",
     "pr_head": "a" * 40,
@@ -237,7 +238,7 @@ _LEG = {
 
 
 def _assert_delegates(prompt: str) -> None:
-    _, summary_path, report_path = skills_eval_agent.leg_paths(_SLUG, "search")
+    _, summary_path, report_path = skills_eval_agent.leg_paths(_SLUG, _STEM)
 
     assert "leg_report.py" in prompt, "prompt does not invoke the renderer"
     assert "DO NOT read the results tree" in prompt, "missing no-raw-read guard"
@@ -251,12 +252,11 @@ def _assert_delegates(prompt: str) -> None:
         f"renderer command relies on unset shell state: {command!r}"
     )
 
-    # Keyed by slug, never the spec stem: `search` and `standalone_deploy`
-    # each belong to more than one skill, and legs of a run share the scratch
-    # dir on a self-hosted host, so a stem-keyed body lets one leg overwrite
+    # Keyed by slug, never the spec stem. Legs of a run share the scratch dir
+    # on a self-hosted host, so a stem-keyed body lets one leg overwrite
     # another's comment. It must still match the glob the benchmark step uses.
     assert str(report_path) in prompt, f"body must be {report_path}"
-    assert "/pr-search.md" not in prompt, "stem-keyed body collides across skills"
+    assert f"/pr-{_STEM}.md" not in prompt, "stem-keyed body collides across skills"
     assert fnmatch.fnmatch(report_path.name, pathlib.Path(
         skills_eval_agent.BENCHMARK_INPUT_GLOB).name), (
         "slug-keyed name must still match BENCHMARK_INPUT_GLOB"
@@ -282,9 +282,11 @@ def test_nightly_leg_prompt_delegates_rendering() -> None:
 def test_leg_body_is_keyed_by_slug_not_stem() -> None:
     """Two skills sharing a spec stem must not share an output file.
 
-    `search.json` really is shipped by both vss-build-vision-ai and
-    vss-search-archive, so these two legs run in the same sweep, on hosts
-    that share the run scratch dir.
+    No two skills ship the same stem today: `vss-deploy-profile` shipped the
+    `search.json` that used to collide with `vss-search-archive`, and its
+    specs were retired. This stays as a forward guard, since legs of a run
+    share the scratch dir on a self-hosted host and a stem-keyed body would
+    let one leg overwrite another's comment.
     """
     a = skills_eval_agent.leg_paths("vss-build-vision-ai__search__RTX", "search")
     b = skills_eval_agent.leg_paths("vss-search-archive__search__RTX", "search")
