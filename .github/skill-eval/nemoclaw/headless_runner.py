@@ -61,11 +61,15 @@ def _sandbox_exec(
 
 
 def _gateway_healthy(sandbox: str) -> bool:
+    dashboard_port = int(
+        os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789") or "18789"
+    )
     result = _sandbox_exec(
         sandbox,
         (
             "code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 5 "
-            "-o /dev/null -w '%{http_code}' http://127.0.0.1:18789/health) "
+            f"-o /dev/null -w '%{{http_code}}' "
+            f"http://127.0.0.1:{dashboard_port}/health) "
             '&& { [ "$code" = 200 ] || [ "$code" = 401 ] || '
             '[ "$code" = 403 ]; }'
         ),
