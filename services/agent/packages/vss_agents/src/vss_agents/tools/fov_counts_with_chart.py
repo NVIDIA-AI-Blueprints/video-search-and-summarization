@@ -62,9 +62,8 @@ class FOVCountsWithChartInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Required count scope. Pass the exact detected class (e.g. 'Person') to count one class, "
-            "or pass 'All' explicitly to aggregate every detected class. Never use 'All' for a question "
-            "about a specific class: asking about people requires object_type='Person'."
+            "Required count scope. Pass the detector class name for the objects in the question "
+            "(use 'Person' for people), or pass 'All' only for an explicit all-class total."
         ),
     )
     bucket_count: int = Field(
@@ -267,8 +266,8 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
     yield FunctionInfo.create(
         single_fn=_get_fov_counts_with_chart,
         description=(
-            "Get field-of-view counts and a chart. object_type is required: pass the exact class "
-            "(use 'Person' for people) or explicitly pass 'All' for an all-class aggregate and breakdown."
+            "Get field-of-view counts and a chart. object_type is required: the detector class "
+            "for the asked objects ('Person' for people), or 'All' for an all-class aggregate."
         ),
         input_schema=FOVCountsWithChartInput,
         single_output_schema=FOVCountsWithChartOutput,
