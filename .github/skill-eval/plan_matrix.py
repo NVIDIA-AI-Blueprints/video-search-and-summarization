@@ -18,8 +18,9 @@ Rules (see docs/matrix-dispatch-design.md):
   - harness files (envs/, verifiers/, skills_eval_agent.py, AGENTS.md,
     plan_matrix.py, skills-eval.yml) match no rule, so a harness-only
     diff yields an empty matrix — except the OpenShell GPU fleet route,
-    which emits one smoke leg. It does not replace a changed skill with
-    unrelated work.
+    which emits one smoke leg for `vss-deploy-test-openshell`. Other
+    skills stay on the Brev coordinator path even when the fleet flag is
+    set. It does not replace a changed skill with unrelated work.
 
 A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
@@ -190,6 +191,17 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-test-openshell/evals/base.json"
+# OpenShell GHA guests are only for this test skill. Every other skill
+# keeps `local_gpu: False` and lands on the Brev coordinator (`vss-eval`).
+OPENSHELL_SKILLS = frozenset({"vss-deploy-test-openshell"})
+
+
+def _openshell_gpu_fleet() -> bool:
+    return bool(os.environ.get("OPENSHELL_GPU_FLEET"))
+
+
+def _route_skill_on_openshell(skill: str) -> bool:
+    return _openshell_gpu_fleet() and skill in OPENSHELL_SKILLS
 
 # `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
 # and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
@@ -297,7 +309,12 @@ def _gpu_count(config: dict) -> int:
         return 0
 
 
-def runs_on_labels(platform: str, config: dict | None) -> list[str]:
+def runs_on_labels(
+    platform: str,
+    config: dict | None,
+    *,
+    openshell: bool | None = None,
+) -> list[str]:
     """Runner labels for one leg, from the spec's hardware declaration.
 
     `gpus-N` is a *demand*: the job asks for exactly N. A box advertises
@@ -315,7 +332,9 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
     stop competing for GPU boxes at all.
     """
     count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
-    if os.environ.get("OPENSHELL_GPU_FLEET"):
+    if openshell is None:
+        openshell = _openshell_gpu_fleet()
+    if openshell:
         if platform == "RTXPRO6000BW":
             labels = list(OPENSHELL_RTXPRO6000_LABELS)
             labels.append("gpus-2" if count >= 2 else "gpus-1")
@@ -673,7 +692,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 # Commits an adapter; runs no trial and needs no GPU.
                 "runs_on": (
                     [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"]
-                    if os.environ.get("OPENSHELL_GPU_FLEET")
+                    if _route_skill_on_openshell(skill)
                     else list(BASE_LABELS)
                 ),
                 "local_gpu": False,
@@ -681,7 +700,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
             platform_config = spec_platform_config(meta["spec_path"])
-            if os.environ.get("OPENSHELL_GPU_FLEET"):
+            if _route_skill_on_openshell(skill):
                 requirements, metadata_error = openshell_requirements(
                     meta["spec_path"]
                 )
@@ -720,7 +739,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             for platform in platforms:
                 plat_cfg = platform_config.get(platform)
                 plat_tag = platform or "no-platform"
-                labels = runs_on_labels(platform, plat_cfg)
+                labels = runs_on_labels(platform, plat_cfg, openshell=False)
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
@@ -734,23 +753,25 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "runs_on": labels,
                     "local_gpu": False,
                 })
-    if os.environ.get("OPENSHELL_GPU_FLEET") and not include:
+    if _openshell_gpu_fleet() and not include:
         # Harness-only diffs (no skills/ files) still need a GPU canary.
-        # If the input named a skill and every RTXPRO6000BW leg was
-        # filtered out, do not substitute vss-deploy-profile/base — that
-        # would report Skills Eval success without testing the named skill.
+        # A named OpenShell test skill with no eligible cohort must fail
+        # visibly. Other skills use Brev and must not be replaced by smoke
+        # or blocked as "no OpenShell platform".
         named_a_skill = any(f.startswith("skills/") for f in changed)
-        if named_a_skill:
-            # A changed skill with no eligible OpenShell platform must fail
-            # visibly. An empty matrix would make required coverage look green.
-            owners = sorted(
-                {
-                    owner
-                    for path in changed
-                    if (owner := skill_for_file(path, discover_skills()))
-                }
-            )
-            for skill in owners or ["changed-skill"]:
+        owners = sorted(
+            {
+                owner
+                for path in changed
+                if (owner := skill_for_file(path, discover_skills()))
+            }
+        )
+        openshell_owners = [s for s in owners if s in OPENSHELL_SKILLS]
+        brev_owners = [s for s in owners if s not in OPENSHELL_SKILLS]
+        if brev_owners:
+            pass
+        elif named_a_skill and (openshell_owners or not owners):
+            for skill in openshell_owners or ["changed-skill"]:
                 include.append({
                     "skill": skill,
                     "spec_path": "",
@@ -766,7 +787,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "runs_on": list(SKIP_RUNNER),
                     "local_gpu": False,
                 })
-        else:
+        elif not named_a_skill:
             smoke_meta = {
                 "skill": "vss-deploy-test-openshell",
                 "spec_path": SMOKE_SPEC,
