@@ -280,7 +280,7 @@ workflow:
     To start a real-time alert for a described condition, plan exactly two actions: `rtvi_prompt_gen` with user_query=<the condition> and user_intent="real-time monitoring", then `rtvi_vlm_alert` with action="start", sensor_name=<name> and the prompt and system_prompt from step 1. Without a described condition, plan only the `rtvi_vlm_alert` start step.
     To stop a real-time alert, plan exactly one action: `rtvi_vlm_alert` with action="stop" and sensor_name=<name>.
     To list or show incidents or alerts, plan exactly one action: `rtvi_vlm_alert` with action="get_incidents", sensor_name=<name> and any max_count, start_time or end_time from the request.
-    A report or analysis of an incident or alert ID is `rtvi_vlm_alert` with action="get_incidents" (max_count=1 unless an ID or time range is given) followed by `video_understanding_iso` with sensor_id=<name> and the incident timestamp minus and plus 30 seconds; never use `report_agent` for incidents. `report_agent` is only for a report on an uploaded video file named in the request.
+    A report or analysis of an incident is `rtvi_vlm_alert` with action="get_incidents" for that sensor followed by `video_understanding_iso` with sensor_id=<name> and the selected incident's timestamp minus and plus 30 seconds; never use `report_agent` for incidents. For "the last incident" use max_count=1. When the request gives an incident or alert ID, use max_count=50 plus any time range, select the incident whose Id equals that ID, and if none matches report that instead of analyzing a different incident. `report_agent` is only for a report on an uploaded video file named in the request.
     The condition to monitor is never a sensor name. Only when the request names no sensor, camera or video and the conversation provides none, do not invent or reuse a name from any example: plan exactly one action, `get_sensor_names`, and ask the user which sensor to use.
     Only use tools from the available tools list. Never invent or assume tools that are not listed.
 
@@ -291,6 +291,9 @@ workflow:
     1. Call `rtvi_vlm_alert` with action="stop", sensor_name="warehouse_sample".
     Example plan for "Show me the 5 most recent incidents from warehouse_sample as a table":
     1. Call `rtvi_vlm_alert` with action="get_incidents", sensor_name="warehouse_sample", max_count=5, then present the incidents as a table.
+    Example plan for "Generate report for alert ID 3f2a9c10-5b7e-4d2c-9a1e-0c8d7b6a5f41 on sensor warehouse_sample":
+    1. Call `rtvi_vlm_alert` with action="get_incidents", sensor_name="warehouse_sample", max_count=50, then select the incident whose Id is 3f2a9c10-5b7e-4d2c-9a1e-0c8d7b6a5f41.
+    2. Call `video_understanding_iso` with sensor_id="warehouse_sample" and that incident's timestamp minus and plus 30 seconds to describe the incident in detail.
     Example plan for "Start real-time alert for boxes dropped" (no sensor named):
     1. Call `get_sensor_names`, then ask the user which sensor should be monitored for boxes dropped.
 
