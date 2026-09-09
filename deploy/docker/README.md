@@ -191,6 +191,66 @@ The end state is one front door, one path contract, two origins: internal
 callers use `http://vss.local:7777`, external callers use the platform's HTTPS
 URL.
 
+#### Why there are three port variables and not one
+
+Asked on PR #1867 and tracked as SRD OI-09: `HAPROXY_PORT`,
+`HAPROXY_HOST_PORT` and `VSS_GATEWAY_PORT` coexist, and the request was to
+converge them. **They are not converging, and this is the reason** — recorded
+here because SRD §4.8 makes documenting the split the condition for keeping it.
+
+The SRD cuts both ways on the general question. FR-07:
+
+> The deployment shall define one canonical gateway origin composed of scheme,
+> hostname, and port. […] The same origin **should** be usable by colocated and
+> remote callers **whenever practical**.
+
+§4.8:
+
+> The cleanest deployment uses the same canonical origin inside and outside
+> Docker […] If internal Docker callers use `http://...:7777` while remote
+> callers use `https://...:443`, the endpoint contract is still
+> location-decoupled but the environment file differs by deployment security
+> policy. **This is acceptable only when documented.** The preferred long-term
+> target is one canonical origin per environment.
+
+Read together they do not actually conflict, and the apparent conflict comes
+from reading FR-07 as being about *variables*. It is about **origins**: the
+deployment must define one canonical gateway origin, and it does —
+`VSS_GATEWAY_ORIGIN`. Three port variables are not three origins. They are one
+origin's port plus two Docker port-mapping mechanics, and each names a
+different fact:
+
+| Variable | The fact it names | Why it cannot be one of the others |
+|---|---|---|
+| `HAPROXY_PORT` | The port HAProxy **binds inside the container**. | It is the right-hand side of the `ports:` mapping and what an in-network caller connects to. |
+| `HAPROXY_HOST_PORT` | The port the container is **published on the host**. | The left-hand side of the same mapping. Merging the two makes it `A:A`, so the container's listener would have to move every time the host publish port moves. `dev-profile.sh` sets this from the Brev link's forwarded port while the listener stays on 7777. |
+| `VSS_GATEWAY_PORT` | The port in the **canonical gateway origin** containers use. | Must equal the *container* port: on the Compose bridge a caller reaches the container directly and the published port does not apply. Defaults to `${HAPROXY_PORT}`, so an operator never sets it. |
+| `VSS_PUBLIC_PORT` | The port in the **public origin** browsers and the host CLI use. | Must equal the *host* port, or `443` where a platform terminates TLS in front of the stack. |
+
+FR-07's own softeners are doing real work here: "should", and "whenever
+practical". Convergence is not practical, because merging any pair breaks a
+supported deployment rather than tidying it:
+
+- `HAPROXY_PORT` = `HAPROXY_HOST_PORT` breaks Brev, where the secure link
+  forwards a specific host port to a listener that must stay put.
+- `VSS_GATEWAY_PORT` = `VSS_PUBLIC_PORT` is the **two-origin split** itself.
+  Behind external TLS the public port is `443` and there is no listener there;
+  every service-to-service call would fail. `check_public_origin_split.py`
+  exists to fail CI on exactly that wiring.
+
+So the count going up from two to three is not drift. `VSS_GATEWAY_PORT` was
+added to give the gateway a canonical identity of its own instead of borrowing
+the browser's, which is what made the split expressible at all — and it is the
+one of the three an operator never has to set.
+
+**What was rejected:** collapsing to a single `VSS_GATEWAY_PORT` used for the
+bind, the host publish and both origins. It reads simpler and is only correct
+on a single-host plain-HTTP deployment, where all four facts coincide — which is
+why the split looks redundant right up to the point it is load-bearing. If a
+future deployment model removes the need for a distinct host publish port
+(host networking, or an in-cluster edge), `HAPROXY_HOST_PORT` is the one that
+becomes redundant, and that is the merge to revisit.
+
 None of these may render empty. An empty origin produces URLs like
 `/elasticsearch`, which fail inside an HTTP client as a malformed request rather
 than here as a configuration error, so `services/agent/compose.yml` spells out
