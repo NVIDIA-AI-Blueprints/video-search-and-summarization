@@ -9,12 +9,32 @@ import concurrent.futures
 import json
 import os
 import re
+import resource
 import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+def ensure_file_limit(concurrency):
+    """Reserve enough descriptors for concurrent writers and monitoring."""
+    required = max(4096, concurrency + 512)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < required:
+        target = required if hard == resource.RLIM_INFINITY else min(required, hard)
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(
+                f"file descriptor limit {soft} is below required {required}: {exc}"
+            ) from exc
+        soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < required:
+        raise SystemExit(
+            f"file descriptor limit {soft} is below required {required}"
+        )
 
 
 def request(base_url, method, path, body=None, timeout=180):
@@ -273,6 +293,7 @@ def main():
         raise SystemExit(
             "nodes, waves, streams, documents, and concurrency must be positive"
         )
+    ensure_file_limit(args.concurrency)
 
     unique = f"{int(time.time())}-{os.getpid()}"
     prefix = f"default_nvbug6661431_{unique}"
