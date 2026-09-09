@@ -20,7 +20,7 @@ to ingest and ``POST /api/v1/search`` to query. Both are moving, and they are
 moving *independently*, so each gets its own axis here rather than the eval
 being forked per flow.
 
-    ingest:  legacy-put | agent-3step        (vst-direct  -> GAP-1)
+    ingest:  legacy-put | agent-3step | vst-direct   (GAP-1 closed)
     query:   cli                             (openclaw    -> GAP-3)
 
 Metric code never sees a wire format -- it sees the canonical dict from
