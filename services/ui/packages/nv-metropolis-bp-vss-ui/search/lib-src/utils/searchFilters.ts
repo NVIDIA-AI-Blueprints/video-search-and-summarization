@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT
-import type { QueryDataContext, SearchData, SearchParams, StreamInfo } from '../types';
-import { formatDateToLocalISO, parseDateAsLocal } from './Formatter';
-import { DEFAULT_TOP_K } from '../hooks/useFilter';
-
-export const SEARCH_FILTER_CONTEXT_ID = 'vss-search-filters';
+import type { SearchData, SearchParams, StreamInfo } from '../types';
+import { parseDateAsLocal } from './Formatter';
 
 function sourceTypeToStreamType(sourceType?: string): string | null {
   if (sourceType === 'rtsp') return 'sensor_rtsp';
@@ -68,33 +65,4 @@ export function applySearchResultFilters(
     return filtered.slice(0, limit);
   }
   return filtered;
-}
-
-export function buildSearchFilterChatContext(params: SearchParams): QueryDataContext {
-  const data: Record<string, unknown> = {
-    source_type: params.sourceType || 'video_file',
-    top_k: params.topK ?? DEFAULT_TOP_K,
-  };
-  if (params.videoSources && params.videoSources.length > 0) {
-    data.video_sources = params.videoSources;
-  }
-  const timestampStart = formatDateToLocalISO(params.startDate ?? null);
-  const timestampEnd = formatDateToLocalISO(params.endDate ?? null);
-  if (timestampStart) data.timestamp_start = timestampStart;
-  if (timestampEnd) data.timestamp_end = timestampEnd;
-  const minSimilarity = Number(params.similarity);
-  if (Number.isFinite(minSimilarity) && minSimilarity !== 0) {
-    data.min_cosine_similarity = Number(minSimilarity.toFixed(2));
-  }
-  return {
-    id: SEARCH_FILTER_CONTEXT_ID,
-    label: 'Search filters',
-    contextType: 'search/filters',
-    data,
-  };
-}
-
-export function prefixMessageWithSearchFilters(message: string, params: SearchParams): string {
-  const ctx = buildSearchFilterChatContext(params);
-  return `[Context: ${JSON.stringify([ctx.data])}]\n\n${message}`;
 }

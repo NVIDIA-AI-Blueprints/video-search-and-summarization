@@ -6,12 +6,6 @@
       "timestamp": "2026-02-14T10:17:33.492Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -33,12 +27,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -60,12 +48,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -87,12 +69,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -114,12 +90,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -141,12 +111,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -168,12 +132,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -203,12 +161,6 @@
       "timestamp": "2026-02-14T10:17:33.459Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -230,12 +182,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -257,12 +203,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -284,12 +224,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -311,12 +245,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -338,12 +266,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -365,12 +287,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -400,12 +316,6 @@
       "timestamp": "2026-02-14T10:17:33.426Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -427,12 +337,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -454,12 +358,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -481,12 +379,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -508,12 +400,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -535,12 +421,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -562,12 +442,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -597,12 +471,6 @@
       "timestamp": "2026-02-14T10:17:33.392Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -624,12 +492,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -651,12 +513,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -678,12 +534,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -705,12 +555,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -732,12 +576,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -759,12 +597,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -794,12 +626,6 @@
       "timestamp": "2026-02-14T10:17:33.359Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -821,12 +647,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -848,12 +668,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -875,12 +689,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -902,12 +710,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -929,12 +731,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -956,12 +752,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -991,12 +781,6 @@
       "timestamp": "2026-02-14T10:17:33.326Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -1018,12 +802,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -1045,12 +823,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -1072,12 +844,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -1099,12 +865,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -1126,12 +886,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -1153,12 +907,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -1188,12 +936,6 @@
       "timestamp": "2026-02-14T10:17:33.292Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -1215,12 +957,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -1242,12 +978,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -1269,12 +999,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -1296,12 +1020,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -1323,12 +1041,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -1350,12 +1062,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -1385,12 +1091,6 @@
       "timestamp": "2026-02-14T10:17:33.259Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -1412,12 +1112,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -1439,12 +1133,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -1466,12 +1154,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -1493,12 +1175,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -1520,12 +1196,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -1547,12 +1217,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -1582,12 +1246,6 @@
       "timestamp": "2026-02-14T10:17:33.226Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -1609,12 +1267,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -1636,12 +1288,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -1663,12 +1309,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -1690,12 +1330,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -1717,12 +1351,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -1744,12 +1372,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",
@@ -1779,12 +1401,6 @@
       "timestamp": "2026-02-14T10:17:33.192Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -1806,12 +1422,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -1833,12 +1443,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -1860,12 +1464,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -1887,12 +1485,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",
@@ -1914,12 +1506,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "11",
@@ -1941,12 +1527,6 @@
           "type": "Forklift"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "0",

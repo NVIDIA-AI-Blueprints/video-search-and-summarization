@@ -50,11 +50,6 @@
           "x": 7.8130696575664675,
           "y": -11.31183249527684
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",
@@ -161,11 +156,6 @@
           "z": 0,
           "x": 7.311856948909502,
           "y": -11.200062243146721
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -274,11 +264,6 @@
           "x": 7.114683049624577,
           "y": -11.325237071628846
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",
@@ -385,11 +370,6 @@
           "z": 0,
           "x": 6.860916491234259,
           "y": -11.144677942456765
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -498,11 +478,6 @@
           "x": 6.4114172150282105,
           "y": -11.283893162119918
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",
@@ -609,11 +584,6 @@
           "z": 0,
           "x": 6.4647403187477455,
           "y": -11.339607956390573
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -722,11 +692,6 @@
           "x": 6.280429687421621,
           "y": -11.109576907710357
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",
@@ -833,11 +798,6 @@
           "z": 0,
           "x": 5.676797147964679,
           "y": -11.27443380785655
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -946,11 +906,6 @@
           "x": 5.625216767799816,
           "y": -11.497589139012524
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",
@@ -1057,11 +1012,6 @@
           "z": 0,
           "x": 5.427773542057404,
           "y": -11.108266803146046
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -1170,11 +1120,6 @@
           "x": 5.051410120261354,
           "y": -11.369653930721393
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",
@@ -1281,11 +1226,6 @@
           "z": 0,
           "x": 4.719197975911796,
           "y": -17.853175808054115
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -1394,11 +1334,6 @@
           "x": 4.730296913694365,
           "y": -18.23263326276254
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "36",
@@ -1505,11 +1440,6 @@
           "z": 0,
           "x": 4.7122718791775435,
           "y": -18.153043993077702
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -1618,11 +1548,6 @@
           "x": 5.044265052520789,
           "y": -18.028912174182317
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "36",
@@ -1729,11 +1654,6 @@
           "z": 0,
           "x": 4.772740216844264,
           "y": -12.831507605294801
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -1842,11 +1762,6 @@
           "x": 5.00574450370294,
           "y": -17.67697061073385
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "36",
@@ -1953,11 +1868,6 @@
           "z": 0,
           "x": 4.765142367284778,
           "y": -13.633745504178727
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -2066,11 +1976,6 @@
           "x": 4.7490349872957385,
           "y": -13.176099201459252
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "11",
@@ -2177,11 +2082,6 @@
           "z": 0,
           "x": 4.927354419688447,
           "y": -17.952055021014974
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -2290,11 +2190,6 @@
           "x": 9.446897054410842,
           "y": -12.980046625004634
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "11",
@@ -2401,11 +2296,6 @@
           "z": 0,
           "x": 9.4552971335774,
           "y": -13.263953305592763
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,
@@ -2514,11 +2404,6 @@
           "x": 9.445879799665683,
           "y": -13.569027364201625
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "11",
@@ -2626,11 +2511,6 @@
           "x": 4.664657178587622,
           "y": -17.235407547110366
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "35",
@@ -2737,11 +2617,6 @@
           "z": 0,
           "x": 4.768926432264553,
           "y": -16.98600854314581
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,

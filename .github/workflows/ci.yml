@@ -1050,7 +1050,7 @@ jobs:
       - name: Run integration test
         run: |
           chmod +x test/integration-test/test.sh test/integration-test/cleanup.sh test/integration-test/generate_env.sh
-          chmod +x test/integration-test/scripts/run_integration_tests.sh test/integration-test/scripts/setup_elasticsearch_ingest_pipeline.sh
+          chmod +x test/integration-test/scripts/run_integration_tests.sh
           ./test/integration-test/test.sh prod
 
   # ---------------------------------------------------------------------------

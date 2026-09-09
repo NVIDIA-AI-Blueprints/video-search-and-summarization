@@ -1,0 +1,23 @@
+{
+  "place": "building=Warehouse/room=Room-1",
+  "timestamp": "2026-02-14T10:17:33.492Z",
+  "occupancy": [
+    {
+      "objectType": "Forklift",
+      "count": 0,
+      "details": {
+        "events": [
+          {
+            "type": "IN",
+            "count": 12
+          },
+          {
+            "type": "OUT",
+            "count": 12
+          }
+        ],
+        "occupancyReset": null
+      }
+    }
+  ]
+}

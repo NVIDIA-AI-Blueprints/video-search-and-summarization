@@ -33,6 +33,12 @@ The microservice provides the following API endpoints:
 | `/v1/stream/add` | `POST` | Add a stream using the RTVI-CV compatible format |
 | `/v1/stream/remove` | `POST` | Remove a stream using the RTVI-CV compatible format |
 | `/v1/stream/get-stream-info` | `GET` | List streams using the RTVI-CV compatible format |
+| `/v1/camera/add` | `POST` | Add a stream using the SDR/VIOS-compatible camera event format |
+| `/v1/camera/streaming` | `PUT` | Start streaming using the SDR/VIOS-compatible camera event format |
+| `/v1/camera/remove` | `POST`, `DELETE` | Remove a stream using the SDR/VIOS-compatible camera event format |
+| `/api/v1/camera/add` | `POST` | Add a stream using the SDR/VIOS-compatible camera event format |
+| `/api/v1/camera/streaming` | `PUT` | Start streaming using the SDR/VIOS-compatible camera event format |
+| `/api/v1/camera/remove` | `POST`, `DELETE` | Remove a stream using the SDR/VIOS-compatible camera event format |
 | `/v1/models` | `GET` | List available models |
 | `/v1/generate_video_embeddings` | `POST` | Generate embeddings for a video, image, or live stream |
 | `/v1/generate_video_embeddings/{stream_id}` | `DELETE` | Stop live stream embedding generation |
