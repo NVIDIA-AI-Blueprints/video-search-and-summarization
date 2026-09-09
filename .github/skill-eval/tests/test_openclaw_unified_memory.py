@@ -99,6 +99,32 @@ def test_question_group_requires_shared_gateway_health() -> None:
     assert "embedd" not in command
 
 
+def test_prepare_uploads_current_instruction(tmp_path) -> None:
+    environment = AsyncMock()
+    agent = UnifiedMemoryOpenClaw(
+        logs_dir=tmp_path,
+        model_name="anthropic/test-model",
+    )
+
+    with (
+        patch.object(agent, "exec_as_agent", new_callable=AsyncMock),
+        patch.object(agent, "_build_register_skills_command", return_value=None),
+        patch(
+            "agents.openclaw_unified_memory._openclaw_setup_commands",
+            return_value=(),
+        ),
+    ):
+        asyncio.run(agent._prepare(environment, "Question 1"))
+
+    environment.upload_file.assert_any_await(
+        agent.logs_dir / "instruction.txt",
+        "/logs/agent/instruction.txt",
+    )
+    assert (agent.logs_dir / "instruction.txt").read_text(encoding="utf-8") == (
+        "Question 1"
+    )
+
+
 def _run_prediction_pipeline(
     payload: dict,
     case_id: str,

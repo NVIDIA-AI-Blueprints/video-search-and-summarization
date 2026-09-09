@@ -155,10 +155,15 @@ class UnifiedMemoryOpenClaw(OpenClaw):
             json.dumps(self._build_full_openclaw_config(), indent=2) + "\n",
             encoding="utf-8",
         )
-        (self.logs_dir / "instruction.txt").write_text(instruction, encoding="utf-8")
+        instruction_path = self.logs_dir / "instruction.txt"
+        instruction_path.write_text(instruction, encoding="utf-8")
         await environment.upload_file(
             upload_path,
             f"{self._CONTAINER_LOGS_AGENT}/{self._UPLOAD_CONFIG_FILENAME}",
+        )
+        await environment.upload_file(
+            instruction_path,
+            f"{self._CONTAINER_LOGS_AGENT}/instruction.txt",
         )
         await environment.upload_file(
             STRUCTURED_OUTPUT_SCRIPT,
