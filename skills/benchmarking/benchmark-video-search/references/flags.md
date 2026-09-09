@@ -73,6 +73,11 @@ one moves a run further from the baseline everything else is compared against.
 # Ask the critic the reconstructed question, as runs before 3.8.0 did
 --no-original-query
 
+# What the UI does: upload to VIOS, webhooks drive perception.
+# No chunk count comes back and VIOS chooses the timestamp anchor -- verify one
+# video's timeline before scoring the run.
+--ingest-flow vst-direct
+
 # Name the results file, for comparing two runs deliberately
 --dataset warehouse --skip-download --name embed-baseline
 
