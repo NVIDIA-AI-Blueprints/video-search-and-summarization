@@ -80,6 +80,8 @@ _KNOWN_TOKEN_RE = re.compile(
 )
 _URL_USERINFO_RE = re.compile(r"(https?://)[^/@\s]+@")
 
+_GUEST_REPO_DIRNAME = "video-search-and-summarization"
+
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_IMAGE_RE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$"
@@ -903,6 +905,17 @@ def validate_resolved_compose(
         raise RuntimeError("resolved Compose safety validation failed")
 
 
+def _within_any(candidate: Path, roots: tuple[Path, ...]) -> bool:
+    """True when ``candidate`` is contained by one of ``roots``."""
+    for root in roots:
+        try:
+            candidate.relative_to(root.resolve())
+        except (OSError, ValueError):
+            continue
+        return True
+    return False
+
+
 def _resolved_compose_candidates(command: str, repo_root: Path) -> list[Path]:
     """Extract only local compose file paths; never execute shell fragments."""
     try:
@@ -1084,9 +1097,19 @@ class DirectAgentProgress:
         monotonic: Callable[[], float] = time.monotonic,
         poll_sec: float = DEFAULT_POLL_SEC,
         activity_heartbeat_sec: float = DEFAULT_ACTIVITY_HEARTBEAT_SEC,
+        guest_repo_root: Path | None = None,
     ):
         self.results_root = results_root
         self.repo_root = repo_root
+        # The trial's own checkout, not this process's. On an OpenShell guest
+        # the agent runs from the runner workspace while Harbor deploys from
+        # the guest home clone, so the inner hook's compose path lives under a
+        # different root and containment must be checked against both.
+        self.guest_repo_root = (
+            guest_repo_root
+            if guest_repo_root is not None
+            else Path.home() / _GUEST_REPO_DIRNAME
+        )
         self.expected_services = load_expected_services(spec_path)
         self.fail_fast_services = load_fail_fast_services(spec_path)
         self.required_local_images = load_required_local_images(spec_path)
@@ -1571,7 +1594,10 @@ class DirectAgentProgress:
             if not isinstance(state, dict):
                 raise ValueError("inner state must be an object")
             candidate = Path(state.get("compose_file", "")).resolve()
-            candidate.relative_to(self.repo_root.resolve())
+            if not _within_any(
+                candidate, (self.repo_root, self.guest_repo_root)
+            ):
+                raise ValueError("compose_file outside known repo roots")
             if candidate.is_file():
                 self.compose_file = candidate
         except (AttributeError, OSError, TypeError, ValueError):
