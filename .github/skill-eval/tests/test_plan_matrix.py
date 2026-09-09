@@ -230,43 +230,37 @@ class RealSpecCorpus(unittest.TestCase):
             "one demand-appropriate leg per spec",
         )
         counts = {
-            cohort: sum(leg["cohort"] == cohort for leg in include)
-            for cohort in {leg["cohort"] for leg in include}
+            key: sum(
+                (leg.get("cohort") or "brev") == key for leg in include
+            )
+            for key in {(leg.get("cohort") or "brev") for leg in include}
         }
         self.assertEqual(
             counts,
             {
-                # Other skills have no OpenShell metadata; only the
-                # dedicated test skill is placed on H200.
-                "blocked": 54,
+                "brev": 54,
                 "h200-1g": 2,
                 "h200-2g": 1,
             },
         )
         for leg in include:
-            if leg["cohort"] == "blocked":
-                self.assertEqual(leg["kind"], "not_run_infra_acquisition")
-                self.assertIn("BLOCKED_NO_COMPATIBLE_COHORT", leg["skip_reason"])
-                self.assertFalse(leg["local_gpu"])
+            if not leg["local_gpu"]:
+                self.assertEqual(leg["kind"], "eval")
+                self.assertNotEqual(leg["skill"], "vss-deploy-test-openshell")
+                self.assertEqual(leg["runs_on"][:2], list(plan_matrix.BASE_LABELS))
                 continue
             self.assertEqual(leg["kind"], "eval")
+            self.assertEqual(leg["skill"], "vss-deploy-test-openshell")
             self.assertTrue(leg["local_gpu"])
-            if leg["cohort"].startswith("a16"):
-                self.assertIn("openshell-a16-active", leg["runs_on"])
-            elif leg["cohort"].startswith("a40"):
-                self.assertIn("openshell-a40-active", leg["runs_on"])
-            elif leg["cohort"] == "h200-1g":
+            if leg["cohort"] == "h200-1g":
                 self.assertIn("openshell-h200-active", leg["runs_on"])
                 self.assertIn("gpu-h200", leg["runs_on"])
                 self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
-                self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
             elif leg["cohort"] == "h200-2g":
                 self.assertIn("openshell-h200-active", leg["runs_on"])
                 self.assertIn("gpus-2", leg["runs_on"])
-                self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
             else:
-                self.assertEqual(leg["cohort"], "rtxpro6000-2g")
-                self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
+                self.fail(leg["cohort"])
 
 
 class BuildMatrix(unittest.TestCase):
@@ -788,17 +782,18 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(len(legs), 57)
         self.assertEqual(len({leg["spec_path"] for leg in legs}), 57)
         counts = {
-            cohort: sum(leg["cohort"] == cohort for leg in legs)
-            for cohort in {leg["cohort"] for leg in legs}
+            key: sum((leg.get("cohort") or "brev") == key for leg in legs)
+            for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
         self.assertEqual(
             counts,
             {
-                "blocked": 54,
+                "brev": 54,
                 "h200-1g": 2,
                 "h200-2g": 1,
             },
         )
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 3)
 
     def test_codec_light_spec_explicitly_allows_a16(self):
         path = (
@@ -850,18 +845,35 @@ class OpenshellGpuFleet(unittest.TestCase):
             None,
             "missing openshell capability metadata",
         )
-        plan_matrix.adapter_exists = lambda s: s == "vss-search-archive"
+        plan_matrix.adapter_exists = lambda s: s == "vss-deploy-test-openshell"
         try:
             inc = plan_matrix.build_matrix(
-                ["skills/operations/vss-search-archive/evals/search.json"]
+                ["skills/vss-deploy-test-openshell/evals/base.json"]
             )
         finally:
             plan_matrix.openshell_requirements = original
             plan_matrix.adapter_exists = orig_adapter
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["kind"], "not_run_infra_acquisition")
-        self.assertEqual(inc[0]["skill"], "vss-search-archive")
+        self.assertEqual(inc[0]["skill"], "vss-deploy-test-openshell")
         self.assertIn("missing openshell capability metadata", inc[0]["skip_reason"])
+
+    def test_other_skills_stay_on_brev_when_fleet_is_on(self):
+        orig_adapter = plan_matrix.adapter_exists
+        plan_matrix.adapter_exists = lambda s: s == "vss-search-archive"
+        try:
+            inc = plan_matrix.build_matrix(
+                ["skills/operations/vss-search-archive/evals/search.json"]
+            )
+        finally:
+            plan_matrix.adapter_exists = orig_adapter
+        self.assertTrue(inc)
+        self.assertTrue(all(leg["kind"] == "eval" for leg in inc))
+        self.assertTrue(all(not leg["local_gpu"] for leg in inc))
+        self.assertTrue(
+            all(leg["runs_on"][:2] == list(plan_matrix.BASE_LABELS) for leg in inc)
+        )
+        self.assertTrue(all(leg["skill"] == "vss-search-archive" for leg in inc))
 
     def test_openshell_pr_keeps_changed_file_scope(self):
         changed = ["skills/operations/vss-search-archive/SKILL.md"]
