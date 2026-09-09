@@ -910,10 +910,17 @@ class RunInvocations(unittest.TestCase):
                 run_leg.prepare_nemoclaw_setup_task(invocation, "vss-ask-video")
 
             instruction = (task / "instruction.md").read_text()
-            self.assertIn("Treat the evaluation query below verbatim", instruction)
-            self.assertIn("Deploy the requested system.", instruction)
+            self.assertTrue(instruction.startswith("Deploy the requested system.\n"))
+            self.assertIn(
+                "The evaluation query above is the complete deployment/setup intent",
+                instruction,
+            )
             self.assertIn("/vss-build-vision-ai", instruction)
             self.assertIn("/vss-ask-video", instruction)
+            self.assertIn(
+                'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"',
+                instruction,
+            )
             self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
             self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
 

@@ -40,7 +40,8 @@ For `EVAL_AGENT=nemoclaw`, that same first `expects[]` task runs with the coding
 agent and `/vss-build-vision-ai`; its query supplies the deployment intent and
 its checks supply the readiness verdict. Build Vision AI attaches NemoClaw in
 the same task, then the remaining entries run through the ready sandbox. Specs
-that have no deployment prerequisite add a setup query at `expects[0]`.
+that need a deployment prerequisite declare it as a setup query at
+`expects[0]`; specs that do not need setup add nothing harness-specific.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 

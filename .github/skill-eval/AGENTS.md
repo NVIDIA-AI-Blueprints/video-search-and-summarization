@@ -595,8 +595,9 @@ dispatch. For an operational skill, `run_leg.py` first uses the coding-agent
 runtime with `/vss-build-vision-ai` for the spec's first `expects[]` task. That
 query is the deployment/setup intent and its existing checks are the readiness
 contract; Build Vision AI also attaches NemoClaw in the same task. Harbor sends
-the remaining `expects[]` tasks to that sandbox. Specs that do not otherwise
-need deployment add a setup query as their first entry. A `vss-build-vision-ai`
+the remaining `expects[]` tasks to that sandbox. Specs that need deployment
+declare that setup query as their first entry; no setup entry is added when it
+is not required. A `vss-build-vision-ai`
 spec itself stays on the coding-agent runtime. Like every other runtime, worker
 selection and locking stay in `run_leg.py`; the harness does not infer a deploy
 profile from extra spec metadata.

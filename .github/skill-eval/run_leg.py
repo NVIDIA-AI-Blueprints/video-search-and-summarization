@@ -813,22 +813,24 @@ def prepare_nemoclaw_setup_task(
         raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
 
     original_instruction = instruction_path.read_text(encoding="utf-8")
-    preamble = f"""## NemoClaw evaluation setup
+    harness_requirement = f"""
 
-Treat the evaluation query below verbatim as the deployment/setup intent. Use
-`/vss-build-vision-ai` as the orchestration entry point to complete that intent,
-then attach NemoClaw to the resulting build in the same task. Use the sandbox
-name and model-provider settings from the environment, and ensure
-`/{operational_skill}` is installed in the sandbox. Do not stop after composing
-the build: finish deployment, readiness, NemoClaw onboarding, and the Build
-Vision AI verification steps. Do not return until both VSS and the sandbox are
-ready. Include the sandbox name and the Agent UI link in the final response.
+## Selected agent harness: NemoClaw
 
-Run non-interactively using the request's stated choices and documented
-defaults.
-
+The evaluation query above is the complete deployment/setup intent. Fulfil it
+through `/vss-build-vision-ai` and attach NemoClaw to that same build before
+returning. Use the existing `$NEMOCLAW_SANDBOX_NAME` and model-provider
+environment values unchanged, install `/{operational_skill}` in that sandbox,
+and complete Build Vision AI's documented readiness verification. The task is
+not complete until `openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"` succeeds
+and the sandbox gateway is ready. Include the sandbox name and Agent UI link in
+the final response. Run non-interactively with the query's choices and the
+documented defaults.
 """
-    instruction_path.write_text(preamble + original_instruction, encoding="utf-8")
+    instruction_path.write_text(
+        original_instruction.rstrip() + harness_requirement,
+        encoding="utf-8",
+    )
 
     skills_dir = task_dir / "skills"
     skills_dir.mkdir(exist_ok=True)
