@@ -74,6 +74,8 @@ HOST_IP=<HOST_IP_ADDRESS>
 
 Replace the paths and host address with your values. `HOST_IP` must be reachable from the browser.
 
+This Compose deployment does not start VIOS. To use RTSP capture, deploy VIOS separately and set `VIOS_BASE_URL` to an endpoint reachable from the Auto Calibration container. Otherwise, use file upload.
+
 ### 5. Optional VGGT model setup
 
 
