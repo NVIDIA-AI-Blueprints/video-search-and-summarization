@@ -67,6 +67,51 @@ describe('SseParser extras', () => {
     );
     expect(events).toEqual([{ kind: 'token', text: 'hi' }, { kind: 'done' }]);
   });
+
+  it('emits an artifact frame without adding it to the assistant text', () => {
+    const artifact = {
+      version: '1.0',
+      kind: 'vss.search.results',
+      payload: { data: [{ video_name: 'clip1.mp4' }] },
+    };
+    const events = new SseParser().feed(`artifact_data: ${JSON.stringify(artifact)}\n`);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'artifact' });
+    const { envelope } = events[0] as { envelope: string };
+    expect(envelope).toContain('vss.search.results');
+    expect(envelope).toContain('clip1.mp4');
+  });
+
+  it('carries any versioned kind, so a new tab needs no transport change', () => {
+    const artifact = {
+      version: '1.0',
+      kind: 'vss.alert.incidents',
+      payload: { incidents: [] },
+    };
+    const events = new SseParser().feed(`artifact_data: ${JSON.stringify(artifact)}\n`);
+    expect((events[0] as { envelope: string }).envelope).toContain('vss.alert.incidents');
+  });
+
+  it('rebases artifact media onto the app proxy', () => {
+    const artifact = {
+      version: '1.0',
+      kind: 'vss.search.results',
+      payload: { data: [{ screenshot_url: 'http://vst-internal:81/vst/frame.jpg' }] },
+    };
+    const events = new SseParser('/api/proxy').feed(
+      `artifact_data: ${JSON.stringify(artifact)}\n`,
+    );
+    expect((events[0] as { envelope: string }).envelope).toContain('/api/proxy/vst/frame.jpg');
+  });
+
+  it('drops a malformed or unversioned artifact rather than failing the turn', () => {
+    const parser = new SseParser();
+    expect(parser.feed('artifact_data: {"kind":"vss.search.results"}\n')).toEqual([]);
+    expect(parser.feed('artifact_data: not json\n')).toEqual([]);
+    expect(
+      parser.feed('artifact_data: {"version":"2.0","kind":"vss.x","payload":{}}\n'),
+    ).toEqual([]);
+  });
 });
 
 describe('buildContextPrefix', () => {

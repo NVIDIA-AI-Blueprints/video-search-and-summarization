@@ -10,11 +10,23 @@ jest.mock("next/dynamic", () => ({
     const source = loader.toString();
 
     if (source.includes("ChatPanel")) {
-      return ({ onAnswer }: { onAnswer?: (answer: string) => void }) => (
+      return ({
+        onAnswer,
+        endpoint,
+      }: {
+        onAnswer?: (answer: string, conversationId: string) => void;
+        endpoint?: { surface?: string };
+      }) => (
         <button
           type="button"
-          data-testid="deliver-search-artifact"
-          onClick={() => onAnswer?.('{"data":[{"id":"retained-hit"}]}')}
+          data-testid={
+            endpoint?.surface === "vss-ui-sidebar"
+              ? "deliver-sidebar-answer"
+              : "deliver-search-artifact"
+          }
+          onClick={() =>
+            onAnswer?.('{"data":[{"id":"retained-hit"}]}', "conversation-1")
+          }
         >
           Deliver search artifact
         </button>
@@ -94,7 +106,10 @@ describe("Home tab lifecycle", () => {
     "NEXT_PUBLIC_ENABLE_DASHBOARD_TAB",
     "NEXT_PUBLIC_ENABLE_MAP_TAB",
     "NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB",
+    "NEXT_PUBLIC_AGENT_ADAPTER_ENABLED",
   ] as const;
+
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
     sessionStorage.clear();
@@ -104,10 +119,16 @@ describe("Home tab lifecycle", () => {
     process.env.NEXT_PUBLIC_ENABLE_DASHBOARD_TAB = "false";
     process.env.NEXT_PUBLIC_ENABLE_MAP_TAB = "false";
     process.env.NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB = "false";
+    delete process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({}),
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
     for (const variable of featureVariables) delete process.env[variable];
+    global.fetch = originalFetch;
   });
 
   it("retains an agent search artifact when leaving the full-page Chat tab", () => {
@@ -123,5 +144,15 @@ describe("Home tab lifecycle", () => {
     expect(screen.getByTestId("search-artifact-state")).toHaveTextContent(
       "retained-hit",
     );
+  });
+
+  // A sidebar answer used to be followed by a last-search read against a route
+  // no deployed agent serves, which surfaced as a 404 on every turn.
+  it("issues no follow-up request after a sidebar answer", () => {
+    render(<Home />);
+    fireEvent.click(screen.getByTestId("sidebar-tab-search"));
+    fireEvent.click(screen.getByTestId("deliver-sidebar-answer"));
+
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
