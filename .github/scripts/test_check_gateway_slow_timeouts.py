@@ -60,6 +60,39 @@ def _helm(directory: str, *, chart_default: str = '""', profile: str | None = '"
     return root
 
 
+def _nested_helm(
+    directory: str,
+    *,
+    umbrella: str = "true",
+    service: str | None = "true",
+    sub_feature: bool = False,
+    chart_default: str = '""',
+    profile: str | None = '"600s"',
+) -> Path:
+    """A profile shaped like the real ones: a service nested under its umbrella.
+
+    ``_helm`` above omits the umbrella's own ``enabled``, which is the half of
+    the shape that decides whether the service is installed at all.
+    """
+    root = Path(directory) / "helm"
+    chart = root / "services/rtvi/charts/rtvi-vlm"
+    chart.mkdir(parents=True)
+    (chart / "values.yaml").write_text(f"service:\n  port: 8000\ningressTimeoutServer: {chart_default}\n")
+
+    lines = ["rtvi:", f"  enabled: {umbrella}", "  vss-rtvi-vlm:"]
+    if service is not None:
+        lines.append(f"    enabled: {service}")
+    if profile is not None:
+        lines.append(f"    ingressTimeoutServer: {profile}")
+    if sub_feature:
+        lines += ["    waitForKafka:", "      enabled: true"]
+
+    profiles = root / "developer-profiles/dev-profile-base"
+    profiles.mkdir(parents=True)
+    (profiles / "values.yaml").write_text("\n".join(lines) + "\n")
+    return root
+
+
 class SanityTest(unittest.TestCase):
     """The registry is data; these tests pin it to the fixture above."""
 
@@ -259,6 +292,71 @@ class HelmParityTest(SanityTest):
             self.assertIn("parity is unchecked", " ".join(failures))
 
 
+class NestedEnablementTest(SanityTest):
+    """Enablement is nested, and reading it flat gets the wrong answer.
+
+    Every profile in this repo nests a service under its umbrella chart, and
+    nests sub-feature blocks with an ``enabled`` of their own underneath *that*:
+    ``agent.vss-agent.waitForDependencies.enabled``,
+    ``rtvi.vss-rtvi-cv.engineCache.enabled``, ``infra.kafka.topicJob.enabled``.
+    Attributing an ``enabled: true`` to the nearest block by bare name, with no
+    regard for what encloses it, reads ``warehouse-2d-app`` -- which sets
+    ``agent.enabled: false`` and still carries ``agent.vss-va-mcp.enabled:
+    true`` -- as installing a service it does not install.
+    """
+
+    def test_an_umbrella_switched_off_does_not_enable_its_subcharts(self) -> None:
+        """The warehouse-2d-app shape. Chart default covers the service, so a
+        spurious profile entry is the only thing that could fail this."""
+        with tempfile.TemporaryDirectory() as directory:
+            failures = LINT.scan(
+                _template(directory),
+                _nested_helm(directory, umbrella="false", profile=None, chart_default='"900s"'),
+            )
+            self.assertEqual([], failures)
+
+    def test_an_umbrella_switched_off_is_not_read_as_a_profile_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            failures = LINT.scan(
+                _template(directory),
+                _nested_helm(directory, umbrella="false", profile=None),
+            )
+            self.assertNotIn("dev-profile-base", " ".join(failures))
+
+    def test_an_umbrella_switched_on_still_holds_its_subcharts(self) -> None:
+        """Non-vacuity: the ancestor rule must not switch the check off wholesale."""
+        with tempfile.TemporaryDirectory() as directory:
+            failures = LINT.scan(
+                _template(directory),
+                _nested_helm(directory, umbrella="true", profile=None),
+            )
+            joined = " ".join(failures)
+            self.assertIn("dev-profile-base", joined)
+            self.assertIn("sets no ingressTimeoutServer", joined)
+
+    def test_a_sub_feature_flag_does_not_displace_the_service(self) -> None:
+        """``waitForKafka.enabled: true`` is not an enablement of the service,
+        and must not take the service's override with it."""
+        with tempfile.TemporaryDirectory() as directory:
+            helm = _nested_helm(directory, sub_feature=True, profile='"600s"')
+            _, enabled = LINT.helm_declarations(helm)
+            self.assertEqual([600.0], [override for _, override in enabled["vss-rtvi-vlm"]])
+            self.assertEqual([], LINT.scan(_template(directory), helm))
+
+    def test_two_blocks_sharing_a_name_do_not_share_a_record(self) -> None:
+        """Keyed by path, so an unrelated block of the same name cannot blank
+        the override of the one that is switched on."""
+        with tempfile.TemporaryDirectory() as directory:
+            helm = _nested_helm(directory, profile='"600s"')
+            profile = helm / "developer-profiles/dev-profile-base/values.yaml"
+            profile.write_text(
+                profile.read_text() + 'retired:\n  vss-rtvi-vlm:\n    ingressTimeoutServer: ""\n'
+            )
+            _, enabled = LINT.helm_declarations(helm)
+            self.assertEqual([600.0], [override for _, override in enabled["vss-rtvi-vlm"]])
+            self.assertEqual([], LINT.scan(_template(directory), helm))
+
+
 class NonVacuityTest(SanityTest):
     """A lint that recognises nothing passes forever."""
 
@@ -314,6 +412,30 @@ class TheRealTreeTest(unittest.TestCase):
         for name in LINT.DEFAULT_TIMEOUT_BACKENDS:
             self.assertIn(name, backends)
             self.assertIsNone(backends[name]["timeout"], name)
+
+    def test_a_disabled_umbrella_in_the_shipped_tree_is_read_as_disabled(self) -> None:
+        """warehouse-2d-app sets ``agent.enabled: false`` and still carries
+        ``agent.vss-va-mcp.enabled: true`` and
+        ``agent.vss-agent.waitForDependencies.enabled: true`` under it.
+
+        Pinned against the real file rather than only a fixture, because the
+        fixture is what a later edit would keep passing while the tree drifted.
+        """
+        _, enabled = LINT.helm_declarations(LINT.HELM)
+        warehouse = "warehouse-2d-app"
+        installers = [str(path) for path, _ in enabled.get("vss-va-mcp", [])]
+        self.assertFalse(
+            [path for path in installers if warehouse in path],
+            f"vss-va-mcp read as installed by {warehouse}, whose agent umbrella is disabled",
+        )
+        agents = [str(path) for path, _ in enabled.get("vss-agent", [])]
+        self.assertFalse([path for path in agents if warehouse in path])
+
+    def test_the_shipped_tree_still_has_something_to_gate(self) -> None:
+        """The assertion above is only worth anything while the shape exists."""
+        source = (LINT.HELM / "industry-profiles/warehouse-operations/warehouse-2d-app/values.yaml").read_text()
+        self.assertIn("waitForDependencies", source)
+        self.assertRegex(source, r"(?m)^agent:\n  enabled: false$")
 
     def test_the_helm_side_is_actually_being_read(self) -> None:
         chart_defaults, enabled = LINT.helm_declarations(LINT.HELM)
