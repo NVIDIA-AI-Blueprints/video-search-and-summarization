@@ -214,6 +214,35 @@ def preflight_vss_cmd(vss_cmd: list[str], timeout: int = 300) -> str:
     return (proc.stdout or proc.stderr or "").strip().splitlines()[0] if (proc.stdout or proc.stderr) else "unknown"
 
 
+def cli_supports_flag(vss_cmd: list[str], flag: str, path: str = "embed", timeout: int = 120) -> bool:
+    """Whether ``vss search run <path>`` accepts ``flag``.
+
+    Click rejects an unknown option with exit 2, and :func:`is_fatal_exit`
+    treats any non-zero exit as an environment fault -- correctly, but that
+    means a flag this eval sends and the deployment's CLI has never heard of
+    aborts the whole run on query 1. The deployment's ``vss`` comes from its
+    image, not from this checkout, so "newer than the flag" is a normal state
+    for anyone running against a release build.
+
+    One ``--help`` subprocess turns that into a warning and a downgrade.
+    Unparseable output is reported as *absent*: skipping an optional flag
+    measures slightly the wrong thing, sending an unsupported one measures
+    nothing at all.
+    """
+    try:
+        proc = subprocess.run(
+            [*vss_cmd, "search", "run", path, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    if proc.returncode != 0:
+        return False
+    return flag in (proc.stdout or "") or flag in (proc.stderr or "")
+
+
 def vss_origin_for(endpoint: str, port: int = DEFAULT_VSS_ORIGIN_PORT) -> str:
     """The origin ``vss configure`` should probe, derived from the agent endpoint.
 

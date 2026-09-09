@@ -498,6 +498,147 @@ def test_unrouted_query_in_a_routed_run_falls_back_to_the_default_path() -> None
     assert argv[:4] == ["vss", "search", "run", "embed"]
 
 
+# ---------------------------------------------------------------------------
+# --original-query: the question, sent alongside the arguments derived from it
+# ---------------------------------------------------------------------------
+
+
+def test_original_query_carries_the_question_the_decomposition_replaced() -> None:
+    """`--query` gets the rewrite; `--original-query` gets what was asked.
+
+    These are different strings by design -- the decomposition strips the time
+    range and source name so they are not embedded as visual content -- and the
+    critic wants the second one.
+    """
+    asked = "Find a man pushing a cart wearing a beige shirt between 1 pm and 2 pm"
+    backend = flows.CliQueryBackend(
+        ["vss"],
+        decompositions={
+            asked: {
+                "query": "man pushing cart wearing beige shirt",
+                "attributes": ["man wearing a beige shirt"],
+                "has_action": True,
+            }
+        },
+    )
+    argv = backend.build_argv(asked)
+    assert argv[argv.index("--query") + 1] == "man pushing cart wearing beige shirt"
+    assert argv[argv.index("--original-query") + 1] == asked
+
+
+def test_object_path_sends_the_question_even_though_it_sends_no_query() -> None:
+    """Without this the object path is never verified at all.
+
+    ``object`` passes only ``--object-id``, so ``SearchInput.query`` is empty
+    and ``attributes`` is empty; the host's reconstruction produces "" and
+    returns before reaching the critic. The question is the only text there is.
+    """
+    backend = flows.CliQueryBackend(
+        ["vss"],
+        decompositions={"Where did person 7 go?": {"object_ids": [7]}},
+    )
+    argv = backend.build_argv("Where did person 7 go?")
+    assert argv[:4] == ["vss", "search", "run", "object"]
+    assert "--query" not in argv
+    assert argv[argv.index("--original-query") + 1] == "Where did person 7 go?"
+
+
+def test_original_query_can_be_withheld_to_reproduce_an_older_run() -> None:
+    backend = flows.CliQueryBackend(["vss"], pass_original_query=False)
+    assert "--original-query" not in backend.build_argv("red forklift")
+    assert backend.describe()["pass_original_query"] is False
+
+
+def test_original_query_is_on_by_default_and_recorded_in_the_flow_block() -> None:
+    """Default-on, and the result file says which way it ran.
+
+    A run that silently withheld it is not comparable with one that did not --
+    same retrieval, different critic verdicts -- so the flag has to survive into
+    the artifact rather than being reconstructable only from the command line.
+    """
+    backend = flows.CliQueryBackend(["vss"])
+    assert "--original-query" in backend.build_argv("red forklift")
+    assert backend.describe()["pass_original_query"] is True
+
+
+def test_blank_question_sends_no_flag() -> None:
+    """Click would take `--original-query ''`; the host would then ignore it."""
+    assert "--original-query" not in flows.CliQueryBackend(["vss"]).build_argv("   ")
+
+
+def test_unsupported_flag_is_detected_from_help_not_from_a_failed_query(
+    monkeypatch: Any,
+) -> None:
+    """The probe reads --help, so an old CLI costs one subprocess, not a run."""
+    import subprocess
+
+    class _Proc:
+        def __init__(self, code: int, out: str) -> None:
+            self.returncode, self.stdout, self.stderr = code, out, ""
+
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kw: Any) -> Any:
+        seen.append(argv)
+        return _Proc(0, "Options:\n  --query TEXT\n  --original-query TEXT\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert flows.cli_supports_flag(["vss"], "--original-query") is True
+    assert seen[0] == ["vss", "search", "run", "embed", "--help"]
+
+    def only_query(*_a: Any, **_k: Any) -> Any:
+        return _Proc(0, "Options:\n  --query TEXT\n")
+
+    monkeypatch.setattr(subprocess, "run", only_query)
+    assert flows.cli_supports_flag(["vss"], "--original-query") is False
+
+
+def test_an_unhelpful_probe_reports_absent_rather_than_present(monkeypatch: Any) -> None:
+    """Failure to answer must not be read as yes.
+
+    Guessing "supported" costs the whole run (exit 2 on query 1); guessing
+    "unsupported" costs a slightly worse critic question.
+    """
+    import subprocess
+
+    class _Proc:
+        returncode, stdout, stderr = 2, "", "no such command"
+
+    def usage_error(*_a: Any, **_k: Any) -> Any:
+        return _Proc()
+
+    monkeypatch.setattr(subprocess, "run", usage_error)
+    assert flows.cli_supports_flag(["vss"], "--original-query") is False
+
+    def boom(*a: Any, **k: Any) -> Any:
+        raise FileNotFoundError("vss")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert flows.cli_supports_flag(["vss"], "--original-query") is False
+
+
+def test_the_flag_matches_the_field_the_cli_actually_declares() -> None:
+    """Pin the eval's flag name to the product model that defines it.
+
+    Skips where ``vss_cli`` is not importable, which is the normal case when
+    these tests run without the agent package installed -- so green here does
+    not prove the flag exists, only that it has not been renamed underneath us.
+    """
+    try:
+        from vss_cli.search.group import SearchGroup
+        from vss_cli.search.group import _Common
+    except Exception as error:  # pragma: no cover - depends on the environment
+        pytest.skip(f"vss_cli is not importable here: {error}")
+
+    assert "original_query" in _Common.model_fields, (
+        "the eval sends --original-query on every path, so it has to live on _Common"
+    )
+    # Every path inherits _Common, so every path accepts it -- including
+    # `object`, which has no other text field.
+    for action in SearchGroup.actions:
+        assert "original_query" in action.Input.model_fields, action.name
+
+
 def test_load_decompositions_accepts_sidecar_and_dataset_shapes(tmp_path: Path) -> None:
     sidecar = tmp_path / "s.json"
     sidecar.write_text('{"q1": {"attributes": ["person in red"], "has_action": true}}')
