@@ -74,8 +74,8 @@ one moves a run further from the baseline everything else is compared against.
 --no-original-query
 
 # What the UI does: upload to VIOS, webhooks drive perception.
-# No chunk count comes back and VIOS chooses the timestamp anchor -- verify one
-# video's timeline before scoring the run.
+# Same timestamp anchor, so scores compare -- but no chunk count comes back,
+# so an unindexed run looks like an unmatched one. Needs webhooks.enabled.
 --ingest-flow vst-direct
 
 # Name the results file, for comparing two runs deliberately
